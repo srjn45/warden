@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.srajanpathak.agentctl</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/srajan.pathak/workspace/personal/agentctl/bin/agentctl</string>
+    <string>daemon</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>AGENTCTL_ADDR</key><string>127.0.0.1:8765</string>
+    <key>AGENTCTL_MONGO_URI</key><string>mongodb://localhost:27017</string>
+    <key>AGENTCTL_DB</key><string>agentctl</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/agentctl.daemon.log</string>
+  <key>StandardErrorPath</key><string>/tmp/agentctl.daemon.err</string>
+</dict>
+</plist>
