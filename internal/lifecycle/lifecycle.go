@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -222,4 +223,26 @@ func (l *Lifecycle) Cleanup(ctx context.Context, t CleanupTarget, force bool) er
 		}
 	}
 	return nil
+}
+
+// Input types text into the agent's tmux pane and presses Enter.
+// `--` prevents text starting with `-` being read as a flag.
+func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
+	out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", tmuxSession, "--", text, "Enter")
+	if err != nil {
+		return fmt.Errorf("tmux send-keys: %w: %s", err, out)
+	}
+	return nil
+}
+
+// Output returns the last `lines` rows of the agent's tmux pane.
+func (l *Lifecycle) Output(ctx context.Context, tmuxSession string, lines int) (string, error) {
+	if lines <= 0 {
+		lines = 200
+	}
+	out, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", tmuxSession, "-S", "-"+strconv.Itoa(lines))
+	if err != nil {
+		return "", fmt.Errorf("tmux capture-pane: %w: %s", err, out)
+	}
+	return out, nil
 }

@@ -163,3 +163,20 @@ func TestCleanupNoWorktreeOnlyKillsTmux(t *testing.T) {
 func cleanupInput(id string) CleanupTarget {
 	return CleanupTarget{ID: id, Repo: "/repo", Worktree: ".worktrees/" + id, Branch: id, TmuxSession: id}
 }
+
+func TestInputSendsKeys(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr)
+	require.NoError(t, lc.Input(context.Background(), "A-1", "what is your status?"))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "A-1", "--", "what is your status?", "Enter"})
+}
+
+func TestOutputCapturesPane(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux capture-pane -p -t A-1 -S -200": {Out: "line1\nline2\n"},
+	}}
+	lc := New(fr)
+	out, err := lc.Output(context.Background(), "A-1", 200)
+	require.NoError(t, err)
+	require.Equal(t, "line1\nline2\n", out)
+}
