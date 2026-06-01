@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srajanpathak/agentctl/internal/poller"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -56,9 +58,10 @@ type sessionsResponse struct {
 
 // Server holds the daemon's dependencies. store is the single writer.
 type Server struct {
-	store store.Store
-	// lifecycle and poller are wired in later phases.
-	life Lifecycle
+	store        store.Store
+	life         Lifecycle
+	poller       *poller.Poller
+	pollInterval time.Duration
 }
 
 // Lifecycle is the subset of operations the API delegates to (Phase 4+).

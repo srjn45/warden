@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/srajanpathak/agentctl/internal/config"
 	"github.com/srajanpathak/agentctl/internal/daemon"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
+	"github.com/srajanpathak/agentctl/internal/poller"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -32,9 +34,12 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer st.Close(context.Background())
 
-			lc := lifecycle.New(lifecycle.ExecRunner{})
+			runner := lifecycle.ExecRunner{}
+			lc := lifecycle.New(runner)
 			life := daemon.NewLifecycleAdapter(lc, st)
-			srv := daemon.NewServer(st, life)
+			pd := daemon.NewPollerDeps(st, runner)
+			pl := poller.New(pd, 5*time.Minute)
+			srv := daemon.NewServer(st, life, pl, 10*time.Second)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},
