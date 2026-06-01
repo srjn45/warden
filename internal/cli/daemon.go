@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srajanpathak/agentctl/internal/config"
 	"github.com/srajanpathak/agentctl/internal/daemon"
+	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -31,8 +32,9 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer st.Close(context.Background())
 
-			// life and poller are wired in Phase 4 & 5; nil is tolerated by read routes.
-			srv := daemon.NewServer(st, nil)
+			lc := lifecycle.New(lifecycle.ExecRunner{})
+			life := daemon.NewLifecycleAdapter(lc, st)
+			srv := daemon.NewServer(st, life)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},
