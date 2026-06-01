@@ -10,9 +10,11 @@ import (
 )
 
 // classify derives a status from the latest pane capture + liveness.
-// It only overrides the stored status when the pane gives a conclusive signal;
-// otherwise it returns the existing status unchanged (hooks remain primary).
-func classify(s *store.Session, pane string, sessionAlive bool, stuckAfter time.Duration) store.Status {
+// It only overrides the stored status when the pane (or staleness) gives a
+// conclusive signal; otherwise it returns the existing status unchanged
+// (hooks remain primary). sinceUpdate is how long the session has gone without
+// any recorded activity (pane change, hook event, or status change).
+func classify(s *store.Session, pane string, sessionAlive bool, sinceUpdate, stuckAfter time.Duration) store.Status {
 	if !sessionAlive {
 		return store.StatusOrphaned
 	}
@@ -22,6 +24,13 @@ func classify(s *store.Session, pane string, sessionAlive bool, stuckAfter time.
 	// A visible prompt box ("❯ 1." / "Do you want") confirms waiting_for_input.
 	if strings.Contains(pane, "❯") || strings.Contains(pane, "Do you want") {
 		return store.StatusWaitingForInput
+	}
+	// A session that still claims to be "working" but has shown no pane activity
+	// for >= stuckAfter (and no "esc to interrupt" churn) is stuck or quietly
+	// finished — downgrade to idle so it surfaces as needing attention rather
+	// than masquerading as actively working. stuckAfter <= 0 disables this.
+	if s.Status == store.StatusWorking && stuckAfter > 0 && sinceUpdate >= stuckAfter {
+		return store.StatusIdle
 	}
 	return s.Status
 }
@@ -61,9 +70,15 @@ func (p *Poller) tick(ctx context.Context) error {
 		var pane string
 		if alive {
 			pane, _ = p.deps.CapturePane(ctx, s.TmuxSession)
-			_ = p.deps.UpdatePane(ctx, s.ID, lastLines(pane, 20))
+			// Persist the excerpt ONLY when it actually changed. This keeps
+			// updated_at stable while a session is silent, which is exactly how
+			// staleness (stuck detection) is measured — and avoids a needless
+			// Mongo write every tick.
+			if excerpt := lastLines(pane, 20); excerpt != s.LastPaneExcerpt {
+				_ = p.deps.UpdatePane(ctx, s.ID, excerpt)
+			}
 		}
-		next := classify(s, pane, alive, p.stuckAfter)
+		next := classify(s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
 		if next != s.Status {
 			if err := p.deps.UpdateStatus(ctx, s.ID, next); err != nil {
 				log.Printf("poller: update %s: %v", s.ID, err)
