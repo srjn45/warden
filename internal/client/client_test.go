@@ -29,3 +29,15 @@ func TestDaemonDownGivesFriendlyError(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrDaemonDown)
 }
+
+func TestSpawn(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/spawn", r.URL.Path)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"A-1","status":"spawning"}`))
+	}))
+	defer ts.Close()
+	s, err := New(ts.URL).Spawn(t.Context(), SpawnParams{Type: "development", Ticket: "A-1", Repo: "/repo"})
+	require.NoError(t, err)
+	require.Equal(t, "A-1", s.ID)
+}

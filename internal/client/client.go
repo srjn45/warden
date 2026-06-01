@@ -89,3 +89,46 @@ func (c *Client) Get(ctx context.Context, id string) (*store.Session, error) {
 	}
 	return &s, nil
 }
+
+// SpawnParams mirrors the daemon's /spawn body (kept in the client package so
+// the CLI and MCP server don't import the daemon package).
+type SpawnParams struct {
+	Type     string
+	Ticket   string
+	Repo     string
+	Branch   string
+	PR       string
+	Worktree bool
+}
+
+func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
+	var s store.Session
+	body := map[string]any{
+		"type": p.Type, "ticket": p.Ticket, "repo": p.Repo,
+		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree,
+	}
+	if err := c.do(ctx, http.MethodPost, "/spawn", body, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (c *Client) Cleanup(ctx context.Context, id string, force, hard bool) error {
+	body := map[string]any{"id": id, "force": force, "hard": hard}
+	return c.do(ctx, http.MethodPost, "/cleanup", body, nil)
+}
+
+func (c *Client) Input(ctx context.Context, id, text string) error {
+	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/input", map[string]string{"text": text}, nil)
+}
+
+func (c *Client) Output(ctx context.Context, id string, lines int) (string, error) {
+	var resp struct {
+		Output string `json:"output"`
+	}
+	path := fmt.Sprintf("/sessions/%s/output?lines=%d", id, lines)
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return "", err
+	}
+	return resp.Output, nil
+}
