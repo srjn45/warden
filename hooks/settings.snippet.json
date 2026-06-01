@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh SessionStart" } ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh Notification" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh Stop" } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh SubagentStop" } ] }
+    ]
+  }
+}
