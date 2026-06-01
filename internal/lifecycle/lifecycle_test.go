@@ -164,6 +164,30 @@ func cleanupInput(id string) CleanupTarget {
 	return CleanupTarget{ID: id, Repo: "/repo", Worktree: ".worktrees/" + id, Branch: id, TmuxSession: id}
 }
 
+func TestCleanupGuardAbortsWhenNoUpstream(t *testing.T) {
+	// `git log @{u}..` errors when no upstream is configured → treat as unpushed.
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git -C /repo/.worktrees/A-1 status --porcelain":   {Out: ""},
+		"git -C /repo/.worktrees/A-1 log @{u}.. --oneline": {Err: errStub("no upstream configured")},
+	}}
+	err := New(fr).Cleanup(context.Background(), cleanupInput("A-1"), false)
+	require.ErrorIs(t, err, ErrUnpushedCommits)
+}
+
+func TestSpawnPRReviewWithExplicitBranch(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+	}}
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{
+		Type: store.TypePRReview, Repo: "/repo", PR: "12345", Branch: "feature-x",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "feature-x", s.Branch)
+	// Given a branch, pr-review checks it out directly (no detached + gh).
+	require.Contains(t, fr.calledArgs(), []string{"git", "worktree", "add", s.Worktree, "feature-x"})
+	require.NotContains(t, fr.calledArgs(), []string{"gh", "pr", "checkout", "12345"})
+}
+
 func TestInputSendsKeys(t *testing.T) {
 	fr := &FakeRunner{}
 	lc := New(fr)

@@ -192,9 +192,17 @@ func (l *Lifecycle) guard(ctx context.Context, t CleanupTarget) error {
 	return nil
 }
 
-// Cleanup kills tmux, then (for sessions WITH a worktree, guarded) removes the
-// worktree + branch. tmux is always killed even if removal is skipped, so state
-// stays consistent. No-worktree sessions skip the git guard/prune entirely.
+// Cleanup removes a session's tmux session and, for sessions that have a
+// worktree, the worktree and branch as well.
+//
+// When the session has a worktree and force is false, guard is run first. If
+// guard returns an error, Cleanup returns immediately without touching tmux,
+// the worktree, or the branch — this is intentional so the user can push and
+// retry without ending up with an orphaned worktree.
+//
+// Once past the guard (or when force is true), tmux is killed and then the
+// worktree + branch are removed. No-worktree sessions skip the git steps
+// entirely and only kill tmux.
 func (l *Lifecycle) Cleanup(ctx context.Context, t CleanupTarget, force bool) error {
 	hasWorktree := t.Worktree != ""
 	if hasWorktree && !force {
@@ -202,7 +210,7 @@ func (l *Lifecycle) Cleanup(ctx context.Context, t CleanupTarget, force bool) er
 			return err
 		}
 	}
-	// Kill tmux first (idempotent; ignore "no such session").
+	// Guard passed (or was skipped); kill tmux, then remove worktree+branch.
 	_, _ = l.run.Run(ctx, "", "tmux", "kill-session", "-t", t.TmuxSession)
 
 	if !hasWorktree {
