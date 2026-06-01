@@ -84,6 +84,7 @@ func (s *Server) router() http.Handler {
 	// Phase 4 / 7 register: POST /spawn, POST /cleanup,
 	// POST /sessions/{id}/input, GET /sessions/{id}/output.
 	s.registerLifecycleRoutes(r)
+	s.registerStatic(r) // catch-all; must be last
 	return r
 }
 
