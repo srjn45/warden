@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "postbuild": "node -e \"require('fs').writeFileSync('dist/.gitkeep','')\"",
     "preview": "astro preview",
     "test": "vitest run"
   },
