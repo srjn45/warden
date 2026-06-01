@@ -90,6 +90,7 @@ func (s *Server) router() http.Handler {
 	r.Get("/sessions", s.handleListSessions)
 	r.Get("/sessions/{id}", s.handleGetSession)
 	r.Post("/events", s.handleEvent)
+	r.Get("/events/stream", s.handleEventsStream)
 	// Phase 4 / 7 register: POST /spawn, POST /cleanup,
 	// POST /sessions/{id}/input, GET /sessions/{id}/output.
 	s.registerLifecycleRoutes(r)
