@@ -108,6 +108,9 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if sessions == nil {
+		sessions = []*store.Session{}
+	}
 	writeJSON(w, http.StatusOK, sessionsResponse{Sessions: sessions})
 }
 
