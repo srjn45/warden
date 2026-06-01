@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
@@ -130,4 +131,24 @@ func TestPostSpawnDuplicateConflict(t *testing.T) {
 	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestSpawnNotifiesSubscribers(t *testing.T) {
+	fl := &fakeLife{}
+	srv := &Server{store: newFakeStore(), life: fl, hub: newHub()}
+	ch, unsub := srv.hub.subscribe()
+	defer unsub()
+
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo"})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("spawn did not notify SSE subscribers")
+	}
 }

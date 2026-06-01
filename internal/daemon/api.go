@@ -180,5 +180,6 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

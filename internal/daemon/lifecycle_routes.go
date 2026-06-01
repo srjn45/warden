@@ -40,6 +40,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.notify()
 	writeJSON(w, http.StatusCreated, sess)
 }
 
@@ -59,6 +60,7 @@ func (s *Server) handleCleanup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		_ = s.store.Archive(r.Context(), req.ID)
 	}
+	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cleaned"})
 }
 
@@ -82,6 +84,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 }
 
