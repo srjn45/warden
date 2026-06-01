@@ -103,3 +103,63 @@ func (f *FakeRunner) calledArgs() [][]string {
 	}
 	return out
 }
+
+func TestCleanupGuardAbortsOnUncommitted(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git -C /repo/.worktrees/A-1 status --porcelain": {Out: " M file.go\n"},
+	}}
+	lc := New(fr)
+	err := lc.Cleanup(context.Background(), cleanupInput("A-1"), false)
+	require.ErrorIs(t, err, ErrDirtyWorktree)
+	// Guard must run BEFORE worktree removal.
+	require.NotContains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", ".worktrees/A-1"})
+}
+
+func TestCleanupGuardAbortsOnUnpushed(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git -C /repo/.worktrees/A-1 status --porcelain":   {Out: ""},
+		"git -C /repo/.worktrees/A-1 log @{u}.. --oneline": {Out: "abc123 wip\n"},
+	}}
+	lc := New(fr)
+	err := lc.Cleanup(context.Background(), cleanupInput("A-1"), false)
+	require.ErrorIs(t, err, ErrUnpushedCommits)
+}
+
+func TestCleanupForceProceedsAndKillsTmuxFirst(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git -C /repo/.worktrees/A-1 status --porcelain": {Out: " M dirty\n"},
+	}}
+	lc := New(fr)
+	err := lc.Cleanup(context.Background(), cleanupInput("A-1"), true)
+	require.NoError(t, err)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "A-1"})
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/A-1"})
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "branch", "-D", "A-1"})
+}
+
+func TestCleanupCleanProceeds(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git -C /repo/.worktrees/A-1 status --porcelain":   {Out: ""},
+		"git -C /repo/.worktrees/A-1 log @{u}.. --oneline": {Out: ""},
+	}}
+	lc := New(fr)
+	require.NoError(t, lc.Cleanup(context.Background(), cleanupInput("A-1"), false))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", ".worktrees/A-1"})
+}
+
+func TestCleanupNoWorktreeOnlyKillsTmux(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr)
+	// A no-worktree session (e.g. buildkite-debug): empty Worktree/Branch.
+	tgt := CleanupTarget{ID: "buildkitedebug-a1b2", Repo: "/repo", TmuxSession: "buildkitedebug-a1b2"}
+	require.NoError(t, lc.Cleanup(context.Background(), tgt, false))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "buildkitedebug-a1b2"})
+	// No git guard or prune for a session without a worktree.
+	for _, argv := range fr.calledArgs() {
+		require.NotEqual(t, "git", argv[0], "no-worktree cleanup must not touch git")
+	}
+}
+
+func cleanupInput(id string) CleanupTarget {
+	return CleanupTarget{ID: id, Repo: "/repo", Worktree: ".worktrees/" + id, Branch: id, TmuxSession: id}
+}

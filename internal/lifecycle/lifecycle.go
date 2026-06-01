@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -149,4 +150,76 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	return sess, nil
+}
+
+var (
+	ErrDirtyWorktree   = errors.New("worktree has uncommitted changes (use --force)")
+	ErrUnpushedCommits = errors.New("worktree has unpushed commits (use --force)")
+)
+
+// CleanupTarget carries the fields Cleanup needs (filled from the store doc).
+type CleanupTarget struct {
+	ID          string
+	Repo        string
+	Worktree    string // relative, e.g. .worktrees/A-1
+	Branch      string
+	TmuxSession string
+}
+
+func (l *Lifecycle) worktreeAbs(t CleanupTarget) string {
+	return filepath.Join(t.Repo, t.Worktree)
+}
+
+// guard returns an error if the worktree has uncommitted or unpushed work.
+func (l *Lifecycle) guard(ctx context.Context, t CleanupTarget) error {
+	abs := l.worktreeAbs(t)
+	dirty, err := l.run.Run(ctx, "", "git", "-C", abs, "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("git status: %w: %s", err, dirty)
+	}
+	if strings.TrimSpace(dirty) != "" {
+		return ErrDirtyWorktree
+	}
+	unpushed, err := l.run.Run(ctx, "", "git", "-C", abs, "log", "@{u}..", "--oneline")
+	if err != nil {
+		// No upstream configured → treat as "has unpushed work" to be safe.
+		return ErrUnpushedCommits
+	}
+	if strings.TrimSpace(unpushed) != "" {
+		return ErrUnpushedCommits
+	}
+	return nil
+}
+
+// Cleanup kills tmux, then (for sessions WITH a worktree, guarded) removes the
+// worktree + branch. tmux is always killed even if removal is skipped, so state
+// stays consistent. No-worktree sessions skip the git guard/prune entirely.
+func (l *Lifecycle) Cleanup(ctx context.Context, t CleanupTarget, force bool) error {
+	hasWorktree := t.Worktree != ""
+	if hasWorktree && !force {
+		if err := l.guard(ctx, t); err != nil {
+			return err
+		}
+	}
+	// Kill tmux first (idempotent; ignore "no such session").
+	_, _ = l.run.Run(ctx, "", "tmux", "kill-session", "-t", t.TmuxSession)
+
+	if !hasWorktree {
+		return nil // nothing to prune
+	}
+
+	removeArgs := []string{"-C", t.Repo, "worktree", "remove", t.Worktree}
+	if force {
+		removeArgs = []string{"-C", t.Repo, "worktree", "remove", "--force", t.Worktree}
+	}
+	if out, err := l.run.Run(ctx, "", "git", removeArgs...); err != nil {
+		return fmt.Errorf("git worktree remove: %w: %s", err, out)
+	}
+	// Branch may be empty (e.g. a detached pr-review checkout) — skip if so.
+	if t.Branch != "" {
+		if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "branch", "-D", t.Branch); err != nil {
+			return fmt.Errorf("git branch -D: %w: %s", err, out)
+		}
+	}
+	return nil
 }
