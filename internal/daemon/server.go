@@ -10,7 +10,11 @@ import (
 )
 
 func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.Duration) *Server {
-	return &Server{store: st, life: life, poller: p, pollInterval: interval}
+	h := newHub()
+	if p != nil {
+		p.OnChange = h.publish
+	}
+	return &Server{store: st, life: life, poller: p, pollInterval: interval, hub: h}
 }
 
 // ListenAndServe blocks serving the API on addr until ctx is cancelled.

@@ -47,6 +47,9 @@ type Deps interface {
 type Poller struct {
 	deps       Deps
 	stuckAfter time.Duration
+	// OnChange, if set, is called once after a tick that changed any session
+	// (status or pane). The daemon wires this to hub.publish for SSE.
+	OnChange func()
 }
 
 func New(d Deps, stuckAfter time.Duration) *Poller {
@@ -62,6 +65,7 @@ func (p *Poller) tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	changed := false
 	for _, s := range sessions {
 		if isTerminal(s.Status) {
 			continue
@@ -70,20 +74,22 @@ func (p *Poller) tick(ctx context.Context) error {
 		var pane string
 		if alive {
 			pane, _ = p.deps.CapturePane(ctx, s.TmuxSession)
-			// Persist the excerpt ONLY when it actually changed. This keeps
-			// updated_at stable while a session is silent, which is exactly how
-			// staleness (stuck detection) is measured — and avoids a needless
-			// Mongo write every tick.
 			if excerpt := lastLines(pane, 20); excerpt != s.LastPaneExcerpt {
 				_ = p.deps.UpdatePane(ctx, s.ID, excerpt)
+				changed = true
 			}
 		}
 		next := classify(s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
 		if next != s.Status {
 			if err := p.deps.UpdateStatus(ctx, s.ID, next); err != nil {
 				log.Printf("poller: update %s: %v", s.ID, err)
+			} else {
+				changed = true
 			}
 		}
+	}
+	if changed && p.OnChange != nil {
+		p.OnChange()
 	}
 	return nil
 }

@@ -172,3 +172,33 @@ func TestTickUpdatesPaneOnlyWhenChanged(t *testing.T) {
 	require.False(t, sameUpdated, "unchanged pane must not be re-written (keeps updated_at stable for staleness)")
 	require.Equal(t, "new output", d.paneUpdates["diff"], "changed pane is persisted")
 }
+
+func TestTickCallsOnChangeWhenStatusChanges(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+		alive:    map[string]bool{"A-1": false}, // → orphaned (a change)
+		updates:  map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	called := 0
+	p.OnChange = func() { called++ }
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, 1, called, "OnChange fires once when a status changed")
+}
+
+func TestTickNoOnChangeWhenNothingChanges(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{
+			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking,
+			UpdatedAt: time.Now(), LastPaneExcerpt: "x",
+		}},
+		alive:   map[string]bool{"A-1": true},
+		panes:   map[string]string{"A-1": "x"}, // unchanged pane, fresh → no change
+		updates: map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	called := 0
+	p.OnChange = func() { called++ }
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, 0, called)
+}

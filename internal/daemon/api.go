@@ -62,6 +62,15 @@ type Server struct {
 	life         Lifecycle
 	poller       *poller.Poller
 	pollInterval time.Duration
+	hub          *hub
+}
+
+// notify signals SSE subscribers that session state changed. Safe with a nil
+// hub (some tests construct Server literals without one).
+func (s *Server) notify() {
+	if s.hub != nil {
+		s.hub.publish()
+	}
 }
 
 // Lifecycle is the subset of operations the API delegates to (Phase 4+).
