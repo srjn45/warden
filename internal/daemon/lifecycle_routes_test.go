@@ -103,3 +103,31 @@ func TestGetOutput(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	require.Equal(t, "pane text", out.Output)
 }
+
+func TestPostInputNotFound(t *testing.T) {
+	ts := lifeServer(t, newFakeStore(), &fakeLife{})
+	defer ts.Close()
+	body, _ := json.Marshal(InputRequest{Text: "hi"})
+	resp, err := http.Post(ts.URL+"/sessions/ghost/input", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestGetOutputNotFound(t *testing.T) {
+	ts := lifeServer(t, newFakeStore(), &fakeLife{})
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/sessions/ghost/output")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestPostSpawnDuplicateConflict(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["A-1"] = &store.Session{ID: "A-1"}
+	ts := lifeServer(t, fs, &fakeLife{})
+	defer ts.Close()
+	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo"})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}

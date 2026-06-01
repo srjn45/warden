@@ -69,6 +69,10 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
 	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	var req InputRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad json")
@@ -86,6 +90,10 @@ func (s *Server) handleOutput(w http.ResponseWriter, r *http.Request) {
 	sess, err := s.store.Get(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	lines := 200
