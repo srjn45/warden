@@ -187,7 +187,7 @@ agentctl done PROJ-350 --hard   # hard-delete the doc instead of archiving
 
 ### `agentctl send <TICKET> <message...>`
 
-Type a message into the agent's claude session and press Enter. (Available in Phase 7.)
+Type a message into the agent's claude session and press Enter.
 
 ```sh
 agentctl send PROJ-350 "run the unit tests and fix any failures"
@@ -195,7 +195,7 @@ agentctl send PROJ-350 "run the unit tests and fix any failures"
 
 ### `agentctl tail <TICKET>`
 
-Print the recent terminal output of the agent's claude session. (Available in Phase 7.)
+Print the recent terminal output of the agent's claude session.
 
 ```sh
 agentctl tail PROJ-350
@@ -213,22 +213,53 @@ agentctl daemon --addr 127.0.0.1:9000
 
 ### `agentctl mcp`
 
-Run the MCP stdio server so an orchestrator Claude session can manage agents via tool calls. (Available in Phase 8.)
+Run the MCP stdio server so an orchestrator Claude session can manage agents via tool calls.
 
-Register in an orchestrator Claude session's MCP config:
+```sh
+agentctl mcp
+agentctl mcp --addr 127.0.0.1:8765
+```
+
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `send_to_agent`, `get_agent_output`, `cleanup_agent`.
+
+---
+
+## Orchestrator (MCP)
+
+Register `agentctl mcp` as an MCP server in your orchestrator Claude session's MCP config (e.g. `~/.claude/claude_desktop_config.json` or the project-level `.claude/mcp.json`):
+
 ```json
 {
   "mcpServers": {
     "agentctl": {
-      "command": "/Users/srajan.pathak/workspace/personal/agentctl/bin/agentctl",
+      "command": "agentctl",
       "args": ["mcp"],
-      "env": { "AGENTCTL_ADDR": "127.0.0.1:8765" }
+      "env": {
+        "AGENTCTL_ADDR": "127.0.0.1:8765"
+      }
     }
   }
 }
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `send_to_agent`, `get_agent_output`, `cleanup_agent`.
+Once registered, the orchestrator session can call these tools directly:
+
+| Tool | Description |
+|---|---|
+| `list_agents` | List all active agents and their current status |
+| `get_agent` | Get full detail (status, events, worktree) for one agent |
+| `spawn_agent` | Spawn a new agent of a given task type |
+| `send_to_agent` | Type a message into a specific agent's claude session |
+| `get_agent_output` | Return the recent terminal output of a specific agent |
+| `cleanup_agent` | Tear down an agent and archive its record |
+
+Example orchestrator prompts:
+
+- "What is PROJ-350 doing?" — calls `get_agent` to fetch current status and events
+- "Tell PROJ-343 to run the tests" — calls `send_to_agent` with `"run the tests"`
+- "List all my agents" — calls `list_agents`
+- "Spawn a buildkite-debug agent in /path/to/repo" — calls `spawn_agent`
+- "Clean up PROJ-350 when it's done" — calls `cleanup_agent`
 
 ---
 

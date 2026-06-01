@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 )
 
@@ -16,10 +18,11 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newLsCmd(), newStatusCmd())
 	root.AddCommand(newStartCmd(), newDoneCmd(), newAttachCmd())
 	root.AddCommand(newSendCmd(), newTailCmd())
+	root.AddCommand(newMCPCmd())
 	return root
 }
 
 // Execute is the single entrypoint for the binary.
 func Execute() error {
-	return newRootCmd().Execute()
+	return newRootCmd().ExecuteContext(context.Background())
 }
