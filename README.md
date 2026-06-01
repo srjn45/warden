@@ -302,3 +302,52 @@ Tests that need Docker (the Mongo integration suite) are skipped in `-short` mod
 ```sh
 go test -short ./...   # fast, no Docker needed
 ```
+
+---
+
+## Web GUI
+
+The daemon embeds a React dashboard (Astro + React) and serves it at `http://localhost:8765` alongside the REST API — no separate server required.
+
+### Build & run
+
+```sh
+make release     # 1. builds the Astro UI (web/), 2. embeds it via go:embed, 3. builds bin/agentctl
+agentctl daemon  # start the daemon as usual
+```
+
+Then open `http://localhost:8765` in a browser.
+
+> **Note:** the UI is baked into the binary at build time. After changing anything under `web/`, re-run `make release` (or `make ui` to rebuild only the frontend) and restart the daemon for the changes to take effect.
+
+### What it does
+
+- **Live agent list** — all active sessions update in real time over SSE; no manual refresh needed.
+- **Busy/idle badges** — each row shows a coloured badge (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) derived from the agent's current status.
+- **Create agent** — click **+ New agent** to open a type-aware form. Fields change based on the chosen type (branch for `development`/`pr-review`, PR number for `pr-review`, scratch-worktree checkbox for `analysis`/`spike`, etc.).
+- **Agent detail** — click any row to open the detail panel: live terminal output (polled every 2 s), full event history, and a send-message box that types directly into the agent's claude session.
+- **Terminate** — the **Terminate** button calls `agentctl done`. If the worktree has uncommitted changes or unpushed commits the daemon returns a 409 and the UI surfaces a guard prompt offering **Force** (bypass the git guard) and an optional **hard-delete** checkbox.
+- **Attach hint** — browsers can't run `tmux attach`. The detail panel shows the equivalent CLI command (`agentctl attach <id>`) for use in a terminal.
+
+### Dev workflow
+
+Run two terminals in parallel — no rebuild loop needed while iterating on the UI:
+
+```sh
+# Terminal 1 — daemon (REST API + SSE on :8765)
+agentctl daemon
+
+# Terminal 2 — Astro dev server (:4321, proxies /sessions /spawn /cleanup /events /healthz to :8765)
+make ui-dev
+```
+
+Open `http://localhost:4321`. Edits under `web/src/` trigger HMR instantly; the browser stays on the same origin as the real daemon API so SSE and all REST calls work without CORS configuration.
+
+### Tests
+
+```sh
+make web-test    # Vitest — frontend unit tests (status mapping, API client)
+go test ./...    # Go suite — covers daemon hub, SSE endpoint, static embed, and all existing routes
+```
+
+The frontend Vitest suite lives in `web/src/lib/` alongside the source files (`status.test.ts`, `api.test.ts`). The Go daemon tests cover the broadcaster (`hub_test.go`), the SSE handler (`sse_test.go`), and the static file serving with SPA fallback (`static_test.go`).
