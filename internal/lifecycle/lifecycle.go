@@ -45,6 +45,13 @@ func claudeLaunch(sessionID, name string) string {
 	return claudeCmd + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
 }
 
+// claudeResume builds the invocation that resumes an existing agent conversation
+// by its pinned session id (continues the same transcript). --name re-applies the
+// display label so the resumed session still reads as the agent id.
+func claudeResume(sessionID, name string) string {
+	return claudeCmd + " --resume " + sessionID + " --name " + shellQuoteArg(name)
+}
+
 // promptFileName is where a prompt-spawned agent's initial prompt is written
 // inside its workdir, so the launch line can read it back via "$(cat …)".
 const promptFileName = ".agentctl-prompt"
@@ -445,9 +452,41 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	return sess, nil
 }
 
+// Restore recreates a lost agent's tmux session in its original workdir and
+// resumes the same claude conversation (claude --resume). It is resume-only: it
+// validates that the session is actually gone, has a pinned id, its workdir
+// still exists, and its transcript is present — returning a specific sentinel
+// otherwise — and never silently starts a fresh conversation.
+func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
+	if sess.ClaudeSessionID == "" {
+		return ErrNoSessionID
+	}
+	// Refuse if the tmux session is still alive (avoid a double-launch).
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", sess.TmuxSession); err == nil {
+		return ErrAlreadyRunning
+	}
+	if fi, err := os.Stat(sess.Workdir); err != nil || !fi.IsDir() {
+		return ErrWorkdirMissing
+	}
+	if l.transcriptPath(sess) == "" {
+		return ErrNoTranscript
+	}
+	if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", sess.ID, "-c", sess.Workdir); err != nil {
+		return fmt.Errorf("tmux new-session: %w: %s", err, out)
+	}
+	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, claudeResume(sess.ClaudeSessionID, sess.ID), "Enter"); err != nil {
+		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
+	}
+	return nil
+}
+
 var (
 	ErrDirtyWorktree   = errors.New("worktree has uncommitted changes (use --force)")
 	ErrUnpushedCommits = errors.New("worktree has unpushed commits (use --force)")
+	ErrAlreadyRunning  = errors.New("agent is already running (use send/attach)")
+	ErrNoSessionID     = errors.New("no pinned claude session id; re-spawn instead")
+	ErrWorkdirMissing  = errors.New("agent workdir is gone; re-spawn instead")
+	ErrNoTranscript    = errors.New("no transcript to resume")
 )
 
 // CleanupTarget carries the fields Cleanup needs (filled from the store doc).

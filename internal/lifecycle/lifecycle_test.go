@@ -524,3 +524,48 @@ func TestTranscriptPathLegacyFallsBackToNewest(t *testing.T) {
 	sess := &store.Session{ID: "agent-leg", Workdir: workdir} // no ClaudeSessionID
 	require.Equal(t, newf, lc.transcriptPath(sess), "empty id -> newest .jsonl (legacy)")
 }
+
+func TestRestoreRecreatesAndResumes(t *testing.T) {
+	root := t.TempDir()
+	workdir := t.TempDir()
+	sid := "66666666-6666-4666-8666-666666666666"
+	pdir := claudeProjectDir(root, workdir)
+	require.NoError(t, os.MkdirAll(pdir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, sid+".jsonl"), []byte("{}"), 0o644))
+
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t agent-r1": {Err: errStub("no session")}, // dead
+	}}
+	lc := New(fr)
+	lc.ProjectsDir = root
+	sess := &store.Session{ID: "agent-r1", TmuxSession: "agent-r1", Workdir: workdir, ClaudeSessionID: sid}
+
+	require.NoError(t, lc.Restore(context.Background(), sess))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-r1", "-c", workdir})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-r1", claudeResume(sid, "agent-r1"), "Enter"})
+}
+
+func TestRestorePreconditionErrors(t *testing.T) {
+	sid := "66666666-6666-4666-8666-666666666666"
+	dead := func() *FakeRunner {
+		return &FakeRunner{Responses: map[string]FakeResp{"tmux has-session -t a": {Err: errStub("dead")}}}
+	}
+
+	// no pinned session id (checked before any tmux call)
+	require.ErrorIs(t, New(&FakeRunner{}).Restore(context.Background(),
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir()}), ErrNoSessionID)
+
+	// already running: has-session succeeds (FakeRunner default = success = alive)
+	require.ErrorIs(t, New(&FakeRunner{}).Restore(context.Background(),
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrAlreadyRunning)
+
+	// workdir gone
+	require.ErrorIs(t, New(dead()).Restore(context.Background(),
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: "/no/such/dir", ClaudeSessionID: sid}), ErrWorkdirMissing)
+
+	// no transcript: dead, workdir exists, empty ProjectsDir
+	lc := New(dead())
+	lc.ProjectsDir = t.TempDir()
+	require.ErrorIs(t, lc.Restore(context.Background(),
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrNoTranscript)
+}
