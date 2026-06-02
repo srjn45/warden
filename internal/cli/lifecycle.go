@@ -22,7 +22,12 @@ func newStartCmd() *cobra.Command {
 				if len(args) != 1 {
 					return fmt.Errorf("provide a prompt: agentctl start \"<prompt>\"  (or use --type for a managed worktree)")
 				}
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0]})
+				dirFlag, _ := cmd.Flags().GetString("dir")
+				dir, err := resolveDir(dirFlag)
+				if err != nil {
+					return err
+				}
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0], Cwd: dir})
 				if err != nil {
 					return err
 				}
@@ -64,7 +69,17 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().String("branch", "", "new branch (development) or checkout target (pr-review)")
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
+	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
 	return cmd
+}
+
+// resolveDir returns the explicit --dir flag value, or the current working
+// directory when the flag is empty. This is where the agent's claude is launched.
+func resolveDir(flagVal string) (string, error) {
+	if flagVal != "" {
+		return flagVal, nil
+	}
+	return os.Getwd()
 }
 
 func newRestoreCmd() *cobra.Command {

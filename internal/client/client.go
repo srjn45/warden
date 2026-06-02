@@ -112,6 +112,7 @@ type SpawnParams struct {
 	PR       string
 	Worktree bool
 	Prompt   string
+	Cwd      string
 }
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
@@ -119,7 +120,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 	body := map[string]any{
 		"type": p.Type, "ticket": p.Ticket, "repo": p.Repo,
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree,
-		"prompt": p.Prompt,
+		"prompt": p.Prompt, "cwd": p.Cwd,
 	}
 	if err := c.do(ctx, http.MethodPost, "/spawn", body, &s); err != nil {
 		return nil, err
