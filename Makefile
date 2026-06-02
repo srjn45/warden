@@ -1,4 +1,4 @@
-.PHONY: build test lint mongo-up mongo-down run-daemon ui ui-dev web-test release
+.PHONY: build test lint mongo-up mongo-down run-daemon ui ui-dev web-test release install-skill
 
 build:
 	go build -o bin/agentctl ./cmd/agentctl
@@ -29,3 +29,9 @@ web-test:
 
 # Full release build: build the UI first so go:embed picks up real assets.
 release: ui build
+
+# Symlink the agentctl Claude Code skill into ~/.claude/skills (idempotent).
+install-skill:
+	mkdir -p ~/.claude/skills
+	ln -sfn $(PWD)/skills/agentctl ~/.claude/skills/agentctl
+	@echo "linked ~/.claude/skills/agentctl -> $(PWD)/skills/agentctl"
