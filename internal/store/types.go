@@ -77,15 +77,16 @@ type Event struct {
 type Session struct {
 	ID              string    `json:"id"`
 	Type            Type      `json:"type"`
-	Ticket          string    `json:"ticket"`       // optional
+	Ticket          string    `json:"ticket"` // optional
 	TmuxSession     string    `json:"tmux_session"`
+	ClaudeSessionID string    `json:"claude_session_id"` // pinned claude --session-id (UUID); deterministic transcript + future --resume
 	Repo            string    `json:"repo"`
-	Worktree        string    `json:"worktree"`     // optional (empty = no worktree)
-	Branch          string    `json:"branch"`       // optional
-	PR              string    `json:"pr"`           // optional (pr-review)
-	Prompt          string    `json:"prompt"`       // initial prompt (prompt-spawned agents)
-	Workdir         string    `json:"workdir"`      // absolute cwd of the tmux session
-	Subject         string    `json:"subject"`      // one-line auto summary of what it's doing
+	Worktree        string    `json:"worktree"` // optional (empty = no worktree)
+	Branch          string    `json:"branch"`   // optional
+	PR              string    `json:"pr"`       // optional (pr-review)
+	Prompt          string    `json:"prompt"`   // initial prompt (prompt-spawned agents)
+	Workdir         string    `json:"workdir"`  // absolute cwd of the tmux session
+	Subject         string    `json:"subject"`  // one-line auto summary of what it's doing
 	Status          Status    `json:"status"`
 	PID             int       `json:"pid"`
 	CreatedAt       time.Time `json:"created_at"`

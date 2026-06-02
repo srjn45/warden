@@ -9,19 +9,20 @@ import (
 
 func TestSessionJSONRoundTrip(t *testing.T) {
 	s := Session{
-		ID:          "PROJ-350",
-		Type:        TypeDevelopment,
-		Ticket:      "PROJ-350",
-		TmuxSession: "PROJ-350",
-		Repo:        "/repo",
-		Worktree:    ".worktrees/PROJ-350",
-		Branch:      "PROJ-350",
-		Prompt:      "do a security review of the auth module",
-		Workdir:     "/Users/me/agentctl-agents/agent-a1b2",
-		Subject:     "review auth module for security",
-		Status:      StatusSpawning,
-		PID:         123,
-		Events:      []Event{{Type: "SessionStart"}},
+		ID:              "PROJ-350",
+		Type:            TypeDevelopment,
+		Ticket:          "PROJ-350",
+		TmuxSession:     "PROJ-350",
+		ClaudeSessionID: "11111111-1111-4111-8111-111111111111",
+		Repo:            "/repo",
+		Worktree:        ".worktrees/PROJ-350",
+		Branch:          "PROJ-350",
+		Prompt:          "do a security review of the auth module",
+		Workdir:         "/Users/me/agentctl-agents/agent-a1b2",
+		Subject:         "review auth module for security",
+		Status:          StatusSpawning,
+		PID:             123,
+		Events:          []Event{{Type: "SessionStart"}},
 	}
 	raw, err := json.Marshal(s)
 	require.NoError(t, err)
@@ -36,6 +37,7 @@ func TestSessionJSONRoundTrip(t *testing.T) {
 	require.Equal(t, "do a security review of the auth module", got.Prompt)
 	require.Equal(t, "/Users/me/agentctl-agents/agent-a1b2", got.Workdir)
 	require.Equal(t, "review auth module for security", got.Subject)
+	require.Equal(t, "11111111-1111-4111-8111-111111111111", got.ClaudeSessionID)
 }
 
 func TestStatusValid(t *testing.T) {
