@@ -8,12 +8,13 @@ export class ApiError extends Error {
 }
 
 export interface SpawnParams {
-  type: string;
-  repo: string;
+  type?: string;
+  repo?: string;
   ticket?: string;
   branch?: string;
   pr?: string;
   worktree?: boolean;
+  prompt?: string;
 }
 
 async function parse<T>(res: Response): Promise<T> {
@@ -42,8 +43,9 @@ export async function spawn(p: SpawnParams): Promise<Session> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      type: p.type, ticket: p.ticket ?? '', repo: p.repo,
+      type: p.type ?? '', ticket: p.ticket ?? '', repo: p.repo ?? '',
       branch: p.branch ?? '', pr: p.pr ?? '', worktree: !!p.worktree,
+      prompt: p.prompt ?? '',
     }),
   }));
 }

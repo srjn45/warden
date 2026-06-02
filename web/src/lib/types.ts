@@ -17,6 +17,7 @@ export interface Session {
   worktree: string;
   branch: string;
   pr: string;
+  prompt: string;
   status: Status;
   pid: number;
   created_at: string;

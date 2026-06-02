@@ -27,7 +27,16 @@ describe('api', () => {
     expect(url).toBe('/spawn');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({
-      type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false,
+      type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false, prompt: '',
+    });
+  });
+
+  it('spawn supports a prompt-only body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'agent-x' }, 201));
+    vi.stubGlobal('fetch', fetchMock);
+    await spawn({ prompt: 'do research on X' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false, prompt: 'do research on X',
     });
   });
 
