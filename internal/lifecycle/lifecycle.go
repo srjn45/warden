@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -93,6 +95,9 @@ func shellQuoteArg(s string) string {
 
 type Lifecycle struct {
 	run Runner
+	// ProjectsDir is the Claude Code transcript root (default empty → transcript
+	// lookup disabled; the daemon sets it from config). Overridable in tests.
+	ProjectsDir string
 }
 
 func New(r Runner) *Lifecycle { return &Lifecycle{run: r} }
@@ -202,6 +207,74 @@ func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, er
 		return store.TypeOther, fmt.Errorf("claude -p: %w: %s", err, out)
 	}
 	return parseType(out), nil
+}
+
+// Summarize produces a one-line subject for an agent: it reads recent activity
+// (transcript, else pane) and asks claude -p for an <=8-word phrase.
+func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string, error) {
+	text := l.recentActivity(ctx, sess)
+	if strings.TrimSpace(text) == "" {
+		text = sess.Prompt // last resort: the original prompt
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", nil
+	}
+	out, err := l.run.Run(ctx, "", "claude", "-p", summaryArg(text))
+	if err != nil {
+		return "", fmt.Errorf("claude -p: %w: %s", err, out)
+	}
+	return parseSummary(out), nil
+}
+
+// recentActivity returns recent conversation text: the tail of the newest
+// transcript .jsonl under the agent's project dir, else the tmux pane.
+func (l *Lifecycle) recentActivity(ctx context.Context, sess *store.Session) string {
+	if dir := claudeProjectDir(l.ProjectsDir, sess.Workdir); dir != "" {
+		if txt := newestTranscriptTail(dir, 4000); txt != "" {
+			return txt
+		}
+	}
+	out, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", sess.TmuxSession, "-S", "-40")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// newestTranscriptTail returns up to maxBytes from the end of the most recently
+// modified *.jsonl file in dir, or "" if none.
+func newestTranscriptTail(dir string, maxBytes int64) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	type f struct {
+		path string
+		mod  int64
+	}
+	var files []f
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, f{filepath.Join(dir, e.Name()), info.ModTime().UnixNano()})
+	}
+	if len(files) == 0 {
+		return ""
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].mod > files[j].mod })
+	data, err := os.ReadFile(files[0].path)
+	if err != nil {
+		return ""
+	}
+	if int64(len(data)) > maxBytes {
+		data = data[int64(len(data))-maxBytes:]
+	}
+	return string(data)
 }
 
 // Spawn creates an agent session. Prompt mode (Prompt set, no Type) runs a plain

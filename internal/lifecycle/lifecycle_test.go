@@ -2,6 +2,8 @@ package lifecycle
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -321,4 +323,39 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	// claude launched with the prompt as a shell-quoted positional arg.
 	launch := claudeCmd + " " + shellQuoteArg(prompt)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+}
+
+func TestSummarizeUsesTranscriptThenClaudeP(t *testing.T) {
+	root := t.TempDir()
+	workdir := "/Users/me/agentctl-agents/agent-zz99"
+	projDir := claudeProjectDir(root, workdir)
+	require.NoError(t, os.MkdirAll(projDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(projDir, "sess.jsonl"),
+		[]byte(`{"role":"user","text":"look into the auth bug"}`+"\n"), 0o644))
+
+	fr := &FakeRunner{Responses: map[string]FakeResp{}}
+	lc := New(fr)
+	lc.ProjectsDir = root
+	// The claude -p call is keyed by the transcript-derived text.
+	sess := &store.Session{ID: "agent-zz99", TmuxSession: "agent-zz99", Workdir: workdir}
+	// Stub claude -p for whatever arg is built from the transcript text:
+	fr.Responses["claude -p "+summaryArg(`{"role":"user","text":"look into the auth bug"}`+"\n")] = FakeResp{Out: "looking into the auth bug\n"}
+
+	got, err := lc.Summarize(context.Background(), sess)
+	require.NoError(t, err)
+	require.Equal(t, "looking into the auth bug", got)
+}
+
+func TestSummarizeFallsBackToPane(t *testing.T) {
+	root := t.TempDir() // empty → no transcript
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux capture-pane -p -t agent-aa11 -S -40": {Out: "building the REST handler\n"},
+		"claude -p " + summaryArg("building the REST handler\n"): {Out: "building a REST handler"},
+	}}
+	lc := New(fr)
+	lc.ProjectsDir = root
+	sess := &store.Session{ID: "agent-aa11", TmuxSession: "agent-aa11", Workdir: "/Users/me/agentctl-agents/agent-aa11"}
+	got, err := lc.Summarize(context.Background(), sess)
+	require.NoError(t, err)
+	require.Equal(t, "building a REST handler", got)
 }
