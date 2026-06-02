@@ -330,7 +330,7 @@ Once registered, the orchestrator session can call these tools directly:
 |---|---|
 | `list_agents` | List all active agents with their status, working directory, and subject |
 | `get_agent` | Get full detail (status, workdir, subject, events, worktree) for one agent |
-| `spawn_agent` | Spawn a new agent of a given task type |
+| `spawn_agent` | Spawn a new agent — pass a `prompt` for a quick auto-typed agent, or `type`+`repo` for a managed worktree |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Return the recent terminal output of a specific agent |
 | `cleanup_agent` | Tear down an agent and archive its record |
@@ -340,8 +340,25 @@ Example orchestrator prompts:
 - "What is PROJ-350 doing?" — calls `get_agent` to fetch current status and events
 - "Tell PROJ-343 to run the tests" — calls `send_to_agent` with `"run the tests"`
 - "List all my agents" — calls `list_agents`
-- "Spawn a buildkite-debug agent in /path/to/repo" — calls `spawn_agent`
+- "Spin up an agent to research SSE reconnection" — calls `spawn_agent` with a `prompt` (auto-typed)
+- "Spawn a buildkite-debug agent in /path/to/repo" — calls `spawn_agent` with `type`+`repo`
 - "Clean up PROJ-350 when it's done" — calls `cleanup_agent`
+
+### Drive it from Claude (the `agentctl` skill)
+
+Beyond raw tool access, install the packaged **Claude Code skill** so any Claude
+session knows *how and when* to manage your fleet (triage, create-from-prompt,
+relay "tell X to do Y", terminate-with-confirmation, daemon-down handling):
+
+```sh
+make install-skill   # symlinks skills/agentctl into ~/.claude/skills/agentctl
+```
+
+With the MCP server registered (above) and the skill installed, just talk to a
+Claude session: *"list my agents"*, *"spin up an agent to research X"*,
+*"what is agent-4f2a doing?"*, *"tell agent-4f2a to run the tests"*, *"kill the
+idle ones"* — it drives the MCP tools (falling back to the `agentctl` CLI if the
+MCP server isn't registered). The daemon must be running.
 
 ---
 
