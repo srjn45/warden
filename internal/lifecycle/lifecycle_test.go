@@ -324,6 +324,26 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
+func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
+	fr := &FakeRunner{}
+	prompt := "fix the auth bug"
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{
+		Prompt: prompt, Workdir: "/home/me/agentctl-agents", Cwd: "/work/project",
+	})
+	require.NoError(t, err)
+
+	dataDir := "/home/me/agentctl-agents/" + s.ID
+	// Claude launches from the caller's cwd, not the data dir.
+	require.Equal(t, "/work/project", s.Workdir, "sess.Workdir is the caller cwd")
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/work/project"})
+	// Agent data (the prompt file) still lives under the data dir.
+	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", dataDir})
+	promptFile := dataDir + "/" + promptFileName
+	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+}
+
 func TestReadFileTail(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.txt")
