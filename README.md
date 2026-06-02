@@ -90,7 +90,8 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 | `AGENTCTL_ADDR` | `127.0.0.1:8765` | Daemon listen address |
 | `AGENTCTL_MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection URI |
 | `AGENTCTL_DB` | `agentctl` | MongoDB database name |
-| `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Working directory for prompt-spawned agents (no git worktree) |
+| `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Base directory for prompt-spawned agents; each agent gets its own subdir `~/agentctl-agents/<id>/` |
+| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
 
 All variables can also be overridden with `--addr` on any command.
 
@@ -109,8 +110,9 @@ In the web GUI, **+ New agent** opens a single prompt textarea — no type or re
 
 **How it works:**
 
-- **No repo assumed.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` in `AGENTCTL_WORKDIR` (default `~/agentctl-agents`), with no git worktree. Any repo context should be included in the prompt itself.
+- **No repo assumed.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` in their own per-agent subdirectory `~/agentctl-agents/<id>/` (created at spawn). Any repo context should be included in the prompt itself.
 - **Type is auto-assigned.** Shortly after creation the daemon classifies the prompt with `claude -p` and updates the type label. It appears as "classifying…" until then. Requires `claude` on the daemon's `PATH`; falls back to `other` if unavailable.
+- **Subject is auto-generated.** Each agent has a one-line subject summarizing what it is currently working on. It is seeded from the first words of the prompt at spawn, then refreshed periodically by the poller: the poller reads the agent's Claude Code transcript (looked up by `CLAUDE_PROJECTS_DIR`) or, if no transcript is found, captures the tmux pane, then asks `claude -p` for an ≤8-word phrase. Refreshes are throttled and only run when the pane content has changed.
 - **Managed worktrees still available.** `agentctl start TICKET --type development --repo …` is unchanged — see the section below.
 
 To override `AGENTCTL_WORKDIR` from its default of `~/agentctl-agents`, set the environment variable:
@@ -183,18 +185,21 @@ Flags:
 
 ### `agentctl ls`
 
-List all active agent sessions with their type, status, and last event.
+List all active agent sessions with their type, status, working directory, and subject.
 
 ```sh
 agentctl ls
-# ID                TYPE         STATUS    AGE   DETAIL
-# PROJ-350    development  working   2m    …
-# prreview-a1b2     pr-review    idle      5m    …
+# ID                TYPE         STATUS    AGE   DIR                SUBJECT
+# PROJ-350    development  working   2m    PROJ-350     refactoring auth middleware
+# prreview-a1b2     pr-review    idle      5m    prreview-a1b2      reviewing PR 1234
+# agent-c3d4        …            working   1m    agent-c3d4         investigate flaky nightly build
 ```
+
+`DIR` shows the base name of the agent's working directory. `SUBJECT` is the auto-generated one-line summary of what the agent is currently doing (empty until the first poller refresh).
 
 ### `agentctl status <TICKET>`
 
-Show full detail for one session: worktree, branch, PR, all events.
+Show full detail for one session: working directory, subject, worktree, branch, PR, all events.
 
 ```sh
 agentctl status PROJ-350
@@ -281,8 +286,8 @@ Once registered, the orchestrator session can call these tools directly:
 
 | Tool | Description |
 |---|---|
-| `list_agents` | List all active agents and their current status |
-| `get_agent` | Get full detail (status, events, worktree) for one agent |
+| `list_agents` | List all active agents with their status, working directory, and subject |
+| `get_agent` | Get full detail (status, workdir, subject, events, worktree) for one agent |
 | `spawn_agent` | Spawn a new agent of a given task type |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Return the recent terminal output of a specific agent |
@@ -357,10 +362,10 @@ Then open `http://localhost:8765` in a browser.
 
 ### What it does
 
-- **Live agent list** — all active sessions update in real time over SSE; no manual refresh needed.
+- **Live agent list** — all active sessions update in real time over SSE; no manual refresh needed. Each row shows the agent's current **subject** — a short phrase summarizing what it's doing, auto-generated from its transcript or terminal output.
 - **Busy/idle badges** — each row shows a coloured badge (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) derived from the agent's current status.
 - **Create agent** — click **+ New agent** to open a single prompt box. Type what you want the agent to do and press **Create** (or Cmd/Ctrl+Enter). No type or repo required — the type label is assigned automatically once the agent starts. For a managed worktree (e.g. a development branch for a specific ticket), use the CLI: `agentctl start TICKET --type development --repo …`.
-- **Agent detail** — click any row to open the detail panel: live terminal output (polled every 2 s), full event history, and a send-message box that types directly into the agent's claude session.
+- **Agent detail** — click any row to open the detail panel: the agent's **working directory** and current **subject**, live terminal output (polled every 2 s), full event history, and a send-message box that types directly into the agent's claude session.
 - **Terminate** — the **Terminate** button calls `agentctl done`. If the worktree has uncommitted changes or unpushed commits the daemon returns a 409 and the UI surfaces a guard prompt offering **Force** (bypass the git guard) and an optional **hard-delete** checkbox.
 - **Attach hint** — browsers can't run `tmux attach`. The detail panel shows the equivalent CLI command (`agentctl attach <id>`) for use in a terminal.
 
