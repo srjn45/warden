@@ -146,3 +146,45 @@ func TestTabFocusesOutput(t *testing.T) {
 	m = step(m, key("\t")) // tab
 	require.True(t, m.outputFocused)
 }
+
+func TestNewAgentModeFlow(t *testing.T) {
+	f := &fakeAPI{}
+	m := New(f)
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, key("n"))
+	require.Equal(t, modeNewAgent, m.mode)
+	// type a prompt
+	m = step(m, key("research SSE"))
+	// submit with ctrl+s
+	m, _ = submit(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	require.NotNil(t, f.spawned)
+	require.Equal(t, "research SSE", f.spawned.Prompt)
+}
+
+func TestNewAgentEscCancels(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, key("n"))
+	m = step(m, key("esc"))
+	require.Equal(t, modeNormal, m.mode)
+}
+
+func TestSpawnDoneSelectsNewAgent(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, sessionsMsg{sessions: []*store.Session{{ID: "agent-new"}, {ID: "x"}}})
+	m = step(m, spawnDoneMsg{id: "agent-new"})
+	require.Equal(t, "agent-new", m.pendingSelect)
+	// next list refresh pins it
+	m = step(m, sessionsMsg{sessions: []*store.Session{{ID: "x"}, {ID: "agent-new"}}})
+	require.Equal(t, "agent-new", m.selectedID())
+}
+
+// submit is a test helper: applies one key, runs the resulting command (so
+// fake-api side effects like Spawn are recorded), and returns model + cmd.
+func submit(m Model, msg tea.Msg) (Model, tea.Cmd) {
+	nm, cmd := m.Update(msg)
+	if cmd != nil {
+		cmd()
+	}
+	return nm.(Model), cmd
+}

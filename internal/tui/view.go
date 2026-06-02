@@ -21,6 +21,8 @@ func (m *Model) layout() {
 	if m.vp.Height < 1 {
 		m.vp.Height = 1
 	}
+	m.ta.SetWidth(m.w - 2)
+	m.ta.SetHeight(4)
 }
 
 func (m Model) View() string {
@@ -40,6 +42,9 @@ func (m Model) View() string {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 
 	footer := m.footer()
+	if m.mode == modeNewAgent {
+		footer = stPaneTitle.Render("New agent — describe the task (ctrl+s submit · esc cancel)") + "\n" + m.ta.View()
+	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }
 

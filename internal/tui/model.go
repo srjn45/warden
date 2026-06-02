@@ -43,6 +43,7 @@ type Model struct {
 	mode          mode
 	outputFocused bool
 	killForce     bool
+	pendingSelect string
 	status        string
 	connected     bool
 	w, h          int
@@ -107,7 +108,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case spawnDoneMsg:
+		if msg.err != nil {
+			m.status = "spawn failed: " + msg.err.Error()
+		} else {
+			m.status = "spawned " + msg.id
+			m.pendingSelect = msg.id
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		if m.mode == modeNewAgent {
+			return m.updateNewAgent(msg)
+		}
 		if m.mode == modeNormal && m.outputFocused {
 			switch msg.String() {
 			case "tab", "esc":
@@ -127,10 +140,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // repin keeps the cursor on the session with prevID if it still exists, else clamps.
 func (m *Model) repin(prevID string) {
-	if prevID != "" {
+	want := prevID
+	if m.pendingSelect != "" {
+		want = m.pendingSelect
+	}
+	if want != "" {
 		for i, s := range m.sessions {
-			if s.ID == prevID {
+			if s.ID == want {
 				m.cursor = i
+				if want == m.pendingSelect {
+					m.pendingSelect = ""
+				}
 				return
 			}
 		}
