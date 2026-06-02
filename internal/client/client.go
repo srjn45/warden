@@ -136,6 +136,10 @@ func (c *Client) Input(ctx context.Context, id, text string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/input", map[string]string{"text": text}, nil)
 }
 
+func (c *Client) Restore(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/restore", nil, nil)
+}
+
 func (c *Client) Output(ctx context.Context, id string, lines int) (string, error) {
 	var resp struct {
 		Output string `json:"output"`

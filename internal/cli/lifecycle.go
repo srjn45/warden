@@ -67,6 +67,21 @@ func newStartCmd() *cobra.Command {
 	return cmd
 }
 
+func newRestoreCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restore <TICKET>",
+		Short: "Recreate and resume a lost/orphaned agent (claude --resume)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := clientFor(cmd).Restore(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "restoring %s\n", args[0])
+			return nil
+		},
+	}
+}
+
 func newDoneCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "done <TICKET>",
