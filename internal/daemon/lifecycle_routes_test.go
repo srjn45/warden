@@ -26,6 +26,7 @@ type fakeLife struct {
 	classifyResult store.Type
 	classified     string
 	spawnedWorkdir string
+	spawnedCwd     string
 	tornDown       string
 	restoreErr     error
 	restored       string
@@ -36,6 +37,7 @@ type fakeLife struct {
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
 	f.spawnedWorkdir = req.Workdir
+	f.spawnedCwd = req.Cwd
 	promptMode := req.Prompt != "" && req.Type == ""
 	id := req.Ticket
 	if id == "" {
@@ -355,4 +357,25 @@ func TestHandleRestoreMapsPreconditionErrors(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestPostSpawnForwardsCwd(t *testing.T) {
+	fl := &fakeLife{}
+	ts := lifeServer(t, newFakeStore(), fl)
+	defer ts.Close()
+	dir := t.TempDir()
+	body, _ := json.Marshal(SpawnRequest{Prompt: "do X", Cwd: dir})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	require.Equal(t, dir, fl.spawnedCwd, "cwd is forwarded to the lifecycle")
+}
+
+func TestPostSpawnRejectsMissingCwd(t *testing.T) {
+	ts := lifeServer(t, newFakeStore(), &fakeLife{})
+	defer ts.Close()
+	body, _ := json.Marshal(SpawnRequest{Prompt: "do X", Cwd: "/no/such/dir/xyz123"})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "a cwd that isn't an existing dir is rejected")
 }

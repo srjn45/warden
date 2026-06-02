@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -48,6 +49,14 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if req.Ticket != "" {
 		if _, err := s.store.Get(r.Context(), req.Ticket); err == nil {
 			writeErr(w, http.StatusConflict, "session already exists — use `agentctl attach "+req.Ticket+"`")
+			return
+		}
+	}
+	// A supplied cwd must be a real directory (guards the web picker / typos).
+	// Empty cwd is allowed — the lifecycle falls back to the per-agent data dir.
+	if req.Cwd != "" {
+		if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {
+			writeErr(w, http.StatusBadRequest, "cwd is not an existing directory: "+req.Cwd)
 			return
 		}
 	}
