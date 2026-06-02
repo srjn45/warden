@@ -40,20 +40,29 @@ type Deps interface {
 	List(ctx context.Context) ([]*store.Session, error)
 	UpdateStatus(ctx context.Context, id string, st store.Status) error
 	UpdatePane(ctx context.Context, id, excerpt string) error
+	UpdateSubject(ctx context.Context, id, subject string) error
 	SessionAlive(ctx context.Context, tmuxName string) bool
 	CapturePane(ctx context.Context, tmuxName string) (string, error)
+	Summarize(ctx context.Context, s *store.Session) (string, error)
 }
 
 type Poller struct {
-	deps       Deps
-	stuckAfter time.Duration
+	deps           Deps
+	stuckAfter     time.Duration
+	SummarizeAfter time.Duration       // throttle for subject refresh (0 = every change)
+	lastSummary    map[string]time.Time
 	// OnChange, if set, is called once after a tick that changed any session
 	// (status or pane). The daemon wires this to hub.publish for SSE.
 	OnChange func()
 }
 
 func New(d Deps, stuckAfter time.Duration) *Poller {
-	return &Poller{deps: d, stuckAfter: stuckAfter}
+	return &Poller{
+		deps:           d,
+		stuckAfter:     stuckAfter,
+		SummarizeAfter: 2 * time.Minute,
+		lastSummary:    map[string]time.Time{},
+	}
 }
 
 func isTerminal(s store.Status) bool {
@@ -65,6 +74,7 @@ func (p *Poller) tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	now := time.Now()
 	changed := false
 	for _, s := range sessions {
 		if isTerminal(s.Status) {
@@ -72,11 +82,13 @@ func (p *Poller) tick(ctx context.Context) error {
 		}
 		alive := p.deps.SessionAlive(ctx, s.TmuxSession)
 		var pane string
+		paneChanged := false
 		if alive {
 			pane, _ = p.deps.CapturePane(ctx, s.TmuxSession)
 			if excerpt := lastLines(pane, 20); excerpt != s.LastPaneExcerpt {
 				_ = p.deps.UpdatePane(ctx, s.ID, excerpt)
 				changed = true
+				paneChanged = true
 			}
 		}
 		next := classify(s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
@@ -86,6 +98,18 @@ func (p *Poller) tick(ctx context.Context) error {
 			} else {
 				changed = true
 			}
+		}
+		if alive && paneChanged && now.Sub(p.lastSummary[s.ID]) >= p.SummarizeAfter {
+			if subj, err := p.deps.Summarize(ctx, s); err != nil {
+				log.Printf("poller: summarize %s: %v", s.ID, err)
+			} else if subj != "" && subj != s.Subject {
+				if err := p.deps.UpdateSubject(ctx, s.ID, subj); err != nil {
+					log.Printf("poller: subject %s: %v", s.ID, err)
+				} else {
+					changed = true
+				}
+			}
+			p.lastSummary[s.ID] = now
 		}
 	}
 	if changed && p.OnChange != nil {
