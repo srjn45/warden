@@ -18,6 +18,29 @@ import (
 // records when one *would* have prompted.
 const claudeCmd = "claude --dangerously-skip-permissions"
 
+// classifyInstruction is prepended to the task prompt for headless classification.
+const classifyInstruction = "You are a classifier. Classify the following agent task into exactly one of these labels: development, analysis, spike, pr-review, buildkite-debug, test-run, env-test, other. Reply with ONLY the label, nothing else.\n\nTask: "
+
+// classifyArg builds the single argument passed to `claude -p`.
+func classifyArg(prompt string) string { return classifyInstruction + prompt }
+
+// parseType extracts the first known type label from a model's free-form reply.
+func parseType(out string) store.Type {
+	for _, raw := range strings.Fields(strings.ToLower(out)) {
+		tok := strings.Trim(raw, ".,:;'\"`*()[]")
+		if t := store.NormalizeType(tok); t != store.TypeOther || tok == "other" {
+			return t
+		}
+	}
+	return store.TypeOther
+}
+
+// shellQuoteArg single-quotes s for safe inclusion in a shell command line
+// typed into a tmux pane (preserves spaces, quotes, and newlines).
+func shellQuoteArg(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 type Lifecycle struct {
 	run Runner
 }

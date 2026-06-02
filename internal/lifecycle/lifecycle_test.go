@@ -204,3 +204,18 @@ func TestOutputCapturesPane(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "line1\nline2\n", out)
 }
+
+func TestShellQuoteArg(t *testing.T) {
+	require.Equal(t, `'hi there'`, shellQuoteArg("hi there"))
+	require.Equal(t, `'a'\''b'`, shellQuoteArg("a'b"))
+	require.Equal(t, "'line1\nline2'", shellQuoteArg("line1\nline2"))
+}
+
+func TestParseType(t *testing.T) {
+	require.Equal(t, store.TypeDevelopment, parseType("development"))
+	require.Equal(t, store.TypePRReview, parseType("pr-review\n"))
+	require.Equal(t, store.TypeAnalysis, parseType("This is an analysis task."))
+	require.Equal(t, store.TypeBuildkiteDebug, parseType("Label: buildkite-debug"))
+	require.Equal(t, store.TypeOther, parseType("I am not sure"))
+	require.Equal(t, store.TypeOther, parseType(""))
+}
