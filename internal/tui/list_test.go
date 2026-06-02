@@ -9,6 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestListWindow(t *testing.T) {
+	require.Equal(t, 0, listWindow(3, 0, 10), "n<=visible → 0")
+	require.Equal(t, 0, listWindow(10, 2, 5), "cursor within first window → 0")
+	require.Equal(t, 1, listWindow(10, 5, 5), "cursor at 5, visible 5 → top 1")
+	require.Equal(t, 5, listWindow(10, 9, 5), "cursor at end → n-visible")
+	require.Equal(t, 5, listWindow(10, 100, 5), "cursor past end clamps")
+	require.Equal(t, 0, listWindow(10, 3, 0), "visible<1 → 0")
+}
+
 func TestRenderListContainsAgeColumn(t *testing.T) {
 	m := New(&fakeAPI{})
 	m.sessions = []*store.Session{

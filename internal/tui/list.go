@@ -65,3 +65,23 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+// listWindow returns the index of the first row to render so a window of
+// `visible` rows always contains the cursor. Stateless — derived from cursor +
+// height each render, so no scroll state is kept on the Model.
+func listWindow(n, cursor, visible int) int {
+	if visible < 1 || n <= visible {
+		return 0
+	}
+	top := 0
+	if cursor >= visible {
+		top = cursor - visible + 1
+	}
+	if maxTop := n - visible; top > maxTop {
+		top = maxTop
+	}
+	if top < 0 {
+		top = 0
+	}
+	return top
+}
