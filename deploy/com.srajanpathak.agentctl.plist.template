@@ -7,13 +7,13 @@
   <string>com.srajanpathak.agentctl</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/srajan.pathak/workspace/personal/agentctl/bin/agentctl</string>
+    <string>__BINARY__</string>
     <string>daemon</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>AGENTCTL_ADDR</key><string>127.0.0.1:8765</string>
-    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>AGENTCTL_ADDR</key><string>__ADDR__</string>
+    <key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

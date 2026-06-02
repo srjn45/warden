@@ -32,31 +32,40 @@ make build           # produces bin/agentctl
 
 ## Install the daemon as a launchd service (auto-start)
 
-Copy the plist into `~/Library/LaunchAgents` and load it:
+Install with the script — it builds the release, installs the binary to
+`~/.local/bin/agentctl`, renders and loads the launchd plist, links the Claude
+skill, and registers the MCP server:
 
 ```sh
-cp deploy/com.srajanpathak.agentctl.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist
+./scripts/install.sh        # or: make install
 ```
 
-The daemon starts automatically at login and restarts on crash (`KeepAlive = true`). It listens on `127.0.0.1:8765` by default.
+The daemon then starts automatically at login and restarts on crash
+(`KeepAlive = true`), listening on `127.0.0.1:8765` by default.
 
-Check health:
+> `~/.local/bin` must be on your `PATH` to run `agentctl` from the shell — the
+> installer warns if it isn't.
+
+**Redeploy after a code change** (replaces `make release && ./bin/agentctl daemon`):
 
 ```sh
-curl -s localhost:8765/healthz
-# {"status":"ok"}
+./scripts/reinstall.sh             # rebuild UI + binary, redeploy, restart
+./scripts/reinstall.sh --no-build  # redeploy the existing build only
+# or: make reinstall  /  make reinstall NO_BUILD=1
+```
+
+**Uninstall** (stops and removes the service, binary, skill link, and MCP
+registration; **preserves** your session store at `~/.agentctl` and the logs):
+
+```sh
+./scripts/uninstall.sh                 # or: make uninstall
+./scripts/uninstall.sh --keep-binary   # leave ~/.local/bin/agentctl in place
 ```
 
 Logs:
+
 - stdout: `/tmp/agentctl.daemon.log`
 - stderr: `/tmp/agentctl.daemon.err`
-
-To stop:
-
-```sh
-launchctl unload ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist
-```
 
 ---
 
@@ -365,7 +374,8 @@ MCP server isn't registered). The daemon must be running.
 
 ```sh
 # 1. Start the daemon (once — then managed by launchd)
-make run-daemon   # or: launchctl load ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist
+./scripts/install.sh   # install + start as a background launchd service (recommended)
+make run-daemon        # foreground, for debugging only (blocks the terminal; ctrl-C to stop)
 
 # 2. Spawn an agent for a ticket
 agentctl start PROJ-350 --type development
@@ -389,7 +399,7 @@ agentctl done PROJ-350
 make build          # go build -o bin/agentctl ./cmd/agentctl
 make test           # go test ./...
 make lint           # go vet ./...
-make run-daemon     # build + start daemon locally
+make run-daemon     # build + start daemon in the foreground (debugging only)
 ```
 
 All tests run without Docker or any external services:
