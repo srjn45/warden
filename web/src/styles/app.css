@@ -42,3 +42,4 @@ body { margin: 0; }
 .modal label { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
 .modal input, .modal select { padding: .4rem; }
 .modal .actions { display: flex; gap: .5rem; justify-content: flex-end; }
+.modal textarea { padding: .5rem; font: inherit; resize: vertical; }
