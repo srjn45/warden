@@ -27,6 +27,8 @@ type SpawnRequest struct {
 	Branch   string `json:"branch"`   // optional; development branch / pr-review checkout
 	PR       string `json:"pr"`       // optional; pr-review
 	Worktree bool   `json:"worktree"` // analysis/spike opt-in
+	Prompt   string `json:"prompt"`   // prompt-mode: the agent's initial prompt
+	Workdir  string `json:"-"`        // filled server-side in prompt mode
 }
 
 // CleanupRequest is the body for POST /cleanup.
@@ -63,6 +65,7 @@ type Server struct {
 	poller       *poller.Poller
 	pollInterval time.Duration
 	hub          *hub
+	workdir      string
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -79,6 +82,7 @@ func (s *Server) notify() {
 // Phase 4 adapter translates daemon.SpawnRequest → lifecycle.SpawnRequest.
 type Lifecycle interface {
 	Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error)
+	Classify(ctx context.Context, prompt string) (store.Type, error)
 	Cleanup(ctx context.Context, id string, force, hard bool) error
 	Input(ctx context.Context, tmuxSession, text string) error
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)

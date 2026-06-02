@@ -34,12 +34,15 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer st.Close(context.Background())
 
+			if err := os.MkdirAll(cfg.Workdir, 0o755); err != nil {
+				return err
+			}
 			runner := lifecycle.ExecRunner{}
 			lc := lifecycle.New(runner)
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner)
 			pl := poller.New(pd, 5*time.Minute)
-			srv := daemon.NewServer(st, life, pl, 10*time.Second)
+			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.Workdir)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},

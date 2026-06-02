@@ -9,12 +9,12 @@ import (
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
-func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.Duration) *Server {
+func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.Duration, workdir string) *Server {
 	h := newHub()
 	if p != nil {
 		p.OnChange = h.publish
 	}
-	return &Server{store: st, life: life, poller: p, pollInterval: interval, hub: h}
+	return &Server{store: st, life: life, poller: p, pollInterval: interval, hub: h, workdir: workdir}
 }
 
 // ListenAndServe blocks serving the API on addr until ctx is cancelled.

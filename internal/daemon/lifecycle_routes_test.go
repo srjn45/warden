@@ -15,10 +15,12 @@ import (
 
 // fakeLife implements daemon.Lifecycle for route tests.
 type fakeLife struct {
-	spawned   *store.Session
-	cleaned   string
-	lastInput string
-	output    string
+	spawned        *store.Session
+	cleaned        string
+	lastInput      string
+	output         string
+	classifyResult store.Type
+	classified     string
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -31,6 +33,13 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 		Repo: req.Repo, Status: store.StatusSpawning,
 	}
 	return f.spawned, nil
+}
+func (f *fakeLife) Classify(_ context.Context, prompt string) (store.Type, error) {
+	f.classified = prompt
+	if f.classifyResult == "" {
+		return store.TypeOther, nil
+	}
+	return f.classifyResult, nil
 }
 func (f *fakeLife) Cleanup(_ context.Context, id string, force, hard bool) error {
 	f.cleaned = id

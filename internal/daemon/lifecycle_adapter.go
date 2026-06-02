@@ -19,16 +19,27 @@ func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st store.Store) Lifecycle {
 }
 
 // Spawn translates the daemon's wire DTO into the lifecycle request, normalizing
-// the type so unknown types collapse to "other" (no worktree).
+// the type so unknown types collapse to "other" (no worktree). In prompt mode
+// (Prompt set, Type empty) the Type is left empty so the doc stays "classifying".
 func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
-	return a.lc.Spawn(ctx, lifecycle.SpawnRequest{
-		Type:     store.NormalizeType(req.Type),
+	lr := lifecycle.SpawnRequest{
 		Ticket:   req.Ticket,
 		Repo:     req.Repo,
 		Branch:   req.Branch,
 		PR:       req.PR,
 		Worktree: req.Worktree,
-	})
+		Prompt:   req.Prompt,
+		Workdir:  req.Workdir,
+	}
+	// Leave Type empty in prompt mode so it stays "classifying"; otherwise normalize.
+	if !(req.Prompt != "" && req.Type == "") {
+		lr.Type = store.NormalizeType(req.Type)
+	}
+	return a.lc.Spawn(ctx, lr)
+}
+
+func (a *lifecycleAdapter) Classify(ctx context.Context, prompt string) (store.Type, error) {
+	return a.lc.Classify(ctx, prompt)
 }
 
 func (a *lifecycleAdapter) Cleanup(ctx context.Context, id string, force, hard bool) error {
