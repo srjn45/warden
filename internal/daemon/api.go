@@ -111,6 +111,7 @@ func (s *Server) router() http.Handler {
 	// Lifecycle routes: POST /spawn, /sessions/{id}/{terminate,delete,
 	// remove-worktree,input,restore}, GET /sessions/{id}/output.
 	s.registerLifecycleRoutes(r)
+	r.Get("/fs/dirs", s.handleListDirs)
 	s.registerStatic(r) // catch-all; must be last
 	return r
 }
