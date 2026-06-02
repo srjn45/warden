@@ -19,6 +19,7 @@ func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Post("/cleanup", s.handleCleanup)
 	r.Post("/sessions/{id}/input", s.handleInput)
 	r.Get("/sessions/{id}/output", s.handleOutput)
+	r.Post("/sessions/{id}/restore", s.handleRestore)
 }
 
 func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
@@ -177,4 +178,36 @@ func (s *Server) handleOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, OutputResponse{Output: out})
+}
+
+func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	sess, err := s.store.Get(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.life.Restore(r.Context(), sess); err != nil {
+		switch {
+		case errors.Is(err, lifecycle.ErrAlreadyRunning):
+			writeErr(w, http.StatusConflict, err.Error())
+		case errors.Is(err, lifecycle.ErrNoSessionID),
+			errors.Is(err, lifecycle.ErrWorkdirMissing),
+			errors.Is(err, lifecycle.ErrNoTranscript):
+			writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		default:
+			writeErr(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	if err := s.store.UpdateStatus(r.Context(), id, store.StatusSpawning); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.notify()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restoring"})
 }

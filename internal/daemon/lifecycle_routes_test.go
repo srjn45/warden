@@ -28,6 +28,8 @@ type fakeLife struct {
 	spawnedWorkdir string
 	tornDown       string
 	cleanupErr     error // when set, Cleanup fails with it
+	restoreErr     error
+	restored       string
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -77,6 +79,10 @@ func (f *fakeLife) Teardown(_ context.Context, sess *store.Session) error {
 	defer f.mu.Unlock()
 	f.tornDown = sess.ID
 	return nil
+}
+func (f *fakeLife) Restore(_ context.Context, sess *store.Session) error {
+	f.restored = sess.ID
+	return f.restoreErr
 }
 func (f *fakeLife) Input(_ context.Context, s, text string) error { f.lastInput = text; return nil }
 func (f *fakeLife) Output(_ context.Context, s string, n int) (string, error) {
@@ -328,4 +334,31 @@ func TestPostSpawnRequiresPromptOrTypeRepo(t *testing.T) {
 	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestHandleRestoreSucceeds(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusOrphaned})
+	fl := &fakeLife{}
+	srv := lifeServer(t, fs, fl)
+
+	resp, err := http.Post(srv.URL+"/sessions/A-1/restore", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "A-1", fl.restored)
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Equal(t, store.StatusSpawning, got.Status)
+}
+
+func TestHandleRestoreMapsPreconditionErrors(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1"})
+	fl := &fakeLife{restoreErr: lifecycle.ErrAlreadyRunning}
+	srv := lifeServer(t, fs, fl)
+
+	resp, err := http.Post(srv.URL+"/sessions/A-1/restore", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
 }

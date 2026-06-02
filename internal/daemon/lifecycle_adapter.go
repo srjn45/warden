@@ -63,6 +63,10 @@ func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *store.Session) er
 	}, true)
 }
 
+func (a *lifecycleAdapter) Restore(ctx context.Context, sess *store.Session) error {
+	return a.lc.Restore(ctx, sess)
+}
+
 func (a *lifecycleAdapter) Input(ctx context.Context, tmuxSession, text string) error {
 	return a.lc.Input(ctx, tmuxSession, text)
 }
