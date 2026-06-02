@@ -91,6 +91,8 @@ type Lifecycle interface {
 	// any) using the already-known doc, without consulting the store. It is used
 	// to roll back Spawn's side effects when persisting the doc fails.
 	Teardown(ctx context.Context, sess *store.Session) error
+	// Restore recreates and resumes a lost session from its stored doc.
+	Restore(ctx context.Context, sess *store.Session) error
 	Input(ctx context.Context, tmuxSession, text string) error
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
 }
