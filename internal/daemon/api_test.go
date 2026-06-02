@@ -48,6 +48,14 @@ func (f *fakeStore) UpdateStatus(_ context.Context, id string, st store.Status) 
 	s.Status = st
 	return nil
 }
+func (f *fakeStore) UpdateType(_ context.Context, id string, t store.Type) error {
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	s.Type = t
+	return nil
+}
 func (f *fakeStore) AppendEvent(_ context.Context, id string, ev store.Event) error {
 	s, ok := f.data[id]
 	if !ok {

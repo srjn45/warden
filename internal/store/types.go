@@ -73,6 +73,7 @@ type Session struct {
 	Worktree        string    `bson:"worktree" json:"worktree"`     // optional (empty = no worktree)
 	Branch          string    `bson:"branch" json:"branch"`         // optional
 	PR              string    `bson:"pr" json:"pr"`                 // optional (pr-review)
+	Prompt          string    `bson:"prompt" json:"prompt"`           // initial prompt (prompt-spawned agents)
 	Status          Status    `bson:"status" json:"status"`
 	PID             int       `bson:"pid" json:"pid"`
 	CreatedAt       time.Time `bson:"created_at" json:"created_at"`

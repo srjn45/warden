@@ -104,3 +104,12 @@ func TestList(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 2)
 }
+
+func TestUpdateType(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	require.NoError(t, st.UpdateType(ctx, "PROJ-350", TypeAnalysis))
+	got, _ := st.Get(ctx, "PROJ-350")
+	require.Equal(t, TypeAnalysis, got.Type)
+}

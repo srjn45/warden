@@ -16,6 +16,7 @@ func TestSessionBSONRoundTrip(t *testing.T) {
 		Repo:        "/repo",
 		Worktree:    ".worktrees/PROJ-350",
 		Branch:      "PROJ-350",
+		Prompt:      "do a security review of the auth module",
 		Status:      StatusSpawning,
 		PID:         123,
 		Events:      []Event{{Type: "SessionStart"}},
@@ -30,6 +31,7 @@ func TestSessionBSONRoundTrip(t *testing.T) {
 	require.Equal(t, StatusSpawning, got.Status)
 	require.Len(t, got.Events, 1)
 	require.Equal(t, "SessionStart", got.Events[0].Type)
+	require.Equal(t, "do a security review of the auth module", got.Prompt)
 }
 
 func TestStatusValid(t *testing.T) {
