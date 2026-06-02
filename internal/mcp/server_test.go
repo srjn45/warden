@@ -79,6 +79,39 @@ func textOf(res *mcpsdk.CallToolResult) string {
 	return out
 }
 
+func TestSpawnAgentToolSendsExplicitDirAsCwd(t *testing.T) {
+	var gotBody string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/spawn" {
+			b, _ := io.ReadAll(r.Body)
+			gotBody = string(b)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"agent-x","status":"spawning"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, serverTransport) }()
+
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "spawn_agent",
+		Arguments: map[string]any{"prompt": "do X", "dir": "/work/proj"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, gotBody, `"cwd":"/work/proj"`)
+}
+
 func TestRestoreAgentTool(t *testing.T) {
 	var hitPath string
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

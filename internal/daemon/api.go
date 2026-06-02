@@ -29,6 +29,7 @@ type SpawnRequest struct {
 	Worktree bool   `json:"worktree"` // analysis/spike opt-in
 	Prompt   string `json:"prompt"`   // prompt-mode: the agent's initial prompt
 	Workdir  string `json:"-"`        // filled server-side in prompt mode
+	Cwd      string `json:"cwd"`      // dir to launch claude from (caller cwd / web pick)
 }
 
 type deleteRequest struct {
@@ -110,6 +111,7 @@ func (s *Server) router() http.Handler {
 	// Lifecycle routes: POST /spawn, /sessions/{id}/{terminate,delete,
 	// remove-worktree,input,restore}, GET /sessions/{id}/output.
 	s.registerLifecycleRoutes(r)
+	r.Get("/fs/dirs", s.handleListDirs)
 	s.registerStatic(r) // catch-all; must be last
 	return r
 }

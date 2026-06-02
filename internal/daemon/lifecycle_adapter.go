@@ -30,6 +30,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		Worktree: req.Worktree,
 		Prompt:   req.Prompt,
 		Workdir:  req.Workdir,
+		Cwd:      req.Cwd,
 	}
 	// Leave Type empty in prompt mode so it stays "classifying"; otherwise normalize.
 	if !(req.Prompt != "" && req.Type == "") {

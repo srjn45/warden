@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/srajanpathak/agentctl/internal/client"
@@ -22,7 +23,12 @@ func newStartCmd() *cobra.Command {
 				if len(args) != 1 {
 					return fmt.Errorf("provide a prompt: agentctl start \"<prompt>\"  (or use --type for a managed worktree)")
 				}
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0]})
+				dirFlag, _ := cmd.Flags().GetString("dir")
+				dir, err := resolveDir(dirFlag)
+				if err != nil {
+					return err
+				}
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0], Cwd: dir})
 				if err != nil {
 					return err
 				}
@@ -64,7 +70,22 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().String("branch", "", "new branch (development) or checkout target (pr-review)")
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
+	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
 	return cmd
+}
+
+// resolveDir returns the explicit --dir flag value (resolved to an absolute
+// path against the caller's cwd), or the current working directory when the
+// flag is empty. This is where the agent's claude is launched.
+// Resolve to absolute HERE (in the CLI process, where cwd is correct), not in
+// the daemon which runs under launchd with a different cwd.
+func resolveDir(flagVal string) (string, error) {
+	if flagVal != "" {
+		// Resolve a relative --dir against the CALLER's cwd (here), not the
+		// daemon's: the daemon runs under launchd with a different cwd.
+		return filepath.Abs(flagVal)
+	}
+	return os.Getwd()
 }
 
 func newRestoreCmd() *cobra.Command {

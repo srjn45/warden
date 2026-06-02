@@ -153,7 +153,8 @@ type SpawnRequest struct {
 	PR       string // optional; pr-review
 	Worktree bool   // analysis/spike opt-in
 	Prompt   string // prompt-mode: the agent's initial prompt (no repo/worktree)
-	Workdir  string // prompt-mode: working directory for the tmux session
+	Workdir  string // prompt-mode: base dir for per-agent data (~/agentctl-agents)
+	Cwd      string // prompt-mode: dir to launch claude from (caller cwd); falls back to the per-agent data dir when empty
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -405,22 +406,29 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	sess.ClaudeSessionID = store.NewSessionID()
 
 	if promptMode {
-		dir := filepath.Join(req.Workdir, id)
-		if out, err := l.run.Run(ctx, "", "mkdir", "-p", dir); err != nil {
+		dataDir := filepath.Join(req.Workdir, id)
+		if out, err := l.run.Run(ctx, "", "mkdir", "-p", dataDir); err != nil {
 			return nil, fmt.Errorf("mkdir workdir: %w: %s", err, out)
 		}
-		sess.Workdir = dir
+		// Claude is launched from the caller's cwd so it operates on their project;
+		// the per-agent data dir only holds bookkeeping (the prompt file). When no
+		// cwd is supplied, fall back to the data dir (the original behavior).
+		launchDir := req.Cwd
+		if launchDir == "" {
+			launchDir = dataDir
+		}
+		sess.Workdir = launchDir
 		// Persist the prompt to a file, then launch claude with the prompt read
 		// back via "$(cat …)". This keeps the command typed into the pane to a
 		// single physical line: a multi-line prompt typed directly would have its
 		// embedded newlines register as Enter, submitting the half-typed command.
 		// The prompt is passed to the writer as an exec argument (never through a
 		// shell), so quotes and newlines in it need no escaping.
-		promptFile := filepath.Join(dir, promptFileName)
+		promptFile := filepath.Join(dataDir, promptFileName)
 		if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
 			return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
 		}
-		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", dir); err != nil {
+		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", launchDir); err != nil {
 			return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
 		}
 		launch := claudeLaunch(sess.ClaudeSessionID, id) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
