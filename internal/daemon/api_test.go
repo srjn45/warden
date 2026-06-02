@@ -117,6 +117,17 @@ func (f *fakeStore) AppendEventStatus(_ context.Context, id string, ev store.Eve
 	return nil
 }
 func (f *fakeStore) UpdatePane(_ context.Context, id, ex string) error { return nil }
+func (f *fakeStore) ClearWorktree(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	s.Worktree = ""
+	s.Branch = ""
+	return nil
+}
 func (f *fakeStore) Archive(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

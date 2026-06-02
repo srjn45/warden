@@ -212,6 +212,10 @@ func (fs *FileStore) UpdatePane(ctx context.Context, id, excerpt string) error {
 	return fs.mutate(id, func(s *Session) { s.LastPaneExcerpt = excerpt })
 }
 
+func (fs *FileStore) ClearWorktree(ctx context.Context, id string) error {
+	return fs.mutate(id, func(s *Session) { s.Worktree = ""; s.Branch = "" })
+}
+
 func (fs *FileStore) AppendEvent(ctx context.Context, id string, ev Event) error {
 	if ev.TS.IsZero() {
 		ev.TS = time.Now().UTC()

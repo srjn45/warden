@@ -251,6 +251,19 @@ func TestFileAppendEventStatus(t *testing.T) {
 	require.Equal(t, StatusIdle, got.Status, "empty status leaves status unchanged")
 }
 
+func TestFileClearWorktree(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	s := sample() // has Worktree + Branch set
+	require.NoError(t, st.Insert(ctx, s))
+	require.NoError(t, st.ClearWorktree(ctx, s.ID))
+	got, err := st.Get(ctx, s.ID)
+	require.NoError(t, err)
+	require.Empty(t, got.Worktree, "worktree cleared")
+	require.Empty(t, got.Branch, "branch cleared")
+	require.ErrorIs(t, st.ClearWorktree(ctx, "nope"), ErrNotFound)
+}
+
 func TestFileConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 	st := newFileStore(t)
