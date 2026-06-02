@@ -150,9 +150,9 @@ func (fs *FileStore) List(ctx context.Context) ([]*Session, error) {
 	return out, nil
 }
 
-// UpdateStatus is included in this task so List's sort test can touch a session.
-// (The remaining mutators arrive in the next task.)
-func (fs *FileStore) UpdateStatus(ctx context.Context, id string, status Status) error {
+// mutate loads the active session, applies fn, bumps UpdatedAt, and writes it
+// back atomically — the read-check-write runs under the write lock.
+func (fs *FileStore) mutate(id string, fn func(*Session)) error {
 	if err := safeID(id); err != nil {
 		return err
 	}
@@ -162,10 +162,75 @@ func (fs *FileStore) UpdateStatus(ctx context.Context, id string, status Status)
 	if err != nil {
 		return err
 	}
-	s.Status = status
+	fn(s)
 	s.UpdatedAt = time.Now().UTC()
 	return atomicWriteJSON(fs.activePath(id), s)
 }
+
+func (fs *FileStore) UpdateStatus(ctx context.Context, id string, status Status) error {
+	return fs.mutate(id, func(s *Session) { s.Status = status })
+}
+
+// UpdateStatusIf sets status to next only when the stored status still equals
+// expected. A missing document returns (false, nil) — not an error — matching
+// MongoStore's filtered update.
+func (fs *FileStore) UpdateStatusIf(ctx context.Context, id string, expected, next Status) (bool, error) {
+	if err := safeID(id); err != nil {
+		return false, err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	s, err := readSession(fs.activePath(id))
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if s.Status != expected {
+		return false, nil
+	}
+	s.Status = next
+	s.UpdatedAt = time.Now().UTC()
+	if err := atomicWriteJSON(fs.activePath(id), s); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (fs *FileStore) UpdateType(ctx context.Context, id string, t Type) error {
+	return fs.mutate(id, func(s *Session) { s.Type = t })
+}
+
+func (fs *FileStore) UpdateSubject(ctx context.Context, id, subject string) error {
+	return fs.mutate(id, func(s *Session) { s.Subject = subject })
+}
+
+func (fs *FileStore) UpdatePane(ctx context.Context, id, excerpt string) error {
+	return fs.mutate(id, func(s *Session) { s.LastPaneExcerpt = excerpt })
+}
+
+func (fs *FileStore) AppendEvent(ctx context.Context, id string, ev Event) error {
+	if ev.TS.IsZero() {
+		ev.TS = time.Now().UTC()
+	}
+	return fs.mutate(id, func(s *Session) { s.Events = append(s.Events, ev) })
+}
+
+func (fs *FileStore) AppendEventStatus(ctx context.Context, id string, ev Event, status Status) error {
+	if ev.TS.IsZero() {
+		ev.TS = time.Now().UTC()
+	}
+	return fs.mutate(id, func(s *Session) {
+		s.Events = append(s.Events, ev)
+		if status != "" {
+			s.Status = status
+		}
+	})
+}
+
+// Compile-time check that FileStore satisfies the full Store interface.
+var _ Store = (*FileStore)(nil)
 
 func (fs *FileStore) Archive(ctx context.Context, id string) error {
 	if err := safeID(id); err != nil {

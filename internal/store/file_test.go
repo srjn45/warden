@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -118,4 +120,118 @@ func TestFileDelete(t *testing.T) {
 	_, err := st.Get(ctx, "PROJ-350")
 	require.ErrorIs(t, err, ErrNotFound)
 	require.ErrorIs(t, st.Delete(ctx, "PROJ-350"), ErrNotFound, "deleting missing is ErrNotFound")
+}
+
+func TestFileUpdateStatusBumpsUpdatedAt(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	before, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, st.UpdateStatus(ctx, "PROJ-350", StatusWorking))
+
+	after, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+	require.Equal(t, StatusWorking, after.Status)
+	require.True(t, after.UpdatedAt.After(before.UpdatedAt), "UpdateStatus must bump updated_at")
+}
+
+func TestFileUpdateStatusNotFound(t *testing.T) {
+	require.ErrorIs(t, newFileStore(t).UpdateStatus(context.Background(), "nope", StatusWorking), ErrNotFound)
+}
+
+func TestFileUpdateStatusIf(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample())) // status = spawning
+
+	// No-op when expected doesn't match.
+	ok, err := st.UpdateStatusIf(ctx, "PROJ-350", StatusWorking, StatusIdle)
+	require.NoError(t, err)
+	require.False(t, ok)
+	got, _ := st.Get(ctx, "PROJ-350")
+	require.Equal(t, StatusSpawning, got.Status, "non-matching CAS leaves status unchanged")
+
+	// Swaps when expected matches.
+	ok, err = st.UpdateStatusIf(ctx, "PROJ-350", StatusSpawning, StatusWorking)
+	require.NoError(t, err)
+	require.True(t, ok)
+	got, _ = st.Get(ctx, "PROJ-350")
+	require.Equal(t, StatusWorking, got.Status)
+
+	// Missing doc is (false, nil), not an error — matches Mongo's filtered update.
+	ok, err = st.UpdateStatusIf(ctx, "ghost", StatusSpawning, StatusWorking)
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestFileUpdateTypeAndSubjectAndPane(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	require.NoError(t, st.UpdateType(ctx, "PROJ-350", TypeDevelopment))
+	require.NoError(t, st.UpdateSubject(ctx, "PROJ-350", "review auth module"))
+	require.NoError(t, st.UpdatePane(ctx, "PROJ-350", "esc to interrupt"))
+
+	got, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+	require.Equal(t, TypeDevelopment, got.Type)
+	require.Equal(t, "review auth module", got.Subject)
+	require.Equal(t, "esc to interrupt", got.LastPaneExcerpt)
+}
+
+func TestFileAppendEvent(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	require.NoError(t, st.AppendEvent(ctx, "PROJ-350", Event{Type: "Notification", Detail: "needs input"}))
+
+	got, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+	require.Len(t, got.Events, 1)
+	require.Equal(t, "Notification", got.Events[0].Type)
+	require.False(t, got.Events[0].TS.IsZero(), "AppendEvent must stamp ts")
+}
+
+func TestFileAppendEventStatus(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	require.NoError(t, st.AppendEventStatus(ctx, "PROJ-350",
+		Event{Type: "Stop"}, StatusIdle))
+
+	got, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+	require.Len(t, got.Events, 1)
+	require.Equal(t, StatusIdle, got.Status, "AppendEventStatus sets status atomically with the event")
+
+	// Empty status only appends.
+	require.NoError(t, st.AppendEventStatus(ctx, "PROJ-350", Event{Type: "Note"}, ""))
+	got, _ = st.Get(ctx, "PROJ-350")
+	require.Len(t, got.Events, 2)
+	require.Equal(t, StatusIdle, got.Status, "empty status leaves status unchanged")
+}
+
+func TestFileConcurrentAccess(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = st.UpdateStatus(ctx, "PROJ-350", StatusWorking)
+			_ = st.AppendEvent(ctx, "PROJ-350", Event{Type: "tick"})
+			_, _ = st.List(ctx)
+		}()
+	}
+	wg.Wait()
+
+	got, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+	require.Len(t, got.Events, 20, "every concurrent AppendEvent must be durable (no lost writes)")
 }
