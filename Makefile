@@ -1,4 +1,4 @@
-.PHONY: build test lint mongo-up mongo-down run-daemon ui ui-dev web-test release install-skill
+.PHONY: build test lint run-daemon ui ui-dev web-test release install-skill
 
 build:
 	go build -o bin/agentctl ./cmd/agentctl
@@ -8,12 +8,6 @@ test:
 
 lint:
 	go vet ./...
-
-mongo-up:
-	docker compose up -d mongo
-
-mongo-down:
-	docker compose down
 
 run-daemon: build
 	./bin/agentctl daemon
