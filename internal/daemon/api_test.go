@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -14,12 +15,15 @@ import (
 
 // fakeStore is an in-memory store.Store for handler tests.
 type fakeStore struct {
+	mu   sync.Mutex
 	data map[string]*store.Session
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{data: map[string]*store.Session{}} }
 
 func (f *fakeStore) Insert(_ context.Context, s *store.Session) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if _, ok := f.data[s.ID]; ok {
 		return store.ErrExists
 	}
@@ -27,6 +31,8 @@ func (f *fakeStore) Insert(_ context.Context, s *store.Session) error {
 	return nil
 }
 func (f *fakeStore) Get(_ context.Context, id string) (*store.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
 		return nil, store.ErrNotFound
@@ -34,6 +40,8 @@ func (f *fakeStore) Get(_ context.Context, id string) (*store.Session, error) {
 	return s, nil
 }
 func (f *fakeStore) List(_ context.Context) ([]*store.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	out := make([]*store.Session, 0, len(f.data))
 	for _, s := range f.data {
 		out = append(out, s)
@@ -41,6 +49,8 @@ func (f *fakeStore) List(_ context.Context) ([]*store.Session, error) {
 	return out, nil
 }
 func (f *fakeStore) UpdateStatus(_ context.Context, id string, st store.Status) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
 		return store.ErrNotFound
@@ -49,6 +59,8 @@ func (f *fakeStore) UpdateStatus(_ context.Context, id string, st store.Status) 
 	return nil
 }
 func (f *fakeStore) UpdateType(_ context.Context, id string, t store.Type) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
 		return store.ErrNotFound
@@ -57,6 +69,8 @@ func (f *fakeStore) UpdateType(_ context.Context, id string, t store.Type) error
 	return nil
 }
 func (f *fakeStore) AppendEvent(_ context.Context, id string, ev store.Event) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
 		return store.ErrNotFound
@@ -65,10 +79,20 @@ func (f *fakeStore) AppendEvent(_ context.Context, id string, ev store.Event) er
 	return nil
 }
 func (f *fakeStore) UpdatePane(_ context.Context, id, ex string) error { return nil }
-func (f *fakeStore) Archive(_ context.Context, id string) error        { delete(f.data, id); return nil }
-func (f *fakeStore) Delete(_ context.Context, id string) error         { delete(f.data, id); return nil }
-func (f *fakeStore) Ping(_ context.Context) error                      { return nil }
-func (f *fakeStore) Close(_ context.Context) error                     { return nil }
+func (f *fakeStore) Archive(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.data, id)
+	return nil
+}
+func (f *fakeStore) Delete(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.data, id)
+	return nil
+}
+func (f *fakeStore) Ping(_ context.Context) error  { return nil }
+func (f *fakeStore) Close(_ context.Context) error { return nil }
 
 func testServer(t *testing.T, fs *fakeStore) *httptest.Server {
 	t.Helper()

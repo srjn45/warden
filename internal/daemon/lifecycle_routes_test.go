@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,31 +16,50 @@ import (
 
 // fakeLife implements daemon.Lifecycle for route tests.
 type fakeLife struct {
+	mu             sync.Mutex
 	spawned        *store.Session
 	cleaned        string
 	lastInput      string
 	output         string
 	classifyResult store.Type
 	classified     string
+	spawnedWorkdir string
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
+	f.spawnedWorkdir = req.Workdir
+	promptMode := req.Prompt != "" && req.Type == ""
 	id := req.Ticket
 	if id == "" {
-		id = req.Type + "-auto"
+		if promptMode {
+			id = "agent-test"
+		} else {
+			id = req.Type + "-auto"
+		}
+	}
+	typ := store.Type("")
+	if !promptMode {
+		typ = store.NormalizeType(req.Type)
 	}
 	f.spawned = &store.Session{
-		ID: id, Type: store.NormalizeType(req.Type), Ticket: req.Ticket,
-		Repo: req.Repo, Status: store.StatusSpawning,
+		ID: id, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
+		Prompt: req.Prompt, Status: store.StatusSpawning,
 	}
 	return f.spawned, nil
 }
 func (f *fakeLife) Classify(_ context.Context, prompt string) (store.Type, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.classified = prompt
 	if f.classifyResult == "" {
 		return store.TypeOther, nil
 	}
 	return f.classifyResult, nil
+}
+func (f *fakeLife) getClassified() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.classified
 }
 func (f *fakeLife) Cleanup(_ context.Context, id string, force, hard bool) error {
 	f.cleaned = id
@@ -160,4 +180,60 @@ func TestSpawnNotifiesSubscribers(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("spawn did not notify SSE subscribers")
 	}
+}
+
+func promptServer(t *testing.T, fs *fakeStore, fl *fakeLife) *Server {
+	t.Helper()
+	return &Server{store: fs, life: fl, hub: newHub(), workdir: "/tmp/agentctl-agents"}
+}
+
+func TestPostSpawnPromptMode(t *testing.T) {
+	fl := &fakeLife{}
+	srv := promptServer(t, newFakeStore(), fl)
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	body, _ := json.Marshal(SpawnRequest{Prompt: "research SSE reconnection"})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var got store.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	require.NotEmpty(t, got.ID)
+	require.Equal(t, store.Type(""), got.Type, "type empty at creation (classifying)")
+	require.Equal(t, "research SSE reconnection", got.Prompt)
+	require.Equal(t, "/tmp/agentctl-agents", fl.spawnedWorkdir, "server workdir passed to spawn")
+}
+
+func TestPostSpawnPromptThenClassifies(t *testing.T) {
+	fs := newFakeStore()
+	fl := &fakeLife{classifyResult: store.TypeAnalysis}
+	srv := promptServer(t, fs, fl)
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	body, _ := json.Marshal(SpawnRequest{Prompt: "investigate flaky test"})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var created store.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+
+	// Background classification updates the type shortly after.
+	require.Eventually(t, func() bool {
+		s, err := fs.Get(context.Background(), created.ID)
+		return err == nil && s.Type == store.TypeAnalysis
+	}, 2*time.Second, 10*time.Millisecond)
+	require.Equal(t, "investigate flaky test", fl.getClassified())
+}
+
+func TestPostSpawnRequiresPromptOrTypeRepo(t *testing.T) {
+	srv := promptServer(t, newFakeStore(), &fakeLife{})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+	body, _ := json.Marshal(SpawnRequest{}) // nothing
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
