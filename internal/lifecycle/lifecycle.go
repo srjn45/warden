@@ -525,12 +525,38 @@ func (l *Lifecycle) Cleanup(ctx context.Context, t CleanupTarget, force bool) er
 	return nil
 }
 
-// Input types text into the agent's tmux pane and presses Enter.
-// `--` prevents text starting with `-` being read as a flag.
+// inputSubmitDelay is the pause between pasting the message and pressing Enter,
+// so the TUI finishes ingesting a (possibly multi-line) bracketed paste before
+// the submit keystroke arrives. Overridable in tests.
+var inputSubmitDelay = 150 * time.Millisecond
+
+// Input sends text to the agent's tmux pane and submits it.
+//
+// It does NOT type the text followed by Enter in one send-keys call: in the
+// Claude Code TUI that fuses two problems — a long/multi-line paste can still be
+// settling when the Enter arrives (so the submit is dropped, leaving the text
+// stranded in the composer), and raw embedded newlines register as Enter
+// keypresses (so multi-line / plan-mode input submits a fragment or never
+// submits). Instead it bracketed-pastes the text via a per-session tmux buffer
+// (newlines stay content; per-session name avoids clobbering across concurrent
+// sends) and then presses Enter as a SEPARATE keystroke after a short settle.
 func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
-	out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", tmuxSession, "--", text, "Enter")
-	if err != nil {
-		return fmt.Errorf("tmux send-keys: %w: %s", err, out)
+	buf := "agentctl-input-" + tmuxSession
+	if out, err := l.run.Run(ctx, "", "tmux", "set-buffer", "-b", buf, "--", text); err != nil {
+		return fmt.Errorf("tmux set-buffer: %w: %s", err, out)
+	}
+	if out, err := l.run.Run(ctx, "", "tmux", "paste-buffer", "-t", tmuxSession, "-b", buf, "-p", "-d"); err != nil {
+		return fmt.Errorf("tmux paste-buffer: %w: %s", err, out)
+	}
+	if inputSubmitDelay > 0 {
+		select {
+		case <-time.After(inputSubmitDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", tmuxSession, "Enter"); err != nil {
+		return fmt.Errorf("tmux send-keys Enter: %w: %s", err, out)
 	}
 	return nil
 }

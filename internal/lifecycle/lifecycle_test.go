@@ -237,11 +237,45 @@ func TestSpawnPRReviewWithExplicitBranch(t *testing.T) {
 	require.NotContains(t, fr.calledArgs(), []string{"gh", "pr", "checkout", "12345"})
 }
 
-func TestInputSendsKeys(t *testing.T) {
+func TestInputBracketPastesThenSubmits(t *testing.T) {
+	inputSubmitDelay = 0 // no real wait in tests
 	fr := &FakeRunner{}
 	lc := New(fr)
 	require.NoError(t, lc.Input(context.Background(), "A-1", "what is your status?"))
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "A-1", "--", "what is your status?", "Enter"})
+	args := fr.calledArgs()
+	// Text is loaded into a per-session buffer and bracketed-pasted (so it is
+	// treated as content), then Enter is a SEPARATE keystroke that submits.
+	require.Contains(t, args, []string{"tmux", "set-buffer", "-b", "agentctl-input-A-1", "--", "what is your status?"})
+	require.Contains(t, args, []string{"tmux", "paste-buffer", "-t", "A-1", "-b", "agentctl-input-A-1", "-p", "-d"})
+	require.Contains(t, args, []string{"tmux", "send-keys", "-t", "A-1", "Enter"})
+
+	// The submit Enter must come AFTER the paste.
+	paste, enter := -1, -1
+	for i, a := range args {
+		if len(a) > 1 && a[1] == "paste-buffer" {
+			paste = i
+		}
+		if len(a) > 1 && a[1] == "send-keys" && a[len(a)-1] == "Enter" {
+			enter = i
+		}
+	}
+	require.Greater(t, enter, paste, "Enter is sent after the paste, not fused with it")
+}
+
+func TestInputMultilineIsPastedAsContentNotEnters(t *testing.T) {
+	inputSubmitDelay = 0
+	fr := &FakeRunner{}
+	require.NoError(t, New(fr).Input(context.Background(), "A-1", "line one\nline two"))
+	// The whole multi-line message is one buffer (newlines preserved as content).
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-buffer", "-b", "agentctl-input-A-1", "--", "line one\nline two"})
+	// Exactly one Enter keystroke — the submit — never one per line.
+	enters := 0
+	for _, a := range fr.calledArgs() {
+		if len(a) > 1 && a[1] == "send-keys" && a[len(a)-1] == "Enter" {
+			enters++
+		}
+	}
+	require.Equal(t, 1, enters, "multi-line text submits with a single Enter, not one per line")
 }
 
 func TestOutputCapturesPane(t *testing.T) {
