@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"os"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srajanpathak/agentctl/internal/client"
@@ -30,6 +31,7 @@ type spawnArgs struct {
 	PR       string `json:"pr,omitempty" jsonschema:"optional PR number/url for pr-review"`
 	Worktree bool   `json:"worktree,omitempty" jsonschema:"create a scratch worktree for analysis/spike"`
 	Prompt   string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
+	Dir      string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
 }
 type sendArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
@@ -94,10 +96,16 @@ func NewServer(daemonBase string) *Server {
 		Name:        "spawn_agent",
 		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; buildkite-debug/test-run/env-test run in the repo; analysis/spike take an optional worktree). Launches claude --dangerously-skip-permissions.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a spawnArgs) (*mcpsdk.CallToolResult, any, error) {
+		cwd := a.Dir
+		if cwd == "" {
+			if wd, err := os.Getwd(); err == nil {
+				cwd = wd
+			}
+		}
 		sess, err := s.cl.Spawn(ctx, client.SpawnParams{
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree,
-			Prompt: a.Prompt,
+			Prompt: a.Prompt, Cwd: cwd,
 		})
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
