@@ -481,12 +481,14 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 }
 
 var (
-	ErrDirtyWorktree   = errors.New("worktree has uncommitted changes (use --force)")
-	ErrUnpushedCommits = errors.New("worktree has unpushed commits (use --force)")
-	ErrAlreadyRunning  = errors.New("agent is already running (use send/attach)")
-	ErrNoSessionID     = errors.New("no pinned claude session id; re-spawn instead")
-	ErrWorkdirMissing  = errors.New("agent workdir is gone; re-spawn instead")
-	ErrNoTranscript    = errors.New("no transcript to resume")
+	ErrDirtyWorktree      = errors.New("worktree has uncommitted changes (use --force)")
+	ErrUnpushedCommits    = errors.New("worktree has unpushed commits (use --force)")
+	ErrAlreadyRunning     = errors.New("agent is already running (use send/attach)")
+	ErrNoSessionID        = errors.New("no pinned claude session id; re-spawn instead")
+	ErrWorkdirMissing     = errors.New("agent workdir is gone; re-spawn instead")
+	ErrNoTranscript       = errors.New("no transcript to resume")
+	ErrNoWorktree         = errors.New("session has no worktree")
+	ErrWorktreeAgentAlive = errors.New("agent is still running; terminate it before removing its worktree")
 )
 
 // CleanupTarget carries the fields Cleanup needs (filled from the store doc).
@@ -556,6 +558,47 @@ func (l *Lifecycle) Cleanup(ctx context.Context, t CleanupTarget, force bool) er
 		return fmt.Errorf("git worktree remove: %w: %s", err, out)
 	}
 	// Branch may be empty (e.g. a detached pr-review checkout) — skip if so.
+	if t.Branch != "" {
+		if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "branch", "-D", t.Branch); err != nil {
+			return fmt.Errorf("git branch -D: %w: %s", err, out)
+		}
+	}
+	return nil
+}
+
+// Terminate kills the agent's tmux session (which kills the claude process
+// inside it). It is idempotent: killing an already-gone session is not an error.
+// It touches no git and leaves the record and any worktree intact.
+func (l *Lifecycle) Terminate(ctx context.Context, tmuxSession string) error {
+	// tmux kill-session errors if the session is already gone; that is the
+	// desired end state, so the error is ignored.
+	_, _ = l.run.Run(ctx, "", "tmux", "kill-session", "-t", tmuxSession)
+	return nil
+}
+
+// RemoveWorktree removes the session's git worktree and branch. It is always an
+// explicit, separate step. Unless force is set, it refuses when the agent's tmux
+// session is still alive (terminate first) and when the worktree has uncommitted
+// or unpushed work (the guard). Sessions with no worktree return ErrNoWorktree.
+func (l *Lifecycle) RemoveWorktree(ctx context.Context, t CleanupTarget, force bool) error {
+	if t.Worktree == "" {
+		return ErrNoWorktree
+	}
+	if !force {
+		if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", t.TmuxSession); err == nil {
+			return ErrWorktreeAgentAlive
+		}
+		if err := l.guard(ctx, t); err != nil {
+			return err
+		}
+	}
+	removeArgs := []string{"-C", t.Repo, "worktree", "remove", t.Worktree}
+	if force {
+		removeArgs = []string{"-C", t.Repo, "worktree", "remove", "--force", t.Worktree}
+	}
+	if out, err := l.run.Run(ctx, "", "git", removeArgs...); err != nil {
+		return fmt.Errorf("git worktree remove: %w: %s", err, out)
+	}
 	if t.Branch != "" {
 		if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "branch", "-D", t.Branch); err != nil {
 			return fmt.Errorf("git branch -D: %w: %s", err, out)

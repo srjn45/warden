@@ -569,3 +569,52 @@ func TestRestorePreconditionErrors(t *testing.T) {
 	require.ErrorIs(t, lc.Restore(context.Background(),
 		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrNoTranscript)
 }
+
+func TestTerminateKillsTmuxOnly(t *testing.T) {
+	fr := &FakeRunner{}
+	require.NoError(t, New(fr).Terminate(context.Background(), "A-1"))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "A-1"})
+	for _, a := range fr.calledArgs() {
+		require.NotEqual(t, "git", a[0], "terminate touches no git")
+	}
+}
+
+func TestRemoveWorktreeRefusesIfAlive(t *testing.T) {
+	// has-session succeeds (FakeRunner default) → agent alive → refuse.
+	fr := &FakeRunner{}
+	err := New(fr).RemoveWorktree(context.Background(), cleanupInput("A-1"), false)
+	require.ErrorIs(t, err, ErrWorktreeAgentAlive)
+	for _, a := range fr.calledArgs() {
+		require.NotEqual(t, "git", a[0], "must not touch git while the agent is alive")
+	}
+}
+
+func TestRemoveWorktreeGuardsDirty(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t A-1":                        {Err: errStub("dead")},
+		"git -C /repo/.worktrees/A-1 status --porcelain": {Out: " M f.go\n"},
+	}}
+	require.ErrorIs(t, New(fr).RemoveWorktree(context.Background(), cleanupInput("A-1"), false), ErrDirtyWorktree)
+}
+
+func TestRemoveWorktreeForceProceeds(t *testing.T) {
+	fr := &FakeRunner{} // has-session would say alive, but force skips the checks
+	require.NoError(t, New(fr).RemoveWorktree(context.Background(), cleanupInput("A-1"), true))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/A-1"})
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "branch", "-D", "A-1"})
+}
+
+func TestRemoveWorktreeCleanProceeds(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t A-1":                          {Err: errStub("dead")},
+		"git -C /repo/.worktrees/A-1 status --porcelain":   {Out: ""},
+		"git -C /repo/.worktrees/A-1 log @{u}.. --oneline": {Out: ""},
+	}}
+	require.NoError(t, New(fr).RemoveWorktree(context.Background(), cleanupInput("A-1"), false))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", ".worktrees/A-1"})
+}
+
+func TestRemoveWorktreeNoWorktreeErrors(t *testing.T) {
+	tgt := CleanupTarget{ID: "x", TmuxSession: "x"} // no Worktree
+	require.ErrorIs(t, New(&FakeRunner{}).RemoveWorktree(context.Background(), tgt, false), ErrNoWorktree)
+}
