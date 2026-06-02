@@ -28,14 +28,6 @@ func newTestStore(t *testing.T) *MongoStore {
 	return st
 }
 
-func sample() *Session {
-	return &Session{
-		ID: "PROJ-350", Ticket: "PROJ-350", TmuxSession: "PROJ-350",
-		Repo: "/repo", Worktree: ".worktrees/PROJ-350", Branch: "PROJ-350",
-		Status: StatusSpawning,
-	}
-}
-
 func TestInsertGet(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
