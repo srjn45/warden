@@ -45,10 +45,17 @@ export default function AgentDetail({ session, onClosed }: { session: Session; o
       <div className="detail-head">
         <h2>{session.id} <BusyIdleBadge status={session.status} /></h2>
         <code className="muted">
-          type: {session.type} · repo: {session.repo}{session.worktree && ` · ${session.worktree}`}
+          type: {session.type || 'classifying…'} · repo: {session.repo || '—'}{session.worktree && ` · ${session.worktree}`}
         </code>
         <TerminateControls id={session.id} onDone={onClosed} />
       </div>
+
+      {session.prompt && (
+        <section>
+          <h3>Prompt</h3>
+          <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{session.prompt}</p>
+        </section>
+      )}
 
       <section>
         <h3>Live output</h3>

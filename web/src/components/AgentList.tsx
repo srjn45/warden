@@ -33,7 +33,7 @@ export default function AgentList({ sessions, selectedId, onSelect }: {
           {sessions.map((s) => (
             <tr key={s.id} className={s.id === selectedId ? 'sel' : ''} onClick={() => onSelect(s.id)}>
               <td>{s.id}</td>
-              <td>{s.type}</td>
+              <td>{s.type || <span className="muted">classifying…</span>}</td>
               <td><BusyIdleBadge status={s.status} /></td>
               <td>{s.status}</td>
               <td>{age(s.updated_at)}</td>
