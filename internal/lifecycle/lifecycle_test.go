@@ -259,6 +259,44 @@ func TestClassifyDefaultsToOtherOnError(t *testing.T) {
 	require.Equal(t, store.TypeOther, got)
 }
 
+func TestSpawnPromptModePerAgentWorkdir(t *testing.T) {
+	fr := &FakeRunner{}
+	prompt := "research SSE reconnection semantics"
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Prompt: prompt, Workdir: "/home/me/agentctl-agents"})
+	require.NoError(t, err)
+	expDir := "/home/me/agentctl-agents/" + s.ID
+	require.Equal(t, expDir, s.Workdir, "per-agent subdir")
+	require.Equal(t, prompt, firstWordsExpand(s.Subject, prompt), "subject seeded from prompt")
+	// Creates the dir and starts tmux there.
+	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", expDir})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", expDir})
+}
+
+// firstWordsExpand is a test helper: the seeded subject is firstWords(prompt,10);
+// for a <=10-word prompt that equals the prompt, so this just returns prompt when they match.
+func firstWordsExpand(subject, prompt string) string {
+	if subject == firstWords(prompt, 10) {
+		return prompt
+	}
+	return subject
+}
+
+func TestSpawnTypedModeRecordsWorkdir(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+	}}
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDevelopment, Ticket: "A-1", Repo: "/repo"})
+	require.NoError(t, err)
+	require.Equal(t, "/repo/.worktrees/A-1", s.Workdir, "typed worktree dir recorded")
+}
+
+func TestSpawnNoWorktreeTypeRecordsRepoWorkdir(t *testing.T) {
+	fr := &FakeRunner{}
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err)
+	require.Equal(t, "/repo", s.Workdir, "no-worktree type runs in repo")
+}
+
 func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	fr := &FakeRunner{}
 	prompt := "research how SSE reconnection works"
@@ -275,8 +313,11 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	for _, argv := range fr.calledArgs() {
 		require.NotEqual(t, "git", argv[0], "prompt mode must not touch git")
 	}
-	// tmux session in the shared workdir.
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/home/me/agentctl-agents"})
+	// Per-agent subdir created and used for tmux.
+	expDir := "/home/me/agentctl-agents/" + s.ID
+	require.Equal(t, expDir, s.Workdir, "per-agent subdir recorded")
+	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", expDir})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", expDir})
 	// claude launched with the prompt as a shell-quoted positional arg.
 	launch := claudeCmd + " " + shellQuoteArg(prompt)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})

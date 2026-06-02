@@ -222,11 +222,17 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Repo:        req.Repo,
 		PR:          req.PR,
 		Prompt:      req.Prompt,
+		Subject:     firstWords(req.Prompt, 10),
 		Status:      store.StatusSpawning,
 	}
 
 	if promptMode {
-		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", req.Workdir); err != nil {
+		dir := filepath.Join(req.Workdir, id)
+		if out, err := l.run.Run(ctx, "", "mkdir", "-p", dir); err != nil {
+			return nil, fmt.Errorf("mkdir workdir: %w: %s", err, out)
+		}
+		sess.Workdir = dir
+		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", dir); err != nil {
 			return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
 		}
 		launch := claudeCmd + " " + shellQuoteArg(req.Prompt)
@@ -248,6 +254,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		sess.Branch = branch
 		workdir = filepath.Join(req.Repo, rel)
 	}
+	sess.Workdir = workdir
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "new-session", "-d", "-s", id, "-c", workdir); err != nil {
 		return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
 	}
