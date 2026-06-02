@@ -37,3 +37,14 @@ func TestWorkdirFromEnv(t *testing.T) {
 	t.Setenv("AGENTCTL_WORKDIR", "/tmp/agents")
 	require.Equal(t, "/tmp/agents", Load().Workdir)
 }
+
+func TestClaudeProjectsDirDefault(t *testing.T) {
+	t.Setenv("CLAUDE_PROJECTS_DIR", "")
+	c := Load()
+	require.True(t, strings.HasSuffix(c.ClaudeProjectsDir, ".claude/projects"), "got %q", c.ClaudeProjectsDir)
+}
+
+func TestClaudeProjectsDirFromEnv(t *testing.T) {
+	t.Setenv("CLAUDE_PROJECTS_DIR", "/tmp/projects")
+	require.Equal(t, "/tmp/projects", Load().ClaudeProjectsDir)
+}
