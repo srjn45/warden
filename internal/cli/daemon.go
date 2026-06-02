@@ -39,8 +39,9 @@ func newDaemonCmd() *cobra.Command {
 			}
 			runner := lifecycle.ExecRunner{}
 			lc := lifecycle.New(runner)
+			lc.ProjectsDir = cfg.ClaudeProjectsDir
 			life := daemon.NewLifecycleAdapter(lc, st)
-			pd := daemon.NewPollerDeps(st, runner)
+			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.Workdir)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
