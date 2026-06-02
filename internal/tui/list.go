@@ -42,7 +42,7 @@ func (m Model) renderList(width int) string {
 	for i, s := range m.sessions {
 		label, st := badge(s.Status)
 		cursor := "  "
-		line := fmt.Sprintf("%-12s %-9s %-11s %s", trunc(s.ID, 12), trunc(string(typeOr(s)), 9), st.Render(label), trunc(s.Subject, max(0, width-40)))
+		line := fmt.Sprintf("%-12s %-9s %-11s %-5s %s", trunc(s.ID, 12), trunc(string(typeOr(s)), 9), st.Render(label), age(s.UpdatedAt), trunc(s.Subject, max(0, width-46)))
 		if i == m.cursor {
 			cursor = stCursor.Render("› ")
 			line = stCursor.Render(line)
