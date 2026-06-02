@@ -127,11 +127,6 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 	return &s, nil
 }
 
-func (c *Client) Cleanup(ctx context.Context, id string, force, hard bool) error {
-	body := map[string]any{"id": id, "force": force, "hard": hard}
-	return c.do(ctx, http.MethodPost, "/cleanup", body, nil)
-}
-
 func (c *Client) Terminate(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", nil, nil)
 }

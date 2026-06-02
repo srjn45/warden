@@ -525,47 +525,6 @@ func (l *Lifecycle) guard(ctx context.Context, t CleanupTarget) error {
 	return nil
 }
 
-// Cleanup removes a session's tmux session and, for sessions that have a
-// worktree, the worktree and branch as well.
-//
-// When the session has a worktree and force is false, guard is run first. If
-// guard returns an error, Cleanup returns immediately without touching tmux,
-// the worktree, or the branch — this is intentional so the user can push and
-// retry without ending up with an orphaned worktree.
-//
-// Once past the guard (or when force is true), tmux is killed and then the
-// worktree + branch are removed. No-worktree sessions skip the git steps
-// entirely and only kill tmux.
-func (l *Lifecycle) Cleanup(ctx context.Context, t CleanupTarget, force bool) error {
-	hasWorktree := t.Worktree != ""
-	if hasWorktree && !force {
-		if err := l.guard(ctx, t); err != nil {
-			return err
-		}
-	}
-	// Guard passed (or was skipped); kill tmux, then remove worktree+branch.
-	_, _ = l.run.Run(ctx, "", "tmux", "kill-session", "-t", t.TmuxSession)
-
-	if !hasWorktree {
-		return nil // nothing to prune
-	}
-
-	removeArgs := []string{"-C", t.Repo, "worktree", "remove", t.Worktree}
-	if force {
-		removeArgs = []string{"-C", t.Repo, "worktree", "remove", "--force", t.Worktree}
-	}
-	if out, err := l.run.Run(ctx, "", "git", removeArgs...); err != nil {
-		return fmt.Errorf("git worktree remove: %w: %s", err, out)
-	}
-	// Branch may be empty (e.g. a detached pr-review checkout) — skip if so.
-	if t.Branch != "" {
-		if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "branch", "-D", t.Branch); err != nil {
-			return fmt.Errorf("git branch -D: %w: %s", err, out)
-		}
-	}
-	return nil
-}
-
 // Terminate kills the agent's tmux session (which kills the claude process
 // inside it). It is idempotent: killing an already-gone session is not an error.
 // It touches no git and leaves the record and any worktree intact.
