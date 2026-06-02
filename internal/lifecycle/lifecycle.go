@@ -55,6 +55,8 @@ type SpawnRequest struct {
 	Branch   string // optional; development branch / pr-review checkout target
 	PR       string // optional; pr-review
 	Worktree bool   // analysis/spike opt-in
+	Prompt   string // prompt-mode: the agent's initial prompt (no repo/worktree)
+	Workdir  string // prompt-mode: working directory for the tmux session
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -72,6 +74,9 @@ func resolveID(req SpawnRequest) string {
 		return req.Ticket
 	}
 	slug := strings.ReplaceAll(string(req.Type), "-", "")
+	if slug == "" {
+		slug = "agent"
+	}
 	return slug + "-" + shortID()
 }
 
@@ -149,10 +154,14 @@ func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, er
 	return parseType(out), nil
 }
 
-// Spawn resolves the id, creates a worktree per the type policy, starts a
-// detached tmux session, launches claude, and returns a Session in "spawning".
+// Spawn creates an agent session. Prompt mode (Prompt set, no Type) runs a plain
+// claude in Workdir with NO git worktree, seeded with the prompt. Typed mode is
+// the existing per-type worktree flow (unchanged).
 func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
-	req.Type = store.NormalizeType(string(req.Type))
+	promptMode := req.Prompt != "" && req.Type == ""
+	if !promptMode {
+		req.Type = store.NormalizeType(string(req.Type))
+	}
 	id := resolveID(req)
 
 	sess := &store.Session{
@@ -162,9 +171,22 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		TmuxSession: id,
 		Repo:        req.Repo,
 		PR:          req.PR,
+		Prompt:      req.Prompt,
 		Status:      store.StatusSpawning,
 	}
 
+	if promptMode {
+		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", req.Workdir); err != nil {
+			return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
+		}
+		launch := claudeCmd + " " + shellQuoteArg(req.Prompt)
+		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
+			return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+		}
+		return sess, nil
+	}
+
+	// Typed/managed path (unchanged).
 	workdir := req.Repo
 	if wantWorktree(req) {
 		rel := worktreeRel(id)
@@ -176,7 +198,6 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		sess.Branch = branch
 		workdir = filepath.Join(req.Repo, rel)
 	}
-
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "new-session", "-d", "-s", id, "-c", workdir); err != nil {
 		return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
 	}

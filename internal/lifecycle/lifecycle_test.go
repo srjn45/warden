@@ -240,3 +240,26 @@ func TestClassifyDefaultsToOtherOnError(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, store.TypeOther, got)
 }
+
+func TestSpawnPromptModeNoWorktree(t *testing.T) {
+	fr := &FakeRunner{}
+	prompt := "research how SSE reconnection works"
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{
+		Prompt: prompt, Workdir: "/home/me/agentctl-agents",
+	})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(s.ID, "agent-"), "got %q", s.ID)
+	require.Equal(t, store.Type(""), s.Type, "type empty until classified")
+	require.Empty(t, s.Worktree)
+	require.Empty(t, s.Repo)
+	require.Equal(t, prompt, s.Prompt)
+	// No git at all for a prompt-spawned agent.
+	for _, argv := range fr.calledArgs() {
+		require.NotEqual(t, "git", argv[0], "prompt mode must not touch git")
+	}
+	// tmux session in the shared workdir.
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/home/me/agentctl-agents"})
+	// claude launched with the prompt as a shell-quoted positional arg.
+	launch := claudeCmd + " " + shellQuoteArg(prompt)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+}
