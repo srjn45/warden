@@ -90,14 +90,40 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 | `AGENTCTL_ADDR` | `127.0.0.1:8765` | Daemon listen address |
 | `AGENTCTL_MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection URI |
 | `AGENTCTL_DB` | `agentctl` | MongoDB database name |
+| `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Working directory for prompt-spawned agents (no git worktree) |
 
 All variables can also be overridden with `--addr` on any command.
 
 ---
 
+## Prompt-spawn (no repo, auto-typed)
+
+The simplest way to create an agent is to give it a plain prompt and let the system figure out the rest:
+
+```sh
+agentctl start "review the auth module for security issues"
+# spawned agent-a1b2 (classifying…) — attach with `agentctl attach agent-a1b2`
+```
+
+In the web GUI, **+ New agent** opens a single prompt textarea — no type or repo fields.
+
+**How it works:**
+
+- **No repo assumed.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` in `AGENTCTL_WORKDIR` (default `~/agentctl-agents`), with no git worktree. Any repo context should be included in the prompt itself.
+- **Type is auto-assigned.** Shortly after creation the daemon classifies the prompt with `claude -p` and updates the type label. It appears as "classifying…" until then. Requires `claude` on the daemon's `PATH`; falls back to `other` if unavailable.
+- **Managed worktrees still available.** `agentctl start TICKET --type development --repo …` is unchanged — see the section below.
+
+To override `AGENTCTL_WORKDIR` from its default of `~/agentctl-agents`, set the environment variable:
+
+```sh
+export AGENTCTL_WORKDIR=/path/to/your/agents
+```
+
+---
+
 ## Task types and the `--type` flag
 
-Every `agentctl start` requires `--type`. The type controls whether a git worktree is created and determines how the session is set up.
+When you need a managed git worktree (e.g. a development branch tied to a Jira ticket), pass `--type`. The type controls whether a git worktree is created and determines how the session is set up.
 
 | Type | Worktree | Notes |
 |---|---|---|
@@ -118,9 +144,18 @@ If a worktree for the ticket already exists on disk, the spawn adopts it (reatta
 
 ## Command reference
 
-### `agentctl start [TICKET] --type <TYPE>`
+### `agentctl start [TICKET|"<prompt>"] [--type <TYPE>]`
 
-Spawn a new agent session. `TICKET` is optional for types without a worktree; for `development`/`pr-review` it becomes the session id and the branch name.
+Spawn a new agent session. Two modes:
+
+**Prompt mode** (no `--type`) — pass a quoted prompt; the type is assigned automatically:
+
+```sh
+agentctl start "review the auth module for security issues"
+agentctl start "investigate why the nightly build is flaky"
+```
+
+**Managed worktree mode** (`--type` required) — creates a git worktree for the ticket:
 
 ```sh
 # Development agent for a Jira ticket:
@@ -140,8 +175,8 @@ agentctl start PROJ-350 --type development --repo /path/to/repo --branch my-bran
 ```
 
 Flags:
-- `--type` — task type (required)
-- `--repo` — repo path (default: current directory)
+- `--type` — task type; omit to use prompt mode (auto-typed)
+- `--repo` — repo path (default: current directory; managed worktree mode only)
 - `--branch` — new branch name (development) or checkout target (pr-review)
 - `--pr` — PR number or URL (pr-review only)
 - `--worktree` — opt-in worktree for analysis/spike
@@ -324,7 +359,7 @@ Then open `http://localhost:8765` in a browser.
 
 - **Live agent list** — all active sessions update in real time over SSE; no manual refresh needed.
 - **Busy/idle badges** — each row shows a coloured badge (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) derived from the agent's current status.
-- **Create agent** — click **+ New agent** to open a type-aware form. Fields change based on the chosen type (branch for `development`/`pr-review`, PR number for `pr-review`, scratch-worktree checkbox for `analysis`/`spike`, etc.).
+- **Create agent** — click **+ New agent** to open a single prompt box. Type what you want the agent to do and press **Create** (or Cmd/Ctrl+Enter). No type or repo required — the type label is assigned automatically once the agent starts. For a managed worktree (e.g. a development branch for a specific ticket), use the CLI: `agentctl start TICKET --type development --repo …`.
 - **Agent detail** — click any row to open the detail panel: live terminal output (polled every 2 s), full event history, and a send-message box that types directly into the agent's claude session.
 - **Terminate** — the **Terminate** button calls `agentctl done`. If the worktree has uncommitted changes or unpushed commits the daemon returns a 409 and the UI surfaces a guard prompt offering **Force** (bypass the git guard) and an optional **hard-delete** checkbox.
 - **Attach hint** — browsers can't run `tmux attach`. The detail panel shows the equivalent CLI command (`agentctl attach <id>`) for use in a terminal.
