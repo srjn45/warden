@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srajanpathak/agentctl/internal/client"
@@ -101,6 +102,8 @@ func NewServer(daemonBase string) *Server {
 			if wd, err := os.Getwd(); err == nil {
 				cwd = wd
 			}
+		} else if abs, err := filepath.Abs(cwd); err == nil {
+			cwd = abs
 		}
 		sess, err := s.cl.Spawn(ctx, client.SpawnParams{
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/srajanpathak/agentctl/internal/client"
@@ -73,11 +74,16 @@ func newStartCmd() *cobra.Command {
 	return cmd
 }
 
-// resolveDir returns the explicit --dir flag value, or the current working
-// directory when the flag is empty. This is where the agent's claude is launched.
+// resolveDir returns the explicit --dir flag value (resolved to an absolute
+// path against the caller's cwd), or the current working directory when the
+// flag is empty. This is where the agent's claude is launched.
+// Resolve to absolute HERE (in the CLI process, where cwd is correct), not in
+// the daemon which runs under launchd with a different cwd.
 func resolveDir(flagVal string) (string, error) {
 	if flagVal != "" {
-		return flagVal, nil
+		// Resolve a relative --dir against the CALLER's cwd (here), not the
+		// daemon's: the daemon runs under launchd with a different cwd.
+		return filepath.Abs(flagVal)
 	}
 	return os.Getwd()
 }
