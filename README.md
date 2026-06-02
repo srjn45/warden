@@ -144,7 +144,49 @@ If a worktree for the ticket already exists on disk, the spawn adopts it (reatta
 
 ---
 
+## Terminal UI
+
+```sh
+agentctl tui   # open the cockpit
+agentctl       # bare invocation — same thing
+```
+
+`agentctl tui` (or bare `agentctl`) opens a live two-pane terminal cockpit built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+
+**Layout**
+
+- **Left pane** — live list of all agents, each showing a busy/idle status badge and the agent's current subject. The selected row is highlighted.
+- **Right pane** — the selected agent's live output (scrollable viewport) and event history below it. The header shows the agent's working directory and subject.
+
+The UI polls the daemon approximately every second. The daemon must be running (`agentctl daemon`) before opening the TUI.
+
+**Keys**
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` or `j` / `k` | Move selection up/down |
+| `tab` | Focus the output viewport (scroll with `↑`/`↓`/`PgUp`/`PgDn`); `tab` or `esc` to leave |
+| `n` | New agent — opens a prompt textarea; type the task, `ctrl+s` to submit, `esc` to cancel |
+| `s` | Send a message to the selected agent — type it, `enter` to send, `esc` to cancel |
+| `a` | Attach — hands off your terminal to the agent's tmux session; resumes the TUI on detach |
+| `x` | Terminate the selected agent — confirm with `y`; if it has uncommitted or unpushed work the daemon returns a guard prompt, press `X` to force-terminate |
+| `?` | Toggle help overlay |
+| `q` | Quit |
+
+---
+
 ## Command reference
+
+### `agentctl tui`
+
+Open the live terminal cockpit. Also launched by bare `agentctl` with no subcommand.
+
+```sh
+agentctl tui
+agentctl       # equivalent
+```
+
+See the [Terminal UI](#terminal-ui) section above for the full key reference.
 
 ### `agentctl start [TICKET|"<prompt>"] [--type <TYPE>]`
 
