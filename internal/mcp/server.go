@@ -19,6 +19,7 @@ type listArgs struct{}
 type ticketArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the ticket / session id, e.g. PROJ-350"`
 }
+
 // All fields are optional in the schema: the daemon validates that EITHER a
 // prompt OR (type + repo) is provided, so no single field is required here.
 type spawnArgs struct {
@@ -130,6 +131,16 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("cleaned up " + a.Ticket), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "restore_agent",
+		Description: "Recreate and resume a lost/orphaned agent's tmux + claude session (claude --resume). Use only when the agent's tmux session is gone (status orphaned).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ticketArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.Restore(ctx, a.Ticket); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("restoring " + a.Ticket), nil, nil
 	})
 
 	return s

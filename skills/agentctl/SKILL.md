@@ -36,6 +36,7 @@ that id as the `ticket` value.
 | what is agent <id> doing / its status | `get_agent` (status, subject, workdir, event history) + `get_agent_output` (recent terminal) → report concisely in plain language. |
 | tell / ask agent <id> to do Y | `send_to_agent` (the id as `ticket`, plus `text`). Echo back what you sent. |
 | terminate / kill / clean up <id> | `cleanup_agent` — **see Guardrails**. |
+| restore / bring back a lost or orphaned agent | `restore_agent` (id) — only for sessions whose tmux is gone (status `orphaned`); resumes the same conversation |
 
 ## Guardrails
 
@@ -49,6 +50,7 @@ that id as the `ticket` value.
 - Never fabricate agent state. Always read it via `list_agents` / `get_agent` /
   `get_agent_output`.
 - When the daemon is unreachable, say so plainly and stop — don't invent results.
+- Restore is resume-only and for `orphaned`/dead sessions; if it reports the agent is still running, use `send`/attach instead.
 
 ## Examples
 

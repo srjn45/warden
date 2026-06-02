@@ -78,3 +78,35 @@ func textOf(res *mcpsdk.CallToolResult) string {
 	}
 	return out
 }
+
+func TestRestoreAgentTool(t *testing.T) {
+	var hitPath string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/sessions/A-1/restore" {
+			hitPath = r.URL.Path
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"restoring"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, serverTransport) }()
+
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "restore_agent",
+		Arguments: map[string]any{"ticket": "A-1"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, "/sessions/A-1/restore", hitPath)
+}
