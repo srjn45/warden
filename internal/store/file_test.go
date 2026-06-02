@@ -112,6 +112,43 @@ func TestFileArchiveRemovesFromActive(t *testing.T) {
 	require.FileExists(t, filepath.Join(dir, "closed", "PROJ-350.json"))
 }
 
+func TestFileInsertAfterArchive(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	require.NoError(t, st.Archive(ctx, "PROJ-350"))
+	// The active file is gone, so the same id is insertable again.
+	require.NoError(t, st.Insert(ctx, sample()), "id reusable once archived")
+	got, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+	require.Equal(t, StatusSpawning, got.Status)
+}
+
+func TestFileArchiveOverwritesExistingClosed(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+
+	// First lifecycle: insert (subject A) then archive.
+	first := sample()
+	first.Subject = "first run"
+	require.NoError(t, st.Insert(ctx, first))
+	require.NoError(t, st.Archive(ctx, "PROJ-350"))
+
+	// Second lifecycle reuses the id with a different subject, then archives —
+	// the closed record is overwritten with the latest (documented behavior).
+	second := sample()
+	second.Subject = "second run"
+	require.NoError(t, st.Insert(ctx, second))
+	require.NoError(t, st.Archive(ctx, "PROJ-350"))
+
+	data, err := os.ReadFile(filepath.Join(dir, "closed", "PROJ-350.json"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "second run")
+	require.NotContains(t, string(data), "first run")
+}
+
 func TestFileDelete(t *testing.T) {
 	ctx := context.Background()
 	st := newFileStore(t)

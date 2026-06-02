@@ -20,8 +20,10 @@ var ErrBadID = errors.New("invalid session id")
 // FileStore persists each session as one pretty-printed JSON file under
 // <dir>/sessions/<id>.json. Archived sessions move to <dir>/closed/<id>.json.
 // The daemon is the only holder; an RWMutex serializes its concurrent callers
-// (HTTP handlers, poller, classify goroutine). Writes are atomic (temp file +
-// rename), so a crash never leaves a torn session file.
+// (HTTP handlers, poller, classify goroutine). Writes go through a temp file +
+// rename, so a concurrent reader never observes a partially written file. (This
+// guards torn reads, not power-loss durability — the store is not fsync'd; for a
+// localhost session store the last write surviving a crash is not a requirement.)
 type FileStore struct {
 	mu       sync.RWMutex
 	dir      string
@@ -232,6 +234,10 @@ func (fs *FileStore) AppendEventStatus(ctx context.Context, id string, ev Event,
 // Compile-time check that FileStore satisfies the full Store interface.
 var _ Store = (*FileStore)(nil)
 
+// Archive moves the session to closed/<id>.json (soft delete). It writes the
+// closed copy first and removes the active file second, so a crash between the
+// two leaves the session recoverable in active, never lost (at worst it appears
+// in both). An existing closed/<id>.json for the same id is overwritten.
 func (fs *FileStore) Archive(ctx context.Context, id string) error {
 	if err := safeID(id); err != nil {
 		return err
