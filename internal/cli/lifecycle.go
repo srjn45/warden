@@ -11,14 +11,26 @@ import (
 
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "start [TICKET] --type <TYPE>",
-		Short: "Spawn a new agent (worktree per task type) running claude --dangerously-skip-permissions",
+		Use:   "start [TICKET|\"<prompt>\"] [--type <TYPE>]",
+		Short: "Spawn an agent — `start \"<prompt>\"` (auto-typed) or `start TICKET --type <TYPE>` (managed worktree)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			typ, _ := cmd.Flags().GetString("type")
+
+			// Prompt mode: `agentctl start "<prompt>"` with no --type.
 			if typ == "" {
-				return fmt.Errorf("--type is required (development|analysis|spike|pr-review|buildkite-debug|test-run|env-test|other)")
+				if len(args) != 1 {
+					return fmt.Errorf("provide a prompt: agentctl start \"<prompt>\"  (or use --type for a managed worktree)")
+				}
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0]})
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "spawned %s (classifying…) — attach with `agentctl attach %s`\n", s.ID, s.ID)
+				return nil
 			}
+
+			// Typed/managed worktree mode (unchanged).
 			repo, _ := cmd.Flags().GetString("repo")
 			if repo == "" {
 				cwd, err := os.Getwd()
