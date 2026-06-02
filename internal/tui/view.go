@@ -23,6 +23,7 @@ func (m *Model) layout() {
 	}
 	m.ta.SetWidth(m.w - 2)
 	m.ta.SetHeight(4)
+	m.ti.Width = m.w - 20
 }
 
 func (m Model) View() string {
@@ -42,8 +43,17 @@ func (m Model) View() string {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 
 	footer := m.footer()
-	if m.mode == modeNewAgent {
+	switch m.mode {
+	case modeNewAgent:
 		footer = stPaneTitle.Render("New agent — describe the task (ctrl+s submit · esc cancel)") + "\n" + m.ta.View()
+	case modeSendMsg:
+		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
+	case modeConfirmKill:
+		if m.killForce {
+			footer = stError.Render("uncommitted/unpushed — press X to FORCE terminate, esc to cancel")
+		} else {
+			footer = stError.Render("Terminate " + m.selectedID() + "? y / N")
+		}
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }

@@ -32,6 +32,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ta.Reset()
 			m.ta.Focus()
 			return m, nil
+		case "s":
+			if m.selected() != nil {
+				m.mode = modeSendMsg
+				m.ti.Reset()
+				m.ti.Focus()
+			}
+			return m, nil
+		case "x":
+			if m.selected() != nil {
+				m.mode = modeConfirmKill
+				m.killForce = false
+			}
+			return m, nil
 		}
 	}
 	return m, nil
@@ -56,4 +69,47 @@ func (m Model) updateNewAgent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.ta, cmd = m.ta.Update(msg)
 	return m, cmd
+}
+
+func (m Model) updateSendMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = modeNormal
+		m.ti.Blur()
+		return m, nil
+	case tea.KeyEnter:
+		text := strings.TrimSpace(m.ti.Value())
+		id := m.selectedID()
+		m.mode = modeNormal
+		m.ti.Blur()
+		if text == "" || id == "" {
+			return m, nil
+		}
+		return m, inputCmd(m.api, id, text)
+	}
+	var cmd tea.Cmd
+	m.ti, cmd = m.ti.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateConfirmKill(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	id := m.selectedID()
+	switch msg.String() {
+	case "esc", "n", "N":
+		m.mode = modeNormal
+		m.killForce = false
+		m.status = ""
+		return m, nil
+	case "y", "Y":
+		if !m.killForce && id != "" {
+			return m, cleanupCmd(m.api, id, false)
+		}
+		return m, nil
+	case "X":
+		if m.killForce && id != "" {
+			return m, cleanupCmd(m.api, id, true)
+		}
+		return m, nil
+	}
+	return m, nil
 }

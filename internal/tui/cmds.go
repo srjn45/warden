@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -75,6 +76,22 @@ func inputCmd(a api, id, text string) tea.Cmd {
 		ctx, cancel := bg()
 		defer cancel()
 		return inputDoneMsg{err: a.Input(ctx, id, text)}
+	}
+}
+
+func cleanupCmd(a api, id string, force bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		err := a.Cleanup(ctx, id, force, false)
+		if err != nil {
+			var se *client.StatusError
+			if errors.As(err, &se) && se.Code == 409 {
+				return cleanupDoneMsg{id: id, conflict: true, err: err}
+			}
+			return cleanupDoneMsg{id: id, err: err}
+		}
+		return cleanupDoneMsg{id: id}
 	}
 }
 

@@ -188,3 +188,41 @@ func submit(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	}
 	return nm.(Model), cmd
 }
+
+func TestSendMessageFlow(t *testing.T) {
+	f := &fakeAPI{}
+	m := New(f)
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, sessionsMsg{sessions: threeSessions()}) // selected "a"
+	m = step(m, key("s"))
+	require.Equal(t, modeSendMsg, m.mode)
+	m = step(m, key("hello"))
+	m, _ = submit(m, key("enter"))
+	require.Equal(t, "a", f.sentTo)
+	require.Equal(t, "hello", f.sentText)
+	require.Equal(t, modeNormal, m.mode)
+}
+
+func TestKillConfirmThenForceOn409(t *testing.T) {
+	f := &fakeAPI{cleanErr: &client.StatusError{Code: 409, Msg: "unpushed"}}
+	m := New(f)
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, sessionsMsg{sessions: threeSessions()}) // selected "a"
+	m = step(m, key("x"))
+	require.Equal(t, modeConfirmKill, m.mode)
+	m, _ = submit(m, key("y")) // confirm → cleanup (non-force)
+	// simulate the cleanup result coming back as a conflict
+	m = step(m, cleanupDoneMsg{id: "a", conflict: true})
+	require.True(t, m.killForce, "409 → force prompt")
+	m, _ = submit(m, key("X")) // force
+	require.Equal(t, "a", f.cleaned.id)
+	require.True(t, f.cleaned.force)
+}
+
+func TestKillEscCancels(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, sessionsMsg{sessions: threeSessions()})
+	m = step(m, key("x"))
+	m = step(m, key("esc"))
+	require.Equal(t, modeNormal, m.mode)
+}

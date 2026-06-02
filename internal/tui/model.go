@@ -117,9 +117,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case inputDoneMsg:
+		if msg.err != nil {
+			m.status = "send failed: " + msg.err.Error()
+		} else {
+			m.status = "sent"
+		}
+		return m, nil
+
+	case cleanupDoneMsg:
+		switch {
+		case msg.conflict:
+			m.mode = modeConfirmKill
+			m.killForce = true
+			m.status = "uncommitted/unpushed — press X to force, esc to cancel"
+		case msg.err != nil:
+			m.mode = modeNormal
+			m.killForce = false
+			m.status = "terminate failed: " + msg.err.Error()
+		default:
+			m.mode = modeNormal
+			m.killForce = false
+			m.status = "terminated " + msg.id
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.mode == modeNewAgent {
 			return m.updateNewAgent(msg)
+		}
+		if m.mode == modeSendMsg {
+			return m.updateSendMsg(msg)
+		}
+		if m.mode == modeConfirmKill {
+			return m.updateConfirmKill(msg)
 		}
 		if m.mode == modeNormal && m.outputFocused {
 			switch msg.String() {
