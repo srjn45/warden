@@ -77,8 +77,9 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"git", "worktree", "add", ".worktrees/PROJ-350", "-b", "PROJ-350"})
 	// Detached tmux session in the worktree.
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
-	// Launch claude UNATTENDED.
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", "claude --dangerously-skip-permissions", "Enter"})
+	// Launch claude UNATTENDED, with a pinned session id and display name.
+	require.NotEmpty(t, s.ClaudeSessionID)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350"), "Enter"})
 }
 
 func TestSpawnAdoptsExistingWorktree(t *testing.T) {
@@ -109,7 +110,8 @@ func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
 		require.NotEqual(t, "git", argv[0], "no-worktree type must not call git")
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/repo"})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, "claude --dangerously-skip-permissions", "Enter"})
+	require.NotEmpty(t, s.ClaudeSessionID)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID), "Enter"})
 }
 
 func TestSpawnPRReviewChecksOutPR(t *testing.T) {
@@ -350,7 +352,7 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	// The prompt is written to a file, then claude is launched reading it back.
 	promptFile := expDir + "/" + promptFileName
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
-	launch := claudeCmd + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -396,7 +398,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 
 	// The launch line is a single physical line; the multi-line prompt is read
 	// back via $(cat …) so no embedded newline is ever typed into the pane.
-	launch := claudeCmd + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	require.NotContains(t, launch, "\n", "the typed launch command must never contain a raw newline")
 }
@@ -425,7 +427,7 @@ func TestSummarizeUsesTranscriptThenClaudeP(t *testing.T) {
 func TestSummarizeFallsBackToPane(t *testing.T) {
 	root := t.TempDir() // empty → no transcript
 	fr := &FakeRunner{Responses: map[string]FakeResp{
-		"tmux capture-pane -p -t agent-aa11 -S -40": {Out: "building the REST handler\n"},
+		"tmux capture-pane -p -t agent-aa11 -S -40":              {Out: "building the REST handler\n"},
 		"claude -p " + summaryArg("building the REST handler\n"): {Out: "building a REST handler"},
 	}}
 	lc := New(fr)

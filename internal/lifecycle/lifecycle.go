@@ -36,6 +36,15 @@ func (l *Lifecycle) runClaudeP(ctx context.Context, arg string) (string, error) 
 // records when one *would* have prompted.
 const claudeCmd = "claude --dangerously-skip-permissions"
 
+// claudeLaunch builds the claude invocation for a spawned agent: the base
+// command plus a pinned --session-id (deterministic transcript + future
+// --resume) and a --name display label equal to the agent id, so the agent id,
+// tmux session, and claude session all read the same. sessionID is a generated
+// UUID (safe charset); name is the agent id (may be a ticket key) so it is quoted.
+func claudeLaunch(sessionID, name string) string {
+	return claudeCmd + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
+}
+
 // promptFileName is where a prompt-spawned agent's initial prompt is written
 // inside its workdir, so the launch line can read it back via "$(cat …)".
 const promptFileName = ".agentctl-prompt"
@@ -354,6 +363,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Subject:     firstWords(req.Prompt, 10),
 		Status:      store.StatusSpawning,
 	}
+	sess.ClaudeSessionID = store.NewSessionID()
 
 	if promptMode {
 		dir := filepath.Join(req.Workdir, id)
@@ -374,7 +384,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", dir); err != nil {
 			return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
 		}
-		launch := claudeCmd + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+		launch := claudeLaunch(sess.ClaudeSessionID, id) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 			return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 		}
@@ -397,7 +407,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "new-session", "-d", "-s", id, "-c", workdir); err != nil {
 		return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
 	}
-	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, claudeCmd, "Enter"); err != nil {
+	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, claudeLaunch(sess.ClaudeSessionID, id), "Enter"); err != nil {
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	return sess, nil
