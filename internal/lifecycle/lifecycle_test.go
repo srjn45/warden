@@ -9,6 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFirstWords(t *testing.T) {
+	require.Equal(t, "review the auth module", firstWords("review the auth module", 10))
+	require.Equal(t, "one two three…", firstWords("one two three four five", 3))
+	require.Equal(t, "", firstWords("", 5))
+}
+
+func TestParseSummary(t *testing.T) {
+	require.Equal(t, "review auth module for security", parseSummary("review auth module for security\n"))
+	require.Equal(t, "tracing a flaky test", parseSummary(`"tracing a flaky test"`))
+	require.Equal(t, "first line only", parseSummary("first line only\nsecond ignored"))
+}
+
+func TestClaudeProjectDir(t *testing.T) {
+	got := claudeProjectDir("/root/projects", "/Users/srajan.pathak/agentctl-agents/agent-a1b2")
+	require.Equal(t, "/root/projects/-Users-srajan-pathak-agentctl-agents-agent-a1b2", got)
+	require.Equal(t, "", claudeProjectDir("", "/anything")) // empty root → no transcript lookup
+}
+
 const noOtherWorktrees = "worktree /repo\nHEAD abc\nbranch refs/heads/main\n"
 
 func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {

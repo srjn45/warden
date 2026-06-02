@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,55 @@ const classifyInstruction = "You are a classifier. Classify the following agent 
 
 // classifyArg builds the single argument passed to `claude -p`.
 func classifyArg(prompt string) string { return classifyInstruction + prompt }
+
+const summaryInstruction = "In 8 words or fewer, summarize what this agent is currently working on. Reply with ONLY the phrase — no quotes, no preamble.\n\nRecent activity:\n"
+
+// firstWords returns the first n whitespace-separated words of s, appending an
+// ellipsis when truncated. Used to seed a subject from the prompt (no LLM call).
+func firstWords(s string, n int) string {
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return ""
+	}
+	if len(fields) <= n {
+		return strings.Join(fields, " ")
+	}
+	return strings.Join(fields[:n], " ") + "…"
+}
+
+// parseSummary cleans an LLM summary reply into a single short line.
+func parseSummary(out string) string {
+	line := strings.TrimSpace(out)
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = line[:i]
+	}
+	line = strings.TrimSpace(line)
+	line = strings.Trim(line, "\"'`")
+	line = strings.Join(strings.Fields(line), " ")
+	if len(line) > 80 {
+		line = strings.TrimSpace(line[:80])
+	}
+	return line
+}
+
+var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// claudeProjectDir maps an absolute workdir to its Claude Code transcript
+// project directory under root (Claude replaces non-alphanumerics with '-').
+// Returns "" when root is empty (transcript lookup disabled).
+func claudeProjectDir(root, workdir string) string {
+	if root == "" || workdir == "" {
+		return ""
+	}
+	return filepath.Join(root, nonAlnum.ReplaceAllString(workdir, "-"))
+}
+
+func summaryArg(text string) string {
+	if len(text) > 4000 {
+		text = text[len(text)-4000:]
+	}
+	return summaryInstruction + text
+}
 
 // parseType extracts the first known type label from a model's free-form reply.
 func parseType(out string) store.Type {
