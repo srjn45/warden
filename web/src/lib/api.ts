@@ -15,6 +15,7 @@ export interface SpawnParams {
   pr?: string;
   worktree?: boolean;
   prompt?: string;
+  cwd?: string;
 }
 
 async function parse<T>(res: Response): Promise<T> {
@@ -45,9 +46,17 @@ export async function spawn(p: SpawnParams): Promise<Session> {
     body: JSON.stringify({
       type: p.type ?? '', ticket: p.ticket ?? '', repo: p.repo ?? '',
       branch: p.branch ?? '', pr: p.pr ?? '', worktree: !!p.worktree,
-      prompt: p.prompt ?? '',
+      prompt: p.prompt ?? '', cwd: p.cwd ?? '',
     }),
   }));
+}
+
+export interface DirEntry { name: string; path: string; }
+export interface DirListing { path: string; parent: string; entries: DirEntry[]; }
+
+export async function listDirs(path?: string): Promise<DirListing> {
+  const q = path ? `?path=${encodeURIComponent(path)}` : '';
+  return parse<DirListing>(await fetch(`/fs/dirs${q}`));
 }
 
 export async function cleanup(id: string, force: boolean, hard: boolean): Promise<void> {
