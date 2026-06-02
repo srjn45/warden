@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
+	"github.com/srajanpathak/agentctl/internal/tui"
 )
 
 func newRootCmd() *cobra.Command {
@@ -19,6 +20,11 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newStartCmd(), newDoneCmd(), newAttachCmd())
 	root.AddCommand(newSendCmd(), newTailCmd())
 	root.AddCommand(newMCPCmd())
+	root.AddCommand(newTUICmd())
+	root.Args = cobra.NoArgs
+	root.RunE = func(cmd *cobra.Command, args []string) error {
+		return tui.Run(clientFor(cmd))
+	}
 	return root
 }
 
