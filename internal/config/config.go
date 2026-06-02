@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
@@ -10,6 +11,7 @@ type Config struct {
 	DataDir           string
 	Workdir           string
 	ClaudeProjectsDir string
+	NotifyEnabled     bool
 }
 
 func envOr(key, def string) string {
@@ -43,6 +45,15 @@ func defaultWorkdir() string {
 	return filepath.Join(home, "agentctl-agents")
 }
 
+// notifyEnabled reads AGENTCTL_NOTIFY; on by default, off for 0/off/false.
+func notifyEnabled() bool {
+	switch strings.ToLower(os.Getenv("AGENTCTL_NOTIFY")) {
+	case "0", "off", "false":
+		return false
+	}
+	return true
+}
+
 // Load reads config from environment, applying defaults.
 func Load() Config {
 	return Config{
@@ -50,5 +61,6 @@ func Load() Config {
 		DataDir:           envOr("AGENTCTL_DATA_DIR", defaultDataDir()),
 		Workdir:           envOr("AGENTCTL_WORKDIR", defaultWorkdir()),
 		ClaudeProjectsDir: envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
+		NotifyEnabled:     notifyEnabled(),
 	}
 }
