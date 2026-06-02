@@ -16,7 +16,9 @@ import (
 
 func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Post("/spawn", s.handleSpawn)
-	r.Post("/cleanup", s.handleCleanup)
+	r.Post("/sessions/{id}/terminate", s.handleTerminate)
+	r.Post("/sessions/{id}/delete", s.handleDelete)
+	r.Post("/sessions/{id}/remove-worktree", s.handleRemoveWorktree)
 	r.Post("/sessions/{id}/input", s.handleInput)
 	r.Get("/sessions/{id}/output", s.handleOutput)
 	r.Post("/sessions/{id}/restore", s.handleRestore)
@@ -92,43 +94,102 @@ func (s *Server) classifyAndUpdate(id, prompt string) {
 	s.notify()
 }
 
-func (s *Server) handleCleanup(w http.ResponseWriter, r *http.Request) {
-	var req CleanupRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
-		writeErr(w, http.StatusBadRequest, "id is required")
+// liveStatus reports whether the stored status implies the agent may still be
+// running (so delete can warn instead of silently orphaning a live tmux).
+func liveStatus(s store.Status) bool {
+	switch s {
+	case store.StatusSpawning, store.StatusWorking, store.StatusWaitingForInput, store.StatusIdle:
+		return true
+	}
+	return false
+}
+
+func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	sess, err := s.store.Get(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "session not found")
 		return
 	}
-	ctx := r.Context()
-	if err := s.life.Cleanup(ctx, req.ID, req.Force, req.Hard); err != nil {
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.life.Terminate(r.Context(), sess.TmuxSession); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.store.UpdateStatus(r.Context(), id, store.StatusDone); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.notify()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "terminated"})
+}
+
+func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req deleteRequest
+	_ = json.NewDecoder(r.Body).Decode(&req) // empty body ok → archive
+	sess, err := s.store.Get(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	warn := ""
+	if liveStatus(sess.Status) {
+		warn = "agent may still be running (status " + string(sess.Status) + "); terminate it first or it becomes untracked"
+	}
+	var derr error
+	if req.Hard {
+		derr = s.store.Delete(r.Context(), id)
+	} else {
+		derr = s.store.Archive(r.Context(), id)
+	}
+	if derr != nil && !errors.Is(derr, store.ErrNotFound) {
+		writeErr(w, http.StatusInternalServerError, derr.Error())
+		return
+	}
+	s.notify()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "warning": warn})
+}
+
+func (s *Server) handleRemoveWorktree(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req removeWorktreeRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	sess, err := s.store.Get(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.life.RemoveWorktree(r.Context(), sess, req.Force); err != nil {
 		switch {
-		case errors.Is(err, store.ErrNotFound):
-			writeErr(w, http.StatusNotFound, "session not found")
-		case errors.Is(err, lifecycle.ErrDirtyWorktree), errors.Is(err, lifecycle.ErrUnpushedCommits):
-			// The guard deliberately preserves uncommitted/unpushed work; a 409
-			// tells the client to push (or retry with --force).
+		case errors.Is(err, lifecycle.ErrNoWorktree):
+			writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		case errors.Is(err, lifecycle.ErrWorktreeAgentAlive),
+			errors.Is(err, lifecycle.ErrDirtyWorktree),
+			errors.Is(err, lifecycle.ErrUnpushedCommits):
 			writeErr(w, http.StatusConflict, err.Error())
 		default:
-			// tmux kill / git worktree-remove failure — a server-side fault.
 			writeErr(w, http.StatusInternalServerError, err.Error())
 		}
 		return
 	}
-	// The tmux session and worktree are gone; the record must now reflect that.
-	// If this write fails the doc would dangle pointing at dead resources, so we
-	// surface it rather than reporting a clean success. A doc that is already
-	// absent (ErrNotFound) is the desired end state, so it is treated as success.
-	var derr error
-	if req.Hard {
-		derr = s.store.Delete(ctx, req.ID)
-	} else {
-		derr = s.store.Archive(ctx, req.ID)
-	}
-	if derr != nil && !errors.Is(derr, store.ErrNotFound) {
-		writeErr(w, http.StatusInternalServerError, "resources removed but session record not updated: "+derr.Error())
+	if err := s.store.ClearWorktree(r.Context(), id); err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.notify()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "cleaned"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "worktree removed"})
 }
 
 func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {

@@ -31,11 +31,11 @@ type SpawnRequest struct {
 	Workdir  string `json:"-"`        // filled server-side in prompt mode
 }
 
-// CleanupRequest is the body for POST /cleanup.
-type CleanupRequest struct {
-	ID    string `json:"id"`
-	Force bool   `json:"force"`
-	Hard  bool   `json:"hard"`
+type deleteRequest struct {
+	Hard bool `json:"hard"`
+}
+type removeWorktreeRequest struct {
+	Force bool `json:"force"`
 }
 
 // InputRequest is the body for POST /sessions/{id}/input.
@@ -86,7 +86,10 @@ func (s *Server) notify() {
 type Lifecycle interface {
 	Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error)
 	Classify(ctx context.Context, prompt string) (store.Type, error)
-	Cleanup(ctx context.Context, id string, force, hard bool) error
+	// Terminate kills the agent's tmux session (keeps record + worktree).
+	Terminate(ctx context.Context, tmuxSession string) error
+	// RemoveWorktree removes the session's git worktree + branch (explicit).
+	RemoveWorktree(ctx context.Context, sess *store.Session, force bool) error
 	// Teardown force-removes a session's tmux session (and worktree/branch, if
 	// any) using the already-known doc, without consulting the store. It is used
 	// to roll back Spawn's side effects when persisting the doc fails.

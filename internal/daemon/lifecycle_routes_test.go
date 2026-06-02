@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,16 +21,17 @@ import (
 type fakeLife struct {
 	mu             sync.Mutex
 	spawned        *store.Session
-	cleaned        string
 	lastInput      string
 	output         string
 	classifyResult store.Type
 	classified     string
 	spawnedWorkdir string
 	tornDown       string
-	cleanupErr     error // when set, Cleanup fails with it
 	restoreErr     error
 	restored       string
+	terminated     string
+	removedWT      string
+	removeWTErr    error
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -67,12 +69,10 @@ func (f *fakeLife) getClassified() string {
 	defer f.mu.Unlock()
 	return f.classified
 }
-func (f *fakeLife) Cleanup(_ context.Context, id string, force, hard bool) error {
-	if f.cleanupErr != nil {
-		return f.cleanupErr
-	}
-	f.cleaned = id
-	return nil
+func (f *fakeLife) Terminate(_ context.Context, tmux string) error { f.terminated = tmux; return nil }
+func (f *fakeLife) RemoveWorktree(_ context.Context, sess *store.Session, force bool) error {
+	f.removedWT = sess.ID
+	return f.removeWTErr
 }
 func (f *fakeLife) Teardown(_ context.Context, sess *store.Session) error {
 	f.mu.Lock()
@@ -120,61 +120,55 @@ func TestPostSpawnRollsBackWhenInsertFails(t *testing.T) {
 	require.Equal(t, "A-1", fl.tornDown, "tmux/worktree must be torn down when the doc can't be persisted")
 }
 
-func postCleanup(t *testing.T, ts *httptest.Server, id string) *http.Response {
-	t.Helper()
-	body, _ := json.Marshal(CleanupRequest{ID: id})
-	resp, err := http.Post(ts.URL+"/cleanup", "application/json", bytes.NewReader(body))
+func TestHandleTerminate(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
+	fl := &fakeLife{}
+	srv := lifeServer(t, fs, fl)
+	resp, err := http.Post(srv.URL+"/sessions/A-1/terminate", "application/json", nil)
 	require.NoError(t, err)
-	return resp
-}
-
-func TestCleanupArchivesOnSuccess(t *testing.T) {
-	fl := &fakeLife{}
-	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1"}
-	ts := lifeServer(t, fs, fl)
-	defer ts.Close()
-	resp := postCleanup(t, ts, "A-1")
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Equal(t, "A-1", fl.cleaned)
-	_, exists := fs.data["A-1"]
-	require.False(t, exists, "doc must be archived out of the active collection")
+	require.Equal(t, "A-1", fl.terminated)
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Equal(t, store.StatusDone, got.Status, "terminate marks the record done")
 }
 
-func TestCleanupGuardFailureIs409(t *testing.T) {
-	fl := &fakeLife{cleanupErr: lifecycle.ErrDirtyWorktree}
-	ts := lifeServer(t, newFakeStore(), fl)
-	defer ts.Close()
-	resp := postCleanup(t, ts, "A-1")
-	require.Equal(t, http.StatusConflict, resp.StatusCode, "guard failures are a client conflict")
-}
-
-func TestCleanupOperationalFailureIs500(t *testing.T) {
-	fl := &fakeLife{cleanupErr: errors.New("git worktree remove: boom")}
-	ts := lifeServer(t, newFakeStore(), fl)
-	defer ts.Close()
-	resp := postCleanup(t, ts, "A-1")
-	require.Equal(t, http.StatusInternalServerError, resp.StatusCode, "tmux/git faults are server errors, not 409")
-}
-
-func TestCleanupNotFoundIs404(t *testing.T) {
-	fl := &fakeLife{cleanupErr: store.ErrNotFound}
-	ts := lifeServer(t, newFakeStore(), fl)
-	defer ts.Close()
-	resp := postCleanup(t, ts, "nope")
-	require.Equal(t, http.StatusNotFound, resp.StatusCode)
-}
-
-func TestCleanupArchiveFailureIsSurfaced(t *testing.T) {
-	fl := &fakeLife{}
+func TestHandleDeleteArchivesByDefault(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1"}
-	fs.archiveErr = errors.New("mongo down")
-	ts := lifeServer(t, fs, fl)
-	defer ts.Close()
-	resp := postCleanup(t, ts, "A-1")
-	require.Equal(t, http.StatusInternalServerError, resp.StatusCode,
-		"a failed archive must not be reported as a clean success")
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
+	srv := lifeServer(t, fs, &fakeLife{})
+	resp, err := http.Post(srv.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	_, err = fs.Get(context.Background(), "A-1")
+	require.ErrorIs(t, err, store.ErrNotFound, "record removed from active store")
+}
+
+func TestHandleRemoveWorktreeGuardConflict(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Worktree: ".worktrees/A-1", Repo: "/repo", Status: store.StatusDone})
+	fl := &fakeLife{removeWTErr: lifecycle.ErrWorktreeAgentAlive}
+	srv := lifeServer(t, fs, fl)
+	resp, err := http.Post(srv.URL+"/sessions/A-1/remove-worktree", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestHandleRemoveWorktreeClearsRecord(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Worktree: ".worktrees/A-1", Branch: "A-1", Repo: "/repo", Status: store.StatusDone})
+	fl := &fakeLife{}
+	srv := lifeServer(t, fs, fl)
+	resp, err := http.Post(srv.URL+"/sessions/A-1/remove-worktree", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "A-1", fl.removedWT)
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Empty(t, got.Worktree, "record's worktree cleared after removal")
 }
 
 func TestPostSpawnRequiresTypeAndRepo(t *testing.T) {

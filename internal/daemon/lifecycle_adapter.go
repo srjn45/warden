@@ -42,22 +42,25 @@ func (a *lifecycleAdapter) Classify(ctx context.Context, prompt string) (store.T
 	return a.lc.Classify(ctx, prompt)
 }
 
-func (a *lifecycleAdapter) Cleanup(ctx context.Context, id string, force, hard bool) error {
-	sess, err := a.store.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	return a.lc.Cleanup(ctx, lifecycle.CleanupTarget{
+func (a *lifecycleAdapter) Terminate(ctx context.Context, tmuxSession string) error {
+	return a.lc.Terminate(ctx, tmuxSession)
+}
+
+func (a *lifecycleAdapter) RemoveWorktree(ctx context.Context, sess *store.Session, force bool) error {
+	return a.lc.RemoveWorktree(ctx, lifecycle.CleanupTarget{
 		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
 		Branch: sess.Branch, TmuxSession: sess.TmuxSession,
 	}, force)
 }
 
-// Teardown force-cleans the resources Spawn created for sess. force=true skips
-// the dirty/unpushed guard — a just-spawned session has no work worth keeping,
-// and the doc was never persisted so there is nothing to look up.
+// Teardown force-cleans the resources Spawn created (spawn rollback): kill tmux,
+// then force-remove the worktree if there is one.
 func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *store.Session) error {
-	return a.lc.Cleanup(ctx, lifecycle.CleanupTarget{
+	_ = a.lc.Terminate(ctx, sess.TmuxSession)
+	if sess.Worktree == "" {
+		return nil
+	}
+	return a.lc.RemoveWorktree(ctx, lifecycle.CleanupTarget{
 		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
 		Branch: sess.Branch, TmuxSession: sess.TmuxSession,
 	}, true)
