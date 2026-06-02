@@ -60,6 +60,11 @@ type Poller struct {
 	// subject. The daemon wires this to hub.publish for SSE.
 	OnChange func()
 
+	// OnTransition, if set, is called once per successful status swap with the
+	// session and its old/new status (edge-triggered — once per transition, not
+	// per tick). The daemon wires this to fire user notifications.
+	OnTransition func(sess *store.Session, from, to store.Status)
+
 	// Summarization runs `claude -p`, which is slow, so it is dispatched to
 	// background workers rather than blocking the tick loop. mu guards inflight;
 	// wg tracks live workers so Run can drain them on shutdown.
@@ -123,6 +128,9 @@ func (p *Poller) tick(ctx context.Context) error {
 					log.Printf("poller: update %s: %v", s.ID, err)
 				} else if ok {
 					changed = true
+					if p.OnTransition != nil {
+						p.OnTransition(s, s.Status, next)
+					}
 				}
 			}
 		}

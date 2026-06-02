@@ -83,8 +83,8 @@ type stubDeps struct {
 	lastExpected map[string]store.Status // records the CAS "expected" arg
 	casFail      map[string]bool         // when true for an id, the CAS misses (lost race)
 	paneUpdates  map[string]string       // records UpdatePane calls when non-nil
-	subjects     map[string]string // records UpdateSubject calls
-	summary      string            // canned Summarize result
+	subjects     map[string]string       // records UpdateSubject calls
+	summary      string                  // canned Summarize result
 	summarizeErr error
 	summarizeN   int   // count of Summarize calls
 	captureErr   error // when set, CapturePane fails for every session
@@ -349,6 +349,41 @@ func TestTickSkipsSummaryWhenPaneUnchanged(t *testing.T) {
 	require.Equal(t, 0, d.summarizeN, "no summary when pane didn't change")
 }
 
+func TestTickFiresOnTransition(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+		alive:    map[string]bool{"A-1": false}, // dead → orphaned
+		panes:    map[string]string{},
+		updates:  map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	var gotFrom, gotTo store.Status
+	var gotID string
+	n := 0
+	p.OnTransition = func(s *store.Session, from, to store.Status) {
+		gotID, gotFrom, gotTo, n = s.ID, from, to, n+1
+	}
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, 1, n, "fired once on the transition")
+	require.Equal(t, "A-1", gotID)
+	require.Equal(t, store.StatusWorking, gotFrom)
+	require.Equal(t, store.StatusOrphaned, gotTo)
+}
+
+func TestTickNoTransitionForTerminalStatus(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone}},
+		alive:    map[string]bool{"A-1": false},
+		panes:    map[string]string{},
+		updates:  map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	fired := false
+	p.OnTransition = func(*store.Session, store.Status, store.Status) { fired = true }
+	require.NoError(t, p.tick(context.Background()))
+	require.False(t, fired, "terminal status is skipped → no transition")
+}
+
 func TestTickThrottlesSummary(t *testing.T) {
 	d := &stubDeps{
 		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
@@ -358,7 +393,7 @@ func TestTickThrottlesSummary(t *testing.T) {
 		summary:  "y",
 	}
 	p := New(d, 5*time.Minute)
-	p.SummarizeAfter = time.Hour                    // not due (lastSummary set on first call)
+	p.SummarizeAfter = time.Hour                     // not due (lastSummary set on first call)
 	require.NoError(t, p.tick(context.Background())) // first: due (zero time) → summarizes
 	p.wg.Wait()                                      // let the first worker finish before re-ticking
 	d.panes["A-1"] = "changed again"
