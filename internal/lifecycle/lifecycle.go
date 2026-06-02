@@ -269,11 +269,37 @@ func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string,
 	return parseSummary(out), nil
 }
 
-// recentActivity returns recent conversation text: the tail of the newest
-// transcript .jsonl under the agent's project dir, else the tmux pane.
-func (l *Lifecycle) recentActivity(ctx context.Context, sess *store.Session) string {
+// transcriptPath resolves the agent's claude transcript file. With a pinned
+// ClaudeSessionID the file is exactly <id>.jsonl: look under the encoded project
+// dir first, then an unambiguous glob across all project dirs (the UUID is
+// globally unique, so this is robust to cwd path-encoding quirks). With no
+// pinned id (legacy sessions) it falls back to the newest .jsonl in the dir.
+func (l *Lifecycle) transcriptPath(sess *store.Session) string {
+	if sess.ClaudeSessionID != "" {
+		if dir := claudeProjectDir(l.ProjectsDir, sess.Workdir); dir != "" {
+			p := filepath.Join(dir, sess.ClaudeSessionID+".jsonl")
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+		}
+		if l.ProjectsDir != "" {
+			if m, _ := filepath.Glob(filepath.Join(l.ProjectsDir, "*", sess.ClaudeSessionID+".jsonl")); len(m) == 1 {
+				return m[0]
+			}
+		}
+		return "" // pinned but not written yet -> caller falls back to the pane
+	}
 	if dir := claudeProjectDir(l.ProjectsDir, sess.Workdir); dir != "" {
-		if txt := newestTranscriptTail(dir, 4000); txt != "" {
+		return newestTranscriptPath(dir)
+	}
+	return ""
+}
+
+// recentActivity returns recent conversation text: the tail of the agent's
+// transcript file (by pinned session id or newest .jsonl), else the tmux pane.
+func (l *Lifecycle) recentActivity(ctx context.Context, sess *store.Session) string {
+	if p := l.transcriptPath(sess); p != "" {
+		if txt := readFileTail(p, 4000); txt != "" {
 			return txt
 		}
 	}
@@ -284,9 +310,9 @@ func (l *Lifecycle) recentActivity(ctx context.Context, sess *store.Session) str
 	return out
 }
 
-// newestTranscriptTail returns up to maxBytes from the end of the most recently
-// modified *.jsonl file in dir, or "" if none.
-func newestTranscriptTail(dir string, maxBytes int64) string {
+// newestTranscriptPath returns the path of the most recently modified *.jsonl in
+// dir, or "" if none.
+func newestTranscriptPath(dir string) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
@@ -310,7 +336,13 @@ func newestTranscriptTail(dir string, maxBytes int64) string {
 		return ""
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].mod > files[j].mod })
-	return readFileTail(files[0].path, maxBytes)
+	return files[0].path
+}
+
+// newestTranscriptTail returns up to maxBytes from the end of the most recently
+// modified *.jsonl file in dir, or "" if none. (readFileTail("") is a safe "".)
+func newestTranscriptTail(dir string, maxBytes int64) string {
+	return readFileTail(newestTranscriptPath(dir), maxBytes)
 }
 
 // readFileTail returns up to maxBytes from the end of the file at path, or ""

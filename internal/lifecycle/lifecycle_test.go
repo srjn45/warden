@@ -437,3 +437,56 @@ func TestSummarizeFallsBackToPane(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "building a REST handler", got)
 }
+
+func TestTranscriptPathBySessionIDBeatsNewest(t *testing.T) {
+	root := t.TempDir()
+	workdir := "/Users/me/agentctl-agents/agent-zz99"
+	dir := claudeProjectDir(root, workdir)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	sid := "33333333-3333-4333-8333-333333333333"
+	want := filepath.Join(dir, sid+".jsonl")
+	require.NoError(t, os.WriteFile(want, []byte("HELLO"), 0o644))
+	// A decoy with a newer mtime that the legacy heuristic would wrongly pick.
+	decoy := filepath.Join(dir, "decoy.jsonl")
+	require.NoError(t, os.WriteFile(decoy, []byte("DECOY"), 0o644))
+	future := time.Now().Add(time.Minute)
+	require.NoError(t, os.Chtimes(decoy, future, future))
+
+	lc := New(&FakeRunner{})
+	lc.ProjectsDir = root
+	sess := &store.Session{ID: "agent-zz99", Workdir: workdir, ClaudeSessionID: sid}
+	require.Equal(t, want, lc.transcriptPath(sess), "pinned id beats newest-mtime decoy")
+}
+
+func TestTranscriptPathGlobFallback(t *testing.T) {
+	root := t.TempDir()
+	sid := "44444444-4444-4444-8444-444444444444"
+	// The transcript lives under a project dir that does NOT match the workdir
+	// encoding (simulates the /tmp -> /private/tmp path-resolution mismatch).
+	other := filepath.Join(root, "-some-other-encoded-dir")
+	require.NoError(t, os.MkdirAll(other, 0o755))
+	want := filepath.Join(other, sid+".jsonl")
+	require.NoError(t, os.WriteFile(want, []byte("X"), 0o644))
+
+	lc := New(&FakeRunner{})
+	lc.ProjectsDir = root
+	sess := &store.Session{ID: "agent-x", Workdir: "/mismatch/dir", ClaudeSessionID: sid}
+	require.Equal(t, want, lc.transcriptPath(sess), "unique glob finds it despite dir mismatch")
+}
+
+func TestTranscriptPathLegacyFallsBackToNewest(t *testing.T) {
+	root := t.TempDir()
+	workdir := "/Users/me/agentctl-agents/agent-leg"
+	dir := claudeProjectDir(root, workdir)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "old.jsonl"), []byte("OLD"), 0o644))
+	newf := filepath.Join(dir, "new.jsonl")
+	require.NoError(t, os.WriteFile(newf, []byte("NEW"), 0o644))
+	future := time.Now().Add(time.Minute)
+	require.NoError(t, os.Chtimes(newf, future, future))
+
+	lc := New(&FakeRunner{})
+	lc.ProjectsDir = root
+	sess := &store.Session{ID: "agent-leg", Workdir: workdir} // no ClaudeSessionID
+	require.Equal(t, newf, lc.transcriptPath(sess), "empty id -> newest .jsonl (legacy)")
+}
