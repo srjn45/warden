@@ -10,10 +10,6 @@ function age(iso: string): string {
   return `${Math.floor(m / 60)}h${m % 60}m`;
 }
 
-function lastDetail(s: Session): string {
-  const ev = s.events;
-  return ev && ev.length ? ev[ev.length - 1].detail : '';
-}
 
 export default function AgentList({ sessions, selectedId, onSelect }: {
   sessions: Session[];
@@ -27,7 +23,7 @@ export default function AgentList({ sessions, selectedId, onSelect }: {
     <div className="list">
       <table>
         <thead>
-          <tr><th>ID</th><th>Type</th><th>State</th><th>Status</th><th>Age</th><th>Detail</th></tr>
+          <tr><th>ID</th><th>Type</th><th>State</th><th>Status</th><th>Age</th><th>Subject</th></tr>
         </thead>
         <tbody>
           {sessions.map((s) => (
@@ -37,7 +33,7 @@ export default function AgentList({ sessions, selectedId, onSelect }: {
               <td><BusyIdleBadge status={s.status} /></td>
               <td>{s.status}</td>
               <td>{age(s.updated_at)}</td>
-              <td className="muted">{lastDetail(s)}</td>
+              <td className="muted">{s.subject}</td>
             </tr>
           ))}
         </tbody>

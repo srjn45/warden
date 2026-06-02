@@ -45,7 +45,8 @@ export default function AgentDetail({ session, onClosed }: { session: Session; o
       <div className="detail-head">
         <h2>{session.id} <BusyIdleBadge status={session.status} /></h2>
         <code className="muted">
-          type: {session.type || 'classifying…'} · repo: {session.repo || '—'}{session.worktree && ` · ${session.worktree}`}
+          type: {session.type || 'classifying…'} · dir: {session.workdir || '—'}
+          {session.subject && ` · ${session.subject}`}
         </code>
         <TerminateControls id={session.id} onDone={onClosed} />
       </div>

@@ -18,6 +18,8 @@ export interface Session {
   branch: string;
   pr: string;
   prompt: string;
+  workdir: string;
+  subject: string;
   status: Status;
   pid: number;
   created_at: string;
