@@ -12,6 +12,7 @@ import (
 	"github.com/srajanpathak/agentctl/internal/config"
 	"github.com/srajanpathak/agentctl/internal/daemon"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
+	"github.com/srajanpathak/agentctl/internal/notify"
 	"github.com/srajanpathak/agentctl/internal/poller"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -43,6 +44,7 @@ func newDaemonCmd() *cobra.Command {
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
+			pl.OnTransition = daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.Workdir)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
