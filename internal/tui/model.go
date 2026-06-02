@@ -33,19 +33,20 @@ const (
 
 // Model is the Bubble Tea model. Update is a pure reducer over messages.
 type Model struct {
-	api       api
-	sessions  []*store.Session
-	cursor    int
-	output    string
-	vp        viewport.Model
-	ta        textarea.Model
-	ti        textinput.Model
-	mode      mode
-	killForce bool
-	status    string
-	connected bool
-	w, h      int
-	ready     bool
+	api           api
+	sessions      []*store.Session
+	cursor        int
+	output        string
+	vp            viewport.Model
+	ta            textarea.Model
+	ti            textinput.Model
+	mode          mode
+	outputFocused bool
+	killForce     bool
+	status        string
+	connected     bool
+	w, h          int
+	ready         bool
 }
 
 // New builds an initial model bound to the given api client.
@@ -107,6 +108,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.mode == modeNormal && m.outputFocused {
+			switch msg.String() {
+			case "tab", "esc":
+				m.outputFocused = false
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			}
+			var cmd tea.Cmd
+			m.vp, cmd = m.vp.Update(msg) // PgUp/PgDn/up/down scroll the output
+			return m, cmd
+		}
 		return m.handleKey(msg)
 	}
 	return m, nil

@@ -61,6 +61,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEsc}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "\t":
+		return tea.KeyMsg{Type: tea.KeyTab}
 	default:
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 	}
@@ -117,4 +119,30 @@ func TestViewDoesNotPanic(t *testing.T) {
 	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = step(m, sessionsMsg{sessions: threeSessions()})
 	require.NotEmpty(t, m.View())
+}
+
+func TestOutputMsgFillsSelected(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, sessionsMsg{sessions: threeSessions()}) // cursor=0 → "a"
+	m = step(m, outputMsg{id: "a", text: "hello output"})
+	require.Equal(t, "hello output", m.output)
+}
+
+func TestOutputMsgIgnoresStaleID(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, sessionsMsg{sessions: threeSessions()}) // selected "a"
+	m = step(m, outputMsg{id: "a", text: "for a"})
+	m = step(m, outputMsg{id: "c", text: "stale"}) // not selected
+	require.Equal(t, "for a", m.output)
+}
+
+func TestTabFocusesOutput(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, sessionsMsg{sessions: threeSessions()})
+	require.False(t, m.outputFocused)
+	m = step(m, key("\t")) // tab
+	require.True(t, m.outputFocused)
 }

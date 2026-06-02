@@ -18,6 +18,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 			return m, nil
+		case "tab":
+			if m.selected() != nil {
+				m.outputFocused = true
+			}
+			return m, nil
 		}
 	}
 	return m, nil
