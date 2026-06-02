@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"text/tabwriter"
 	"time"
@@ -11,13 +13,19 @@ import (
 )
 
 func newLsCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List all active agent sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessions, err := clientFor(cmd).List(cmd.Context())
 			if err != nil {
 				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				if sessions == nil {
+					sessions = []*store.Session{}
+				}
+				return printJSON(cmd.OutOrStdout(), sessions)
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
 			fmt.Fprintln(tw, "ID\tTYPE\tSTATUS\tAGE\tDIR\tSUBJECT")
@@ -28,10 +36,12 @@ func newLsCmd() *cobra.Command {
 			return tw.Flush()
 		},
 	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
 }
 
 func newStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status <TICKET>",
 		Short: "Show full status for one session",
 		Args:  cobra.ExactArgs(1),
@@ -39,6 +49,9 @@ func newStatusCmd() *cobra.Command {
 			s, err := clientFor(cmd).Get(cmd.Context(), args[0])
 			if err != nil {
 				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), s)
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "id:       %s\ntype:     %s\nticket:   %s\nstatus:   %s\nrepo:     %s\nworkdir:  %s\nworktree: %s\nbranch:   %s\npr:       %s\nsubject:  %s\nclaude:   %s\nupdated:  %s\n",
@@ -50,6 +63,8 @@ func newStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
 }
 
 func age(t time.Time) string {
@@ -75,4 +90,12 @@ func typeOrPending(t store.Type) string {
 		return "…"
 	}
 	return string(t)
+}
+
+// printJSON writes v as indented JSON followed by a newline. Used by the
+// --json flag so agents/scripts can parse agentctl output reliably.
+func printJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
 }

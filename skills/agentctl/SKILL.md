@@ -1,6 +1,6 @@
 ---
 name: agentctl
-description: Use to spawn, list, monitor, talk to, and tear down Claude Code agent sessions via agentctl. Triggers include "spawn/create an agent", "list/check/triage my agents", "what is agent <id> doing", "tell/ask agent <id> to …", "send to an agent", "terminate/kill/remove agent(s)", "manage my agents". Drives the agentctl MCP tools (with the agentctl CLI as a fallback).
+description: Use to spawn, list, monitor, talk to, and tear down Claude Code agent sessions via agentctl. Triggers include "spawn/create an agent", "list/check/triage my agents", "what is agent <id> doing", "tell/ask agent <id> to …", "send to an agent", "terminate/kill/remove agent(s)", "manage my agents". Drives the agentctl MCP tools or the agentctl CLI — both are first-class paths.
 ---
 
 # agentctl — drive your agent fleet
@@ -16,10 +16,7 @@ them on the user's behalf through the **agentctl MCP tools**:
 - The daemon must be running. If a tool returns a connection / "daemon not
   running" error, tell the user to start it (`agentctl daemon`, or via launchd) —
   do not guess at agent state.
-- If the `agentctl` MCP tools are not available in this session, fall back to the
-  `agentctl` CLI: `agentctl ls`, `agentctl start "<prompt>"`,
-  `agentctl send <id> "<msg>"`, `agentctl tail <id>`, `agentctl terminate <id>`
-  (terminate+delete = the old `agentctl done`).
+- Two equivalent ways to drive the fleet: the **agentctl MCP tools** (when registered in this session) and the **`agentctl` CLI** (always available wherever the binary is installed). Both wrap the same daemon REST API — use whichever is available. CLI verbs: `agentctl ls`, `agentctl start "<prompt>"`, `agentctl send <id> "<msg>"`, `agentctl tail <id>`, `agentctl terminate <id>`, `agentctl delete <id>`, `agentctl remove-worktree <id>` (and `agentctl done <id>` = terminate + delete). **Note:** MCP registration may be blocked by enterprise policy (`claude mcp add` is locked down on some machines); when the MCP tools are absent, use the CLI — no capability is lost.
 
 ## Tool argument note
 
@@ -40,6 +37,22 @@ looks like `agent-<shortid>`). Pass that id as the `ticket` value.
 | clear / delete an agent's record | `delete_agent` (id, hard?) — archives by default |
 | remove an agent's worktree | `remove_worktree` (id, force?) — DESTRUCTIVE; **confirm with the user first**; terminate the agent first |
 | restore / bring back a lost or orphaned agent | `restore_agent` (id) — only for sessions whose tmux is gone (status `orphaned`); resumes the same conversation |
+
+## CLI command map (when not using MCP tools)
+
+| Intent | CLI command |
+|---|---|
+| list / triage agents | `agentctl ls` (add `--json` for machine-readable output) |
+| full status of one agent | `agentctl status <id>` (add `--json` for the full object incl. events) |
+| recent terminal output | `agentctl tail <id>` |
+| spawn from a prompt | `agentctl start "<prompt>"` |
+| spawn a managed worktree agent | `agentctl start <TICKET> --type <TYPE> --repo <repo>` |
+| send a message to an agent | `agentctl send <id> "<text>"` |
+| terminate / clean up | `agentctl done <id>` (guarded; `--force` to override the git guard) |
+| restore a lost/orphaned agent | `agentctl restore <id>` |
+| attach interactively | `agentctl attach <id>` |
+
+Prefer `--json` on `ls`/`status` when you need to parse the result programmatically — the table/text views are for humans and may change.
 
 ## Guardrails
 
