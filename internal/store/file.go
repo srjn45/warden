@@ -172,8 +172,8 @@ func (fs *FileStore) UpdateStatus(ctx context.Context, id string, status Status)
 }
 
 // UpdateStatusIf sets status to next only when the stored status still equals
-// expected. A missing document returns (false, nil) — not an error — matching
-// MongoStore's filtered update.
+// expected. A missing document returns (false, nil) — not an error — so a
+// compare-and-swap against an archived/deleted session is a no-op, not a failure.
 func (fs *FileStore) UpdateStatusIf(ctx context.Context, id string, expected, next Status) (bool, error) {
 	if err := safeID(id); err != nil {
 		return false, err

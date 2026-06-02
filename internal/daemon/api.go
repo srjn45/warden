@@ -121,7 +121,7 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Ping(r.Context()); err != nil {
-		writeErr(w, http.StatusServiceUnavailable, "mongo unavailable: "+err.Error())
+		writeErr(w, http.StatusServiceUnavailable, "store unavailable: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
