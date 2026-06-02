@@ -139,6 +139,16 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 	return branch, nil
 }
 
+// Classify asks the same Claude (headless) to label a task prompt. On any error
+// it returns TypeOther alongside the error so callers can fall back gracefully.
+func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, error) {
+	out, err := l.run.Run(ctx, "", "claude", "-p", classifyArg(prompt))
+	if err != nil {
+		return store.TypeOther, fmt.Errorf("claude -p: %w: %s", err, out)
+	}
+	return parseType(out), nil
+}
+
 // Spawn resolves the id, creates a worktree per the type policy, starts a
 // detached tmux session, launches claude, and returns a Session in "spawning".
 func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {

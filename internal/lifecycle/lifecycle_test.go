@@ -219,3 +219,24 @@ func TestParseType(t *testing.T) {
 	require.Equal(t, store.TypeOther, parseType("I am not sure"))
 	require.Equal(t, store.TypeOther, parseType(""))
 }
+
+func TestClassifyCallsClaudeP(t *testing.T) {
+	prompt := "build a REST API for orders"
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"claude -p " + classifyArg(prompt): {Out: "development\n"},
+	}}
+	got, err := New(fr).Classify(context.Background(), prompt)
+	require.NoError(t, err)
+	require.Equal(t, store.TypeDevelopment, got)
+	require.Contains(t, fr.calledArgs(), []string{"claude", "-p", classifyArg(prompt)})
+}
+
+func TestClassifyDefaultsToOtherOnError(t *testing.T) {
+	prompt := "whatever"
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"claude -p " + classifyArg(prompt): {Err: errStub("claude not found")},
+	}}
+	got, err := New(fr).Classify(context.Background(), prompt)
+	require.Error(t, err)
+	require.Equal(t, store.TypeOther, got)
+}
