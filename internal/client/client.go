@@ -132,6 +132,18 @@ func (c *Client) Cleanup(ctx context.Context, id string, force, hard bool) error
 	return c.do(ctx, http.MethodPost, "/cleanup", body, nil)
 }
 
+func (c *Client) Terminate(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", nil, nil)
+}
+
+func (c *Client) Delete(ctx context.Context, id string, hard bool) error {
+	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/delete", map[string]bool{"hard": hard}, nil)
+}
+
+func (c *Client) RemoveWorktree(ctx context.Context, id string, force bool) error {
+	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/remove-worktree", map[string]bool{"force": force}, nil)
+}
+
 func (c *Client) Input(ctx context.Context, id, text string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/input", map[string]string{"text": text}, nil)
 }

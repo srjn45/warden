@@ -82,23 +82,87 @@ func newRestoreCmd() *cobra.Command {
 	}
 }
 
-func newDoneCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "done <TICKET>",
-		Short: "Tear down an agent (kill tmux, prune worktree/branch, archive doc)",
+func newTerminateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "terminate <TICKET>",
+		Short: "Stop an agent: kill its tmux+claude session (keeps the record and worktree)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			hard, _ := cmd.Flags().GetBool("hard")
-			if err := clientFor(cmd).Cleanup(cmd.Context(), args[0], force, hard); err != nil {
+			if err := clientFor(cmd).Terminate(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "cleaned up %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "terminated %s\n", args[0])
 			return nil
 		},
 	}
-	cmd.Flags().Bool("force", false, "override the uncommitted/unpushed guard")
-	cmd.Flags().Bool("hard", false, "hard-delete the doc instead of archiving")
+}
+
+func newDeleteCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <TICKET>",
+		Short: "Clear an agent's stored record (archives by default; --hard to purge)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hard, _ := cmd.Flags().GetBool("hard")
+			if err := clientFor(cmd).Delete(cmd.Context(), args[0], hard); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "deleted %s\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().Bool("hard", false, "permanently purge the record instead of archiving")
+	return cmd
+}
+
+func newRemoveWorktreeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "remove-worktree <TICKET>",
+		Short: "Remove an agent's git worktree + branch (always asks; --force overrides guards)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			yes, _ := cmd.Flags().GetBool("yes")
+			force, _ := cmd.Flags().GetBool("force")
+			if !yes {
+				fmt.Fprintf(cmd.OutOrStdout(), "Remove the git worktree and branch for %s? This cannot be undone. [y/N]: ", args[0])
+				var ans string
+				_, _ = fmt.Fscanln(cmd.InOrStdin(), &ans)
+				if ans != "y" && ans != "Y" {
+					fmt.Fprintln(cmd.OutOrStdout(), "aborted")
+					return nil
+				}
+			}
+			if err := clientFor(cmd).RemoveWorktree(cmd.Context(), args[0], force); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed worktree for %s\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().Bool("force", false, "override the alive/uncommitted/unpushed guards")
+	cmd.Flags().Bool("yes", false, "skip the confirmation prompt")
+	return cmd
+}
+
+func newDoneCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "done <TICKET>",
+		Short: "Terminate an agent and clear its record (does NOT remove the worktree)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hard, _ := cmd.Flags().GetBool("hard")
+			c := clientFor(cmd)
+			if err := c.Terminate(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			if err := c.Delete(cmd.Context(), args[0], hard); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "done %s (terminated + record cleared; worktree, if any, kept — use remove-worktree)\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().Bool("hard", false, "purge the record instead of archiving")
 	return cmd
 }
 
