@@ -95,6 +95,17 @@ func (m *MongoStore) UpdateType(ctx context.Context, id string, t Type) error {
 	return nil
 }
 
+func (m *MongoStore) UpdateSubject(ctx context.Context, id, subject string) error {
+	res, err := m.active.UpdateByID(ctx, id, bson.M{"$set": m.setUpdated(bson.M{"subject": subject})})
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (m *MongoStore) AppendEvent(ctx context.Context, id string, ev Event) error {
 	if ev.TS.IsZero() {
 		ev.TS = time.Now().UTC()

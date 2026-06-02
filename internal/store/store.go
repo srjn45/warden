@@ -18,6 +18,7 @@ type Store interface {
 	List(ctx context.Context) ([]*Session, error)
 	UpdateStatus(ctx context.Context, id string, status Status) error
 	UpdateType(ctx context.Context, id string, t Type) error
+	UpdateSubject(ctx context.Context, id, subject string) error
 	AppendEvent(ctx context.Context, id string, ev Event) error
 	UpdatePane(ctx context.Context, id, excerpt string) error
 	// Archive moves the doc to the closed collection (soft delete).

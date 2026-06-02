@@ -113,3 +113,12 @@ func TestUpdateType(t *testing.T) {
 	got, _ := st.Get(ctx, "PROJ-350")
 	require.Equal(t, TypeAnalysis, got.Type)
 }
+
+func TestUpdateSubject(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	require.NoError(t, st.UpdateSubject(ctx, "PROJ-350", "investigating flaky test"))
+	got, _ := st.Get(ctx, "PROJ-350")
+	require.Equal(t, "investigating flaky test", got.Subject)
+}

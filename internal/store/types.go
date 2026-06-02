@@ -74,6 +74,8 @@ type Session struct {
 	Branch          string    `bson:"branch" json:"branch"`         // optional
 	PR              string    `bson:"pr" json:"pr"`                 // optional (pr-review)
 	Prompt          string    `bson:"prompt" json:"prompt"`           // initial prompt (prompt-spawned agents)
+	Workdir         string    `bson:"workdir" json:"workdir"`         // absolute cwd of the tmux session
+	Subject         string    `bson:"subject" json:"subject"`         // one-line auto summary of what it's doing
 	Status          Status    `bson:"status" json:"status"`
 	PID             int       `bson:"pid" json:"pid"`
 	CreatedAt       time.Time `bson:"created_at" json:"created_at"`

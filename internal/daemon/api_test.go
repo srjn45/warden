@@ -68,6 +68,16 @@ func (f *fakeStore) UpdateType(_ context.Context, id string, t store.Type) error
 	s.Type = t
 	return nil
 }
+func (f *fakeStore) UpdateSubject(_ context.Context, id, subject string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	s.Subject = subject
+	return nil
+}
 func (f *fakeStore) AppendEvent(_ context.Context, id string, ev store.Event) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
