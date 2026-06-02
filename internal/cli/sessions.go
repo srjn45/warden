@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 	"text/tabwriter"
 	"time"
 
@@ -19,9 +20,10 @@ func newLsCmd() *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tTYPE\tSTATUS\tAGE\tDETAIL")
+			fmt.Fprintln(tw, "ID\tTYPE\tSTATUS\tAGE\tDIR\tSUBJECT")
 			for _, s := range sessions {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", s.ID, s.Type, s.Status, age(s.UpdatedAt), lastDetail(s))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					s.ID, typeOrPending(s.Type), s.Status, age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
 			}
 			return tw.Flush()
 		},
@@ -39,8 +41,8 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "id:       %s\ntype:     %s\nticket:   %s\nstatus:   %s\nrepo:     %s\nworktree: %s\nbranch:   %s\npr:       %s\nupdated:  %s\n",
-				s.ID, s.Type, s.Ticket, s.Status, s.Repo, s.Worktree, s.Branch, s.PR, s.UpdatedAt.Format(time.RFC3339))
+			fmt.Fprintf(out, "id:       %s\ntype:     %s\nticket:   %s\nstatus:   %s\nrepo:     %s\nworkdir:  %s\nworktree: %s\nbranch:   %s\npr:       %s\nsubject:  %s\nupdated:  %s\n",
+				s.ID, typeOrPending(s.Type), s.Ticket, s.Status, s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, s.Subject, s.UpdatedAt.Format(time.RFC3339))
 			fmt.Fprintln(out, "events:")
 			for _, e := range s.Events {
 				fmt.Fprintf(out, "  %s  %-14s %s\n", e.TS.Format("15:04:05"), e.Type, e.Detail)
@@ -61,9 +63,16 @@ func age(t time.Time) string {
 	return d.String()
 }
 
-func lastDetail(s *store.Session) string {
-	if len(s.Events) == 0 {
-		return ""
+func dirName(workdir string) string {
+	if workdir == "" {
+		return "—"
 	}
-	return s.Events[len(s.Events)-1].Detail
+	return filepath.Base(workdir)
+}
+
+func typeOrPending(t store.Type) string {
+	if t == "" {
+		return "…"
+	}
+	return string(t)
 }
