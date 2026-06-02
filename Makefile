@@ -31,12 +31,14 @@ install-skill:
 	@echo "linked ~/.claude/skills/agentctl -> $(PWD)/skills/agentctl"
 
 # Install agentctl as a launchd service (build + binary + plist + skill + MCP).
+# Use NO_BUILD=1 to skip the build and install the existing bin/agentctl.
 install:
-	./scripts/install.sh
+	./scripts/install.sh $(if $(NO_BUILD),--no-build,)
 
 # Tear down the launchd service and integrations (preserves data + logs).
+# Use KEEP_BINARY=1 to leave ~/.local/bin/agentctl in place.
 uninstall:
-	./scripts/uninstall.sh
+	./scripts/uninstall.sh $(if $(KEEP_BINARY),--keep-binary,)
 
 # Rebuild and redeploy the running daemon (use NO_BUILD=1 to skip the build).
 reinstall:

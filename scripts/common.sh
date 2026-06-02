@@ -45,6 +45,10 @@ deploy_binary() {
 }
 
 # --- plist ----------------------------------------------------------------
+# Sets PLIST_CHANGED=1 when the on-disk plist was created or its contents
+# changed, 0 when it already matched. restart_service uses this to decide
+# whether a full reload (to pick up plist changes) is needed.
+PLIST_CHANGED=1
 render_plist() {
   [ -f "$TEMPLATE" ] || die "plist template not found: $TEMPLATE"
   mkdir -p "$(dirname "$PLIST")"
@@ -53,8 +57,15 @@ render_plist() {
       -e "s|__ADDR__|$ADDR|g" \
       -e "s|__HOME__|$HOME|g" \
       "$TEMPLATE" > "$tmp" || { rm -f "$tmp"; die "failed to render plist"; }
-  mv -f "$tmp" "$PLIST"
-  info "wrote $PLIST"
+  if [ -f "$PLIST" ] && cmp -s "$tmp" "$PLIST"; then
+    rm -f "$tmp"
+    PLIST_CHANGED=0
+    info "plist unchanged: $PLIST"
+  else
+    mv -f "$tmp" "$PLIST"
+    PLIST_CHANGED=1
+    info "wrote $PLIST"
+  fi
 }
 
 # --- launchctl ------------------------------------------------------------
@@ -86,21 +97,43 @@ unload_service() {
   fi
 }
 
+# Stop (if loaded) and load again so an updated plist takes effect. Waits for
+# the label to drop from the domain before re-bootstrapping to avoid a race.
+reload_service() {
+  unload_service
+  local i
+  for i in $(seq 1 25); do
+    service_loaded || break
+    sleep 0.2
+  done
+  load_service
+}
+
 restart_service() {
-  if service_loaded; then
+  if ! service_loaded; then
+    load_service
+  elif [ "${PLIST_CHANGED:-1}" -eq 1 ]; then
+    # plist was (re)written — kickstart won't re-read it, so fully reload.
+    reload_service
+  else
+    # binary replaced in place at the same path; kickstart re-execs it.
     launchctl kickstart -k "gui/$UID_NUM/$LABEL" || die "failed to restart service"
     info "service restarted"
-  else
-    load_service
   fi
 }
 
 # --- health ---------------------------------------------------------------
 report_health() {
-  local url="http://$ADDR/healthz" i
+  # Normalize the probe host: a wildcard/host-less bind (":8765", "0.0.0.0",
+  # "::") is fine to listen on but not to connect to — probe loopback instead.
+  local host="${ADDR%:*}" port="${ADDR##*:}" url i
+  case "$host" in
+    ""|"0.0.0.0"|"::"|"*") host="127.0.0.1" ;;
+  esac
+  url="http://$host:$port/healthz"
   for i in $(seq 1 25); do
     if curl -fsS -o /dev/null "$url" 2>/dev/null; then
-      info "${_C_GRN}daemon healthy${_C_RST} — http://$ADDR"
+      info "${_C_GRN}daemon healthy${_C_RST} — $url"
       return 0
     fi
     sleep 0.2
