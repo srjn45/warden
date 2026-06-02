@@ -247,12 +247,24 @@ agentctl ls
 
 `DIR` shows the base name of the agent's working directory. `SUBJECT` is the auto-generated one-line summary of what the agent is currently doing (empty until the first poller refresh).
 
+Use `--json` for machine-readable output (a JSON array of full session objects; an empty fleet prints `[]`). Useful for scripts and for Claude driving the CLI:
+
+```sh
+agentctl ls --json
+```
+
 ### `agentctl status <TICKET>`
 
 Show full detail for one session: working directory, subject, worktree, branch, PR, all events.
 
 ```sh
 agentctl status PROJ-350
+```
+
+Add `--json` to emit the full session as a single JSON object (including the `events` array):
+
+```sh
+agentctl status PROJ-350 --json
 ```
 
 ### `agentctl attach <TICKET>`
