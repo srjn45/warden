@@ -19,7 +19,7 @@ One binary wears three hats:
 
 | Face | What it is | You run it… |
 |---|---|---|
-| **daemon** | The single long-running process. Owns MongoDB, serves a loopback REST API on `127.0.0.1:8765`, and runs a background poller that keeps each agent's status and subject fresh. | Once, in the background (usually via launchd). |
+| **daemon** | The single long-running process. Owns the on-disk session store, serves a loopback REST API on `127.0.0.1:8765`, and runs a background poller that keeps each agent's status and subject fresh. | Once, in the background (usually via launchd). |
 | **CLI client** | `ls`, `status`, `start`, `done`, `attach`, `send`, `tail`, `tui` — thin HTTP clients that talk to the daemon. | Whenever you want to act on agents. |
 | **MCP server** | `agentctl mcp` — a stdio bridge so an *orchestrator* Claude session can manage agents through tool calls. | Wired into a Claude session's MCP config. |
 
@@ -46,7 +46,6 @@ Before anything works, confirm these are on your PATH and running:
 claude --version     # the agent runtime
 tmux -V              # every agent lives in a tmux window
 git --version        # worktree creation/cleanup
-docker ps            # MongoDB runs in a container
 gh --version         # only needed for pr-review agents
 curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
 ```
@@ -69,7 +68,6 @@ launchctl load ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist
 **Manual (for debugging — runs in the foreground):**
 
 ```sh
-make mongo-up        # start MongoDB first
 agentctl daemon      # or: agentctl daemon --addr 127.0.0.1:9000
 ```
 
@@ -366,8 +364,7 @@ Set via environment variables (or override the daemon address per-command with
 | Variable | Default | Description |
 |---|---|---|
 | `AGENTCTL_ADDR` | `127.0.0.1:8765` | Daemon listen/connect address |
-| `AGENTCTL_MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection URI |
-| `AGENTCTL_DB` | `agentctl` | MongoDB database name |
+| `AGENTCTL_DATA_DIR` | `~/.agentctl` | Directory for session JSON files (`sessions/`, `closed/`) |
 | `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Base dir for prompt-spawned agents; each gets `~/agentctl-agents/<id>/` |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects |
 
@@ -424,7 +421,7 @@ agentctl done prreview-...
 | Symptom | Likely cause / fix |
 |---|---|
 | Any command hangs or errors connecting | Daemon not running. `curl localhost:8765/healthz`; start it (§3). |
-| `healthz` fails / daemon won't start | MongoDB down. `make mongo-up`, then check `/tmp/agentctl.daemon.err`. |
+| `healthz` fails / daemon won't start | Data dir not writable. Check `AGENTCTL_DATA_DIR` (default `~/.agentctl`) and `/tmp/agentctl.daemon.err`. |
 | New agent stuck at `classifying…` / type is `other` | `claude` not on the daemon's PATH. Type falls back to `other`; functionality is otherwise fine. |
 | `SUBJECT` stays empty | Poller hasn't refreshed yet (it's throttled and only runs when pane content changes), or `CLAUDE_PROJECTS_DIR` is wrong. |
 | `pr-review needs --pr or --branch` | pr-review requires one of those flags. |

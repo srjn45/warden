@@ -1,8 +1,8 @@
 # agentctl
 
-A single Go binary that spawns, monitors, and tears down Claude Code agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and MongoDB.
+A single Go binary that spawns, monitors, and tears down Claude Code agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and a file-based JSON store (no database to run).
 
-One binary, multiple faces: `agentctl daemon` is the single MongoDB writer, serving a loopback REST API and running a background poller. `agentctl ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `agentctl mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator Claude session to query agents and talk to a specific running agent.
+One binary, multiple faces: `agentctl daemon` is the single writer to the on-disk session store, serving a loopback REST API and running a background poller. `agentctl ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `agentctl mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator Claude session to query agents and talk to a specific running agent.
 
 ```
 alias agents=agentctl
@@ -17,7 +17,6 @@ alias agents=agentctl
 - **Go 1.22+** — to build the binary
 - **tmux** — every agent session runs in a detached tmux window
 - **git** — worktree creation and guarded cleanup
-- **Docker** — runs the local MongoDB instance via Docker Compose
 - **Claude Code** (`claude` on PATH) — the agent runtime launched in each session
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch
 
@@ -27,7 +26,6 @@ alias agents=agentctl
 
 ```sh
 make build           # produces bin/agentctl
-make mongo-up        # starts mongodb:7 on localhost:27017
 ```
 
 ---
@@ -90,8 +88,7 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 | Variable | Default | Description |
 |---|---|---|
 | `AGENTCTL_ADDR` | `127.0.0.1:8765` | Daemon listen address |
-| `AGENTCTL_MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection URI |
-| `AGENTCTL_DB` | `agentctl` | MongoDB database name |
+| `AGENTCTL_DATA_DIR` | `~/.agentctl` | Directory for session JSON files (`sessions/`, `closed/`) |
 | `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Base directory for prompt-spawned agents; each agent gets its own subdir `~/agentctl-agents/<id>/` |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
 
@@ -367,8 +364,7 @@ MCP server isn't registered). The daemon must be running.
 ## Typical workflow
 
 ```sh
-# 1. Start Mongo and the daemon (once — then managed by launchd)
-make mongo-up
+# 1. Start the daemon (once — then managed by launchd)
 make run-daemon   # or: launchctl load ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist
 
 # 2. Spawn an agent for a ticket
@@ -393,15 +389,13 @@ agentctl done PROJ-350
 make build          # go build -o bin/agentctl ./cmd/agentctl
 make test           # go test ./...
 make lint           # go vet ./...
-make mongo-up       # start local MongoDB container
-make mongo-down     # stop it
 make run-daemon     # build + start daemon locally
 ```
 
-Tests that need Docker (the Mongo integration suite) are skipped in `-short` mode:
+All tests run without Docker or any external services:
 
-```sh
-go test -short ./...   # fast, no Docker needed
+```bash
+go test ./...
 ```
 
 ---
