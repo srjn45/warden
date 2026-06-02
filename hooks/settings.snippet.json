@@ -11,6 +11,9 @@
     ],
     "SubagentStop": [
       { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh SubagentStop" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh SessionEnd" } ] }
     ]
   }
 }

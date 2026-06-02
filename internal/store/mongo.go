@@ -84,6 +84,21 @@ func (m *MongoStore) UpdateStatus(ctx context.Context, id string, status Status)
 	return nil
 }
 
+// UpdateStatusIf sets status to next only when the stored status still equals
+// expected (a compare-and-swap on a filtered UpdateOne). It returns true when
+// the swap matched a document, false when it did not (status already changed,
+// or the doc was archived/deleted) — the latter is not an error.
+func (m *MongoStore) UpdateStatusIf(ctx context.Context, id string, expected, next Status) (bool, error) {
+	res, err := m.active.UpdateOne(ctx,
+		bson.M{"_id": id, "status": expected},
+		bson.M{"$set": m.setUpdated(bson.M{"status": next})},
+	)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount > 0, nil
+}
+
 func (m *MongoStore) UpdateType(ctx context.Context, id string, t Type) error {
 	res, err := m.active.UpdateByID(ctx, id, bson.M{"$set": m.setUpdated(bson.M{"type": t})})
 	if err != nil {
@@ -113,6 +128,30 @@ func (m *MongoStore) AppendEvent(ctx context.Context, id string, ev Event) error
 	res, err := m.active.UpdateByID(ctx, id, bson.M{
 		"$push": bson.M{"events": ev},
 		"$set":  bson.M{"updated_at": time.Now().UTC()},
+	})
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// AppendEventStatus appends ev and optionally sets status in one UpdateByID, so
+// the two writes share a round-trip and apply atomically. An empty status only
+// appends the event (and bumps updated_at).
+func (m *MongoStore) AppendEventStatus(ctx context.Context, id string, ev Event, status Status) error {
+	if ev.TS.IsZero() {
+		ev.TS = time.Now().UTC()
+	}
+	set := bson.M{"updated_at": time.Now().UTC()}
+	if status != "" {
+		set["status"] = status
+	}
+	res, err := m.active.UpdateByID(ctx, id, bson.M{
+		"$push": bson.M{"events": ev},
+		"$set":  set,
 	})
 	if err != nil {
 		return err

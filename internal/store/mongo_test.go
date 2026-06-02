@@ -73,6 +73,34 @@ func TestUpdateStatusBumpsUpdatedAt(t *testing.T) {
 	require.True(t, after.UpdatedAt.After(before.UpdatedAt))
 }
 
+func TestUpdateStatusIf(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	require.NoError(t, st.Insert(ctx, sample())) // status = spawning
+
+	// Mismatched expected → no swap, status unchanged.
+	ok, err := st.UpdateStatusIf(ctx, "PROJ-350", StatusWorking, StatusIdle)
+	require.NoError(t, err)
+	require.False(t, ok)
+	got, _ := st.Get(ctx, "PROJ-350")
+	require.Equal(t, StatusSpawning, got.Status, "mismatched CAS must not change status")
+
+	// Matching expected → swap applies and bumps updated_at.
+	before := got.UpdatedAt
+	time.Sleep(5 * time.Millisecond)
+	ok, err = st.UpdateStatusIf(ctx, "PROJ-350", StatusSpawning, StatusWorking)
+	require.NoError(t, err)
+	require.True(t, ok)
+	got, _ = st.Get(ctx, "PROJ-350")
+	require.Equal(t, StatusWorking, got.Status)
+	require.True(t, got.UpdatedAt.After(before))
+
+	// Unknown id → no swap, no error.
+	ok, err = st.UpdateStatusIf(ctx, "nope", StatusSpawning, StatusWorking)
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
 func TestAppendEvent(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
@@ -82,6 +110,28 @@ func TestAppendEvent(t *testing.T) {
 	require.Len(t, got.Events, 1)
 	require.Equal(t, "Notification", got.Events[0].Type)
 	require.False(t, got.Events[0].TS.IsZero(), "AppendEvent must stamp ts when zero")
+}
+
+func TestAppendEventStatus(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	require.NoError(t, st.Insert(ctx, sample())) // status = spawning
+
+	// Event + status applied together.
+	require.NoError(t, st.AppendEventStatus(ctx, "PROJ-350", Event{Type: "Notification"}, StatusWaitingForInput))
+	got, _ := st.Get(ctx, "PROJ-350")
+	require.Len(t, got.Events, 1)
+	require.Equal(t, StatusWaitingForInput, got.Status)
+	require.False(t, got.Events[0].TS.IsZero(), "ts stamped when zero")
+
+	// Empty status appends the event but leaves status unchanged.
+	require.NoError(t, st.AppendEventStatus(ctx, "PROJ-350", Event{Type: "SubagentStop"}, ""))
+	got, _ = st.Get(ctx, "PROJ-350")
+	require.Len(t, got.Events, 2)
+	require.Equal(t, StatusWaitingForInput, got.Status, "empty status must not change status")
+
+	// Unknown id → ErrNotFound.
+	require.ErrorIs(t, st.AppendEventStatus(ctx, "nope", Event{}, StatusIdle), ErrNotFound)
 }
 
 func TestArchiveRemovesFromActive(t *testing.T) {

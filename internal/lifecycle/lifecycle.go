@@ -6,20 +6,39 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/srajanpathak/agentctl/internal/store"
 )
+
+// claudeCallTimeout bounds every headless `claude -p` invocation (classify /
+// summarize). Without it a stuck CLI would block its caller indefinitely — in
+// particular the poller, which runs Summarize inline on its lifetime context.
+const claudeCallTimeout = 30 * time.Second
+
+// runClaudeP runs `claude -p <arg>` with a bounded timeout derived from ctx.
+func (l *Lifecycle) runClaudeP(ctx context.Context, arg string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, claudeCallTimeout)
+	defer cancel()
+	return l.run.Run(cctx, "", "claude", "-p", arg)
+}
 
 // claudeCmd is launched in every spawned session. Agents run unattended
 // (design §4): permission prompts are skipped; the Notification hook still
 // records when one *would* have prompted.
 const claudeCmd = "claude --dangerously-skip-permissions"
+
+// promptFileName is where a prompt-spawned agent's initial prompt is written
+// inside its workdir, so the launch line can read it back via "$(cat …)".
+const promptFileName = ".agentctl-prompt"
 
 // classifyInstruction is prepended to the task prompt for headless classification.
 const classifyInstruction = "You are a classifier. Classify the following agent task into exactly one of these labels: development, analysis, spike, pr-review, buildkite-debug, test-run, env-test, other. Reply with ONLY the label, nothing else.\n\nTask: "
@@ -51,8 +70,9 @@ func parseSummary(out string) string {
 	line = strings.TrimSpace(line)
 	line = strings.Trim(line, "\"'`")
 	line = strings.Join(strings.Fields(line), " ")
-	if len(line) > 80 {
-		line = strings.TrimSpace(line[:80])
+	// Cap by runes, not bytes, so a multi-byte rune is never sliced in half.
+	if r := []rune(line); len(r) > 80 {
+		line = strings.TrimSpace(string(r[:80]))
 	}
 	return line
 }
@@ -70,8 +90,14 @@ func claudeProjectDir(root, workdir string) string {
 }
 
 func summaryArg(text string) string {
-	if len(text) > 4000 {
-		text = text[len(text)-4000:]
+	const max = 4000
+	if len(text) > max {
+		text = text[len(text)-max:]
+	}
+	// text may be a byte-sliced tail (here or from readFileTail) that begins
+	// mid-rune; drop the leading partial rune so the model gets valid UTF-8.
+	for len(text) > 0 && !utf8.RuneStart(text[0]) {
+		text = text[1:]
 	}
 	return summaryInstruction + text
 }
@@ -116,23 +142,31 @@ type SpawnRequest struct {
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
 
-// shortID returns 4 hex chars for auto-generated session ids.
-func shortID() string {
-	b := make([]byte, 2)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+// shortID returns 8 hex chars (4 random bytes) for auto-generated session ids.
+// The wider space keeps collisions negligible across many sessions; a failed
+// RNG read is surfaced rather than silently yielding an all-zero id.
+func shortID() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate id: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // resolveID uses the ticket when given, else "<typeslug>-<shortid>".
-func resolveID(req SpawnRequest) string {
+func resolveID(req SpawnRequest) (string, error) {
 	if req.Ticket != "" {
-		return req.Ticket
+		return req.Ticket, nil
 	}
 	slug := strings.ReplaceAll(string(req.Type), "-", "")
 	if slug == "" {
 		slug = "agent"
 	}
-	return slug + "-" + shortID()
+	sid, err := shortID()
+	if err != nil {
+		return "", err
+	}
+	return slug + "-" + sid, nil
 }
 
 // wantWorktree applies the per-type policy (design §2).
@@ -202,7 +236,7 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 // Classify asks the same Claude (headless) to label a task prompt. On any error
 // it returns TypeOther alongside the error so callers can fall back gracefully.
 func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, error) {
-	out, err := l.run.Run(ctx, "", "claude", "-p", classifyArg(prompt))
+	out, err := l.runClaudeP(ctx, classifyArg(prompt))
 	if err != nil {
 		return store.TypeOther, fmt.Errorf("claude -p: %w: %s", err, out)
 	}
@@ -219,7 +253,7 @@ func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string,
 	if strings.TrimSpace(text) == "" {
 		return "", nil
 	}
-	out, err := l.run.Run(ctx, "", "claude", "-p", summaryArg(text))
+	out, err := l.runClaudeP(ctx, summaryArg(text))
 	if err != nil {
 		return "", fmt.Errorf("claude -p: %w: %s", err, out)
 	}
@@ -267,12 +301,31 @@ func newestTranscriptTail(dir string, maxBytes int64) string {
 		return ""
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].mod > files[j].mod })
-	data, err := os.ReadFile(files[0].path)
+	return readFileTail(files[0].path, maxBytes)
+}
+
+// readFileTail returns up to maxBytes from the end of the file at path, or ""
+// on error. It seeks to the tail rather than reading the whole file: transcripts
+// grow to many megabytes and the summarizer only needs the last few KB, so this
+// bounds memory to ~maxBytes regardless of file size.
+func readFileTail(path string, maxBytes int64) string {
+	fh, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
-	if int64(len(data)) > maxBytes {
-		data = data[int64(len(data))-maxBytes:]
+	defer fh.Close()
+	info, err := fh.Stat()
+	if err != nil {
+		return ""
+	}
+	if start := info.Size() - maxBytes; start > 0 {
+		if _, err := fh.Seek(start, io.SeekStart); err != nil {
+			return ""
+		}
+	}
+	data, err := io.ReadAll(fh) // from the seek position to EOF (≈ last maxBytes)
+	if err != nil {
+		return ""
 	}
 	return string(data)
 }
@@ -285,7 +338,10 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if !promptMode {
 		req.Type = store.NormalizeType(string(req.Type))
 	}
-	id := resolveID(req)
+	id, err := resolveID(req)
+	if err != nil {
+		return nil, err
+	}
 
 	sess := &store.Session{
 		ID:          id,
@@ -305,10 +361,20 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 			return nil, fmt.Errorf("mkdir workdir: %w: %s", err, out)
 		}
 		sess.Workdir = dir
+		// Persist the prompt to a file, then launch claude with the prompt read
+		// back via "$(cat …)". This keeps the command typed into the pane to a
+		// single physical line: a multi-line prompt typed directly would have its
+		// embedded newlines register as Enter, submitting the half-typed command.
+		// The prompt is passed to the writer as an exec argument (never through a
+		// shell), so quotes and newlines in it need no escaping.
+		promptFile := filepath.Join(dir, promptFileName)
+		if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
+			return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
+		}
 		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", dir); err != nil {
 			return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
 		}
-		launch := claudeCmd + " " + shellQuoteArg(req.Prompt)
+		launch := claudeCmd + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 			return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 		}

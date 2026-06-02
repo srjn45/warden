@@ -37,6 +37,16 @@ const (
 	TypeOther          Type = "other"
 )
 
+// Valid reports whether t is one of the known task types.
+func (t Type) Valid() bool {
+	switch t {
+	case TypeDevelopment, TypeAnalysis, TypeSpike, TypePRReview,
+		TypeBuildkiteDebug, TypeTestRun, TypeEnvTest, TypeOther:
+		return true
+	}
+	return false
+}
+
 // NormalizeType maps any input to a known Type, collapsing unknowns to "other".
 func NormalizeType(s string) Type {
 	t := Type(s)

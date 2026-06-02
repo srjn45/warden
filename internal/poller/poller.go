@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -38,7 +39,10 @@ func classify(s *store.Session, pane string, sessionAlive bool, sinceUpdate, stu
 // Deps is the poller's view of the world (store reads/writes + tmux probes).
 type Deps interface {
 	List(ctx context.Context) ([]*store.Session, error)
-	UpdateStatus(ctx context.Context, id string, st store.Status) error
+	// UpdateStatusIf swaps status from expected→next, reporting whether it took
+	// effect. The poller uses the CAS form so it never overwrites a status a hook
+	// changed between this tick's List and its write.
+	UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (bool, error)
 	UpdatePane(ctx context.Context, id, excerpt string) error
 	UpdateSubject(ctx context.Context, id, subject string) error
 	SessionAlive(ctx context.Context, tmuxName string) bool
@@ -49,11 +53,19 @@ type Deps interface {
 type Poller struct {
 	deps           Deps
 	stuckAfter     time.Duration
-	SummarizeAfter time.Duration       // throttle for subject refresh (0 = every change)
-	lastSummary    map[string]time.Time
+	SummarizeAfter time.Duration        // throttle for subject refresh (0 = every change)
+	lastSummary    map[string]time.Time // touched only by the tick goroutine
 	// OnChange, if set, is called once after a tick that changed any session
-	// (status or pane). The daemon wires this to hub.publish for SSE.
+	// (status or pane), and again from a summarizer worker when it refreshes a
+	// subject. The daemon wires this to hub.publish for SSE.
 	OnChange func()
+
+	// Summarization runs `claude -p`, which is slow, so it is dispatched to
+	// background workers rather than blocking the tick loop. mu guards inflight;
+	// wg tracks live workers so Run can drain them on shutdown.
+	mu       sync.Mutex
+	inflight map[string]struct{} // session ids with a summarizer currently running
+	wg       sync.WaitGroup
 }
 
 func New(d Deps, stuckAfter time.Duration) *Poller {
@@ -62,6 +74,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		stuckAfter:     stuckAfter,
 		SummarizeAfter: 2 * time.Minute,
 		lastSummary:    map[string]time.Time{},
+		inflight:       map[string]struct{}{},
 	}
 }
 
@@ -83,39 +96,108 @@ func (p *Poller) tick(ctx context.Context) error {
 		alive := p.deps.SessionAlive(ctx, s.TmuxSession)
 		var pane string
 		paneChanged := false
+		captureOK := true
 		if alive {
-			pane, _ = p.deps.CapturePane(ctx, s.TmuxSession)
-			if excerpt := lastLines(pane, 20); excerpt != s.LastPaneExcerpt {
-				_ = p.deps.UpdatePane(ctx, s.ID, excerpt)
-				changed = true
-				paneChanged = true
-			}
-		}
-		next := classify(s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
-		if next != s.Status {
-			if err := p.deps.UpdateStatus(ctx, s.ID, next); err != nil {
-				log.Printf("poller: update %s: %v", s.ID, err)
+			captured, err := p.deps.CapturePane(ctx, s.TmuxSession)
+			if err != nil {
+				// Transient capture failure: don't record an empty excerpt or
+				// let an empty pane drive classification this tick.
+				captureOK = false
 			} else {
-				changed = true
+				pane = captured
+				if excerpt := lastLines(pane, 20); excerpt != s.LastPaneExcerpt {
+					_ = p.deps.UpdatePane(ctx, s.ID, excerpt)
+					changed = true
+					paneChanged = true
+				}
 			}
 		}
-		if alive && paneChanged && now.Sub(p.lastSummary[s.ID]) >= p.SummarizeAfter {
-			if subj, err := p.deps.Summarize(ctx, s); err != nil {
-				log.Printf("poller: summarize %s: %v", s.ID, err)
-			} else if subj != "" && subj != s.Subject {
-				if err := p.deps.UpdateSubject(ctx, s.ID, subj); err != nil {
-					log.Printf("poller: subject %s: %v", s.ID, err)
-				} else {
+		// Reclassify only when we have a fresh signal: either the session is dead
+		// (orphaned, pane-independent) or we captured the pane successfully.
+		if !alive || captureOK {
+			next := classify(s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
+			if next != s.Status {
+				// CAS on the snapshot's status: if a hook changed it since List,
+				// the swap is skipped and the hook's newer status stands.
+				if ok, err := p.deps.UpdateStatusIf(ctx, s.ID, s.Status, next); err != nil {
+					log.Printf("poller: update %s: %v", s.ID, err)
+				} else if ok {
 					changed = true
 				}
 			}
-			p.lastSummary[s.ID] = now
+		}
+		if alive && paneChanged && now.Sub(p.lastSummary[s.ID]) >= p.SummarizeAfter {
+			p.dispatchSummary(ctx, s, now)
 		}
 	}
+	p.pruneSummaryState(sessions)
 	if changed && p.OnChange != nil {
 		p.OnChange()
 	}
 	return nil
+}
+
+// pruneSummaryState drops lastSummary entries for sessions no longer in the
+// store (archived/deleted), so the throttle map can't grow without bound over a
+// long-running daemon. Called only from the tick goroutine, which owns the map.
+func (p *Poller) pruneSummaryState(sessions []*store.Session) {
+	if len(p.lastSummary) == 0 {
+		return
+	}
+	live := make(map[string]struct{}, len(sessions))
+	for _, s := range sessions {
+		live[s.ID] = struct{}{}
+	}
+	for id := range p.lastSummary {
+		if _, ok := live[id]; !ok {
+			delete(p.lastSummary, id)
+		}
+	}
+}
+
+// dispatchSummary launches a background summarizer for s unless one is already
+// running for it. It is called only from the tick goroutine, so lastSummary is
+// updated synchronously here (before the worker starts) to keep the throttle
+// honest even while the slow `claude -p` call is still in flight.
+func (p *Poller) dispatchSummary(ctx context.Context, s *store.Session, now time.Time) {
+	p.mu.Lock()
+	if _, busy := p.inflight[s.ID]; busy {
+		p.mu.Unlock()
+		return
+	}
+	p.inflight[s.ID] = struct{}{}
+	p.mu.Unlock()
+
+	p.lastSummary[s.ID] = now
+	p.wg.Add(1)
+	go p.runSummary(ctx, s)
+}
+
+// runSummary produces and persists a fresh subject for s, then notifies SSE.
+// It runs off the tick loop so a slow model call never stalls status polling.
+func (p *Poller) runSummary(ctx context.Context, s *store.Session) {
+	defer p.wg.Done()
+	defer func() {
+		p.mu.Lock()
+		delete(p.inflight, s.ID)
+		p.mu.Unlock()
+	}()
+
+	subj, err := p.deps.Summarize(ctx, s)
+	if err != nil {
+		log.Printf("poller: summarize %s: %v", s.ID, err)
+		return
+	}
+	if subj == "" || subj == s.Subject {
+		return
+	}
+	if err := p.deps.UpdateSubject(ctx, s.ID, subj); err != nil {
+		log.Printf("poller: subject %s: %v", s.ID, err)
+		return
+	}
+	if p.OnChange != nil {
+		p.OnChange()
+	}
 }
 
 // Run ticks every interval until ctx is cancelled.
@@ -125,6 +207,9 @@ func (p *Poller) Run(ctx context.Context, interval time.Duration) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Drain in-flight summarizers; ctx cancellation already aborts their
+			// `claude -p` subprocesses, so this returns promptly.
+			p.wg.Wait()
 			return
 		case <-t.C:
 			if err := p.tick(ctx); err != nil {

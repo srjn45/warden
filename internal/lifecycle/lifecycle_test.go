@@ -1,15 +1,42 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
 )
+
+func TestParseSummaryCapsByRune(t *testing.T) {
+	got := parseSummary(strings.Repeat("é", 100)) // 2 bytes/rune
+	require.Equal(t, 80, utf8.RuneCountInString(got), "capped to 80 runes")
+	require.True(t, utf8.ValidString(got), "must not slice a rune in half")
+}
+
+func TestSummaryArgDropsLeadingPartialRune(t *testing.T) {
+	// 0xA9 is a UTF-8 continuation byte: a byte-sliced tail can start on one.
+	got := summaryArg(string([]byte{0xA9, 'h', 'i'}))
+	require.Equal(t, summaryInstruction+"hi", got)
+	require.True(t, utf8.ValidString(strings.TrimPrefix(got, summaryInstruction)))
+}
+
+func TestResolveIDAutoFormat(t *testing.T) {
+	id, err := resolveID(SpawnRequest{Type: store.TypeDevelopment})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(id, "development-"), "got %q", id)
+	require.Len(t, strings.TrimPrefix(id, "development-"), 8, "4 random bytes → 8 hex chars")
+
+	ticketed, err := resolveID(SpawnRequest{Ticket: "JIRA-1", Type: store.TypeDevelopment})
+	require.NoError(t, err)
+	require.Equal(t, "JIRA-1", ticketed, "an explicit ticket is used verbatim")
+}
 
 func TestFirstWords(t *testing.T) {
 	require.Equal(t, "review the auth module", firstWords("review the auth module", 10))
@@ -320,9 +347,58 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	require.Equal(t, expDir, s.Workdir, "per-agent subdir recorded")
 	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", expDir})
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", expDir})
-	// claude launched with the prompt as a shell-quoted positional arg.
-	launch := claudeCmd + " " + shellQuoteArg(prompt)
+	// The prompt is written to a file, then claude is launched reading it back.
+	promptFile := expDir + "/" + promptFileName
+	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
+	launch := claudeCmd + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+}
+
+func TestReadFileTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.txt")
+
+	// Smaller than maxBytes → whole file.
+	require.NoError(t, os.WriteFile(path, []byte("hello world"), 0o644))
+	require.Equal(t, "hello world", readFileTail(path, 4000))
+
+	// Larger than maxBytes → only the trailing maxBytes.
+	require.NoError(t, os.WriteFile(path, append(bytes.Repeat([]byte("A"), 100), []byte("TAIL")...), 0o644))
+	got := readFileTail(path, 4)
+	require.Equal(t, "TAIL", got)
+
+	// Missing file → "".
+	require.Equal(t, "", readFileTail(filepath.Join(dir, "nope"), 4000))
+}
+
+func TestNewestTranscriptTailPicksNewestAndTails(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "old.jsonl"), []byte("OLD"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ignore.txt"), []byte("ZZZ"), 0o644)) // non-jsonl ignored
+	newf := filepath.Join(dir, "new.jsonl")
+	require.NoError(t, os.WriteFile(newf, []byte("XXXXXXXXNEWEST"), 0o644))
+	future := time.Now().Add(time.Minute)
+	require.NoError(t, os.Chtimes(newf, future, future)) // make it strictly newest
+
+	require.Equal(t, "NEWEST", newestTranscriptTail(dir, 6), "tail of the newest .jsonl")
+	require.Equal(t, "", newestTranscriptTail(t.TempDir(), 100), "empty dir → no transcript")
+}
+
+func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
+	fr := &FakeRunner{}
+	prompt := "line one\nline two with a ' quote\nline three"
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Prompt: prompt, Workdir: "/w"})
+	require.NoError(t, err)
+
+	promptFile := "/w/" + s.ID + "/" + promptFileName
+	// Prompt written verbatim via an exec arg — no shell interpolation/escaping.
+	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
+
+	// The launch line is a single physical line; the multi-line prompt is read
+	// back via $(cat …) so no embedded newline is ever typed into the pane.
+	launch := claudeCmd + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+	require.NotContains(t, launch, "\n", "the typed launch command must never contain a raw newline")
 }
 
 func TestSummarizeUsesTranscriptThenClaudeP(t *testing.T) {

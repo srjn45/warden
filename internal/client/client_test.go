@@ -1,12 +1,20 @@
 package client
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestIsConnRefused(t *testing.T) {
+	require.True(t, isConnRefused(syscall.ECONNREFUSED))
+	require.False(t, isConnRefused(errors.New("some other transport error")),
+		"non-refused errors must not be reported as a down daemon")
+}
 
 func TestListSessions(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

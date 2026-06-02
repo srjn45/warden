@@ -14,21 +14,54 @@ func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.D
 	if p != nil {
 		p.OnChange = h.publish
 	}
-	return &Server{store: st, life: life, poller: p, pollInterval: interval, hub: h, workdir: workdir}
+	return &Server{
+		store: st, life: life, poller: p, pollInterval: interval,
+		hub: h, workdir: workdir, done: make(chan struct{}),
+	}
 }
 
-// ListenAndServe blocks serving the API on addr until ctx is cancelled.
+// shutdownGrace bounds how long Shutdown waits for in-flight requests to drain
+// before returning (after which the process exits and any stragglers are cut).
+const shutdownGrace = 5 * time.Second
+
+// ListenAndServe blocks serving the API on addr until ctx is cancelled, then
+// shuts down gracefully: it signals SSE handlers to stop, waits (bounded) for
+// in-flight requests to drain, and drains the poller's background workers
+// before returning — so the caller can safely close the store afterwards.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	// Derive a child context so we can stop the poller on every exit path,
+	// including an early HTTP bind failure (where ctx itself isn't cancelled).
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	pollerDone := make(chan struct{})
 	if s.poller != nil {
-		go s.poller.Run(ctx, s.pollInterval)
+		go func() { defer close(pollerDone); s.poller.Run(runCtx, s.pollInterval) }()
+	} else {
+		close(pollerDone)
 	}
+
 	httpSrv := &http.Server{Addr: addr, Handler: s.router()}
-	go func() {
-		<-ctx.Done()
-		_ = httpSrv.Shutdown(context.Background())
-	}()
-	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return err
+	errCh := make(chan error, 1)
+	go func() { errCh <- httpSrv.ListenAndServe() }()
+
+	var retErr error
+	select {
+	case err := <-errCh:
+		// Server stopped on its own (e.g. failed to bind).
+		if err != nil && err != http.ErrServerClosed {
+			retErr = err
+		}
+	case <-ctx.Done():
+		if s.done != nil {
+			close(s.done) // release long-lived SSE handlers
+		}
+		sctx, scancel := context.WithTimeout(context.Background(), shutdownGrace)
+		retErr = httpSrv.Shutdown(sctx)
+		scancel()
 	}
-	return nil
+
+	cancel()      // stop the poller (also covers the bind-failure path)
+	<-pollerDone  // wait for its summarizers to drain before returning
+	return retErr
 }

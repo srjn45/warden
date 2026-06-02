@@ -66,6 +66,9 @@ type Server struct {
 	pollInterval time.Duration
 	hub          *hub
 	workdir      string
+	// done is closed when the server begins shutting down. Long-lived handlers
+	// (the SSE stream) watch it so they return promptly and let Shutdown drain.
+	done chan struct{}
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -84,6 +87,10 @@ type Lifecycle interface {
 	Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error)
 	Classify(ctx context.Context, prompt string) (store.Type, error)
 	Cleanup(ctx context.Context, id string, force, hard bool) error
+	// Teardown force-removes a session's tmux session (and worktree/branch, if
+	// any) using the already-known doc, without consulting the store. It is used
+	// to roll back Spawn's side effects when persisting the doc fails.
+	Teardown(ctx context.Context, sess *store.Session) error
 	Input(ctx context.Context, tmuxSession, text string) error
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
 }
@@ -156,6 +163,11 @@ func statusForHook(t string) store.Status {
 		return store.StatusWaitingForInput
 	case "Stop":
 		return store.StatusIdle
+	case "SessionEnd":
+		// The CLI session ended (claude exited) — terminal. The poller's
+		// isTerminal check then leaves it alone, so it won't flip to orphaned
+		// when the tmux session later goes away.
+		return store.StatusDone
 	default: // SubagentStop and others: event-log only
 		return ""
 	}
@@ -169,7 +181,9 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	ev := store.Event{Type: req.Type, Detail: req.Detail}
-	if err := s.store.AppendEvent(ctx, req.Session, ev); err != nil {
+	// Append the event and apply any status transition in one atomic write so a
+	// crash can't log the event without the status change (or vice versa).
+	if err := s.store.AppendEventStatus(ctx, req.Session, ev, statusForHook(req.Type)); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			// Fail soft: never error a hook for an unknown session.
 			w.WriteHeader(http.StatusNoContent)
@@ -177,12 +191,6 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	if st := statusForHook(req.Type); st != "" {
-		if err := s.store.UpdateStatus(ctx, req.Session, st); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
 	}
 	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

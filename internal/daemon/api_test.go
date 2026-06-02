@@ -15,8 +15,10 @@ import (
 
 // fakeStore is an in-memory store.Store for handler tests.
 type fakeStore struct {
-	mu   sync.Mutex
-	data map[string]*store.Session
+	mu         sync.Mutex
+	data       map[string]*store.Session
+	insertErr  error // when set, Insert fails with it (no doc stored)
+	archiveErr error // when set, Archive fails with it (doc left in place)
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{data: map[string]*store.Session{}} }
@@ -24,6 +26,9 @@ func newFakeStore() *fakeStore { return &fakeStore{data: map[string]*store.Sessi
 func (f *fakeStore) Insert(_ context.Context, s *store.Session) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.insertErr != nil {
+		return f.insertErr
+	}
 	if _, ok := f.data[s.ID]; ok {
 		return store.ErrExists
 	}
@@ -58,6 +63,16 @@ func (f *fakeStore) UpdateStatus(_ context.Context, id string, st store.Status) 
 	s.Status = st
 	return nil
 }
+func (f *fakeStore) UpdateStatusIf(_ context.Context, id string, expected, next store.Status) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok || s.Status != expected {
+		return false, nil
+	}
+	s.Status = next
+	return true, nil
+}
 func (f *fakeStore) UpdateType(_ context.Context, id string, t store.Type) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -88,10 +103,26 @@ func (f *fakeStore) AppendEvent(_ context.Context, id string, ev store.Event) er
 	s.Events = append(s.Events, ev)
 	return nil
 }
+func (f *fakeStore) AppendEventStatus(_ context.Context, id string, ev store.Event, status store.Status) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	s.Events = append(s.Events, ev)
+	if status != "" {
+		s.Status = status
+	}
+	return nil
+}
 func (f *fakeStore) UpdatePane(_ context.Context, id, ex string) error { return nil }
 func (f *fakeStore) Archive(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.archiveErr != nil {
+		return f.archiveErr
+	}
 	delete(f.data, id)
 	return nil
 }
@@ -155,6 +186,27 @@ func TestPostEventUpdatesStatusAndAppends(t *testing.T) {
 	got := fs.data["A-1"]
 	require.Equal(t, store.StatusWaitingForInput, got.Status)
 	require.Len(t, got.Events, 1)
+}
+
+func TestPostEventSessionEndMarksDone(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	ts := testServer(t, fs)
+	defer ts.Close()
+
+	body, _ := json.Marshal(EventRequest{Session: "A-1", Type: "SessionEnd"})
+	resp, err := http.Post(ts.URL+"/events", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, store.StatusDone, fs.data["A-1"].Status, "SessionEnd is terminal")
+}
+
+func TestStatusForHook(t *testing.T) {
+	require.Equal(t, store.StatusWorking, statusForHook("SessionStart"))
+	require.Equal(t, store.StatusWaitingForInput, statusForHook("Notification"))
+	require.Equal(t, store.StatusIdle, statusForHook("Stop"))
+	require.Equal(t, store.StatusDone, statusForHook("SessionEnd"))
+	require.Equal(t, store.Status(""), statusForHook("SubagentStop"), "non-status events log only")
 }
 
 func TestPostEventUnknownSessionSoftOK(t *testing.T) {

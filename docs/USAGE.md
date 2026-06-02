@@ -322,8 +322,11 @@ Then just talk to the orchestrator naturally:
 
 For statuses to update live (rather than only on poll), wire the lifecycle hook
 into Claude Code by merging `hooks/settings.snippet.json` into
-`~/.claude/settings.json`. It posts `SessionStart`, `Notification`, `Stop`, and
-`SubagentStop` events to the daemon.
+`~/.claude/settings.json`. It posts `SessionStart`, `Notification`, `Stop`,
+`SubagentStop`, and `SessionEnd` events to the daemon. `SessionEnd` (claude
+exited) marks the session **done** — a terminal status the poller leaves
+untouched, so a finished agent won't drift to `orphaned` when its tmux session
+later goes away.
 
 The hook **fails soft**: it never blocks or errors an agent, even if the daemon
 is down or the session is unknown. (It also no-ops outside tmux, since it uses

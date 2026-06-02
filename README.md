@@ -64,7 +64,7 @@ launchctl unload ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist
 
 ## Wire in the Claude Code hooks
 
-The hook script posts lifecycle events (`SessionStart`, `Notification`, `Stop`, `SubagentStop`) to the daemon so it can update agent status in real time without polling.
+The hook script posts lifecycle events (`SessionStart`, `Notification`, `Stop`, `SubagentStop`, `SessionEnd`) to the daemon so it can update agent status in real time without polling. `SessionEnd` marks the session **done** (terminal) when claude exits.
 
 Merge `hooks/settings.snippet.json` into `~/.claude/settings.json`:
 

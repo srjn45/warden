@@ -53,6 +53,16 @@ func (a *lifecycleAdapter) Cleanup(ctx context.Context, id string, force, hard b
 	}, force)
 }
 
+// Teardown force-cleans the resources Spawn created for sess. force=true skips
+// the dirty/unpushed guard — a just-spawned session has no work worth keeping,
+// and the doc was never persisted so there is nothing to look up.
+func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *store.Session) error {
+	return a.lc.Cleanup(ctx, lifecycle.CleanupTarget{
+		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
+		Branch: sess.Branch, TmuxSession: sess.TmuxSession,
+	}, true)
+}
+
 func (a *lifecycleAdapter) Input(ctx context.Context, tmuxSession, text string) error {
 	return a.lc.Input(ctx, tmuxSession, text)
 }

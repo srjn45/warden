@@ -3,3 +3,5 @@ web/node_modules/
 web/.astro/
 web/dist/*
 !web/dist/.gitkeep
+
+bin/

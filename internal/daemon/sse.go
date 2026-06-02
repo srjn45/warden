@@ -59,6 +59,8 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.done: // server shutting down — close the stream so Shutdown can drain
+			return
 		case <-ch:
 			if !send() {
 				return

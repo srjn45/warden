@@ -20,8 +20,8 @@ func NewPollerDeps(st store.Store, run lifecycle.Runner, lc *lifecycle.Lifecycle
 }
 
 func (d *pollerDeps) List(ctx context.Context) ([]*store.Session, error) { return d.store.List(ctx) }
-func (d *pollerDeps) UpdateStatus(ctx context.Context, id string, st store.Status) error {
-	return d.store.UpdateStatus(ctx, id, st)
+func (d *pollerDeps) UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (bool, error) {
+	return d.store.UpdateStatusIf(ctx, id, expected, next)
 }
 func (d *pollerDeps) UpdatePane(ctx context.Context, id, ex string) error {
 	return d.store.UpdatePane(ctx, id, ex)

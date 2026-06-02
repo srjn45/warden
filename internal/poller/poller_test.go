@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -78,18 +79,28 @@ type stubDeps struct {
 	sessions     []*store.Session
 	alive        map[string]bool
 	panes        map[string]string
-	updates      map[string]store.Status
-	paneUpdates  map[string]string // records UpdatePane calls when non-nil
+	updates      map[string]store.Status // records successful status swaps
+	lastExpected map[string]store.Status // records the CAS "expected" arg
+	casFail      map[string]bool         // when true for an id, the CAS misses (lost race)
+	paneUpdates  map[string]string       // records UpdatePane calls when non-nil
 	subjects     map[string]string // records UpdateSubject calls
 	summary      string            // canned Summarize result
 	summarizeErr error
-	summarizeN   int // count of Summarize calls
+	summarizeN   int   // count of Summarize calls
+	captureErr   error // when set, CapturePane fails for every session
 }
 
 func (d *stubDeps) List(_ context.Context) ([]*store.Session, error) { return d.sessions, nil }
-func (d *stubDeps) UpdateStatus(_ context.Context, id string, st store.Status) error {
-	d.updates[id] = st
-	return nil
+func (d *stubDeps) UpdateStatusIf(_ context.Context, id string, expected, next store.Status) (bool, error) {
+	if d.lastExpected == nil {
+		d.lastExpected = map[string]store.Status{}
+	}
+	d.lastExpected[id] = expected
+	if d.casFail[id] {
+		return false, nil // simulate a hook having changed status since the snapshot
+	}
+	d.updates[id] = next
+	return true, nil
 }
 func (d *stubDeps) UpdatePane(_ context.Context, id, ex string) error {
 	if d.paneUpdates != nil {
@@ -110,6 +121,9 @@ func (d *stubDeps) Summarize(_ context.Context, s *store.Session) (string, error
 }
 func (d *stubDeps) SessionAlive(_ context.Context, name string) bool { return d.alive[name] }
 func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {
+	if d.captureErr != nil {
+		return "", d.captureErr
+	}
 	return d.panes[name], nil
 }
 
@@ -151,6 +165,92 @@ func TestTickFlagsStuckWorkingAsIdle(t *testing.T) {
 	p := New(d, 5*time.Minute)
 	require.NoError(t, p.tick(context.Background()))
 	require.Equal(t, store.StatusIdle, d.updates["A-1"])
+}
+
+func TestTickSkipsClassifyWhenCaptureFails(t *testing.T) {
+	// Alive session but pane capture errors transiently: the poller must not
+	// record an empty excerpt nor downgrade a stale "working" session to idle.
+	d := &stubDeps{
+		sessions: []*store.Session{{
+			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking,
+			UpdatedAt:       time.Now().Add(-10 * time.Minute), // would be "stuck" if classified
+			LastPaneExcerpt: "prior pane",
+		}},
+		alive:       map[string]bool{"A-1": true},
+		panes:       map[string]string{},
+		updates:     map[string]store.Status{},
+		paneUpdates: map[string]string{},
+		captureErr:  errors.New("tmux capture failed"),
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	_, statusChanged := d.updates["A-1"]
+	require.False(t, statusChanged, "no fresh pane signal → status must be left untouched")
+	_, paneWritten := d.paneUpdates["A-1"]
+	require.False(t, paneWritten, "a failed capture must not overwrite the excerpt with empty")
+}
+
+func TestTickStillMarksOrphanedWhenSessionDead(t *testing.T) {
+	// captureErr is irrelevant when the session is dead — capture isn't attempted
+	// and orphan detection (pane-independent) must still fire.
+	d := &stubDeps{
+		sessions:   []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+		alive:      map[string]bool{"A-1": false},
+		panes:      map[string]string{},
+		updates:    map[string]store.Status{},
+		captureErr: errors.New("should not be called"),
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, store.StatusOrphaned, d.updates["A-1"])
+}
+
+func TestTickSkipsStatusWriteWhenHookRaced(t *testing.T) {
+	// classify would downgrade this stale "working" session to idle, but a hook
+	// changed the status since the snapshot — the CAS misses and the poller must
+	// neither record a change nor fire OnChange.
+	d := &stubDeps{
+		sessions: []*store.Session{{
+			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking,
+			UpdatedAt: time.Now().Add(-10 * time.Minute), LastPaneExcerpt: "quiet",
+		}},
+		alive:   map[string]bool{"A-1": true},
+		panes:   map[string]string{"A-1": "quiet"}, // unchanged pane
+		updates: map[string]store.Status{},
+		casFail: map[string]bool{"A-1": true},
+	}
+	p := New(d, 5*time.Minute)
+	called := 0
+	p.OnChange = func() { called++ }
+	require.NoError(t, p.tick(context.Background()))
+	_, wrote := d.updates["A-1"]
+	require.False(t, wrote, "a lost CAS must not be treated as a status change")
+	require.Equal(t, store.StatusWorking, d.lastExpected["A-1"], "CAS expected arg is the snapshot status")
+	require.Equal(t, 0, called, "no OnChange when nothing actually changed")
+}
+
+func TestTickPrunesDepartedSessionsFromSummaryState(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
+		alive:    map[string]bool{"A-1": true},
+		panes:    map[string]string{"A-1": "changed"},
+		updates:  map[string]store.Status{},
+		summary:  "x",
+	}
+	p := New(d, 5*time.Minute)
+	p.SummarizeAfter = 0
+	require.NoError(t, p.tick(context.Background()))
+	p.wg.Wait()
+
+	// A session that has since been archived leaves a stale throttle entry.
+	p.lastSummary["GONE-9"] = time.Now()
+	require.NoError(t, p.tick(context.Background()))
+	p.wg.Wait()
+
+	_, gone := p.lastSummary["GONE-9"]
+	require.False(t, gone, "throttle entry for a departed session must be pruned")
+	_, live := p.lastSummary["A-1"]
+	require.True(t, live, "throttle entry for a live session is retained")
 }
 
 func TestTickFreshWorkingStaysWorking(t *testing.T) {
@@ -229,6 +329,7 @@ func TestTickRefreshesSubjectWhenPaneChangedAndDue(t *testing.T) {
 	p := New(d, 5*time.Minute)
 	p.SummarizeAfter = 0 // always due
 	require.NoError(t, p.tick(context.Background()))
+	p.wg.Wait() // summarization runs in a background worker
 	require.Equal(t, 1, d.summarizeN)
 	require.Equal(t, "doing the thing", d.subjects["A-1"])
 }
@@ -244,6 +345,7 @@ func TestTickSkipsSummaryWhenPaneUnchanged(t *testing.T) {
 	p := New(d, 5*time.Minute)
 	p.SummarizeAfter = 0
 	require.NoError(t, p.tick(context.Background()))
+	p.wg.Wait()
 	require.Equal(t, 0, d.summarizeN, "no summary when pane didn't change")
 }
 
@@ -256,9 +358,11 @@ func TestTickThrottlesSummary(t *testing.T) {
 		summary:  "y",
 	}
 	p := New(d, 5*time.Minute)
-	p.SummarizeAfter = time.Hour // not due (lastSummary set on first call)
-	require.NoError(t, p.tick(context.Background()))           // first: due (zero time) → summarizes
+	p.SummarizeAfter = time.Hour                    // not due (lastSummary set on first call)
+	require.NoError(t, p.tick(context.Background())) // first: due (zero time) → summarizes
+	p.wg.Wait()                                      // let the first worker finish before re-ticking
 	d.panes["A-1"] = "changed again"
-	require.NoError(t, p.tick(context.Background()))           // second: within the hour → throttled
+	require.NoError(t, p.tick(context.Background())) // second: within the hour → throttled
+	p.wg.Wait()
 	require.Equal(t, 1, d.summarizeN, "throttled to one within the interval")
 }

@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -54,8 +54,10 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		var nerr net.Error
-		if errors.As(err, &nerr) || isConnRefused(err) {
+		// Only a refused connection (nothing listening) means the daemon is down.
+		// Other transport errors (timeouts, resets) keep their real message so we
+		// don't mislabel a slow-but-running daemon as "not running".
+		if isConnRefused(err) {
 			return ErrDaemonDown
 		}
 		return err
@@ -79,8 +81,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 }
 
 func isConnRefused(err error) bool {
-	var opErr *net.OpError
-	return errors.As(err, &opErr)
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func (c *Client) List(ctx context.Context) ([]*store.Session, error) {
