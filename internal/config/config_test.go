@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,4 +25,15 @@ func TestLoadFromEnv(t *testing.T) {
 	require.Equal(t, "127.0.0.1:9000", c.Addr)
 	require.Equal(t, "mongodb://db:27017", c.MongoURI)
 	require.Equal(t, "test", c.DB)
+}
+
+func TestWorkdirDefault(t *testing.T) {
+	t.Setenv("AGENTCTL_WORKDIR", "")
+	c := Load()
+	require.True(t, strings.HasSuffix(c.Workdir, "agentctl-agents"), "got %q", c.Workdir)
+}
+
+func TestWorkdirFromEnv(t *testing.T) {
+	t.Setenv("AGENTCTL_WORKDIR", "/tmp/agents")
+	require.Equal(t, "/tmp/agents", Load().Workdir)
 }
