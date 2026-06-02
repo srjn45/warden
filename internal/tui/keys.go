@@ -45,6 +45,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.killForce = false
 			}
 			return m, nil
+		case "a":
+			if m.selected() != nil {
+				return m, attachCmd(m.selectedID())
+			}
+			return m, nil
+		case "?":
+			m.mode = modeHelp
+			return m, nil
 		}
 	}
 	return m, nil

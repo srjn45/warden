@@ -35,12 +35,19 @@ func (m Model) View() string {
 		conn = stError.Render("reconnecting…")
 	}
 	header := stHeader.Render("agentctl") + "  " + conn
+	if !m.connected {
+		header += "  " + stError.Render("daemon not running — start it with `agentctl daemon`")
+	}
 
 	leftW := m.w * 4 / 10
 	rightW := m.w - leftW - 1
 	left := lipgloss.NewStyle().Width(leftW).Render(m.renderList(leftW))
 	right := lipgloss.NewStyle().Width(rightW).Render(m.renderDetail(rightW))
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+
+	if m.mode == modeHelp {
+		body = lipgloss.NewStyle().Width(m.w).Render(helpText())
+	}
 
 	footer := m.footer()
 	switch m.mode {
@@ -56,6 +63,18 @@ func (m Model) View() string {
 		}
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
+}
+
+func helpText() string {
+	return stPaneTitle.Render("Keys") + "\n" +
+		"  ↑/↓ or j/k   move selection\n" +
+		"  tab          focus output (PgUp/PgDn scroll), tab/esc to leave\n" +
+		"  n            new agent (prompt)\n" +
+		"  s            send a message to the selected agent\n" +
+		"  a            attach to its tmux session\n" +
+		"  x            terminate (X to force on uncommitted/unpushed)\n" +
+		"  ?            toggle this help\n" +
+		"  q            quit\n"
 }
 
 func (m Model) footer() string {

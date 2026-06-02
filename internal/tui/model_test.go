@@ -226,3 +226,24 @@ func TestKillEscCancels(t *testing.T) {
 	m = step(m, key("esc"))
 	require.Equal(t, modeNormal, m.mode)
 }
+
+func TestHelpToggle(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, key("?"))
+	require.Equal(t, modeHelp, m.mode)
+	m = step(m, key("?")) // any key closes
+	require.Equal(t, modeNormal, m.mode)
+}
+
+func TestAttachDoneShowsError(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, attachDoneMsg{err: context.DeadlineExceeded})
+	require.Contains(t, m.status, "attach")
+}
+
+func TestAttachNoOpWhenNoSelection(t *testing.T) {
+	m := New(&fakeAPI{})
+	_, cmd := m.Update(key("a"))
+	require.Nil(t, cmd, "attach with no selection does nothing")
+}

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -93,6 +94,13 @@ func cleanupCmd(a api, id string, force bool) tea.Cmd {
 		}
 		return cleanupDoneMsg{id: id}
 	}
+}
+
+func attachCmd(id string) tea.Cmd {
+	c := exec.Command("tmux", "attach", "-t", id)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return attachDoneMsg{err: err}
+	})
 }
 
 func tick() tea.Cmd {

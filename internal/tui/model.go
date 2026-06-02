@@ -142,7 +142,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case attachDoneMsg:
+		if msg.err != nil {
+			m.status = "attach failed: " + msg.err.Error()
+		} else {
+			m.status = ""
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		if m.mode == modeHelp {
+			m.mode = modeNormal
+			return m, nil
+		}
 		if m.mode == modeNewAgent {
 			return m.updateNewAgent(msg)
 		}
