@@ -7,8 +7,7 @@ import (
 
 type Config struct {
 	Addr              string
-	MongoURI          string
-	DB                string
+	DataDir           string
 	Workdir           string
 	ClaudeProjectsDir string
 }
@@ -28,6 +27,14 @@ func defaultClaudeProjectsDir() string {
 	return filepath.Join(home, ".claude", "projects")
 }
 
+func defaultDataDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ".agentctl"
+	}
+	return filepath.Join(home, ".agentctl")
+}
+
 func defaultWorkdir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -40,8 +47,7 @@ func defaultWorkdir() string {
 func Load() Config {
 	return Config{
 		Addr:              envOr("AGENTCTL_ADDR", "127.0.0.1:8765"),
-		MongoURI:          envOr("AGENTCTL_MONGO_URI", "mongodb://localhost:27017"),
-		DB:                envOr("AGENTCTL_DB", "agentctl"),
+		DataDir:           envOr("AGENTCTL_DATA_DIR", defaultDataDir()),
 		Workdir:           envOr("AGENTCTL_WORKDIR", defaultWorkdir()),
 		ClaudeProjectsDir: envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
 	}

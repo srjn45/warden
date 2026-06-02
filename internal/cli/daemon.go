@@ -19,7 +19,7 @@ import (
 func newDaemonCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "daemon",
-		Short: "Run the agentctl hub (HTTP API + poller; the single Mongo writer)",
+		Short: "Run the agentctl hub (HTTP API + poller; the single writer to the file store)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.Load()
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
@@ -28,7 +28,7 @@ func newDaemonCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			st, err := store.NewMongoStore(ctx, cfg.MongoURI, cfg.DB)
+			st, err := store.NewFileStore(cfg.DataDir)
 			if err != nil {
 				return err
 			}
