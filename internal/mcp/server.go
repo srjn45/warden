@@ -39,9 +39,13 @@ type outputArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	Lines  int    `json:"lines" jsonschema:"how many recent pane lines to return (default 200)"`
 }
-type cleanupArgs struct {
+type forceArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
-	Force  bool   `json:"force" jsonschema:"override the uncommitted/unpushed guard"`
+	Force  bool   `json:"force,omitempty" jsonschema:"override the alive/uncommitted/unpushed guards"`
+}
+type deleteToolArgs struct {
+	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
+	Hard   bool   `json:"hard,omitempty" jsonschema:"permanently purge instead of archiving"`
 }
 
 func textResult(s string) *mcpsdk.CallToolResult {
@@ -124,13 +128,33 @@ func NewServer(daemonBase string) *Server {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "cleanup_agent",
-		Description: "Tear down an agent: kill tmux, prune worktree/branch (guarded), archive the record.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a cleanupArgs) (*mcpsdk.CallToolResult, any, error) {
-		if err := s.cl.Cleanup(ctx, a.Ticket, a.Force, false); err != nil {
+		Name:        "terminate_agent",
+		Description: "Stop an agent: kill its tmux+claude session. Keeps the record and worktree (reversible via restore_agent). The default 'stop this agent' action.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ticketArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.Terminate(ctx, a.Ticket); err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
-		return textResult("cleaned up " + a.Ticket), nil, nil
+		return textResult("terminated " + a.Ticket), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "delete_agent",
+		Description: "Clear an agent's stored record (archives by default; hard=true purges). Does not touch tmux or the worktree.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a deleteToolArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.Delete(ctx, a.Ticket, a.Hard); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("deleted " + a.Ticket), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "remove_worktree",
+		Description: "Remove an agent's git worktree + branch. DESTRUCTIVE and always requires explicit user confirmation first. Refuses if the agent is still running (terminate first) or has uncommitted/unpushed work, unless force=true.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a forceArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.RemoveWorktree(ctx, a.Ticket, a.Force); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("removed worktree for " + a.Ticket), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

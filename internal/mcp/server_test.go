@@ -110,3 +110,32 @@ func TestRestoreAgentTool(t *testing.T) {
 	require.False(t, res.IsError, textOf(res))
 	require.Equal(t, "/sessions/A-1/restore", hitPath)
 }
+
+func TestTeardownTools(t *testing.T) {
+	hits := map[string]bool{}
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits[r.URL.Path] = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer daemon.Close()
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, st) }()
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	for _, tc := range []struct{ tool, path string }{
+		{"terminate_agent", "/sessions/A-1/terminate"},
+		{"delete_agent", "/sessions/A-1/delete"},
+		{"remove_worktree", "/sessions/A-1/remove-worktree"},
+	} {
+		res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: tc.tool, Arguments: map[string]any{"ticket": "A-1"}})
+		require.NoError(t, err)
+		require.False(t, res.IsError, textOf(res))
+		require.True(t, hits[tc.path], "expected %s to hit %s", tc.tool, tc.path)
+	}
+}
