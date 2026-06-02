@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 	"time"
 
@@ -24,9 +23,8 @@ type spawnDoneMsg struct {
 	err error
 }
 type cleanupDoneMsg struct {
-	id       string
-	err      error
-	conflict bool
+	id  string
+	err error
 }
 type inputDoneMsg struct{ err error }
 type attachDoneMsg struct{ err error }
@@ -80,16 +78,11 @@ func inputCmd(a api, id, text string) tea.Cmd {
 	}
 }
 
-func cleanupCmd(a api, id string, force bool) tea.Cmd {
+func terminateCmd(a api, id string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
 		defer cancel()
-		err := a.Cleanup(ctx, id, force, false)
-		if err != nil {
-			var se *client.StatusError
-			if errors.As(err, &se) && se.Code == 409 {
-				return cleanupDoneMsg{id: id, conflict: true, err: err}
-			}
+		if err := a.Terminate(ctx, id); err != nil {
 			return cleanupDoneMsg{id: id, err: err}
 		}
 		return cleanupDoneMsg{id: id}

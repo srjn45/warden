@@ -12,17 +12,14 @@ import (
 
 // fakeAPI is a test double for the tui api interface.
 type fakeAPI struct {
-	sessions []*store.Session
-	listErr  error
-	output   string
-	spawned  *client.SpawnParams
-	cleaned  *struct {
-		id          string
-		force, hard bool
-	}
-	cleanErr error
-	sentTo   string
-	sentText string
+	sessions   []*store.Session
+	listErr    error
+	output     string
+	spawned    *client.SpawnParams
+	terminated string
+	termErr    error
+	sentTo     string
+	sentText   string
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -33,12 +30,9 @@ func (f *fakeAPI) Spawn(_ context.Context, p client.SpawnParams) (*store.Session
 	f.spawned = &p
 	return &store.Session{ID: "agent-new"}, nil
 }
-func (f *fakeAPI) Cleanup(_ context.Context, id string, force, hard bool) error {
-	f.cleaned = &struct {
-		id          string
-		force, hard bool
-	}{id, force, hard}
-	return f.cleanErr
+func (f *fakeAPI) Terminate(_ context.Context, id string) error {
+	f.terminated = id
+	return f.termErr
 }
 func (f *fakeAPI) Input(_ context.Context, id, text string) error {
 	f.sentTo, f.sentText = id, text
@@ -203,20 +197,15 @@ func TestSendMessageFlow(t *testing.T) {
 	require.Equal(t, modeNormal, m.mode)
 }
 
-func TestKillConfirmThenForceOn409(t *testing.T) {
-	f := &fakeAPI{cleanErr: &client.StatusError{Code: 409, Msg: "unpushed"}}
+func TestKillConfirmTerminates(t *testing.T) {
+	f := &fakeAPI{}
 	m := New(f)
 	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = step(m, sessionsMsg{sessions: threeSessions()}) // selected "a"
 	m = step(m, key("x"))
 	require.Equal(t, modeConfirmKill, m.mode)
-	m, _ = submit(m, key("y")) // confirm → cleanup (non-force)
-	// simulate the cleanup result coming back as a conflict
-	m = step(m, cleanupDoneMsg{id: "a", conflict: true})
-	require.True(t, m.killForce, "409 → force prompt")
-	m, _ = submit(m, key("X")) // force
-	require.Equal(t, "a", f.cleaned.id)
-	require.True(t, f.cleaned.force)
+	m, _ = submit(m, key("y")) // confirm → terminate
+	require.Equal(t, "a", f.terminated)
 }
 
 func TestKillEscCancels(t *testing.T) {

@@ -42,7 +42,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "x":
 			if m.selected() != nil {
 				m.mode = modeConfirmKill
-				m.killForce = false
 			}
 			return m, nil
 		case "a":
@@ -105,17 +104,11 @@ func (m Model) updateConfirmKill(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "n", "N":
 		m.mode = modeNormal
-		m.killForce = false
 		m.status = ""
 		return m, nil
 	case "y", "Y":
-		if !m.killForce && id != "" {
-			return m, cleanupCmd(m.api, id, false)
-		}
-		return m, nil
-	case "X":
-		if m.killForce && id != "" {
-			return m, cleanupCmd(m.api, id, true)
+		if id != "" {
+			return m, terminateCmd(m.api, id)
 		}
 		return m, nil
 	}

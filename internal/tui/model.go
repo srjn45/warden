@@ -17,7 +17,7 @@ type api interface {
 	List(ctx context.Context) ([]*store.Session, error)
 	Output(ctx context.Context, id string, lines int) (string, error)
 	Spawn(ctx context.Context, p client.SpawnParams) (*store.Session, error)
-	Cleanup(ctx context.Context, id string, force, hard bool) error
+	Terminate(ctx context.Context, id string) error
 	Input(ctx context.Context, id, text string) error
 }
 
@@ -42,7 +42,6 @@ type Model struct {
 	ti            textinput.Model
 	mode          mode
 	outputFocused bool
-	killForce     bool
 	pendingSelect string
 	status        string
 	connected     bool
@@ -126,18 +125,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case cleanupDoneMsg:
-		switch {
-		case msg.conflict:
-			m.mode = modeConfirmKill
-			m.killForce = true
-			m.status = "uncommitted/unpushed — press X to force, esc to cancel"
-		case msg.err != nil:
-			m.mode = modeNormal
-			m.killForce = false
+		m.mode = modeNormal
+		if msg.err != nil {
 			m.status = "terminate failed: " + msg.err.Error()
-		default:
-			m.mode = modeNormal
-			m.killForce = false
+		} else {
 			m.status = "terminated " + msg.id
 		}
 		return m, nil
