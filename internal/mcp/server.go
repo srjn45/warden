@@ -19,13 +19,16 @@ type listArgs struct{}
 type ticketArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the ticket / session id, e.g. PROJ-350"`
 }
+// All fields are optional in the schema: the daemon validates that EITHER a
+// prompt OR (type + repo) is provided, so no single field is required here.
 type spawnArgs struct {
-	Type     string `json:"type" jsonschema:"task type: development|analysis|spike|pr-review|buildkite-debug|test-run|env-test|other"`
-	Ticket   string `json:"ticket" jsonschema:"optional Jira ticket; becomes the session id when present"`
-	Repo     string `json:"repo" jsonschema:"absolute path to the repo"`
-	Branch   string `json:"branch" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
-	PR       string `json:"pr" jsonschema:"optional PR number/url for pr-review"`
-	Worktree bool   `json:"worktree" jsonschema:"create a scratch worktree for analysis/spike"`
+	Type     string `json:"type,omitempty" jsonschema:"task type: development|analysis|spike|pr-review|buildkite-debug|test-run|env-test|other"`
+	Ticket   string `json:"ticket,omitempty" jsonschema:"optional Jira ticket; becomes the session id when present"`
+	Repo     string `json:"repo,omitempty" jsonschema:"absolute path to the repo (managed-worktree mode)"`
+	Branch   string `json:"branch,omitempty" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
+	PR       string `json:"pr,omitempty" jsonschema:"optional PR number/url for pr-review"`
+	Worktree bool   `json:"worktree,omitempty" jsonschema:"create a scratch worktree for analysis/spike"`
+	Prompt   string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
 }
 type sendArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
@@ -84,11 +87,12 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "spawn_agent",
-		Description: "Spawn a new agent of a given task type. development/pr-review get a worktree; buildkite-debug/test-run/env-test run in the repo; analysis/spike take an optional worktree. Launches claude --dangerously-skip-permissions.",
+		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; buildkite-debug/test-run/env-test run in the repo; analysis/spike take an optional worktree). Launches claude --dangerously-skip-permissions.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a spawnArgs) (*mcpsdk.CallToolResult, any, error) {
 		sess, err := s.cl.Spawn(ctx, client.SpawnParams{
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree,
+			Prompt: a.Prompt,
 		})
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
