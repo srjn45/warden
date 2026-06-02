@@ -41,3 +41,16 @@ func TestSpawn(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "A-1", s.ID)
 }
+
+func TestCleanupConflictIsStatusError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"uncommitted changes"}`))
+	}))
+	defer ts.Close()
+	err := New(ts.URL).Cleanup(t.Context(), "A-1", false, false)
+	require.Error(t, err)
+	var se *StatusError
+	require.ErrorAs(t, err, &se)
+	require.Equal(t, 409, se.Code)
+}

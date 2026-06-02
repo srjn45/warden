@@ -17,6 +17,16 @@ import (
 // ErrDaemonDown signals the daemon is unreachable (connection refused / timeout).
 var ErrDaemonDown = errors.New("daemon not running — start it with `agentctl daemon` (or via launchd)")
 
+// StatusError is returned for non-2xx daemon responses, exposing the HTTP code.
+type StatusError struct {
+	Code int
+	Msg  string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("daemon error (%d): %s", e.Code, e.Msg)
+}
+
 type Client struct {
 	base string
 	http *http.Client
@@ -56,10 +66,11 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 			Error string `json:"error"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&e)
-		if e.Error == "" {
-			e.Error = resp.Status
+		msg := e.Error
+		if msg == "" {
+			msg = resp.Status
 		}
-		return fmt.Errorf("daemon error (%d): %s", resp.StatusCode, e.Error)
+		return &StatusError{Code: resp.StatusCode, Msg: msg}
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
