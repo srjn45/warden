@@ -8,6 +8,8 @@ One binary, multiple faces: `agentctl daemon` is the single MongoDB writer, serv
 alias agents=agentctl
 ```
 
+> **New here?** See [docs/USAGE.md](docs/USAGE.md) for a task-oriented guide to running agents day to day. The sections below cover build, install, and contributor setup.
+
 ---
 
 ## Prerequisites
