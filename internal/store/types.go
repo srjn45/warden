@@ -69,27 +69,27 @@ func (t Type) DefaultWorktree() bool {
 }
 
 type Event struct {
-	TS     time.Time `bson:"ts" json:"ts"`
-	Type   string    `bson:"type" json:"type"`
-	Detail string    `bson:"detail" json:"detail"`
+	TS     time.Time `json:"ts"`
+	Type   string    `json:"type"`
+	Detail string    `json:"detail"`
 }
 
 type Session struct {
-	ID              string    `bson:"_id" json:"id"`
-	Type            Type      `bson:"type" json:"type"`
-	Ticket          string    `bson:"ticket" json:"ticket"`         // optional
-	TmuxSession     string    `bson:"tmux_session" json:"tmux_session"`
-	Repo            string    `bson:"repo" json:"repo"`
-	Worktree        string    `bson:"worktree" json:"worktree"`     // optional (empty = no worktree)
-	Branch          string    `bson:"branch" json:"branch"`         // optional
-	PR              string    `bson:"pr" json:"pr"`                 // optional (pr-review)
-	Prompt          string    `bson:"prompt" json:"prompt"`           // initial prompt (prompt-spawned agents)
-	Workdir         string    `bson:"workdir" json:"workdir"`         // absolute cwd of the tmux session
-	Subject         string    `bson:"subject" json:"subject"`         // one-line auto summary of what it's doing
-	Status          Status    `bson:"status" json:"status"`
-	PID             int       `bson:"pid" json:"pid"`
-	CreatedAt       time.Time `bson:"created_at" json:"created_at"`
-	UpdatedAt       time.Time `bson:"updated_at" json:"updated_at"`
-	Events          []Event   `bson:"events" json:"events"`
-	LastPaneExcerpt string    `bson:"last_pane_excerpt" json:"last_pane_excerpt"`
+	ID              string    `json:"id"`
+	Type            Type      `json:"type"`
+	Ticket          string    `json:"ticket"`       // optional
+	TmuxSession     string    `json:"tmux_session"`
+	Repo            string    `json:"repo"`
+	Worktree        string    `json:"worktree"`     // optional (empty = no worktree)
+	Branch          string    `json:"branch"`       // optional
+	PR              string    `json:"pr"`           // optional (pr-review)
+	Prompt          string    `json:"prompt"`       // initial prompt (prompt-spawned agents)
+	Workdir         string    `json:"workdir"`      // absolute cwd of the tmux session
+	Subject         string    `json:"subject"`      // one-line auto summary of what it's doing
+	Status          Status    `json:"status"`
+	PID             int       `json:"pid"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	Events          []Event   `json:"events"`
+	LastPaneExcerpt string    `json:"last_pane_excerpt"`
 }

@@ -1,13 +1,13 @@
 package store
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
-func TestSessionBSONRoundTrip(t *testing.T) {
+func TestSessionJSONRoundTrip(t *testing.T) {
 	s := Session{
 		ID:          "PROJ-350",
 		Type:        TypeDevelopment,
@@ -23,11 +23,11 @@ func TestSessionBSONRoundTrip(t *testing.T) {
 		PID:         123,
 		Events:      []Event{{Type: "SessionStart"}},
 	}
-	raw, err := bson.Marshal(s)
+	raw, err := json.Marshal(s)
 	require.NoError(t, err)
 
 	var got Session
-	require.NoError(t, bson.Unmarshal(raw, &got))
+	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "PROJ-350", got.ID)
 	require.Equal(t, TypeDevelopment, got.Type)
 	require.Equal(t, StatusSpawning, got.Status)
