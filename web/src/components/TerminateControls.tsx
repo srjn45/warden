@@ -1,46 +1,58 @@
 import { useState } from 'react';
+import type { Session } from '../lib/types';
 import { terminate, removeWorktree, deleteSession, ApiError } from '../lib/api';
 
-async function cleanup(id: string, force: boolean, hard: boolean): Promise<void> {
-  await terminate(id);
-  await removeWorktree(id, force);
-  if (hard) await deleteSession(id, true);
-}
-
-export default function TerminateControls({ id, onDone }: { id: string; onDone: () => void }) {
+// TerminateControls drives the real teardown endpoints:
+//   Terminate         -> POST /sessions/{id}/terminate         (stop the agent)
+//   Remove worktree   -> POST /sessions/{id}/remove-worktree   (force on 409 guard)
+//   Hard-delete record-> POST /sessions/{id}/delete {hard:true}
+export default function TerminateControls({ session, onDone }: {
+  session: Session;
+  onDone: () => void;
+}) {
   const [busy, setBusy] = useState(false);
-  const [guard, setGuard] = useState<string | null>(null);
-  const [hard, setHard] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [guard, setGuard] = useState<string | null>(null); // 409 message from remove-worktree
 
-  async function run(force: boolean) {
-    setBusy(true);
-    setErr(null);
+  async function doTerminate() {
+    setBusy(true); setErr(null);
     try {
-      await cleanup(id, force, hard);
+      await terminate(session.id);
       onDone();
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) {
-        setGuard(e.message); // uncommitted/unpushed guard — offer force
-      } else {
-        setErr(e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      setBusy(false);
-    }
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(false); }
+  }
+
+  async function doRemoveWorktree(force: boolean) {
+    setBusy(true); setErr(null);
+    try {
+      await removeWorktree(session.id, force);
+      setGuard(null);
+      onDone();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) setGuard(e.message);
+      else setErr(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(false); }
+  }
+
+  async function doDelete() {
+    setBusy(true); setErr(null);
+    try {
+      await deleteSession(session.id, true);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(false); }
   }
 
   if (guard) {
     return (
       <div className="terminate guard">
         <p className="warn">{guard}</p>
-        <label>
-          <input type="checkbox" checked={hard} onChange={(e) => setHard(e.target.checked)} />{' '}
-          also hard-delete the record
-        </label>
         <div className="actions">
-          <button className="danger" disabled={busy} onClick={() => run(true)}>
-            Force terminate (remove worktree + branch)
+          <button className="danger" disabled={busy} onClick={() => doRemoveWorktree(true)}>
+            Force remove worktree + branch
           </button>
           <button disabled={busy} onClick={() => setGuard(null)}>Cancel</button>
         </div>
@@ -50,7 +62,13 @@ export default function TerminateControls({ id, onDone }: { id: string; onDone: 
 
   return (
     <div className="terminate">
-      <button className="danger" disabled={busy} onClick={() => run(false)}>Terminate</button>
+      <div className="actions">
+        <button className="danger" disabled={busy} onClick={doTerminate}>Terminate</button>
+        {session.worktree && (
+          <button disabled={busy} onClick={() => doRemoveWorktree(false)}>Remove worktree</button>
+        )}
+        <button disabled={busy} onClick={doDelete}>Delete record</button>
+      </div>
       {err && <span className="warn"> {err}</span>}
     </div>
   );

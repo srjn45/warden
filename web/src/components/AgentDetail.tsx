@@ -48,7 +48,7 @@ export default function AgentDetail({ session, onClosed }: { session: Session; o
           type: {session.type || 'classifying…'} · dir: {session.workdir || '—'}
           {session.subject && ` · ${session.subject}`}
         </code>
-        <TerminateControls id={session.id} onDone={onClosed} />
+        <TerminateControls session={session} onDone={onClosed} />
       </div>
 
       {session.prompt && (
