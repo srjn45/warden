@@ -127,6 +127,34 @@ func TestRemoveWorktreeConflictIsStatusError(t *testing.T) {
 	require.Equal(t, 409, se.Code)
 }
 
+func TestClientApprovals(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/approvals", r.URL.Path)
+		w.Write([]byte(`{"enabled":true,"approvals":[{"id":"a1","recognized":true,"options":["Yes","No"],"fingerprint":"ff"}]}`))
+	}))
+	defer ts.Close()
+	c := New(ts.URL)
+	enabled, views, err := c.Approvals(context.Background())
+	require.NoError(t, err)
+	require.True(t, enabled)
+	require.Len(t, views, 1)
+	require.Equal(t, "a1", views[0].ID)
+}
+
+func TestClientApprove(t *testing.T) {
+	var gotBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/sessions/a1/approve", r.URL.Path)
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Write([]byte(`{"status":"answered"}`))
+	}))
+	defer ts.Close()
+	c := New(ts.URL)
+	require.NoError(t, c.Approve(context.Background(), "a1", 2, "ff"))
+	require.Equal(t, float64(2), gotBody["option"])
+	require.Equal(t, "ff", gotBody["fingerprint"])
+}
+
 func TestAdoptSendsBodyAndParsesResponse(t *testing.T) {
 	var gotBody map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

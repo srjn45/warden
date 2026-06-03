@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -200,6 +201,26 @@ func (c *Client) Input(ctx context.Context, id, text string) error {
 
 func (c *Client) Restore(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/restore", nil, nil)
+}
+
+// Approvals fetches the live approval queue. Returns (enabled, views, err);
+// enabled is false when the daemon has the feature toggled off.
+func (c *Client) Approvals(ctx context.Context) (bool, []approval.View, error) {
+	var resp struct {
+		Enabled   bool            `json:"enabled"`
+		Approvals []approval.View `json:"approvals"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/approvals", nil, &resp); err != nil {
+		return false, nil, err
+	}
+	return resp.Enabled, resp.Approvals, nil
+}
+
+// Approve answers a recognized prompt with the 1-based option and the options
+// fingerprint the UI rendered (for the daemon's re-verify guard).
+func (c *Client) Approve(ctx context.Context, id string, option int, fingerprint string) error {
+	body := map[string]any{"option": option, "fingerprint": fingerprint}
+	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/approve", body, nil)
 }
 
 // DirEntry is one subdirectory in a DirListing.
