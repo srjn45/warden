@@ -47,7 +47,7 @@ func newDaemonCmd() *cobra.Command {
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
 			pl.OnTransition = daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
-			srv := daemon.NewServer(st, life, pl, 10*time.Second)
+			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},

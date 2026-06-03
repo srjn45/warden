@@ -92,6 +92,8 @@ type Server struct {
 	// done is closed when the server begins shutting down. Long-lived handlers
 	// (the SSE stream) watch it so they return promptly and let Shutdown drain.
 	done chan struct{}
+	// approvals gates the approvals-inbox endpoints (AGENTCTL_APPROVALS).
+	approvals bool
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -164,6 +166,7 @@ func (s *Server) router() http.Handler {
 	// remove-worktree,input,restore}, GET /sessions/{id}/{output,attach}.
 	s.registerLifecycleRoutes(r)
 	r.Get("/fs/dirs", s.handleListDirs)
+	r.Get("/approvals", s.handleApprovals)
 	s.registerStatic(r) // catch-all; must be last
 	return r
 }

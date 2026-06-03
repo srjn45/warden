@@ -37,6 +37,7 @@ type fakeLife struct {
 	adoptResult    *store.Session
 	adoptErr       error
 	adoptParams    AdoptParams
+	lastKey        string
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -116,6 +117,7 @@ func (f *fakeLife) Input(_ context.Context, s, text string) error { f.lastInput 
 func (f *fakeLife) Output(_ context.Context, s string, n int) (string, error) {
 	return f.output, nil
 }
+func (f *fakeLife) SendKeys(_ context.Context, s, key string) error { f.lastKey = key; return nil }
 
 func lifeServer(t *testing.T, fs *fakeStore, fl *fakeLife) *httptest.Server {
 	t.Helper()
