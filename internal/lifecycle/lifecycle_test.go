@@ -724,6 +724,10 @@ func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "do a thing", Cwd: "/work/project"})
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", s.ID, "mouse", "on"})
+	require.Greater(t,
+		fr.callIndex("tmux set-option -t "+s.ID+" mouse on"),
+		fr.callIndex("tmux new-session -d -s "+s.ID+" -c /work/project"),
+		"mouse on must follow new-session")
 }
 
 func TestResumeInTmuxSetsMouseOn(t *testing.T) {
@@ -747,6 +751,18 @@ func TestSpawnRaisesHistoryLimitBeforeNewSession(t *testing.T) {
 	newIdx := fr.callIndex("tmux new-session -d -s " + s.ID + " -c /repo")
 	require.NotEqual(t, -1, setIdx, "history-limit must be raised when current is lower")
 	require.Less(t, setIdx, newIdx, "history-limit must be raised BEFORE new-session")
+}
+
+func TestSpawnRaisesHistoryLimitWhenCurrentUnreadable(t *testing.T) {
+	// show-options failing (e.g. no value set / older tmux) must fall through to
+	// raising the limit — a safe default, not a silent skip.
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux show-options -g -v history-limit": {Err: errors.New("no server")},
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-g", "history-limit", "50000"},
+		"unreadable current limit must fall through to raising it")
 }
 
 func TestSpawnDoesNotLowerHistoryLimit(t *testing.T) {
