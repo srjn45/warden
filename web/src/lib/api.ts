@@ -81,14 +81,6 @@ export async function deleteSession(id: string, hard: boolean): Promise<void> {
   }));
 }
 
-export async function sendInput(id: string, text: string): Promise<void> {
-  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/input`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  }));
-}
-
 export async function getOutput(id: string, lines = 200): Promise<string> {
   const data = await parse<{ output: string }>(
     await fetch(`/sessions/${encodeURIComponent(id)}/output?lines=${lines}`),

@@ -3,7 +3,7 @@ import { getOutput } from '../lib/api';
 
 // MiniTerminal is a cheap glance at an agent's pane for the grid tiles: it polls
 // the plain (uncolored) output endpoint and shows the last `lines` rows. Not a
-// live feed — that's what the full Terminal is for.
+// live feed — that's what the full AttachTerminal is for.
 export default function MiniTerminal({ id, lines = 8, intervalMs = 2000 }: {
   id: string;
   lines?: number;

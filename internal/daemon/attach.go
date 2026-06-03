@@ -61,7 +61,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(1 << 20) // 1 MiB — tolerate large pastes
 
 	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
+	defer cancel() // safety net for early returns (e.g. pty.Start failure)
 
 	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sess.TmuxSession)
 	ptyFile, err := pty.Start(cmd)
@@ -69,7 +69,15 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		conn.Close(websocket.StatusInternalError, "pty start failed")
 		return
 	}
-	defer func() { _ = ptyFile.Close() }()
+	// Teardown (runs before the earlier `defer cancel()`): close the PTY to
+	// unblock the reader goroutine, cancel the context so CommandContext kills the
+	// tmux attach, then reap the process so it doesn't linger as a zombie for the
+	// daemon's lifetime.
+	defer func() {
+		_ = ptyFile.Close()
+		cancel()
+		_ = cmd.Wait()
+	}()
 
 	// PTY → client.
 	go func() {
