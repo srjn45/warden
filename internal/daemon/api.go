@@ -125,6 +125,7 @@ type Lifecycle interface {
 	Adopt(ctx context.Context, req AdoptParams) (*store.Session, error)
 	Input(ctx context.Context, tmuxSession, text string) error
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
+	OutputANSI(ctx context.Context, tmuxSession string, lines int) (string, error)
 }
 
 func (s *Server) router() http.Handler {

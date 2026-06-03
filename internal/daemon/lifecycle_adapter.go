@@ -90,3 +90,7 @@ func (a *lifecycleAdapter) Input(ctx context.Context, tmuxSession, text string) 
 func (a *lifecycleAdapter) Output(ctx context.Context, tmuxSession string, lines int) (string, error) {
 	return a.lc.Output(ctx, tmuxSession, lines)
 }
+
+func (a *lifecycleAdapter) OutputANSI(ctx context.Context, tmuxSession string, lines int) (string, error) {
+	return a.lc.OutputANSI(ctx, tmuxSession, lines)
+}

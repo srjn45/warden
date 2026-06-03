@@ -116,6 +116,9 @@ func (f *fakeLife) Input(_ context.Context, s, text string) error { f.lastInput 
 func (f *fakeLife) Output(_ context.Context, s string, n int) (string, error) {
 	return f.output, nil
 }
+func (f *fakeLife) OutputANSI(_ context.Context, s string, n int) (string, error) {
+	return f.output, nil
+}
 
 func lifeServer(t *testing.T, fs *fakeStore, fl *fakeLife) *httptest.Server {
 	t.Helper()

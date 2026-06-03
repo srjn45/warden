@@ -708,3 +708,16 @@ func (l *Lifecycle) Output(ctx context.Context, tmuxSession string, lines int) (
 	}
 	return out, nil
 }
+
+// OutputANSI is like Output but preserves ANSI escape sequences (tmux -e), so
+// the web terminal can render the pane in color.
+func (l *Lifecycle) OutputANSI(ctx context.Context, tmuxSession string, lines int) (string, error) {
+	if lines <= 0 {
+		lines = 200
+	}
+	out, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-e", "-t", tmuxSession, "-S", "-"+strconv.Itoa(lines))
+	if err != nil {
+		return "", fmt.Errorf("tmux capture-pane: %w: %s", err, out)
+	}
+	return out, nil
+}
