@@ -28,7 +28,6 @@ type SpawnRequest struct {
 	PR       string `json:"pr"`       // optional; pr-review
 	Worktree bool   `json:"worktree"` // analysis/spike opt-in
 	Prompt   string `json:"prompt"`   // prompt-mode: the agent's initial prompt
-	Workdir  string `json:"-"`        // filled server-side in prompt mode
 	Cwd      string `json:"cwd"`      // dir to launch claude from (caller cwd / web pick)
 }
 
@@ -66,7 +65,6 @@ type Server struct {
 	poller       *poller.Poller
 	pollInterval time.Duration
 	hub          *hub
-	workdir      string
 	// done is closed when the server begins shutting down. Long-lived handlers
 	// (the SSE stream) watch it so they return promptly and let Shutdown drain.
 	done chan struct{}

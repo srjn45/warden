@@ -9,7 +9,6 @@ import (
 type Config struct {
 	Addr              string
 	DataDir           string
-	Workdir           string
 	ClaudeProjectsDir string
 	NotifyEnabled     bool
 }
@@ -37,14 +36,6 @@ func defaultDataDir() string {
 	return filepath.Join(home, ".agentctl")
 }
 
-func defaultWorkdir() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "agentctl-agents"
-	}
-	return filepath.Join(home, "agentctl-agents")
-}
-
 // notifyEnabled reads AGENTCTL_NOTIFY; on by default, off for 0/off/false.
 func notifyEnabled() bool {
 	switch strings.ToLower(os.Getenv("AGENTCTL_NOTIFY")) {
@@ -59,7 +50,6 @@ func Load() Config {
 	return Config{
 		Addr:              envOr("AGENTCTL_ADDR", "127.0.0.1:8765"),
 		DataDir:           envOr("AGENTCTL_DATA_DIR", defaultDataDir()),
-		Workdir:           envOr("AGENTCTL_WORKDIR", defaultWorkdir()),
 		ClaudeProjectsDir: envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
 		NotifyEnabled:     notifyEnabled(),
 	}

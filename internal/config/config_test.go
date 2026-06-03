@@ -29,17 +29,6 @@ func TestDataDirFromEnv(t *testing.T) {
 	require.Equal(t, "/tmp/agentctl-data", Load().DataDir)
 }
 
-func TestWorkdirDefault(t *testing.T) {
-	t.Setenv("AGENTCTL_WORKDIR", "")
-	c := Load()
-	require.True(t, strings.HasSuffix(c.Workdir, "agentctl-agents"), "got %q", c.Workdir)
-}
-
-func TestWorkdirFromEnv(t *testing.T) {
-	t.Setenv("AGENTCTL_WORKDIR", "/tmp/agents")
-	require.Equal(t, "/tmp/agents", Load().Workdir)
-}
-
 func TestClaudeProjectsDirDefault(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECTS_DIR", "")
 	c := Load()

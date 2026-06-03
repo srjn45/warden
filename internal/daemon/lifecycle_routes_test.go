@@ -25,7 +25,6 @@ type fakeLife struct {
 	output         string
 	classifyResult store.Type
 	classified     string
-	spawnedWorkdir string
 	spawnedCwd     string
 	tornDown       string
 	restoreErr     error
@@ -36,7 +35,6 @@ type fakeLife struct {
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
-	f.spawnedWorkdir = req.Workdir
 	f.spawnedCwd = req.Cwd
 	promptMode := req.Prompt != "" && req.Type == ""
 	id := req.Ticket
@@ -278,7 +276,7 @@ func TestSpawnNotifiesSubscribers(t *testing.T) {
 
 func promptServer(t *testing.T, fs *fakeStore, fl *fakeLife) *Server {
 	t.Helper()
-	return &Server{store: fs, life: fl, hub: newHub(), workdir: "/tmp/agentctl-agents"}
+	return &Server{store: fs, life: fl, hub: newHub()}
 }
 
 func TestPostSpawnPromptMode(t *testing.T) {
@@ -287,7 +285,8 @@ func TestPostSpawnPromptMode(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	body, _ := json.Marshal(SpawnRequest{Prompt: "research SSE reconnection"})
+	dir := t.TempDir()
+	body, _ := json.Marshal(SpawnRequest{Prompt: "research SSE reconnection", Cwd: dir})
 	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -297,7 +296,7 @@ func TestPostSpawnPromptMode(t *testing.T) {
 	require.NotEmpty(t, got.ID)
 	require.Equal(t, store.Type(""), got.Type, "type empty at creation (classifying)")
 	require.Equal(t, "research SSE reconnection", got.Prompt)
-	require.Equal(t, "/tmp/agentctl-agents", fl.spawnedWorkdir, "server workdir passed to spawn")
+	require.Equal(t, dir, fl.spawnedCwd, "caller cwd passed to spawn")
 }
 
 func TestPostSpawnPromptThenClassifies(t *testing.T) {
@@ -307,7 +306,7 @@ func TestPostSpawnPromptThenClassifies(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	body, _ := json.Marshal(SpawnRequest{Prompt: "investigate flaky test"})
+	body, _ := json.Marshal(SpawnRequest{Prompt: "investigate flaky test", Cwd: t.TempDir()})
 	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)

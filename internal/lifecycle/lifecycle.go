@@ -52,10 +52,6 @@ func claudeResume(sessionID, name string) string {
 	return claudeCmd + " --resume " + sessionID + " --name " + shellQuoteArg(name)
 }
 
-// promptFileName is where a prompt-spawned agent's initial prompt is written
-// inside its workdir, so the launch line can read it back via "$(cat …)".
-const promptFileName = ".agentctl-prompt"
-
 // classifyInstruction is prepended to the task prompt for headless classification.
 const classifyInstruction = "You are a classifier. Classify the following agent task into exactly one of these labels: development, analysis, spike, pr-review, buildkite-debug, test-run, env-test, other. Reply with ONLY the label, nothing else.\n\nTask: "
 
@@ -140,6 +136,11 @@ type Lifecycle struct {
 	// ProjectsDir is the Claude Code transcript root (default empty → transcript
 	// lookup disabled; the daemon sets it from config). Overridable in tests.
 	ProjectsDir string
+	// PromptsDir is a single shared directory (the daemon sets it from config,
+	// e.g. ~/.agentctl/prompts) where prompt-mode agents drop their initial
+	// prompt file, keyed by agent id. It is NOT per-agent and is never the dir
+	// the agent runs in — agents launch in the caller's cwd. Overridable in tests.
+	PromptsDir string
 }
 
 func New(r Runner) *Lifecycle { return &Lifecycle{run: r} }
@@ -153,8 +154,7 @@ type SpawnRequest struct {
 	PR       string // optional; pr-review
 	Worktree bool   // analysis/spike opt-in
 	Prompt   string // prompt-mode: the agent's initial prompt (no repo/worktree)
-	Workdir  string // prompt-mode: base dir for per-agent data (~/agentctl-agents)
-	Cwd      string // prompt-mode: dir to launch claude from (caller cwd); falls back to the per-agent data dir when empty
+	Cwd      string // prompt-mode: dir to launch claude from (the caller's "master shell"); required
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -406,29 +406,33 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	sess.ClaudeSessionID = store.NewSessionID()
 
 	if promptMode {
-		dataDir := filepath.Join(req.Workdir, id)
-		if out, err := l.run.Run(ctx, "", "mkdir", "-p", dataDir); err != nil {
-			return nil, fmt.Errorf("mkdir workdir: %w: %s", err, out)
+		// The agent runs in the caller's directory (the "master shell"), which is
+		// already trusted by Claude Code — we never create a fresh per-agent dir,
+		// which would trigger Claude's per-directory trust/onboarding prompts on
+		// every spawn. cwd is required: there is no directory to fall back to.
+		if req.Cwd == "" {
+			return nil, fmt.Errorf("prompt-mode spawn requires a launch dir (cwd)")
 		}
-		// Claude is launched from the caller's cwd so it operates on their project;
-		// the per-agent data dir only holds bookkeeping (the prompt file). When no
-		// cwd is supplied, fall back to the data dir (the original behavior).
-		launchDir := req.Cwd
-		if launchDir == "" {
-			launchDir = dataDir
+		sess.Workdir = req.Cwd
+		// Persist the prompt to a file in a single shared state dir (keyed by id),
+		// then launch claude with the prompt read back via "$(cat …)". This keeps
+		// the command typed into the pane to a single physical line: a multi-line
+		// prompt typed directly would have its embedded newlines register as Enter,
+		// submitting the half-typed command. The file lives outside the caller's
+		// project so it never pollutes their working tree. The prompt is passed to
+		// the writer as an exec argument (never through a shell), so quotes and
+		// newlines in it need no escaping.
+		if l.PromptsDir == "" {
+			return nil, fmt.Errorf("prompt-mode spawn requires a prompts dir")
 		}
-		sess.Workdir = launchDir
-		// Persist the prompt to a file, then launch claude with the prompt read
-		// back via "$(cat …)". This keeps the command typed into the pane to a
-		// single physical line: a multi-line prompt typed directly would have its
-		// embedded newlines register as Enter, submitting the half-typed command.
-		// The prompt is passed to the writer as an exec argument (never through a
-		// shell), so quotes and newlines in it need no escaping.
-		promptFile := filepath.Join(dataDir, promptFileName)
+		if out, err := l.run.Run(ctx, "", "mkdir", "-p", l.PromptsDir); err != nil {
+			return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
+		}
+		promptFile := filepath.Join(l.PromptsDir, id)
 		if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
 			return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
 		}
-		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", launchDir); err != nil {
+		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", req.Cwd); err != nil {
 			return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
 		}
 		launch := claudeLaunch(sess.ClaudeSessionID, id) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`

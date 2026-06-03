@@ -258,17 +258,17 @@ func TestClassifyDefaultsToOtherOnError(t *testing.T) {
 	require.Equal(t, store.TypeOther, got)
 }
 
-func TestSpawnPromptModePerAgentWorkdir(t *testing.T) {
+func TestSpawnPromptModeRequiresCwd(t *testing.T) {
 	fr := &FakeRunner{}
-	prompt := "research SSE reconnection semantics"
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Prompt: prompt, Workdir: "/home/me/agentctl-agents"})
-	require.NoError(t, err)
-	expDir := "/home/me/agentctl-agents/" + s.ID
-	require.Equal(t, expDir, s.Workdir, "per-agent subdir")
-	require.Equal(t, prompt, firstWordsExpand(s.Subject, prompt), "subject seeded from prompt")
-	// Creates the dir and starts tmux there.
-	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", expDir})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", expDir})
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	// A prompt-mode spawn must be given the caller's launch dir; it never
+	// silently invents a per-agent directory to run in.
+	_, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "do a thing"})
+	require.Error(t, err)
+	for _, argv := range fr.calledArgs() {
+		require.NotEqual(t, "tmux", argv[0], "no tmux session created on validation failure")
+	}
 }
 
 // firstWordsExpand is a test helper: the seeded subject is firstWords(prompt,10);
@@ -299,46 +299,45 @@ func TestSpawnNoWorktreeTypeRecordsRepoWorkdir(t *testing.T) {
 func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	fr := &FakeRunner{}
 	prompt := "research how SSE reconnection works"
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{
-		Prompt: prompt, Workdir: "/home/me/agentctl-agents",
-	})
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: prompt, Cwd: "/work/project"})
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(s.ID, "agent-"), "got %q", s.ID)
 	require.Equal(t, store.Type(""), s.Type, "type empty until classified")
 	require.Empty(t, s.Worktree)
 	require.Empty(t, s.Repo)
 	require.Equal(t, prompt, s.Prompt)
+	require.Equal(t, prompt, firstWordsExpand(s.Subject, prompt), "subject seeded from prompt")
 	// No git at all for a prompt-spawned agent.
 	for _, argv := range fr.calledArgs() {
 		require.NotEqual(t, "git", argv[0], "prompt mode must not touch git")
 	}
-	// Per-agent subdir created and used for tmux.
-	expDir := "/home/me/agentctl-agents/" + s.ID
-	require.Equal(t, expDir, s.Workdir, "per-agent subdir recorded")
-	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", expDir})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", expDir})
-	// The prompt is written to a file, then claude is launched reading it back.
-	promptFile := expDir + "/" + promptFileName
-	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+	// Launches in the caller's cwd; no per-agent directory is ever created.
+	require.Equal(t, "/work/project", s.Workdir, "launches in caller cwd")
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/work/project"})
+	for _, argv := range fr.calledArgs() {
+		if argv[0] == "mkdir" {
+			require.Equal(t, []string{"mkdir", "-p", "/state/prompts"}, argv, "only the shared prompts dir is created")
+		}
+	}
 }
 
 func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	fr := &FakeRunner{}
 	prompt := "fix the auth bug"
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{
-		Prompt: prompt, Workdir: "/home/me/agentctl-agents", Cwd: "/work/project",
-	})
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: prompt, Cwd: "/work/project"})
 	require.NoError(t, err)
 
-	dataDir := "/home/me/agentctl-agents/" + s.ID
-	// Claude launches from the caller's cwd, not the data dir.
+	// Claude launches from the caller's cwd.
 	require.Equal(t, "/work/project", s.Workdir, "sess.Workdir is the caller cwd")
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/work/project"})
-	// Agent data (the prompt file) still lives under the data dir.
-	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", dataDir})
-	promptFile := dataDir + "/" + promptFileName
+	// The prompt file lives in the shared state dir, keyed by agent id — never
+	// in the caller's project and never in a per-agent directory.
+	promptFile := "/state/prompts/" + s.ID
+	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", "/state/prompts"})
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
 	launch := claudeLaunch(s.ClaudeSessionID, s.ID) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
@@ -377,10 +376,12 @@ func TestNewestTranscriptTailPicksNewestAndTails(t *testing.T) {
 func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 	fr := &FakeRunner{}
 	prompt := "line one\nline two with a ' quote\nline three"
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Prompt: prompt, Workdir: "/w"})
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: prompt, Cwd: "/work/project"})
 	require.NoError(t, err)
 
-	promptFile := "/w/" + s.ID + "/" + promptFileName
+	promptFile := "/state/prompts/" + s.ID
 	// Prompt written verbatim via an exec arg — no shell interpolation/escaping.
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
 

@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -35,17 +36,18 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer st.Close(context.Background())
 
-			if err := os.MkdirAll(cfg.Workdir, 0o755); err != nil {
-				return err
-			}
 			runner := lifecycle.ExecRunner{}
 			lc := lifecycle.New(runner)
 			lc.ProjectsDir = cfg.ClaudeProjectsDir
+			// Prompt-mode agents launch in the caller's cwd; their initial prompt
+			// file goes in this single shared dir (keyed by agent id), not a
+			// per-agent directory.
+			lc.PromptsDir = filepath.Join(cfg.DataDir, "prompts")
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
 			pl.OnTransition = daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
-			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.Workdir)
+			srv := daemon.NewServer(st, life, pl, 10*time.Second)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},

@@ -52,16 +52,18 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// A supplied cwd must be a real directory (guards the web picker / typos).
-	// Empty cwd is allowed — the lifecycle falls back to the per-agent data dir.
+	// Prompt-mode agents launch in the caller's cwd (the "master shell" dir),
+	// which is already trusted by Claude Code. It is required — we no longer
+	// create a per-agent directory to fall back to — and must be a real dir.
+	if promptMode && req.Cwd == "" {
+		writeErr(w, http.StatusBadRequest, "prompt-mode spawn requires cwd (the directory to launch the agent in)")
+		return
+	}
 	if req.Cwd != "" {
 		if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {
 			writeErr(w, http.StatusBadRequest, "cwd is not an existing directory: "+req.Cwd)
 			return
 		}
-	}
-	if promptMode {
-		req.Workdir = s.workdir
 	}
 	sess, err := s.life.Spawn(r.Context(), req)
 	if err != nil {

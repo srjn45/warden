@@ -99,8 +99,9 @@ agentctl start "review the auth module for security issues"
 
 What just happened:
 
-- A new agent got an ID like `agent-a1b2` and its own working directory at
-  `~/agentctl-agents/agent-a1b2/`.
+- A new agent got an ID like `agent-a1b2` and is launched in the directory you
+  ran the command from (your "master shell" cwd) — no per-agent directory is
+  created.
 - It's running `claude` on your prompt inside a tmux window.
 - The type shows as `classifying…` for a moment, then the daemon labels it
   (e.g. `analysis`) automatically.
@@ -124,9 +125,9 @@ That's the whole loop. Everything else is variations on it.
 
 ### Prompt mode (default — no worktree, auto-typed)
 
-Just pass a quoted prompt. The agent runs in a fresh per-agent directory and
-**assumes no repository** — include any repo/context you need in the prompt
-itself.
+Just pass a quoted prompt. The agent launches in your current directory (or the
+`--dir` you pass) and **assumes no worktree** — it operates directly on whatever
+is in that directory. Use `--dir` to point it elsewhere.
 
 ```sh
 agentctl start "investigate why the nightly build is flaky"
@@ -364,13 +365,8 @@ Set via environment variables (or override the daemon address per-command with
 | Variable | Default | Description |
 |---|---|---|
 | `AGENTCTL_ADDR` | `127.0.0.1:8765` | Daemon listen/connect address |
-| `AGENTCTL_DATA_DIR` | `~/.agentctl` | Directory for session JSON files (`sessions/`, `closed/`) |
-| `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Base dir for prompt-spawned agents; each gets `~/agentctl-agents/<id>/` |
+| `AGENTCTL_DATA_DIR` | `~/.agentctl` | Directory for session JSON files (`sessions/`, `closed/`) and prompt files (`prompts/`) |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects |
-
-```sh
-export AGENTCTL_WORKDIR=/path/to/your/agents
-```
 
 ---
 
@@ -427,4 +423,4 @@ agentctl done prreview-...
 | `pr-review needs --pr or --branch` | pr-review requires one of those flags. |
 | `done` refuses to clean up | The worktree has uncommitted or unpushed work — the guard is protecting it. Commit/push, or use `--force`. |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json` (§9). The poller still updates it, just less promptly. |
-| Agent spawned in the wrong place | Prompt-mode agents run in `~/agentctl-agents/<id>/` and assume no repo — put repo context in the prompt, or use `--type ... --repo`. |
+| Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |
