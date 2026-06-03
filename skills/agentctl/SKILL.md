@@ -37,6 +37,7 @@ looks like `agent-<shortid>`). Pass that id as the `ticket` value.
 | clear / delete an agent's record | `delete_agent` (id, hard?) — archives by default |
 | remove an agent's worktree | `remove_worktree` (id, force?) — DESTRUCTIVE; **confirm with the user first**; terminate the agent first |
 | restore / bring back a lost or orphaned agent | `restore_agent` (id) — only for sessions whose tmux is gone (status `orphaned`); resumes the same conversation |
+| adopt / register an existing Claude session | `adopt_agent` (dir?, session_id?, tmux_session?) — resume the newest conversation for a dir under tmux (plain shell), or register a running tmux session live (pass `tmux_session`) |
 
 ## CLI command map (when not using MCP tools)
 
@@ -50,6 +51,7 @@ looks like `agent-<shortid>`). Pass that id as the `ticket` value.
 | send a message to an agent | `agentctl send <id> "<text>"` |
 | terminate / clean up | `agentctl done <id>` (guarded; `--force` to override the git guard) |
 | restore a lost/orphaned agent | `agentctl restore <id>` |
+| adopt / register an existing session | `agentctl adopt [--session-id <uuid>] [--dir <path>]` |
 | attach interactively | `agentctl attach <id>` |
 
 Prefer `--json` on `ls`/`status` when you need to parse the result programmatically — the table/text views are for humans and may change.

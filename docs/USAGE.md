@@ -230,6 +230,20 @@ you'd typed it at the prompt.
 agentctl send PROJ-350 "run the unit tests and fix any failures"
 ```
 
+### `agentctl adopt [--session-id <uuid>] [--dir <path>]`
+Register an existing Claude session into agentctl.
+
+- **Plain shell** — finds the newest Claude conversation for the directory and
+  resumes it under a new tmux session (`claude --resume`).
+- **Inside tmux** — registers the current tmux session live without relaunching
+  claude.
+
+```sh
+agentctl adopt                          # newest session for cwd, resume under tmux
+agentctl adopt --session-id <uuid>      # pick a specific Claude conversation
+agentctl adopt --dir /path/to/project   # target a different directory
+```
+
 ### `agentctl attach <TICKET>`
 Hand your terminal to the agent's tmux session interactively. Detach with the
 tmux prefix-then-`d` (default `Ctrl-b d`) to leave the agent running.
@@ -390,6 +404,7 @@ Tools exposed:
 | `list_agents` | List all agents with status, workdir, subject |
 | `get_agent` | Full detail (status, workdir, subject, events, worktree) for one |
 | `spawn_agent` | Spawn a new agent of a given type |
+| `adopt_agent` | Register an existing Claude session: resume newest-for-dir under tmux, or live-register a running tmux session |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Recent terminal output of a specific agent |
 | `cleanup_agent` | Tear down an agent and archive its record |

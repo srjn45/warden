@@ -271,6 +271,19 @@ Add `--json` to emit the full session as a single JSON object (including the `ev
 agentctl status PROJ-350 --json
 ```
 
+### `agentctl adopt [--session-id <uuid>] [--dir <path>]`
+
+Register an existing Claude session into agentctl.
+
+- **Plain shell** — finds the newest Claude conversation for the directory and resumes it under a new tmux session (`claude --resume`).
+- **Inside tmux** — registers the current tmux session live without relaunching claude.
+
+```sh
+agentctl adopt                          # newest session for cwd, resume under tmux
+agentctl adopt --session-id <uuid>      # pick a specific Claude conversation
+agentctl adopt --dir /path/to/project   # target a different directory
+```
+
 ### `agentctl attach <TICKET>`
 
 Attach your terminal to the agent's tmux session interactively.
@@ -355,6 +368,7 @@ Once registered, the orchestrator session can call these tools directly:
 | `list_agents` | List all active agents with their status, working directory, and subject |
 | `get_agent` | Get full detail (status, workdir, subject, events, worktree) for one agent |
 | `spawn_agent` | Spawn a new agent — pass a `prompt` for a quick auto-typed agent, or `type`+`repo` for a managed worktree |
+| `adopt_agent` | Register an existing Claude session: resume newest-for-dir under tmux, or live-register a running tmux session |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Return the recent terminal output of a specific agent |
 | `cleanup_agent` | Tear down an agent and archive its record |
