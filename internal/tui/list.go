@@ -148,6 +148,7 @@ func itemKey(it item) string {
 // freshly-opened dir floats to the top). An opened dir that has agents emits its
 // agents and no placeholder; an opened dir with none emits a single placeholder.
 // Pure: returns a new slice, leaves inputs untouched.
+// Callers pass sessions already grouped by groupSort; within-group agent order is preserved from the input.
 func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 	type grp struct {
 		max  time.Time
@@ -179,17 +180,14 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 		}
 		return ga.max.After(gb.max)
 	})
-	hasAgents := map[string]bool{}
 	byDir := map[string][]*store.Session{}
 	for _, s := range sessions {
-		d := sourceDir(s)
-		hasAgents[d] = true
-		byDir[d] = append(byDir[d], s)
+		byDir[sourceDir(s)] = append(byDir[sourceDir(s)], s)
 	}
 	var items []item
 	for _, dir := range order {
-		if hasAgents[dir] {
-			for _, s := range byDir[dir] {
+		if agents := byDir[dir]; len(agents) > 0 {
+			for _, s := range agents {
 				items = append(items, item{session: s, dir: dir})
 			}
 			continue

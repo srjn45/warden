@@ -158,6 +158,14 @@ func TestBuildItemsOpenedDirWithAgentsHasNoPlaceholder(t *testing.T) {
 	require.Equal(t, "a1", items[0].session.ID)
 }
 
+func TestBuildItemsOnlyOpenedDirsNoSessions(t *testing.T) {
+	now := time.Now()
+	items := buildItems(nil, map[string]time.Time{"/x": now})
+	require.Len(t, items, 1)
+	require.Nil(t, items[0].session)
+	require.Equal(t, "/x", items[0].dir)
+}
+
 func TestItemKeyDistinguishesAgentsFromPlaceholders(t *testing.T) {
 	require.Equal(t, "agent-x", itemKey(item{session: &store.Session{ID: "agent-x"}, dir: "/a"}))
 	require.Equal(t, dirKey("/a"), itemKey(item{dir: "/a"}))
