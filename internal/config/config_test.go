@@ -51,3 +51,11 @@ func TestNotifyEnabledFromEnv(t *testing.T) {
 		require.True(t, Load().NotifyEnabled, "AGENTCTL_NOTIFY=%q enables", v)
 	}
 }
+
+func TestApprovalsEnabled(t *testing.T) {
+	t.Setenv("AGENTCTL_APPROVALS", "on")
+	require.True(t, Load().ApprovalsEnabled)
+
+	t.Setenv("AGENTCTL_APPROVALS", "")
+	require.False(t, Load().ApprovalsEnabled)
+}

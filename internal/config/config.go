@@ -11,6 +11,7 @@ type Config struct {
 	DataDir           string
 	ClaudeProjectsDir string
 	NotifyEnabled     bool
+	ApprovalsEnabled  bool
 }
 
 func envOr(key, def string) string {
@@ -46,6 +47,16 @@ func notifyEnabled() bool {
 	return false
 }
 
+// approvalsEnabled reads AGENTCTL_APPROVALS; off by default, on only for
+// 1/on/true. Gates the approvals-inbox feature (parse + inline answer).
+func approvalsEnabled() bool {
+	switch strings.ToLower(os.Getenv("AGENTCTL_APPROVALS")) {
+	case "1", "on", "true":
+		return true
+	}
+	return false
+}
+
 // Load reads config from environment, applying defaults.
 func Load() Config {
 	return Config{
@@ -53,5 +64,6 @@ func Load() Config {
 		DataDir:           envOr("AGENTCTL_DATA_DIR", defaultDataDir()),
 		ClaudeProjectsDir: envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
 		NotifyEnabled:     notifyEnabled(),
+		ApprovalsEnabled:  approvalsEnabled(),
 	}
 }
