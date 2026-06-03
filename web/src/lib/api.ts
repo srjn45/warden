@@ -1,4 +1,4 @@
-import type { Session } from './types';
+import type { Session, ApprovalView } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -86,6 +86,19 @@ export async function getOutput(id: string, lines = 200): Promise<string> {
     await fetch(`/sessions/${encodeURIComponent(id)}/output?lines=${lines}`),
   );
   return data.output;
+}
+
+export async function listApprovals(): Promise<{ enabled: boolean; approvals: ApprovalView[] }> {
+  const data = await parse<{ enabled: boolean; approvals: ApprovalView[] | null }>(await fetch('/approvals'));
+  return { enabled: data.enabled, approvals: data.approvals ?? [] };
+}
+
+export async function approve(id: string, option: number, fingerprint: string): Promise<void> {
+  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ option, fingerprint }),
+  }));
 }
 
 // subscribeSessions opens an SSE connection. Returns an unsubscribe function.

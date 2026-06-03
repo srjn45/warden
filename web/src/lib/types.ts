@@ -8,6 +8,15 @@ export interface AgentEvent {
   detail: string;
 }
 
+export interface ApprovalView {
+  id: string;
+  action: string;
+  question: string;
+  options: string[];
+  fingerprint: string;
+  recognized: boolean;
+}
+
 export interface Session {
   id: string;
   type: string;

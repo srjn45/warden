@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError } from './api';
+import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -90,5 +90,24 @@ describe('api', () => {
       status: 409, message: 'already exists',
     });
     await expect(spawn({ type: 'development', repo: '/r' })).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('listApprovals returns the queue', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ enabled: true, approvals: [{ id: 'a1', recognized: true, options: ['Yes', 'No'], fingerprint: 'ff' }] }),
+    }) as any;
+    const r = await listApprovals();
+    expect(r.enabled).toBe(true);
+    expect(r.approvals[0].id).toBe('a1');
+  });
+
+  it('approve posts option + fingerprint', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'answered' }) });
+    globalThis.fetch = f as any;
+    await approve('a1', 2, 'ff');
+    expect(f).toHaveBeenCalledWith('/sessions/a1/approve', expect.objectContaining({ method: 'POST' }));
+    const body = JSON.parse((f.mock.calls[0][1] as any).body);
+    expect(body).toEqual({ option: 2, fingerprint: 'ff' });
   });
 });
