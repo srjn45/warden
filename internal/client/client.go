@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"syscall"
 	"time"
 
@@ -146,6 +147,34 @@ func (c *Client) Input(ctx context.Context, id, text string) error {
 
 func (c *Client) Restore(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/restore", nil, nil)
+}
+
+// DirEntry is one subdirectory in a DirListing.
+type DirEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// DirListing mirrors the daemon's GET /fs/dirs response: a directory, its
+// parent (empty at the filesystem root), and its immediate subdirectories.
+type DirListing struct {
+	Path    string     `json:"path"`
+	Parent  string     `json:"parent"`
+	Entries []DirEntry `json:"entries"`
+}
+
+// ListDirs lists the immediate subdirectories of path (empty path = the
+// daemon's default, the user's home directory).
+func (c *Client) ListDirs(ctx context.Context, path string) (DirListing, error) {
+	p := "/fs/dirs"
+	if path != "" {
+		p += "?path=" + url.QueryEscape(path)
+	}
+	var l DirListing
+	if err := c.do(ctx, http.MethodGet, p, nil, &l); err != nil {
+		return DirListing{}, err
+	}
+	return l, nil
 }
 
 func (c *Client) Output(ctx context.Context, id string, lines int) (string, error) {
