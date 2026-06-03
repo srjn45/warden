@@ -298,6 +298,22 @@ func switchClientCmd(id string) tea.Cmd {
 	}
 }
 
+// respawnDetailArgs builds the tmux args that replace the detail pane's process
+// with a live (nested) attach to the given agent's tmux session. `env -u TMUX`
+// lets tmux attach from inside tmux; `respawn-pane -k` kills the placeholder
+// (or the previously-opened agent) first.
+func respawnDetailArgs(detailPane, agentSession string) []string {
+	return []string{"respawn-pane", "-k", "-t", detailPane,
+		"env -u TMUX tmux attach -t " + agentSession}
+}
+
+// openInDetailCmd opens the given agent's live session in the detail pane.
+func openInDetailCmd(detailPane, agentSession string) tea.Cmd {
+	return func() tea.Msg {
+		return attachDoneMsg{err: exec.Command("tmux", respawnDetailArgs(detailPane, agentSession)...).Run()}
+	}
+}
+
 // RunListPane runs the top-left cockpit pane against the daemon client.
 func RunListPane(a api, stateDir string) error {
 	p := tea.NewProgram(newListPane(a, stateDir), tea.WithAltScreen())

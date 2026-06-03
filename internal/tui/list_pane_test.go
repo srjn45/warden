@@ -35,3 +35,9 @@ func TestListPaneSpawnModal(t *testing.T) {
 	m = lstep(m, key("esc"))
 	require.Equal(t, modeNormal, m.mode)
 }
+
+func TestRespawnDetailArgs(t *testing.T) {
+	require.Equal(t,
+		[]string{"respawn-pane", "-k", "-t", "%9", "env -u TMUX tmux attach -t agent-4f98"},
+		respawnDetailArgs("%9", "agent-4f98"))
+}
