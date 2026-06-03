@@ -142,7 +142,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case outputMsg:
-		if msg.id == m.selectedID() {
+		if msg.id == m.selectedID() && msg.err == nil {
+			// On a fetch error keep the last good output: a transient capture
+			// failure (or a 10s timeout during the 1s poll) must not blank the
+			// pane the user is reading.
 			m.output = msg.text
 			m.vp.SetContent(msg.text)
 			m.vp.GotoBottom()

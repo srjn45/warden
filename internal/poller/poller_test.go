@@ -88,6 +88,9 @@ type stubDeps struct {
 	summarizeErr error
 	summarizeN   int   // count of Summarize calls
 	captureErr   error // when set, CapturePane fails for every session
+	// summarizeFn, when set, overrides the canned result — lets a test inspect
+	// the context or block, e.g. to exercise the per-call timeout.
+	summarizeFn func(context.Context, *store.Session) (string, error)
 }
 
 func (d *stubDeps) List(_ context.Context) ([]*store.Session, error) { return d.sessions, nil }
@@ -115,9 +118,55 @@ func (d *stubDeps) UpdateSubject(_ context.Context, id, subject string) error {
 	d.subjects[id] = subject
 	return nil
 }
-func (d *stubDeps) Summarize(_ context.Context, s *store.Session) (string, error) {
+func (d *stubDeps) Summarize(ctx context.Context, s *store.Session) (string, error) {
 	d.summarizeN++
+	if d.summarizeFn != nil {
+		return d.summarizeFn(ctx, s)
+	}
 	return d.summary, d.summarizeErr
+}
+
+func TestRunSummaryAppliesPerCallTimeout(t *testing.T) {
+	// A hung `claude -p` must not latch the inflight flag forever (which would
+	// permanently suppress that session's subject refreshes). runSummary must
+	// bound the call with a per-call timeout that clears inflight on expiry.
+	orig := summaryTimeout
+	summaryTimeout = 20 * time.Millisecond
+	defer func() { summaryTimeout = orig }()
+
+	deadlineSeen := make(chan bool, 1)
+	d := &stubDeps{
+		updates: map[string]store.Status{},
+		summarizeFn: func(ctx context.Context, s *store.Session) (string, error) {
+			_, ok := ctx.Deadline()
+			deadlineSeen <- ok
+			<-ctx.Done() // hang until the per-call timeout fires
+			return "", ctx.Err()
+		},
+	}
+	p := New(d, 0)
+	p.mu.Lock()
+	p.inflight["A-1"] = struct{}{} // dispatchSummary would have set this
+	p.mu.Unlock()
+	p.wg.Add(1)
+
+	done := make(chan struct{})
+	go func() {
+		p.runSummary(context.Background(), &store.Session{ID: "A-1"})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runSummary did not return — a hung Summarize must be bounded by a per-call timeout")
+	}
+	require.True(t, <-deadlineSeen, "Summarize must receive a context with a deadline")
+
+	p.mu.Lock()
+	_, busy := p.inflight["A-1"]
+	p.mu.Unlock()
+	require.False(t, busy, "inflight must be cleared after the summary times out")
 }
 func (d *stubDeps) SessionAlive(_ context.Context, name string) bool { return d.alive[name] }
 func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {

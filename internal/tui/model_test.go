@@ -146,6 +146,18 @@ func TestOutputMsgIgnoresStaleID(t *testing.T) {
 	require.Equal(t, "for a", m.output)
 }
 
+func TestOutputMsgErrorKeepsPriorContent(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, sessionsMsg{sessions: threeSessions()}) // selected "a"
+	m = step(m, outputMsg{id: "a", text: "live output"})
+	require.Equal(t, "live output", m.output)
+	// A transient fetch error (or a poll-loop timeout) must not blank the pane
+	// the user is reading.
+	m = step(m, outputMsg{id: "a", err: fmt.Errorf("capture failed")})
+	require.Equal(t, "live output", m.output, "a fetch error must keep the last good output")
+}
+
 func TestTabFocusesOutput(t *testing.T) {
 	m := New(&fakeAPI{})
 	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})

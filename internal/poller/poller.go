@@ -83,6 +83,12 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 	}
 }
 
+// summaryTimeout bounds a single `claude -p` summary call. Without it, a hung
+// model call holds the session's inflight flag indefinitely (it is cleared only
+// when runSummary returns), permanently suppressing that session's subject
+// refreshes. Var (not const) so tests can shrink it.
+var summaryTimeout = 60 * time.Second
+
 func isTerminal(s store.Status) bool {
 	return s == store.StatusDone
 }
@@ -191,7 +197,10 @@ func (p *Poller) runSummary(ctx context.Context, s *store.Session) {
 		p.mu.Unlock()
 	}()
 
-	subj, err := p.deps.Summarize(ctx, s)
+	// Bound the slow model call so a hang can't latch inflight forever.
+	sctx, cancel := context.WithTimeout(ctx, summaryTimeout)
+	defer cancel()
+	subj, err := p.deps.Summarize(sctx, s)
 	if err != nil {
 		log.Printf("poller: summarize %s: %v", s.ID, err)
 		return

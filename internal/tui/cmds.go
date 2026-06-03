@@ -17,6 +17,7 @@ type sessionsMsg struct {
 type outputMsg struct {
 	id   string
 	text string
+	err  error // non-nil ⇒ fetch failed; keep the last good output, don't blank it
 }
 type spawnDoneMsg struct {
 	id  string
@@ -60,7 +61,7 @@ func outputCmd(a api, id string) tea.Cmd {
 		defer cancel()
 		out, err := a.Output(ctx, id, 400)
 		if err != nil {
-			return outputMsg{id: id, text: ""}
+			return outputMsg{id: id, err: err}
 		}
 		return outputMsg{id: id, text: out}
 	}

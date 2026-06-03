@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -127,8 +129,30 @@ type Lifecycle interface {
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
 }
 
+// recoverMiddleware converts a panic in any handler into a 500 response instead
+// of a dropped connection, keeping the long-running daemon alive and its log
+// readable. http.ErrAbortHandler is intentional and re-panicked so net/http can
+// handle it.
+func recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				return
+			}
+			if rec == http.ErrAbortHandler {
+				panic(rec)
+			}
+			log.Printf("daemon: recovered panic in %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+			writeErr(w, http.StatusInternalServerError, "internal error")
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) router() http.Handler {
 	r := chi.NewRouter()
+	r.Use(recoverMiddleware)
 	r.Get("/healthz", s.handleHealthz)
 	r.Get("/sessions", s.handleListSessions)
 	r.Get("/sessions/{id}", s.handleGetSession)
