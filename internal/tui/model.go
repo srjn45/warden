@@ -20,6 +20,7 @@ type api interface {
 	Terminate(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string, hard bool) error
 	Input(ctx context.Context, id, text string) error
+	ListDirs(ctx context.Context, path string) (client.DirListing, error)
 }
 
 type mode int

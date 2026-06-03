@@ -25,6 +25,9 @@ type fakeAPI struct {
 	deleteErr  error
 	sentTo     string
 	sentText   string
+	listedDir  string
+	dirListing client.DirListing
+	dirListErr error
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -46,6 +49,10 @@ func (f *fakeAPI) Delete(_ context.Context, id string, _ bool) error {
 func (f *fakeAPI) Input(_ context.Context, id, text string) error {
 	f.sentTo, f.sentText = id, text
 	return nil
+}
+func (f *fakeAPI) ListDirs(_ context.Context, path string) (client.DirListing, error) {
+	f.listedDir = path
+	return f.dirListing, f.dirListErr
 }
 
 // step applies a msg and returns the updated concrete Model.
