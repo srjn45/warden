@@ -125,6 +125,7 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 | `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
 | `AGENTCTL_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
+| `AGENTCTL_APPROVALS` | `off` | Enables the approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces one-click answer buttons. Web AttentionQueue shows option buttons; TUI gains a pinned **⏳ Approvals** row (press `i` to focus, answer with number keys). Unrecognized prompts always fall back to attach. Enable with `1`/`on`/`true` |
 
 All variables can also be overridden with `--addr` on any command.
 
