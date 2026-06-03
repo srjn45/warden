@@ -267,11 +267,11 @@ with three panes laid out like this:
 
 ```
 ┌─ Agents (3) ──────┐┌─ agent-4f98 ──────────────┐
-│ ▸ agent-4f98  ●   ││ dir: ~/...                │
-│   agent-c860  ⠿   ││ subject: refactor poller  │
+│ ▸ agent-4f98  ●   ││                           │
+│   agent-c860  ⠿   ││  (live agent session)     │
 │   agent-d01c  ✔   ││                           │
-├─ Master Claude ───┤│ output ─────────────────  │
-│ > triage all my   ││ ...                       │
+├─ Master Claude ───┤│ ...                       │
+│ > triage all my   ││                           │
 │   agents and tell ││                           │
 │   me which are    ││                           │
 │   stuck_          ││                           │
@@ -279,15 +279,17 @@ with three panes laid out like this:
 ```
 
 **Top-left — agents list.** Lists every agent with a busy/idle badge and its
-current subject. Navigate with `↑`/`↓` or `j`/`k`; the highlighted agent
-drives what the right pane shows.
+current subject. Scroll through the list with `↑`/`↓` or `j`/`k` — browsing
+does not disturb whatever is open in the right pane. Press `Enter` on a
+highlighted agent to open it in the right pane.
 
 | Key | Action |
 |---|---|
-| `↑`/`↓` or `j`/`k` | Move selection |
+| `↑`/`↓` or `j`/`k` | Move selection (right pane is unaffected) |
+| `Enter` | Open the selected agent in the right detail pane |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
-| `a` | Attach — hands off to the agent's tmux session; returns to the cockpit on detach |
+| `a` | Attach — hands off to the agent's tmux session (full-screen switch-client); returns to the cockpit on detach |
 | `x` | Terminate the selected agent — confirm with `y`, cancel with `n`/`esc` |
 | `?` | Toggle help |
 | `q` | Quit the whole cockpit |
@@ -308,17 +310,27 @@ the master can still drive the fleet using the `agentctl` CLI directly.
 > planned future enhancement — see
 > `docs/superpowers/specs/2026-06-03-agentctl-tui-master-pane-design.md`.
 
-**Right (full height) — detail viewer.** A read-only panel showing the selected
-agent's live output and event history. It stays in sync with whichever agent is
-highlighted in the list pane via a small per-cockpit state file; no daemon
-coupling is needed for the handoff.
+**Right (full height) — live agent detail pane.** When you press `Enter` on an
+agent in the list, a live, interactive terminal of that agent's `claude` session
+opens here — the same way the bottom-left master pane works. You can type
+directly into the agent, read its output, and watch it respond in real time.
+Scrolling the agents list with `↑`/`↓` or `j`/`k` does not replace this pane,
+so an agent you're actively working with is never interrupted by casual
+browsing. Press `Enter` again on a different agent to switch.
+
+To move focus between panes without leaving the cockpit, use **Alt+←/→/↑/↓**
+(no tmux prefix needed).
+
+> **Caveats — nested tmux and Alt+Arrow navigation:**
+> Because the right pane runs a tmux client nested inside the cockpit session,
+> the normal tmux prefix (`Ctrl-b`) is ambiguous there and will be captured by
+> the outer session. Use **Alt+Arrow** to move between panes instead. These
+> bindings are applied tmux-server-wide, so they will also affect any other tmux
+> sessions you have open on the same server. Requires **tmux ≥ 3.1**.
 
 Each cockpit launch creates an independent tmux session (named
 `agentctl-tui-<pid>`), so opening two terminals and running `agentctl tui` in
 each gives you two separate cockpits, each with its own ephemeral master.
-
-**Requirement:** the cockpit uses `tmux split-window -l <pct>%`, which requires
-**tmux ≥ 3.1**.
 
 ### Classic (single-pane) mode
 
@@ -326,10 +338,11 @@ each gives you two separate cockpits, each with its own ephemeral master.
 agentctl tui --classic
 ```
 
-Runs the original single-pane view: list on the left, detail on the right, no
-embedded master — the same Bubble Tea app that existed before the cockpit. Use
-it if you prefer a lighter view or need to script into a non-interactive
-environment.
+Runs the original single-pane view: list on the left, a static detail panel on
+the right, no embedded master — the same Bubble Tea app that existed before the
+cockpit. Use it if you prefer a lighter view or need to script into a
+non-interactive environment. The right-pane detail panel in this mode does not
+embed a live agent session.
 
 The cockpit **automatically falls back to `--classic`** in two situations:
 - `tmux` is not installed or is older than 3.1.
