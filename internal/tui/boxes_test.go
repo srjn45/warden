@@ -20,4 +20,6 @@ func TestTitleBoxDimsAndTitle(t *testing.T) {
 func TestTitleBoxTruncatesLongTitle(t *testing.T) {
 	out := titleBox("a very long title that does not fit", "x", 16, 4)
 	require.Equal(t, 16, lipgloss.Width(out), "over-long title still fits the box width")
+	lines := strings.Split(out, "\n")
+	require.Contains(t, lines[0], "a very", "a truncated prefix of the title is still shown")
 }

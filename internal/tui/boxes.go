@@ -35,7 +35,7 @@ func spliceTitle(box, title string) string {
 	if len(top) < 5 {
 		return box
 	}
-	inner := len(top) - 3 // writable columns [2 .. len-2)
+	inner := len(top) - 3 // writable columns [2 .. len-2] inclusive
 	label := []rune(" " + trunc(title, max(0, inner-1)) + " ")
 	if len(label) > inner {
 		label = label[:inner]
