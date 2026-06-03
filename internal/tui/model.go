@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -245,6 +246,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeConfirmKill {
 			return m.updateConfirmKill(msg)
+		}
+		if m.mode == modeNormal && m.apprFocused {
+			switch msg.String() {
+			case "tab", "esc":
+				m.apprFocused = false
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "down", "j":
+				if m.apprCursor < len(m.approvals)-1 {
+					m.apprCursor++
+				}
+				return m, nil
+			case "up", "k":
+				if m.apprCursor > 0 {
+					m.apprCursor--
+				}
+				return m, nil
+			case "a":
+				if v := m.curApproval(); v != nil {
+					return m, attachCmd(v.ID)
+				}
+				return m, nil
+			case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+				v := m.curApproval()
+				if v != nil && v.Recognized {
+					n, _ := strconv.Atoi(msg.String())
+					if n >= 1 && n <= len(v.Options) {
+						return m, approveCmd(m.api, v.ID, n, v.Fingerprint)
+					}
+				}
+				return m, nil
+			}
+			return m, nil
 		}
 		if m.mode == modeNormal && m.outputFocused {
 			switch msg.String() {

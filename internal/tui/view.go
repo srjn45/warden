@@ -71,12 +71,21 @@ func (m Model) View() string {
 		listOuter := m.listOuterW()
 		detailOuter := m.w - listOuter
 		listTitle := fmt.Sprintf("Agents (%d)", len(m.sessions))
-		detailTitle := m.selectedID()
-		if detailTitle == "" {
-			detailTitle = "—"
+
+		cur := itemAt(m.items(), m.cursor)
+		var detailTitle, detailBody string
+		if cur.approvals {
+			detailTitle = "Approvals"
+			detailBody = renderApprovalsQueue(m.approvals, m.apprCursor, m.apprFocused, detailOuter-2, bodyH-2)
+		} else {
+			detailTitle = m.selectedID()
+			if detailTitle == "" {
+				detailTitle = "—"
+			}
+			detailBody = renderDetail(m.selected(), m.vp, m.outputFocused, detailOuter-2)
 		}
 		left := titleBox(listTitle, renderList(m.items(), m.cursor, listOuter-2, bodyH-2), listOuter, bodyH)
-		right := titleBox(detailTitle, renderDetail(m.selected(), m.vp, m.outputFocused, detailOuter-2), detailOuter, bodyH)
+		right := titleBox(detailTitle, detailBody, detailOuter, bodyH)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
 
@@ -100,6 +109,7 @@ func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
 		"  tab          focus output (PgUp/PgDn scroll), tab/esc to leave\n" +
+		"  i / tab      on the ⏳ Approvals row: focus the queue, answer with 1-9\n" +
 		"  n            new agent (prompt)\n" +
 		"  o            open a directory as a group (spawn target for n)\n" +
 		"  s            send a message to the selected agent\n" +

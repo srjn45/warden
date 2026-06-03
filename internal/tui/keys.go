@@ -23,7 +23,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "tab":
-			if m.selected() != nil {
+			if itemAt(m.items(), m.cursor).approvals {
+				m.apprFocused = true
+			} else if m.selected() != nil {
 				m.outputFocused = true
 			}
 			return m, nil

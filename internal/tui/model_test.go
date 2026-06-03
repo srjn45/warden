@@ -339,3 +339,12 @@ func TestModelCloseOpenedDirWithX(t *testing.T) {
 	require.Empty(t, m.openedDirs)
 	require.NotEqual(t, modeConfirmKill, m.mode)
 }
+
+func TestApprovalsMsgPopulatesState(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, approvalsMsg{enabled: true, views: []approval.View{{ID: "a1", Recognized: true, Options: []string{"Yes", "No"}}}})
+	require.True(t, m.approvalsOn)
+	require.Len(t, m.approvals, 1)
+	// inbox row is present at top of items() when enabled
+	require.True(t, m.items()[0].approvals)
+}
