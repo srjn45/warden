@@ -45,3 +45,52 @@ body { margin: 0; }
 .modal input, .modal select { padding: .4rem; }
 .modal .actions { display: flex; gap: .5rem; justify-content: flex-end; }
 .modal textarea { padding: .5rem; font: inherit; resize: vertical; }
+
+/* ── Mission-control shell ── */
+.tabbar { display: flex; gap: .25rem; padding: 0 1rem; border-bottom: 1px solid #8884; overflow-x: auto; }
+.tabbar .tab { display: inline-flex; align-items: center; gap: .3rem; background: transparent; border: none; border-bottom: 2px solid transparent; padding: .5rem .7rem; cursor: pointer; color: inherit; font: inherit; white-space: nowrap; }
+.tabbar .tab.on { border-bottom-color: #2f81f7; font-weight: 600; }
+.tabbar .tab-label { background: none; border: none; color: inherit; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+.tabbar .tab-close { background: none; border: none; color: var(--idle); cursor: pointer; padding: 0 .2rem; }
+.tabbar .tab-close:hover { color: var(--error); }
+.tab-content { flex: 1; overflow: auto; padding: 1rem; }
+.attn-pill { background: var(--attention); color: #fff; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; }
+.notify-toggle { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; }
+.topbar .new-btn { margin-left: 0; }
+
+/* ── Overview ── */
+.overview { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.overview .card { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; }
+.overview .card h3 { margin: 0 0 .6rem; font-size: .95rem; }
+.overview .overview-grid, .overview .overview-activity { grid-column: 1 / -1; }
+.attn-queue { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem; }
+.attn-card { text-align: left; background: #b0880018; border: 1px solid #b0880055; border-radius: .4rem; padding: .5rem .6rem; cursor: pointer; color: inherit; }
+.attn-card:hover { background: #b0880033; }
+.attn-card-sub { font-size: .8rem; margin-top: .2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attn-empty { padding: .5rem 0; }
+.fleet-stats { display: flex; flex-wrap: wrap; gap: .8rem; align-items: baseline; }
+.fleet-stats .stat { font-size: .85rem; color: var(--idle); }
+.fleet-stats .stat-n { font-size: 1.3rem; font-weight: 700; color: CanvasText; margin-right: .2rem; }
+.fleet-stats .stat.busy .stat-n { color: var(--busy); }
+.fleet-stats .stat.attention .stat-n { color: var(--attention); }
+.fleet-stats .stat.error .stat-n { color: var(--error); }
+.fleet-stats .stat-dirs { display: flex; flex-wrap: wrap; gap: .5rem; width: 100%; font-size: .8rem; }
+.quick-spawn { display: flex; flex-direction: column; gap: .5rem; }
+.quick-spawn textarea { padding: .5rem; font: inherit; resize: vertical; }
+
+/* ── Agent grid / cockpit ── */
+.agent-grid-group { margin-bottom: 1rem; }
+.grid-group-head { margin: .3rem 0; font-size: .8rem; }
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .6rem; }
+.grid-tile { text-align: left; padding: 0; border: 1px solid #8884; border-radius: .4rem; overflow: hidden; cursor: pointer; background: transparent; color: inherit; }
+.grid-tile:hover { border-color: #2f81f7; }
+.tile-head { display: flex; align-items: center; gap: .4rem; padding: .35rem .5rem; font-size: .85rem; background: #8881; }
+.mini-term { margin: 0; background: #0b0b0b; color: #8fd98f; padding: .4rem; font-size: .72rem; line-height: 1.25; white-space: pre-wrap; overflow: hidden; }
+
+/* ── Agent tab ── */
+.agent-tab { display: flex; flex-direction: column; gap: .8rem; height: 100%; }
+.agent-tab-head { display: flex; flex-direction: column; gap: .4rem; }
+.agent-tab-head h2 { margin: 0; font-size: 1.1rem; }
+.xterm-host { height: 420px; background: #0b0b0b; border-radius: .4rem; padding: .4rem; }
+.details-toggle { align-self: flex-start; background: none; border: none; color: var(--idle); cursor: pointer; font: inherit; }
+.agent-details { display: flex; flex-direction: column; gap: .5rem; }
