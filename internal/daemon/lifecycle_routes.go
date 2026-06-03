@@ -23,6 +23,7 @@ func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Post("/sessions/{id}/remove-worktree", s.handleRemoveWorktree)
 	r.Post("/sessions/{id}/input", s.handleInput)
 	r.Get("/sessions/{id}/output", s.handleOutput)
+	r.Get("/sessions/{id}/output/stream", s.handleOutputStream)
 	r.Post("/sessions/{id}/restore", s.handleRestore)
 }
 
