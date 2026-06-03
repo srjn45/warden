@@ -501,3 +501,40 @@ func TestAdoptLiveInsertFailureDoesNotTeardown(t *testing.T) {
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
 	require.Empty(t, fl.tornDown, "live adopt must NOT tear down the user's existing tmux session")
 }
+
+func TestAdoptLiveHappyPath(t *testing.T) {
+	dir := t.TempDir()
+	fl := &fakeLife{newestClaude: "66666666-6666-4666-8666-666666666666"}
+	ts := adoptServer(fl, newFakeStore())
+	defer ts.Close()
+
+	body, _ := json.Marshal(AdoptRequest{Cwd: dir, TmuxSession: "mysess"})
+	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var got adoptResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	require.NotNil(t, got.Session)
+	require.Equal(t, "mysess", fl.adoptParams.TmuxSession, "live mode forwards the tmux session")
+	require.Empty(t, got.Warning, "claude id resolved → no warning")
+}
+
+func TestAdoptLiveNoClaudeIDWarns(t *testing.T) {
+	dir := t.TempDir()
+	fl := &fakeLife{newestErr: errors.New("none")} // no claude id resolvable
+	ts := adoptServer(fl, newFakeStore())
+	defer ts.Close()
+
+	body, _ := json.Marshal(AdoptRequest{Cwd: dir, TmuxSession: "mysess2"})
+	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var got adoptResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	require.NotEmpty(t, got.Warning, "live register without a claude id must warn")
+	require.Empty(t, fl.adoptParams.ClaudeSessionID, "claude id stays empty")
+}

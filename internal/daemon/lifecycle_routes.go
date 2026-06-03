@@ -162,17 +162,19 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.Insert(r.Context(), sess); err != nil {
-		if errors.Is(err, store.ErrExists) {
-			writeErr(w, http.StatusConflict, "already registered: "+sess.ID)
-			return
-		}
 		// Only resume mode created the tmux session; never kill a live one.
+		// Roll back on ANY insert failure (including ErrExists) so a resume-mode
+		// tmux session never leaks.
 		if resume {
 			tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if terr := s.life.Teardown(tctx, sess); terr != nil {
 				log.Printf("adopt rollback %s: %v", sess.ID, terr)
 			}
+		}
+		if errors.Is(err, store.ErrExists) {
+			writeErr(w, http.StatusConflict, "already registered: "+sess.ID)
+			return
 		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
