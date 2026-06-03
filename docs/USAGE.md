@@ -288,7 +288,7 @@ drives what the right pane shows.
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — hands off to the agent's tmux session; returns to the cockpit on detach |
-| `x` | Terminate the selected agent — confirm with `y`; if it has uncommitted/unpushed work, press `X` to force |
+| `x` | Terminate the selected agent — confirm with `y`, cancel with `n`/`esc` |
 | `?` | Toggle help |
 | `q` | Quit the whole cockpit |
 
