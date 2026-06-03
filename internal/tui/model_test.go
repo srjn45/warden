@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
@@ -15,18 +16,24 @@ import (
 
 // fakeAPI is a test double for the tui api interface.
 type fakeAPI struct {
-	sessions   []*store.Session
-	listErr    error
-	output     string
-	spawned    *client.SpawnParams
-	terminated string
-	termErr    error
-	deleted    string
-	deleteErr  error
-	sentTo     string
-	sentText   string
-	dirListing client.DirListing
-	dirListErr error
+	sessions    []*store.Session
+	listErr     error
+	output      string
+	spawned     *client.SpawnParams
+	terminated  string
+	termErr     error
+	deleted     string
+	deleteErr   error
+	sentTo      string
+	sentText    string
+	dirListing  client.DirListing
+	dirListErr  error
+	approvals   []approval.View
+	approvalsOn bool
+	approveErr  error
+	approvedID  string
+	approvedOpt int
+	approvedFP  string
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -51,6 +58,13 @@ func (f *fakeAPI) Input(_ context.Context, id, text string) error {
 }
 func (f *fakeAPI) ListDirs(_ context.Context, _ string) (client.DirListing, error) {
 	return f.dirListing, f.dirListErr
+}
+func (f *fakeAPI) Approvals(_ context.Context) (bool, []approval.View, error) {
+	return f.approvalsOn, f.approvals, nil
+}
+func (f *fakeAPI) Approve(_ context.Context, id string, option int, fp string) error {
+	f.approvedID, f.approvedOpt, f.approvedFP = id, option, fp
+	return f.approveErr
 }
 
 // step applies a msg and returns the updated concrete Model.

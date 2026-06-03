@@ -128,8 +128,10 @@ func groupSort(sessions []*store.Session) []*store.Session {
 // an opened directory that currently has no agents (session == nil). dir is the
 // group directory and is always set.
 type item struct {
-	session *store.Session
-	dir     string
+	session   *store.Session
+	dir       string
+	approvals bool // synthetic top-of-list inbox row
+	apprCount int  // number of waiting agents (inbox row only)
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't

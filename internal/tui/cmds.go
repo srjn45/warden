@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -144,5 +145,33 @@ func openDirCmd(a api, dir string) tea.Cmd {
 		defer cancel()
 		_, err := a.ListDirs(ctx, dir)
 		return openDirMsg{dir: dir, err: err}
+	}
+}
+
+type approvalsMsg struct {
+	enabled bool
+	views   []approval.View
+	err     error
+}
+
+type approveResultMsg struct {
+	id  string
+	err error
+}
+
+func approvalsCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		on, views, err := a.Approvals(ctx)
+		return approvalsMsg{enabled: on, views: views, err: err}
+	}
+}
+
+func approveCmd(a api, id string, option int, fingerprint string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		return approveResultMsg{id: id, err: a.Approve(ctx, id, option, fingerprint)}
 	}
 }

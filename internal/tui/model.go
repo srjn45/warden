@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -23,6 +24,8 @@ type api interface {
 	Delete(ctx context.Context, id string, hard bool) error
 	Input(ctx context.Context, id, text string) error
 	ListDirs(ctx context.Context, path string) (client.DirListing, error)
+	Approvals(ctx context.Context) (bool, []approval.View, error)
+	Approve(ctx context.Context, id string, option int, fingerprint string) error
 }
 
 type mode int
@@ -57,6 +60,10 @@ type Model struct {
 	connected     bool
 	w, h          int
 	ready         bool
+	approvals     []approval.View
+	apprCursor    int
+	apprFocused   bool
+	approvalsOn   bool
 }
 
 // New builds an initial model bound to the given api client.
@@ -70,9 +77,24 @@ func New(a api) Model {
 	return Model{api: a, ta: ta, ti: ti, tp: tp, openedDirs: map[string]time.Time{}, connected: true}
 }
 
-func (m Model) items() []item { return buildItems(m.sessions, m.openedDirs) }
+func (m Model) items() []item {
+	base := buildItems(m.sessions, m.openedDirs)
+	if !m.approvalsOn {
+		return base
+	}
+	row := item{approvals: true, apprCount: len(m.approvals)}
+	return append([]item{row}, base...)
+}
 
 func (m Model) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
+
+// curApproval returns the queue entry under the inbox sub-cursor, or nil.
+func (m Model) curApproval() *approval.View {
+	if m.apprCursor < 0 || m.apprCursor >= len(m.approvals) {
+		return nil
+	}
+	return &m.approvals[m.apprCursor]
+}
 
 func (m Model) selectedID() string {
 	if s := m.selected(); s != nil {
@@ -106,7 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(listCmd(m.api), outputCmd(m.api, m.selectedID()), tick())
+		return m, tea.Batch(listCmd(m.api), outputCmd(m.api, m.selectedID()), approvalsCmd(m.api), tick())
 
 	case sessionsMsg:
 		if msg.err != nil {
@@ -118,6 +140,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessions = groupSort(msg.sessions)
 		m.repin(prevKey)
 		return m, nil
+
+	case approvalsMsg:
+		if msg.err == nil {
+			m.approvalsOn = msg.enabled
+			m.approvals = msg.views
+			if m.apprCursor >= len(m.approvals) {
+				m.apprCursor = max(0, len(m.approvals)-1)
+			}
+		}
+		return m, nil
+
+	case approveResultMsg:
+		if msg.err != nil {
+			m.status = "answer failed: " + msg.err.Error()
+		} else {
+			m.status = ""
+		}
+		return m, approvalsCmd(m.api)
 
 	case dirListMsg:
 		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {
