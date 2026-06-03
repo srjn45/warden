@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -15,11 +14,11 @@ import (
 )
 
 // listPaneModel is the top-left cockpit pane: the agents list plus the
-// new/send/terminate/attach actions. It owns selection: on every change it
-// writes the selected id to the shared state dir for the detail pane to read.
+// new/send/terminate/attach actions. It owns selection: on Enter it opens the
+// selected agent in the detail pane via respawn-pane.
 type listPaneModel struct {
 	api           api
-	stateDir      string
+	detailPane    string // tmux pane id of the detail pane this list drives
 	sessions      []*store.Session
 	cursor        int
 	ta            textarea.Model
@@ -28,17 +27,16 @@ type listPaneModel struct {
 	status        string
 	connected     bool
 	pendingSelect string
-	lastWrote     string
 	w, h          int
 	ready         bool
 }
 
-func newListPane(a api, stateDir string) listPaneModel {
+func newListPane(a api, detailPane string) listPaneModel {
 	ta := textarea.New()
 	ta.Placeholder = "What should this agent do?"
 	ti := textinput.New()
 	ti.Placeholder = "message…"
-	return listPaneModel{api: a, ta: ta, ti: ti, stateDir: stateDir, connected: true}
+	return listPaneModel{api: a, ta: ta, ti: ti, detailPane: detailPane, connected: true}
 }
 
 func (m listPaneModel) selectedID() string {
@@ -56,15 +54,6 @@ func (m listPaneModel) selected() *store.Session {
 }
 
 func (m listPaneModel) Init() tea.Cmd { return tea.Batch(listCmd(m.api), tick()) }
-
-// syncSelection writes the current selection when it has changed since last write.
-func (m *listPaneModel) syncSelection() {
-	id := m.selectedID()
-	if id != "" && id != m.lastWrote {
-		_ = writeSelection(m.stateDir, id, time.Now().Unix())
-		m.lastWrote = id
-	}
-}
 
 func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -86,7 +75,6 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		prev := m.selectedID()
 		m.sessions = msg.sessions
 		m.repin(prev)
-		m.syncSelection()
 		return m, nil
 	case spawnDoneMsg:
 		if msg.err != nil {
@@ -205,15 +193,17 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+	case "enter":
+		if s := m.selected(); s != nil && m.detailPane != "" {
+			return m, openInDetailCmd(m.detailPane, s.TmuxSession)
+		}
 	case "down", "j":
 		if m.cursor < len(m.sessions)-1 {
 			m.cursor++
-			m.syncSelection()
 		}
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
-			m.syncSelection()
 		}
 	case "n":
 		m.mode = modeNewAgent
@@ -261,7 +251,7 @@ func (m listPaneModel) View() string {
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.sessions, m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
-	footer := stMuted.Render("n new · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
@@ -314,9 +304,10 @@ func openInDetailCmd(detailPane, agentSession string) tea.Cmd {
 	}
 }
 
-// RunListPane runs the top-left cockpit pane against the daemon client.
-func RunListPane(a api, stateDir string) error {
-	p := tea.NewProgram(newListPane(a, stateDir), tea.WithAltScreen())
+// RunListPane runs the top-left cockpit pane; detailPane is the tmux id of the
+// detail pane it drives (opened on Enter).
+func RunListPane(a api, detailPane string) error {
+	p := tea.NewProgram(newListPane(a, detailPane), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

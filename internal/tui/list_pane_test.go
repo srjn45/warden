@@ -13,27 +13,25 @@ func lstep(m listPaneModel, msg tea.Msg) listPaneModel {
 	return nm.(listPaneModel)
 }
 
-func TestListPaneWritesSelectionOnLoad(t *testing.T) {
-	dir := t.TempDir()
-	m := newListPane(&fakeAPI{}, dir)
-	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a"}, {ID: "b"}}})
-	require.Equal(t, "a", readSelection(dir), "first session selected and written")
-}
-
-func TestListPaneWritesSelectionOnMove(t *testing.T) {
-	dir := t.TempDir()
-	m := newListPane(&fakeAPI{}, dir)
-	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a"}, {ID: "b"}}})
-	m = lstep(m, key("down")) // move cursor to "b"
-	require.Equal(t, "b", readSelection(dir))
-}
-
 func TestListPaneSpawnModal(t *testing.T) {
-	m := newListPane(&fakeAPI{}, t.TempDir())
+	m := newListPane(&fakeAPI{}, "%9")
 	m = lstep(m, key("n"))
 	require.Equal(t, modeNewAgent, m.mode)
 	m = lstep(m, key("esc"))
 	require.Equal(t, modeNormal, m.mode)
+}
+
+func TestListPaneEnterOpensDetail(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a", TmuxSession: "a"}}})
+	_, cmd := m.Update(key("enter"))
+	require.NotNil(t, cmd, "Enter on a selected agent opens it in the detail pane")
+}
+
+func TestListPaneEnterNoopWithoutSelection(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	_, cmd := m.Update(key("enter")) // no sessions loaded
+	require.Nil(t, cmd, "Enter with no selection does nothing")
 }
 
 func TestRespawnDetailArgs(t *testing.T) {

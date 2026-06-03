@@ -2,14 +2,10 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 )
@@ -41,16 +37,10 @@ func cockpitSession(pid int) string {
 	return fmt.Sprintf("agentctl-tui-%d", pid)
 }
 
-// cockpitStateDir returns the per-pid cockpit state directory under base.
-func cockpitStateDir(base string, pid int) string {
-	return filepath.Join(base, fmt.Sprintf("tui-%d", pid))
-}
-
 type cockpitOpts struct {
 	session   string // tmux session name, e.g. "agentctl-tui-1234"
 	self      string // absolute path to the agentctl binary
-	stateDir  string // per-pid selection state dir
-	homeDir   string // cwd for the list/detail pane processes
+	homeDir   string // cwd for the list pane process
 	masterCwd string // cwd for the master claude pane (the launching shell's dir)
 }
 
@@ -59,14 +49,18 @@ func shquote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// listPaneCmd is the shell command tmux runs for the top-left list pane.
-func listPaneCmd(self, stateDir string) string {
-	return self + " tui --pane=list --state-dir=" + stateDir
+// listPaneCmd is the shell command tmux runs for the top-left list pane. It is
+// told the detail pane's id so it can drive (respawn) it when the user opens an
+// agent with Enter.
+func listPaneCmd(self, detailPane string) string {
+	return self + " tui --pane=list --detail-pane=" + detailPane
 }
 
-// detailPaneCmd is the shell command tmux runs for the full-height right detail pane.
-func detailPaneCmd(self, stateDir string) string {
-	return self + " tui --pane=detail --state-dir=" + stateDir
+// detailPlaceholderCmd keeps the right pane alive showing a hint until the user
+// opens an agent into it. `exec sleep` so the process is cleanly replaceable by
+// `respawn-pane`.
+func detailPlaceholderCmd() string {
+	return `sh -c 'printf "Select an agent and press Enter to open it here.\n"; exec sleep 2147483647'`
 }
 
 // runPaneCreate runs a pane-creating tmux command (-P -F '#{pane_id}') and
@@ -86,101 +80,65 @@ func runPaneCreate(ctx context.Context, run lifecycle.Runner, args ...string) (s
 //	├─ master (claude) ─┤│ (full height)│
 //	└───────────────────┘└──────────────┘
 //
-// The caller attaches afterwards. tmux is the compositor; each pane is its own
-// process. NOTE: if homeDir/stateDir/masterCwd can contain spaces, the pane
-// command strings must be shquote()'d; agentctl paths are space-free in practice,
-// and quoting them would change the exact strings asserted in tests.
+// Panes are created right-to-left so the list pane (created last) can be handed
+// the detail pane's stable id (--detail-pane) and drive it via respawn-pane. The
+// detail pane starts as a placeholder; the list pane opens an agent into it on
+// Enter. The caller attaches afterwards.
 func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) error {
-	listID, err := runPaneCreate(ctx, run,
+	// 1. Detail pane fills the window initially (placeholder); capture its id.
+	detailID, err := runPaneCreate(ctx, run,
 		"new-session", "-d", "-s", o.session, "-c", o.homeDir,
-		"-P", "-F", "#{pane_id}", listPaneCmd(o.self, o.stateDir))
+		"-P", "-F", "#{pane_id}", detailPlaceholderCmd())
 	if err != nil {
 		return err
 	}
-	if _, err := runPaneCreate(ctx, run,
-		"split-window", "-h", "-l", "60%", "-t", listID, "-c", o.homeDir,
-		"-P", "-F", "#{pane_id}", detailPaneCmd(o.self, o.stateDir)); err != nil {
+	// 2. Master claude to the LEFT of detail (-b), 40% width, in the launch dir.
+	masterID, err := runPaneCreate(ctx, run,
+		"split-window", "-h", "-b", "-l", "40%", "-t", detailID, "-c", o.masterCwd,
+		"-P", "-F", "#{pane_id}", "claude")
+	if err != nil {
 		return err
 	}
-	if _, err := runPaneCreate(ctx, run,
-		"split-window", "-v", "-l", "50%", "-t", listID, "-c", o.masterCwd,
-		"-P", "-F", "#{pane_id}", "claude"); err != nil {
+	// 3. List pane ABOVE master (-b), 50% of the left column; it gets detailID.
+	listID, err := runPaneCreate(ctx, run,
+		"split-window", "-v", "-b", "-l", "50%", "-t", masterID, "-c", o.homeDir,
+		"-P", "-F", "#{pane_id}", listPaneCmd(o.self, detailID))
+	if err != nil {
 		return err
 	}
+	// 4. Keep the detail pane (showing [exited]) instead of collapsing the layout
+	//    when an opened agent's attach exits.
+	if out, err := run.Run(ctx, "", "tmux", "set-option", "-p", "-t", detailID, "remain-on-exit", "on"); err != nil {
+		return fmt.Errorf("tmux set-option remain-on-exit: %w: %s", err, out)
+	}
+	// 5. Mouse + prefix-less Alt+Arrow pane navigation.
 	if out, err := run.Run(ctx, "", "tmux", "set-option", "-t", o.session, "mouse", "on"); err != nil {
 		return fmt.Errorf("tmux set-option mouse: %w: %s", err, out)
 	}
+	for _, b := range [][2]string{{"M-Left", "-L"}, {"M-Right", "-R"}, {"M-Up", "-U"}, {"M-Down", "-D"}} {
+		if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", b[0], "select-pane", b[1]); err != nil {
+			return fmt.Errorf("tmux bind-key %s: %w: %s", b[0], err, out)
+		}
+	}
+	// 6. Focus the list pane.
 	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", listID); err != nil {
 		return fmt.Errorf("tmux select-pane: %w: %s", err, out)
 	}
 	return nil
 }
 
-// cockpitBaseDir is the parent of all per-pid cockpit state dirs.
-func cockpitBaseDir() string {
-	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
-		return filepath.Join(x, "agentctl")
-	}
-	return filepath.Join(os.TempDir(), "agentctl")
-}
-
-// pidAlive reports whether a process with pid exists (signal 0 probe).
-func pidAlive(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	// Signal 0 probes existence: nil = alive-and-ours; EPERM = alive but owned
-	// by another user (still alive). Only ESRCH (no such process) means dead.
-	err = p.Signal(syscall.Signal(0))
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
-
-// cleanStaleStateDirs removes tui-<pid> dirs under base whose pid is no longer
-// alive. Best-effort: errors are ignored (a leftover dir is harmless).
-func cleanStaleStateDirs(base string) {
-	entries, err := os.ReadDir(base)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), "tui-") {
-			continue
-		}
-		pid, err := strconv.Atoi(strings.TrimPrefix(e.Name(), "tui-"))
-		if err != nil {
-			continue
-		}
-		if !pidAlive(pid) {
-			_ = os.RemoveAll(filepath.Join(base, e.Name()))
-		}
-	}
-}
-
 // RunCockpit builds the tmux cockpit for this process and attaches to it,
 // blocking until the user detaches/quits. masterCwd is the launching shell's
-// directory (where the master claude pane runs). It cleans up this run's state
-// dir on exit and sweeps stale dirs from dead prior runs on entry.
+// directory (where the master claude pane runs).
 func RunCockpit(a api, self, masterCwd string) error {
 	_ = a // the panes hold their own clients; reserved for future inline checks
-	pid := os.Getpid()
-	base := cockpitBaseDir()
-	cleanStaleStateDirs(base)
-
-	stateDir := cockpitStateDir(base, pid)
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		return fmt.Errorf("create state dir: %w", err)
-	}
-	defer os.RemoveAll(stateDir)
-
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("resolve home dir: %w", err)
 	}
 	o := cockpitOpts{
-		session:   cockpitSession(pid),
+		session:   cockpitSession(os.Getpid()),
 		self:      self,
-		stateDir:  stateDir,
 		homeDir:   home,
 		masterCwd: masterCwd,
 	}
@@ -189,10 +147,9 @@ func RunCockpit(a api, self, masterCwd string) error {
 		_, _ = lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
 		return err
 	}
-
-	// Once built, ensure the session is torn down whenever we return — whether
-	// the user quit (session already gone) or merely detached (session still
-	// alive). kill-session on a missing session is a harmless ignored error.
+	// Always tear the session down on return (covers detach, where `tmux attach`
+	// returns 0 while the session keeps running). kill-session on a gone session
+	// is a harmless ignored error.
 	defer lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
 
 	attach := exec.Command("tmux", "attach", "-t", o.session)

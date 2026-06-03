@@ -11,7 +11,7 @@ import (
 
 func newTUICmd() *cobra.Command {
 	var classic bool
-	var pane, stateDir string
+	var pane, detailPane string
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Live terminal cockpit for agents",
@@ -20,21 +20,19 @@ func newTUICmd() *cobra.Command {
 			a := clientFor(cmd)
 			switch pane {
 			case "list":
-				return tui.RunListPane(a, stateDir)
-			case "detail":
-				return tui.RunDetailPane(a, stateDir)
+				return tui.RunListPane(a, detailPane)
 			case "":
 				return runCockpitOrClassic(a, classic)
 			default:
-				return fmt.Errorf("unknown --pane %q (want list|detail)", pane)
+				return fmt.Errorf("unknown --pane %q (want list)", pane)
 			}
 		},
 	}
 	cmd.Flags().BoolVar(&classic, "classic", false, "use the legacy single-pane TUI (no tmux)")
-	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (list|detail)")
-	cmd.Flags().StringVar(&stateDir, "state-dir", "", "internal: cockpit shared state dir")
+	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (list)")
+	cmd.Flags().StringVar(&detailPane, "detail-pane", "", "internal: tmux id of the detail pane the list drives")
 	_ = cmd.Flags().MarkHidden("pane")
-	_ = cmd.Flags().MarkHidden("state-dir")
+	_ = cmd.Flags().MarkHidden("detail-pane")
 	return cmd
 }
 
