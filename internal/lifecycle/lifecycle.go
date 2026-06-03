@@ -447,8 +447,8 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
 			return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
 		}
-		if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", req.Cwd); err != nil {
-			return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
+		if err := l.newAgentSession(ctx, "", id, req.Cwd); err != nil {
+			return nil, err
 		}
 		launch := claudeLaunch(sess.ClaudeSessionID, id) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
@@ -470,8 +470,8 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		workdir = filepath.Join(req.Repo, rel)
 	}
 	sess.Workdir = workdir
-	if out, err := l.run.Run(ctx, req.Repo, "tmux", "new-session", "-d", "-s", id, "-c", workdir); err != nil {
-		return nil, fmt.Errorf("tmux new-session: %w: %s", err, out)
+	if err := l.newAgentSession(ctx, req.Repo, id, workdir); err != nil {
+		return nil, err
 	}
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, claudeLaunch(sess.ClaudeSessionID, id), "Enter"); err != nil {
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -479,11 +479,44 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	return sess, nil
 }
 
+// agentHistoryLimit is the scrollback depth (lines) agent panes get, so long
+// agent output can be scrolled back to in the cockpit detail pane. tmux fixes a
+// pane's history at creation, so ensureScrollback raises the global option
+// before new-session.
+const agentHistoryLimit = 50000
+
+// newAgentSession creates the detached tmux session for an agent in cwd and
+// applies scroll-friendly options. Only new-session failing aborts the spawn;
+// option-setting failures are non-fatal so a tmux quirk never blocks a launch.
+func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string) error {
+	l.ensureScrollback(ctx) // before new-session: the new pane inherits the limit
+	if out, err := l.run.Run(ctx, runDir, "tmux", "new-session", "-d", "-s", id, "-c", cwd); err != nil {
+		return fmt.Errorf("tmux new-session: %w: %s", err, out)
+	}
+	// mouse is a live session option: the wheel enters copy-mode, and the cockpit
+	// session can forward the wheel into this nested attach. Non-fatal.
+	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-t", id, "mouse", "on")
+	return nil
+}
+
+// ensureScrollback raises the global tmux history-limit to agentHistoryLimit
+// when it is currently lower (only-raise: a user-configured larger value is left
+// untouched). Must run before new-session. All failures are ignored — deep
+// scrollback is a nicety, not a precondition for spawning.
+func (l *Lifecycle) ensureScrollback(ctx context.Context) {
+	if out, err := l.run.Run(ctx, "", "tmux", "show-options", "-g", "-v", "history-limit"); err == nil {
+		if cur, perr := strconv.Atoi(strings.TrimSpace(out)); perr == nil && cur >= agentHistoryLimit {
+			return // already large enough
+		}
+	}
+	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-g", "history-limit", strconv.Itoa(agentHistoryLimit))
+}
+
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
 // claude conversation claudeID inside it. Shared by Restore and Adopt.
 func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID string) error {
-	if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", cwd); err != nil {
-		return fmt.Errorf("tmux new-session: %w: %s", err, out)
+	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
+		return err
 	}
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, claudeResume(claudeID, id), "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
