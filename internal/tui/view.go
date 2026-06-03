@@ -6,24 +6,44 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// detailChrome is the number of non-viewport lines renderDetail emits
+// (head, dir, subject, blank, output-title, blank, history≈7).
+const detailChrome = 13
+
 func (m *Model) layout() {
-	// detail viewport: right ~60% width, body height minus header/footer.
-	rw := m.w * 6 / 10
-	if rw < 20 {
-		rw = m.w
-	}
 	bodyH := m.h - 2
 	if bodyH < 3 {
 		bodyH = 3
 	}
-	m.vp.Width = rw - 2
-	m.vp.Height = bodyH - 6
-	if m.vp.Height < 1 {
-		m.vp.Height = 1
+	listOuter := m.listOuterW()
+	detailInner := (m.w - listOuter) - 2 // detail box inner width
+	if detailInner < 1 {
+		detailInner = 1
 	}
+	m.vp.Width = detailInner
+	vpH := (bodyH - 2) - detailChrome // box inner height minus detail chrome
+	if vpH < 1 {
+		vpH = 1
+	}
+	m.vp.Height = vpH
 	m.ta.SetWidth(m.w - 2)
 	m.ta.SetHeight(4)
 	m.ti.Width = m.w - 20
+}
+
+// listOuterW is the list box outer width (~40%, clamped to leave room for detail).
+func (m Model) listOuterW() int {
+	w := m.w * 4 / 10
+	if w < 24 {
+		w = 24
+	}
+	if w > m.w-10 {
+		w = m.w - 10
+	}
+	if w < 4 {
+		w = 4
+	}
+	return w
 }
 
 func (m Model) View() string {
@@ -39,14 +59,24 @@ func (m Model) View() string {
 		header += "  " + stError.Render("daemon not running — start it with `agentctl daemon`")
 	}
 
-	leftW := m.w * 4 / 10
-	rightW := m.w - leftW - 1
-	left := lipgloss.NewStyle().Width(leftW).Render(m.renderList(leftW))
-	right := lipgloss.NewStyle().Width(rightW).Render(m.renderDetail(rightW))
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-
+	bodyH := m.h - 2
+	if bodyH < 3 {
+		bodyH = 3
+	}
+	var body string
 	if m.mode == modeHelp {
-		body = lipgloss.NewStyle().Width(m.w).Render(helpText())
+		body = lipgloss.NewStyle().Width(m.w).Height(bodyH).Render(helpText())
+	} else {
+		listOuter := m.listOuterW()
+		detailOuter := m.w - listOuter
+		listTitle := fmt.Sprintf("Agents (%d)", len(m.sessions))
+		detailTitle := m.selectedID()
+		if detailTitle == "" {
+			detailTitle = "—"
+		}
+		left := titleBox(listTitle, m.renderList(listOuter-2, bodyH-2), listOuter, bodyH)
+		right := titleBox(detailTitle, m.renderDetail(detailOuter-2), detailOuter, bodyH)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
 
 	footer := m.footer()

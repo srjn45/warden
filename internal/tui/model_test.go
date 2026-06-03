@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -235,4 +237,14 @@ func TestAttachNoOpWhenNoSelection(t *testing.T) {
 	m := New(&fakeAPI{})
 	_, cmd := m.Update(key("a"))
 	require.Nil(t, cmd, "attach with no selection does nothing")
+}
+
+func TestViewDoesNotOverflowHeight(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	for i := 0; i < 40; i++ {
+		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("a-%02d", i), Status: store.StatusWorking})
+	}
+	out := m.View()
+	require.LessOrEqual(t, strings.Count(out, "\n")+1, 30, "View must not exceed terminal height")
 }

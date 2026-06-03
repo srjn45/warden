@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -33,23 +34,64 @@ func trunc(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// renderList returns the left-pane lines for the given width.
-func (m Model) renderList(width int) string {
-	if len(m.sessions) == 0 {
-		return stMuted.Render("No agents — press n to create one")
+// renderList renders the agent list windowed to exactly `height` lines and
+// `width` columns of inner content, always keeping the selected row visible.
+func (m Model) renderList(width, height int) string {
+	if height < 1 {
+		height = 1
 	}
-	out := ""
-	for i, s := range m.sessions {
+	if len(m.sessions) == 0 {
+		return padTo(stMuted.Render("No agents — press n to create one"), height)
+	}
+	n := len(m.sessions)
+	visible := height
+	hidden := n > height
+	if hidden {
+		if visible = height - 1; visible < 1 {
+			visible = 1
+		}
+	}
+	top := listWindow(n, m.cursor, visible)
+
+	var b strings.Builder
+	used := 0
+	for i := top; i < top+visible && i < n; i++ {
+		s := m.sessions[i]
 		label, st := badge(s.Status)
-		cursor := "  "
-		line := fmt.Sprintf("%-12s %-9s %-11s %-5s %s", trunc(s.ID, 12), trunc(string(typeOr(s)), 9), st.Render(label), age(s.UpdatedAt), trunc(s.Subject, max(0, width-46)))
+		line := fmt.Sprintf("%-12s %-9s %-11s %-5s %s",
+			trunc(s.ID, 12), trunc(typeOr(s), 9), st.Render(label), age(s.UpdatedAt),
+			trunc(s.Subject, max(0, width-44)))
+		cur := "  "
 		if i == m.cursor {
-			cursor = stCursor.Render("› ")
+			cur = stCursor.Render("› ")
 			line = stCursor.Render(line)
 		}
-		out += cursor + line + "\n"
+		b.WriteString(cur + line + "\n")
+		used++
 	}
-	return out
+	if hidden {
+		var parts []string
+		if top > 0 {
+			parts = append(parts, fmt.Sprintf("▲ %d more", top))
+		}
+		if below := n - (top + visible); below > 0 {
+			parts = append(parts, fmt.Sprintf("▼ %d more", below))
+		}
+		b.WriteString(stMuted.Render(strings.Join(parts, "   ")) + "\n")
+		used++
+	}
+	for ; used < height; used++ {
+		b.WriteString("\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// padTo pads s with blank lines to exactly height lines.
+func padTo(s string, height int) string {
+	for cur := strings.Count(s, "\n") + 1; cur < height; cur++ {
+		s += "\n"
+	}
+	return s
 }
 
 func typeOr(s *store.Session) string {
