@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,6 +152,17 @@ func (f *FakeRunner) calledArgs() [][]string {
 		out = append(out, c.Argv)
 	}
 	return out
+}
+
+// callIndex returns the index of the first recorded call whose argv joins to
+// key (space-separated), or -1 if absent. Used for ordering assertions.
+func (f *FakeRunner) callIndex(key string) int {
+	for i, c := range f.Calls {
+		if strings.Join(c.Argv, " ") == key {
+			return i
+		}
+	}
+	return -1
 }
 
 func cleanupInput(id string) CleanupTarget {
@@ -692,4 +704,81 @@ func argAt(a []string, i int) string {
 		return a[i]
 	}
 	return ""
+}
+
+func TestSpawnSetsMouseOnAgentSession(t *testing.T) {
+	fr := &FakeRunner{}
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", s.ID, "mouse", "on"})
+	require.Greater(t,
+		fr.callIndex("tmux set-option -t "+s.ID+" mouse on"),
+		fr.callIndex("tmux new-session -d -s "+s.ID+" -c /repo"),
+		"mouse on must be set after new-session")
+}
+
+func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
+	fr := &FakeRunner{}
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "do a thing", Cwd: "/work/project"})
+	require.NoError(t, err)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", s.ID, "mouse", "on"})
+}
+
+func TestResumeInTmuxSetsMouseOn(t *testing.T) {
+	fr := &FakeRunner{}
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id")
+	require.NoError(t, err)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", "ag1", "mouse", "on"})
+	require.Greater(t,
+		fr.callIndex("tmux set-option -t ag1 mouse on"),
+		fr.callIndex("tmux new-session -d -s ag1 -c /cwd"),
+		"mouse on must follow new-session")
+}
+
+func TestSpawnRaisesHistoryLimitBeforeNewSession(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux show-options -g -v history-limit": {Out: "2000"},
+	}}
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err)
+	setIdx := fr.callIndex("tmux set-option -g history-limit 50000")
+	newIdx := fr.callIndex("tmux new-session -d -s " + s.ID + " -c /repo")
+	require.NotEqual(t, -1, setIdx, "history-limit must be raised when current is lower")
+	require.Less(t, setIdx, newIdx, "history-limit must be raised BEFORE new-session")
+}
+
+func TestSpawnDoesNotLowerHistoryLimit(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux show-options -g -v history-limit": {Out: "100000"},
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err)
+	require.NotContains(t, fr.calledArgs(), []string{"tmux", "set-option", "-g", "history-limit", "50000"},
+		"a larger user-configured history-limit must be left untouched")
+}
+
+func TestSpawnSucceedsWhenHistoryLimitSetFails(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux set-option -g history-limit 50000": {Err: errors.New("boom")},
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err, "history-limit failure must not fail the spawn")
+}
+
+func TestResumeSucceedsWhenMouseSetFails(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux set-option -t ag1 mouse on": {Err: errors.New("boom")},
+	}}
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid")
+	require.NoError(t, err, "mouse-on failure must not fail the resume")
+}
+
+func TestResumeFailsWhenNewSessionFails(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux new-session -d -s ag1 -c /cwd": {Err: errors.New("boom")},
+	}}
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid")
+	require.Error(t, err, "new-session failure stays fatal")
 }
