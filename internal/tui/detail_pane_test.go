@@ -32,3 +32,12 @@ func TestDetailPaneShowsOutputForSelection(t *testing.T) {
 	require.NotNil(t, m.sess)
 	require.Equal(t, "agent-x", m.sess.ID)
 }
+
+func TestDetailPaneIgnoresStaleOutput(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeSelection(dir, "agent-x", 1))
+	m := newDetailPane(&fakeAPI{}, dir)
+	m = dstep(m, tickMsg{})
+	m = dstep(m, outputMsg{id: "agent-OLD", text: "stale output"})
+	require.Empty(t, m.output, "output for a non-selected agent must be ignored")
+}

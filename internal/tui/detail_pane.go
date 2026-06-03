@@ -95,7 +95,11 @@ func (m detailPaneModel) View() string {
 	if title == "" {
 		title = "—"
 	}
-	return titleBox(title, renderDetail(m.sess, m.vp, false, m.w-2), m.w, bodyH)
+	box := titleBox(title, renderDetail(m.sess, m.vp, false, m.w-2), m.w, bodyH)
+	if !m.connected {
+		return stError.Render("reconnecting…") + "\n" + box
+	}
+	return box
 }
 
 // RunDetailPane runs the full-height right cockpit pane against the daemon client.

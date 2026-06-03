@@ -24,7 +24,7 @@ func newTUICmd() *cobra.Command {
 			case "detail":
 				return tui.RunDetailPane(a, stateDir)
 			case "":
-				return runCockpitOrClassic(cmd, a, classic)
+				return runCockpitOrClassic(a, classic)
 			default:
 				return fmt.Errorf("unknown --pane %q (want list|detail)", pane)
 			}
@@ -40,7 +40,7 @@ func newTUICmd() *cobra.Command {
 
 // runCockpitOrClassic launches the tmux cockpit, or the legacy single-pane TUI
 // when --classic is set, tmux is unavailable, or we are already inside tmux.
-func runCockpitOrClassic(cmd *cobra.Command, a *client.Client, classic bool) error {
+func runCockpitOrClassic(a *client.Client, classic bool) error {
 	if tui.ChooseClassic(classic, tui.TmuxAvailable(), os.Getenv("TMUX") != "") {
 		return tui.Run(a)
 	}

@@ -43,6 +43,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 	o := cockpitOpts{session: "S", self: "/bin/agentctl", stateDir: "/st", homeDir: "/home", masterCwd: "/work"}
 	err := buildCockpit(context.Background(), fr, o)
 	require.NoError(t, err)
+	require.Len(t, fr.Calls, 5, "unexpected number of tmux calls")
 
 	// 1) session created with the list pane command
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", "/bin/agentctl tui --pane=list --state-dir=/st"}, fr.Calls[0].Argv)

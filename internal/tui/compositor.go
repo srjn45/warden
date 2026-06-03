@@ -36,10 +36,12 @@ func ChooseClassic(classicFlag, tmuxAvailable, insideTmux bool) bool {
 // TmuxAvailable reports whether the tmux binary is on PATH (used by the CLI).
 func TmuxAvailable() bool { return tmuxAvailable() }
 
+// cockpitSession returns the tmux session name for the cockpit owned by the given pid.
 func cockpitSession(pid int) string {
 	return fmt.Sprintf("agentctl-tui-%d", pid)
 }
 
+// cockpitStateDir returns the per-pid cockpit state directory under base.
 func cockpitStateDir(base string, pid int) string {
 	return filepath.Join(base, fmt.Sprintf("tui-%d", pid))
 }
@@ -57,10 +59,12 @@ func shquote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// listPaneCmd is the shell command tmux runs for the top-left list pane.
 func listPaneCmd(self, stateDir string) string {
 	return self + " tui --pane=list --state-dir=" + stateDir
 }
 
+// detailPaneCmd is the shell command tmux runs for the full-height right detail pane.
 func detailPaneCmd(self, stateDir string) string {
 	return self + " tui --pane=detail --state-dir=" + stateDir
 }
