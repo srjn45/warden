@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -140,6 +141,9 @@ func dirKey(dir string) string { return "dir\x00" + dir }
 
 // itemKey is the stable identity used to re-pin the cursor across refreshes.
 func itemKey(it item) string {
+	if it.approvals {
+		return "approvals\x00"
+	}
 	if it.session != nil {
 		return it.session.ID
 	}
@@ -212,17 +216,23 @@ type listRow struct {
 func buildRows(items []item) []listRow {
 	var rows []listRow
 	prev := ""
+	started := false
 	for i := range items {
+		if items[i].approvals {
+			rows = append(rows, listRow{idx: i})
+			continue
+		}
 		dir := items[i].dir
-		if i == 0 || dir != prev {
+		if !started || dir != prev {
 			count := 0
-			for j := i; j < len(items) && items[j].dir == dir; j++ {
+			for j := i; j < len(items) && !items[j].approvals && items[j].dir == dir; j++ {
 				if items[j].session != nil {
 					count++
 				}
 			}
 			rows = append(rows, listRow{header: fmt.Sprintf("%s (%d)", abbrevHome(dir), count)})
 			prev = dir
+			started = true
 		}
 		rows = append(rows, listRow{idx: i})
 	}
@@ -330,9 +340,17 @@ func renderList(items []item, cursor, width, height int) string {
 // line for an empty opened dir. The cursor row gets the "› " caret + cursor style.
 func renderItemLine(it item, selected bool, width int) string {
 	var line string
-	if it.session == nil {
+	switch {
+	case it.approvals:
+		txt := "⏳ Approvals (" + strconv.Itoa(it.apprCount) + ")"
+		if it.apprCount == 0 {
+			line = stMuted.Render(txt)
+		} else {
+			line = stStatus.Render(txt)
+		}
+	case it.session == nil:
 		line = stMuted.Render("(no agents — n to spawn here)")
-	} else {
+	default:
 		s := it.session
 		label, st := badge(s.Status)
 		line = fmt.Sprintf("%-12s %-9s %-11s %-5s %s",
@@ -342,7 +360,7 @@ func renderItemLine(it item, selected bool, width int) string {
 	cur := "  "
 	if selected {
 		cur = stCursor.Render("› ")
-		if it.session != nil {
+		if it.session != nil || it.approvals {
 			line = stCursor.Render(line)
 		}
 	}

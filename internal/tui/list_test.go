@@ -268,6 +268,21 @@ func TestCompleteDirAdvancesAndPreservesTyped(t *testing.T) {
 	require.Equal(t, []string{"api", "apex", "web"}, cands)
 }
 
+func TestBuildRowsIncludesApprovalsRow(t *testing.T) {
+	items := []item{
+		{approvals: true, apprCount: 2},
+		{session: &store.Session{ID: "a1"}, dir: "/repo"},
+	}
+	rows := buildRows(items)
+	require.Equal(t, "", rows[0].header)
+	require.Equal(t, 0, rows[0].idx)
+	require.NotEqual(t, "", rows[1].header)
+}
+
+func TestItemKeyApprovals(t *testing.T) {
+	require.Equal(t, "approvals\x00", itemKey(item{approvals: true}))
+}
+
 func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 	m := New(&fakeAPI{})
 	now := time.Now()
