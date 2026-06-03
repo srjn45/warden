@@ -406,3 +406,98 @@ func TestPostSpawnRejectsMissingCwd(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "a cwd that isn't an existing dir is rejected")
 }
+
+func adoptServer(fl *fakeLife, fs store.Store) *httptest.Server {
+	srv := &Server{store: fs, life: fl, hub: newHub()}
+	return httptest.NewServer(srv.router())
+}
+
+func TestAdoptResumeHappyPath(t *testing.T) {
+	dir := t.TempDir()
+	fl := &fakeLife{newestClaude: "44444444-4444-4444-8444-444444444444"}
+	ts := adoptServer(fl, newFakeStore())
+	defer ts.Close()
+
+	body, _ := json.Marshal(AdoptRequest{Cwd: dir}) // resume mode (no tmux_session)
+	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var got adoptResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	require.NotNil(t, got.Session)
+	require.Equal(t, "44444444-4444-4444-8444-444444444444", fl.adoptParams.ClaudeSessionID)
+	require.Empty(t, fl.adoptParams.TmuxSession, "resume mode passes no tmux session")
+	require.Empty(t, got.Warning)
+}
+
+func TestAdoptResumeNoClaudeSession(t *testing.T) {
+	dir := t.TempDir()
+	fl := &fakeLife{newestErr: errors.New("none")}
+	ts := adoptServer(fl, newFakeStore())
+	defer ts.Close()
+
+	body, _ := json.Marshal(AdoptRequest{Cwd: dir})
+	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestAdoptCwdMissing(t *testing.T) {
+	ts := adoptServer(&fakeLife{}, newFakeStore())
+	defer ts.Close()
+	body, _ := json.Marshal(AdoptRequest{Cwd: "/no/such/dir/xyz"})
+	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestAdoptDuplicateClaudeSession(t *testing.T) {
+	dir := t.TempDir()
+	fs := newFakeStore()
+	sid := "55555555-5555-4555-8555-555555555555"
+	require.NoError(t, fs.Insert(context.Background(), &store.Session{
+		ID: "existing", TmuxSession: "existing", ClaudeSessionID: sid, Status: store.StatusWorking,
+	}))
+	fl := &fakeLife{newestClaude: sid}
+	ts := adoptServer(fl, fs)
+	defer ts.Close()
+
+	body, _ := json.Marshal(AdoptRequest{Cwd: dir})
+	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestAdoptLiveTmuxGone(t *testing.T) {
+	dir := t.TempDir()
+	fl := &fakeLife{newestClaude: "x", adoptErr: lifecycle.ErrTmuxGone}
+	ts := adoptServer(fl, newFakeStore())
+	defer ts.Close()
+
+	body, _ := json.Marshal(AdoptRequest{Cwd: dir, TmuxSession: "ghost"})
+	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestAdoptLiveInsertFailureDoesNotTeardown(t *testing.T) {
+	dir := t.TempDir()
+	fs := newFakeStore()
+	require.NoError(t, fs.Insert(context.Background(), &store.Session{ID: "work", TmuxSession: "work"}))
+	fl := &fakeLife{adoptResult: &store.Session{ID: "work", TmuxSession: "work", Status: store.StatusWorking}}
+	ts := adoptServer(fl, fs)
+	defer ts.Close()
+
+	body, _ := json.Marshal(AdoptRequest{Cwd: dir, TmuxSession: "work", SessionID: "zzz"})
+	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+	require.Empty(t, fl.tornDown, "live adopt must NOT tear down the user's existing tmux session")
+}

@@ -17,6 +17,7 @@ import (
 
 func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Post("/spawn", s.handleSpawn)
+	r.Post("/adopt", s.handleAdopt)
 	r.Post("/sessions/{id}/terminate", s.handleTerminate)
 	r.Post("/sessions/{id}/delete", s.handleDelete)
 	r.Post("/sessions/{id}/remove-worktree", s.handleRemoveWorktree)
@@ -86,6 +87,103 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if promptMode {
 		go s.classifyAndUpdate(sess.ID, req.Prompt)
 	}
+}
+
+// handleAdopt registers a Claude session agentctl did not spawn. It resolves the
+// claude session id (explicit override, else newest transcript for cwd), refuses
+// to adopt a conversation an active session already tracks, then delegates to
+// Lifecycle.Adopt (resume-under-tmux when tmux_session is empty, live register
+// otherwise) and persists the record. Rollback (kill tmux) runs ONLY in resume
+// mode — a live adoption never owns the tmux session, so it must never kill it.
+func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
+	var req AdoptRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	if req.Cwd == "" {
+		writeErr(w, http.StatusBadRequest, "adopt requires cwd")
+		return
+	}
+	if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {
+		writeErr(w, http.StatusBadRequest, "cwd is not an existing directory: "+req.Cwd)
+		return
+	}
+
+	resume := req.TmuxSession == ""
+
+	// Resolve the claude session id: explicit override, else newest for cwd.
+	claudeID := req.SessionID
+	if claudeID == "" {
+		if id, err := s.life.NewestClaudeSession(r.Context(), req.Cwd); err == nil {
+			claudeID = id
+		}
+	}
+	if resume && claudeID == "" {
+		writeErr(w, http.StatusBadRequest, "no claude session found to resume in "+req.Cwd+" (pass session_id)")
+		return
+	}
+
+	// Two-heads guard: never adopt a conversation an active session already tracks.
+	if claudeID != "" {
+		sessions, err := s.store.List(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, ex := range sessions {
+			if ex.ClaudeSessionID == claudeID {
+				writeErr(w, http.StatusConflict, "claude session already adopted as "+ex.ID)
+				return
+			}
+		}
+	}
+
+	// Choose the agent id. Live mode keeps the existing tmux name when it is a
+	// safe, unused id; otherwise leave it empty so Lifecycle generates one (and
+	// renames the tmux session to match).
+	chosenID := ""
+	if !resume && store.SafeID(req.TmuxSession) == nil {
+		if _, err := s.store.Get(r.Context(), req.TmuxSession); errors.Is(err, store.ErrNotFound) {
+			chosenID = req.TmuxSession
+		}
+	}
+
+	sess, err := s.life.Adopt(r.Context(), AdoptParams{
+		ID: chosenID, Cwd: req.Cwd, ClaudeSessionID: claudeID, TmuxSession: req.TmuxSession,
+	})
+	if err != nil {
+		if errors.Is(err, lifecycle.ErrTmuxGone) {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := s.store.Insert(r.Context(), sess); err != nil {
+		if errors.Is(err, store.ErrExists) {
+			writeErr(w, http.StatusConflict, "already registered: "+sess.ID)
+			return
+		}
+		// Only resume mode created the tmux session; never kill a live one.
+		if resume {
+			tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if terr := s.life.Teardown(tctx, sess); terr != nil {
+				log.Printf("adopt rollback %s: %v", sess.ID, terr)
+			}
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	warn := ""
+	if claudeID == "" {
+		warn = "registered without a claude session id (monitoring only; restore unavailable)"
+	}
+	s.notify()
+	writeJSON(w, http.StatusCreated, adoptResponse{Session: sess, Warning: warn})
 }
 
 // classifyAndUpdate runs in the background after a prompt-spawn: it labels the
