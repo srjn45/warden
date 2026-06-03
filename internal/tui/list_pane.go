@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -23,6 +25,10 @@ type listPaneModel struct {
 	cursor        int
 	ta            textarea.Model
 	ti            textinput.Model
+	tp            textinput.Model
+	openedDirs    map[string]time.Time
+	dirCandidates []string
+	targetDir     string
 	mode          mode
 	status        string
 	connected     bool
@@ -36,21 +42,34 @@ func newListPane(a api, detailPane string) listPaneModel {
 	ta.Placeholder = "What should this agent do?"
 	ti := textinput.New()
 	ti.Placeholder = "message…"
-	return listPaneModel{api: a, ta: ta, ti: ti, detailPane: detailPane, connected: true}
+	tp := textinput.New()
+	tp.Placeholder = "~/path/to/dir"
+	return listPaneModel{
+		api: a, ta: ta, ti: ti, tp: tp, detailPane: detailPane,
+		openedDirs: map[string]time.Time{}, connected: true,
+	}
 }
 
+func (m listPaneModel) items() []item { return buildItems(m.sessions, m.openedDirs) }
+
+func (m listPaneModel) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
+
 func (m listPaneModel) selectedID() string {
-	if m.cursor >= 0 && m.cursor < len(m.sessions) {
-		return m.sessions[m.cursor].ID
+	if s := m.selected(); s != nil {
+		return s.ID
 	}
 	return ""
 }
 
-func (m listPaneModel) selected() *store.Session {
-	if m.cursor >= 0 && m.cursor < len(m.sessions) {
-		return m.sessions[m.cursor]
-	}
-	return nil
+func (m listPaneModel) selectedKey() string { return itemKey(itemAt(m.items(), m.cursor)) }
+
+func (m listPaneModel) fallbackDir() string {
+	d, _ := os.Getwd()
+	return d
+}
+
+func (m listPaneModel) activeDir() string {
+	return activeDir(m.items(), m.cursor, m.fallbackDir())
 }
 
 func (m listPaneModel) Init() tea.Cmd { return tea.Batch(listCmd(m.api), tick()) }
@@ -72,9 +91,29 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.connected = true
-		prev := m.selectedID()
+		prev := m.selectedKey()
 		m.sessions = groupSort(msg.sessions)
 		m.repin(prev)
+		return m, nil
+	case dirListMsg:
+		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {
+			completed, cands := completeDir(msg.listing, msg.typed)
+			m.tp.SetValue(completed)
+			m.tp.CursorEnd()
+			m.dirCandidates = cands
+		}
+		return m, nil
+	case openDirMsg:
+		if msg.err != nil {
+			m.status = "cannot open " + msg.dir + ": " + msg.err.Error()
+			return m, nil
+		}
+		m.openedDirs[msg.dir] = time.Now()
+		m.pendingSelect = dirKey(msg.dir)
+		m.mode = modeNormal
+		m.tp.Blur()
+		m.dirCandidates = nil
+		m.repin("")
 		return m, nil
 	case spawnDoneMsg:
 		if msg.err != nil {
@@ -110,14 +149,15 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *listPaneModel) repin(prevID string) {
-	want := prevID
+func (m *listPaneModel) repin(prevKey string) {
+	items := m.items()
+	want := prevKey
 	if m.pendingSelect != "" {
 		want = m.pendingSelect
 	}
 	if want != "" {
-		for i, s := range m.sessions {
-			if s.ID == want {
+		for i, it := range items {
+			if itemKey(it) == want {
 				m.cursor = i
 				if want == m.pendingSelect {
 					m.pendingSelect = ""
@@ -126,8 +166,8 @@ func (m *listPaneModel) repin(prevID string) {
 			}
 		}
 	}
-	if m.cursor >= len(m.sessions) {
-		m.cursor = len(m.sessions) - 1
+	if m.cursor >= len(items) {
+		m.cursor = len(items) - 1
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
@@ -142,6 +182,14 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeNormal
 			m.ta.Blur()
 			return m, nil
+		case tea.KeyTab:
+			m.mode = modeNewAgentDir
+			m.ta.Blur()
+			m.tp.SetValue(m.targetDir)
+			m.tp.CursorEnd()
+			m.tp.Focus()
+			m.dirCandidates = nil
+			return m, nil
 		case tea.KeyCtrlS:
 			prompt := strings.TrimSpace(m.ta.Value())
 			m.mode = modeNormal
@@ -150,10 +198,50 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "prompt was empty"
 				return m, nil
 			}
-			return m, spawnCmd(m.api, prompt)
+			return m, spawnCmd(m.api, prompt, m.targetDir)
 		}
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
+		return m, cmd
+	case modeOpenDir:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.mode = modeNormal
+			m.tp.Blur()
+			m.dirCandidates = nil
+			return m, nil
+		case tea.KeyTab:
+			typed := expandPath(m.tp.Value(), homeDir())
+			listDir, _ := dirCompletionTarget(typed)
+			return m, listDirsCmd(m.api, typed, listDir)
+		case tea.KeyEnter:
+			return m, openDirCmd(m.api, expandPath(m.tp.Value(), homeDir()))
+		}
+		var cmd tea.Cmd
+		m.tp, cmd = m.tp.Update(msg)
+		return m, cmd
+	case modeNewAgentDir:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.mode = modeNewAgent
+			m.tp.Blur()
+			m.dirCandidates = nil
+			m.ta.Focus()
+			return m, nil
+		case tea.KeyTab:
+			typed := expandPath(m.tp.Value(), homeDir())
+			listDir, _ := dirCompletionTarget(typed)
+			return m, listDirsCmd(m.api, typed, listDir)
+		case tea.KeyEnter:
+			m.targetDir = expandPath(m.tp.Value(), homeDir())
+			m.mode = modeNewAgent
+			m.tp.Blur()
+			m.dirCandidates = nil
+			m.ta.Focus()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.tp, cmd = m.tp.Update(msg)
 		return m, cmd
 	case modeSendMsg:
 		switch msg.Type {
@@ -198,7 +286,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, openInDetailCmd(m.detailPane, s.TmuxSession)
 		}
 	case "down", "j":
-		if m.cursor < len(m.sessions)-1 {
+		if m.cursor < len(m.items())-1 {
 			m.cursor++
 		}
 	case "up", "k":
@@ -206,9 +294,15 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "n":
+		m.targetDir = m.activeDir()
 		m.mode = modeNewAgent
 		m.ta.Reset()
 		m.ta.Focus()
+	case "o":
+		m.mode = modeOpenDir
+		m.tp.Reset()
+		m.tp.Focus()
+		m.dirCandidates = nil
 	case "s":
 		if m.selected() != nil {
 			m.mode = modeSendMsg
@@ -216,7 +310,13 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ti.Focus()
 		}
 	case "x":
-		if m.selected() != nil {
+		it := itemAt(m.items(), m.cursor)
+		if it.session == nil {
+			if it.dir != "" {
+				delete(m.openedDirs, it.dir)
+				m.status = "closed " + abbrevHome(it.dir)
+			}
+		} else {
 			m.mode = modeConfirmKill
 		}
 	case "a":
@@ -249,15 +349,19 @@ func (m listPaneModel) View() string {
 		return header + "\n" + lipgloss.NewStyle().Width(m.w).Height(bodyH).Render(helpText())
 	}
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
-	body := titleBox(title, renderList(m.sessions, m.cursor, m.w-2, bodyH-2), m.w, bodyH)
+	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
-	footer := stMuted.Render("enter open · n new · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · o open dir · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
 	switch m.mode {
 	case modeNewAgent:
-		footer = stPaneTitle.Render("New agent (ctrl+s submit · esc cancel)") + "\n" + m.ta.View()
+		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: change dir · ctrl+s submit · esc cancel)") + "\n" + m.ta.View()
+	case modeNewAgentDir:
+		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
+	case modeOpenDir:
+		footer = stPaneTitle.Render("Open directory (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:

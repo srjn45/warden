@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -45,6 +46,47 @@ func TestListPaneEnterNoopWithoutSelection(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9")
 	_, cmd := m.Update(key("enter")) // no sessions loaded
 	require.Nil(t, cmd, "Enter with no selection does nothing")
+}
+
+func TestListPaneOpenDirAddsPlaceholder(t *testing.T) {
+	f := &fakeAPI{dirListing: client.DirListing{Path: "/work/api"}}
+	m := newListPane(f, "%9")
+	m = lstep(m, key("o"))
+	require.Equal(t, modeOpenDir, m.mode)
+	m.tp.SetValue("/work/api")
+	_, cmd := m.Update(key("enter"))
+	require.NotNil(t, cmd, "enter dispatches openDirCmd")
+	m = lstep(m, openDirMsg{dir: "/work/api"}) // the validated result
+	require.Equal(t, modeNormal, m.mode)
+	items := m.items()
+	require.Len(t, items, 1)
+	require.Nil(t, items[0].session)
+	require.Equal(t, "/work/api", items[0].dir)
+}
+
+func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
+	now := time.Now()
+	m := newListPane(&fakeAPI{}, "%9")
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/work/api", UpdatedAt: now}}})
+	m = lstep(m, key("n"))
+	require.Equal(t, modeNewAgent, m.mode)
+	require.Equal(t, "/work/api", m.targetDir, "new agent defaults to the cursor group's dir")
+}
+
+func TestListPaneCloseOpenedDirWithX(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	m.openedDirs["/work/empty"] = time.Now()
+	require.Len(t, m.items(), 1)
+	m = lstep(m, key("x")) // cursor is on the placeholder
+	require.Empty(t, m.openedDirs, "x on a placeholder closes the opened dir")
+	require.NotEqual(t, modeConfirmKill, m.mode, "no kill-confirm for a placeholder")
+}
+
+func TestListPaneXOnAgentStillConfirms(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/work/api"}}})
+	m = lstep(m, key("x"))
+	require.Equal(t, modeConfirmKill, m.mode)
 }
 
 func TestRespawnDetailArgs(t *testing.T) {

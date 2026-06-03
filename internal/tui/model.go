@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"os"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -31,6 +33,8 @@ const (
 	modeSendMsg
 	modeConfirmKill
 	modeHelp
+	modeOpenDir     // path input for `o`
+	modeNewAgentDir // dir-override sub-state of modeNewAgent
 )
 
 // Model is the Bubble Tea model. Update is a pure reducer over messages.
@@ -42,6 +46,10 @@ type Model struct {
 	vp            viewport.Model
 	ta            textarea.Model
 	ti            textinput.Model
+	tp            textinput.Model
+	openedDirs    map[string]time.Time
+	dirCandidates []string
+	targetDir     string
 	mode          mode
 	outputFocused bool
 	pendingSelect string
@@ -57,21 +65,31 @@ func New(a api) Model {
 	ta.Placeholder = "What should this agent do?"
 	ti := textinput.New()
 	ti.Placeholder = "message…"
-	return Model{api: a, ta: ta, ti: ti, connected: true}
+	tp := textinput.New()
+	tp.Placeholder = "~/path/to/dir"
+	return Model{api: a, ta: ta, ti: ti, tp: tp, openedDirs: map[string]time.Time{}, connected: true}
 }
 
-func (m Model) selected() *store.Session {
-	if m.cursor >= 0 && m.cursor < len(m.sessions) {
-		return m.sessions[m.cursor]
-	}
-	return nil
-}
+func (m Model) items() []item { return buildItems(m.sessions, m.openedDirs) }
+
+func (m Model) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
 
 func (m Model) selectedID() string {
 	if s := m.selected(); s != nil {
 		return s.ID
 	}
 	return ""
+}
+
+func (m Model) selectedKey() string { return itemKey(itemAt(m.items(), m.cursor)) }
+
+func (m Model) fallbackDir() string {
+	d, _ := os.Getwd()
+	return d
+}
+
+func (m Model) activeDir() string {
+	return activeDir(m.items(), m.cursor, m.fallbackDir())
 }
 
 func (m Model) Init() tea.Cmd {
@@ -96,9 +114,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.connected = true
-		prevID := m.selectedID()
+		prevKey := m.selectedKey()
 		m.sessions = groupSort(msg.sessions)
-		m.repin(prevID)
+		m.repin(prevKey)
+		return m, nil
+
+	case dirListMsg:
+		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {
+			completed, cands := completeDir(msg.listing, msg.typed)
+			m.tp.SetValue(completed)
+			m.tp.CursorEnd()
+			m.dirCandidates = cands
+		}
+		return m, nil
+
+	case openDirMsg:
+		if msg.err != nil {
+			m.status = "cannot open " + msg.dir + ": " + msg.err.Error()
+			return m, nil
+		}
+		m.openedDirs[msg.dir] = time.Now()
+		m.pendingSelect = dirKey(msg.dir)
+		m.mode = modeNormal
+		m.tp.Blur()
+		m.dirCandidates = nil
+		m.repin("")
 		return m, nil
 
 	case outputMsg:
@@ -151,6 +191,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeNewAgent {
 			return m.updateNewAgent(msg)
 		}
+		if m.mode == modeOpenDir {
+			return m.updateOpenDir(msg)
+		}
+		if m.mode == modeNewAgentDir {
+			return m.updateNewAgentDir(msg)
+		}
 		if m.mode == modeSendMsg {
 			return m.updateSendMsg(msg)
 		}
@@ -174,15 +220,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// repin keeps the cursor on the session with prevID if it still exists, else clamps.
-func (m *Model) repin(prevID string) {
-	want := prevID
+// repin keeps the cursor on the item with prevKey if it still exists, else clamps.
+func (m *Model) repin(prevKey string) {
+	items := m.items()
+	want := prevKey
 	if m.pendingSelect != "" {
 		want = m.pendingSelect
 	}
 	if want != "" {
-		for i, s := range m.sessions {
-			if s.ID == want {
+		for i, it := range items {
+			if itemKey(it) == want {
 				m.cursor = i
 				if want == m.pendingSelect {
 					m.pendingSelect = ""
@@ -191,8 +238,8 @@ func (m *Model) repin(prevID string) {
 			}
 		}
 	}
-	if m.cursor >= len(m.sessions) {
-		m.cursor = len(m.sessions) - 1
+	if m.cursor >= len(items) {
+		m.cursor = len(items) - 1
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
