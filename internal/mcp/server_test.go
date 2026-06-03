@@ -144,6 +144,39 @@ func TestRestoreAgentTool(t *testing.T) {
 	require.Equal(t, "/sessions/A-1/restore", hitPath)
 }
 
+func TestAdoptAgentTool(t *testing.T) {
+	var hitPath string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/adopt" {
+			hitPath = r.URL.Path
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"session":{"id":"adopted-1","status":"working"},"warning":""}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, serverTransport) }()
+
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "adopt_agent",
+		Arguments: map[string]any{"dir": "/work/proj"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, "/adopt", hitPath)
+	require.Contains(t, textOf(res), "adopted-1")
+}
+
 func TestTeardownTools(t *testing.T) {
 	hits := map[string]bool{}
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

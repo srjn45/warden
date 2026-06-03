@@ -34,6 +34,11 @@ type spawnArgs struct {
 	Prompt   string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
 	Dir      string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
 }
+type adoptArgs struct {
+	Dir         string `json:"dir,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
+	TmuxSession string `json:"tmux_session,omitempty"`
+}
 type sendArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	Text   string `json:"text" jsonschema:"the message to type into the agent's claude session"`
@@ -115,6 +120,31 @@ func NewServer(daemonBase string) *Server {
 		}
 		res, err := jsonResult(sess)
 		return res, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "adopt_agent",
+		Description: "Register an existing Claude Code session into agentctl: resume the newest conversation for a directory under tmux, or (when tmux_session is given) register a running tmux session live without relaunch.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a adoptArgs) (*mcpsdk.CallToolResult, any, error) {
+		cwd := a.Dir
+		if cwd == "" {
+			if wd, err := os.Getwd(); err == nil {
+				cwd = wd
+			}
+		} else if abs, err := filepath.Abs(cwd); err == nil {
+			cwd = abs
+		}
+		res, err := s.cl.Adopt(ctx, client.AdoptParams{
+			Cwd: cwd, SessionID: a.SessionID, TmuxSession: a.TmuxSession,
+		})
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		msg := "adopted as " + res.Session.ID
+		if res.Warning != "" {
+			msg += " (warning: " + res.Warning + ")"
+		}
+		return textResult(msg), res.Session, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
