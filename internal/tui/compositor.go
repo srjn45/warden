@@ -28,6 +28,14 @@ func tmuxAvailable() bool {
 	return err == nil
 }
 
+// ChooseClassic is the exported wrapper for chooseClassic (used by the CLI).
+func ChooseClassic(classicFlag, tmuxAvailable, insideTmux bool) bool {
+	return chooseClassic(classicFlag, tmuxAvailable, insideTmux)
+}
+
+// TmuxAvailable reports whether the tmux binary is on PATH (used by the CLI).
+func TmuxAvailable() bool { return tmuxAvailable() }
+
 func cockpitSession(pid int) string {
 	return fmt.Sprintf("agentctl-tui-%d", pid)
 }
