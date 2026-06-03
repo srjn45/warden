@@ -231,7 +231,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		if id := m.selectedID(); id != "" {
-			return m, attachCmd(id)
+			return m, switchClientCmd(id)
 		}
 	case "?":
 		m.mode = modeHelp
@@ -248,6 +248,9 @@ func (m listPaneModel) View() string {
 		conn = stError.Render("reconnecting…")
 	}
 	header := stHeader.Render("agentctl") + "  " + conn
+	if !m.connected {
+		header += "  " + stError.Render("daemon not running — start it with `agentctl daemon`")
+	}
 	bodyH := m.h - 2
 	if bodyH < 3 {
 		bodyH = 3
@@ -282,6 +285,16 @@ func killCockpitCmd() tea.Cmd {
 	return func() tea.Msg {
 		_ = exec.Command("tmux", "kill-session").Run()
 		return nil
+	}
+}
+
+// switchClientCmd moves the cockpit's tmux client to the selected agent's
+// session. The list pane runs inside the cockpit's tmux session, where
+// `tmux attach` refuses to nest — `switch-client` is the correct primitive.
+// The user can switch back to the cockpit session via tmux.
+func switchClientCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		return attachDoneMsg{err: exec.Command("tmux", "switch-client", "-t", id).Run()}
 	}
 }
 
