@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -184,6 +185,56 @@ func TestActiveDirUsesCursorItemElseFallback(t *testing.T) {
 	require.Equal(t, "/work/api", activeDir(items, 0, "/fallback"))
 	require.Equal(t, "/fallback", activeDir(items, 1, "/fallback"), "unknown dir (—) → fallback")
 	require.Equal(t, "/fallback", activeDir(nil, 0, "/fallback"), "no items → fallback")
+}
+
+func TestExpandPath(t *testing.T) {
+	require.Equal(t, "/home/me", expandPath("~", "/home/me"))
+	require.Equal(t, "/home/me/work", expandPath("~/work", "/home/me"))
+	require.Equal(t, "/home/me/work", expandPath("~/work/", "/home/me"), "clean strips trailing slash")
+	require.Equal(t, "/abs/path", expandPath("/abs/path", "/home/me"), "absolute unchanged")
+}
+
+func TestDirCompletionTarget(t *testing.T) {
+	d, leaf := dirCompletionTarget("/home/me/wo")
+	require.Equal(t, "/home/me", d)
+	require.Equal(t, "wo", leaf)
+
+	d, leaf = dirCompletionTarget("/home/me/work/")
+	require.Equal(t, "/home/me/work", d)
+	require.Equal(t, "", leaf, "trailing slash → list children")
+
+	d, leaf = dirCompletionTarget("/")
+	require.Equal(t, "/", d)
+	require.Equal(t, "", leaf)
+}
+
+func TestLongestCommonPrefix(t *testing.T) {
+	require.Equal(t, "ap", longestCommonPrefix([]string{"api", "apex"}))
+	require.Equal(t, "only", longestCommonPrefix([]string{"only"}))
+	require.Equal(t, "", longestCommonPrefix([]string{"api", "web"}))
+	require.Equal(t, "", longestCommonPrefix(nil))
+}
+
+func TestCompleteDir(t *testing.T) {
+	listing := client.DirListing{
+		Path: "/home/me/work",
+		Entries: []client.DirEntry{
+			{Name: "api", Path: "/home/me/work/api"},
+			{Name: "apex", Path: "/home/me/work/apex"},
+			{Name: "web", Path: "/home/me/work/web"},
+		},
+	}
+	completed, cands := completeDir(listing, "/home/me/work/ap")
+	require.Equal(t, "/home/me/work/ap", completed, "completes to longest common prefix of api+apex")
+	require.Equal(t, []string{"api", "apex"}, cands)
+
+	completed, cands = completeDir(listing, "/home/me/work/web")
+	require.Equal(t, "/home/me/work/web", completed, "single match completes fully")
+	require.Equal(t, []string{"web"}, cands)
+
+	completed, cands = completeDir(listing, "/home/me/work/zzz")
+	require.Equal(t, "/home/me/work/zzz", completed, "no match → unchanged")
+	require.Nil(t, cands)
 }
 
 func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {

@@ -3,11 +3,13 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -395,4 +397,73 @@ func listWindow(n, cursor, visible int) int {
 		top = 0
 	}
 	return top
+}
+
+// expandPath expands a leading ~, resolves relative paths against the cwd, and
+// cleans the result to an absolute path. home is injected (empty = no expansion).
+func expandPath(p, home string) string {
+	if home != "" {
+		if p == "~" {
+			p = home
+		} else if strings.HasPrefix(p, "~/") {
+			p = filepath.Join(home, p[2:])
+		}
+	}
+	if !filepath.IsAbs(p) {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+	}
+	return filepath.Clean(p)
+}
+
+// dirCompletionTarget splits a typed path into the directory to list and the
+// leaf prefix to match. A trailing slash means "list this dir's children" (empty
+// leaf); otherwise the last segment is the prefix to complete within its parent.
+func dirCompletionTarget(typed string) (listDir, leaf string) {
+	if typed == "" {
+		return ".", ""
+	}
+	if strings.HasSuffix(typed, "/") {
+		d := strings.TrimRight(typed, "/")
+		if d == "" {
+			d = "/"
+		}
+		return d, ""
+	}
+	return filepath.Dir(typed), filepath.Base(typed)
+}
+
+// longestCommonPrefix returns the longest string that prefixes every input.
+func longestCommonPrefix(ss []string) string {
+	if len(ss) == 0 {
+		return ""
+	}
+	pre := ss[0]
+	for _, s := range ss[1:] {
+		for !strings.HasPrefix(s, pre) {
+			pre = pre[:len(pre)-1]
+			if pre == "" {
+				return ""
+			}
+		}
+	}
+	return pre
+}
+
+// completeDir, given a listing of the directory that contains `typed`'s leaf,
+// returns `typed` completed to the longest common prefix of the entries that
+// match the leaf, plus the matching entry names (for display). When nothing
+// matches, returns typed unchanged and nil candidates.
+func completeDir(listing client.DirListing, typed string) (completed string, candidates []string) {
+	listDir, leaf := dirCompletionTarget(typed)
+	for _, e := range listing.Entries {
+		if strings.HasPrefix(e.Name, leaf) {
+			candidates = append(candidates, e.Name)
+		}
+	}
+	if len(candidates) == 0 {
+		return typed, nil
+	}
+	return filepath.Join(listDir, longestCommonPrefix(candidates)), candidates
 }
