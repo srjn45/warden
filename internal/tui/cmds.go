@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"time"
 
@@ -59,14 +58,10 @@ func outputCmd(a api, id string) tea.Cmd {
 	}
 }
 
-func spawnCmd(a api, prompt string) tea.Cmd {
+func spawnCmd(a api, prompt, cwd string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
 		defer cancel()
-		// Prompt-mode spawns require a launch dir (the daemon rejects an empty
-		// cwd). Use the pane process's cwd: classic runs in the launching shell's
-		// dir, and the cockpit list pane is started in masterCwd (see compositor).
-		cwd, _ := os.Getwd()
 		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Cwd: cwd})
 		if err != nil {
 			return spawnDoneMsg{err: err}
@@ -107,4 +102,38 @@ func attachCmd(id string) tea.Cmd {
 
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+// dirListMsg carries a /fs/dirs listing back for tab-completion. typed is the
+// expanded path the user had typed when completion was requested.
+type dirListMsg struct {
+	typed   string
+	listing client.DirListing
+	err     error
+}
+
+// openDirMsg is the result of validating a dir the user asked to open.
+type openDirMsg struct {
+	dir string
+	err error
+}
+
+// listDirsCmd fetches listDir's subdirectories for completing `typed`.
+func listDirsCmd(a api, typed, listDir string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		l, err := a.ListDirs(ctx, listDir)
+		return dirListMsg{typed: typed, listing: l, err: err}
+	}
+}
+
+// openDirCmd validates that dir is a readable directory (via /fs/dirs).
+func openDirCmd(a api, dir string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		_, err := a.ListDirs(ctx, dir)
+		return openDirMsg{dir: dir, err: err}
+	}
 }
