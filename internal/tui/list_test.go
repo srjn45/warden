@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -60,4 +62,84 @@ func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
 		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
 	require.Len(t, strings.Split(renderList(m.sessions, m.cursor, 80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
+}
+
+func TestSourceDir(t *testing.T) {
+	require.Equal(t, "/repo/root", sourceDir(&store.Session{Repo: "/repo/root", Workdir: "/repo/root/.worktrees/x"}), "Repo wins when set")
+	require.Equal(t, "/work/proj", sourceDir(&store.Session{Workdir: "/work/proj"}), "falls back to Workdir")
+	require.Equal(t, "—", sourceDir(&store.Session{}), "dash when both empty")
+}
+
+func TestAbbrevHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	require.Equal(t, "~", abbrevHome(home), "exact home → ~")
+	require.Equal(t, "~/work/proj", abbrevHome(filepath.Join(home, "work", "proj")), "home prefix → ~")
+	require.Equal(t, "/etc/thing", abbrevHome("/etc/thing"), "non-home path unchanged")
+}
+
+func TestAbbrevHomeWith(t *testing.T) {
+	require.Equal(t, "/work/proj", abbrevHomeWith("/work/proj", ""), "empty home (lookup failed) → unchanged")
+	require.Equal(t, "~", abbrevHomeWith("/home/me", "/home/me"), "exact home → ~")
+	require.Equal(t, "~/x", abbrevHomeWith("/home/me/x", "/home/me"), "home prefix → ~/x")
+	require.Equal(t, "/home/meother", abbrevHomeWith("/home/meother", "/home/me"), "no false prefix match")
+}
+
+func TestGroupSortOrdersGroupsByRecencyAndKeepsWithinOrder(t *testing.T) {
+	now := time.Now()
+	in := []*store.Session{
+		{ID: "b1", Workdir: "/b", UpdatedAt: now.Add(-1 * time.Minute)},
+		{ID: "a1", Workdir: "/a", UpdatedAt: now.Add(-2 * time.Minute)},
+		{ID: "b2", Workdir: "/b", UpdatedAt: now.Add(-3 * time.Minute)},
+		{ID: "a2", Workdir: "/a", UpdatedAt: now.Add(-4 * time.Minute)},
+	}
+	out := groupSort(in)
+	got := []string{out[0].ID, out[1].ID, out[2].ID, out[3].ID}
+	require.Equal(t, []string{"b1", "b2", "a1", "a2"}, got)
+}
+
+func TestGroupSortStableForSingleOrEmpty(t *testing.T) {
+	require.Empty(t, groupSort(nil))
+	one := []*store.Session{{ID: "x", Workdir: "/a"}}
+	require.Equal(t, one, groupSort(one))
+}
+
+func TestRenderListGroupsBySourceDir(t *testing.T) {
+	m := New(&fakeAPI{})
+	m.sessions = groupSort([]*store.Session{
+		{ID: "a1", Workdir: "/work/alpha", Status: store.StatusWorking, UpdatedAt: time.Now()},
+		{ID: "a2", Workdir: "/work/alpha", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-time.Minute)},
+		{ID: "b1", Workdir: "/work/beta", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-2 * time.Minute)},
+	})
+	out := renderList(m.sessions, m.cursor, 120, 12)
+	require.Contains(t, out, "/work/alpha (2)", "alpha group header with count")
+	require.Contains(t, out, "/work/beta (1)", "beta group header with count")
+	require.Contains(t, out, "a1")
+	require.Contains(t, out, "b1")
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "/work/alpha (2)") {
+			require.NotContains(t, line, "›", "group header is never the cursor row")
+		}
+	}
+}
+
+func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
+	m := New(&fakeAPI{})
+	now := time.Now()
+	var ss []*store.Session
+	for i := 0; i < 6; i++ {
+		ss = append(ss, &store.Session{
+			ID:        fmt.Sprintf("a%d", i),
+			Workdir:   "/work/alpha",
+			Status:    store.StatusWorking,
+			UpdatedAt: now.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	m.sessions = groupSort(ss)
+	m.cursor = 5
+	for h := 1; h <= 4; h++ {
+		out := renderList(m.sessions, m.cursor, 80, h)
+		require.Len(t, strings.Split(out, "\n"), h, "exactly height lines at h=%d", h)
+		require.Contains(t, out, "a5", "selected agent must stay visible at h=%d", h)
+	}
 }
