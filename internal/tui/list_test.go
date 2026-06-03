@@ -32,7 +32,7 @@ func TestRenderListContainsAgeColumn(t *testing.T) {
 			Subject:   "test subject",
 		},
 	}
-	out := renderList(m.sessions, m.cursor, 120, 10)
+	out := renderList(buildItems(m.sessions, nil), m.cursor, 120, 10)
 	require.Contains(t, out, "<1m", "renderList output should contain the age token <1m")
 	// Ensure the subject is still present too.
 	require.True(t, strings.Contains(out, "test subject") || strings.Contains(out, "test subjec"),
@@ -45,7 +45,7 @@ func TestRenderListClampsToHeightAndKeepsCursor(t *testing.T) {
 		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
 	m.cursor = 18
-	out := renderList(m.sessions, m.cursor, 80, 8)
+	out := renderList(buildItems(m.sessions, nil), m.cursor, 80, 8)
 	require.Len(t, strings.Split(out, "\n"), 8, "rendered to exactly height lines")
 	require.Contains(t, out, "agent-18", "the selected row is within the window")
 	require.Contains(t, out, "more", "a ▲/▼ hint appears when rows are hidden")
@@ -54,7 +54,7 @@ func TestRenderListClampsToHeightAndKeepsCursor(t *testing.T) {
 func TestRenderListShortListPadsToHeight(t *testing.T) {
 	m := New(&fakeAPI{})
 	m.sessions = []*store.Session{{ID: "only", Status: store.StatusWorking}}
-	require.Len(t, strings.Split(renderList(m.sessions, m.cursor, 80, 6), "\n"), 6, "short list padded to height")
+	require.Len(t, strings.Split(renderList(buildItems(m.sessions, nil), m.cursor, 80, 6), "\n"), 6, "short list padded to height")
 }
 
 func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
@@ -62,7 +62,7 @@ func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
-	require.Len(t, strings.Split(renderList(m.sessions, m.cursor, 80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
+	require.Len(t, strings.Split(renderList(buildItems(m.sessions, nil), m.cursor, 80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
 }
 
 func TestSourceDir(t *testing.T) {
@@ -112,7 +112,7 @@ func TestRenderListGroupsBySourceDir(t *testing.T) {
 		{ID: "a2", Workdir: "/work/alpha", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-time.Minute)},
 		{ID: "b1", Workdir: "/work/beta", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-2 * time.Minute)},
 	})
-	out := renderList(m.sessions, m.cursor, 120, 12)
+	out := renderList(buildItems(m.sessions, nil), m.cursor, 120, 12)
 	require.Contains(t, out, "/work/alpha (2)", "alpha group header with count")
 	require.Contains(t, out, "/work/beta (1)", "beta group header with count")
 	require.Contains(t, out, "a1")
@@ -237,6 +237,17 @@ func TestCompleteDir(t *testing.T) {
 	require.Nil(t, cands)
 }
 
+func TestRenderListShowsPlaceholderForEmptyOpenedDir(t *testing.T) {
+	now := time.Now()
+	items := buildItems(
+		[]*store.Session{{ID: "a1", Workdir: "/work/alpha", Status: store.StatusWorking, UpdatedAt: now.Add(-time.Hour)}},
+		map[string]time.Time{"/work/empty": now},
+	)
+	out := renderList(items, 0, 120, 12)
+	require.Contains(t, out, "/work/empty (0)", "empty opened dir header with zero count")
+	require.Contains(t, out, "no agents", "placeholder hint line")
+}
+
 func TestCompleteDirAdvancesAndPreservesTyped(t *testing.T) {
 	listing := client.DirListing{
 		Path: "/home/me/work",
@@ -272,7 +283,7 @@ func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 	m.sessions = groupSort(ss)
 	m.cursor = 5
 	for h := 1; h <= 4; h++ {
-		out := renderList(m.sessions, m.cursor, 80, h)
+		out := renderList(buildItems(m.sessions, nil), m.cursor, 80, h)
 		require.Len(t, strings.Split(out, "\n"), h, "exactly height lines at h=%d", h)
 		require.Contains(t, out, "a5", "selected agent must stay visible at h=%d", h)
 	}

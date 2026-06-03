@@ -199,23 +199,25 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 	return items
 }
 
-// listRow is one rendered line: a group header (header != "") or an agent
-// (header == "", idx points into the sessions slice). buildRows assumes the
-// sessions are already in grouped order (groupSort), so groups are contiguous.
+// listRow is one rendered line: a group header (header != "") or a body row that
+// points at items[idx]. buildRows assumes items are in grouped order (buildItems),
+// so a group's rows are contiguous.
 type listRow struct {
 	header string
 	idx    int
 }
 
-func buildRows(sessions []*store.Session) []listRow {
+func buildRows(items []item) []listRow {
 	var rows []listRow
 	prev := ""
-	for i := range sessions {
-		dir := sourceDir(sessions[i])
+	for i := range items {
+		dir := items[i].dir
 		if i == 0 || dir != prev {
 			count := 0
-			for j := i; j < len(sessions) && sourceDir(sessions[j]) == dir; j++ {
-				count++
+			for j := i; j < len(items) && items[j].dir == dir; j++ {
+				if items[j].session != nil {
+					count++
+				}
 			}
 			rows = append(rows, listRow{header: fmt.Sprintf("%s (%d)", abbrevHome(dir), count)})
 			prev = dir
@@ -231,7 +233,7 @@ func cursorRowIndex(rows []listRow, cursor int) int {
 			return i
 		}
 	}
-	return 0 // unreachable in practice (cursor is clamped, sessions non-empty); 0 is a safe default
+	return 0
 }
 
 func headerAbove(rows []listRow, at int) string {
@@ -243,7 +245,7 @@ func headerAbove(rows []listRow, at int) string {
 	return ""
 }
 
-func countAgents(rows []listRow) int {
+func countRows(rows []listRow) int {
 	n := 0
 	for _, r := range rows {
 		if r.header == "" {
@@ -253,18 +255,18 @@ func countAgents(rows []listRow) int {
 	return n
 }
 
-// renderList renders the agent list windowed to exactly `height` lines and
-// `width` columns of inner content. Agents are grouped by source directory with
-// dimmed, flush-left header rows; the selected agent is always kept visible, and
-// a sticky header is shown when the window starts in the middle of a group.
-func renderList(sessions []*store.Session, cursor, width, height int) string {
+// renderList renders the item list windowed to exactly height lines and width
+// columns. Items are grouped by dir with dimmed header rows; an empty opened dir
+// shows a selectable "(no agents …)" placeholder. The cursor item is always kept
+// visible; a sticky header shows when the window starts mid-group.
+func renderList(items []item, cursor, width, height int) string {
 	if height < 1 {
 		height = 1
 	}
-	if len(sessions) == 0 {
+	if len(items) == 0 {
 		return padTo(stMuted.Render("No agents — press n to create one"), height)
 	}
-	rows := buildRows(sessions)
+	rows := buildRows(items)
 	n := len(rows)
 	cursorRow := cursorRowIndex(rows, cursor)
 
@@ -299,17 +301,7 @@ func renderList(sessions []*store.Session, cursor, width, height int) string {
 		if r.header != "" {
 			b.WriteString(stMuted.Render(r.header) + "\n")
 		} else {
-			s := sessions[r.idx]
-			label, st := badge(s.Status)
-			line := fmt.Sprintf("%-12s %-9s %-11s %-5s %s",
-				trunc(s.ID, 12), trunc(typeOr(s), 9), st.Render(label), age(s.UpdatedAt),
-				trunc(s.Subject, max(0, width-44)))
-			cur := "  "
-			if r.idx == cursor {
-				cur = stCursor.Render("› ")
-				line = stCursor.Render(line)
-			}
-			b.WriteString(cur + line + "\n")
+			b.WriteString(renderItemLine(items[r.idx], r.idx == cursor, width) + "\n")
 		}
 		used++
 		end = i + 1
@@ -317,10 +309,10 @@ func renderList(sessions []*store.Session, cursor, width, height int) string {
 
 	if hidden && height > 1 {
 		var parts []string
-		if a := countAgents(rows[:top]); a > 0 {
+		if a := countRows(rows[:top]); a > 0 {
 			parts = append(parts, fmt.Sprintf("▲ %d more", a))
 		}
-		if a := countAgents(rows[end:]); a > 0 {
+		if a := countRows(rows[end:]); a > 0 {
 			parts = append(parts, fmt.Sprintf("▼ %d more", a))
 		}
 		b.WriteString(stMuted.Render(strings.Join(parts, "   ")) + "\n")
@@ -330,6 +322,29 @@ func renderList(sessions []*store.Session, cursor, width, height int) string {
 		b.WriteString("\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// renderItemLine renders one body row: an agent's columns, or the placeholder
+// line for an empty opened dir. The cursor row gets the "› " caret + cursor style.
+func renderItemLine(it item, selected bool, width int) string {
+	var line string
+	if it.session == nil {
+		line = stMuted.Render("(no agents — n to spawn here)")
+	} else {
+		s := it.session
+		label, st := badge(s.Status)
+		line = fmt.Sprintf("%-12s %-9s %-11s %-5s %s",
+			trunc(s.ID, 12), trunc(typeOr(s), 9), st.Render(label), age(s.UpdatedAt),
+			trunc(s.Subject, max(0, width-44)))
+	}
+	cur := "  "
+	if selected {
+		cur = stCursor.Render("› ")
+		if it.session != nil {
+			line = stCursor.Render(line)
+		}
+	}
+	return cur + line
 }
 
 // padTo pads s with blank lines to exactly height lines.
