@@ -7,8 +7,8 @@ import (
 )
 
 // detailChrome is the number of non-viewport lines renderDetail emits
-// (head, dir, subject, blank, output-title, blank, history≈7).
-const detailChrome = 13
+// (head, dir, subject, blank, output-title).
+const detailChrome = 5
 
 func (m *Model) layout() {
 	bodyH := m.h - 2
