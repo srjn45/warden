@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -74,7 +75,7 @@ func (m Model) View() string {
 		if detailTitle == "" {
 			detailTitle = "—"
 		}
-		left := titleBox(listTitle, renderList(m.sessions, m.cursor, listOuter-2, bodyH-2), listOuter, bodyH)
+		left := titleBox(listTitle, renderList(m.items(), m.cursor, listOuter-2, bodyH-2), listOuter, bodyH)
 		right := titleBox(detailTitle, renderDetail(m.selected(), m.vp, m.outputFocused, detailOuter-2), detailOuter, bodyH)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
@@ -82,7 +83,11 @@ func (m Model) View() string {
 	footer := m.footer()
 	switch m.mode {
 	case modeNewAgent:
-		footer = stPaneTitle.Render("New agent — describe the task (ctrl+s submit · esc cancel)") + "\n" + m.ta.View()
+		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: change dir · ctrl+s submit · esc cancel)") + "\n" + m.ta.View()
+	case modeNewAgentDir:
+		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
+	case modeOpenDir:
+		footer = stPaneTitle.Render("Open directory (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
@@ -96,6 +101,7 @@ func helpText() string {
 		"  ↑/↓ or j/k   move selection\n" +
 		"  tab          focus output (PgUp/PgDn scroll), tab/esc to leave\n" +
 		"  n            new agent (prompt)\n" +
+		"  o            open a directory as a group (spawn target for n)\n" +
 		"  s            send a message to the selected agent\n" +
 		"  a            attach to its tmux session\n" +
 		"  x            kill agent & remove it from the list\n" +
@@ -107,5 +113,5 @@ func (m Model) footer() string {
 	if m.status != "" {
 		return stStatus.Render(m.status)
 	}
-	return stMuted.Render("n new · s send · a attach · x kill · tab focus · ? help · q quit")
+	return stMuted.Render("n new · o open dir · s send · a attach · x kill · tab focus · ? help · q quit")
 }

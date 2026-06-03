@@ -13,7 +13,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "down", "j":
-			if m.cursor < len(m.sessions)-1 {
+			if m.cursor < len(m.items())-1 {
 				m.cursor++
 			}
 			return m, nil
@@ -28,9 +28,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "n":
+			m.targetDir = m.activeDir()
 			m.mode = modeNewAgent
 			m.ta.Reset()
 			m.ta.Focus()
+			return m, nil
+		case "o":
+			m.mode = modeOpenDir
+			m.tp.Reset()
+			m.tp.Focus()
+			m.dirCandidates = nil
 			return m, nil
 		case "s":
 			if m.selected() != nil {
@@ -40,7 +47,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "x":
-			if m.selected() != nil {
+			it := itemAt(m.items(), m.cursor)
+			if it.session == nil {
+				if it.dir != "" {
+					delete(m.openedDirs, it.dir)
+					m.status = "closed " + abbrevHome(it.dir)
+				}
+			} else {
 				m.mode = modeConfirmKill
 			}
 			return m, nil
@@ -63,6 +76,14 @@ func (m Model) updateNewAgent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 		m.ta.Blur()
 		return m, nil
+	case tea.KeyTab:
+		m.mode = modeNewAgentDir
+		m.ta.Blur()
+		m.tp.SetValue(m.targetDir)
+		m.tp.CursorEnd()
+		m.tp.Focus()
+		m.dirCandidates = nil
+		return m, nil
 	case tea.KeyCtrlS:
 		prompt := strings.TrimSpace(m.ta.Value())
 		m.mode = modeNormal
@@ -71,10 +92,54 @@ func (m Model) updateNewAgent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "prompt was empty"
 			return m, nil
 		}
-		return m, spawnCmd(m.api, prompt)
+		return m, spawnCmd(m.api, prompt, m.targetDir)
 	}
 	var cmd tea.Cmd
 	m.ta, cmd = m.ta.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateOpenDir(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = modeNormal
+		m.tp.Blur()
+		m.dirCandidates = nil
+		return m, nil
+	case tea.KeyTab:
+		typed := expandPath(m.tp.Value(), homeDir())
+		listDir, _ := dirCompletionTarget(typed)
+		return m, listDirsCmd(m.api, typed, listDir)
+	case tea.KeyEnter:
+		return m, openDirCmd(m.api, expandPath(m.tp.Value(), homeDir()))
+	}
+	var cmd tea.Cmd
+	m.tp, cmd = m.tp.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateNewAgentDir(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = modeNewAgent
+		m.tp.Blur()
+		m.dirCandidates = nil
+		m.ta.Focus()
+		return m, nil
+	case tea.KeyTab:
+		typed := expandPath(m.tp.Value(), homeDir())
+		listDir, _ := dirCompletionTarget(typed)
+		return m, listDirsCmd(m.api, typed, listDir)
+	case tea.KeyEnter:
+		m.targetDir = expandPath(m.tp.Value(), homeDir())
+		m.mode = modeNewAgent
+		m.tp.Blur()
+		m.dirCandidates = nil
+		m.ta.Focus()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.tp, cmd = m.tp.Update(msg)
 	return m, cmd
 }
 

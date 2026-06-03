@@ -286,3 +286,32 @@ func TestViewDoesNotOverflowHeight(t *testing.T) {
 	out := m.View()
 	require.LessOrEqual(t, strings.Count(out, "\n")+1, 30, "View must not exceed terminal height")
 }
+
+func TestModelNewAgentResolvesTargetDir(t *testing.T) {
+	now := time.Now()
+	m := New(&fakeAPI{})
+	m = step(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/work/api", UpdatedAt: now}}})
+	m = step(m, key("n"))
+	require.Equal(t, modeNewAgent, m.mode)
+	require.Equal(t, "/work/api", m.targetDir)
+}
+
+func TestModelOpenDirAddsPlaceholder(t *testing.T) {
+	m := New(&fakeAPI{dirListing: client.DirListing{Path: "/work/api"}})
+	m = step(m, key("o"))
+	require.Equal(t, modeOpenDir, m.mode)
+	m = step(m, openDirMsg{dir: "/work/api"})
+	require.Equal(t, modeNormal, m.mode)
+	items := m.items()
+	require.Len(t, items, 1)
+	require.Nil(t, items[0].session)
+	require.Equal(t, "/work/api", items[0].dir)
+}
+
+func TestModelCloseOpenedDirWithX(t *testing.T) {
+	m := New(&fakeAPI{})
+	m.openedDirs["/work/empty"] = time.Now()
+	m = step(m, key("x"))
+	require.Empty(t, m.openedDirs)
+	require.NotEqual(t, modeConfirmKill, m.mode)
+}
