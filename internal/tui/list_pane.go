@@ -92,9 +92,9 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case cleanupDoneMsg:
 		m.mode = modeNormal
-		m.status = "terminated " + msg.id
+		m.status = "removed " + msg.id
 		if msg.err != nil {
-			m.status = "terminate failed: " + msg.err.Error()
+			m.status = "remove failed: " + msg.err.Error()
 		}
 		return m, nil
 	case attachDoneMsg:
@@ -181,7 +181,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = ""
 		case "y", "Y":
 			if id := m.selectedID(); id != "" {
-				return m, terminateCmd(m.api, id)
+				return m, killCmd(m.api, id)
 			}
 		}
 		return m, nil
@@ -261,7 +261,7 @@ func (m listPaneModel) View() string {
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
-		footer = stError.Render("Terminate " + m.selectedID() + "? y / N")
+		footer = stError.Render("Kill & remove " + m.selectedID() + "? y / N")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }

@@ -83,14 +83,18 @@ func inputCmd(a api, id, text string) tea.Cmd {
 	}
 }
 
-func terminateCmd(a api, id string) tea.Cmd {
+// killCmd kills the agent and removes it from the list in one action: it
+// terminates the tmux+claude session, then soft-deletes (archives) the record
+// so it drops off the list while staying recoverable in closed/. Mirrors
+// `agentctl done`. Terminate is best-effort — an already-dead agent (status
+// done/orphaned) errors there, which we ignore so its lingering record can
+// still be removed; only a delete failure is surfaced.
+func killCmd(a api, id string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
 		defer cancel()
-		if err := a.Terminate(ctx, id); err != nil {
-			return cleanupDoneMsg{id: id, err: err}
-		}
-		return cleanupDoneMsg{id: id}
+		_ = a.Terminate(ctx, id)
+		return cleanupDoneMsg{id: id, err: a.Delete(ctx, id, false)}
 	}
 }
 

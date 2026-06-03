@@ -86,7 +86,7 @@ func (m Model) View() string {
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
-		footer = stError.Render("Terminate " + m.selectedID() + "? y / N")
+		footer = stError.Render("Kill & remove " + m.selectedID() + "? y / N")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }
@@ -98,7 +98,7 @@ func helpText() string {
 		"  n            new agent (prompt)\n" +
 		"  s            send a message to the selected agent\n" +
 		"  a            attach to its tmux session\n" +
-		"  x            terminate agent\n" +
+		"  x            kill agent & remove it from the list\n" +
 		"  ?            toggle this help\n" +
 		"  q            quit\n"
 }

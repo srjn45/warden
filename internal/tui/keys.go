@@ -108,7 +108,7 @@ func (m Model) updateConfirmKill(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "y", "Y":
 		if id != "" {
-			return m, terminateCmd(m.api, id)
+			return m, killCmd(m.api, id)
 		}
 		return m, nil
 	}

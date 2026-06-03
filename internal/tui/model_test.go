@@ -21,6 +21,8 @@ type fakeAPI struct {
 	spawned    *client.SpawnParams
 	terminated string
 	termErr    error
+	deleted    string
+	deleteErr  error
 	sentTo     string
 	sentText   string
 }
@@ -36,6 +38,10 @@ func (f *fakeAPI) Spawn(_ context.Context, p client.SpawnParams) (*store.Session
 func (f *fakeAPI) Terminate(_ context.Context, id string) error {
 	f.terminated = id
 	return f.termErr
+}
+func (f *fakeAPI) Delete(_ context.Context, id string, _ bool) error {
+	f.deleted = id
+	return f.deleteErr
 }
 func (f *fakeAPI) Input(_ context.Context, id, text string) error {
 	f.sentTo, f.sentText = id, text
@@ -211,15 +217,28 @@ func TestSendMessageFlow(t *testing.T) {
 	require.Equal(t, modeNormal, m.mode)
 }
 
-func TestKillConfirmTerminates(t *testing.T) {
+func TestKillConfirmTerminatesAndDeletes(t *testing.T) {
 	f := &fakeAPI{}
 	m := New(f)
 	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = step(m, sessionsMsg{sessions: threeSessions()}) // selected "a"
 	m = step(m, key("x"))
 	require.Equal(t, modeConfirmKill, m.mode)
-	m, _ = submit(m, key("y")) // confirm → terminate
+	m, _ = submit(m, key("y")) // confirm → kill & remove
 	require.Equal(t, "a", f.terminated)
+	require.Equal(t, "a", f.deleted, "kill also removes the record from the list")
+}
+
+// An already-dead agent (terminate errors) must still be removed: the terminate
+// step is best-effort, so the record is deleted regardless.
+func TestKillRemovesEvenWhenTerminateFails(t *testing.T) {
+	f := &fakeAPI{termErr: context.DeadlineExceeded}
+	m := New(f)
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, sessionsMsg{sessions: threeSessions()}) // selected "a"
+	m = step(m, key("x"))
+	m, _ = submit(m, key("y"))
+	require.Equal(t, "a", f.deleted, "delete runs even though terminate failed")
 }
 
 func TestKillEscCancels(t *testing.T) {

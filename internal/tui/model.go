@@ -18,6 +18,7 @@ type api interface {
 	Output(ctx context.Context, id string, lines int) (string, error)
 	Spawn(ctx context.Context, p client.SpawnParams) (*store.Session, error)
 	Terminate(ctx context.Context, id string) error
+	Delete(ctx context.Context, id string, hard bool) error
 	Input(ctx context.Context, id, text string) error
 }
 
@@ -127,9 +128,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cleanupDoneMsg:
 		m.mode = modeNormal
 		if msg.err != nil {
-			m.status = "terminate failed: " + msg.err.Error()
+			m.status = "remove failed: " + msg.err.Error()
 		} else {
-			m.status = "terminated " + msg.id
+			m.status = "removed " + msg.id
 		}
 		return m, nil
 
