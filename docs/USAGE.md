@@ -345,12 +345,16 @@ non-interactive environment. The right-pane detail panel in this mode does not
 embed a live agent session.
 
 The cockpit **automatically falls back to `--classic`** in two situations:
-- `tmux` is not installed or is older than 3.1.
+- `tmux` is not installed.
 - `agentctl tui` is launched from inside an existing tmux session (to avoid
   nesting sessions).
 
-Both panes poll the daemon about once a second, so the daemon must be running
-regardless of which mode you use.
+(There is no tmux-version detection — tmux ≥ 3.1 is a requirement of the
+cockpit, not a fallback trigger; on an older tmux the cockpit may fail to build
+its panes.)
+
+The list pane polls the daemon about once a second, so the daemon must be
+running regardless of which mode you use.
 
 ---
 
