@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 
 	o := cockpitOpts{session: "S", self: "/bin/agentctl", homeDir: "/home", masterCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
-	require.Len(t, fr.Calls, 10, "unexpected number of tmux calls")
+	require.Len(t, fr.Calls, 11, "unexpected number of tmux calls")
 
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", detailPlaceholderCmd()}, fr.Calls[0].Argv)
 	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", "claude"}, fr.Calls[1].Argv)
@@ -52,6 +53,25 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[7].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[8].Argv)
 	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[9].Argv)
+	// Return-to-dashboard binding for the full-screen attach path (`a`).
+	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[10].Argv)
+}
+
+func TestCleanStaleCockpits(t *testing.T) {
+	alive := cockpitSession(os.Getpid()) // this process is alive — must survive
+	dead := cockpitSession(2147483646)   // not a live pid — must be killed
+	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{
+		"tmux list-sessions -F #{session_name}": {Out: alive + "\n" + dead + "\nmy-own-session\n"},
+	}}
+	cleanStaleCockpits(fr)
+
+	var killed []string
+	for _, c := range fr.Calls {
+		if len(c.Argv) >= 4 && c.Argv[1] == "kill-session" {
+			killed = append(killed, c.Argv[3])
+		}
+	}
+	require.Equal(t, []string{dead}, killed, "only the dead-pid cockpit is killed; live cockpit and user sessions are left alone")
 }
 
 func TestPaneCommandStrings(t *testing.T) {

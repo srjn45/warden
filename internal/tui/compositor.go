@@ -2,10 +2,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 )
@@ -124,7 +127,52 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", listID); err != nil {
 		return fmt.Errorf("tmux select-pane: %w: %s", err, out)
 	}
+	// 7. Bind <prefix> Enter to "switch to the last session". The full-screen
+	// attach (`a`) moves this client to the agent's session (switch-client; tmux
+	// can't nest an attach), so the user needs a way back to this dashboard —
+	// <prefix> Enter returns them. -l is per-client, so it stays correct even with
+	// multiple cockpits. switchClientCmd flashes this hint; killCockpitCmd unbinds.
+	if out, err := run.Run(ctx, "", "tmux", "bind-key", "Enter", "switch-client", "-l"); err != nil {
+		return fmt.Errorf("tmux bind-key: %w: %s", err, out)
+	}
 	return nil
+}
+
+// pidAlive reports whether a process with pid exists (signal 0 probe).
+func pidAlive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	// Signal 0 probes existence: nil = alive-and-ours; EPERM = alive but owned
+	// by another user (still alive). Only ESRCH (no such process) means dead.
+	err = p.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// cleanStaleCockpits kills cockpit tmux sessions (agentctl-tui-<pid>) whose
+// owning agentctl process is dead — orphans left behind when a user detached
+// (Ctrl-b d) instead of quitting. Best-effort: a missing tmux server (no
+// sessions yet) or any error is ignored. Live cockpits and the user's own
+// sessions are never touched.
+func cleanStaleCockpits(run lifecycle.Runner) {
+	out, err := run.Run(context.Background(), "", "tmux", "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return
+	}
+	const prefix = "agentctl-tui-"
+	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimPrefix(name, prefix))
+		if err != nil {
+			continue
+		}
+		if !pidAlive(pid) {
+			_, _ = run.Run(context.Background(), "", "tmux", "kill-session", "-t", name)
+		}
+	}
 }
 
 // RunCockpit builds the tmux cockpit for this process and attaches to it,
@@ -132,6 +180,9 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 // directory (where the master claude pane runs).
 func RunCockpit(a api, self, masterCwd string) error {
 	_ = a // the panes hold their own clients; reserved for future inline checks
+	// Reap cockpits orphaned by a prior detach (their owning pid is gone).
+	cleanStaleCockpits(lifecycle.ExecRunner{})
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("resolve home dir: %w", err)
@@ -147,11 +198,12 @@ func RunCockpit(a api, self, masterCwd string) error {
 		_, _ = lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
 		return err
 	}
-	// Always tear the session down on return (covers detach, where `tmux attach`
-	// returns 0 while the session keeps running). kill-session on a gone session
-	// is a harmless ignored error.
-	defer lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
 
+	// We deliberately do NOT kill the session on return. Quitting (`q`) tears the
+	// cockpit down explicitly from inside (killCockpitCmd); a bare detach
+	// (Ctrl-b d) leaves it alive so an accidental detach doesn't destroy the
+	// dashboard. Any cockpit orphaned by a detach is reaped by cleanStaleCockpits
+	// on the next launch (its owning pid is gone).
 	attach := exec.Command("tmux", "attach", "-t", o.session)
 	attach.Stdin, attach.Stdout, attach.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return attach.Run()

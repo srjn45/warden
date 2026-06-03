@@ -73,7 +73,7 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.connected = true
 		prev := m.selectedID()
-		m.sessions = msg.sessions
+		m.sessions = groupSort(msg.sessions)
 		m.repin(prev)
 		return m, nil
 	case spawnDoneMsg:
@@ -273,6 +273,9 @@ func (m listPaneModel) View() string {
 // exits cleanly.
 func killCockpitCmd() tea.Cmd {
 	return func() tea.Msg {
+		// Drop the back-to-dashboard binding buildCockpit installed, then kill the
+		// session. Both are best-effort (harmless if not inside tmux).
+		_ = exec.Command("tmux", "unbind-key", "Enter").Run()
 		_ = exec.Command("tmux", "kill-session").Run()
 		return nil
 	}
@@ -281,10 +284,15 @@ func killCockpitCmd() tea.Cmd {
 // switchClientCmd moves the cockpit's tmux client to the selected agent's
 // session. The list pane runs inside the cockpit's tmux session, where
 // `tmux attach` refuses to nest — `switch-client` is the correct primitive.
-// The user can switch back to the cockpit session via tmux.
+// buildCockpit binds <prefix> Enter to switch-client -l; we flash that hint so
+// the user knows how to get back to the dashboard.
 func switchClientCmd(id string) tea.Cmd {
 	return func() tea.Msg {
-		return attachDoneMsg{err: exec.Command("tmux", "switch-client", "-t", id).Run()}
+		if err := exec.Command("tmux", "switch-client", "-t", id).Run(); err != nil {
+			return attachDoneMsg{err: err}
+		}
+		_ = exec.Command("tmux", "display-message", "agentctl: press Ctrl-b Enter to return to the dashboard").Run()
+		return attachDoneMsg{err: nil}
 	}
 }
 
