@@ -54,6 +54,10 @@ func safeID(id string) error {
 	return nil
 }
 
+// SafeID reports whether id is a valid session id (no path separators or "..").
+// Exported for callers that validate a candidate id before insert (e.g. adopt).
+func SafeID(id string) error { return safeID(id) }
+
 func (fs *FileStore) activePath(id string) string { return filepath.Join(fs.sessions, id+".json") }
 func (fs *FileStore) closedPath(id string) string { return filepath.Join(fs.closed, id+".json") }
 

@@ -264,6 +264,14 @@ func TestFileClearWorktree(t *testing.T) {
 	require.ErrorIs(t, st.ClearWorktree(ctx, "nope"), ErrNotFound)
 }
 
+func TestSafeID(t *testing.T) {
+	require.NoError(t, SafeID("agent-1234"))
+	require.NoError(t, SafeID("work"))
+	require.Error(t, SafeID(""))
+	require.Error(t, SafeID("a/b"))
+	require.Error(t, SafeID("../etc"))
+}
+
 func TestFileConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 	st := newFileStore(t)
