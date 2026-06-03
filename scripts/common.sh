@@ -47,6 +47,12 @@ deploy_binary() {
   cp "$REPO_ROOT/bin/agentctl" "$INSTALL_BIN" || die "failed to copy binary to $INSTALL_BIN"
   info "installed binary -> $INSTALL_BIN"
   codesign_binary
+  # The binary was (re)written and (re)signed, so its code-signature cdhash
+  # changed. launchd pins a Lightweight Code Requirement (LWCR) to the running
+  # job's signature; `kickstart -k` reuses that stale LWCR and the freshly
+  # signed binary fails to spawn (EX_CONFIG/78). restart_service uses this flag
+  # to force a full bootout+bootstrap, which re-derives the LWCR.
+  BINARY_CHANGED=1
 }
 
 # Sign the installed binary with the stable self-signed identity so a granted
@@ -72,6 +78,9 @@ codesign_binary() {
 # changed, 0 when it already matched. restart_service uses this to decide
 # whether a full reload (to pick up plist changes) is needed.
 PLIST_CHANGED=1
+# Set to 1 by deploy_binary when the binary is (re)written/(re)signed. Defaults
+# to 0 so restart_service can kickstart when only a restart (no redeploy) is asked.
+BINARY_CHANGED=0
 render_plist() {
   [ -f "$TEMPLATE" ] || die "plist template not found: $TEMPLATE"
   mkdir -p "$(dirname "$PLIST")"
@@ -135,11 +144,12 @@ reload_service() {
 restart_service() {
   if ! service_loaded; then
     load_service
-  elif [ "${PLIST_CHANGED:-1}" -eq 1 ]; then
-    # plist was (re)written — kickstart won't re-read it, so fully reload.
+  elif [ "${PLIST_CHANGED:-1}" -eq 1 ] || [ "${BINARY_CHANGED:-0}" -eq 1 ]; then
+    # plist was (re)written, or the binary was re-signed (new cdhash) — a plain
+    # kickstart re-reads neither, so fully reload to re-derive launchd's LWCR.
     reload_service
   else
-    # binary replaced in place at the same path; kickstart re-execs it.
+    # Nothing redeployed; kickstart re-execs the existing job in place.
     launchctl kickstart -k "gui/$UID_NUM/$LABEL" || die "failed to restart service"
     info "service restarted"
   fi
