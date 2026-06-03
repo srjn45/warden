@@ -479,6 +479,18 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	return sess, nil
 }
 
+// resumeInTmux creates a detached tmux session named id in cwd and resumes the
+// claude conversation claudeID inside it. Shared by Restore and Adopt.
+func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID string) error {
+	if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "-c", cwd); err != nil {
+		return fmt.Errorf("tmux new-session: %w: %s", err, out)
+	}
+	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, claudeResume(claudeID, id), "Enter"); err != nil {
+		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
+	}
+	return nil
+}
+
 // Restore recreates a lost agent's tmux session in its original workdir and
 // resumes the same claude conversation (claude --resume). It is resume-only: it
 // validates that the session is actually gone, has a pinned id, its workdir
@@ -498,13 +510,7 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	if l.transcriptPath(sess) == "" {
 		return ErrNoTranscript
 	}
-	if out, err := l.run.Run(ctx, "", "tmux", "new-session", "-d", "-s", sess.ID, "-c", sess.Workdir); err != nil {
-		return fmt.Errorf("tmux new-session: %w: %s", err, out)
-	}
-	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, claudeResume(sess.ClaudeSessionID, sess.ID), "Enter"); err != nil {
-		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
-	}
-	return nil
+	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID)
 }
 
 var (
