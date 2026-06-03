@@ -136,7 +136,8 @@ func (s *Server) router() http.Handler {
 	r.Post("/events", s.handleEvent)
 	r.Get("/events/stream", s.handleEventsStream)
 	// Lifecycle routes: POST /spawn, /sessions/{id}/{terminate,delete,
-	// remove-worktree,input,restore}, GET /sessions/{id}/output.
+	// remove-worktree,input,restore}, GET /sessions/{id}/output,
+	// GET /sessions/{id}/output/stream.
 	s.registerLifecycleRoutes(r)
 	r.Get("/fs/dirs", s.handleListDirs)
 	s.registerStatic(r) // catch-all; must be last

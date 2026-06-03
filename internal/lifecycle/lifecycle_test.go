@@ -222,6 +222,18 @@ func TestOutputCapturesPane(t *testing.T) {
 	require.Equal(t, "line1\nline2\n", out)
 }
 
+func TestOutputANSICapturesWithEscapes(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux capture-pane -p -e -t A-1 -S -200": {Out: "\x1b[32mgreen\x1b[0m\n"},
+	}}
+	lc := New(fr)
+	out, err := lc.OutputANSI(context.Background(), "A-1", 200)
+	require.NoError(t, err)
+	require.Equal(t, "\x1b[32mgreen\x1b[0m\n", out)
+	// Assert that the -e flag was passed to tmux capture-pane.
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "capture-pane", "-p", "-e", "-t", "A-1", "-S", "-200"})
+}
+
 func TestShellQuoteArg(t *testing.T) {
 	require.Equal(t, `'hi there'`, shellQuoteArg("hi there"))
 	require.Equal(t, `'a'\''b'`, shellQuoteArg("a'b"))

@@ -62,6 +62,7 @@ func (s *Server) handleOutputStream(w http.ResponseWriter, r *http.Request) {
 	if !send() {
 		return
 	}
+	// No separate heartbeat (cf. handleEventsStream): the 1s capture tick keeps the connection active.
 	ticker := time.NewTicker(outputStreamInterval)
 	defer ticker.Stop()
 	for {
