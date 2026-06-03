@@ -53,3 +53,11 @@ func TestRenderListShortListPadsToHeight(t *testing.T) {
 	m.sessions = []*store.Session{{ID: "only", Status: store.StatusWorking}}
 	require.Len(t, strings.Split(m.renderList(80, 6), "\n"), 6, "short list padded to height")
 }
+
+func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
+	m := New(&fakeAPI{})
+	for i := 0; i < 5; i++ {
+		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
+	}
+	require.Len(t, strings.Split(m.renderList(80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
+}

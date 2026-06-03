@@ -69,7 +69,7 @@ func (m Model) renderList(width, height int) string {
 		b.WriteString(cur + line + "\n")
 		used++
 	}
-	if hidden {
+	if hidden && height > 1 {
 		var parts []string
 		if top > 0 {
 			parts = append(parts, fmt.Sprintf("▲ %d more", top))
