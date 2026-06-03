@@ -27,3 +27,8 @@ func TestResolveDir(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expected, rel)
 }
+
+func TestCurrentTmuxSessionNotInTmux(t *testing.T) {
+	t.Setenv("TMUX", "") // not inside tmux
+	require.Equal(t, "", currentTmuxSession())
+}

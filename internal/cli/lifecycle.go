@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/srajanpathak/agentctl/internal/client"
@@ -203,4 +204,54 @@ func newAttachCmd() *cobra.Command {
 			return c.Run()
 		},
 	}
+}
+
+// currentTmuxSession returns the running tmux session name when invoked inside
+// tmux ($TMUX set), else "". A non-empty result selects live-register mode;
+// empty selects resume mode.
+func currentTmuxSession() string {
+	if os.Getenv("TMUX") == "" {
+		return ""
+	}
+	out, err := exec.Command("tmux", "display-message", "-p", "#S").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func newAdoptCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "adopt",
+		Short: "Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dirFlag, _ := cmd.Flags().GetString("dir")
+			dir, err := resolveDir(dirFlag)
+			if err != nil {
+				return err
+			}
+			sessionID, _ := cmd.Flags().GetString("session-id")
+			tmuxSession := currentTmuxSession()
+			res, err := clientFor(cmd).Adopt(cmd.Context(), client.AdoptParams{
+				Cwd: dir, SessionID: sessionID, TmuxSession: tmuxSession,
+			})
+			if err != nil {
+				return err
+			}
+			mode := "resumed"
+			if tmuxSession != "" {
+				mode = "live"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "adopted as %s (%s) — attach with `agentctl attach %s`\n",
+				res.Session.ID, mode, res.Session.ID)
+			if res.Warning != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", res.Warning)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("session-id", "", "claude session uuid to adopt (default: newest for the directory)")
+	cmd.Flags().String("dir", "", "directory whose claude session to adopt (default: current directory)")
+	return cmd
 }
