@@ -167,6 +167,7 @@ func (s *Server) router() http.Handler {
 	s.registerLifecycleRoutes(r)
 	r.Get("/fs/dirs", s.handleListDirs)
 	r.Get("/approvals", s.handleApprovals)
+	r.Post("/sessions/{id}/approve", s.handleApprove)
 	s.registerStatic(r) // catch-all; must be last
 	return r
 }
