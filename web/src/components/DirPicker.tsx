@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listDirs, type DirEntry, type DirListing } from '../lib/api';
 import { splitPath, filterEntries } from '../lib/dirpath';
 
@@ -16,26 +16,33 @@ export default function DirPicker({ value, onChange }: {
   const [err, setErr] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
 
-  // load fetches a directory's children. On failure it keeps the last good
-  // listing (so a half-typed segment doesn't blank the list) and shows a hint.
-  async function load(path?: string): Promise<DirListing | null> {
+  const reqId = useRef(0);
+
+  // load fetches a directory's children. A monotonic request id guards against
+  // out-of-order responses (fast typing): only the latest load commits state.
+  // On failure it keeps the last good listing (so a half-typed segment doesn't
+  // blank the list) and shows a hint.
+  const load = useCallback(async (path?: string): Promise<DirListing | null> => {
+    const id = ++reqId.current;
     try {
       const l = await listDirs(path);
+      if (id !== reqId.current) return null; // superseded by a newer load
       setDir(l.path);
       setEntries(l.entries);
       setParent(l.parent);
       setErr(null);
       return l;
     } catch (e) {
+      if (id !== reqId.current) return null;
       setErr(e instanceof Error ? e.message : String(e));
       return null;
     }
-  }
+  }, []);
 
   // Initial load (backend home); seed the input with "<home>/".
   useEffect(() => {
     void load().then((l) => { if (l) setQuery(l.path + '/'); });
-  }, []);
+  }, [load]);
 
   const { baseDir, leaf } = splitPath(query);
 
@@ -45,9 +52,11 @@ export default function DirPicker({ value, onChange }: {
     if (baseDir === dir) return;     // already showing this directory's children
     const t = setTimeout(() => { void load(baseDir || undefined); }, 150);
     return () => clearTimeout(t);
-  }, [baseDir, dir]);
+  }, [baseDir, dir, load]);
 
   const visible = filterEntries(entries, leaf);
+  // `../` is offered only while browsing (no active filter); a non-empty leaf is
+  // a filter, and `..` wouldn't match it. Clear the trailing segment to go up.
   const showUp = leaf === '' && parent !== '';
 
   type Row = { key: string; label: string; target: string };
