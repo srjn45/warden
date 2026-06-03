@@ -399,8 +399,8 @@ func listWindow(n, cursor, visible int) int {
 	return top
 }
 
-// expandPath expands a leading ~, resolves relative paths against the cwd, and
-// cleans the result to an absolute path. home is injected (empty = no expansion).
+// expandPath expands a leading ~, resolves relative paths against the cwd via
+// filepath.Abs, and normalizes the result. home is injected (empty = no expansion).
 func expandPath(p, home string) string {
 	if home != "" {
 		if p == "~" {
@@ -465,5 +465,9 @@ func completeDir(listing client.DirListing, typed string) (completed string, can
 	if len(candidates) == 0 {
 		return typed, nil
 	}
-	return filepath.Join(listDir, longestCommonPrefix(candidates)), candidates
+	lcp := longestCommonPrefix(candidates)
+	if lcp == leaf {
+		return typed, candidates // already at the common prefix; just show candidates
+	}
+	return filepath.Join(listDir, lcp), candidates
 }

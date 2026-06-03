@@ -237,6 +237,26 @@ func TestCompleteDir(t *testing.T) {
 	require.Nil(t, cands)
 }
 
+func TestCompleteDirAdvancesAndPreservesTyped(t *testing.T) {
+	listing := client.DirListing{
+		Path: "/home/me/work",
+		Entries: []client.DirEntry{
+			{Name: "api", Path: "/home/me/work/api"},
+			{Name: "apex", Path: "/home/me/work/apex"},
+			{Name: "web", Path: "/home/me/work/web"},
+		},
+	}
+	// advances the cursor from a shorter leaf to the longest common prefix
+	completed, cands := completeDir(listing, "/home/me/work/a")
+	require.Equal(t, "/home/me/work/ap", completed, "advances 'a' → 'ap'")
+	require.Equal(t, []string{"api", "apex"}, cands)
+
+	// trailing slash, no common prefix among children → typed preserved (slash kept)
+	completed, cands = completeDir(listing, "/home/me/work/")
+	require.Equal(t, "/home/me/work/", completed, "nothing to advance → typed unchanged, slash preserved")
+	require.Equal(t, []string{"api", "apex", "web"}, cands)
+}
+
 func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 	m := New(&fakeAPI{})
 	now := time.Now()
