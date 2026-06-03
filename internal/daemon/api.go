@@ -31,6 +31,28 @@ type SpawnRequest struct {
 	Cwd      string `json:"cwd"`      // dir to launch claude from (caller cwd / web pick)
 }
 
+// AdoptRequest is the body for POST /adopt.
+type AdoptRequest struct {
+	Cwd         string `json:"cwd"`          // required; dir whose claude session to adopt
+	SessionID   string `json:"session_id"`   // optional claude uuid override
+	TmuxSession string `json:"tmux_session"` // non-empty ⇒ live-register an existing tmux session
+}
+
+// AdoptParams are the resolved inputs the handler passes to Lifecycle.Adopt.
+type AdoptParams struct {
+	ID              string // chosen id; "" ⇒ Lifecycle generates one
+	Cwd             string
+	ClaudeSessionID string // may be "" in live mode
+	TmuxSession     string // "" ⇒ resume mode
+}
+
+// adoptResponse is the body for POST /adopt: the new session plus an optional
+// non-fatal warning (e.g. live-registered without a resolvable claude id).
+type adoptResponse struct {
+	Session *store.Session `json:"session"`
+	Warning string         `json:"warning,omitempty"`
+}
+
 type deleteRequest struct {
 	Hard bool `json:"hard"`
 }
@@ -95,6 +117,12 @@ type Lifecycle interface {
 	Teardown(ctx context.Context, sess *store.Session) error
 	// Restore recreates and resumes a lost session from its stored doc.
 	Restore(ctx context.Context, sess *store.Session) error
+	// NewestClaudeSession returns the claude session id of the newest transcript
+	// for cwd (ErrNoTranscript when none).
+	NewestClaudeSession(ctx context.Context, cwd string) (string, error)
+	// Adopt registers a session agentctl did not spawn (resume or live) and
+	// returns the unpersisted record.
+	Adopt(ctx context.Context, req AdoptParams) (*store.Session, error)
 	Input(ctx context.Context, tmuxSession, text string) error
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
 }

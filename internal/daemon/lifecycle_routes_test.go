@@ -32,6 +32,11 @@ type fakeLife struct {
 	terminated     string
 	removedWT      string
 	removeWTErr    error
+	newestClaude   string
+	newestErr      error
+	adoptResult    *store.Session
+	adoptErr       error
+	adoptParams    AdoptParams
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -83,6 +88,29 @@ func (f *fakeLife) Teardown(_ context.Context, sess *store.Session) error {
 func (f *fakeLife) Restore(_ context.Context, sess *store.Session) error {
 	f.restored = sess.ID
 	return f.restoreErr
+}
+func (f *fakeLife) NewestClaudeSession(_ context.Context, cwd string) (string, error) {
+	if f.newestErr != nil {
+		return "", f.newestErr
+	}
+	return f.newestClaude, nil
+}
+func (f *fakeLife) Adopt(_ context.Context, req AdoptParams) (*store.Session, error) {
+	f.adoptParams = req
+	if f.adoptErr != nil {
+		return nil, f.adoptErr
+	}
+	if f.adoptResult != nil {
+		return f.adoptResult, nil
+	}
+	id := req.ID
+	if id == "" {
+		id = "agent-generated"
+	}
+	return &store.Session{
+		ID: id, TmuxSession: id, Type: store.TypeOther, Workdir: req.Cwd,
+		ClaudeSessionID: req.ClaudeSessionID, Status: store.StatusWorking,
+	}, nil
 }
 func (f *fakeLife) Input(_ context.Context, s, text string) error { f.lastInput = text; return nil }
 func (f *fakeLife) Output(_ context.Context, s string, n int) (string, error) {

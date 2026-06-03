@@ -70,6 +70,19 @@ func (a *lifecycleAdapter) Restore(ctx context.Context, sess *store.Session) err
 	return a.lc.Restore(ctx, sess)
 }
 
+func (a *lifecycleAdapter) NewestClaudeSession(_ context.Context, cwd string) (string, error) {
+	return a.lc.NewestClaudeSession(cwd)
+}
+
+func (a *lifecycleAdapter) Adopt(ctx context.Context, req AdoptParams) (*store.Session, error) {
+	return a.lc.Adopt(ctx, lifecycle.AdoptRequest{
+		ID:              req.ID,
+		Cwd:             req.Cwd,
+		ClaudeSessionID: req.ClaudeSessionID,
+		TmuxSession:     req.TmuxSession,
+	})
+}
+
 func (a *lifecycleAdapter) Input(ctx context.Context, tmuxSession, text string) error {
 	return a.lc.Input(ctx, tmuxSession, text)
 }
