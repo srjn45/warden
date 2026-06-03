@@ -125,7 +125,6 @@ type Lifecycle interface {
 	Adopt(ctx context.Context, req AdoptParams) (*store.Session, error)
 	Input(ctx context.Context, tmuxSession, text string) error
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
-	OutputANSI(ctx context.Context, tmuxSession string, lines int) (string, error)
 }
 
 func (s *Server) router() http.Handler {
@@ -136,8 +135,7 @@ func (s *Server) router() http.Handler {
 	r.Post("/events", s.handleEvent)
 	r.Get("/events/stream", s.handleEventsStream)
 	// Lifecycle routes: POST /spawn, /sessions/{id}/{terminate,delete,
-	// remove-worktree,input,restore}, GET /sessions/{id}/output,
-	// GET /sessions/{id}/output/stream.
+	// remove-worktree,input,restore}, GET /sessions/{id}/{output,attach}.
 	s.registerLifecycleRoutes(r)
 	r.Get("/fs/dirs", s.handleListDirs)
 	s.registerStatic(r) // catch-all; must be last
