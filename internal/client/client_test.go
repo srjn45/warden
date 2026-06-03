@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -79,4 +80,25 @@ func TestRemoveWorktreeConflictIsStatusError(t *testing.T) {
 	var se *StatusError
 	require.ErrorAs(t, err, &se)
 	require.Equal(t, 409, se.Code)
+}
+
+func TestAdoptSendsBodyAndParsesResponse(t *testing.T) {
+	var gotBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/adopt", r.URL.Path)
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"session":{"id":"agent-x"},"warning":"heads up"}`))
+	}))
+	defer ts.Close()
+
+	res, err := New(ts.URL).Adopt(t.Context(), AdoptParams{
+		Cwd: "/tmp/p", SessionID: "sid", TmuxSession: "work",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "agent-x", res.Session.ID)
+	require.Equal(t, "heads up", res.Warning)
+	require.Equal(t, "/tmp/p", gotBody["cwd"])
+	require.Equal(t, "sid", gotBody["session_id"])
+	require.Equal(t, "work", gotBody["tmux_session"])
 }

@@ -129,6 +129,33 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 	return &s, nil
 }
 
+// AdoptParams mirrors the daemon's /adopt body.
+type AdoptParams struct {
+	Cwd         string
+	SessionID   string
+	TmuxSession string
+}
+
+// AdoptResult is the /adopt response: the new session plus an optional warning.
+type AdoptResult struct {
+	Session *store.Session
+	Warning string
+}
+
+func (c *Client) Adopt(ctx context.Context, p AdoptParams) (*AdoptResult, error) {
+	var resp struct {
+		Session *store.Session `json:"session"`
+		Warning string         `json:"warning"`
+	}
+	body := map[string]any{
+		"cwd": p.Cwd, "session_id": p.SessionID, "tmux_session": p.TmuxSession,
+	}
+	if err := c.do(ctx, http.MethodPost, "/adopt", body, &resp); err != nil {
+		return nil, err
+	}
+	return &AdoptResult{Session: resp.Session, Warning: resp.Warning}, nil
+}
+
 func (c *Client) Terminate(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", nil, nil)
 }
