@@ -744,7 +744,11 @@ func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
 	if out, err := l.run.Run(ctx, "", "tmux", "set-buffer", "-b", buf, "--", text); err != nil {
 		return fmt.Errorf("tmux set-buffer: %w: %s", err, out)
 	}
-	if out, err := l.run.Run(ctx, "", "tmux", "paste-buffer", "-t", tmuxSession, "-b", buf, "-p", "-d"); err != nil {
+	// -p bracketed-pastes (newlines stay content) when the app is in bracketed-
+	// paste mode; -r additionally stops paste-buffer translating LF→CR so an
+	// embedded newline never submits early at a non-composer prompt (permission
+	// dialog/menu). -d deletes the per-session buffer afterward.
+	if out, err := l.run.Run(ctx, "", "tmux", "paste-buffer", "-t", tmuxSession, "-b", buf, "-p", "-r", "-d"); err != nil {
 		return fmt.Errorf("tmux paste-buffer: %w: %s", err, out)
 	}
 	if inputSubmitDelay > 0 {

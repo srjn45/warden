@@ -243,9 +243,12 @@ func TestInputBracketPastesThenSubmits(t *testing.T) {
 	require.NoError(t, lc.Input(context.Background(), "A-1", "what is your status?"))
 	args := fr.calledArgs()
 	// Text is loaded into a per-session buffer and bracketed-pasted (so it is
-	// treated as content), then Enter is a SEPARATE keystroke that submits.
+	// treated as content), then Enter is a SEPARATE keystroke that submits. The
+	// -r flag stops paste-buffer translating LF→CR: -p (bracketed paste) only
+	// protects newlines when the app requested bracketed-paste mode, so without
+	// -r an embedded newline submits early at a non-composer prompt.
 	require.Contains(t, args, []string{"tmux", "set-buffer", "-b", "agentctl-input-A-1", "--", "what is your status?"})
-	require.Contains(t, args, []string{"tmux", "paste-buffer", "-t", "A-1", "-b", "agentctl-input-A-1", "-p", "-d"})
+	require.Contains(t, args, []string{"tmux", "paste-buffer", "-t", "A-1", "-b", "agentctl-input-A-1", "-p", "-r", "-d"})
 	require.Contains(t, args, []string{"tmux", "send-keys", "-t", "A-1", "Enter"})
 
 	// The submit Enter must come AFTER the paste.
