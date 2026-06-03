@@ -22,6 +22,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 			return m, nil
+		case "i":
+			if m.approvalsOn {
+				m.cursor = 0 // the inbox row is always index 0 when enabled
+				m.apprFocused = true
+			}
+			return m, nil
 		case "tab":
 			if itemAt(m.items(), m.cursor).approvals {
 				m.apprFocused = true

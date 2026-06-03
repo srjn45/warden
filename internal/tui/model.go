@@ -145,6 +145,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case approvalsMsg:
 		if msg.err == nil {
 			m.approvalsOn = msg.enabled
+			if !msg.enabled {
+				m.apprFocused = false
+			}
 			m.approvals = msg.views
 			if m.apprCursor >= len(m.approvals) {
 				m.apprCursor = max(0, len(m.approvals)-1)

@@ -348,3 +348,20 @@ func TestApprovalsMsgPopulatesState(t *testing.T) {
 	// inbox row is present at top of items() when enabled
 	require.True(t, m.items()[0].approvals)
 }
+
+func TestIKeyFocusesInbox(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, approvalsMsg{enabled: true, views: []approval.View{{ID: "a1", Recognized: true, Options: []string{"Yes", "No"}}}})
+	m = step(m, key("i"))
+	require.True(t, m.apprFocused)
+	require.Equal(t, 0, m.cursor)
+}
+
+func TestApprovalsDisableClearsFocus(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, approvalsMsg{enabled: true, views: []approval.View{{ID: "a1", Recognized: true, Options: []string{"Yes"}}}})
+	m = step(m, key("i"))
+	require.True(t, m.apprFocused)
+	m = step(m, approvalsMsg{enabled: false})
+	require.False(t, m.apprFocused)
+}
