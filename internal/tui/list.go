@@ -122,6 +122,83 @@ func groupSort(sessions []*store.Session) []*store.Session {
 	return out
 }
 
+// item is one navigable row: a real agent (session != nil) or a placeholder for
+// an opened directory that currently has no agents (session == nil). dir is the
+// group directory and is always set.
+type item struct {
+	session *store.Session
+	dir     string
+}
+
+// dirKey is the placeholder identity for an opened dir. The NUL separator can't
+// occur in a session ID, so a placeholder key never collides with an agent's.
+func dirKey(dir string) string { return "dir\x00" + dir }
+
+// itemKey is the stable identity used to re-pin the cursor across refreshes.
+func itemKey(it item) string {
+	if it.session != nil {
+		return it.session.ID
+	}
+	return dirKey(it.dir)
+}
+
+// buildItems flattens grouped sessions plus opened directories into the list the
+// cursor walks. Groups are ordered by most-recent activity (an agent group's key
+// is its newest UpdatedAt; an empty opened dir's key is when it was opened — so a
+// freshly-opened dir floats to the top). An opened dir that has agents emits its
+// agents and no placeholder; an opened dir with none emits a single placeholder.
+// Pure: returns a new slice, leaves inputs untouched.
+func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
+	type grp struct {
+		max  time.Time
+		seen int
+	}
+	groups := map[string]*grp{}
+	var order []string
+	note := func(dir string, t time.Time) {
+		g := groups[dir]
+		if g == nil {
+			groups[dir] = &grp{max: t, seen: len(order)}
+			order = append(order, dir)
+			return
+		}
+		if t.After(g.max) {
+			g.max = t
+		}
+	}
+	for _, s := range sessions {
+		note(sourceDir(s), s.UpdatedAt)
+	}
+	for dir, at := range opened {
+		note(dir, at)
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ga, gb := groups[order[a]], groups[order[b]]
+		if ga.max.Equal(gb.max) {
+			return ga.seen < gb.seen
+		}
+		return ga.max.After(gb.max)
+	})
+	hasAgents := map[string]bool{}
+	byDir := map[string][]*store.Session{}
+	for _, s := range sessions {
+		d := sourceDir(s)
+		hasAgents[d] = true
+		byDir[d] = append(byDir[d], s)
+	}
+	var items []item
+	for _, dir := range order {
+		if hasAgents[dir] {
+			for _, s := range byDir[dir] {
+				items = append(items, item{session: s, dir: dir})
+			}
+			continue
+		}
+		items = append(items, item{dir: dir}) // empty opened dir → placeholder
+	}
+	return items
+}
+
 // listRow is one rendered line: a group header (header != "") or an agent
 // (header == "", idx points into the sessions slice). buildRows assumes the
 // sessions are already in grouped order (groupSort), so groups are contiguous.

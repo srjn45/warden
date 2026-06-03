@@ -123,6 +123,47 @@ func TestRenderListGroupsBySourceDir(t *testing.T) {
 	}
 }
 
+func TestBuildItemsGroupsAgentsNoOpenedDirs(t *testing.T) {
+	now := time.Now()
+	ss := groupSort([]*store.Session{
+		{ID: "a1", Workdir: "/a", UpdatedAt: now},
+		{ID: "a2", Workdir: "/a", UpdatedAt: now.Add(-time.Minute)},
+		{ID: "b1", Workdir: "/b", UpdatedAt: now.Add(-2 * time.Minute)},
+	})
+	items := buildItems(ss, nil)
+	require.Len(t, items, 3)
+	require.Equal(t, "a1", items[0].session.ID)
+	require.Equal(t, "a2", items[1].session.ID)
+	require.Equal(t, "b1", items[2].session.ID)
+	require.Equal(t, "/a", items[0].dir)
+}
+
+func TestBuildItemsEmptyOpenedDirGetsPlaceholderOnTop(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{{ID: "a1", Workdir: "/a", UpdatedAt: now.Add(-time.Hour)}}
+	opened := map[string]time.Time{"/freshly/opened": now} // newer than the agent
+	items := buildItems(ss, opened)
+	require.Len(t, items, 2, "one placeholder + one agent")
+	require.Nil(t, items[0].session, "placeholder is first (most recent)")
+	require.Equal(t, "/freshly/opened", items[0].dir)
+	require.Equal(t, "a1", items[1].session.ID)
+}
+
+func TestBuildItemsOpenedDirWithAgentsHasNoPlaceholder(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{{ID: "a1", Workdir: "/a", UpdatedAt: now}}
+	opened := map[string]time.Time{"/a": now.Add(-time.Hour)} // /a already has an agent
+	items := buildItems(ss, opened)
+	require.Len(t, items, 1, "no placeholder for an opened dir that has agents")
+	require.Equal(t, "a1", items[0].session.ID)
+}
+
+func TestItemKeyDistinguishesAgentsFromPlaceholders(t *testing.T) {
+	require.Equal(t, "agent-x", itemKey(item{session: &store.Session{ID: "agent-x"}, dir: "/a"}))
+	require.Equal(t, dirKey("/a"), itemKey(item{dir: "/a"}))
+	require.NotEqual(t, itemKey(item{dir: "/a"}), itemKey(item{session: &store.Session{ID: "/a"}, dir: "/a"}))
+}
+
 func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 	m := New(&fakeAPI{})
 	now := time.Now()
