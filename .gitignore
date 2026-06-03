@@ -6,3 +6,6 @@ web/dist/*
 
 bin/
 .claude/
+
+# brainstorming visual companion
+.superpowers/
