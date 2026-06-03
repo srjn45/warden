@@ -365,3 +365,46 @@ func TestApprovalsDisableClearsFocus(t *testing.T) {
 	m = step(m, approvalsMsg{enabled: false})
 	require.False(t, m.apprFocused)
 }
+
+func TestInboxNumberKeyAnswers(t *testing.T) {
+	fa := &fakeAPI{}
+	m := New(fa)
+	m = step(m, approvalsMsg{enabled: true, views: []approval.View{
+		{ID: "a1", Recognized: true, Options: []string{"Yes", "No"}, Fingerprint: "ff"},
+	}})
+	m = step(m, key("i")) // focus the inbox
+	require.True(t, m.apprFocused)
+	// pressing "1" returns an approveCmd; run it to drive the fake api.
+	_, cmd := m.Update(key("1"))
+	require.NotNil(t, cmd)
+	cmd() // executes approveCmd → fakeAPI.Approve records the call
+	require.Equal(t, "a1", fa.approvedID)
+	require.Equal(t, 1, fa.approvedOpt)
+	require.Equal(t, "ff", fa.approvedFP)
+}
+
+func TestApprovalsPassiveDoesNotMoveCursor(t *testing.T) {
+	fa := &fakeAPI{}
+	m := New(fa)
+	// two agents so there is a non-inbox row to sit on
+	m = step(m, sessionsMsg{sessions: []*store.Session{{ID: "a1"}, {ID: "a2"}}})
+	m = step(m, approvalsMsg{enabled: true, views: nil}) // inbox row now at index 0
+	// move cursor onto a real agent row (index 1+)
+	m = step(m, key("j"))
+	before := m.cursor
+	require.Greater(t, before, 0)
+	// a new approval arrives
+	m = step(m, approvalsMsg{enabled: true, views: []approval.View{{ID: "a1", Recognized: true, Options: []string{"Yes"}}}})
+	require.Equal(t, before, m.cursor) // selection did not move
+	require.Equal(t, 1, m.items()[0].apprCount) // inbox row count bumped
+}
+
+func TestApprovalsToggleOffHidesRow(t *testing.T) {
+	m := New(&fakeAPI{})
+	m = step(m, approvalsMsg{enabled: true, views: []approval.View{{ID: "a1", Recognized: true, Options: []string{"Yes"}}}})
+	require.True(t, m.items()[0].approvals)
+	m = step(m, approvalsMsg{enabled: false})
+	for _, it := range m.items() {
+		require.False(t, it.approvals)
+	}
+}

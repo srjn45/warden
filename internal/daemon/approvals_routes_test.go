@@ -83,6 +83,20 @@ func TestGetApprovalsDisabled(t *testing.T) {
 	require.Empty(t, out.Approvals)
 }
 
+func TestPostApproveUnrecognizedPrompt(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["a1"] = &store.Session{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
+	// pane has no recognizable numbered prompt → Parse returns ok=false
+	fl := &fakeLife{output: "Just some working output, no prompt here.\n"}
+	ts := approvalsServer(t, fs, fl, true)
+	defer ts.Close()
+	body, _ := json.Marshal(ApproveRequest{Option: 1, Fingerprint: "anything"})
+	resp, err := http.Post(ts.URL+"/sessions/a1/approve", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+	require.Empty(t, fl.lastKey) // never injected
+}
+
 func TestGetApprovalsListsWaiting(t *testing.T) {
 	fs := newFakeStore()
 	fs.data["a1"] = &store.Session{
