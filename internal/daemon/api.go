@@ -127,6 +127,8 @@ type Lifecycle interface {
 	Adopt(ctx context.Context, req AdoptParams) (*store.Session, error)
 	Input(ctx context.Context, tmuxSession, text string) error
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
+	// SendKeys injects a raw keystroke (e.g. a menu digit) into the agent's pane.
+	SendKeys(ctx context.Context, tmuxSession, key string) error
 }
 
 // recoverMiddleware converts a panic in any handler into a 500 response instead

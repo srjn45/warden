@@ -764,6 +764,17 @@ func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
 	return nil
 }
 
+// SendKeys sends a single key (e.g. a numbered menu choice) to the agent's tmux
+// pane as a raw keystroke. Unlike Input it neither bracketed-pastes nor appends
+// Enter: Claude Code's select prompts treat the digit itself as select-and-
+// confirm, so an extra Enter could double-submit.
+func (l *Lifecycle) SendKeys(ctx context.Context, tmuxSession, key string) error {
+	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", tmuxSession, key); err != nil {
+		return fmt.Errorf("tmux send-keys %q: %w: %s", key, err, out)
+	}
+	return nil
+}
+
 // Output returns the last `lines` rows of the agent's tmux pane.
 func (l *Lifecycle) Output(ctx context.Context, tmuxSession string, lines int) (string, error) {
 	if lines <= 0 {

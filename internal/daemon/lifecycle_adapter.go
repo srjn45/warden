@@ -90,3 +90,7 @@ func (a *lifecycleAdapter) Input(ctx context.Context, tmuxSession, text string) 
 func (a *lifecycleAdapter) Output(ctx context.Context, tmuxSession string, lines int) (string, error) {
 	return a.lc.Output(ctx, tmuxSession, lines)
 }
+
+func (a *lifecycleAdapter) SendKeys(ctx context.Context, tmuxSession, key string) error {
+	return a.lc.SendKeys(ctx, tmuxSession, key)
+}

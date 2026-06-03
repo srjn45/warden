@@ -280,6 +280,13 @@ func TestInputMultilineIsPastedAsContentNotEnters(t *testing.T) {
 	require.Equal(t, 1, enters, "multi-line text submits with a single Enter, not one per line")
 }
 
+func TestSendKeysInjectsRawKeystroke(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr)
+	require.NoError(t, lc.SendKeys(context.Background(), "sess-1", "2"))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "sess-1", "2"})
+}
+
 func TestOutputCapturesPane(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux capture-pane -p -t A-1 -S -200": {Out: "line1\nline2\n"},
