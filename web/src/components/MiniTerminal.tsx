@@ -17,7 +17,7 @@ export default function MiniTerminal({ id, lines = 8, intervalMs = 2000 }: {
     const poll = async () => {
       try {
         const o = await getOutput(id, lines);
-        if (alive) setText(o.split('\n').slice(-lines).join('\n'));
+        if (alive) setText(o.split('\n').slice(-lines).join('\n')); // client-side safety net: server already caps to `lines`
       } catch { /* agent may have ended; SSE list will drop it */ }
     };
     poll();

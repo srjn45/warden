@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -9,10 +9,12 @@ import { subscribeOutput } from '../lib/api';
 // snapshot: we reset() then write() the new frame.
 export default function Terminal({ id }: { id: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const [disconnected, setDisconnected] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    setDisconnected(false);
 
     const term = new XTerm({
       convertEol: true,
@@ -26,20 +28,32 @@ export default function Terminal({ id }: { id: string }) {
     term.open(host);
     fit.fit();
 
-    const onResize = () => { try { fit.fit(); } catch { /* host detached */ } };
-    window.addEventListener('resize', onResize);
+    // Re-fit when the host container changes size (panel/layout shifts), not just
+    // on window resize.
+    const ro = new ResizeObserver(() => { try { fit.fit(); } catch { /* host detached */ } });
+    ro.observe(host);
 
-    const unsub = subscribeOutput(id, (frame) => {
-      term.reset();
-      term.write(frame);
-    });
+    const unsub = subscribeOutput(
+      id,
+      (frame) => { setDisconnected(false); term.reset(); term.write(frame); },
+      () => setDisconnected(true), // EventSource auto-reconnects; next frame clears this
+    );
 
     return () => {
       unsub();
-      window.removeEventListener('resize', onResize);
+      ro.disconnect();
       term.dispose();
     };
   }, [id]);
 
-  return <div className="xterm-host" ref={hostRef} />;
+  return (
+    <div className="xterm-wrap">
+      {disconnected && (
+        <div style={{ color: '#cf222e', fontSize: '.75rem', padding: '.15rem .4rem' }}>
+          stream disconnected — retrying…
+        </div>
+      )}
+      <div className="xterm-host" ref={hostRef} />
+    </div>
+  );
 }
