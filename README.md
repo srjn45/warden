@@ -89,7 +89,7 @@ Logs:
 - stdout: `/tmp/agentctl.daemon.log`
 - stderr: `/tmp/agentctl.daemon.err`
 
-> **Notifications:** the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead. Disable with `AGENTCTL_NOTIFY=off`.
+> **Notifications:** off by default. When enabled with `AGENTCTL_NOTIFY=on`, the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
 
 ---
 
@@ -124,7 +124,7 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 | `AGENTCTL_DATA_DIR` | `~/.agentctl` | Directory for session JSON files (`sessions/`, `closed/`) |
 | `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Base directory for prompt-spawned agents; each agent gets its own subdir `~/agentctl-agents/<id>/` |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
-| `AGENTCTL_NOTIFY` | `on` | macOS desktop notifications when an agent needs attention (`off`/`0`/`false` to disable) |
+| `AGENTCTL_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
 
 All variables can also be overridden with `--addr` on any command.
 

@@ -40,14 +40,14 @@ func TestClaudeProjectsDirFromEnv(t *testing.T) {
 	require.Equal(t, "/tmp/projects", Load().ClaudeProjectsDir)
 }
 
-func TestNotifyEnabledDefaultOn(t *testing.T) {
+func TestNotifyDisabledByDefault(t *testing.T) {
 	t.Setenv("AGENTCTL_NOTIFY", "")
-	require.True(t, Load().NotifyEnabled, "notifications on by default")
+	require.False(t, Load().NotifyEnabled, "notifications off by default")
 }
 
-func TestNotifyDisabledFromEnv(t *testing.T) {
-	for _, v := range []string{"0", "off", "false", "OFF"} {
+func TestNotifyEnabledFromEnv(t *testing.T) {
+	for _, v := range []string{"1", "on", "true", "ON"} {
 		t.Setenv("AGENTCTL_NOTIFY", v)
-		require.False(t, Load().NotifyEnabled, "AGENTCTL_NOTIFY=%q disables", v)
+		require.True(t, Load().NotifyEnabled, "AGENTCTL_NOTIFY=%q enables", v)
 	}
 }

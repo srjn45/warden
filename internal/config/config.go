@@ -36,13 +36,14 @@ func defaultDataDir() string {
 	return filepath.Join(home, ".agentctl")
 }
 
-// notifyEnabled reads AGENTCTL_NOTIFY; on by default, off for 0/off/false.
+// notifyEnabled reads AGENTCTL_NOTIFY; off by default, on only for 1/on/true.
+// Notifications proved low-value, so they're opt-in for now.
 func notifyEnabled() bool {
 	switch strings.ToLower(os.Getenv("AGENTCTL_NOTIFY")) {
-	case "0", "off", "false":
-		return false
+	case "1", "on", "true":
+		return true
 	}
-	return true
+	return false
 }
 
 // Load reads config from environment, applying defaults.
