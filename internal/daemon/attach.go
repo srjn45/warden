@@ -5,13 +5,32 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
+
+// attachEnv forces TERM=xterm-256color for the tmux attach PTY. The rendering
+// endpoint is always xterm.js, and the daemon (started by launchd) usually has
+// no TERM at all — without a usable terminfo entry tmux refuses to attach with
+// "open terminal failed: terminal does not support clear". Any inherited TERM is
+// replaced so tmux emits xterm-256color sequences regardless of how the daemon
+// was launched.
+func attachEnv(base []string) []string {
+	out := make([]string, 0, len(base)+1)
+	for _, e := range base {
+		if strings.HasPrefix(e, "TERM=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, "TERM=xterm-256color")
+}
 
 // resizeMsg is the JSON body of a client text control frame.
 type resizeMsg struct {
@@ -64,6 +83,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	defer cancel() // safety net for early returns (e.g. pty.Start failure)
 
 	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sess.TmuxSession)
+	cmd.Env = attachEnv(os.Environ())
 	ptyFile, err := pty.Start(cmd)
 	if err != nil {
 		conn.Close(websocket.StatusInternalError, "pty start failed")
