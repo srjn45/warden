@@ -49,7 +49,7 @@ looks like `agent-<shortid>`). Pass that id as the `ticket` value.
 | spawn from a prompt | `agentctl start "<prompt>"` |
 | spawn a managed worktree agent | `agentctl start <TICKET> --type <TYPE> --repo <repo>` |
 | send a message to an agent | `agentctl send <id> "<text>"` |
-| terminate / clean up | `agentctl done <id>` (guarded; `--force` to override the git guard) |
+| terminate / clean up | `agentctl done <id>` (terminate + clear record; keeps the worktree). Remove the worktree separately with `agentctl remove-worktree <id>` (guarded; `--force` overrides) |
 | restore a lost/orphaned agent | `agentctl restore <id>` |
 | adopt / register an existing session | `agentctl adopt [--session-id <uuid>] [--dir <path>]` |
 | attach interactively | `agentctl attach <id>` |

@@ -61,9 +61,14 @@ The daemon is the engine. Pick one of:
 **Recommended — launchd (auto-start at login, restarts on crash):**
 
 ```sh
-cp deploy/com.srajanpathak.agentctl.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist
+./scripts/install.sh   # or: make install
 ```
+
+The installer builds the release, installs the binary, renders the launchd
+plist from `deploy/com.srajanpathak.agentctl.plist.template`, loads it, links the
+Claude skill, and registers the MCP server. See the
+[README](../README.md#install-the-daemon-as-a-launchd-service-auto-start) for
+details (code-signing, redeploy, uninstall).
 
 **Manual (for debugging — runs in the foreground):**
 
@@ -79,10 +84,11 @@ tail -f /tmp/agentctl.daemon.log # stdout  (launchd)
 tail -f /tmp/agentctl.daemon.err # stderr  (launchd)
 ```
 
-Stop the launchd service:
+Stop / restart the launchd service:
 
 ```sh
-launchctl unload ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist
+launchctl unload ~/Library/LaunchAgents/com.srajanpathak.agentctl.plist   # stop
+./scripts/reinstall.sh   # rebuild + redeploy + restart (or: make reinstall)
 ```
 
 ---
@@ -248,16 +254,37 @@ agentctl adopt --dir /path/to/project   # target a different directory
 Hand your terminal to the agent's tmux session interactively. Detach with the
 tmux prefix-then-`d` (default `Ctrl-b d`) to leave the agent running.
 
-### `agentctl done <TICKET> [--force] [--hard]`
-Tear down: kill tmux, prune the worktree and branch, archive the record.
-
-The cleanup is **guarded** — it refuses to remove a worktree with uncommitted
-changes or unpushed commits.
+### `agentctl done <TICKET> [--hard]`
+Terminate the agent (kill its tmux + claude session) **and** clear its record in
+one step — equivalent to `terminate` then `delete`. It does **not** remove the
+git worktree; that's a separate, explicitly-confirmed step (`remove-worktree`).
 
 ```sh
-agentctl done PROJ-350          # guarded (safe default)
-agentctl done PROJ-350 --force  # bypass the git guard
-agentctl done PROJ-350 --hard   # hard-delete the doc instead of archiving
+agentctl done PROJ-350          # terminate + clear record (worktree kept)
+agentctl done PROJ-350 --hard   # purge the record instead of archiving it
+```
+
+### `agentctl terminate <TICKET>`
+Stop an agent — kill tmux + claude — but **keep** the record and worktree. The
+safe "stop this agent" default; reversible with `agentctl restore`.
+
+### `agentctl restore <TICKET>`
+Recreate and resume a lost/orphaned agent (`claude --resume`). Use only when the
+agent's tmux session is gone (status `orphaned`).
+
+### `agentctl delete <TICKET> [--hard]`
+Clear an agent's stored record (archives by default; `--hard` purges). Leaves
+tmux and the worktree alone.
+
+### `agentctl remove-worktree <TICKET> [--force]`
+Remove an agent's git worktree and branch. **Destructive** and **guarded** — it
+refuses while the agent is still running (terminate it first) or while the
+worktree has uncommitted changes or unpushed commits. `--force` overrides the
+guard.
+
+```sh
+agentctl remove-worktree PROJ-350
+agentctl remove-worktree PROJ-350 --force
 ```
 
 ### `agentctl daemon [--addr ADDR]`
@@ -403,11 +430,14 @@ Tools exposed:
 |---|---|
 | `list_agents` | List all agents with status, workdir, subject |
 | `get_agent` | Full detail (status, workdir, subject, events, worktree) for one |
-| `spawn_agent` | Spawn a new agent of a given type |
+| `spawn_agent` | Spawn a new agent — `prompt` for a quick auto-typed one, or `type`+`repo` for a managed worktree |
 | `adopt_agent` | Register an existing Claude session: resume newest-for-dir under tmux, or live-register a running tmux session |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Recent terminal output of a specific agent |
-| `cleanup_agent` | Tear down an agent and archive its record |
+| `terminate_agent` | Stop an agent (kill tmux + claude); keeps record + worktree. Reversible via `restore_agent` — the default "stop" action |
+| `restore_agent` | Recreate and resume a lost/orphaned agent (`claude --resume`) |
+| `delete_agent` | Clear an agent's record (archives by default; `hard` purges) |
+| `remove_worktree` | Remove an agent's worktree + branch — **destructive**; refuses while running or with unsaved work unless `force` |
 
 Then just talk to the orchestrator naturally:
 
@@ -415,7 +445,7 @@ Then just talk to the orchestrator naturally:
 - *"Tell PROJ-343 to run the tests"* → `send_to_agent`
 - *"List all my agents"* → `list_agents`
 - *"Spawn a buildkite-debug agent in /path/to/repo"* → `spawn_agent`
-- *"Clean up PROJ-350 when it's done"* → `cleanup_agent`
+- *"Stop PROJ-350"* → `terminate_agent` (reversible); "clear its record too" → `delete_agent`
 
 ---
 
@@ -445,12 +475,16 @@ agentctl daemon
 open http://localhost:8765
 ```
 
-It mirrors the CLI/TUI: a live agent list over SSE, busy/idle badges, a
-**+ New agent** prompt box, a per-agent detail panel with live output and a
-send-message box, and a **Terminate** button that surfaces the same git guard
-(with **Force** and an optional hard-delete) when there's unsaved work.
-Browsers can't run `tmux attach`, so the detail panel just shows the
-`agentctl attach <id>` command to copy into a terminal.
+It's a **tabbed mission-control shell**: fixed **Overview** and **Cockpit** tabs
+plus one closeable tab per pinned agent. Overview has the live SSE agent list,
+busy/idle badges, fleet stats, an **attention queue** (agents in
+`waiting_for_input`/`errored`/`orphaned`), and a **+ New agent** prompt box with
+a directory picker. Pin an agent to its own tab to get a **live, interactive
+terminal** — a real `tmux attach` bridged to the browser over a WebSocket, so
+you can type into the agent and watch it respond (no more read-only snapshot).
+The **Terminate** button surfaces the same git guard (with **Force** and an
+optional hard-delete) when there's unsaved work. Opt in to **browser
+notifications** to be pinged when an agent needs input while the tab is hidden.
 
 > The UI is baked into the binary at build time. After changing anything under
 > `web/`, rebuild (`make release`, or `make ui` for the frontend only) and
@@ -468,7 +502,9 @@ Set via environment variables (or override the daemon address per-command with
 |---|---|---|
 | `AGENTCTL_ADDR` | `127.0.0.1:8765` | Daemon listen/connect address |
 | `AGENTCTL_DATA_DIR` | `~/.agentctl` | Directory for session JSON files (`sessions/`, `closed/`) and prompt files (`prompts/`) |
+| `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Where the per-agent prompt file is stored — **not** where the agent runs (prompt agents run in the caller's cwd or `--dir`) |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects |
+| `AGENTCTL_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
 
 ---
 
@@ -523,6 +559,6 @@ agentctl done prreview-...
 | New agent stuck at `classifying…` / type is `other` | `claude` not on the daemon's PATH. Type falls back to `other`; functionality is otherwise fine. |
 | `SUBJECT` stays empty | Poller hasn't refreshed yet (it's throttled and only runs when pane content changes), or `CLAUDE_PROJECTS_DIR` is wrong. |
 | `pr-review needs --pr or --branch` | pr-review requires one of those flags. |
-| `done` refuses to clean up | The worktree has uncommitted or unpushed work — the guard is protecting it. Commit/push, or use `--force`. |
+| `remove-worktree` refuses | The agent is still running (terminate it first) or the worktree has uncommitted/unpushed work — the guard is protecting it. Commit/push, or use `--force`. (`done` no longer touches the worktree.) |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json` (§9). The poller still updates it, just less promptly. |
 | Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |

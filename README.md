@@ -122,7 +122,7 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 |---|---|---|
 | `AGENTCTL_ADDR` | `127.0.0.1:8765` | Daemon listen address |
 | `AGENTCTL_DATA_DIR` | `~/.agentctl` | Directory for session JSON files (`sessions/`, `closed/`) |
-| `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Base directory for prompt-spawned agents; each agent gets its own subdir `~/agentctl-agents/<id>/` |
+| `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
 | `AGENTCTL_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
 
@@ -143,15 +143,15 @@ In the web GUI, **+ New agent** opens a single prompt textarea — no type or re
 
 **How it works:**
 
-- **No repo assumed.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` in their own per-agent subdirectory `~/agentctl-agents/<id>/` (created at spawn). Any repo context should be included in the prompt itself.
+- **Runs in the caller's directory.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` in the directory you invoked `start` from (or the `--dir` you pass) — no per-agent directory is created. Point it elsewhere with `--dir`, and include any extra repo context in the prompt itself.
 - **Type is auto-assigned.** Shortly after creation the daemon classifies the prompt with `claude -p` and updates the type label. It appears as "classifying…" until then. Requires `claude` on the daemon's `PATH`; falls back to `other` if unavailable.
 - **Subject is auto-generated.** Each agent has a one-line subject summarizing what it is currently working on. It is seeded from the first words of the prompt at spawn, then refreshed periodically by the poller: the poller reads the agent's Claude Code transcript (looked up by `CLAUDE_PROJECTS_DIR`) or, if no transcript is found, captures the tmux pane, then asks `claude -p` for an ≤8-word phrase. Refreshes are throttled and only run when the pane content has changed.
 - **Managed worktrees still available.** `agentctl start TICKET --type development --repo …` is unchanged — see the section below.
 
-To override `AGENTCTL_WORKDIR` from its default of `~/agentctl-agents`, set the environment variable:
+To launch an agent in a directory other than your current one, pass `--dir`:
 
 ```sh
-export AGENTCTL_WORKDIR=/path/to/your/agents
+agentctl start "summarize recent changes" --dir /path/to/repo
 ```
 
 ---
@@ -184,28 +184,26 @@ agentctl tui   # open the cockpit
 agentctl       # bare invocation — same thing
 ```
 
-`agentctl tui` (or bare `agentctl`) opens a live two-pane terminal cockpit built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+`agentctl tui` (or bare `agentctl`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), an embedded interactive **master Claude** session wired to the `agentctl` MCP server (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
 
-**Layout**
+The cockpit **falls back to the legacy single-pane view** (`--classic`) when tmux isn't installed or when `agentctl tui` is launched from inside an existing tmux session. The classic view is the original [Bubble Tea](https://github.com/charmbracelet/bubbletea) app — a list on the left and a static detail panel on the right (no embedded sessions). Requires **tmux ≥ 3.1** for the cockpit.
 
-- **Left pane** — live list of all agents, each showing a busy/idle status badge and the agent's current subject. The selected row is highlighted.
-- **Right pane** — the selected agent's live output (scrollable viewport) and event history below it. The header shows the agent's working directory and subject.
+The list pane polls the daemon about once a second. The daemon must be running (`agentctl daemon`) before opening the TUI.
 
-The UI polls the daemon approximately every second. The daemon must be running (`agentctl daemon`) before opening the TUI.
-
-**Keys**
+**Keys (cockpit)**
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` or `j` / `k` | Move selection up/down |
-| `tab` | Focus the output viewport (scroll with `↑`/`↓`/`PgUp`/`PgDn`); `tab` or `esc` to leave |
-| `n` | New agent — opens a prompt textarea; the launch dir defaults to the directory group the cursor is in (`tab` to change it with path completion), `ctrl+s` to submit, `esc` to cancel |
-| `o` | Open a directory as a group — type a path (`tab` to complete against the filesystem), `enter` to add it; an opened dir with no agents shows as a placeholder row so `n` can spawn into it. Press `x` on the placeholder to close it |
-| `s` | Send a message to the selected agent — type it, `enter` to send, `esc` to cancel |
-| `a` | Attach — hands off your terminal to the agent's tmux session; resumes the TUI on detach |
-| `x` | Terminate the selected agent — confirm with `y`; if it has uncommitted or unpushed work the daemon returns a guard prompt, press `X` to force-terminate |
+| `↑` / `↓` or `j` / `k` | Move selection (detail pane is unaffected) |
+| `Enter` | Open the selected agent in the right detail pane |
+| `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
+| `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
+| `a` | Attach — hands the client to the agent's tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
+| `x` | Terminate the selected agent — confirm with `y`, cancel with `n`/`esc` |
 | `?` | Toggle help overlay |
-| `q` | Quit |
+| `q` | Quit and tear down the cockpit |
+
+Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix). See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide, caveats around nested tmux, and the classic-mode key list.
 
 ---
 
@@ -316,14 +314,45 @@ agentctl attach PROJ-350
 
 ### `agentctl done <TICKET>`
 
-Tear down the agent: kill tmux, prune worktree and branch (guarded), archive the record.
-
-The cleanup is guarded: it will refuse to remove a worktree that has uncommitted changes or unpushed commits. Use `--force` to override.
+Terminate the agent (kill its tmux + claude session) **and** clear its stored record in one step. It does **not** remove the git worktree — that is a separate, explicitly-confirmed step (`remove-worktree`). Equivalent to `terminate` followed by `delete`.
 
 ```sh
-agentctl done PROJ-350          # guarded
-agentctl done PROJ-350 --force  # bypass git guard
-agentctl done PROJ-350 --hard   # hard-delete the doc instead of archiving
+agentctl done PROJ-350          # terminate + clear record (worktree kept)
+agentctl done PROJ-350 --hard   # purge the record instead of archiving it
+```
+
+### `agentctl terminate <TICKET>`
+
+Stop an agent: kill its tmux + claude session, but **keep** the record and worktree. This is the safe "stop this agent" default — it is reversible with `agentctl restore`.
+
+```sh
+agentctl terminate PROJ-350
+```
+
+### `agentctl restore <TICKET>`
+
+Recreate and resume a lost/orphaned agent's tmux + claude session (`claude --resume`). Use only when the agent's tmux session is gone (status `orphaned`).
+
+```sh
+agentctl restore PROJ-350
+```
+
+### `agentctl delete <TICKET>`
+
+Clear an agent's stored record (archives by default; `--hard` purges). Does not touch tmux or the worktree.
+
+```sh
+agentctl delete PROJ-350
+agentctl delete PROJ-350 --hard
+```
+
+### `agentctl remove-worktree <TICKET>`
+
+Remove an agent's git worktree and branch. **Destructive.** It refuses if the agent is still running (terminate it first) or if the worktree has uncommitted changes or unpushed commits — use `--force` to override the guard.
+
+```sh
+agentctl remove-worktree PROJ-350
+agentctl remove-worktree PROJ-350 --force
 ```
 
 ### `agentctl send <TICKET> <message...>`
@@ -361,7 +390,7 @@ agentctl mcp
 agentctl mcp --addr 127.0.0.1:8765
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `send_to_agent`, `get_agent_output`, `cleanup_agent`.
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`.
 
 ---
 
@@ -393,7 +422,10 @@ Once registered, the orchestrator session can call these tools directly:
 | `adopt_agent` | Register an existing Claude session: resume newest-for-dir under tmux, or live-register a running tmux session |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Return the recent terminal output of a specific agent |
-| `cleanup_agent` | Tear down an agent and archive its record |
+| `terminate_agent` | Stop an agent (kill tmux + claude); keeps the record and worktree. Reversible via `restore_agent` — the default "stop this agent" action |
+| `restore_agent` | Recreate and resume a lost/orphaned agent's session (`claude --resume`) |
+| `delete_agent` | Clear an agent's stored record (archives by default; `hard` purges). Does not touch tmux or the worktree |
+| `remove_worktree` | Remove an agent's git worktree + branch — **destructive**; refuses while the agent runs or has uncommitted/unpushed work unless `force` |
 
 Example orchestrator prompts:
 
@@ -402,7 +434,7 @@ Example orchestrator prompts:
 - "List all my agents" — calls `list_agents`
 - "Spin up an agent to research SSE reconnection" — calls `spawn_agent` with a `prompt` (auto-typed)
 - "Spawn a buildkite-debug agent in /path/to/repo" — calls `spawn_agent` with `type`+`repo`
-- "Clean up PROJ-350 when it's done" — calls `cleanup_agent`
+- "Stop PROJ-350" — calls `terminate_agent` (reversible); "clear its record too" — then `delete_agent`
 
 ### Drive it from Claude (the `agentctl` skill)
 
@@ -479,12 +511,14 @@ Then open `http://localhost:8765` in a browser.
 
 ### What it does
 
-- **Live agent list** — all active sessions update in real time over SSE; no manual refresh needed. Each row shows the agent's current **subject** — a short phrase summarizing what it's doing, auto-generated from its transcript or terminal output.
-- **Busy/idle badges** — each row shows a coloured badge (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) derived from the agent's current status.
-- **Create agent** — click **+ New agent** to open a single prompt box. Type what you want the agent to do and press **Create** (or Cmd/Ctrl+Enter). No type or repo required — the type label is assigned automatically once the agent starts. For a managed worktree (e.g. a development branch for a specific ticket), use the CLI: `agentctl start TICKET --type development --repo …`.
-- **Agent detail** — click any row to open the detail panel: the agent's **working directory** and current **subject**, live terminal output (polled every 2 s), full event history, and a send-message box that types directly into the agent's claude session.
-- **Terminate** — the **Terminate** button calls `agentctl done`. If the worktree has uncommitted changes or unpushed commits the daemon returns a 409 and the UI surfaces a guard prompt offering **Force** (bypass the git guard) and an optional **hard-delete** checkbox.
-- **Attach hint** — browsers can't run `tmux attach`. The detail panel shows the equivalent CLI command (`agentctl attach <id>`) for use in a terminal.
+The dashboard is a **tabbed mission-control shell**: two fixed tabs — **Overview** and **Cockpit** — plus one closeable tab per agent you pin.
+
+- **Overview tab** — live fleet list over SSE (no manual refresh), each row with a coloured busy/idle badge (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) and the agent's auto-generated **subject**, plus fleet stats and an **attention queue** that surfaces agents in `waiting_for_input`/`errored`/`orphaned`.
+- **Cockpit tab** — a multi-pane view for watching several agents at once.
+- **Agent tabs** — pin any agent to its own tab to get a **live, interactive terminal** (`AttachTerminal`) — a real `tmux attach` bridged to the browser over a WebSocket, so you can type into the agent and watch it respond in real time. (The old read-only polled snapshot + separate send box were removed.)
+- **Create agent** — **+ New agent** opens a prompt box (with a directory picker). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. For a managed worktree, use the CLI: `agentctl start TICKET --type development --repo …`.
+- **Terminate** — surfaces the git guard (409 → **Force** + optional **hard-delete**) when there's uncommitted/unpushed work.
+- **Browser notifications** — opt in to get a desktop notification when an agent enters `waiting_for_input` (gated so they only fire while the tab is hidden).
 
 ### Dev workflow
 
@@ -494,7 +528,7 @@ Run two terminals in parallel — no rebuild loop needed while iterating on the 
 # Terminal 1 — daemon (REST API + SSE on :8765)
 agentctl daemon
 
-# Terminal 2 — Astro dev server (:4321, proxies /sessions /spawn /cleanup /events /healthz to :8765)
+# Terminal 2 — Astro dev server (:4321, proxies /sessions (incl. the /attach WebSocket) /spawn /events /healthz to :8765)
 make ui-dev
 ```
 
