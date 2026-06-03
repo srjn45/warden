@@ -177,7 +177,8 @@ The UI polls the daemon approximately every second. The daemon must be running (
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move selection up/down |
 | `tab` | Focus the output viewport (scroll with `↑`/`↓`/`PgUp`/`PgDn`); `tab` or `esc` to leave |
-| `n` | New agent — opens a prompt textarea; type the task, `ctrl+s` to submit, `esc` to cancel |
+| `n` | New agent — opens a prompt textarea; the launch dir defaults to the directory group the cursor is in (`tab` to change it with path completion), `ctrl+s` to submit, `esc` to cancel |
+| `o` | Open a directory as a group — type a path (`tab` to complete against the filesystem), `enter` to add it; an opened dir with no agents shows as a placeholder row so `n` can spawn into it. Press `x` on the placeholder to close it |
 | `s` | Send a message to the selected agent — type it, `enter` to send, `esc` to cancel |
 | `a` | Attach — hands off your terminal to the agent's tmux session; resumes the TUI on detach |
 | `x` | Terminate the selected agent — confirm with `y`; if it has uncommitted or unpushed work the daemon returns a guard prompt, press `X` to force-terminate |

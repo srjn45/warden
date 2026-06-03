@@ -25,7 +25,6 @@ type fakeAPI struct {
 	deleteErr  error
 	sentTo     string
 	sentText   string
-	listedDir  string
 	dirListing client.DirListing
 	dirListErr error
 }
@@ -50,8 +49,7 @@ func (f *fakeAPI) Input(_ context.Context, id, text string) error {
 	f.sentTo, f.sentText = id, text
 	return nil
 }
-func (f *fakeAPI) ListDirs(_ context.Context, path string) (client.DirListing, error) {
-	f.listedDir = path
+func (f *fakeAPI) ListDirs(_ context.Context, _ string) (client.DirListing, error) {
 	return f.dirListing, f.dirListErr
 }
 
