@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { cleanup, ApiError } from '../lib/api';
+import { terminate, removeWorktree, deleteSession, ApiError } from '../lib/api';
+
+async function cleanup(id: string, force: boolean, hard: boolean): Promise<void> {
+  await terminate(id);
+  await removeWorktree(id, force);
+  if (hard) await deleteSession(id, true);
+}
 
 export default function TerminateControls({ id, onDone }: { id: string; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
