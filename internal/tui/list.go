@@ -352,6 +352,31 @@ func max(a, b int) int {
 	return b
 }
 
+// itemAt returns the item at cursor, clamped to the slice bounds. Returns a zero
+// item (nil session, "" dir) when items is empty.
+func itemAt(items []item, cursor int) item {
+	if len(items) == 0 {
+		return item{}
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= len(items) {
+		cursor = len(items) - 1
+	}
+	return items[cursor]
+}
+
+// activeDir is the directory a new agent should launch in: the cursor item's
+// group dir, or fallback when there is no item or the group dir is unknown ("—").
+func activeDir(items []item, cursor int, fallback string) string {
+	d := itemAt(items, cursor).dir
+	if d == "" || d == "—" {
+		return fallback
+	}
+	return d
+}
+
 // listWindow returns the index of the first row to render so a window of
 // `visible` rows always contains the cursor. Stateless — derived from cursor +
 // height each render, so no scroll state is kept on the Model.

@@ -172,6 +172,20 @@ func TestItemKeyDistinguishesAgentsFromPlaceholders(t *testing.T) {
 	require.NotEqual(t, itemKey(item{dir: "/a"}), itemKey(item{session: &store.Session{ID: "/a"}, dir: "/a"}))
 }
 
+func TestItemAtClampsOutOfRange(t *testing.T) {
+	items := []item{{dir: "/a"}, {session: &store.Session{ID: "x"}, dir: "/a"}}
+	require.Equal(t, "/a", itemAt(items, -1).dir, "negative clamps to first")
+	require.Equal(t, "x", itemAt(items, 99).session.ID, "past end clamps to last")
+	require.Equal(t, item{}, itemAt(nil, 0), "empty list → zero item")
+}
+
+func TestActiveDirUsesCursorItemElseFallback(t *testing.T) {
+	items := []item{{session: &store.Session{ID: "x"}, dir: "/work/api"}, {dir: "—"}}
+	require.Equal(t, "/work/api", activeDir(items, 0, "/fallback"))
+	require.Equal(t, "/fallback", activeDir(items, 1, "/fallback"), "unknown dir (—) → fallback")
+	require.Equal(t, "/fallback", activeDir(nil, 0, "/fallback"), "no items → fallback")
+}
+
 func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 	m := New(&fakeAPI{})
 	now := time.Now()
