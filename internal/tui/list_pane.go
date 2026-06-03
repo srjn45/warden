@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -203,7 +204,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// normal mode
 	switch msg.String() {
 	case "q", "ctrl+c":
-		return m, tea.Quit
+		return m, tea.Sequence(killCockpitCmd(), tea.Quit)
 	case "down", "j":
 		if m.cursor < len(m.sessions)-1 {
 			m.cursor++
@@ -270,6 +271,18 @@ func (m listPaneModel) View() string {
 		footer = stError.Render("Terminate " + m.selectedID() + "? y / N")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
+}
+
+// killCockpitCmd tears down the whole cockpit by killing the tmux session that
+// hosts this pane. Run from inside the session, `tmux kill-session` (no target)
+// kills the current session, taking the detail + master panes down with it.
+// If we are not inside tmux (kill-session fails), the subsequent tea.Quit still
+// exits cleanly.
+func killCockpitCmd() tea.Cmd {
+	return func() tea.Msg {
+		_ = exec.Command("tmux", "kill-session").Run()
+		return nil
+	}
 }
 
 // RunListPane runs the top-left cockpit pane against the daemon client.

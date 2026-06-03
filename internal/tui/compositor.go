@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -117,7 +118,10 @@ func pidAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return p.Signal(syscall.Signal(0)) == nil
+	// Signal 0 probes existence: nil = alive-and-ours; EPERM = alive but owned
+	// by another user (still alive). Only ESRCH (no such process) means dead.
+	err = p.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // cleanStaleStateDirs removes tui-<pid> dirs under base whose pid is no longer
@@ -157,7 +161,10 @@ func RunCockpit(a api, self, masterCwd string) error {
 	}
 	defer os.RemoveAll(stateDir)
 
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home dir: %w", err)
+	}
 	o := cockpitOpts{
 		session:   cockpitSession(pid),
 		self:      self,
@@ -170,6 +177,11 @@ func RunCockpit(a api, self, masterCwd string) error {
 		_, _ = lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
 		return err
 	}
+
+	// Once built, ensure the session is torn down whenever we return — whether
+	// the user quit (session already gone) or merely detached (session still
+	// alive). kill-session on a missing session is a harmless ignored error.
+	defer lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
 
 	attach := exec.Command("tmux", "attach", "-t", o.session)
 	attach.Stdin, attach.Stdout, attach.Stderr = os.Stdin, os.Stdout, os.Stderr
