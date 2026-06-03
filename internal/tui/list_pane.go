@@ -95,9 +95,10 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case inputDoneMsg:
-		m.status = "sent"
 		if msg.err != nil {
 			m.status = "send failed: " + msg.err.Error()
+		} else {
+			m.status = "sent"
 		}
 		return m, nil
 	case cleanupDoneMsg:
@@ -110,6 +111,8 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case attachDoneMsg:
 		if msg.err != nil {
 			m.status = "attach failed: " + msg.err.Error()
+		} else {
+			m.status = ""
 		}
 		return m, nil
 	case tea.KeyMsg:
