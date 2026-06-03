@@ -1,31 +1,17 @@
 import { useState } from 'react';
 import type { Session } from '../lib/types';
-import { sendInput } from '../lib/api';
-import Terminal from './Terminal';
+import AttachTerminal from './AttachTerminal';
 import EventTimeline from './EventTimeline';
 import TerminateControls from './TerminateControls';
 import BusyIdleBadge from './BusyIdleBadge';
 
-// AgentTab is the focused single-agent view: a live colored terminal, a send
-// box, collapsible details + event timeline, and teardown controls.
+// AgentTab is the focused single-agent view: a fully interactive terminal
+// (real tmux attach), collapsible details + event timeline, and teardown controls.
 export default function AgentTab({ session, onClosed }: {
   session: Session;
   onClosed: () => void;
 }) {
-  const [msg, setMsg] = useState('');
-  const [sending, setSending] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
-
-  async function send() {
-    if (!msg.trim()) return;
-    setSending(true);
-    try {
-      await sendInput(session.id, msg);
-      setMsg('');
-    } catch { /* surfaced via list status / SSE */ } finally {
-      setSending(false);
-    }
-  }
 
   return (
     <div className="agent-tab">
@@ -37,17 +23,7 @@ export default function AgentTab({ session, onClosed }: {
         <TerminateControls session={session} onDone={onClosed} />
       </div>
 
-      <Terminal id={session.id} />
-
-      <section className="sendbox">
-        <input
-          value={msg}
-          onChange={(e) => setMsg(e.target.value)}
-          placeholder="Send a message to this agent…"
-          onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
-        />
-        <button disabled={sending} onClick={send}>Send</button>
-      </section>
+      <AttachTerminal id={session.id} />
 
       <button className="details-toggle" onClick={() => setShowDetails((v) => !v)}>
         {showDetails ? '▾ Hide details' : '▸ Details & history'}

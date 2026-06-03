@@ -113,22 +113,3 @@ export function subscribeSessions(
   es.onerror = () => onError();
   return () => es.close();
 }
-
-// subscribeOutput opens an SSE connection to an agent's live pane. Each frame is
-// a JSON OutputResponse; onFrame receives the decoded pane text. Returns an
-// unsubscribe function.
-export function subscribeOutput(
-  id: string,
-  onFrame: (output: string) => void,
-  onError?: () => void,
-): () => void {
-  const es = new EventSource(`/sessions/${encodeURIComponent(id)}/output/stream`);
-  es.onmessage = (e) => {
-    try {
-      const d = JSON.parse(e.data) as { output: string };
-      onFrame(d.output ?? '');
-    } catch { /* ignore malformed frame */ }
-  };
-  es.onerror = () => onError?.();
-  return () => es.close();
-}
