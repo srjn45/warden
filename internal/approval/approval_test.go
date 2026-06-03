@@ -57,3 +57,25 @@ func TestParseRejectsBareNumberedList(t *testing.T) {
 	_, ok := Parse(pane)
 	require.False(t, ok)
 }
+
+func TestFingerprintStableAndDistinct(t *testing.T) {
+	a := Fingerprint([]string{"Yes", "No"})
+	require.Equal(t, a, Fingerprint([]string{"Yes", "No"})) // stable
+	require.NotEqual(t, a, Fingerprint([]string{"Yes", "Maybe"}))
+	require.NotEmpty(t, a)
+}
+
+func TestBuildViewRecognized(t *testing.T) {
+	v := BuildView("agent-1", readFixture(t, "bash_prompt.txt"))
+	require.Equal(t, "agent-1", v.ID)
+	require.True(t, v.Recognized)
+	require.NotEmpty(t, v.Fingerprint)
+	require.GreaterOrEqual(t, len(v.Options), 2)
+}
+
+func TestBuildViewUnrecognized(t *testing.T) {
+	v := BuildView("agent-2", readFixture(t, "freeform.txt"))
+	require.Equal(t, "agent-2", v.ID)
+	require.False(t, v.Recognized)
+	require.Empty(t, v.Options)
+}

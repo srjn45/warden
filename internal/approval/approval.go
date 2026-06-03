@@ -4,6 +4,8 @@
 package approval
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"strconv"
 	"strings"
@@ -107,5 +109,35 @@ func Parse(pane string) (Approval, bool) {
 func looksLikeAction(s string) bool {
 	open := strings.IndexByte(s, '(')
 	return open > 0 && strings.HasSuffix(s, ")")
+}
+
+// View is the wire shape returned by GET /approvals and consumed by both UIs.
+type View struct {
+	ID          string   `json:"id"`
+	Action      string   `json:"action"`
+	Question    string   `json:"question"`
+	Options     []string `json:"options"`
+	Fingerprint string   `json:"fingerprint"`
+	Recognized  bool     `json:"recognized"`
+}
+
+// Fingerprint is a stable short hash of the option labels. The UI echoes it back
+// on answer so the daemon can prove the prompt has not changed underneath it.
+func Fingerprint(opts []string) string {
+	h := sha256.Sum256([]byte(strings.Join(opts, "\x00")))
+	return hex.EncodeToString(h[:8]) // 16 hex chars
+}
+
+// BuildView parses pane for session id, returning a recognized View with options
+// + fingerprint, or an unrecognized View (Recognized=false) to route to attach.
+func BuildView(id, pane string) View {
+	a, ok := Parse(pane)
+	if !ok {
+		return View{ID: id, Recognized: false}
+	}
+	return View{
+		ID: id, Action: a.Action, Question: a.Question,
+		Options: a.Options, Fingerprint: Fingerprint(a.Options), Recognized: true,
+	}
 }
 
