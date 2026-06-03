@@ -1,4 +1,5 @@
 import type { Session } from '../lib/types';
+import { groupSessions } from '../lib/group';
 import BusyIdleBadge from './BusyIdleBadge';
 
 function age(iso: string): string {
@@ -10,7 +11,6 @@ function age(iso: string): string {
   return `${Math.floor(m / 60)}h${m % 60}m`;
 }
 
-
 export default function AgentList({ sessions, selectedId, onSelect }: {
   sessions: Session[];
   selectedId: string | null;
@@ -19,24 +19,30 @@ export default function AgentList({ sessions, selectedId, onSelect }: {
   if (sessions.length === 0) {
     return <div className="list empty">No agents yet. Click "+ New agent".</div>;
   }
+  const groups = groupSessions(sessions);
   return (
     <div className="list">
       <table>
         <thead>
           <tr><th>ID</th><th>Type</th><th>State</th><th>Status</th><th>Age</th><th>Subject</th></tr>
         </thead>
-        <tbody>
-          {sessions.map((s) => (
-            <tr key={s.id} className={s.id === selectedId ? 'sel' : ''} onClick={() => onSelect(s.id)}>
-              <td>{s.id}</td>
-              <td>{s.type || <span className="muted">classifying…</span>}</td>
-              <td><BusyIdleBadge status={s.status} /></td>
-              <td>{s.status}</td>
-              <td>{age(s.updated_at)}</td>
-              <td className="muted">{s.subject}</td>
+        {groups.map((g) => (
+          <tbody key={g.dir}>
+            <tr className="group">
+              <td colSpan={6}>{g.dir} ({g.sessions.length})</td>
             </tr>
-          ))}
-        </tbody>
+            {g.sessions.map((s) => (
+              <tr key={s.id} className={s.id === selectedId ? 'sel' : ''} onClick={() => onSelect(s.id)}>
+                <td>{s.id}</td>
+                <td>{s.type || <span className="muted">classifying…</span>}</td>
+                <td><BusyIdleBadge status={s.status} /></td>
+                <td>{s.status}</td>
+                <td>{age(s.updated_at)}</td>
+                <td className="muted">{s.subject}</td>
+              </tr>
+            ))}
+          </tbody>
+        ))}
       </table>
     </div>
   );

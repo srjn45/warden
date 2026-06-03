@@ -18,6 +18,8 @@ body { margin: 0; }
 .list tbody tr { cursor: pointer; }
 .list tbody tr:hover { background: #8881; }
 .list tbody tr.sel { background: #2f81f733; }
+.list tr.group td { font-weight: 600; color: var(--idle); background: #8881; cursor: default; }
+.list tr.group:hover td { background: #8881; }
 .list.empty, .detail.empty { color: var(--idle); padding: 2rem; }
 .badge { font-size: .75rem; padding: .1rem .5rem; border-radius: 1rem; color: #fff; }
 .badge.busy { background: var(--busy); }
