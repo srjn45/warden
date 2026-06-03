@@ -46,6 +46,28 @@ The daemon then starts automatically at login and restarts on crash
 > `~/.local/bin` must be on your `PATH` to run `agentctl` from the shell — the
 > installer warns if it isn't.
 
+### Stop macOS "agentctl would like to access…" prompts (optional, macOS)
+
+The launchd daemon is the macOS TCC *responsible process* for the agents it
+spawns and for its own directory picker, so reads of protected folders
+(Downloads, Documents, Desktop, the Music/media library) surface as *"agentctl
+would like to access…"* prompts. Granting Full Disk Access once silences them —
+but macOS ties the grant to the binary's code identity, and an unsigned Go
+binary gets a new identity on every rebuild, which brings the prompts back.
+
+Run the one-time setup to give the binary a **stable** self-signed identity:
+
+```sh
+./scripts/codesign-setup.sh   # creates a self-signed code-signing cert (once)
+./scripts/install.sh          # reinstall so the binary is signed
+```
+
+Then grant access once: **System Settings → Privacy & Security → Full Disk
+Access → "+"** and add `~/.local/bin/agentctl`. Because the signing identity is
+stable, the grant survives future rebuilds. (`install.sh`/`reinstall.sh` sign
+automatically when the cert exists; without it they warn and leave the binary
+unsigned.)
+
 **Redeploy after a code change** (replaces `make release && ./bin/agentctl daemon`):
 
 ```sh

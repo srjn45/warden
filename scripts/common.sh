@@ -5,6 +5,10 @@
 
 # --- config ---------------------------------------------------------------
 LABEL="com.srajanpathak.agentctl"
+# Common-name of the self-signed code-signing cert created by codesign-setup.sh.
+# Signing the binary with a stable identity keeps macOS Full Disk Access grants
+# valid across rebuilds (see codesign-setup.sh for the full rationale).
+CODESIGN_IDENTITY="agentctl-codesign"
 ADDR="${AGENTCTL_ADDR:-127.0.0.1:8765}"
 INSTALL_BIN_DIR="$HOME/.local/bin"
 INSTALL_BIN="$INSTALL_BIN_DIR/agentctl"
@@ -42,6 +46,25 @@ deploy_binary() {
   mkdir -p "$INSTALL_BIN_DIR"
   cp "$REPO_ROOT/bin/agentctl" "$INSTALL_BIN" || die "failed to copy binary to $INSTALL_BIN"
   info "installed binary -> $INSTALL_BIN"
+  codesign_binary
+}
+
+# Sign the installed binary with the stable self-signed identity so a granted
+# Full Disk Access survives rebuilds. Best-effort: if the identity is missing or
+# codesign fails, warn (the tool still works; macOS just keeps prompting for
+# protected-folder access). Run scripts/codesign-setup.sh once to create the cert.
+codesign_binary() {
+  command -v codesign >/dev/null 2>&1 || return 0
+  if ! security find-certificate -c "$CODESIGN_IDENTITY" >/dev/null 2>&1; then
+    warn "code-signing identity '$CODESIGN_IDENTITY' not found — binary left unsigned."
+    warn "  run ./scripts/codesign-setup.sh once to stop repeated macOS access prompts."
+    return 0
+  fi
+  if codesign --force --sign "$CODESIGN_IDENTITY" --identifier "$LABEL" "$INSTALL_BIN" 2>/dev/null; then
+    info "signed $INSTALL_BIN (identity: $CODESIGN_IDENTITY)"
+  else
+    warn "codesign failed — binary left unsigned; macOS may re-prompt for file access."
+  fi
 }
 
 # --- plist ----------------------------------------------------------------
