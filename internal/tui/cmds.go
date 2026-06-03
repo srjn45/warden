@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"time"
 
@@ -62,7 +63,11 @@ func spawnCmd(a api, prompt string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
 		defer cancel()
-		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt})
+		// Prompt-mode spawns require a launch dir (the daemon rejects an empty
+		// cwd). Use the pane process's cwd: classic runs in the launching shell's
+		// dir, and the cockpit list pane is started in masterCwd (see compositor).
+		cwd, _ := os.Getwd()
+		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Cwd: cwd})
 		if err != nil {
 			return spawnDoneMsg{err: err}
 		}

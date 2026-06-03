@@ -103,8 +103,10 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 		return err
 	}
 	// 3. List pane ABOVE master (-b), 50% of the left column; it gets detailID.
+	// It runs in masterCwd (the launching shell's dir) so agents spawned from it
+	// (`n`) launch in that dir — os.Getwd() in the pane is what spawnCmd sends.
 	listID, err := runPaneCreate(ctx, run,
-		"split-window", "-v", "-b", "-l", "50%", "-t", masterID, "-c", o.homeDir,
+		"split-window", "-v", "-b", "-l", "50%", "-t", masterID, "-c", o.masterCwd,
 		"-P", "-F", "#{pane_id}", listPaneCmd(o.self, detailID))
 	if err != nil {
 		return err

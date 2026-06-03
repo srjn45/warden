@@ -37,7 +37,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
 	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+detailPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
 	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} claude"] = lifecycle.FakeResp{Out: "%1\n"}
-	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /home -P -F #{pane_id} "+listPaneCmd("/bin/agentctl", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
+	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+listPaneCmd("/bin/agentctl", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
 
 	o := cockpitOpts{session: "S", self: "/bin/agentctl", homeDir: "/home", masterCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
@@ -45,7 +45,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", detailPlaceholderCmd()}, fr.Calls[0].Argv)
 	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", "claude"}, fr.Calls[1].Argv)
-	require.Equal(t, []string{"tmux", "split-window", "-v", "-b", "-l", "50%", "-t", "%1", "-c", "/home", "-P", "-F", "#{pane_id}", "/bin/agentctl tui --pane=list --detail-pane=%0"}, fr.Calls[2].Argv)
+	require.Equal(t, []string{"tmux", "split-window", "-v", "-b", "-l", "50%", "-t", "%1", "-c", "/work", "-P", "-F", "#{pane_id}", "/bin/agentctl tui --pane=list --detail-pane=%0"}, fr.Calls[2].Argv)
 	require.Equal(t, []string{"tmux", "set-option", "-p", "-t", "%0", "remain-on-exit", "on"}, fr.Calls[3].Argv)
 	require.Equal(t, []string{"tmux", "set-option", "-t", "S", "mouse", "on"}, fr.Calls[4].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Left", "select-pane", "-L"}, fr.Calls[5].Argv)
