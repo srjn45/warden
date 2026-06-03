@@ -530,6 +530,8 @@ type AdoptRequest struct {
 // the conversation under a new tmux session; live mode adopts an existing tmux
 // session as-is. It returns the (unpersisted) session record for the caller to
 // store. It never relaunches a live session.
+// Resume mode assumes id is fresh (caller-generated) and does not guard against
+// a pre-existing tmux session of that name.
 func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session, error) {
 	id := req.ID
 	if id == "" {
@@ -548,7 +550,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 	}
 	if req.TmuxSession == "" { // resume mode
 		if req.ClaudeSessionID == "" {
-			return nil, ErrNoTranscript
+			return nil, ErrNoSessionID
 		}
 		if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {
 			return nil, ErrWorkdirMissing

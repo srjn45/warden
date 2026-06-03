@@ -637,7 +637,7 @@ func TestAdoptResumeNoClaudeID(t *testing.T) {
 	_, err := New(&FakeRunner{}).Adopt(context.Background(), AdoptRequest{
 		ID: "agent-a1", Cwd: t.TempDir(), ClaudeSessionID: "", TmuxSession: "",
 	})
-	require.ErrorIs(t, err, ErrNoTranscript)
+	require.ErrorIs(t, err, ErrNoSessionID)
 }
 
 func TestAdoptResumeWorkdirMissing(t *testing.T) {
