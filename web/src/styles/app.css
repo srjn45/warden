@@ -94,3 +94,12 @@ body { margin: 0; }
 .xterm-host { height: 420px; background: #0b0b0b; border-radius: .4rem; padding: .4rem; }
 .details-toggle { align-self: flex-start; background: none; border: none; color: var(--idle); cursor: pointer; font: inherit; }
 .agent-details { display: flex; flex-direction: column; gap: .5rem; }
+
+/* ── Directory picker ── */
+.dirpicker { display: flex; flex-direction: column; gap: .4rem; }
+.dirpicker-input { width: 100%; padding: .4rem; font: inherit; box-sizing: border-box; }
+.dirpicker-list { max-height: 220px; overflow-y: auto; list-style: none; margin: 0; padding: 0; border: 1px solid #8883; border-radius: .3rem; }
+.dirpicker-list li button { width: 100%; text-align: left; background: none; border: none; padding: .3rem .5rem; cursor: pointer; color: inherit; font: inherit; }
+.dirpicker-list li button:hover, .dirpicker-list li button.on { background: #2f81f733; }
+.dirpicker-empty { padding: .3rem .5rem; }
+.dirpicker-use { align-self: flex-start; }
