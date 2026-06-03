@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listSessions, spawn, listDirs, cleanup, ApiError } from './api';
+import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -40,13 +40,31 @@ describe('api', () => {
     });
   });
 
-  it('cleanup POSTs id/force/hard to /cleanup', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'cleaned' }));
+  it('terminate POSTs to /sessions/{id}/terminate', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'terminated' }));
     vi.stubGlobal('fetch', fetchMock);
-    await cleanup('A-1', true, false);
+    await terminate('A-1');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/cleanup');
-    expect(JSON.parse(opts.body)).toEqual({ id: 'A-1', force: true, hard: false });
+    expect(url).toBe('/sessions/A-1/terminate');
+    expect(opts.method).toBe('POST');
+  });
+
+  it('removeWorktree POSTs force to /sessions/{id}/remove-worktree', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'worktree removed' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await removeWorktree('A-1', true);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('/sessions/A-1/remove-worktree');
+    expect(JSON.parse(opts.body)).toEqual({ force: true });
+  });
+
+  it('deleteSession POSTs hard to /sessions/{id}/delete', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'deleted' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await deleteSession('A-1', true);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('/sessions/A-1/delete');
+    expect(JSON.parse(opts.body)).toEqual({ hard: true });
   });
 
   it('spawn includes cwd when provided', async () => {

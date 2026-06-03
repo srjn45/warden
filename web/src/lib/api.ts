@@ -59,11 +59,25 @@ export async function listDirs(path?: string): Promise<DirListing> {
   return parse<DirListing>(await fetch(`/fs/dirs${q}`));
 }
 
-export async function cleanup(id: string, force: boolean, hard: boolean): Promise<void> {
-  await parse<unknown>(await fetch('/cleanup', {
+export async function terminate(id: string): Promise<void> {
+  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/terminate`, {
+    method: 'POST',
+  }));
+}
+
+export async function removeWorktree(id: string, force: boolean): Promise<void> {
+  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/remove-worktree`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, force, hard }),
+    body: JSON.stringify({ force }),
+  }));
+}
+
+export async function deleteSession(id: string, hard: boolean): Promise<void> {
+  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hard }),
   }));
 }
 
@@ -97,5 +111,24 @@ export function subscribeSessions(
     } catch { /* ignore malformed frame */ }
   };
   es.onerror = () => onError();
+  return () => es.close();
+}
+
+// subscribeOutput opens an SSE connection to an agent's live pane. Each frame is
+// a JSON OutputResponse; onFrame receives the decoded pane text. Returns an
+// unsubscribe function.
+export function subscribeOutput(
+  id: string,
+  onFrame: (output: string) => void,
+  onError?: () => void,
+): () => void {
+  const es = new EventSource(`/sessions/${encodeURIComponent(id)}/output/stream`);
+  es.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data) as { output: string };
+      onFrame(d.output ?? '');
+    } catch { /* ignore malformed frame */ }
+  };
+  es.onerror = () => onError?.();
   return () => es.close();
 }
