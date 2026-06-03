@@ -74,8 +74,8 @@ func (m Model) View() string {
 		if detailTitle == "" {
 			detailTitle = "—"
 		}
-		left := titleBox(listTitle, m.renderList(listOuter-2, bodyH-2), listOuter, bodyH)
-		right := titleBox(detailTitle, m.renderDetail(detailOuter-2), detailOuter, bodyH)
+		left := titleBox(listTitle, renderList(m.sessions, m.cursor, listOuter-2, bodyH-2), listOuter, bodyH)
+		right := titleBox(detailTitle, renderDetail(m.selected(), m.vp, m.outputFocused, detailOuter-2), detailOuter, bodyH)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
 

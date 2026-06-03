@@ -36,14 +36,14 @@ func trunc(s string, n int) string {
 
 // renderList renders the agent list windowed to exactly `height` lines and
 // `width` columns of inner content, always keeping the selected row visible.
-func (m Model) renderList(width, height int) string {
+func renderList(sessions []*store.Session, cursor, width, height int) string {
 	if height < 1 {
 		height = 1
 	}
-	if len(m.sessions) == 0 {
+	if len(sessions) == 0 {
 		return padTo(stMuted.Render("No agents — press n to create one"), height)
 	}
-	n := len(m.sessions)
+	n := len(sessions)
 	visible := height
 	hidden := n > height
 	if hidden {
@@ -51,18 +51,18 @@ func (m Model) renderList(width, height int) string {
 			visible = 1
 		}
 	}
-	top := listWindow(n, m.cursor, visible)
+	top := listWindow(n, cursor, visible)
 
 	var b strings.Builder
 	used := 0
 	for i := top; i < top+visible && i < n; i++ {
-		s := m.sessions[i]
+		s := sessions[i]
 		label, st := badge(s.Status)
 		line := fmt.Sprintf("%-12s %-9s %-11s %-5s %s",
 			trunc(s.ID, 12), trunc(typeOr(s), 9), st.Render(label), age(s.UpdatedAt),
 			trunc(s.Subject, max(0, width-44)))
 		cur := "  "
-		if i == m.cursor {
+		if i == cursor {
 			cur = stCursor.Render("› ")
 			line = stCursor.Render(line)
 		}
