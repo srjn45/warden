@@ -513,6 +513,65 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID)
 }
 
+// AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
+// resume mode (create a fresh tmux session and `claude --resume`); a non-empty
+// TmuxSession selects live mode (register an existing tmux session, no
+// relaunch). ID == "" generates an "agent-<short>" id; in live mode an ID that
+// differs from TmuxSession triggers a tmux rename so the agent id and tmux
+// session name stay equal (attach/switch-client target the id).
+type AdoptRequest struct {
+	ID              string
+	Cwd             string
+	ClaudeSessionID string
+	TmuxSession     string
+}
+
+// Adopt registers a Claude session agentctl did not spawn. Resume mode resumes
+// the conversation under a new tmux session; live mode adopts an existing tmux
+// session as-is. It returns the (unpersisted) session record for the caller to
+// store. It never relaunches a live session.
+func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session, error) {
+	id := req.ID
+	if id == "" {
+		sid, err := shortID()
+		if err != nil {
+			return nil, err
+		}
+		id = "agent-" + sid
+	}
+	sess := &store.Session{
+		ID:              id,
+		TmuxSession:     id,
+		Type:            store.TypeOther,
+		Workdir:         req.Cwd,
+		ClaudeSessionID: req.ClaudeSessionID,
+	}
+	if req.TmuxSession == "" { // resume mode
+		if req.ClaudeSessionID == "" {
+			return nil, ErrNoTranscript
+		}
+		if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {
+			return nil, ErrWorkdirMissing
+		}
+		sess.Status = store.StatusSpawning
+		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID); err != nil {
+			return nil, err
+		}
+		return sess, nil
+	}
+	// live mode: register an existing tmux session, no relaunch.
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", req.TmuxSession); err != nil {
+		return nil, ErrTmuxGone
+	}
+	if id != req.TmuxSession {
+		if out, err := l.run.Run(ctx, "", "tmux", "rename-session", "-t", req.TmuxSession, id); err != nil {
+			return nil, fmt.Errorf("tmux rename-session: %w: %s", err, out)
+		}
+	}
+	sess.Status = store.StatusWorking
+	return sess, nil
+}
+
 var (
 	ErrDirtyWorktree      = errors.New("worktree has uncommitted changes (use --force)")
 	ErrUnpushedCommits    = errors.New("worktree has unpushed commits (use --force)")
@@ -522,6 +581,7 @@ var (
 	ErrNoTranscript       = errors.New("no transcript to resume")
 	ErrNoWorktree         = errors.New("session has no worktree")
 	ErrWorktreeAgentAlive = errors.New("agent is still running; terminate it before removing its worktree")
+	ErrTmuxGone           = errors.New("tmux session not found")
 )
 
 // CleanupTarget carries the fields Cleanup needs (filled from the store doc).

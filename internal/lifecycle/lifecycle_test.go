@@ -604,3 +604,91 @@ func TestNewestClaudeSessionNone(t *testing.T) {
 	_, err = lc2.NewestClaudeSession(t.TempDir())
 	require.ErrorIs(t, err, ErrNoTranscript)
 }
+
+func TestAdoptResumeMode(t *testing.T) {
+	workdir := t.TempDir()
+	sid := "33333333-3333-4333-8333-333333333333"
+	fr := &FakeRunner{}
+	lc := New(fr)
+	sess, err := lc.Adopt(context.Background(), AdoptRequest{
+		ID: "agent-a1", Cwd: workdir, ClaudeSessionID: sid, TmuxSession: "",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "agent-a1", sess.ID)
+	require.Equal(t, "agent-a1", sess.TmuxSession)
+	require.Equal(t, sid, sess.ClaudeSessionID)
+	require.Equal(t, store.TypeOther, sess.Type)
+	require.Equal(t, store.StatusSpawning, sess.Status)
+	require.Equal(t, workdir, sess.Workdir)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-a1", "-c", workdir})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-a1", claudeResume(sid, "agent-a1"), "Enter"})
+}
+
+func TestAdoptResumeGeneratesID(t *testing.T) {
+	sess, err := New(&FakeRunner{}).Adopt(context.Background(), AdoptRequest{
+		ID: "", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "",
+	})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(sess.ID, "agent-"), "generated id, got %q", sess.ID)
+	require.Equal(t, sess.ID, sess.TmuxSession)
+}
+
+func TestAdoptResumeNoClaudeID(t *testing.T) {
+	_, err := New(&FakeRunner{}).Adopt(context.Background(), AdoptRequest{
+		ID: "agent-a1", Cwd: t.TempDir(), ClaudeSessionID: "", TmuxSession: "",
+	})
+	require.ErrorIs(t, err, ErrNoTranscript)
+}
+
+func TestAdoptResumeWorkdirMissing(t *testing.T) {
+	_, err := New(&FakeRunner{}).Adopt(context.Background(), AdoptRequest{
+		ID: "agent-a1", Cwd: "/no/such/dir", ClaudeSessionID: "x", TmuxSession: "",
+	})
+	require.ErrorIs(t, err, ErrWorkdirMissing)
+}
+
+func TestAdoptLiveKeepsName(t *testing.T) {
+	// FakeRunner default = success → has-session succeeds → tmux session alive.
+	fr := &FakeRunner{}
+	sess, err := New(fr).Adopt(context.Background(), AdoptRequest{
+		ID: "work", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "work",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "work", sess.ID)
+	require.Equal(t, "work", sess.TmuxSession)
+	require.Equal(t, store.StatusWorking, sess.Status)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "has-session", "-t", "work"})
+	for _, a := range fr.calledArgs() {
+		require.NotEqual(t, "rename-session", argAt(a, 1), "no rename when id == tmux name")
+		require.NotEqual(t, "new-session", argAt(a, 1), "live adopt never relaunches")
+	}
+}
+
+func TestAdoptLiveRenamesWhenIDDiffers(t *testing.T) {
+	fr := &FakeRunner{}
+	sess, err := New(fr).Adopt(context.Background(), AdoptRequest{
+		ID: "agent-b2", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "0",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "agent-b2", sess.ID)
+	require.Equal(t, "agent-b2", sess.TmuxSession)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "rename-session", "-t", "0", "agent-b2"})
+}
+
+func TestAdoptLiveTmuxGone(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t ghost": {Err: errStub("no session")},
+	}}
+	_, err := New(fr).Adopt(context.Background(), AdoptRequest{
+		ID: "ghost", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "ghost",
+	})
+	require.ErrorIs(t, err, ErrTmuxGone)
+}
+
+// argAt returns a[i] or "" when out of range — for asserting tmux subcommands.
+func argAt(a []string, i int) string {
+	if i < len(a) {
+		return a[i]
+	}
+	return ""
+}
