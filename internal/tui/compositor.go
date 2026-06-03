@@ -3,9 +3,12 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 )
@@ -98,4 +101,77 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 		return fmt.Errorf("tmux select-pane: %w: %s", err, out)
 	}
 	return nil
+}
+
+// cockpitBaseDir is the parent of all per-pid cockpit state dirs.
+func cockpitBaseDir() string {
+	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
+		return filepath.Join(x, "agentctl")
+	}
+	return filepath.Join(os.TempDir(), "agentctl")
+}
+
+// pidAlive reports whether a process with pid exists (signal 0 probe).
+func pidAlive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
+}
+
+// cleanStaleStateDirs removes tui-<pid> dirs under base whose pid is no longer
+// alive. Best-effort: errors are ignored (a leftover dir is harmless).
+func cleanStaleStateDirs(base string) {
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "tui-") {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimPrefix(e.Name(), "tui-"))
+		if err != nil {
+			continue
+		}
+		if !pidAlive(pid) {
+			_ = os.RemoveAll(filepath.Join(base, e.Name()))
+		}
+	}
+}
+
+// RunCockpit builds the tmux cockpit for this process and attaches to it,
+// blocking until the user detaches/quits. masterCwd is the launching shell's
+// directory (where the master claude pane runs). It cleans up this run's state
+// dir on exit and sweeps stale dirs from dead prior runs on entry.
+func RunCockpit(a api, self, masterCwd string) error {
+	_ = a // the panes hold their own clients; reserved for future inline checks
+	pid := os.Getpid()
+	base := cockpitBaseDir()
+	cleanStaleStateDirs(base)
+
+	stateDir := cockpitStateDir(base, pid)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return fmt.Errorf("create state dir: %w", err)
+	}
+	defer os.RemoveAll(stateDir)
+
+	home, _ := os.UserHomeDir()
+	o := cockpitOpts{
+		session:   cockpitSession(pid),
+		self:      self,
+		stateDir:  stateDir,
+		homeDir:   home,
+		masterCwd: masterCwd,
+	}
+	if err := buildCockpit(context.Background(), lifecycle.ExecRunner{}, o); err != nil {
+		// Tear down a half-built session so we never leave an orphan.
+		_, _ = lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
+		return err
+	}
+
+	attach := exec.Command("tmux", "attach", "-t", o.session)
+	attach.Stdin, attach.Stdout, attach.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return attach.Run()
 }

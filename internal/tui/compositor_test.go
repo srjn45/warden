@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,4 +60,26 @@ func TestPaneCommandStrings(t *testing.T) {
 	require.Equal(t, "/bin/agentctl tui --pane=detail --state-dir=/st", detailPaneCmd("/bin/agentctl", "/st"))
 	// paths with spaces are single-quoted so tmux's `sh -c` keeps them intact
 	require.True(t, strings.Contains(shquote("a b"), "'a b'"))
+}
+
+func TestCockpitBaseDirPrefersXDG(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	require.Equal(t, filepath.Join("/run/user/1000", "agentctl"), cockpitBaseDir())
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	require.Equal(t, filepath.Join(os.TempDir(), "agentctl"), cockpitBaseDir())
+}
+
+func TestCleanStaleStateDirsRemovesDeadPidDirs(t *testing.T) {
+	base := t.TempDir()
+	dead := cockpitStateDir(base, 999999) // a pid extremely unlikely to be alive
+	require.NoError(t, os.MkdirAll(dead, 0o700))
+	keep := cockpitStateDir(base, os.Getpid()) // our own pid: alive, must survive
+	require.NoError(t, os.MkdirAll(keep, 0o700))
+
+	cleanStaleStateDirs(base)
+
+	_, err := os.Stat(dead)
+	require.True(t, os.IsNotExist(err), "dead pid dir should be removed")
+	_, err = os.Stat(keep)
+	require.NoError(t, err, "live pid dir should survive")
 }
