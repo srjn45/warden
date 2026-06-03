@@ -44,7 +44,7 @@ Before anything works, confirm these are on your PATH and running:
 
 ```sh
 claude --version     # the agent runtime
-tmux -V              # every agent lives in a tmux window
+tmux -V              # every agent lives in a tmux window (≥ 3.1 for the cockpit)
 git --version        # worktree creation/cleanup
 gh --version         # only needed for pr-review agents
 curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
@@ -190,8 +190,8 @@ All commands accept `--addr` to point at a non-default daemon (overrides
 or an `agent-xxxx` ID for prompt-spawned ones.
 
 ### `agentctl` / `agentctl tui`
-Open the live two-pane terminal cockpit (see §7). Bare `agentctl` with no
-subcommand does the same thing.
+Open the tmux-composited cockpit (see §7). Bare `agentctl` with no
+subcommand does the same thing. Pass `--classic` to use the legacy single-pane view.
 
 ### `agentctl start [TICKET|"<prompt>"] [flags]`
 Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
@@ -260,21 +260,84 @@ Run the MCP stdio server (see §8).
 agentctl tui     # or just: agentctl
 ```
 
-A live two-pane cockpit (Bubble Tea). The **left pane** lists every agent with
-a busy/idle badge and its current subject; the **right pane** shows the
-selected agent's live output and event history. It polls the daemon about once
-a second, so the daemon must be running.
+### The tmux-composited cockpit (default)
+
+`agentctl tui` builds a **tmux-composited cockpit** — a dedicated tmux session
+with three panes laid out like this:
+
+```
+┌─ Agents (3) ──────┐┌─ agent-4f98 ──────────────┐
+│ ▸ agent-4f98  ●   ││ dir: ~/...                │
+│   agent-c860  ⠿   ││ subject: refactor poller  │
+│   agent-d01c  ✔   ││                           │
+├─ Master Claude ───┤│ output ─────────────────  │
+│ > triage all my   ││ ...                       │
+│   agents and tell ││                           │
+│   me which are    ││                           │
+│   stuck_          ││                           │
+└───────────────────┘└───────────────────────────┘
+```
+
+**Top-left — agents list.** Lists every agent with a busy/idle badge and its
+current subject. Navigate with `↑`/`↓` or `j`/`k`; the highlighted agent
+drives what the right pane shows.
 
 | Key | Action |
 |---|---|
 | `↑`/`↓` or `j`/`k` | Move selection |
-| `tab` | Focus the output viewport (scroll with `↑`/`↓`/`PgUp`/`PgDn`); `tab`/`esc` to leave |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
-| `a` | Attach — hands off to the agent's tmux session; returns to the TUI on detach |
+| `a` | Attach — hands off to the agent's tmux session; returns to the cockpit on detach |
 | `x` | Terminate the selected agent — confirm with `y`; if it has uncommitted/unpushed work, press `X` to force |
 | `?` | Toggle help |
-| `q` | Quit |
+| `q` | Quit the whole cockpit |
+
+**Bottom-left — master Claude.** A live, interactive `claude` session embedded
+directly in the cockpit. It is wired to the `agentctl` MCP server, so you can
+talk to it naturally to manage or monitor the whole fleet — *"triage all my
+agents and tell me which are stuck"*, *"tell PROJ-350 to run the tests"*,
+or anything else Claude Code can do.
+
+The `agentctl` MCP server is registered when the installer runs
+`claude mcp add agentctl --scope user -- agentctl mcp`. If it isn't registered,
+the master can still drive the fleet using the `agentctl` CLI directly.
+
+> **The master is ephemeral.** It starts fresh every time you open the cockpit
+> and dies when you quit it. Persisting the master across sessions (so it can
+> survive long-running orchestration and resume context on next launch) is a
+> planned future enhancement — see
+> `docs/superpowers/specs/2026-06-03-agentctl-tui-master-pane-design.md`.
+
+**Right (full height) — detail viewer.** A read-only panel showing the selected
+agent's live output and event history. It stays in sync with whichever agent is
+highlighted in the list pane via a small per-cockpit state file; no daemon
+coupling is needed for the handoff.
+
+Each cockpit launch creates an independent tmux session (named
+`agentctl-tui-<pid>`), so opening two terminals and running `agentctl tui` in
+each gives you two separate cockpits, each with its own ephemeral master.
+
+**Requirement:** the cockpit uses `tmux split-window -l <pct>%`, which requires
+**tmux ≥ 3.1**.
+
+### Classic (single-pane) mode
+
+```sh
+agentctl tui --classic
+```
+
+Runs the original single-pane view: list on the left, detail on the right, no
+embedded master — the same Bubble Tea app that existed before the cockpit. Use
+it if you prefer a lighter view or need to script into a non-interactive
+environment.
+
+The cockpit **automatically falls back to `--classic`** in two situations:
+- `tmux` is not installed or is older than 3.1.
+- `agentctl tui` is launched from inside an existing tmux session (to avoid
+  nesting sessions).
+
+Both panes poll the daemon about once a second, so the daemon must be running
+regardless of which mode you use.
 
 ---
 
