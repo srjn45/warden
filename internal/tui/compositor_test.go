@@ -43,7 +43,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 	o := cockpitOpts{session: "S", self: "/bin/agentctl", stateDir: "/st", homeDir: "/home", masterCwd: "/work"}
 	err := buildCockpit(context.Background(), fr, o)
 	require.NoError(t, err)
-	require.Len(t, fr.Calls, 5, "unexpected number of tmux calls")
+	require.Len(t, fr.Calls, 6, "unexpected number of tmux calls")
 
 	// 1) session created with the list pane command
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", "/bin/agentctl tui --pane=list --state-dir=/st"}, fr.Calls[0].Argv)
@@ -54,6 +54,26 @@ func TestBuildCockpitSequence(t *testing.T) {
 	// 4) mouse on + focus the list pane
 	require.Equal(t, []string{"tmux", "set-option", "-t", "S", "mouse", "on"}, fr.Calls[3].Argv)
 	require.Equal(t, []string{"tmux", "select-pane", "-t", "%0"}, fr.Calls[4].Argv)
+	// 5) bind <prefix> Enter to "switch to last session" so the user can return
+	// to the dashboard from an agent they attached to.
+	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[5].Argv)
+}
+
+func TestCleanStaleCockpits(t *testing.T) {
+	alive := cockpitSession(os.Getpid()) // this process is alive — must survive
+	dead := cockpitSession(2147483646)   // not a live pid — must be killed
+	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{
+		"tmux list-sessions -F #{session_name}": {Out: alive + "\n" + dead + "\nmy-own-session\n"},
+	}}
+	cleanStaleCockpits(fr)
+
+	var killed []string
+	for _, c := range fr.Calls {
+		if len(c.Argv) >= 4 && c.Argv[1] == "kill-session" {
+			killed = append(killed, c.Argv[3])
+		}
+	}
+	require.Equal(t, []string{dead}, killed, "only the dead-pid cockpit is killed; live cockpit and user sessions are left alone")
 }
 
 func TestPaneCommandStrings(t *testing.T) {

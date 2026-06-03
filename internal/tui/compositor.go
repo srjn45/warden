@@ -113,6 +113,15 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", listID); err != nil {
 		return fmt.Errorf("tmux select-pane: %w: %s", err, out)
 	}
+	// Bind <prefix> Enter to "switch to the last session". Attaching to an agent
+	// moves this client to the agent's session (switch-client; tmux can't nest an
+	// attach), so the user needs a way back to this dashboard — <prefix> Enter
+	// returns them to wherever they came from. -l is per-client, so it stays
+	// correct even with multiple cockpits. switchClientCmd flashes this hint on
+	// attach; killCockpitCmd unbinds it on quit.
+	if out, err := run.Run(ctx, "", "tmux", "bind-key", "Enter", "switch-client", "-l"); err != nil {
+		return fmt.Errorf("tmux bind-key: %w: %s", err, out)
+	}
 	return nil
 }
 
@@ -157,6 +166,31 @@ func cleanStaleStateDirs(base string) {
 	}
 }
 
+// cleanStaleCockpits kills cockpit tmux sessions (agentctl-tui-<pid>) whose
+// owning agentctl process is dead — orphans left behind when a user detached
+// (Ctrl-b d) instead of quitting. Best-effort: a missing tmux server (no
+// sessions yet) or any error is ignored. Live cockpits and the user's own
+// sessions are never touched.
+func cleanStaleCockpits(run lifecycle.Runner) {
+	out, err := run.Run(context.Background(), "", "tmux", "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return
+	}
+	const prefix = "agentctl-tui-"
+	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimPrefix(name, prefix))
+		if err != nil {
+			continue
+		}
+		if !pidAlive(pid) {
+			_, _ = run.Run(context.Background(), "", "tmux", "kill-session", "-t", name)
+		}
+	}
+}
+
 // RunCockpit builds the tmux cockpit for this process and attaches to it,
 // blocking until the user detaches/quits. masterCwd is the launching shell's
 // directory (where the master claude pane runs). It cleans up this run's state
@@ -166,6 +200,7 @@ func RunCockpit(a api, self, masterCwd string) error {
 	pid := os.Getpid()
 	base := cockpitBaseDir()
 	cleanStaleStateDirs(base)
+	cleanStaleCockpits(lifecycle.ExecRunner{})
 
 	stateDir := cockpitStateDir(base, pid)
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
@@ -190,11 +225,11 @@ func RunCockpit(a api, self, masterCwd string) error {
 		return err
 	}
 
-	// Once built, ensure the session is torn down whenever we return — whether
-	// the user quit (session already gone) or merely detached (session still
-	// alive). kill-session on a missing session is a harmless ignored error.
-	defer lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
-
+	// We deliberately do NOT kill the session on return. Quitting (`q`) tears the
+	// cockpit down explicitly from inside (killCockpitCmd); a bare detach
+	// (Ctrl-b d) leaves it alive so an accidental detach doesn't destroy the
+	// dashboard. Any cockpit orphaned by a detach is reaped by cleanStaleCockpits
+	// on the next launch (its owning pid is gone).
 	attach := exec.Command("tmux", "attach", "-t", o.session)
 	attach.Stdin, attach.Stdout, attach.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return attach.Run()

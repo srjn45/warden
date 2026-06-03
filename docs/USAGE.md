@@ -287,10 +287,17 @@ drives what the right pane shows.
 | `↑`/`↓` or `j`/`k` | Move selection |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
-| `a` | Attach — hands off to the agent's tmux session; returns to the cockpit on detach |
+| `a` | Attach — hands the whole client to the agent's tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
 | `x` | Terminate the selected agent — confirm with `y`, cancel with `n`/`esc` |
 | `?` | Toggle help |
-| `q` | Quit the whole cockpit |
+| `q` | Quit and tear down the whole cockpit |
+
+> **Getting back from an agent.** Attaching moves your single tmux client onto
+> the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to
+> jump back to the dashboard — not `Ctrl-b d`. `Ctrl-b d` still works but it
+> *detaches* the cockpit to the background rather than returning to it; the
+> cockpit survives (it's reaped on your next `agentctl tui`), so an accidental
+> detach no longer destroys your dashboard. Only `q` tears it down.
 
 **Bottom-left — master Claude.** A live, interactive `claude` session embedded
 directly in the cockpit. It is wired to the `agentctl` MCP server, so you can
