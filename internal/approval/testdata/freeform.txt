@@ -1,0 +1,7 @@
+● Here is my plan for the refactor:
+
+  - Extract the validation into a helper
+  - Add a regression test
+  - Update the call sites
+
+Would you like me to proceed with this approach, or adjust it first?

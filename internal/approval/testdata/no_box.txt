@@ -1,0 +1,8 @@
+● Running the test suite…
+
+  PASS  internal/store
+  PASS  internal/poller
+  PASS  internal/daemon
+
+All tests passed. Now refactoring the handler to reduce duplication.
+Reading lifecycle.go to understand the current structure.
