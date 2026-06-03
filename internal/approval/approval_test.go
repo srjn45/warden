@@ -20,6 +20,16 @@ func TestParseRecognizesBashPrompt(t *testing.T) {
 	require.True(t, ok)
 	require.GreaterOrEqual(t, len(a.Options), 2)
 	require.NotEmpty(t, a.Question)
+	require.Equal(t, 1, a.SelectedIdx)
+	require.Equal(t, "Bash(rm -rf node_modules)", a.Action)
+}
+
+func TestParseRecognizesEditPrompt(t *testing.T) {
+	a, ok := Parse(readFixture(t, "edit_prompt.txt"))
+	require.True(t, ok)
+	require.Equal(t, 1, a.SelectedIdx)
+	require.Equal(t, "Edit(src/auth/middleware.ts)", a.Action)
+	require.GreaterOrEqual(t, len(a.Options), 2)
 }
 
 func TestParseRejectsFreeform(t *testing.T) {
@@ -39,5 +49,11 @@ func TestParseRejectsSingleOption(t *testing.T) {
 
 func TestParseRejectsNonSequential(t *testing.T) {
 	_, ok := Parse("Do you want to proceed?\n  1. Yes\n  3. No\n")
+	require.False(t, ok)
+}
+
+func TestParseRejectsBareNumberedList(t *testing.T) {
+	pane := "Here is my plan:\n\n  1. Extract validation\n  2. Add a test\n  3. Update call sites\n"
+	_, ok := Parse(pane)
 	require.False(t, ok)
 }

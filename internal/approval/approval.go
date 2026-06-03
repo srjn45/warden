@@ -4,8 +4,6 @@
 package approval
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"regexp"
 	"strconv"
 	"strings"
@@ -68,6 +66,17 @@ func Parse(pane string) (Approval, bool) {
 		return Approval{}, false
 	}
 
+	boxed := false
+	for i := start; i <= end; i++ {
+		if strings.ContainsAny(lines[i], "│┃|") {
+			boxed = true
+			break
+		}
+	}
+	if !boxed {
+		return Approval{}, false
+	}
+
 	a := Approval{Options: opts, SelectedIdx: sel}
 
 	// Question = nearest non-empty line above the run; Action = the next
@@ -100,13 +109,3 @@ func looksLikeAction(s string) bool {
 	return open > 0 && strings.HasSuffix(s, ")")
 }
 
-// fingerprint returns a stable SHA-256 hex of the options slice, used to
-// identify a known prompt layout across sessions.
-func fingerprint(opts []string) string {
-	h := sha256.New()
-	for _, o := range opts {
-		h.Write([]byte(o))
-		h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
