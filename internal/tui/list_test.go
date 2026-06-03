@@ -29,7 +29,7 @@ func TestRenderListContainsAgeColumn(t *testing.T) {
 			Subject:   "test subject",
 		},
 	}
-	out := m.renderList(120, 10)
+	out := renderList(m.sessions, m.cursor, 120, 10)
 	require.Contains(t, out, "<1m", "renderList output should contain the age token <1m")
 	// Ensure the subject is still present too.
 	require.True(t, strings.Contains(out, "test subject") || strings.Contains(out, "test subjec"),
@@ -42,7 +42,7 @@ func TestRenderListClampsToHeightAndKeepsCursor(t *testing.T) {
 		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
 	m.cursor = 18
-	out := m.renderList(80, 8)
+	out := renderList(m.sessions, m.cursor, 80, 8)
 	require.Len(t, strings.Split(out, "\n"), 8, "rendered to exactly height lines")
 	require.Contains(t, out, "agent-18", "the selected row is within the window")
 	require.Contains(t, out, "more", "a ▲/▼ hint appears when rows are hidden")
@@ -51,7 +51,7 @@ func TestRenderListClampsToHeightAndKeepsCursor(t *testing.T) {
 func TestRenderListShortListPadsToHeight(t *testing.T) {
 	m := New(&fakeAPI{})
 	m.sessions = []*store.Session{{ID: "only", Status: store.StatusWorking}}
-	require.Len(t, strings.Split(m.renderList(80, 6), "\n"), 6, "short list padded to height")
+	require.Len(t, strings.Split(renderList(m.sessions, m.cursor, 80, 6), "\n"), 6, "short list padded to height")
 }
 
 func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
@@ -59,5 +59,5 @@ func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
-	require.Len(t, strings.Split(m.renderList(80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
+	require.Len(t, strings.Split(renderList(m.sessions, m.cursor, 80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
 }
