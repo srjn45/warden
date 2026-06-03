@@ -45,6 +45,7 @@ export default function Dashboard() {
   useEffect(() => {
     const prev = prevSessions.current;
     prevSessions.current = sessions;
+    if (typeof Notification === 'undefined') return; // browser without the API
     if (!notifyEnabled || Notification.permission !== 'granted') return;
     if (!document.hidden) return;
     for (const s of waitingTransitions(prev, sessions)) {
@@ -58,6 +59,7 @@ export default function Dashboard() {
 
   async function toggleNotify() {
     if (notifyEnabled) { setNotifyEnabled(false); return; }
+    if (typeof Notification === 'undefined') return; // browser without the API
     const perm = Notification.permission === 'granted'
       ? 'granted'
       : await Notification.requestPermission();
