@@ -573,3 +573,34 @@ func TestRemoveWorktreeNoWorktreeErrors(t *testing.T) {
 	tgt := CleanupTarget{ID: "x", TmuxSession: "x"} // no Worktree
 	require.ErrorIs(t, New(&FakeRunner{}).RemoveWorktree(context.Background(), tgt, false), ErrNoWorktree)
 }
+
+func TestNewestClaudeSession(t *testing.T) {
+	root := t.TempDir()
+	workdir := t.TempDir()
+	pdir := claudeProjectDir(root, workdir)
+	require.NoError(t, os.MkdirAll(pdir, 0o755))
+	older := "11111111-1111-4111-8111-111111111111"
+	newer := "22222222-2222-4222-8222-222222222222"
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, older+".jsonl"), []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, newer+".jsonl"), []byte("{}"), 0o644))
+	// Make `newer` the most recently modified.
+	future := time.Now().Add(time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(pdir, newer+".jsonl"), future, future))
+
+	lc := New(&FakeRunner{})
+	lc.ProjectsDir = root
+	got, err := lc.NewestClaudeSession(workdir)
+	require.NoError(t, err)
+	require.Equal(t, newer, got)
+}
+
+func TestNewestClaudeSessionNone(t *testing.T) {
+	lc := New(&FakeRunner{})
+	lc.ProjectsDir = t.TempDir() // exists but empty
+	_, err := lc.NewestClaudeSession(t.TempDir())
+	require.ErrorIs(t, err, ErrNoTranscript)
+
+	lc2 := New(&FakeRunner{}) // ProjectsDir empty → disabled
+	_, err = lc2.NewestClaudeSession(t.TempDir())
+	require.ErrorIs(t, err, ErrNoTranscript)
+}

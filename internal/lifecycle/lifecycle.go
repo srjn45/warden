@@ -347,6 +347,21 @@ func newestTranscriptPath(dir string) string {
 	return files[0].path
 }
 
+// NewestClaudeSession returns the claude session id (uuid) of the most recently
+// modified transcript for workdir, or ErrNoTranscript when there is none (or
+// transcript lookup is disabled). Pure filesystem inspection — no subprocess.
+func (l *Lifecycle) NewestClaudeSession(workdir string) (string, error) {
+	dir := claudeProjectDir(l.ProjectsDir, workdir)
+	if dir == "" {
+		return "", ErrNoTranscript
+	}
+	p := newestTranscriptPath(dir)
+	if p == "" {
+		return "", ErrNoTranscript
+	}
+	return strings.TrimSuffix(filepath.Base(p), ".jsonl"), nil
+}
+
 // newestTranscriptTail returns up to maxBytes from the end of the most recently
 // modified *.jsonl file in dir, or "" if none. (readFileTail("") is a safe "".)
 func newestTranscriptTail(dir string, maxBytes int64) string {
