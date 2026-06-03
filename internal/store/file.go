@@ -48,7 +48,10 @@ func NewFileStore(dir string) (*FileStore, error) {
 }
 
 func safeID(id string) error {
-	if id == "" || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+	// "/" and "\" plus ".." guard against path traversal (the id is a filename
+	// component); ":" is a tmux target separator (session:window) that would
+	// silently break `tmux -t <id>` targeting.
+	if id == "" || strings.ContainsAny(id, `/\:`) || strings.Contains(id, "..") {
 		return ErrBadID
 	}
 	return nil

@@ -83,6 +83,59 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350"), "Enter"})
 }
 
+func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
+	// new-session fails AFTER we created the worktree → the worktree we created
+	// must be force-removed so a failed spawn doesn't leak it.
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+		"tmux new-session -d -s PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
+	})
+	require.Error(t, err)
+	require.Contains(t, fr.calledArgs(),
+		[]string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/PROJ-350"},
+		"a worktree we created must be rolled back on spawn failure")
+}
+
+func TestSpawnDoesNotRemoveAdoptedWorktreeOnFailure(t *testing.T) {
+	// The worktree already existed (adopted, not created). A spawn failure must
+	// NOT delete the user's pre-existing worktree.
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees + "\nworktree /repo/.worktrees/PROJ-350\nHEAD def\nbranch refs/heads/PROJ-350\n"},
+		"tmux new-session -d -s PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
+	})
+	require.Error(t, err)
+	require.NotContains(t, fr.calledArgs(),
+		[]string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/PROJ-350"},
+		"an adopted worktree must not be removed on spawn failure")
+}
+
+func TestSpawnKillsSessionWhenSendKeysFails(t *testing.T) {
+	// send-keys fails AFTER the tmux session was created → the orphaned session
+	// must be killed so it doesn't linger beyond reach of the store.
+	fr := &FakeRunner{FailIf: func(argv []string) error {
+		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "send-keys" {
+			return errStub("send-keys boom")
+		}
+		return nil
+	}}
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	_ = s
+	require.Error(t, err)
+	killed := false
+	for _, argv := range fr.calledArgs() {
+		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "kill-session" {
+			killed = true
+		}
+	}
+	require.True(t, killed, "send-keys failure must kill the orphaned tmux session")
+}
+
 func TestSpawnAdoptsExistingWorktree(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees + "\nworktree /repo/.worktrees/PROJ-350\nHEAD def\nbranch refs/heads/PROJ-350\n"},

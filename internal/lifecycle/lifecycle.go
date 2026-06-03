@@ -210,44 +210,46 @@ func (l *Lifecycle) worktreeExists(ctx context.Context, repo, rel string) (bool,
 }
 
 // ensureWorktree creates (or adopts) the worktree and returns the branch name
-// recorded on the doc (empty for a detached pr-review checkout).
-func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, rel string) (string, error) {
+// recorded on the doc (empty for a detached pr-review checkout) plus whether it
+// CREATED the worktree (vs. adopted a pre-existing one). The created flag lets a
+// failed spawn roll back only worktrees it made, never the user's existing ones.
+func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, rel string) (branch string, created bool, err error) {
 	exists, err := l.worktreeExists(ctx, req.Repo, rel)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	if exists { // adopt
+	if exists { // adopt — we did not create it, so it is never ours to roll back
 		if req.Branch != "" {
-			return req.Branch, nil
+			return req.Branch, false, nil
 		}
-		return id, nil
+		return id, false, nil
 	}
 	if req.Type == store.TypePRReview && req.Branch == "" {
 		// Detached worktree, then let gh resolve + fetch the PR branch.
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", "--detach", rel); err != nil {
-			return "", fmt.Errorf("git worktree add --detach: %w: %s", err, out)
+			return "", false, fmt.Errorf("git worktree add --detach: %w: %s", err, out)
 		}
 		abs := filepath.Join(req.Repo, rel)
 		if out, err := l.run.Run(ctx, abs, "gh", "pr", "checkout", req.PR); err != nil {
-			return "", fmt.Errorf("gh pr checkout: %w: %s", err, out)
+			return "", true, fmt.Errorf("gh pr checkout: %w: %s", err, out)
 		}
-		return "", nil
+		return "", true, nil
 	}
 	if req.Type == store.TypePRReview { // checkout the given existing branch
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, req.Branch); err != nil {
-			return "", fmt.Errorf("git worktree add: %w: %s", err, out)
+			return "", false, fmt.Errorf("git worktree add: %w: %s", err, out)
 		}
-		return req.Branch, nil
+		return req.Branch, true, nil
 	}
 	// development / opt-in analysis|spike → new branch (branch = req.Branch or id).
-	branch := req.Branch
+	branch = req.Branch
 	if branch == "" {
 		branch = id
 	}
 	if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, "-b", branch); err != nil {
-		return "", fmt.Errorf("git worktree add: %w: %s", err, out)
+		return "", false, fmt.Errorf("git worktree add: %w: %s", err, out)
 	}
-	return branch, nil
+	return branch, true, nil
 }
 
 // Classify asks the same Claude (headless) to label a task prompt. On any error
@@ -452,31 +454,59 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		}
 		launch := claudeLaunch(sess.ClaudeSessionID, id) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
+			l.killSession(id) // the session exists but launch failed — don't orphan it
 			return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 		}
 		return sess, nil
 	}
 
-	// Typed/managed path (unchanged).
+	// Typed/managed path.
 	workdir := req.Repo
+	worktreeCreated := false
 	if wantWorktree(req) {
 		rel := worktreeRel(id)
-		branch, err := l.ensureWorktree(ctx, req, id, rel)
+		branch, created, err := l.ensureWorktree(ctx, req, id, rel)
 		if err != nil {
 			return nil, err
 		}
 		sess.Worktree = rel
 		sess.Branch = branch
+		worktreeCreated = created
 		workdir = filepath.Join(req.Repo, rel)
 	}
 	sess.Workdir = workdir
 	if err := l.newAgentSession(ctx, req.Repo, id, workdir); err != nil {
+		// new-session failed, so no tmux session exists; only undo a worktree we made.
+		if worktreeCreated {
+			l.rollbackWorktree(sess)
+		}
 		return nil, err
 	}
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, claudeLaunch(sess.ClaudeSessionID, id), "Enter"); err != nil {
+		l.killSession(id)
+		if worktreeCreated {
+			l.rollbackWorktree(sess)
+		}
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	return sess, nil
+}
+
+// killSession best-effort kills a tmux session created during a spawn that then
+// failed, so it does not orphan beyond the reach of the store. A detached
+// context is used so cleanup still runs when the spawn failed via ctx cancellation.
+func (l *Lifecycle) killSession(id string) {
+	_, _ = l.run.Run(context.Background(), "", "tmux", "kill-session", "-t", id)
+}
+
+// rollbackWorktree best-effort force-removes a worktree (and its branch) that
+// this spawn created when a later step fails. Only ever called for worktrees we
+// created — never for an adopted, pre-existing one (see ensureWorktree).
+func (l *Lifecycle) rollbackWorktree(sess *store.Session) {
+	_ = l.RemoveWorktree(context.Background(), CleanupTarget{
+		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
+		Branch: sess.Branch, TmuxSession: sess.TmuxSession,
+	}, true)
 }
 
 // agentHistoryLimit is the scrollback depth (lines) agent panes get, so long

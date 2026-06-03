@@ -33,6 +33,16 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad json")
 		return
 	}
+	// A ticket becomes the session id, which is used as a filesystem path
+	// component (the prompt file) and a tmux session name inside Spawn — which
+	// runs before store.Insert (the only other safeID gate). Validate up front so
+	// an unsafe ticket can't escape the prompts dir or break tmux targeting.
+	if req.Ticket != "" {
+		if err := store.SafeID(req.Ticket); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid ticket id (no '/', '\\', ':', or '..')")
+			return
+		}
+	}
 	promptMode := req.Prompt != "" && req.Type == ""
 	if !promptMode {
 		if req.Type == "" || req.Repo == "" {

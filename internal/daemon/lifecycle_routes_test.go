@@ -135,6 +135,25 @@ func TestPostSpawn(t *testing.T) {
 	require.Equal(t, store.TypeDevelopment, fl.spawned.Type)
 }
 
+func TestPostSpawnRejectsUnsafeTicket(t *testing.T) {
+	// A ticket flows straight into the session id, which becomes a filesystem
+	// path component (the prompt file) and a tmux session name. It must be
+	// validated BEFORE Spawn runs — otherwise "../../x" escapes the prompts dir
+	// and ":"/"/" break tmux targeting. safeID gates this at Insert, but Spawn
+	// runs first, so the handler must reject up front.
+	for _, bad := range []string{"../../etc/passwd", "a/b", "..", "work:1"} {
+		fl := &fakeLife{}
+		ts := lifeServer(t, newFakeStore(), fl)
+		body, _ := json.Marshal(SpawnRequest{Prompt: "do x", Cwd: "/tmp", Ticket: bad})
+		resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, "ticket %q must be rejected", bad)
+		require.Nil(t, fl.spawned, "Spawn must not run for unsafe ticket %q", bad)
+		resp.Body.Close()
+		ts.Close()
+	}
+}
+
 func TestPostSpawnRollsBackWhenInsertFails(t *testing.T) {
 	fl := &fakeLife{}
 	fs := newFakeStore()

@@ -270,6 +270,9 @@ func TestSafeID(t *testing.T) {
 	require.Error(t, SafeID(""))
 	require.Error(t, SafeID("a/b"))
 	require.Error(t, SafeID("../etc"))
+	// ":" is a tmux target separator (session:window); an id containing it
+	// silently breaks `tmux -t <id>` targeting, so it is not a safe id.
+	require.Error(t, SafeID("work:1"))
 }
 
 func TestFileConcurrentAccess(t *testing.T) {

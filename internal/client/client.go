@@ -28,16 +28,42 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("daemon error (%d): %s", e.Code, e.Msg)
 }
 
+// Per-operation default deadlines, applied only when the caller's context has
+// no deadline of its own. Reads are quick; spawn/adopt/remove-worktree run
+// synchronously on the daemon (git worktree add, transcript scan) and can take
+// far longer than a read — a single blanket client timeout would abort a
+// slow-but-successful spawn while the daemon kept working, orphaning sessions.
+// Vars (not consts) so tests can shrink them.
+var (
+	defaultTimeout = 30 * time.Second
+	longTimeout    = 5 * time.Minute
+)
+
 type Client struct {
 	base string
 	http *http.Client
 }
 
 func New(base string) *Client {
-	return &Client{base: base, http: &http.Client{Timeout: 10 * time.Second}}
+	// No blanket http.Client.Timeout: per-call deadlines come from the context
+	// (see do/doT), so long operations are not capped to a read-sized timeout.
+	return &Client{base: base, http: &http.Client{}}
 }
 
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	return c.doT(ctx, defaultTimeout, method, path, in, out)
+}
+
+func (c *Client) doT(ctx context.Context, timeout time.Duration, method, path string, in, out any) error {
+	// Give a deadline-less caller a sensible default so a hung daemon can't block
+	// forever; never shorten or extend a deadline the caller set deliberately.
+	if timeout > 0 {
+		if _, ok := ctx.Deadline(); !ok {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+	}
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -123,7 +149,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree,
 		"prompt": p.Prompt, "cwd": p.Cwd,
 	}
-	if err := c.do(ctx, http.MethodPost, "/spawn", body, &s); err != nil {
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		return nil, err
 	}
 	return &s, nil
@@ -150,7 +176,7 @@ func (c *Client) Adopt(ctx context.Context, p AdoptParams) (*AdoptResult, error)
 	body := map[string]any{
 		"cwd": p.Cwd, "session_id": p.SessionID, "tmux_session": p.TmuxSession,
 	}
-	if err := c.do(ctx, http.MethodPost, "/adopt", body, &resp); err != nil {
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/adopt", body, &resp); err != nil {
 		return nil, err
 	}
 	return &AdoptResult{Session: resp.Session, Warning: resp.Warning}, nil
@@ -165,7 +191,7 @@ func (c *Client) Delete(ctx context.Context, id string, hard bool) error {
 }
 
 func (c *Client) RemoveWorktree(ctx context.Context, id string, force bool) error {
-	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/remove-worktree", map[string]bool{"force": force}, nil)
+	return c.doT(ctx, longTimeout, http.MethodPost, "/sessions/"+id+"/remove-worktree", map[string]bool{"force": force}, nil)
 }
 
 func (c *Client) Input(ctx context.Context, id, text string) error {

@@ -1,12 +1,14 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -49,6 +51,49 @@ func TestSpawn(t *testing.T) {
 	s, err := New(ts.URL).Spawn(t.Context(), SpawnParams{Type: "development", Ticket: "A-1", Repo: "/repo"})
 	require.NoError(t, err)
 	require.Equal(t, "A-1", s.ID)
+}
+
+func TestLongOperationsOutlastShortTimeout(t *testing.T) {
+	// Reads use a short default deadline; long operations (spawn/adopt/
+	// remove-worktree) get a generous one. A slow-but-successful spawn must not
+	// be aborted by the short read timeout (the old blanket 10s client timeout).
+	origDefault, origLong := defaultTimeout, longTimeout
+	defaultTimeout, longTimeout = 20*time.Millisecond, 2*time.Second
+	defer func() { defaultTimeout, longTimeout = origDefault, origLong }()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(120 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"A-1","status":"spawning"}`))
+	}))
+	defer ts.Close()
+	c := New(ts.URL)
+
+	_, err := c.List(context.Background())
+	require.Error(t, err, "a read should hit the short default timeout against a 120ms server")
+
+	s, err := c.Spawn(context.Background(), SpawnParams{Prompt: "hi", Cwd: "/tmp"})
+	require.NoError(t, err, "spawn should outlast the short read timeout")
+	require.Equal(t, "A-1", s.ID)
+}
+
+func TestCallerDeadlineIsNotOverridden(t *testing.T) {
+	// When the caller supplies its own deadline, the client must respect it and
+	// not silently extend it to the long-operation timeout.
+	origLong := longTimeout
+	longTimeout = 5 * time.Second
+	defer func() { longTimeout = origLong }()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(120 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"id":"A-1"}`))
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
+	defer cancel()
+	_, err := New(ts.URL).Spawn(ctx, SpawnParams{Prompt: "hi", Cwd: "/tmp"})
+	require.Error(t, err, "caller's 15ms deadline must apply even to a long operation")
 }
 
 func TestListDirs(t *testing.T) {

@@ -34,6 +34,14 @@ func bg() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 10*time.Second)
 }
 
+// bgLong is for synchronous daemon operations that legitimately take longer than
+// a read — spawn runs git worktree add + tmux setup on the daemon. A short
+// deadline here would abort a slow-but-successful spawn (the daemon keeps going),
+// leaving an orphaned session the TUI thinks failed.
+func bgLong() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 5*time.Minute)
+}
+
 func listCmd(a api) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
@@ -60,7 +68,7 @@ func outputCmd(a api, id string) tea.Cmd {
 
 func spawnCmd(a api, prompt, cwd string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := bg()
+		ctx, cancel := bgLong()
 		defer cancel()
 		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Cwd: cwd})
 		if err != nil {
