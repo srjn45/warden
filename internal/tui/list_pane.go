@@ -84,7 +84,7 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.connected = true
 		prev := m.selectedID()
-		m.sessions = msg.sessions
+		m.sessions = groupSort(msg.sessions)
 		m.repin(prev)
 		m.syncSelection()
 		return m, nil

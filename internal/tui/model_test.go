@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srajanpathak/agentctl/internal/client"
@@ -173,6 +174,17 @@ func TestSpawnDoneSelectsNewAgent(t *testing.T) {
 	// next list refresh pins it
 	m = step(m, sessionsMsg{sessions: []*store.Session{{ID: "x"}, {ID: "agent-new"}}})
 	require.Equal(t, "agent-new", m.selectedID())
+}
+
+func TestSessionsMsgGroupsBySourceDir(t *testing.T) {
+	now := time.Now()
+	m := step(New(&fakeAPI{}), sessionsMsg{sessions: []*store.Session{
+		{ID: "b1", Workdir: "/b", UpdatedAt: now.Add(-1 * time.Minute)},
+		{ID: "a1", Workdir: "/a", UpdatedAt: now.Add(-2 * time.Minute)},
+		{ID: "b2", Workdir: "/b", UpdatedAt: now.Add(-3 * time.Minute)},
+	}})
+	ids := []string{m.sessions[0].ID, m.sessions[1].ID, m.sessions[2].ID}
+	require.Equal(t, []string{"b1", "b2", "a1"}, ids, "classic model stores grouped order")
 }
 
 // submit is a test helper: applies one key, runs the resulting command (so

@@ -95,7 +95,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.connected = true
 		prevID := m.selectedID()
-		m.sessions = msg.sessions
+		m.sessions = groupSort(msg.sessions)
 		m.repin(prevID)
 		return m, nil
 
