@@ -16,7 +16,7 @@ export default function AgentTab({ session, onClosed }: {
   return (
     <div className="agent-tab">
       <div className="agent-tab-head">
-        <h2>{session.id} <BusyIdleBadge status={session.status} /></h2>
+        <h2>{session.id} <BusyIdleBadge status={session.status} />{session.supervised && <span className="supervised-pill">supervised</span>}</h2>
         <code className="muted">
           type: {session.type || 'classifying…'} · dir: {session.workdir || session.repo || '—'}
         </code>

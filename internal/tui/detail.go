@@ -14,6 +14,9 @@ func renderDetail(s *store.Session, vp viewport.Model, outputFocused bool, width
 	label, st := badge(s.Status)
 	head := stPaneTitle.Render(s.ID) + " " + st.Render(label) + "  " + stMuted.Render(typeOr(s))
 	meta := stMuted.Render("dir: " + dashIfEmpty(s.Workdir))
+	if s.Supervised {
+		meta += "  " + stMuted.Render("· supervised")
+	}
 	subj := stMuted.Render("subject: " + dashIfEmpty(s.Subject))
 
 	outTitle := stPaneTitle.Render("─ output ") + stMuted.Render(focusHint(outputFocused))
