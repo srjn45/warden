@@ -1,6 +1,6 @@
-// The shell has two fixed tabs ('overview', 'cockpit') that always exist, plus
-// zero or more pinned agent tabs (keyed by agent id). `active` is whichever tab
-// is showing — a fixed id or a pinned agent id.
+// The shell has three fixed tabs ('overview', 'cockpit', 'pipelines') that always
+// exist, plus zero or more pinned agent tabs (keyed by agent id). `active` is
+// whichever tab is showing — a fixed id or a pinned agent id.
 
 export interface TabsState {
   pinned: string[]; // agent ids, in open order
@@ -31,7 +31,7 @@ export function tabsReducer(s: TabsState, a: TabsAction): TabsState {
     case 'prune': {
       const alive = new Set(a.alive);
       const pinned = s.pinned.filter((id) => alive.has(id));
-      const active = pinned.includes(s.active) || s.active === 'overview' || s.active === 'cockpit'
+      const active = pinned.includes(s.active) || s.active === 'overview' || s.active === 'cockpit' || s.active === 'pipelines'
         ? s.active
         : 'overview';
       return { pinned, active };

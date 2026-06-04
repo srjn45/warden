@@ -43,4 +43,10 @@ describe('tabsReducer', () => {
     expect(s.pinned).toEqual(['B-2']);
     expect(s.active).toBe('overview');
   });
+
+  it('prune keeps the pipelines fixed tab active', () => {
+    const s = { pinned: [], active: 'pipelines' };
+    const out = tabsReducer(s, { kind: 'prune', alive: [] });
+    expect(out.active).toBe('pipelines');
+  });
 });
