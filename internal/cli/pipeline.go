@@ -6,7 +6,31 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 )
+
+// renderPipelineDetail formats a pipeline for `pipeline show`: the header plus,
+// per job, its status + deps and (when present) the branch it worked on and the
+// handoff output it emitted — so a finished pipeline's results are visible from
+// the CLI even after its agents are gone.
+func renderPipelineDetail(p *pipeline.Pipeline) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s [%s] repo=%s\n", p.ID, p.Status, p.Repo)
+	for _, j := range p.Jobs {
+		deps := ""
+		if len(j.DependsOn) > 0 {
+			deps = fmt.Sprintf(" (depends: %v)", j.DependsOn)
+		}
+		fmt.Fprintf(&b, "  %-12s %-9s%s\n", j.ID, j.Status, deps)
+		if j.Branch != "" {
+			fmt.Fprintf(&b, "      branch: %s\n", j.Branch)
+		}
+		if j.Output != "" {
+			fmt.Fprintf(&b, "      output: %s\n", strings.ReplaceAll(j.Output, "\n", "\n              "))
+		}
+	}
+	return b.String()
+}
 
 func newPipelineCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -73,14 +97,7 @@ func newPipelineShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s [%s] repo=%s\n", p.ID, p.Status, p.Repo)
-			for _, j := range p.Jobs {
-				deps := ""
-				if len(j.DependsOn) > 0 {
-					deps = fmt.Sprintf(" (depends: %v)", j.DependsOn)
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  %-12s %-9s%s\n", j.ID, j.Status, deps)
-			}
+			fmt.Fprint(cmd.OutOrStdout(), renderPipelineDetail(p))
 			return nil
 		},
 	}
