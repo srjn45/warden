@@ -121,3 +121,63 @@ func (s *Store) Messages(to string) ([]Message, error) {
 	defer s.mu.Unlock()
 	return s.load(path)
 }
+
+// MarkRead flags the given message IDs read in to's inbox. Unknown IDs are
+// ignored; a no-op (nothing changed) avoids a rewrite.
+func (s *Store) MarkRead(to string, ids []string) error {
+	path, err := s.path(to)
+	if err != nil {
+		return err
+	}
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ms, err := s.load(path)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range ms {
+		if want[ms[i].ID] && !ms[i].Read {
+			ms[i].Read = true
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.save(path, ms)
+}
+
+// TakeFirstUnread atomically finds the oldest unread message in to's inbox
+// matching from ("" = any sender), marks it read, and returns it. ok is false
+// when nothing matches.
+func (s *Store) TakeFirstUnread(to, from string) (Message, bool, error) {
+	path, err := s.path(to)
+	if err != nil {
+		return Message{}, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ms, err := s.load(path)
+	if err != nil {
+		return Message{}, false, err
+	}
+	for i := range ms {
+		if ms[i].Read {
+			continue
+		}
+		if from != "" && ms[i].From != from {
+			continue
+		}
+		ms[i].Read = true
+		if err := s.save(path, ms); err != nil {
+			return Message{}, false, err
+		}
+		return ms[i], true, nil
+	}
+	return Message{}, false, nil
+}
