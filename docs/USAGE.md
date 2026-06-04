@@ -495,6 +495,13 @@ The **Terminate** button surfaces the same git guard (with **Force** and an
 optional hard-delete) when there's unsaved work. Opt in to **browser
 notifications** to be pinged when an agent needs input while the tab is hidden.
 
+The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a
+selected pipeline's jobs as status-colored cards with dependency chips, and a
+per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) /
+**Retry** (job) control, and an **Open terminal** link to a running job's
+session. (Creating / editing pipelines in the browser is not yet available —
+use `agentctl pipeline create -f`.)
+
 > The UI is baked into the binary at build time. After changing anything under
 > `web/`, rebuild (`make release`, or `make ui` for the frontend only) and
 > restart the daemon. For live UI iteration, run `agentctl daemon` and
