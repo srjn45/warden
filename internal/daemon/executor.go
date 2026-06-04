@@ -15,9 +15,9 @@ import (
 
 // Emit error sentinels (mapped to HTTP status by the route handler).
 var (
-	ErrJobNotFound    = errors.New("job not found in pipeline")
-	ErrJobNotRunning  = errors.New("job is not running")
-	ErrJobNotPending  = errors.New("job is not pending")
+	ErrJobNotFound     = errors.New("job not found in pipeline")
+	ErrJobNotRunning   = errors.New("job is not running")
+	ErrJobNotPending   = errors.New("job is not pending")
 	ErrJobNotRetryable = errors.New("job is not in a retryable state")
 )
 
@@ -191,6 +191,13 @@ func (e *Executor) OnTransition(sess *store.Session, _ store.Status, to store.St
 		e.markJob(sess.PipelineID, sess.JobID, func(j *pipeline.Job) {
 			if j.Status == pipeline.JobRunning {
 				j.Status = pipeline.JobNeedsAttention
+			}
+		})
+	case store.StatusWorking:
+		// The agent resumed after being flagged idle — clear the attention flag.
+		e.markJob(sess.PipelineID, sess.JobID, func(j *pipeline.Job) {
+			if j.Status == pipeline.JobNeedsAttention {
+				j.Status = pipeline.JobRunning
 			}
 		})
 	default:

@@ -233,3 +233,42 @@ func TestEmitAllowedOnNeedsAttention(t *testing.T) {
 		t.Fatalf("dependent b should now run, got %s", got.Job("b").Status)
 	}
 }
+
+func TestRetryReSkipsBranchBlockedByOtherFailure(t *testing.T) {
+	// Two roots a, x; a->b, x->y. a failed (b skipped), x failed (y skipped).
+	// Retrying a must reopen+run a/b but leave y skipped (still blocked by x).
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(&pipeline.Pipeline{ID: "p2", Name: "p2", Repo: "/r", Status: pipeline.StatusStalled,
+		Jobs: []pipeline.Job{
+			{ID: "a", Prompt: "x", Worktree: "none", Status: pipeline.JobFailed},
+			{ID: "b", Prompt: "x", DependsOn: []string{"a"}, Worktree: "none", Status: pipeline.JobSkipped},
+			{ID: "x", Prompt: "x", Worktree: "none", Status: pipeline.JobFailed},
+			{ID: "y", Prompt: "x", DependsOn: []string{"x"}, Worktree: "none", Status: pipeline.JobSkipped},
+		}})
+	if err := e.Retry(context.Background(), "p2", "a"); err != nil {
+		t.Fatalf("Retry: %v", err)
+	}
+	got, _ := ps.Get("p2")
+	if got.Job("a").Status != pipeline.JobRunning {
+		t.Fatalf("a should be running, got %s", got.Job("a").Status)
+	}
+	if got.Job("y").Status != pipeline.JobSkipped {
+		t.Fatalf("y must stay skipped (x still failed), got %s", got.Job("y").Status)
+	}
+	if got.Status != pipeline.StatusStalled {
+		t.Fatalf("pipeline still has a failed job (x) → stalled, got %s", got.Status)
+	}
+}
+
+func TestOnTransitionResumeClearsNeedsAttention(t *testing.T) {
+	e, ps, ss := newTestExecutor(t)
+	ps.Create(chain())
+	e.Reconcile(context.Background(), "p")
+	sess, _ := ss.Get(context.Background(), "p-a")
+	e.OnTransition(sess, store.StatusWorking, store.StatusIdle) // → needs_attention
+	e.OnTransition(sess, store.StatusIdle, store.StatusWorking) // resumed → running
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobRunning {
+		t.Fatalf("resumed job should be running again, got %s", got.Job("a").Status)
+	}
+}

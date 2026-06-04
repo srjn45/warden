@@ -185,3 +185,29 @@ func TestPipelineRetryNotRetryable409(t *testing.T) {
 		t.Fatalf("retry pending want 409, got %d", resp.StatusCode)
 	}
 }
+
+func TestPipelineCancelSkipsNeedsAttention(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	ps.Update("demo", func(p *pipeline.Pipeline) {
+		p.Job("a").Status = pipeline.JobNeedsAttention
+		p.Job("a").SessionID = "demo-a"
+		p.Status = pipeline.StatusRunning
+	})
+	resp, err := http.Post(ts.URL+"/pipelines/demo/cancel", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("cancel status %d", resp.StatusCode)
+	}
+	got, _ := ps.Get("demo")
+	if got.Job("a").Status != pipeline.JobSkipped {
+		t.Fatalf("needs_attention job should be skipped on cancel, got %s", got.Job("a").Status)
+	}
+	if got.Status != pipeline.StatusCanceled {
+		t.Fatalf("pipeline should be canceled, got %s", got.Status)
+	}
+}

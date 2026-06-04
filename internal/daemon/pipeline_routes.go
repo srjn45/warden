@@ -117,16 +117,19 @@ func (s *Server) handleCancelPipeline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Terminate any running job sessions (best-effort), then mark canceled.
+	// Terminate any live job sessions (best-effort), then mark canceled. A
+	// needs_attention job's tmux session is typically still alive, so terminate
+	// it too — not just running jobs.
 	for i := range p.Jobs {
 		j := &p.Jobs[i]
-		if j.Status == pipeline.JobRunning && j.SessionID != "" {
+		if (j.Status == pipeline.JobRunning || j.Status == pipeline.JobNeedsAttention) && j.SessionID != "" {
 			_ = s.life.Terminate(r.Context(), j.SessionID)
 		}
 	}
 	if err := s.exec.pstore.Update(pid, func(p *pipeline.Pipeline) {
 		for i := range p.Jobs {
-			if p.Jobs[i].Status == pipeline.JobPending || p.Jobs[i].Status == pipeline.JobRunning {
+			switch p.Jobs[i].Status {
+			case pipeline.JobPending, pipeline.JobRunning, pipeline.JobNeedsAttention:
 				p.Jobs[i].Status = pipeline.JobSkipped
 			}
 		}
