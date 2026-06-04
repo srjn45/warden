@@ -21,8 +21,21 @@ import (
 // ErrNotFound is returned when a key does not exist.
 var ErrNotFound = errors.New("context key not found")
 
-// ErrBadKey is returned when a key is empty/blank.
+// ErrBadKey is returned for an empty/blank key or one containing a path
+// separator.
 var ErrBadKey = errors.New("invalid context key")
+
+// validKey rejects empty/blank keys and keys containing a path separator. Keys
+// are dot-namespaced strings that travel through a URL path segment; a "/" is
+// not decoded back by the router, so it would be stored under a corrupted key
+// and break prefix operations (e.g. pipeline-scoped cleanup). Reject it at the
+// single write gate.
+func validKey(key string) bool {
+	if strings.TrimSpace(key) == "" {
+		return false
+	}
+	return !strings.ContainsAny(key, `/\`)
+}
 
 // Entry is one stored value plus its provenance.
 type Entry struct {
@@ -87,7 +100,7 @@ func (s *Store) save(m map[string]Entry) error {
 
 // Set writes value at key, recording the writer (by) and current time.
 func (s *Store) Set(key, value, by string) (Entry, error) {
-	if strings.TrimSpace(key) == "" {
+	if !validKey(key) {
 		return Entry{}, ErrBadKey
 	}
 	s.mu.Lock()

@@ -2,6 +2,8 @@ package ctxstore
 
 import (
 	"errors"
+	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -36,6 +38,36 @@ func TestSetEmptyKeyRejected(t *testing.T) {
 	s, _ := New(t.TempDir())
 	if _, err := s.Set("", "v", "by"); !errors.Is(err, ErrBadKey) {
 		t.Fatalf("want ErrBadKey, got %v", err)
+	}
+}
+
+func TestSetKeyWithSlashRejected(t *testing.T) {
+	s, _ := New(t.TempDir())
+	if _, err := s.Set("a/b", "v", "by"); !errors.Is(err, ErrBadKey) {
+		t.Fatalf("want ErrBadKey for slash key, got %v", err)
+	}
+}
+
+func TestConcurrentSetDistinctKeys(t *testing.T) {
+	s, _ := New(t.TempDir())
+	const n = 50
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if _, err := s.Set("k"+strconv.Itoa(i), "v", "w"); err != nil {
+				t.Errorf("Set: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	all, err := s.List("")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != n {
+		t.Fatalf("want %d entries after concurrent writes, got %d", n, len(all))
 	}
 }
 
