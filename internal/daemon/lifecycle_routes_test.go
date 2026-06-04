@@ -121,6 +121,21 @@ func (f *fakeLife) Output(_ context.Context, s string, n int) (string, error) {
 }
 func (f *fakeLife) SendKeys(_ context.Context, s, key string) error { f.lastKey = key; return nil }
 
+func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
+	id := req.PipelineID + "-" + req.JobID
+	branch := ""
+	wt := ""
+	if req.Worktree {
+		branch = id
+		wt = ".worktrees/" + id
+	}
+	return &store.Session{
+		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
+		Status: store.StatusSpawning, PipelineID: req.PipelineID, JobID: req.JobID,
+		Branch: branch, Worktree: wt,
+	}, nil
+}
+
 func lifeServer(t *testing.T, fs *fakeStore, fl *fakeLife) *httptest.Server {
 	t.Helper()
 	srv := &Server{store: fs, life: fl}

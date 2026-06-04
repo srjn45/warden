@@ -95,3 +95,7 @@ func (a *lifecycleAdapter) Output(ctx context.Context, tmuxSession string, lines
 func (a *lifecycleAdapter) SendKeys(ctx context.Context, tmuxSession, key string) error {
 	return a.lc.SendKeys(ctx, tmuxSession, key)
 }
+
+func (a *lifecycleAdapter) SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
+	return a.lc.SpawnJob(ctx, req)
+}

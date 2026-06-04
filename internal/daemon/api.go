@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
+	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/mailbox"
 	"github.com/srajanpathak/agentctl/internal/poller"
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -138,6 +139,8 @@ type Lifecycle interface {
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
 	// SendKeys injects a raw keystroke (e.g. a menu digit) into the agent's pane.
 	SendKeys(ctx context.Context, tmuxSession, key string) error
+	// SpawnJob launches one pipeline-job agent (worktree strategy + pipeline env).
+	SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error)
 }
 
 // recoverMiddleware converts a panic in any handler into a 500 response instead
