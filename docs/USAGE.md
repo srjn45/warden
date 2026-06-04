@@ -607,3 +607,73 @@ a human operator or a lead agent answering on another's behalf). Also available 
 
 Request/reply pattern: A runs `msg send B "..."` then `msg wait --from B`; B reads
 its inbox, does the work, and replies with `msg send A "..."`, unblocking A.
+
+---
+
+## 17. Pipelines
+
+Run a **DAG of agent jobs**. Each job spawns as a normal agent when its
+dependencies finish; outputs (and branch names) flow downstream automatically.
+
+Author a spec (`refactor.yaml`):
+
+```yaml
+name: refactor-auth
+repo: /Users/me/workspace/app
+jobs:
+  - id: analyze
+    prompt: "Analyze the auth module; no code yet."
+    worktree: none
+  - id: implement
+    prompt: "Implement the refactor described upstream."
+    depends_on: [analyze]
+    worktree: fresh
+    handoff: "the branch name and a 2-line summary"
+  - id: review
+    prompt: "Merge the implement branch, review, run the suite."
+    depends_on: [implement]
+    worktree: from:implement
+```
+
+Then:
+
+```sh
+agentctl pipeline create -f refactor.yaml   # validate the DAG (cycles, unknown refs)
+agentctl pipeline start refactor-auth        # spawn all jobs with no deps immediately
+agentctl pipeline show refactor-auth         # DAG + per-job status
+agentctl pipeline cancel refactor-auth       # terminate running jobs + mark canceled
+```
+
+Each job's agent finishes by running `agentctl pipeline emit "<handoff>"`. The
+pipeline and job IDs are injected into every job's environment automatically
+(`AGENTCTL_PIPELINE_ID`, `AGENTCTL_JOB_ID`), so the agent just runs the command
+with no flags. Emitting publishes the handoff text to shared context, marks the
+job `done`, and unblocks any dependents.
+
+**Worktree strategies** (`worktree:` field):
+
+| Value | Behaviour |
+|---|---|
+| `none` | Agent runs in the repo root; no git worktree created |
+| `fresh` | A new git worktree is created on a branch named `<pipeline>-<job>` off HEAD |
+| `from:<job>` | A new git worktree is created off the upstream job's branch (for fan-in merges) |
+
+`worktree: from:<job>` bases a job's git worktree on the upstream job's branch.
+A fan-in job (e.g. `review` above) does the `git merge` itself as part of its
+prompt work.
+
+**Failure behaviour:** if a job's agent session enters `errored` or `orphaned`,
+the job is marked `failed`, its descendants are marked `skipped`, and the
+pipeline status becomes `stalled`. Jobs that were already running are not
+interrupted — only pending descendants are skipped. A `stalled` pipeline can be
+inspected with `pipeline show` and cleaned up with `pipeline cancel`.
+
+**Pipeline status values:**
+
+| Status | Meaning |
+|---|---|
+| `pending` | Created, not yet started |
+| `running` | At least one job is in progress |
+| `done` | All jobs finished successfully |
+| `stalled` | A job failed; its descendants have been skipped |
+| `canceled` | Explicitly canceled by the user |
