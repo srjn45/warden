@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -186,4 +188,48 @@ func TestClientSpawnSendsSupervised(t *testing.T) {
 	_, err := New(ts.URL).Spawn(context.Background(), SpawnParams{Prompt: "x", Supervised: true})
 	require.NoError(t, err)
 	require.Equal(t, true, got["supervised"])
+}
+
+func TestCtxSetSendsValueAndBy(t *testing.T) {
+	var gotPath, gotMethod, gotBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"key":"global.k","value":"v","updated_by":"agent-A"}`))
+	}))
+	defer ts.Close()
+
+	e, err := New(ts.URL).CtxSet(context.Background(), "global.k", "v", "agent-A")
+	if err != nil {
+		t.Fatalf("CtxSet: %v", err)
+	}
+	if gotMethod != http.MethodPut || gotPath != "/context/global.k" {
+		t.Fatalf("got %s %s", gotMethod, gotPath)
+	}
+	if !strings.Contains(gotBody, `"value":"v"`) || !strings.Contains(gotBody, `"by":"agent-A"`) {
+		t.Fatalf("body=%s", gotBody)
+	}
+	if e.UpdatedBy != "agent-A" {
+		t.Fatalf("entry=%+v", e)
+	}
+}
+
+func TestCtxList(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("prefix") != "pipeline." {
+			t.Errorf("prefix not forwarded: %q", r.URL.Query().Get("prefix"))
+		}
+		w.Write([]byte(`{"entries":[{"key":"pipeline.p.a","value":"A"}]}`))
+	}))
+	defer ts.Close()
+
+	got, err := New(ts.URL).CtxList(context.Background(), "pipeline.")
+	if err != nil {
+		t.Fatalf("CtxList: %v", err)
+	}
+	if len(got) != 1 || got[0].Key != "pipeline.p.a" {
+		t.Fatalf("got %+v", got)
+	}
 }

@@ -262,3 +262,46 @@ func (c *Client) Output(ctx context.Context, id string, lines int) (string, erro
 	}
 	return resp.Output, nil
 }
+
+// ContextEntry mirrors the daemon's shared-context entry (GET/PUT /context).
+type ContextEntry struct {
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	UpdatedBy string    `json:"updated_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// CtxSet writes value at key, attributing the write to `by`.
+func (c *Client) CtxSet(ctx context.Context, key, value, by string) (ContextEntry, error) {
+	var e ContextEntry
+	body := map[string]string{"value": value, "by": by}
+	err := c.do(ctx, http.MethodPut, "/context/"+url.PathEscape(key), body, &e)
+	return e, err
+}
+
+// CtxGet reads the entry at key (StatusError 404 if absent).
+func (c *Client) CtxGet(ctx context.Context, key string) (ContextEntry, error) {
+	var e ContextEntry
+	err := c.do(ctx, http.MethodGet, "/context/"+url.PathEscape(key), nil, &e)
+	return e, err
+}
+
+// CtxList lists entries under prefix (empty = all).
+func (c *Client) CtxList(ctx context.Context, prefix string) ([]ContextEntry, error) {
+	p := "/context"
+	if prefix != "" {
+		p += "?prefix=" + url.QueryEscape(prefix)
+	}
+	var resp struct {
+		Entries []ContextEntry `json:"entries"`
+	}
+	if err := c.do(ctx, http.MethodGet, p, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Entries, nil
+}
+
+// CtxDel deletes key.
+func (c *Client) CtxDel(ctx context.Context, key string) error {
+	return c.do(ctx, http.MethodDelete, "/context/"+url.PathEscape(key), nil, nil)
+}
