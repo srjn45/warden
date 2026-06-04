@@ -677,3 +677,18 @@ inspected with `pipeline show` and cleaned up with `pipeline cancel`.
 | `done` | All jobs finished successfully |
 | `stalled` | A job failed; its descendants have been skipped |
 | `canceled` | Explicitly canceled by the user |
+
+**Editing and recovery:**
+
+```sh
+agentctl pipeline edit-job <pipeline> <job> --prompt "..." --handoff "..."
+agentctl pipeline retry <pipeline> <job>
+```
+
+`edit-job` tweaks a job's prompt and/or handoff *before it starts* (pending jobs
+only). If a job's agent goes quiet without emitting (its session is flagged
+`idle` by stuck-detection), the job is marked **`needs_attention`** rather than
+silently stalling — the pipeline stays `running` and the job is shown flagged.
+Resolve it by `pipeline emit`-ing on the job's behalf (if the agent actually
+finished) or `pipeline retry`, which tears down the stale job session/worktree,
+resets the job, reopens any descendants that were skipped, and re-runs from there.
