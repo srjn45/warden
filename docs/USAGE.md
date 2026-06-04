@@ -599,8 +599,10 @@ agentctl msg wait --from <agent-id> --timeout 120               # block until a 
 Sending **wakes the recipient only if it's idle or waiting** — a working agent is
 never interrupted; its message waits in the inbox. `msg wait` blocks in the
 daemon (a long-poll), so an agent awaits a reply in a single call with no
-busy-loop. Identity defaults to `$AGENTCTL_SESSION_ID` (set per agent in a later
-phase); until then pass `--as <agent-id>`. Also available as MCP tools
+busy-loop. Identity defaults to `$AGENTCTL_SESSION_ID`, which agentctl sets on every agent's
+tmux session automatically — so inside an agent, `msg` and `ctx` commands just
+work without flags. Pass `--as <agent-id>` only to act as a different agent (e.g.
+a human operator or a lead agent answering on another's behalf). Also available as MCP tools
 `send_message` / `read_inbox` (no MCP `wait` — use the CLI for blocking waits).
 
 Request/reply pattern: A runs `msg send B "..."` then `msg wait --from B`; B reads
