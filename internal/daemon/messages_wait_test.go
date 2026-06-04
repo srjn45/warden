@@ -44,7 +44,10 @@ func TestWaitTimesOut(t *testing.T) {
 	defer ts.Close()
 
 	start := time.Now()
-	resp, _ := http.Get(ts.URL + "/sessions/empty/messages/wait?timeout=1")
+	resp, err := http.Get(ts.URL + "/sessions/empty/messages/wait?timeout=1")
+	if err != nil {
+		t.Fatalf("GET wait: %v", err)
+	}
 	defer resp.Body.Close()
 	var wr struct {
 		Found bool `json:"found"`

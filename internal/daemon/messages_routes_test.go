@@ -63,7 +63,10 @@ func TestSendMessageWorkingRecipientNotWoken(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, _ := http.Post(ts.URL+"/sessions/busy/messages", "application/json", strings.NewReader(`{"from":"x","body":"hi"}`))
+	resp, err := http.Post(ts.URL+"/sessions/busy/messages", "application/json", strings.NewReader(`{"from":"x","body":"hi"}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	var sr struct {
 		Woke bool `json:"woke"`
@@ -81,7 +84,10 @@ func TestSendMessageUnknownRecipient404(t *testing.T) {
 	srv, _, _ := newMsgServer(t)
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, _ := http.Post(ts.URL+"/sessions/ghost/messages", "application/json", strings.NewReader(`{"body":"hi"}`))
+	resp, err := http.Post(ts.URL+"/sessions/ghost/messages", "application/json", strings.NewReader(`{"body":"hi"}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", resp.StatusCode)
@@ -93,7 +99,10 @@ func TestSendMessageEmptyBody400(t *testing.T) {
 	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, _ := http.Post(ts.URL+"/sessions/agent-1/messages", "application/json", bytes.NewBufferString(`{"from":"x","body":""}`))
+	resp, err := http.Post(ts.URL+"/sessions/agent-1/messages", "application/json", bytes.NewBufferString(`{"from":"x","body":""}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", resp.StatusCode)
