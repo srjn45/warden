@@ -85,8 +85,8 @@ func TestPipelineStartSpawnsRoot(t *testing.T) {
 func TestPipelineEmitMarksDone(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))   //nolint:errcheck
-	http.Post(ts.URL+"/pipelines/demo/start", "application/json", nil)                 //nolint:errcheck
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	http.Post(ts.URL+"/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
 
 	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/emit", "application/json", strings.NewReader(`{"text":"all done"}`))
 	require.NoError(t, err)

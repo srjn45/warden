@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
@@ -11,10 +13,22 @@ import (
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
+// Emit error sentinels (mapped to HTTP status by the route handler).
+var (
+	ErrJobNotFound   = errors.New("job not found in pipeline")
+	ErrJobNotRunning = errors.New("job is not running")
+)
+
 // Executor performs the side effects the pure pipeline.Plan decides: spawning
 // ready jobs, skipping failed branches, and persisting status. It is driven by
 // Reconcile (after start/emit) and OnTransition (a job session errored).
 type Executor struct {
+	// mu serializes Reconcile end-to-end (read → Plan → spawn → persist) so two
+	// concurrent triggers — an HTTP emit and a poller OnTransition — can never
+	// both spawn the same newly-ready job (which would orphan a live agent and
+	// falsely stall the pipeline). Pipelines are low-frequency, so a single
+	// executor lock is simpler than per-pipeline locks and plenty fast.
+	mu     sync.Mutex
 	pstore *pipeline.Store
 	sstore store.Store
 	life   Lifecycle
@@ -29,6 +43,8 @@ func NewExecutor(ps *pipeline.Store, ss store.Store, life Lifecycle, cs *ctxstor
 // Reconcile advances a pipeline: spawn newly-ready jobs, skip failed branches,
 // and update the pipeline + job statuses.
 func (e *Executor) Reconcile(ctx context.Context, pid string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	p, err := e.pstore.Get(pid)
 	if err != nil {
 		return err
@@ -142,7 +158,13 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	}
 	job := p.Job(jobID)
 	if job == nil {
-		return fmt.Errorf("unknown job %q in pipeline %q", jobID, pid)
+		return ErrJobNotFound
+	}
+	// Only a running job may emit. This protects the failure-skip invariant: a
+	// skipped job (failed ancestor) must not be resurrected to "done", which
+	// would spawn its descendants off work that never really completed.
+	if job.Status != pipeline.JobRunning {
+		return fmt.Errorf("%w (status %s)", ErrJobNotRunning, job.Status)
 	}
 	branch := ""
 	if job.SessionID != "" {

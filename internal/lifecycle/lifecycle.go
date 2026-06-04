@@ -812,9 +812,9 @@ type JobSpawnRequest struct {
 	PipelineID string
 	JobID      string
 	Repo       string
-	Prompt     string     // already composed (upstream context + footer)
-	Worktree   bool       // create a git worktree? false = run in repo root
-	BaseBranch string     // worktree base ref ("" = off HEAD); ignored when Worktree is false
+	Prompt     string // already composed (upstream context + footer)
+	Worktree   bool   // create a git worktree? false = run in repo root
+	BaseBranch string // worktree base ref ("" = off HEAD); ignored when Worktree is false
 	Type       store.Type
 	Supervised bool
 }
@@ -895,4 +895,3 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	}
 	return sess, nil
 }
-

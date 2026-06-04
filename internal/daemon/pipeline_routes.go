@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -90,7 +91,9 @@ func (s *Server) handleStartPipeline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.exec.Reconcile(r.Context(), pid); err != nil {
+	// Reconcile on a daemon-owned context: spawning worktree jobs can outlast the
+	// triggering request, and DAG progress must not be tied to it (spec §15).
+	if err := s.exec.Reconcile(context.Background(), pid); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -141,12 +144,19 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "empty emit text")
 		return
 	}
-	if err := s.exec.Emit(r.Context(), pid, job, req.Text); errors.Is(err, pipeline.ErrNotFound) {
+	// Background context: emit can trigger a reconcile that spawns dependents,
+	// which may outlast the agent's request.
+	err := s.exec.Emit(context.Background(), pid, job, req.Text)
+	switch {
+	case errors.Is(err, pipeline.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "pipeline not found")
-		return
-	} else if err != nil {
+	case errors.Is(err, ErrJobNotFound):
+		writeErr(w, http.StatusNotFound, "job not found")
+	case errors.Is(err, ErrJobNotRunning):
+		writeErr(w, http.StatusConflict, err.Error())
+	case err != nil:
 		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "emitted"})
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "emitted"})
 }

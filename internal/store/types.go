@@ -93,7 +93,7 @@ type Session struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 	Events          []Event   `json:"events"`
 	LastPaneExcerpt string    `json:"last_pane_excerpt"`
-	Supervised      bool      `json:"supervised"` // launched with --permission-mode acceptEdits (prompts) instead of bypass
+	Supervised      bool      `json:"supervised"`            // launched with --permission-mode acceptEdits (prompts) instead of bypass
 	PipelineID      string    `json:"pipeline_id,omitempty"` // set for pipeline jobs (back-ref)
 	JobID           string    `json:"job_id,omitempty"`      // set for pipeline jobs (back-ref)
 }

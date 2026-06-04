@@ -420,7 +420,9 @@ func (c *Client) PipelineGet(ctx context.Context, id string) (*pipeline.Pipeline
 }
 
 func (c *Client) PipelineStart(ctx context.Context, id string) error {
-	return c.do(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/start", nil, nil)
+	// longTimeout: starting reconciles synchronously and may spawn worktree jobs
+	// (git worktree add), which can outlast the short read deadline.
+	return c.doT(ctx, longTimeout, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/start", nil, nil)
 }
 
 func (c *Client) PipelineCancel(ctx context.Context, id string) error {
@@ -429,5 +431,6 @@ func (c *Client) PipelineCancel(ctx context.Context, id string) error {
 
 func (c *Client) PipelineEmit(ctx context.Context, pid, job, text string) error {
 	path := "/pipelines/" + url.PathEscape(pid) + "/jobs/" + url.PathEscape(job) + "/emit"
-	return c.do(ctx, http.MethodPost, path, map[string]string{"text": text}, nil)
+	// longTimeout: emit reconciles and may spawn dependent worktree jobs.
+	return c.doT(ctx, longTimeout, http.MethodPost, path, map[string]string{"text": text}, nil)
 }

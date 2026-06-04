@@ -34,13 +34,13 @@ const (
 // Job is one node in the DAG. The first block is author-supplied; the second is
 // filled at runtime by the executor and emit.
 type Job struct {
-	ID         string    `json:"id" yaml:"id"`
-	Prompt     string    `json:"prompt" yaml:"prompt"`
-	DependsOn  []string  `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
-	Handoff    string    `json:"handoff,omitempty" yaml:"handoff,omitempty"`
-	Worktree   string    `json:"worktree" yaml:"worktree"` // none | fresh | from:<jobid>
-	Supervised bool      `json:"supervised,omitempty" yaml:"supervised,omitempty"`
-	Type       string    `json:"type,omitempty" yaml:"type,omitempty"`
+	ID         string   `json:"id" yaml:"id"`
+	Prompt     string   `json:"prompt" yaml:"prompt"`
+	DependsOn  []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	Handoff    string   `json:"handoff,omitempty" yaml:"handoff,omitempty"`
+	Worktree   string   `json:"worktree" yaml:"worktree"` // none | fresh | from:<jobid>
+	Supervised bool     `json:"supervised,omitempty" yaml:"supervised,omitempty"`
+	Type       string   `json:"type,omitempty" yaml:"type,omitempty"`
 
 	SessionID string    `json:"session_id,omitempty" yaml:"-"`
 	Status    JobStatus `json:"status,omitempty" yaml:"-"`

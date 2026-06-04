@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
@@ -91,5 +92,28 @@ func TestOnTransitionFailsJobAndSkipsDescendants(t *testing.T) {
 	}
 	if got.Status != pipeline.StatusStalled {
 		t.Fatalf("pipeline should be stalled, got %s", got.Status)
+	}
+}
+
+func TestReconcileConcurrentNoDoubleSpawn(t *testing.T) {
+	// Concurrent triggers (HTTP emit + poller OnTransition) must not both spawn
+	// the same ready job — which would orphan a live agent and falsely stall.
+	e, ps, ss := newTestExecutor(t)
+	ps.Create(chain())
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _ = e.Reconcile(context.Background(), "p") }()
+	}
+	wg.Wait()
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobRunning {
+		t.Fatalf("root a should be running exactly once, got %s", got.Job("a").Status)
+	}
+	if got.Status == pipeline.StatusStalled {
+		t.Fatalf("pipeline must not be stalled by a spawn race")
+	}
+	if _, err := ss.Get(context.Background(), "p-a"); err != nil {
+		t.Fatalf("session p-a should exist exactly once: %v", err)
 	}
 }
