@@ -18,6 +18,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newLsCmd(), newStatusCmd())
 	root.AddCommand(newStartCmd(), newTerminateCmd(), newDeleteCmd(), newRemoveWorktreeCmd(), newDoneCmd(), newRestoreCmd(), newAttachCmd(), newAdoptCmd())
 	root.AddCommand(newSendCmd(), newTailCmd())
+	root.AddCommand(newCtxCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newTUICmd())
 	root.Args = cobra.NoArgs
