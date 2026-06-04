@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -133,6 +134,10 @@ type item struct {
 	dir       string
 	approvals bool // synthetic top-of-list inbox row
 	apprCount int  // number of waiting agents (inbox row only)
+
+	pipeline *pipeline.Pipeline // pipeline header row
+	pjPipe   string             // pipelineJob row: owning pipeline id
+	pjJob    *pipeline.Job      // pipelineJob row: the job
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't
@@ -143,6 +148,12 @@ func dirKey(dir string) string { return "dir\x00" + dir }
 func itemKey(it item) string {
 	if it.approvals {
 		return "approvals\x00"
+	}
+	if it.pipeline != nil {
+		return "pipe\x00" + it.pipeline.ID
+	}
+	if it.pjJob != nil {
+		return "pjob\x00" + it.pjPipe + "\x00" + it.pjJob.ID
 	}
 	if it.session != nil {
 		return it.session.ID
@@ -203,6 +214,20 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 		items = append(items, item{dir: dir}) // empty opened dir → placeholder
 	}
 	return items
+}
+
+// pipelineItems flattens pipelines into a header row per pipeline followed by an
+// indented row per job. Each job row holds a distinct *Job pointer.
+func pipelineItems(ps []*pipeline.Pipeline) []item {
+	var out []item
+	for _, p := range ps {
+		out = append(out, item{pipeline: p})
+		for i := range p.Jobs {
+			j := p.Jobs[i] // fresh var each iteration → distinct pointer
+			out = append(out, item{pjPipe: p.ID, pjJob: &j})
+		}
+	}
+	return out
 }
 
 // listRow is one rendered line: a group header (header != "") or a body row that

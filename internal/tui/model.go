@@ -84,12 +84,21 @@ func New(a api) Model {
 }
 
 func (m Model) items() []item {
-	base := buildItems(m.sessions, m.openedDirs)
-	if !m.approvalsOn {
-		return base
+	// Pipeline-owned sessions are shown under their pipeline, not the flat list.
+	flat := make([]*store.Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		if s.PipelineID == "" {
+			flat = append(flat, s)
+		}
 	}
-	row := item{approvals: true, apprCount: len(m.approvals)}
-	return append([]item{row}, base...)
+	base := buildItems(flat, m.openedDirs)
+
+	var head []item
+	if m.approvalsOn {
+		head = append(head, item{approvals: true, apprCount: len(m.approvals)})
+	}
+	head = append(head, pipelineItems(m.pipelines)...)
+	return append(head, base...)
 }
 
 func (m Model) selected() *store.Session { return itemAt(m.items(), m.cursor).session }

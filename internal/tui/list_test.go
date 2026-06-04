@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -301,5 +302,57 @@ func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 		out := renderList(buildItems(m.sessions, nil), m.cursor, 80, h)
 		require.Len(t, strings.Split(out, "\n"), h, "exactly height lines at h=%d", h)
 		require.Contains(t, out, "a5", "selected agent must stay visible at h=%d", h)
+	}
+}
+
+func TestPipelineItems(t *testing.T) {
+	ps := []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}, {ID: "b", Status: pipeline.JobPending}}}}
+	items := pipelineItems(ps)
+	if len(items) != 3 {
+		t.Fatalf("want 3 items (1 pipeline + 2 jobs), got %d", len(items))
+	}
+	if items[0].pipeline == nil || items[0].pipeline.ID != "demo" {
+		t.Fatalf("first item should be the pipeline header: %+v", items[0])
+	}
+	if items[1].pjJob == nil || items[1].pjJob.ID != "a" || items[1].pjPipe != "demo" {
+		t.Fatalf("second item should be job a: %+v", items[1])
+	}
+	// distinct job pointers (not aliasing the same loop var).
+	if items[1].pjJob == items[2].pjJob {
+		t.Fatalf("job items must hold distinct pointers")
+	}
+}
+
+func TestItemsPrependsPipelinesAndFiltersOwnedSessions(t *testing.T) {
+	m := New(&fakeAPI{})
+	m.sessions = []*store.Session{
+		{ID: "free", Status: store.StatusWorking},
+		{ID: "demo-a", Status: store.StatusWorking, PipelineID: "demo", JobID: "a"},
+	}
+	m.pipelines = []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning, SessionID: "demo-a"}}}}
+	items := m.items()
+	// pipeline header + its 1 job + the free session; the pipeline-owned session is filtered out.
+	var sawPipe, sawJob, sawFree, sawOwned bool
+	for _, it := range items {
+		if it.pipeline != nil {
+			sawPipe = true
+		}
+		if it.pjJob != nil {
+			sawJob = true
+		}
+		if it.session != nil && it.session.ID == "free" {
+			sawFree = true
+		}
+		if it.session != nil && it.session.ID == "demo-a" {
+			sawOwned = true
+		}
+	}
+	if !sawPipe || !sawJob || !sawFree {
+		t.Fatalf("missing rows: pipe=%v job=%v free=%v", sawPipe, sawJob, sawFree)
+	}
+	if sawOwned {
+		t.Fatalf("pipeline-owned session must not appear as a flat session row")
 	}
 }
