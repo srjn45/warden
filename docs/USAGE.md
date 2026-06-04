@@ -562,3 +562,23 @@ agentctl done prreview-...
 | `remove-worktree` refuses | The agent is still running (terminate it first) or the worktree has uncommitted/unpushed work — the guard is protecting it. Commit/push, or use `--force`. (`done` no longer touches the worktree.) |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json` (§9). The poller still updates it, just less promptly. |
 | Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |
+
+---
+
+## 15. Shared context
+
+A namespaced key/value store the daemon owns, so agents can share results.
+
+```sh
+agentctl ctx set global.findings "auth.py needs refactor"   # inline value
+agentctl ctx set report.body --file ./report.md             # value from a file
+some-command | agentctl ctx set logs.tail --stdin           # value from stdin
+agentctl ctx get global.findings                            # prints the value
+agentctl ctx list pipeline.                                 # keys under a prefix
+agentctl ctx del global.findings
+```
+
+Writes are attributed to `$AGENTCTL_SESSION_ID` when set (so a spawned agent's
+writes are tagged with its id), otherwise to `human`. Override with `--as`.
+Keys are free-form dot-namespaced strings (`global.*`, `pipeline.<id>.*`,
+`agent.<sid>.*`). Also available as MCP tools `ctx_set` / `ctx_get` / `ctx_list`.
