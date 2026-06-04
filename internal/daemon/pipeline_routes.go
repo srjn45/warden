@@ -1,0 +1,152 @@
+package daemon
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
+)
+
+type createPipelineRequest struct {
+	Spec string `json:"spec"` // raw YAML
+}
+type pipelinesResponse struct {
+	Pipelines []*pipeline.Pipeline `json:"pipelines"`
+}
+type emitRequest struct {
+	Text string `json:"text"`
+}
+
+func (s *Server) registerPipelineRoutes(r chi.Router) {
+	r.Post("/pipelines", s.handleCreatePipeline)
+	r.Get("/pipelines", s.handleListPipelines)
+	r.Get("/pipelines/{pid}", s.handleShowPipeline)
+	r.Post("/pipelines/{pid}/start", s.handleStartPipeline)
+	r.Post("/pipelines/{pid}/cancel", s.handleCancelPipeline)
+	r.Post("/pipelines/{pid}/jobs/{job}/emit", s.handleEmit)
+}
+
+func (s *Server) handleCreatePipeline(w http.ResponseWriter, r *http.Request) {
+	var req createPipelineRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	p, err := pipeline.ParseSpec([]byte(req.Spec))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.exec.pstore.Create(p); errors.Is(err, pipeline.ErrExists) {
+		writeErr(w, http.StatusConflict, "pipeline "+p.ID+" already exists")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func (s *Server) handleListPipelines(w http.ResponseWriter, r *http.Request) {
+	ps, err := s.exec.pstore.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, pipelinesResponse{Pipelines: ps})
+}
+
+func (s *Server) handleShowPipeline(w http.ResponseWriter, r *http.Request) {
+	p, err := s.exec.pstore.Get(chi.URLParam(r, "pid"))
+	if errors.Is(err, pipeline.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *Server) handleStartPipeline(w http.ResponseWriter, r *http.Request) {
+	pid := chi.URLParam(r, "pid")
+	p, err := s.exec.pstore.Get(pid)
+	if errors.Is(err, pipeline.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if p.Status != pipeline.StatusPending {
+		writeErr(w, http.StatusConflict, "pipeline already started (status "+string(p.Status)+")")
+		return
+	}
+	if err := s.exec.pstore.Update(pid, func(p *pipeline.Pipeline) { p.Status = pipeline.StatusRunning }); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.exec.Reconcile(r.Context(), pid); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
+}
+
+func (s *Server) handleCancelPipeline(w http.ResponseWriter, r *http.Request) {
+	pid := chi.URLParam(r, "pid")
+	p, err := s.exec.pstore.Get(pid)
+	if errors.Is(err, pipeline.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Terminate any running job sessions (best-effort), then mark canceled.
+	for i := range p.Jobs {
+		j := &p.Jobs[i]
+		if j.Status == pipeline.JobRunning && j.SessionID != "" {
+			_ = s.life.Terminate(r.Context(), j.SessionID)
+		}
+	}
+	if err := s.exec.pstore.Update(pid, func(p *pipeline.Pipeline) {
+		for i := range p.Jobs {
+			if p.Jobs[i].Status == pipeline.JobPending || p.Jobs[i].Status == pipeline.JobRunning {
+				p.Jobs[i].Status = pipeline.JobSkipped
+			}
+		}
+		p.Status = pipeline.StatusCanceled
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.notify()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "canceled"})
+}
+
+func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
+	pid, job := chi.URLParam(r, "pid"), chi.URLParam(r, "job")
+	var req emitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	if req.Text == "" {
+		writeErr(w, http.StatusBadRequest, "empty emit text")
+		return
+	}
+	if err := s.exec.Emit(r.Context(), pid, job, req.Text); errors.Is(err, pipeline.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "emitted"})
+}

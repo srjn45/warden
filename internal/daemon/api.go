@@ -102,6 +102,8 @@ type Server struct {
 	cstore *ctxstore.Store
 	// mbox is the directed-message inbox store.
 	mbox *mailbox.Store
+	// exec drives pipeline execution (nil if pipelines are unused).
+	exec *Executor
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -180,6 +182,7 @@ func (s *Server) router() http.Handler {
 	r.Post("/sessions/{id}/approve", s.handleApprove)
 	s.registerContextRoutes(r)
 	s.registerMessageRoutes(r)
+	s.registerPipelineRoutes(r)
 	s.registerStatic(r) // catch-all; must be last
 	return r
 }
