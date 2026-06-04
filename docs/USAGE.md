@@ -336,11 +336,13 @@ highlighted agent to open it in the right pane.
 | `q` | Quit and tear down the whole cockpit |
 
 Pipelines appear in the list pane under a **▸ Pipelines** section (one header row
-per pipeline, then an indented row per job with a status glyph). Selecting a
-pipeline header shows its DAG in the detail pane. On a pipeline row, `x` cancels
-it; on a job row, `r` retries a failed/needs-attention job and `a` attaches to a
-running job's session. (Authoring pipelines is via `agentctl pipeline create -f`;
-editing job prompts and building pipelines in the TUI are not yet available.)
+per pipeline, then an indented row per job with a status glyph) — in both the
+cockpit and `--classic` views. On a pipeline row, `x` cancels it; on a job row,
+`r` retries a failed/needs-attention job, and `a` (or `enter` in the cockpit)
+opens a running job's session. In the `--classic` single-pane view, selecting a
+pipeline header also renders its full DAG (per-job status + captured outputs)
+inline in the detail pane. (Authoring pipelines is via `agentctl pipeline create
+-f`; editing job prompts and building pipelines in the TUI are not yet available.)
 
 > **Getting back from an agent.** Attaching moves your single tmux client onto
 > the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to

@@ -243,14 +243,16 @@ func buildRows(items []item) []listRow {
 	prev := ""
 	started := false
 	for i := range items {
-		if items[i].approvals {
+		// Pinned/synthetic rows (approvals, pipeline header, pipeline job) have no
+		// dir group — emit them bare, never under a dir header.
+		if items[i].approvals || items[i].pipeline != nil || items[i].pjJob != nil {
 			rows = append(rows, listRow{idx: i})
 			continue
 		}
 		dir := items[i].dir
 		if !started || dir != prev {
 			count := 0
-			for j := i; j < len(items) && !items[j].approvals && items[j].dir == dir; j++ {
+			for j := i; j < len(items) && !items[j].approvals && items[j].pipeline == nil && items[j].pjJob == nil && items[j].dir == dir; j++ {
 				if items[j].session != nil {
 					count++
 				}

@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -93,4 +94,24 @@ func TestRespawnDetailArgs(t *testing.T) {
 	require.Equal(t,
 		[]string{"respawn-pane", "-k", "-t", "%9", "env -u TMUX tmux attach -t agent-4f98"},
 		respawnDetailArgs("%9", "agent-4f98"))
+}
+
+func TestListPanePipelinesAndCancel(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	m = lstep(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{
+		{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
+			Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobFailed, SessionID: "demo-a"}}},
+	}})
+	if itemAt(m.items(), 0).pipeline == nil {
+		t.Fatalf("cockpit list should show the pipeline header first")
+	}
+	m.cursor = 0
+	_, cmd := m.Update(key("x"))
+	if cmd == nil {
+		t.Fatalf("x on a pipeline row should return a cancel cmd")
+	}
+	cmd()
+	if got := m.api.(*fakeAPI).canceled; got != "demo" {
+		t.Fatalf("want canceled=demo, got %q", got)
+	}
 }

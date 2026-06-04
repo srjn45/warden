@@ -434,3 +434,16 @@ func TestKeyAttachRunningJob(t *testing.T) {
 		t.Fatalf("a on a running job should return an attach cmd")
 	}
 }
+
+func TestBuildRowsNoHeaderForPipelineRows(t *testing.T) {
+	items := []item{
+		{pipeline: &pipeline.Pipeline{ID: "demo", Status: pipeline.StatusRunning}},
+		{pjPipe: "demo", pjJob: &pipeline.Job{ID: "a", Status: pipeline.JobRunning}},
+		{session: &store.Session{ID: "free"}, dir: "/work"},
+	}
+	for _, r := range buildRows(items) {
+		if strings.Contains(r.header, "(0)") {
+			t.Fatalf("spurious empty group header above pipeline rows: %q", r.header)
+		}
+	}
+}

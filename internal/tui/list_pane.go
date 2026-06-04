@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -33,6 +34,7 @@ type listPaneModel struct {
 	status        string
 	connected     bool
 	pendingSelect string
+	pipelines     []*pipeline.Pipeline
 	w, h          int
 	ready         bool
 }
@@ -50,7 +52,16 @@ func newListPane(a api, detailPane string) listPaneModel {
 	}
 }
 
-func (m listPaneModel) items() []item { return buildItems(m.sessions, m.openedDirs) }
+func (m listPaneModel) items() []item {
+	// Pipeline-owned sessions are shown under their pipeline, not the flat list.
+	flat := make([]*store.Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		if s.PipelineID == "" {
+			flat = append(flat, s)
+		}
+	}
+	return append(pipelineItems(m.pipelines), buildItems(flat, m.openedDirs)...)
+}
 
 func (m listPaneModel) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
 
@@ -72,7 +83,7 @@ func (m listPaneModel) activeDir() string {
 	return activeDir(m.items(), m.cursor, m.fallbackDir())
 }
 
-func (m listPaneModel) Init() tea.Cmd { return tea.Batch(listCmd(m.api), tick()) }
+func (m listPaneModel) Init() tea.Cmd { return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), tick()) }
 
 func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -84,7 +95,7 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		return m, tea.Batch(listCmd(m.api), tick())
+		return m, tea.Batch(listCmd(m.api), pipelinesCmd(m.api), tick())
 	case sessionsMsg:
 		if msg.err != nil {
 			m.connected = false
@@ -95,6 +106,20 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessions = groupSort(msg.sessions)
 		m.repin(prev)
 		return m, nil
+	case pipelinesMsg:
+		if msg.err == nil {
+			prev := m.selectedKey()
+			m.pipelines = msg.pipelines
+			m.repin(prev)
+		}
+		return m, nil
+	case pipelineActionMsg:
+		if msg.err != nil {
+			m.status = "pipeline action failed: " + msg.err.Error()
+		} else {
+			m.status = ""
+		}
+		return m, pipelinesCmd(m.api)
 	case dirListMsg:
 		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {
 			completed, cands := completeDir(msg.listing, msg.typed)
@@ -285,6 +310,9 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s := m.selected(); s != nil && m.detailPane != "" {
 			return m, openInDetailCmd(m.detailPane, s.TmuxSession)
 		}
+		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.SessionID != "" && m.detailPane != "" {
+			return m, openInDetailCmd(m.detailPane, it.pjJob.SessionID)
+		}
 	case "down", "j":
 		if m.cursor < len(m.items())-1 {
 			m.cursor++
@@ -311,17 +339,28 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		it := itemAt(m.items(), m.cursor)
-		if it.session == nil {
-			if it.dir != "" {
-				delete(m.openedDirs, it.dir)
-				m.status = "closed " + abbrevHome(it.dir)
-			}
-		} else {
+		switch {
+		case it.pipeline != nil:
+			m.status = "canceling " + it.pipeline.ID
+			return m, cancelPipelineCmd(m.api, it.pipeline.ID)
+		case it.session != nil:
 			m.mode = modeConfirmKill
+		case it.dir != "":
+			delete(m.openedDirs, it.dir)
+			m.status = "closed " + abbrevHome(it.dir)
+		}
+	case "r":
+		it := itemAt(m.items(), m.cursor)
+		if it.pjJob != nil && (it.pjJob.Status == pipeline.JobFailed || it.pjJob.Status == pipeline.JobNeedsAttention) {
+			m.status = "retrying " + it.pjPipe + "/" + it.pjJob.ID
+			return m, retryJobCmd(m.api, it.pjPipe, it.pjJob.ID)
 		}
 	case "a":
 		if id := m.selectedID(); id != "" {
 			return m, switchClientCmd(id)
+		}
+		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.SessionID != "" {
+			return m, switchClientCmd(it.pjJob.SessionID)
 		}
 	case "?":
 		m.mode = modeHelp
@@ -351,7 +390,7 @@ func (m listPaneModel) View() string {
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
-	footer := stMuted.Render("enter open · n new · o open dir · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · o open dir · s send · a attach · r retry · x kill/cancel · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
