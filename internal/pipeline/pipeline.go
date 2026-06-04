@@ -24,11 +24,12 @@ const (
 type JobStatus string
 
 const (
-	JobPending JobStatus = "pending"
-	JobRunning JobStatus = "running"
-	JobDone    JobStatus = "done"
-	JobFailed  JobStatus = "failed"
-	JobSkipped JobStatus = "skipped"
+	JobPending        JobStatus = "pending"
+	JobRunning        JobStatus = "running"
+	JobDone           JobStatus = "done"
+	JobFailed         JobStatus = "failed"
+	JobSkipped        JobStatus = "skipped"
+	JobNeedsAttention JobStatus = "needs_attention"
 )
 
 // Job is one node in the DAG. The first block is author-supplied; the second is

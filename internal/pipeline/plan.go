@@ -69,7 +69,7 @@ func pipelineStatus(p *Pipeline, status map[string]JobStatus, skip map[string]bo
 		if s == JobFailed {
 			anyFailed = true
 		}
-		if s == JobRunning {
+		if s == JobRunning || s == JobNeedsAttention {
 			anyRunning = true
 		}
 		// "terminal" for completion purposes = done/failed/skipped (incl. about-to-skip).

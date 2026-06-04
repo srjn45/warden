@@ -64,3 +64,20 @@ func TestPlanFailureSkipsDescendantsAndStalls(t *testing.T) {
 		t.Fatalf("status %s", d.Status)
 	}
 }
+
+func TestPlanNeedsAttentionKeepsRunningAndBlocks(t *testing.T) {
+	// b is needs_attention: pipeline stays running, b does NOT unblock its
+	// dependent d, and b is NOT a failure so c/d are not skipped.
+	d := Plan(diamond(map[string]JobStatus{"a": JobDone, "b": JobNeedsAttention, "c": JobDone, "d": JobPending}))
+	if d.Status != StatusRunning {
+		t.Fatalf("needs_attention should keep pipeline running, got %s", d.Status)
+	}
+	for _, id := range d.Spawn {
+		if id == "d" {
+			t.Fatalf("d must not spawn while dep b is needs_attention")
+		}
+	}
+	if len(d.Skip) != 0 {
+		t.Fatalf("needs_attention must not skip anything, got %v", d.Skip)
+	}
+}
