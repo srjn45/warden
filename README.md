@@ -144,7 +144,7 @@ In the web GUI, **+ New agent** opens a single prompt textarea — no type or re
 
 **How it works:**
 
-- **Runs in the caller's directory.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` in the directory you invoked `start` from (or the `--dir` you pass) — no per-agent directory is created. Point it elsewhere with `--dir`, and include any extra repo context in the prompt itself.
+- **Runs in the caller's directory.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` (or `--permission-mode acceptEdits` with `--supervised`) in the directory you invoked `start` from (or the `--dir` you pass) — no per-agent directory is created. Point it elsewhere with `--dir`, and include any extra repo context in the prompt itself.
 - **Type is auto-assigned.** Shortly after creation the daemon classifies the prompt with `claude -p` and updates the type label. It appears as "classifying…" until then. Requires `claude` on the daemon's `PATH`; falls back to `other` if unavailable.
 - **Subject is auto-generated.** Each agent has a one-line subject summarizing what it is currently working on. It is seeded from the first words of the prompt at spawn, then refreshed periodically by the poller: the poller reads the agent's Claude Code transcript (looked up by `CLAUDE_PROJECTS_DIR`) or, if no transcript is found, captures the tmux pane, then asks `claude -p` for an ≤8-word phrase. Refreshes are throttled and only run when the pane content has changed.
 - **Managed worktrees still available.** `agentctl start TICKET --type development --repo …` is unchanged — see the section below.
@@ -172,7 +172,9 @@ When you need a managed git worktree (e.g. a development branch tied to a Jira t
 | `env-test` | no | Runs directly in the repo root |
 | `other` | no | Catch-all; also used for unrecognized type strings |
 
-Every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed; the `Notification` hook still records them as events in the session doc.
+By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously; the `Notification` hook still records them as events in the session doc.
+
+Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer (web AttentionQueue one-click buttons / TUI `⏳ Approvals` row, when `AGENTCTL_APPROVALS` is on). A restored agent keeps its supervised setting.
 
 If a worktree for the ticket already exists on disk, the spawn adopts it (reattaches claude to the existing branch) instead of erroring.
 
@@ -257,6 +259,7 @@ Flags:
 - `--branch` — new branch name (development) or checkout target (pr-review)
 - `--pr` — PR number or URL (pr-review only)
 - `--worktree` — opt-in worktree for analysis/spike
+- `--supervised` — launch with `--permission-mode acceptEdits` instead of the default `--dangerously-skip-permissions`; risky tools prompt and the approvals inbox surfaces them (see `AGENTCTL_APPROVALS`)
 
 ### `agentctl ls`
 
@@ -419,7 +422,7 @@ Once registered, the orchestrator session can call these tools directly:
 |---|---|
 | `list_agents` | List all active agents with their status, working directory, and subject |
 | `get_agent` | Get full detail (status, workdir, subject, events, worktree) for one agent |
-| `spawn_agent` | Spawn a new agent — pass a `prompt` for a quick auto-typed agent, or `type`+`repo` for a managed worktree |
+| `spawn_agent` | Spawn a new agent — pass a `prompt` for a quick auto-typed agent, or `type`+`repo` for a managed worktree; set `supervised: true` for `--permission-mode acceptEdits` instead of full bypass |
 | `adopt_agent` | Register an existing Claude session: resume newest-for-dir under tmux, or live-register a running tmux session |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Return the recent terminal output of a specific agent |
@@ -517,7 +520,7 @@ The dashboard is a **tabbed mission-control shell**: two fixed tabs — **Overvi
 - **Overview tab** — live fleet list over SSE (no manual refresh), each row with a coloured busy/idle badge (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) and the agent's auto-generated **subject**, plus fleet stats and an **attention queue** that surfaces agents in `waiting_for_input`/`errored`/`orphaned`.
 - **Cockpit tab** — a multi-pane view for watching several agents at once.
 - **Agent tabs** — pin any agent to its own tab to get a **live, interactive terminal** (`AttachTerminal`) — a real `tmux attach` bridged to the browser over a WebSocket, so you can type into the agent and watch it respond in real time. (The old read-only polled snapshot + separate send box were removed.)
-- **Create agent** — **+ New agent** opens a prompt box (with a directory picker). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. For a managed worktree, use the CLI: `agentctl start TICKET --type development --repo …`.
+- **Create agent** — **+ New agent** opens a prompt box (with a directory picker and a **Supervised** checkbox). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. Tick **Supervised** to launch with `--permission-mode acceptEdits` instead of full bypass. For a managed worktree, use the CLI: `agentctl start TICKET --type development --repo …`.
 - **Terminate** — surfaces the git guard (409 → **Force** + optional **hard-delete**) when there's uncommitted/unpushed work.
 - **Browser notifications** — opt in to get a desktop notification when an agent enters `waiting_for_input` (gated so they only fire while the tab is hidden).
 
