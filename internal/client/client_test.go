@@ -251,3 +251,71 @@ func TestCtxSetRejectsSlashKeyBeforeCall(t *testing.T) {
 		t.Fatalf("client must reject invalid keys before calling the daemon")
 	}
 }
+
+func TestMsgSendParsesMessageAndWoke(t *testing.T) {
+	var gotPath, gotMethod, gotBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Write([]byte(`{"message":{"id":"1","from":"agent-2","to":"agent-1","body":"hi"},"woke":true}`))
+	}))
+	defer ts.Close()
+
+	m, woke, err := New(ts.URL).MsgSend(context.Background(), "agent-1", "agent-2", "hi")
+	if err != nil {
+		t.Fatalf("MsgSend: %v", err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/sessions/agent-1/messages" {
+		t.Fatalf("got %s %s", gotMethod, gotPath)
+	}
+	if !strings.Contains(gotBody, `"from":"agent-2"`) || !strings.Contains(gotBody, `"body":"hi"`) {
+		t.Fatalf("body=%s", gotBody)
+	}
+	if m.ID != "1" || !woke {
+		t.Fatalf("m=%+v woke=%v", m, woke)
+	}
+}
+
+func TestMsgInboxForwardsUnread(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("unread") != "true" {
+			t.Errorf("unread not forwarded")
+		}
+		w.Write([]byte(`{"messages":[{"id":"1","from":"x","body":"a"}]}`))
+	}))
+	defer ts.Close()
+
+	got, err := New(ts.URL).MsgInbox(context.Background(), "agent-1", true)
+	if err != nil {
+		t.Fatalf("MsgInbox: %v", err)
+	}
+	if len(got) != 1 || got[0].Body != "a" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestMsgWaitFoundAndTimeout(t *testing.T) {
+	// found
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("timeout") != "1" || r.URL.Query().Get("from") != "agent-2" {
+			t.Errorf("query not forwarded: %s", r.URL.RawQuery)
+		}
+		w.Write([]byte(`{"found":true,"message":{"id":"1","from":"agent-2","body":"reply"}}`))
+	}))
+	m, err := New(ts.URL).MsgWait(context.Background(), "agent-1", "agent-2", 1)
+	ts.Close()
+	if err != nil || m == nil || m.Body != "reply" {
+		t.Fatalf("found case: m=%+v err=%v", m, err)
+	}
+
+	// timeout
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"found":false}`))
+	}))
+	defer ts2.Close()
+	m2, err := New(ts2.URL).MsgWait(context.Background(), "agent-1", "", 1)
+	if err != nil || m2 != nil {
+		t.Fatalf("timeout case: m=%+v err=%v", m2, err)
+	}
+}

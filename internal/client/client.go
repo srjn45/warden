@@ -327,3 +327,65 @@ func (c *Client) CtxDel(ctx context.Context, key string) error {
 	}
 	return c.do(ctx, http.MethodDelete, "/context/"+url.PathEscape(key), nil, nil)
 }
+
+// Message mirrors the daemon's mailbox message (directed messages).
+type Message struct {
+	ID   string    `json:"id"`
+	From string    `json:"from"`
+	To   string    `json:"to"`
+	Body string    `json:"body"`
+	TS   time.Time `json:"ts"`
+	Read bool      `json:"read"`
+}
+
+// MsgSend delivers body to recipient `to` from `from`; returns the stored
+// message and whether the recipient was woken.
+func (c *Client) MsgSend(ctx context.Context, to, from, body string) (Message, bool, error) {
+	var resp struct {
+		Message Message `json:"message"`
+		Woke    bool    `json:"woke"`
+	}
+	reqBody := map[string]string{"from": from, "body": body}
+	if err := c.do(ctx, http.MethodPost, "/sessions/"+url.PathEscape(to)+"/messages", reqBody, &resp); err != nil {
+		return Message{}, false, err
+	}
+	return resp.Message, resp.Woke, nil
+}
+
+// MsgInbox returns id's messages (unreadOnly filters to unread); the daemon
+// marks the returned messages read.
+func (c *Client) MsgInbox(ctx context.Context, id string, unreadOnly bool) ([]Message, error) {
+	p := "/sessions/" + url.PathEscape(id) + "/messages"
+	if unreadOnly {
+		p += "?unread=true"
+	}
+	var resp struct {
+		Messages []Message `json:"messages"`
+	}
+	if err := c.do(ctx, http.MethodGet, p, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Messages, nil
+}
+
+// MsgWait blocks (server long-poll) until a message for id arrives (optionally
+// filtered by sender `from`) or timeoutSec elapses. Returns nil on timeout. The
+// HTTP deadline is set beyond the server window so the client never cuts the
+// long-poll short.
+func (c *Client) MsgWait(ctx context.Context, id, from string, timeoutSec int) (*Message, error) {
+	p := fmt.Sprintf("/sessions/%s/messages/wait?timeout=%d", url.PathEscape(id), timeoutSec)
+	if from != "" {
+		p += "&from=" + url.QueryEscape(from)
+	}
+	var resp struct {
+		Found   bool     `json:"found"`
+		Message *Message `json:"message"`
+	}
+	if err := c.doT(ctx, time.Duration(timeoutSec+10)*time.Second, http.MethodGet, p, nil, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Found {
+		return nil, nil
+	}
+	return resp.Message, nil
+}
