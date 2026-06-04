@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srajanpathak/agentctl/internal/ctxstore"
 	"github.com/srajanpathak/agentctl/internal/poller"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -95,6 +96,8 @@ type Server struct {
 	done chan struct{}
 	// approvals gates the approvals-inbox endpoints (AGENTCTL_APPROVALS).
 	approvals bool
+	// cstore is the shared-context KV store (the inter-agent blackboard).
+	cstore *ctxstore.Store
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -169,6 +172,7 @@ func (s *Server) router() http.Handler {
 	r.Get("/fs/dirs", s.handleListDirs)
 	r.Get("/approvals", s.handleApprovals)
 	r.Post("/sessions/{id}/approve", s.handleApprove)
+	s.registerContextRoutes(r)
 	s.registerStatic(r) // catch-all; must be last
 	return r
 }
