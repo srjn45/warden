@@ -58,9 +58,11 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 	f.spawned = &store.Session{
 		ID: id, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning,
+		Supervised: req.Supervised,
 	}
 	return f.spawned, nil
 }
+
 func (f *fakeLife) Classify(_ context.Context, prompt string) (store.Type, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -558,4 +560,15 @@ func TestAdoptLiveNoClaudeIDWarns(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	require.NotEmpty(t, got.Warning, "live register without a claude id must warn")
 	require.Empty(t, fl.adoptParams.ClaudeSessionID, "claude id stays empty")
+}
+
+func TestPostSpawnSupervised(t *testing.T) {
+	fl := &fakeLife{}
+	ts := lifeServer(t, newFakeStore(), fl)
+	defer ts.Close()
+	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo", Supervised: true})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	require.True(t, fl.spawned.Supervised)
 }

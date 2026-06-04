@@ -28,9 +28,10 @@ type SpawnRequest struct {
 	Repo     string `json:"repo"`     // required
 	Branch   string `json:"branch"`   // optional; development branch / pr-review checkout
 	PR       string `json:"pr"`       // optional; pr-review
-	Worktree bool   `json:"worktree"` // analysis/spike opt-in
-	Prompt   string `json:"prompt"`   // prompt-mode: the agent's initial prompt
-	Cwd      string `json:"cwd"`      // dir to launch claude from (caller cwd / web pick)
+	Worktree   bool   `json:"worktree"`   // analysis/spike opt-in
+	Prompt     string `json:"prompt"`     // prompt-mode: the agent's initial prompt
+	Cwd        string `json:"cwd"`        // dir to launch claude from (caller cwd / web pick)
+	Supervised bool   `json:"supervised"` // opt-in supervised mode (acceptEdits prompts)
 }
 
 // AdoptRequest is the body for POST /adopt.

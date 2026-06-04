@@ -23,13 +23,14 @@ func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st store.Store) Lifecycle {
 // (Prompt set, Type empty) the Type is left empty so the doc stays "classifying".
 func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
 	lr := lifecycle.SpawnRequest{
-		Ticket:   req.Ticket,
-		Repo:     req.Repo,
-		Branch:   req.Branch,
-		PR:       req.PR,
-		Worktree: req.Worktree,
-		Prompt:   req.Prompt,
-		Cwd:      req.Cwd,
+		Ticket:     req.Ticket,
+		Repo:       req.Repo,
+		Branch:     req.Branch,
+		PR:         req.PR,
+		Worktree:   req.Worktree,
+		Prompt:     req.Prompt,
+		Cwd:        req.Cwd,
+		Supervised: req.Supervised,
 	}
 	// Leave Type empty in prompt mode so it stays "classifying"; otherwise normalize.
 	if !(req.Prompt != "" && req.Type == "") {
