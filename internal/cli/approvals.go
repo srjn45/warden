@@ -75,4 +75,50 @@ func formatApproval(v approval.View) string {
 	return b.String()
 }
 
-var _ = cobra.Command{} // keep cobra imported for Task 2; remove if Task 2 lands in same change
+func newApprovalsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "approvals",
+		Short: "List pending tool-permission prompts waiting for an answer",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			enabled, views, err := clientFor(cmd).Approvals(cmd.Context())
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(cmd.OutOrStdout(), formatApprovalsList(enabled, views))
+			return nil
+		},
+	}
+}
+
+func newApproveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "approve <TICKET> <option>",
+		Short: "Answer a pending tool-permission prompt by option number",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := args[0]
+			option, err := parseOption(args[1])
+			if err != nil {
+				return err
+			}
+			c := clientFor(cmd)
+			enabled, views, err := c.Approvals(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if !enabled {
+				return fmt.Errorf("approvals disabled (set AGENTCTL_APPROVALS=on)")
+			}
+			v, err := validateApproval(views, id, option)
+			if err != nil {
+				return err
+			}
+			if err := c.Approve(cmd.Context(), id, option, v.Fingerprint); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "approved %s → %d. %s\n", id, option, v.Options[option-1])
+			return nil
+		},
+	}
+}
