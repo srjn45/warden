@@ -186,6 +186,57 @@ func (e *Executor) OnTransition(sess *store.Session, _ store.Status, to store.St
 	_ = e.Reconcile(context.Background(), sess.PipelineID)
 }
 
+// Retry re-runs a failed or needs_attention job: it tears down the job's stale
+// session + worktree, drops the stale session record (so the re-spawn can reuse
+// the <pid>-<job> id), resets the job to pending, reopens all skipped jobs (the
+// reconcile's Plan re-skips any still blocked by another failure), and
+// reconciles. Not held under e.mu across the whole call because Reconcile takes
+// the lock itself.
+func (e *Executor) Retry(ctx context.Context, pid, jobID string) error {
+	p, err := e.pstore.Get(pid)
+	if err != nil {
+		return err
+	}
+	job := p.Job(jobID)
+	if job == nil {
+		return ErrJobNotFound
+	}
+	if job.Status != pipeline.JobFailed && job.Status != pipeline.JobNeedsAttention {
+		return ErrJobNotRetryable
+	}
+	// Clean up the stale session + worktree so the re-spawn's id is free.
+	if job.SessionID != "" {
+		if sess, gerr := e.sstore.Get(ctx, job.SessionID); gerr == nil {
+			_ = e.life.Teardown(ctx, sess)
+			_ = e.sstore.Delete(ctx, sess.ID)
+		}
+	}
+	var ferr error
+	if err := e.pstore.Update(pid, func(p *pipeline.Pipeline) {
+		j := p.Job(jobID)
+		if j == nil {
+			ferr = ErrJobNotFound
+			return
+		}
+		j.Status = pipeline.JobPending
+		j.SessionID = ""
+		j.Output = ""
+		j.Branch = ""
+		for i := range p.Jobs {
+			if p.Jobs[i].Status == pipeline.JobSkipped {
+				p.Jobs[i].Status = pipeline.JobPending
+			}
+		}
+		p.Status = pipeline.StatusRunning
+	}); err != nil {
+		return err
+	}
+	if ferr != nil {
+		return ferr
+	}
+	return e.Reconcile(ctx, pid)
+}
+
 // Emit records a job's handoff: write to shared context, capture its branch from
 // its session, mark it done, then reconcile to unblock dependents.
 func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {

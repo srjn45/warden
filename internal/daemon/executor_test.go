@@ -152,3 +152,50 @@ func TestEditJobOnlyWhenPending(t *testing.T) {
 		t.Fatalf("want ErrJobNotFound, got %v", err)
 	}
 }
+
+func TestRetryResetsFailedJobAndReopensDescendants(t *testing.T) {
+	e, ps, ss := newTestExecutor(t)
+	ps.Create(chain()) // a -> b
+	// Put the pipeline in a stalled state: a failed (with a stale session), b skipped.
+	ss.Insert(context.Background(), &store.Session{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
+	ps.Update("p", func(p *pipeline.Pipeline) {
+		p.Job("a").Status = pipeline.JobFailed
+		p.Job("a").SessionID = "p-a"
+		p.Job("b").Status = pipeline.JobSkipped
+		p.Status = pipeline.StatusStalled
+	})
+
+	if err := e.Retry(context.Background(), "p", "a"); err != nil {
+		t.Fatalf("Retry: %v", err)
+	}
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobRunning {
+		t.Fatalf("retried a should be running, got %s", got.Job("a").Status)
+	}
+	if got.Job("b").Status != pipeline.JobPending {
+		t.Fatalf("skipped descendant b should be reopened to pending, got %s", got.Job("b").Status)
+	}
+	if got.Status != pipeline.StatusRunning {
+		t.Fatalf("pipeline should be running again, got %s", got.Status)
+	}
+	// the stale session was deleted so the re-spawn could reuse the id.
+	if _, err := ss.Get(context.Background(), "p-a"); err == nil {
+		// a fresh p-a was inserted by the re-spawn; confirm it's the new running one.
+		s, _ := ss.Get(context.Background(), "p-a")
+		if s.Status == store.StatusOrphaned {
+			t.Fatalf("stale orphaned session was not replaced")
+		}
+	}
+}
+
+func TestRetryRejectsNonRetryable(t *testing.T) {
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(chain())
+	// a is pending (not failed/needs_attention) → not retryable.
+	if err := e.Retry(context.Background(), "p", "a"); !errors.Is(err, ErrJobNotRetryable) {
+		t.Fatalf("want ErrJobNotRetryable, got %v", err)
+	}
+	if err := e.Retry(context.Background(), "p", "ghost"); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("want ErrJobNotFound, got %v", err)
+	}
+}
