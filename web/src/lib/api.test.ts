@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve } from './api';
+import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, retryJob } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -117,5 +117,38 @@ describe('api', () => {
     await spawn({ prompt: 'x', supervised: true });
     const body = JSON.parse((f.mock.calls[0][1] as any).body);
     expect(body.supervised).toBe(true);
+  });
+});
+
+describe('pipelines api', () => {
+  it('listPipelines GETs /pipelines and unwraps the array', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ pipelines: [{ id: 'demo', jobs: [] }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await listPipelines();
+    expect(fetchMock).toHaveBeenCalledWith('/pipelines');
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe('demo');
+  });
+
+  it('listPipelines returns [] when the body is null', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ pipelines: null })));
+    expect(await listPipelines()).toEqual([]);
+  });
+
+  it('cancelPipeline POSTs to the cancel endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'canceled' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await cancelPipeline('demo');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('/pipelines/demo/cancel');
+    expect(opts.method).toBe('POST');
+  });
+
+  it('retryJob POSTs to the job retry endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'retrying' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await retryJob('demo', 'a');
+    expect(fetchMock.mock.calls[0][0]).toBe('/pipelines/demo/jobs/a/retry');
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST');
   });
 });

@@ -37,3 +37,29 @@ export interface Session {
   last_pane_excerpt: string;
   supervised: boolean;
 }
+
+export type PipelineStatus = 'pending' | 'running' | 'done' | 'stalled' | 'canceled';
+export type PipelineJobStatus =
+  | 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'needs_attention';
+
+export interface PipelineJob {
+  id: string;
+  prompt: string;
+  depends_on: string[] | null;
+  handoff: string;
+  worktree: string;
+  supervised: boolean;
+  type: string;
+  session_id: string;
+  status: PipelineJobStatus;
+  output: string;
+  branch: string;
+}
+
+export interface Pipeline {
+  id: string;
+  name: string;
+  repo: string;
+  status: PipelineStatus;
+  jobs: PipelineJob[];
+}

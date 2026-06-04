@@ -1,4 +1,4 @@
-import type { Session, ApprovalView } from './types';
+import type { Session, ApprovalView, Pipeline } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -100,6 +100,22 @@ export async function approve(id: string, option: number, fingerprint: string): 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ option, fingerprint }),
   }));
+}
+
+export async function listPipelines(): Promise<Pipeline[]> {
+  const data = await parse<{ pipelines: Pipeline[] | null }>(await fetch('/pipelines'));
+  return data.pipelines ?? [];
+}
+
+export async function cancelPipeline(id: string): Promise<void> {
+  await parse<unknown>(await fetch(`/pipelines/${encodeURIComponent(id)}/cancel`, { method: 'POST' }));
+}
+
+export async function retryJob(pid: string, job: string): Promise<void> {
+  await parse<unknown>(await fetch(
+    `/pipelines/${encodeURIComponent(pid)}/jobs/${encodeURIComponent(job)}/retry`,
+    { method: 'POST' },
+  ));
 }
 
 // subscribeSessions opens an SSE connection. Returns an unsubscribe function.
