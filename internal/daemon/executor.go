@@ -168,21 +168,34 @@ func (e *Executor) EditJob(pid, jobID string, prompt, handoff *string) error {
 	return nil
 }
 
-// OnTransition is the poller hook: when a job's session errors or is orphaned,
-// the job is marked failed and the pipeline reconciled (skipping descendants).
+// OnTransition is the poller hook: when a job's session errors, is orphaned, or
+// goes idle (stuck-detection grace window elapsed), the job status is updated
+// and the pipeline reconciled accordingly.
 // Job completion is NOT inferred here — that comes only via `emit`.
 func (e *Executor) OnTransition(sess *store.Session, _ store.Status, to store.Status) {
 	if sess.PipelineID == "" {
 		return
 	}
-	if to != store.StatusErrored && to != store.StatusOrphaned {
+	switch to {
+	case store.StatusErrored, store.StatusOrphaned:
+		// The session died → the job failed; descendants get skipped on reconcile.
+		e.markJob(sess.PipelineID, sess.JobID, func(j *pipeline.Job) {
+			if j.Status == pipeline.JobRunning {
+				j.Status = pipeline.JobFailed
+			}
+		})
+	case store.StatusIdle:
+		// The poller's stuck-detection (quiet ≥ stuckAfter) is the grace window:
+		// a running job whose agent went quiet without emitting is flagged for
+		// attention (recoverable — it self-heals on a later emit, or via retry).
+		e.markJob(sess.PipelineID, sess.JobID, func(j *pipeline.Job) {
+			if j.Status == pipeline.JobRunning {
+				j.Status = pipeline.JobNeedsAttention
+			}
+		})
+	default:
 		return
 	}
-	e.markJob(sess.PipelineID, sess.JobID, func(j *pipeline.Job) {
-		if j.Status == pipeline.JobRunning {
-			j.Status = pipeline.JobFailed
-		}
-	})
 	_ = e.Reconcile(context.Background(), sess.PipelineID)
 }
 
@@ -248,10 +261,12 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	if job == nil {
 		return ErrJobNotFound
 	}
-	// Only a running job may emit. This protects the failure-skip invariant: a
-	// skipped job (failed ancestor) must not be resurrected to "done", which
-	// would spawn its descendants off work that never really completed.
-	if job.Status != pipeline.JobRunning {
+	// Only a running or needs_attention job may emit. This protects the
+	// failure-skip invariant: a skipped job (failed ancestor) must not be
+	// resurrected to "done", which would spawn its descendants off work that
+	// never really completed. needs_attention is recoverable (the agent
+	// finished after the grace window, or a human emits on its behalf).
+	if job.Status != pipeline.JobRunning && job.Status != pipeline.JobNeedsAttention {
 		return fmt.Errorf("%w (status %s)", ErrJobNotRunning, job.Status)
 	}
 	branch := ""

@@ -199,3 +199,37 @@ func TestRetryRejectsNonRetryable(t *testing.T) {
 		t.Fatalf("want ErrJobNotFound, got %v", err)
 	}
 }
+
+func TestOnTransitionIdleFlagsNeedsAttention(t *testing.T) {
+	e, ps, ss := newTestExecutor(t)
+	ps.Create(chain())
+	e.Reconcile(context.Background(), "p") // a running, session p-a inserted
+	sess, _ := ss.Get(context.Background(), "p-a")
+
+	e.OnTransition(sess, store.StatusWorking, store.StatusIdle)
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobNeedsAttention {
+		t.Fatalf("idle running job should be needs_attention, got %s", got.Job("a").Status)
+	}
+	if got.Status != pipeline.StatusRunning {
+		t.Fatalf("pipeline should stay running, got %s", got.Status)
+	}
+}
+
+func TestEmitAllowedOnNeedsAttention(t *testing.T) {
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(chain())
+	e.Reconcile(context.Background(), "p")
+	ps.Update("p", func(p *pipeline.Pipeline) { p.Job("a").Status = pipeline.JobNeedsAttention })
+
+	if err := e.Emit(context.Background(), "p", "a", "finished after all"); err != nil {
+		t.Fatalf("emit on needs_attention should be allowed: %v", err)
+	}
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobDone {
+		t.Fatalf("emit should mark needs_attention job done, got %s", got.Job("a").Status)
+	}
+	if got.Job("b").Status != pipeline.JobRunning {
+		t.Fatalf("dependent b should now run, got %s", got.Job("b").Status)
+	}
+}
