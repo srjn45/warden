@@ -130,3 +130,10 @@ body { margin: 0; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; }
 .job-text { white-space: pre-wrap; word-break: break-word; background: #141417; padding: 8px; border-radius: 6px; max-height: 240px; overflow-y: auto; }
 .drawer-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+/* Pipelines tab — action buttons, empty state, drawer close (scoped) */
+.pipelines .btn { padding: 4px 10px; background: #26323a; border: 1px solid #34424c; border-radius: 6px; color: inherit; cursor: pointer; font-size: 12px; }
+.pipelines .btn:hover { background: #2f3e48; }
+.pipelines .empty { padding: 12px; color: #999; }
+.pipelines .drawer-head .tab-close { background: none; border: none; color: #999; cursor: pointer; font-size: 14px; }
+.pipelines .drawer-head .tab-close:hover { color: #ddd; }
