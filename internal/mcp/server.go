@@ -30,9 +30,10 @@ type spawnArgs struct {
 	Repo     string `json:"repo,omitempty" jsonschema:"absolute path to the repo (managed-worktree mode)"`
 	Branch   string `json:"branch,omitempty" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
 	PR       string `json:"pr,omitempty" jsonschema:"optional PR number/url for pr-review"`
-	Worktree bool   `json:"worktree,omitempty" jsonschema:"create a scratch worktree for analysis/spike"`
-	Prompt   string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
-	Dir      string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
+	Worktree   bool   `json:"worktree,omitempty" jsonschema:"create a scratch worktree for analysis/spike"`
+	Prompt     string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
+	Dir        string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
+	Supervised bool   `json:"supervised,omitempty" jsonschema:"supervised mode: launch with --permission-mode acceptEdits so risky tools prompt (answerable in the approvals inbox) instead of bypassing all permissions"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -100,7 +101,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "spawn_agent",
-		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; buildkite-debug/test-run/env-test run in the repo; analysis/spike take an optional worktree). Launches claude --dangerously-skip-permissions.",
+		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; buildkite-debug/test-run/env-test run in the repo; analysis/spike take an optional worktree). Launches claude --dangerously-skip-permissions by default; set supervised=true for --permission-mode acceptEdits (risky tools prompt → answerable in the approvals inbox).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a spawnArgs) (*mcpsdk.CallToolResult, any, error) {
 		cwd := a.Dir
 		if cwd == "" {
@@ -113,7 +114,7 @@ func NewServer(daemonBase string) *Server {
 		sess, err := s.cl.Spawn(ctx, client.SpawnParams{
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree,
-			Prompt: a.Prompt, Cwd: cwd,
+			Prompt: a.Prompt, Cwd: cwd, Supervised: a.Supervised,
 		})
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
