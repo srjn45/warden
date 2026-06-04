@@ -22,7 +22,7 @@ func freeAddr(t *testing.T) string {
 }
 
 func TestListenAndServeShutsDownGracefully(t *testing.T) {
-	srv := NewServer(newFakeStore(), &fakeLife{}, nil, time.Second, false)
+	srv := NewServer(newFakeStore(), &fakeLife{}, nil, time.Second, false, nil)
 	addr := freeAddr(t)
 
 	ctx, cancel := context.WithCancel(context.Background())

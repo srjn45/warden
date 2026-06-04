@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srajanpathak/agentctl/internal/config"
+	"github.com/srajanpathak/agentctl/internal/ctxstore"
 	"github.com/srajanpathak/agentctl/internal/daemon"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/notify"
@@ -36,6 +37,11 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer st.Close(context.Background())
 
+			cstore, err := ctxstore.New(filepath.Join(cfg.DataDir, "context"))
+			if err != nil {
+				return err
+			}
+
 			runner := lifecycle.ExecRunner{}
 			lc := lifecycle.New(runner)
 			lc.ProjectsDir = cfg.ClaudeProjectsDir
@@ -47,7 +53,7 @@ func newDaemonCmd() *cobra.Command {
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
 			pl.OnTransition = daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
-			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled)
+			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},
