@@ -74,10 +74,14 @@ func (m Model) View() string {
 
 		cur := itemAt(m.items(), m.cursor)
 		var detailTitle, detailBody string
-		if cur.approvals {
+		switch {
+		case cur.approvals:
 			detailTitle = "Approvals"
 			detailBody = renderApprovalsQueue(m.approvals, m.apprCursor, m.apprFocused, detailOuter-2, bodyH-2)
-		} else {
+		case cur.pipeline != nil:
+			detailTitle = cur.pipeline.ID
+			detailBody = renderPipeline(cur.pipeline, detailOuter-2, bodyH-2)
+		default:
 			detailTitle = m.selectedID()
 			if detailTitle == "" {
 				detailTitle = "—"
