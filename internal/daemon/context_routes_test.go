@@ -49,7 +49,10 @@ func TestContextSetGetRoundTrip(t *testing.T) {
 func TestContextGetMissing404(t *testing.T) {
 	ts := newCtxTestServer(t)
 	defer ts.Close()
-	resp, _ := http.Get(ts.URL + "/context/missing")
+	resp, err := http.Get(ts.URL + "/context/missing")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", resp.StatusCode)
@@ -60,10 +63,16 @@ func TestContextSetDefaultsWriterToHuman(t *testing.T) {
 	ts := newCtxTestServer(t)
 	defer ts.Close()
 	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/context/k", bytes.NewBufferString(`{"value":"v"}`))
-	resp, _ := http.DefaultClient.Do(req)
-	resp.Body.Close()
+	putResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	putResp.Body.Close()
 
-	resp, _ = http.Get(ts.URL + "/context/k")
+	resp, err := http.Get(ts.URL + "/context/k")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
 	defer resp.Body.Close()
 	var e ctxstore.Entry
 	json.NewDecoder(resp.Body).Decode(&e)
