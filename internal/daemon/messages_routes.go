@@ -107,6 +107,10 @@ func (s *Server) handleInbox(w http.ResponseWriter, r *http.Request) {
 			ids = append(ids, m.ID)
 		}
 	}
+	// Read-then-mark is intentionally two lock acquisitions, not one: a racing
+	// `msg wait` could consume a message in between, but that only ever
+	// duplicates a display (the message is never lost), so a single combined
+	// lock isn't worth the API. Don't "fix" this into one call.
 	if len(ids) > 0 {
 		if err := s.mbox.MarkRead(id, ids); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())

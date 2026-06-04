@@ -131,6 +131,6 @@ func newMsgWaitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("from", "", "only wait for a message from this sender")
-	cmd.Flags().Int("timeout", 300, "seconds to wait before giving up")
+	cmd.Flags().Int("timeout", 300, "seconds to wait before giving up (daemon caps at 600)")
 	return cmd
 }
