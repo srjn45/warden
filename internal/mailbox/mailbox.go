@@ -1,0 +1,123 @@
+// Package mailbox is a daemon-owned per-recipient message store — the durable
+// inbox behind agent-to-agent directed messages. Each recipient's messages live
+// in one JSON file (<dir>/<id>.json), rewritten atomically (temp file + rename)
+// under a mutex. Localhost session-store scale, like internal/ctxstore.
+package mailbox
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/srajanpathak/agentctl/internal/store"
+)
+
+// ErrBadRecipient is returned when a recipient id is unsafe as a filename.
+var ErrBadRecipient = errors.New("invalid recipient")
+
+// Message is one directed message in a recipient's inbox.
+type Message struct {
+	ID   string    `json:"id"`   // per-inbox sequence, 1-based
+	From string    `json:"from"` // sender id, or "human"/"daemon"
+	To   string    `json:"to"`
+	Body string    `json:"body"`
+	TS   time.Time `json:"ts"`
+	Read bool      `json:"read"`
+}
+
+// Store persists each recipient's messages in its own JSON file.
+type Store struct {
+	mu  sync.Mutex
+	dir string
+}
+
+// New creates dir (if needed) and returns a ready store.
+func New(dir string) (*Store, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	return &Store{dir: dir}, nil
+}
+
+// path maps a recipient id to its inbox file, rejecting unsafe ids.
+func (s *Store) path(to string) (string, error) {
+	if err := store.SafeID(to); err != nil {
+		return "", ErrBadRecipient
+	}
+	return filepath.Join(s.dir, to+".json"), nil
+}
+
+// load reads a recipient's messages; a missing file is an empty slice.
+func (s *Store) load(path string) ([]Message, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return []Message{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ms []Message
+	if err := json.Unmarshal(data, &ms); err != nil {
+		return nil, err
+	}
+	return ms, nil
+}
+
+// save writes messages via temp file + rename so readers never see a partial file.
+func (s *Store) save(path string, ms []Message) error {
+	data, err := json.MarshalIndent(ms, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// Append stores m in m.To's inbox, assigning a per-inbox sequential ID and TS.
+func (s *Store) Append(m Message) (Message, error) {
+	path, err := s.path(m.To)
+	if err != nil {
+		return Message{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ms, err := s.load(path)
+	if err != nil {
+		return Message{}, err
+	}
+	m.ID = strconv.Itoa(len(ms) + 1)
+	m.TS = time.Now().UTC()
+	m.Read = false
+	ms = append(ms, m)
+	if err := s.save(path, ms); err != nil {
+		return Message{}, err
+	}
+	return m, nil
+}
+
+// Messages returns to's inbox in arrival order (read-only). Always non-nil.
+func (s *Store) Messages(to string) ([]Message, error) {
+	path, err := s.path(to)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.load(path)
+}
