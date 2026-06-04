@@ -434,3 +434,23 @@ func (c *Client) PipelineEmit(ctx context.Context, pid, job, text string) error 
 	// longTimeout: emit reconciles and may spawn dependent worktree jobs.
 	return c.doT(ctx, longTimeout, http.MethodPost, path, map[string]string{"text": text}, nil)
 }
+
+// PipelineEditJob updates a pending job's prompt and/or handoff (nil = unchanged).
+func (c *Client) PipelineEditJob(ctx context.Context, pid, job string, prompt, handoff *string) error {
+	body := map[string]*string{}
+	if prompt != nil {
+		body["prompt"] = prompt
+	}
+	if handoff != nil {
+		body["handoff"] = handoff
+	}
+	path := "/pipelines/" + url.PathEscape(pid) + "/jobs/" + url.PathEscape(job) + "/edit"
+	return c.do(ctx, http.MethodPost, path, body, nil)
+}
+
+// PipelineRetry re-runs a failed/needs-attention job.
+func (c *Client) PipelineRetry(ctx context.Context, pid, job string) error {
+	path := "/pipelines/" + url.PathEscape(pid) + "/jobs/" + url.PathEscape(job) + "/retry"
+	// longTimeout: retry reconciles and may spawn a worktree job.
+	return c.doT(ctx, longTimeout, http.MethodPost, path, nil, nil)
+}

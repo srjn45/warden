@@ -320,6 +320,37 @@ func TestMsgWaitFoundAndTimeout(t *testing.T) {
 	}
 }
 
+func TestPipelineEditJobAndRetry(t *testing.T) {
+	var editBody, retryPath string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/edit"):
+			b, _ := io.ReadAll(r.Body)
+			editBody = string(b)
+			w.Write([]byte(`{"status":"edited"}`))
+		case strings.HasSuffix(r.URL.Path, "/retry"):
+			retryPath = r.URL.Path
+			w.Write([]byte(`{"status":"retrying"}`))
+		}
+	}))
+	defer ts.Close()
+	c := New(ts.URL)
+
+	p := "new prompt"
+	if err := c.PipelineEditJob(context.Background(), "demo", "a", &p, nil); err != nil {
+		t.Fatalf("PipelineEditJob: %v", err)
+	}
+	if !strings.Contains(editBody, `"prompt":"new prompt"`) || strings.Contains(editBody, "handoff") {
+		t.Fatalf("edit body wrong: %s", editBody)
+	}
+	if err := c.PipelineRetry(context.Background(), "demo", "a"); err != nil {
+		t.Fatalf("PipelineRetry: %v", err)
+	}
+	if retryPath != "/pipelines/demo/jobs/a/retry" {
+		t.Fatalf("retry path %s", retryPath)
+	}
+}
+
 func TestPipelineCreateAndEmit(t *testing.T) {
 	var createBody, emitPath string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

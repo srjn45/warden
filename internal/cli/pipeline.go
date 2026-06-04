@@ -14,7 +14,8 @@ func newPipelineCmd() *cobra.Command {
 		Short: "Define and run DAG pipelines of agent jobs",
 	}
 	cmd.AddCommand(newPipelineCreateCmd(), newPipelineListCmd(), newPipelineShowCmd(),
-		newPipelineStartCmd(), newPipelineCancelCmd(), newPipelineEmitCmd())
+		newPipelineStartCmd(), newPipelineCancelCmd(), newPipelineEmitCmd(),
+		newPipelineEditJobCmd(), newPipelineRetryCmd())
 	return cmd
 }
 
@@ -143,4 +144,49 @@ func newPipelineEmitCmd() *cobra.Command {
 	cmd.Flags().String("pipeline", "", "pipeline id (defaults to $AGENTCTL_PIPELINE_ID)")
 	cmd.Flags().String("job", "", "job id (defaults to $AGENTCTL_JOB_ID)")
 	return cmd
+}
+
+func newPipelineEditJobCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "edit-job <pipeline> <job>",
+		Short: "Edit a pending job's prompt and/or handoff",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var prompt, handoff *string
+			if cmd.Flags().Changed("prompt") {
+				v, _ := cmd.Flags().GetString("prompt")
+				prompt = &v
+			}
+			if cmd.Flags().Changed("handoff") {
+				v, _ := cmd.Flags().GetString("handoff")
+				handoff = &v
+			}
+			if prompt == nil && handoff == nil {
+				return fmt.Errorf("provide --prompt and/or --handoff")
+			}
+			if err := clientFor(cmd).PipelineEditJob(cmd.Context(), args[0], args[1], prompt, handoff); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "edited %s/%s\n", args[0], args[1])
+			return nil
+		},
+	}
+	cmd.Flags().String("prompt", "", "new prompt for the job")
+	cmd.Flags().String("handoff", "", "new handoff hint for the job")
+	return cmd
+}
+
+func newPipelineRetryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "retry <pipeline> <job>",
+		Short: "Re-run a failed or needs-attention job (reopens skipped descendants)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := clientFor(cmd).PipelineRetry(cmd.Context(), args[0], args[1]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "retrying %s/%s\n", args[0], args[1])
+			return nil
+		},
+	}
 }
