@@ -9,6 +9,7 @@ import OverviewTab from './OverviewTab';
 import CockpitTab from './CockpitTab';
 import AgentTab from './AgentTab';
 import NewAgentModal from './NewAgentModal';
+import PipelinesTab from './PipelinesTab';
 
 const TABS_KEY = 'agentctl.tabs';
 
@@ -91,8 +92,9 @@ export default function Dashboard() {
       <main className="tab-content">
         {tabs.active === 'overview' && <OverviewTab sessions={sessions} onSelect={select} />}
         {tabs.active === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} />}
+        {tabs.active === 'pipelines' && <PipelinesTab onSelect={select} />}
         {activeSession && <AgentTab session={activeSession} onClosed={() => dispatch({ kind: 'close', id: activeSession.id })} />}
-        {tabs.active !== 'overview' && tabs.active !== 'cockpit' && !activeSession && (
+        {tabs.active !== 'overview' && tabs.active !== 'cockpit' && tabs.active !== 'pipelines' && !activeSession && (
           <div className="detail empty">That agent has ended.</div>
         )}
       </main>

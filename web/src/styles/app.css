@@ -101,3 +101,32 @@ body { margin: 0; }
 .dirpicker-list li button:hover, .dirpicker-list li button.on { background: #2f81f733; }
 .dirpicker-empty { padding: .3rem .5rem; }
 .dirpicker-use { align-self: flex-start; }
+
+/* Pipelines tab */
+.pipelines { display: flex; gap: 12px; height: 100%; min-height: 0; }
+.pipe-list { width: 220px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.pipe-item { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; background: #1b1b1f; border: 1px solid #2a2a30; border-radius: 6px; color: inherit; cursor: pointer; text-align: left; }
+.pipe-item.on { border-color: #4a7; }
+.pipe-status { font-size: 11px; opacity: 0.8; }
+.pipe-status.st-running { color: #6cf; }
+.pipe-status.st-done { color: #4a7; }
+.pipe-status.st-stalled { color: #e84; }
+.pipe-status.st-canceled, .pipe-status.st-pending { color: #999; }
+.pipe-detail { flex: 1; min-width: 0; overflow-y: auto; }
+.pipe-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.job-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.job-card { width: 150px; text-align: left; padding: 8px; border-radius: 6px; border: 1px solid #2a2a30; background: #1b1b1f; color: inherit; cursor: pointer; }
+.job-card.on { outline: 2px solid #6cf; }
+.job-id { font-weight: 600; }
+.job-st { font-size: 11px; opacity: 0.85; }
+.job-deps { font-size: 11px; opacity: 0.6; margin-top: 4px; }
+.job-running { border-left: 3px solid #6cf; }
+.job-done { border-left: 3px solid #4a7; }
+.job-failed { border-left: 3px solid #e55; }
+.job-needs_attention { border-left: 3px solid #e84; }
+.job-skipped { border-left: 3px solid #555; opacity: 0.6; }
+.job-pending { border-left: 3px solid #888; }
+.job-drawer { width: 320px; flex: none; overflow-y: auto; border-left: 1px solid #2a2a30; padding-left: 12px; display: flex; flex-direction: column; gap: 6px; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; }
+.job-text { white-space: pre-wrap; word-break: break-word; background: #141417; padding: 8px; border-radius: 6px; max-height: 240px; overflow-y: auto; }
+.drawer-actions { display: flex; gap: 8px; margin-top: 8px; }

@@ -16,6 +16,7 @@ export default function TabBar({ state, sessions, onActivate, onClose }: {
     <nav className="tabbar">
       <button className={cls('overview')} onClick={() => onActivate('overview')}>Overview</button>
       <button className={cls('cockpit')} onClick={() => onActivate('cockpit')}>⊞ Cockpit</button>
+      <button className={cls('pipelines')} onClick={() => onActivate('pipelines')}>⛓ Pipelines</button>
       {state.pinned.map((id) => {
         const s = byId.get(id);
         if (!s) return null;
