@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"syscall"
 	"time"
 
@@ -271,8 +272,23 @@ type ContextEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ctxKeyValid rejects keys that can't survive a URL path segment round-trip.
+// Keys are dot-namespaced; a "/" or "\" gets percent-escaped on the way out and
+// is NOT decoded back by the router, so it would be stored under a corrupted key
+// (e.g. "a/b" -> "a%2Fb") and break prefix operations. Reject before escaping —
+// this is the common chokepoint for the CLI and MCP paths.
+func ctxKeyValid(key string) error {
+	if key == "" || strings.ContainsAny(key, `/\`) {
+		return fmt.Errorf("invalid context key %q: must be non-empty and contain no '/' or '\\'", key)
+	}
+	return nil
+}
+
 // CtxSet writes value at key, attributing the write to `by`.
 func (c *Client) CtxSet(ctx context.Context, key, value, by string) (ContextEntry, error) {
+	if err := ctxKeyValid(key); err != nil {
+		return ContextEntry{}, err
+	}
 	var e ContextEntry
 	body := map[string]string{"value": value, "by": by}
 	err := c.do(ctx, http.MethodPut, "/context/"+url.PathEscape(key), body, &e)
@@ -281,6 +297,9 @@ func (c *Client) CtxSet(ctx context.Context, key, value, by string) (ContextEntr
 
 // CtxGet reads the entry at key (StatusError 404 if absent).
 func (c *Client) CtxGet(ctx context.Context, key string) (ContextEntry, error) {
+	if err := ctxKeyValid(key); err != nil {
+		return ContextEntry{}, err
+	}
 	var e ContextEntry
 	err := c.do(ctx, http.MethodGet, "/context/"+url.PathEscape(key), nil, &e)
 	return e, err
@@ -303,5 +322,8 @@ func (c *Client) CtxList(ctx context.Context, prefix string) ([]ContextEntry, er
 
 // CtxDel deletes key.
 func (c *Client) CtxDel(ctx context.Context, key string) error {
+	if err := ctxKeyValid(key); err != nil {
+		return err
+	}
 	return c.do(ctx, http.MethodDelete, "/context/"+url.PathEscape(key), nil, nil)
 }

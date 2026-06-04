@@ -233,3 +233,21 @@ func TestCtxList(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestCtxSetRejectsSlashKeyBeforeCall(t *testing.T) {
+	called := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer ts.Close()
+
+	if _, err := New(ts.URL).CtxSet(context.Background(), "bad/key", "v", "by"); err == nil {
+		t.Fatalf("expected error for slash key")
+	}
+	if err := New(ts.URL).CtxDel(context.Background(), "a\\b"); err == nil {
+		t.Fatalf("expected error for backslash key")
+	}
+	if called {
+		t.Fatalf("client must reject invalid keys before calling the daemon")
+	}
+}
