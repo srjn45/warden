@@ -378,3 +378,59 @@ func TestJobGlyphDistinct(t *testing.T) {
 		seen[g] = true
 	}
 }
+
+func pipeModel() Model {
+	m := New(&fakeAPI{})
+	m.ready = true
+	m.pipelines = []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{
+		{ID: "a", Status: pipeline.JobFailed, SessionID: "demo-a"},
+		{ID: "b", Status: pipeline.JobRunning, SessionID: "demo-b"},
+	}}}
+	return m
+}
+
+func TestKeyCancelPipeline(t *testing.T) {
+	m := pipeModel()
+	m.cursor = 0 // the pipeline header row
+	updated, cmd := m.handleKey(key("x"))
+	if cmd == nil {
+		t.Fatalf("x on a pipeline row should return a cancel cmd")
+	}
+	cmd() // runs the command (calls the fake api)
+	fa := updated.(Model).api.(*fakeAPI)
+	if fa.canceled != "demo" {
+		t.Fatalf("want canceled=demo, got %q", fa.canceled)
+	}
+}
+
+func TestKeyRetryFailedJob(t *testing.T) {
+	m := pipeModel()
+	m.cursor = 1 // job "a" (failed)
+	_, cmd := m.handleKey(key("r"))
+	if cmd == nil {
+		t.Fatalf("r on a failed job should return a retry cmd")
+	}
+	cmd()
+	fa := m.api.(*fakeAPI)
+	if fa.retried != "demo/a" {
+		t.Fatalf("want retried=demo/a, got %q", fa.retried)
+	}
+}
+
+func TestKeyRetryIgnoredOnRunningJob(t *testing.T) {
+	m := pipeModel()
+	m.cursor = 2 // job "b" (running) — not retryable
+	_, cmd := m.handleKey(key("r"))
+	if cmd != nil {
+		t.Fatalf("r on a running job should be a no-op")
+	}
+}
+
+func TestKeyAttachRunningJob(t *testing.T) {
+	m := pipeModel()
+	m.cursor = 2 // job "b" (running, has a session)
+	_, cmd := m.handleKey(key("a"))
+	if cmd == nil {
+		t.Fatalf("a on a running job should return an attach cmd")
+	}
+}

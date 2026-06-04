@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 )
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -56,18 +58,31 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "x":
 			it := itemAt(m.items(), m.cursor)
-			if it.session == nil {
-				if it.dir != "" {
-					delete(m.openedDirs, it.dir)
-					m.status = "closed " + abbrevHome(it.dir)
-				}
-			} else {
+			switch {
+			case it.pipeline != nil:
+				m.status = "canceling " + it.pipeline.ID
+				return m, cancelPipelineCmd(m.api, it.pipeline.ID)
+			case it.session != nil:
 				m.mode = modeConfirmKill
+			case it.dir != "":
+				delete(m.openedDirs, it.dir)
+				m.status = "closed " + abbrevHome(it.dir)
 			}
 			return m, nil
 		case "a":
-			if m.selected() != nil {
-				return m, attachCmd(m.selectedID())
+			it := itemAt(m.items(), m.cursor)
+			if it.session != nil {
+				return m, attachCmd(it.session.ID)
+			}
+			if it.pjJob != nil && it.pjJob.SessionID != "" {
+				return m, attachCmd(it.pjJob.SessionID)
+			}
+			return m, nil
+		case "r":
+			it := itemAt(m.items(), m.cursor)
+			if it.pjJob != nil && (it.pjJob.Status == pipeline.JobFailed || it.pjJob.Status == pipeline.JobNeedsAttention) {
+				m.status = "retrying " + it.pjPipe + "/" + it.pjJob.ID
+				return m, retryJobCmd(m.api, it.pjPipe, it.pjJob.ID)
 			}
 			return m, nil
 		case "?":

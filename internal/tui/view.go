@@ -117,8 +117,9 @@ func helpText() string {
 		"  n            new agent (prompt)\n" +
 		"  o            open a directory as a group (spawn target for n)\n" +
 		"  s            send a message to the selected agent\n" +
-		"  a            attach to its tmux session\n" +
-		"  x            kill agent & remove it from the list\n" +
+		"  a            attach to its tmux session (or a running pipeline job's session)\n" +
+		"  r            retry a failed/needs-attention pipeline job\n" +
+		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
 		"  ?            toggle this help\n" +
 		"  q            quit\n"
 }
@@ -127,5 +128,5 @@ func (m Model) footer() string {
 	if m.status != "" {
 		return stStatus.Render(m.status)
 	}
-	return stMuted.Render("n new · o open dir · s send · a attach · x kill · tab focus · ? help · q quit")
+	return stMuted.Render("n new · o open dir · s send · a attach · r retry · x kill/cancel · tab focus · ? help · q quit")
 }
