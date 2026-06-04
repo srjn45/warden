@@ -13,6 +13,7 @@ import (
 
 	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -27,6 +28,9 @@ type api interface {
 	ListDirs(ctx context.Context, path string) (client.DirListing, error)
 	Approvals(ctx context.Context) (bool, []approval.View, error)
 	Approve(ctx context.Context, id string, option int, fingerprint string) error
+	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
+	PipelineRetry(ctx context.Context, pid, job string) error
+	PipelineCancel(ctx context.Context, pid string) error
 }
 
 type mode int
@@ -65,6 +69,7 @@ type Model struct {
 	apprCursor    int
 	apprFocused   bool
 	approvalsOn   bool
+	pipelines     []*pipeline.Pipeline
 }
 
 // New builds an initial model bound to the given api client.
@@ -116,7 +121,7 @@ func (m Model) activeDir() string {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api), tick())
+	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), tick())
 }
 
 // Update is the pure reducer.
@@ -129,7 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(listCmd(m.api), outputCmd(m.api, m.selectedID()), approvalsCmd(m.api), tick())
+		return m, tea.Batch(listCmd(m.api), outputCmd(m.api, m.selectedID()), approvalsCmd(m.api), pipelinesCmd(m.api), tick())
 
 	case sessionsMsg:
 		if msg.err != nil {
@@ -162,6 +167,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = ""
 		}
 		return m, approvalsCmd(m.api)
+
+	case pipelinesMsg:
+		if msg.err == nil {
+			prevKey := m.selectedKey()
+			m.pipelines = msg.pipelines
+			m.repin(prevKey)
+		}
+		return m, nil
+
+	case pipelineActionMsg:
+		if msg.err != nil {
+			m.status = "pipeline action failed: " + msg.err.Error()
+		} else {
+			m.status = ""
+		}
+		return m, pipelinesCmd(m.api)
 
 	case dirListMsg:
 		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {

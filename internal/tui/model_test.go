@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -34,6 +35,9 @@ type fakeAPI struct {
 	approvedID  string
 	approvedOpt int
 	approvedFP  string
+	pipelines   []*pipeline.Pipeline
+	retried     string // "<pid>/<job>" of the last PipelineRetry
+	canceled    string // pid of the last PipelineCancel
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -65,6 +69,15 @@ func (f *fakeAPI) Approvals(_ context.Context) (bool, []approval.View, error) {
 func (f *fakeAPI) Approve(_ context.Context, id string, option int, fp string) error {
 	f.approvedID, f.approvedOpt, f.approvedFP = id, option, fp
 	return f.approveErr
+}
+func (f *fakeAPI) PipelineList(context.Context) ([]*pipeline.Pipeline, error) { return f.pipelines, nil }
+func (f *fakeAPI) PipelineRetry(_ context.Context, pid, job string) error {
+	f.retried = pid + "/" + job
+	return nil
+}
+func (f *fakeAPI) PipelineCancel(_ context.Context, pid string) error {
+	f.canceled = pid
+	return nil
 }
 
 // step applies a msg and returns the updated concrete Model.
@@ -406,5 +419,23 @@ func TestApprovalsToggleOffHidesRow(t *testing.T) {
 	m = step(m, approvalsMsg{enabled: false})
 	for _, it := range m.items() {
 		require.False(t, it.approvals)
+	}
+}
+
+func TestPipelinesMsgStoresPipelines(t *testing.T) {
+	m := New(&fakeAPI{})
+	updated, _ := m.Update(pipelinesMsg{pipelines: []*pipeline.Pipeline{
+		{ID: "demo", Name: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}},
+	}})
+	if got := updated.(Model).pipelines; len(got) != 1 || got[0].ID != "demo" {
+		t.Fatalf("pipelines not stored: %+v", got)
+	}
+}
+
+func TestPipelineActionMsgRefetches(t *testing.T) {
+	m := New(&fakeAPI{})
+	_, cmd := m.Update(pipelineActionMsg{err: nil})
+	if cmd == nil {
+		t.Fatalf("a pipeline action should trigger a refetch cmd")
 	}
 }

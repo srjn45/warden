@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -173,5 +174,30 @@ func approveCmd(a api, id string, option int, fingerprint string) tea.Cmd {
 		ctx, cancel := bg()
 		defer cancel()
 		return approveResultMsg{id: id, err: a.Approve(ctx, id, option, fingerprint)}
+	}
+}
+
+type pipelinesMsg struct {
+	pipelines []*pipeline.Pipeline
+	err       error
+}
+type pipelineActionMsg struct{ err error }
+
+func pipelinesCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ps, err := a.PipelineList(context.Background())
+		return pipelinesMsg{pipelines: ps, err: err}
+	}
+}
+
+func cancelPipelineCmd(a api, pid string) tea.Cmd {
+	return func() tea.Msg {
+		return pipelineActionMsg{err: a.PipelineCancel(context.Background(), pid)}
+	}
+}
+
+func retryJobCmd(a api, pid, job string) tea.Cmd {
+	return func() tea.Msg {
+		return pipelineActionMsg{err: a.PipelineRetry(context.Background(), pid, job)}
 	}
 }
