@@ -264,6 +264,15 @@ func TestFileClearWorktree(t *testing.T) {
 	require.ErrorIs(t, st.ClearWorktree(ctx, "nope"), ErrNotFound)
 }
 
+func TestSupervisedRoundTrips(t *testing.T) {
+	fs, err := NewFileStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, fs.Insert(context.Background(), &Session{ID: "a1", Supervised: true}))
+	got, err := fs.Get(context.Background(), "a1")
+	require.NoError(t, err)
+	require.True(t, got.Supervised)
+}
+
 func TestSafeID(t *testing.T) {
 	require.NoError(t, SafeID("agent-1234"))
 	require.NoError(t, SafeID("work"))

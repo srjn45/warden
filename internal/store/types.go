@@ -93,4 +93,5 @@ type Session struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 	Events          []Event   `json:"events"`
 	LastPaneExcerpt string    `json:"last_pane_excerpt"`
+	Supervised      bool      `json:"supervised"` // launched with --permission-mode acceptEdits (prompts) instead of bypass
 }
