@@ -29,7 +29,8 @@ func newStartCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0], Cwd: dir})
+				supervised, _ := cmd.Flags().GetBool("supervised")
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0], Cwd: dir, Supervised: supervised})
 				if err != nil {
 					return err
 				}
@@ -49,6 +50,7 @@ func newStartCmd() *cobra.Command {
 			branch, _ := cmd.Flags().GetString("branch")
 			pr, _ := cmd.Flags().GetString("pr")
 			worktree, _ := cmd.Flags().GetBool("worktree")
+			supervised, _ := cmd.Flags().GetBool("supervised")
 			if typ == "pr-review" && pr == "" && branch == "" {
 				return fmt.Errorf("pr-review needs --pr or --branch")
 			}
@@ -57,7 +59,7 @@ func newStartCmd() *cobra.Command {
 				ticket = args[0]
 			}
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree,
+				Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, Supervised: supervised,
 			})
 			if err != nil {
 				return err
@@ -72,6 +74,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
 	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
+	cmd.Flags().Bool("supervised", false, "launch in acceptEdits mode (prompts for risky tools → answerable in the approvals inbox)")
 	return cmd
 }
 

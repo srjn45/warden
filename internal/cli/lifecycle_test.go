@@ -32,3 +32,10 @@ func TestCurrentTmuxSessionNotInTmux(t *testing.T) {
 	t.Setenv("TMUX", "") // not inside tmux
 	require.Equal(t, "", currentTmuxSession())
 }
+
+func TestStartSupervisedFlagRegistered(t *testing.T) {
+	cmd := newStartCmd()
+	f := cmd.Flags().Lookup("supervised")
+	require.NotNil(t, f, "--supervised flag must be registered on start")
+	require.Equal(t, "false", f.DefValue, "--supervised must default to false")
+}
