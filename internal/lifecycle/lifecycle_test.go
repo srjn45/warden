@@ -15,6 +15,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestClaudeLaunchPermissionMode(t *testing.T) {
+	def := claudeLaunch("sid", "agent-1", false)
+	require.Contains(t, def, "--dangerously-skip-permissions")
+	require.NotContains(t, def, "--permission-mode")
+	sup := claudeLaunch("sid", "agent-1", true)
+	require.Contains(t, sup, "--permission-mode acceptEdits")
+	require.NotContains(t, sup, "--dangerously-skip-permissions")
+}
+
+func TestClaudeResumePermissionMode(t *testing.T) {
+	require.Contains(t, claudeResume("sid", "agent-1", false), "--dangerously-skip-permissions")
+	require.Contains(t, claudeResume("sid", "agent-1", true), "--permission-mode acceptEdits")
+}
+
 func TestParseSummaryCapsByRune(t *testing.T) {
 	got := parseSummary(strings.Repeat("é", 100)) // 2 bytes/rune
 	require.Equal(t, 80, utf8.RuneCountInString(got), "capped to 80 runes")
@@ -80,7 +94,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 	// Launch claude UNATTENDED, with a pinned session id and display name.
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350"), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", false), "Enter"})
 }
 
 func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
@@ -165,7 +179,7 @@ func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/repo"})
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, false), "Enter"})
 }
 
 func TestSpawnPRReviewChecksOutPR(t *testing.T) {
@@ -415,7 +429,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", "/state/prompts"})
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -463,7 +477,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 
 	// The launch line is a single physical line; the multi-line prompt is read
 	// back via $(cat …) so no embedded newline is ever typed into the pane.
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	require.NotContains(t, launch, "\n", "the typed launch command must never contain a raw newline")
 }
@@ -573,7 +587,7 @@ func TestRestoreRecreatesAndResumes(t *testing.T) {
 
 	require.NoError(t, lc.Restore(context.Background(), sess))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-r1", "-c", workdir})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-r1", claudeResume(sid, "agent-r1"), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-r1", claudeResume(sid, "agent-r1", false), "Enter"})
 }
 
 func TestRestorePreconditionErrors(t *testing.T) {
@@ -697,7 +711,7 @@ func TestAdoptResumeMode(t *testing.T) {
 	require.Equal(t, store.StatusSpawning, sess.Status)
 	require.Equal(t, workdir, sess.Workdir)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-a1", "-c", workdir})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-a1", claudeResume(sid, "agent-a1"), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-a1", claudeResume(sid, "agent-a1", false), "Enter"})
 }
 
 func TestAdoptResumeGeneratesID(t *testing.T) {
@@ -795,7 +809,7 @@ func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 
 func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 	fr := &FakeRunner{}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id")
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id", false)
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", "ag1", "mouse", "on"})
 	require.Greater(t,
@@ -850,7 +864,7 @@ func TestResumeSucceedsWhenMouseSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -t ag1 mouse on": {Err: errors.New("boom")},
 	}}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid")
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", false)
 	require.NoError(t, err, "mouse-on failure must not fail the resume")
 }
 
@@ -858,6 +872,63 @@ func TestResumeFailsWhenNewSessionFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux new-session -d -s ag1 -c /cwd": {Err: errors.New("boom")},
 	}}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid")
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", false)
 	require.Error(t, err, "new-session failure stays fatal")
+}
+
+// TestSpawnSupervisedPromptModeUsesAcceptEdits verifies that a prompt-mode spawn
+// with Supervised=true (a) records sess.Supervised=true and (b) sends
+// --permission-mode acceptEdits (not --dangerously-skip-permissions) to tmux.
+func TestSpawnSupervisedPromptModeUsesAcceptEdits(t *testing.T) {
+	fr := &FakeRunner{}
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	s, err := l.Spawn(context.Background(), SpawnRequest{
+		Prompt:     "investigate the auth bug",
+		Cwd:        "/work/project",
+		Supervised: true,
+	})
+	require.NoError(t, err)
+	require.True(t, s.Supervised, "sess.Supervised must be true")
+
+	// The send-keys call must use --permission-mode acceptEdits, not bypass.
+	found := false
+	for _, argv := range fr.calledArgs() {
+		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "send-keys" {
+			joined := strings.Join(argv, " ")
+			require.Contains(t, joined, "--permission-mode acceptEdits",
+				"supervised spawn must use --permission-mode acceptEdits")
+			require.NotContains(t, joined, "--dangerously-skip-permissions",
+				"supervised spawn must not use bypass flag")
+			found = true
+		}
+	}
+	require.True(t, found, "expected a tmux send-keys call")
+}
+
+// TestSpawnSupervisedTypedModeUsesAcceptEdits mirrors TestSpawnNonSupervisedTypedMode
+// but for the typed (worktree-based) path.
+func TestSpawnSupervisedTypedModeUsesAcceptEdits(t *testing.T) {
+	fr := &FakeRunner{}
+	l := New(fr)
+	s, err := l.Spawn(context.Background(), SpawnRequest{
+		Type:       store.TypeBuildkiteDebug,
+		Repo:       "/repo",
+		Supervised: true,
+	})
+	require.NoError(t, err)
+	require.True(t, s.Supervised, "sess.Supervised must be true")
+
+	found := false
+	for _, argv := range fr.calledArgs() {
+		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "send-keys" {
+			joined := strings.Join(argv, " ")
+			require.Contains(t, joined, "--permission-mode acceptEdits",
+				"supervised typed-mode spawn must use --permission-mode acceptEdits")
+			require.NotContains(t, joined, "--dangerously-skip-permissions",
+				"supervised typed-mode spawn must not use bypass flag")
+			found = true
+		}
+	}
+	require.True(t, found, "expected a tmux send-keys call")
 }

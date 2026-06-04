@@ -31,25 +31,35 @@ func (l *Lifecycle) runClaudeP(ctx context.Context, arg string) (string, error) 
 	return l.run.Run(cctx, "", "claude", "-p", arg)
 }
 
-// claudeCmd is launched in every spawned session. Agents run unattended
-// (design §4): permission prompts are skipped; the Notification hook still
-// records when one *would* have prompted.
-const claudeCmd = "claude --dangerously-skip-permissions"
+// permissionFlag selects the claude permission mode for a spawned agent.
+// Supervised agents run --permission-mode acceptEdits: file edits + common FS
+// commands auto-approve, but other tools (bash writes, network) PROMPT with the
+// numbered menu the approvals inbox answers. The default is fully autonomous
+// (--dangerously-skip-permissions / bypass) — no prompts.
+func permissionFlag(supervised bool) string {
+	if supervised {
+		return "--permission-mode acceptEdits"
+	}
+	return "--dangerously-skip-permissions"
+}
+
+// claudeBase is the claude command + permission flag every agent session starts from.
+func claudeBase(supervised bool) string { return "claude " + permissionFlag(supervised) }
 
 // claudeLaunch builds the claude invocation for a spawned agent: the base
 // command plus a pinned --session-id (deterministic transcript + future
 // --resume) and a --name display label equal to the agent id, so the agent id,
 // tmux session, and claude session all read the same. sessionID is a generated
 // UUID (safe charset); name is the agent id (may be a ticket key) so it is quoted.
-func claudeLaunch(sessionID, name string) string {
-	return claudeCmd + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
+func claudeLaunch(sessionID, name string, supervised bool) string {
+	return claudeBase(supervised) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // claudeResume builds the invocation that resumes an existing agent conversation
 // by its pinned session id (continues the same transcript). --name re-applies the
 // display label so the resumed session still reads as the agent id.
-func claudeResume(sessionID, name string) string {
-	return claudeCmd + " --resume " + sessionID + " --name " + shellQuoteArg(name)
+func claudeResume(sessionID, name string, supervised bool) string {
+	return claudeBase(supervised) + " --resume " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // classifyInstruction is prepended to the task prompt for headless classification.
@@ -147,14 +157,15 @@ func New(r Runner) *Lifecycle { return &Lifecycle{run: r} }
 
 // SpawnRequest is the type-aware input to Spawn (design §2 / §6).
 type SpawnRequest struct {
-	Type     store.Type
-	Ticket   string // optional; becomes the id when present
-	Repo     string
-	Branch   string // optional; development branch / pr-review checkout target
-	PR       string // optional; pr-review
-	Worktree bool   // analysis/spike opt-in
-	Prompt   string // prompt-mode: the agent's initial prompt (no repo/worktree)
-	Cwd      string // prompt-mode: dir to launch claude from (the caller's "master shell"); required
+	Type       store.Type
+	Ticket     string // optional; becomes the id when present
+	Repo       string
+	Branch     string // optional; development branch / pr-review checkout target
+	PR         string // optional; pr-review
+	Worktree   bool   // analysis/spike opt-in
+	Prompt     string // prompt-mode: the agent's initial prompt (no repo/worktree)
+	Cwd        string // prompt-mode: dir to launch claude from (the caller's "master shell"); required
+	Supervised bool   // opt-in: launch with --permission-mode acceptEdits (prompts) instead of bypass
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -419,6 +430,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Prompt:      req.Prompt,
 		Subject:     firstWords(req.Prompt, 10),
 		Status:      store.StatusSpawning,
+		Supervised:  req.Supervised,
 	}
 	sess.ClaudeSessionID = store.NewSessionID()
 
@@ -452,7 +464,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		if err := l.newAgentSession(ctx, "", id, req.Cwd); err != nil {
 			return nil, err
 		}
-		launch := claudeLaunch(sess.ClaudeSessionID, id) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+		launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 			l.killSession(id) // the session exists but launch failed — don't orphan it
 			return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -482,7 +494,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		}
 		return nil, err
 	}
-	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, claudeLaunch(sess.ClaudeSessionID, id), "Enter"); err != nil {
+	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, claudeLaunch(sess.ClaudeSessionID, id, req.Supervised), "Enter"); err != nil {
 		l.killSession(id)
 		if worktreeCreated {
 			l.rollbackWorktree(sess)
@@ -544,11 +556,11 @@ func (l *Lifecycle) ensureScrollback(ctx context.Context) {
 
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
 // claude conversation claudeID inside it. Shared by Restore and Adopt.
-func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID string) error {
+func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID string, supervised bool) error {
 	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
 		return err
 	}
-	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, claudeResume(claudeID, id), "Enter"); err != nil {
+	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, claudeResume(claudeID, id, supervised), "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
 	}
 	return nil
@@ -573,7 +585,7 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	if l.transcriptPath(sess) == "" {
 		return ErrNoTranscript
 	}
-	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID)
+	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Supervised)
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
@@ -619,7 +631,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 			return nil, ErrWorkdirMissing
 		}
 		sess.Status = store.StatusSpawning
-		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID); err != nil {
+		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID, false); err != nil {
 			return nil, err
 		}
 		return sess, nil
