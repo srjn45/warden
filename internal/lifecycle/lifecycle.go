@@ -530,13 +530,16 @@ const agentHistoryLimit = 50000
 // newAgentSession creates the detached tmux session for an agent in cwd and
 // applies scroll-friendly options. Only new-session failing aborts the spawn;
 // option-setting failures are non-fatal so a tmux quirk never blocks a launch.
-func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string) error {
+func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string, env ...string) error {
 	l.ensureScrollback(ctx) // before new-session: the new pane inherits the limit
-	// -e sets AGENTCTL_SESSION_ID in the session environment so the agent's own
-	// shell tools (e.g. `agentctl msg`/`ctx`) know which agent they are without
-	// needing --as. Inherited by the claude process and its Bash subprocesses.
-	if out, err := l.run.Run(ctx, runDir, "tmux", "new-session", "-d", "-s", id,
-		"-e", "AGENTCTL_SESSION_ID="+id, "-c", cwd); err != nil {
+	// -e sets AGENTCTL_SESSION_ID (+ any extra pipeline env) in the session
+	// environment so the agent's shell tools know which agent they are.
+	args := []string{"new-session", "-d", "-s", id, "-e", "AGENTCTL_SESSION_ID=" + id}
+	for _, kv := range env {
+		args = append(args, "-e", kv)
+	}
+	args = append(args, "-c", cwd)
+	if out, err := l.run.Run(ctx, runDir, "tmux", args...); err != nil {
 		return fmt.Errorf("tmux new-session: %w: %s", err, out)
 	}
 	// mouse is a live session option: the wheel enters copy-mode, and the cockpit
@@ -801,5 +804,95 @@ func (l *Lifecycle) Output(ctx context.Context, tmuxSession string, lines int) (
 		return "", fmt.Errorf("tmux capture-pane: %w: %s", err, out)
 	}
 	return out, nil
+}
+
+// JobSpawnRequest spawns one pipeline job. The executor composes Prompt and
+// resolves Worktree/BaseBranch before calling.
+type JobSpawnRequest struct {
+	PipelineID string
+	JobID      string
+	Repo       string
+	Prompt     string     // already composed (upstream context + footer)
+	Worktree   bool       // create a git worktree? false = run in repo root
+	BaseBranch string     // worktree base ref ("" = off HEAD); ignored when Worktree is false
+	Type       store.Type
+	Supervised bool
+}
+
+// writePromptFile persists prompt to <PromptsDir>/<id> and returns the path, so
+// a multi-line prompt is launched via "$(cat file)" as a single typed line.
+func (l *Lifecycle) writePromptFile(ctx context.Context, id, prompt string) (string, error) {
+	if l.PromptsDir == "" {
+		return "", fmt.Errorf("prompts dir not configured")
+	}
+	if out, err := l.run.Run(ctx, "", "mkdir", "-p", l.PromptsDir); err != nil {
+		return "", fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
+	}
+	path := filepath.Join(l.PromptsDir, id)
+	if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, path); err != nil {
+		return "", fmt.Errorf("write prompt file: %w: %s", err, out)
+	}
+	return path, nil
+}
+
+// SpawnJob launches one pipeline-job agent: optionally creating a git worktree
+// (off HEAD or off BaseBranch), starting a tmux session with the pipeline
+// identity env, and auto-typing the composed prompt into claude.
+func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.Session, error) {
+	id := req.PipelineID + "-" + req.JobID
+	if err := store.SafeID(id); err != nil {
+		return nil, fmt.Errorf("invalid job session id %q: %w", id, err)
+	}
+	sess := &store.Session{
+		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
+		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
+		Status: store.StatusSpawning, Supervised: req.Supervised,
+		PipelineID: req.PipelineID, JobID: req.JobID,
+	}
+	sess.ClaudeSessionID = store.NewSessionID()
+
+	workdir := req.Repo
+	worktreeCreated := false
+	if req.Worktree {
+		rel := worktreeRel(id)
+		add := []string{"worktree", "add", rel, "-b", id}
+		if req.BaseBranch != "" {
+			add = append(add, req.BaseBranch)
+		}
+		if out, err := l.run.Run(ctx, req.Repo, "git", add...); err != nil {
+			return nil, fmt.Errorf("git worktree add: %w: %s", err, out)
+		}
+		sess.Worktree = rel
+		sess.Branch = id
+		worktreeCreated = true
+		workdir = filepath.Join(req.Repo, rel)
+	}
+	sess.Workdir = workdir
+
+	if err := l.newAgentSession(ctx, req.Repo, id, workdir,
+		"AGENTCTL_PIPELINE_ID="+req.PipelineID, "AGENTCTL_JOB_ID="+req.JobID); err != nil {
+		if worktreeCreated {
+			l.rollbackWorktree(sess)
+		}
+		return nil, err
+	}
+
+	promptFile, err := l.writePromptFile(ctx, id, req.Prompt)
+	if err != nil {
+		l.killSession(id)
+		if worktreeCreated {
+			l.rollbackWorktree(sess)
+		}
+		return nil, err
+	}
+	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
+		l.killSession(id)
+		if worktreeCreated {
+			l.rollbackWorktree(sess)
+		}
+		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+	}
+	return sess, nil
 }
 

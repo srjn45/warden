@@ -944,3 +944,66 @@ func TestSpawnSupervisedTypedModeUsesAcceptEdits(t *testing.T) {
 	}
 	require.True(t, found, "expected a tmux send-keys call")
 }
+
+func TestSpawnJobFreshWorktreeAndEnv(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr)
+	lc.PromptsDir = "/tmp/prompts"
+	s, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
+		PipelineID: "refactor", JobID: "impl", Repo: "/repo",
+		Prompt: "do the work", Worktree: true, Type: store.TypeDevelopment,
+	})
+	if err != nil {
+		t.Fatalf("SpawnJob: %v", err)
+	}
+	if s.ID != "refactor-impl" || s.PipelineID != "refactor" || s.JobID != "impl" {
+		t.Fatalf("session ids wrong: %+v", s)
+	}
+	if s.Worktree != ".worktrees/refactor-impl" || s.Branch != "refactor-impl" {
+		t.Fatalf("worktree/branch wrong: %+v", s)
+	}
+	// worktree created off HEAD (no base ref).
+	require.Contains(t, fr.calledArgs(), []string{"git", "worktree", "add", ".worktrees/refactor-impl", "-b", "refactor-impl"})
+	// tmux session carries all three identity env vars.
+	require.Contains(t, fr.calledArgs(), []string{
+		"tmux", "new-session", "-d", "-s", "refactor-impl",
+		"-e", "AGENTCTL_SESSION_ID=refactor-impl",
+		"-e", "AGENTCTL_PIPELINE_ID=refactor",
+		"-e", "AGENTCTL_JOB_ID=impl",
+		"-c", "/repo/.worktrees/refactor-impl",
+	})
+}
+
+func TestSpawnJobFromBaseBranch(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr)
+	lc.PromptsDir = "/tmp/prompts"
+	_, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
+		PipelineID: "p", JobID: "review", Repo: "/repo",
+		Prompt: "merge", Worktree: true, BaseBranch: "p-impl", Type: store.TypeDevelopment,
+	})
+	if err != nil {
+		t.Fatalf("SpawnJob: %v", err)
+	}
+	// worktree branched off the upstream branch.
+	require.Contains(t, fr.calledArgs(), []string{"git", "worktree", "add", ".worktrees/p-review", "-b", "p-review", "p-impl"})
+}
+
+func TestSpawnJobNoneRunsInRepoRoot(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr)
+	lc.PromptsDir = "/tmp/prompts"
+	s, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
+		PipelineID: "p", JobID: "analyze", Repo: "/repo",
+		Prompt: "look", Worktree: false, Type: store.TypeAnalysis,
+	})
+	if err != nil {
+		t.Fatalf("SpawnJob: %v", err)
+	}
+	if s.Worktree != "" || s.Workdir != "/repo" {
+		t.Fatalf("none-mode should run in repo root with no worktree: %+v", s)
+	}
+	for _, a := range fr.calledArgs() {
+		require.NotEqual(t, "worktree", argAt(a, 1), "none-mode must not create a worktree")
+	}
+}
