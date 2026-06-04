@@ -37,6 +37,7 @@ func parked(st store.Status) bool {
 func (s *Server) registerMessageRoutes(r chi.Router) {
 	r.Post("/sessions/{id}/messages", s.handleSendMessage)
 	r.Get("/sessions/{id}/messages", s.handleInbox)
+	r.Get("/sessions/{id}/messages/wait", s.handleWaitMessage)
 }
 
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
