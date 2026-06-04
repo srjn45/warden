@@ -582,3 +582,26 @@ Writes are attributed to `$AGENTCTL_SESSION_ID` when set (so a spawned agent's
 writes are tagged with its id), otherwise to `human`. Override with `--as`.
 Keys are free-form dot-namespaced strings (`global.*`, `pipeline.<id>.*`,
 `agent.<sid>.*`). Also available as MCP tools `ctx_set` / `ctx_get` / `ctx_list`.
+
+---
+
+## 16. Directed messages
+
+Agent-to-agent messages with a durable per-recipient inbox.
+
+```sh
+agentctl msg send <agent-id> "can you check the auth module?"   # deliver + wake if idle
+agentctl msg inbox                                              # read my messages (marks read)
+agentctl msg inbox --unread                                     # only unread
+agentctl msg wait --from <agent-id> --timeout 120               # block until a reply (one call)
+```
+
+Sending **wakes the recipient only if it's idle or waiting** — a working agent is
+never interrupted; its message waits in the inbox. `msg wait` blocks in the
+daemon (a long-poll), so an agent awaits a reply in a single call with no
+busy-loop. Identity defaults to `$AGENTCTL_SESSION_ID` (set per agent in a later
+phase); until then pass `--as <agent-id>`. Also available as MCP tools
+`send_message` / `read_inbox` (no MCP `wait` — use the CLI for blocking waits).
+
+Request/reply pattern: A runs `msg send B "..."` then `msg wait --from B`; B reads
+its inbox, does the work, and replies with `msg send A "..."`, unblocking A.
