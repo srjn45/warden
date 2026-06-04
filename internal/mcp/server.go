@@ -57,6 +57,26 @@ type deleteToolArgs struct {
 	Hard   bool   `json:"hard,omitempty" jsonschema:"permanently purge instead of archiving"`
 }
 
+type ctxSetArgs struct {
+	Key   string `json:"key" jsonschema:"the context key, e.g. global.findings or pipeline.<id>.<job>.output"`
+	Value string `json:"value" jsonschema:"the value to store"`
+}
+type ctxGetArgs struct {
+	Key string `json:"key" jsonschema:"the context key to read"`
+}
+type ctxListArgs struct {
+	Prefix string `json:"prefix,omitempty" jsonschema:"optional key prefix filter (empty = all keys)"`
+}
+
+// ctxWriter attributes shared-context writes to this agent when running inside
+// one (AGENTCTL_SESSION_ID), else a generic "agent".
+func ctxWriter() string {
+	if id := os.Getenv("AGENTCTL_SESSION_ID"); id != "" {
+		return id
+	}
+	return "agent"
+}
+
 func textResult(s string) *mcpsdk.CallToolResult {
 	return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: s}}}
 }
@@ -167,6 +187,39 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult(out), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "ctx_set",
+		Description: "Write a value to the shared context — a key/value store all agents share. Use to publish a result other agents will read (e.g. global.findings).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ctxSetArgs) (*mcpsdk.CallToolResult, any, error) {
+		if _, err := s.cl.CtxSet(ctx, a.Key, a.Value, ctxWriter()); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("set " + a.Key), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "ctx_get",
+		Description: "Read a value from the shared context by key.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ctxGetArgs) (*mcpsdk.CallToolResult, any, error) {
+		e, err := s.cl.CtxGet(ctx, a.Key)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult(e.Value), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "ctx_list",
+		Description: "List shared-context keys, optionally filtered by prefix.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ctxListArgs) (*mcpsdk.CallToolResult, any, error) {
+		entries, err := s.cl.CtxList(ctx, a.Prefix)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		res, err := jsonResult(entries)
+		return res, nil, err
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

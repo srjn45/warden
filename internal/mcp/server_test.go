@@ -238,3 +238,20 @@ func TestTeardownTools(t *testing.T) {
 		require.True(t, hits[tc.path], "expected %s to hit %s", tc.tool, tc.path)
 	}
 }
+
+func TestCtxSetClientPath(t *testing.T) {
+	var gotPath, gotMethod string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		w.Write([]byte(`{"key":"global.k","value":"v","updated_by":"agent"}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	if _, err := srv.cl.CtxSet(context.Background(), "global.k", "v", "agent"); err != nil {
+		t.Fatalf("CtxSet: %v", err)
+	}
+	if gotMethod != http.MethodPut || gotPath != "/context/global.k" {
+		t.Fatalf("got %s %s", gotMethod, gotPath)
+	}
+}
