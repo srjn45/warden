@@ -14,6 +14,7 @@ import (
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
 	"github.com/srajanpathak/agentctl/internal/daemon"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
+	"github.com/srajanpathak/agentctl/internal/mailbox"
 	"github.com/srajanpathak/agentctl/internal/notify"
 	"github.com/srajanpathak/agentctl/internal/poller"
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -42,6 +43,11 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 
+			mbox, err := mailbox.New(filepath.Join(cfg.DataDir, "inbox"))
+			if err != nil {
+				return err
+			}
+
 			runner := lifecycle.ExecRunner{}
 			lc := lifecycle.New(runner)
 			lc.ProjectsDir = cfg.ClaudeProjectsDir
@@ -53,7 +59,7 @@ func newDaemonCmd() *cobra.Command {
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
 			pl.OnTransition = daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
-			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore)
+			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox)
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},

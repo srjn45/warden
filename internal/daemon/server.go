@@ -6,18 +6,19 @@ import (
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
+	"github.com/srajanpathak/agentctl/internal/mailbox"
 	"github.com/srajanpathak/agentctl/internal/poller"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
-func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.Duration, approvals bool, cstore *ctxstore.Store) *Server {
+func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.Duration, approvals bool, cstore *ctxstore.Store, mbox *mailbox.Store) *Server {
 	h := newHub()
 	if p != nil {
 		p.OnChange = h.publish
 	}
 	return &Server{
 		store: st, life: life, poller: p, pollInterval: interval,
-		hub: h, done: make(chan struct{}), approvals: approvals, cstore: cstore,
+		hub: h, done: make(chan struct{}), approvals: approvals, cstore: cstore, mbox: mbox,
 	}
 }
 
