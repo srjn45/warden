@@ -38,7 +38,7 @@ func newPipelineCmd() *cobra.Command {
 		Short: "Define and run DAG pipelines of agent jobs",
 	}
 	cmd.AddCommand(newPipelineCreateCmd(), newPipelineListCmd(), newPipelineShowCmd(),
-		newPipelineStartCmd(), newPipelineCancelCmd(), newPipelineEmitCmd(),
+		newPipelineStartCmd(), newPipelineCancelCmd(), newPipelineDeleteCmd(), newPipelineEmitCmd(),
 		newPipelineEditJobCmd(), newPipelineRetryCmd())
 	return cmd
 }
@@ -128,6 +128,21 @@ func newPipelineCancelCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "canceled %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newPipelineDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <pipeline>",
+		Short: "Delete a pipeline's record (must not have live jobs — cancel first)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := clientFor(cmd).PipelineDelete(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "deleted %s\n", args[0])
 			return nil
 		},
 	}

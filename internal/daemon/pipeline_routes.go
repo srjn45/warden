@@ -28,6 +28,7 @@ func (s *Server) registerPipelineRoutes(r chi.Router) {
 	r.Post("/pipelines", s.handleCreatePipeline)
 	r.Get("/pipelines", s.handleListPipelines)
 	r.Get("/pipelines/{pid}", s.handleShowPipeline)
+	r.Delete("/pipelines/{pid}", s.handleDeletePipeline)
 	r.Post("/pipelines/{pid}/start", s.handleStartPipeline)
 	r.Post("/pipelines/{pid}/cancel", s.handleCancelPipeline)
 	r.Post("/pipelines/{pid}/jobs/{job}/emit", s.handleEmit)
@@ -76,6 +77,34 @@ func (s *Server) handleShowPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// handleDeletePipeline removes a pipeline's record. It refuses while any job is
+// still live (running / needs_attention) so live agents are never orphaned —
+// cancel the pipeline first.
+func (s *Server) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
+	pid := chi.URLParam(r, "pid")
+	p, err := s.exec.pstore.Get(pid)
+	if errors.Is(err, pipeline.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for i := range p.Jobs {
+		if p.Jobs[i].Status == pipeline.JobRunning || p.Jobs[i].Status == pipeline.JobNeedsAttention {
+			writeErr(w, http.StatusConflict, "pipeline has live jobs — cancel it first")
+			return
+		}
+	}
+	if err := s.exec.pstore.Delete(pid); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.notify()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (s *Server) handleStartPipeline(w http.ResponseWriter, r *http.Request) {

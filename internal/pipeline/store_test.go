@@ -46,3 +46,18 @@ func TestStoreUpdate(t *testing.T) {
 		t.Fatalf("update not persisted: %+v", got)
 	}
 }
+
+func TestStoreDelete(t *testing.T) {
+	s, _ := NewStore(t.TempDir())
+	s.Create(&Pipeline{ID: "p1", Name: "p1", Repo: "/r", Status: StatusDone,
+		Jobs: []Job{{ID: "a", Prompt: "x", Worktree: "none", Status: JobDone}}})
+	if err := s.Delete("p1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := s.Get("p1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("after Delete, Get want ErrNotFound, got %v", err)
+	}
+	if err := s.Delete("p1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Delete missing want ErrNotFound, got %v", err)
+	}
+}

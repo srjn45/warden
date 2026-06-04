@@ -211,3 +211,39 @@ func TestPipelineCancelSkipsNeedsAttention(t *testing.T) {
 		t.Fatalf("pipeline should be canceled, got %s", got.Status)
 	}
 }
+
+func TestPipelineDeleteRoute(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) // job "a" pending
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/pipelines/demo", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete status %d", resp.StatusCode)
+	}
+	if _, gerr := ps.Get("demo"); gerr == nil {
+		t.Fatalf("pipeline should be gone after delete")
+	}
+}
+
+func TestPipelineDeleteRefusesLiveJob(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	ps.Update("demo", func(p *pipeline.Pipeline) { p.Job("a").Status = pipeline.JobRunning })
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/pipelines/demo", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("delete with a live job want 409, got %d", resp.StatusCode)
+	}
+}

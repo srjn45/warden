@@ -135,3 +135,17 @@ func (s *Store) Update(id string, fn func(*Pipeline)) error {
 	fn(p)
 	return s.write(path, p)
 }
+
+// Delete removes a pipeline's record file, returning ErrNotFound if absent.
+func (s *Store) Delete(id string) error {
+	path, err := s.path(id)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return ErrNotFound
+	}
+	return os.Remove(path)
+}

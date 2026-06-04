@@ -429,6 +429,10 @@ func (c *Client) PipelineCancel(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/cancel", nil, nil)
 }
 
+func (c *Client) PipelineDelete(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/pipelines/"+url.PathEscape(id), nil, nil)
+}
+
 func (c *Client) PipelineEmit(ctx context.Context, pid, job, text string) error {
 	path := "/pipelines/" + url.PathEscape(pid) + "/jobs/" + url.PathEscape(job) + "/emit"
 	// longTimeout: emit reconciles and may spawn dependent worktree jobs.
