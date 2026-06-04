@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -115,5 +116,39 @@ func TestReconcileConcurrentNoDoubleSpawn(t *testing.T) {
 	}
 	if _, err := ss.Get(context.Background(), "p-a"); err != nil {
 		t.Fatalf("session p-a should exist exactly once: %v", err)
+	}
+}
+
+func TestEditJobOnlyWhenPending(t *testing.T) {
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(chain())
+
+	newPrompt := "do it differently"
+	newHandoff := "the branch name"
+	if err := e.EditJob("p", "a", &newPrompt, &newHandoff); err != nil {
+		t.Fatalf("EditJob pending: %v", err)
+	}
+	got, _ := ps.Get("p")
+	if got.Job("a").Prompt != "do it differently" || got.Job("a").Handoff != "the branch name" {
+		t.Fatalf("edit not applied: %+v", got.Job("a"))
+	}
+
+	// only one field provided → the other is untouched.
+	onlyPrompt := "again"
+	e.EditJob("p", "a", &onlyPrompt, nil)
+	got, _ = ps.Get("p")
+	if got.Job("a").Prompt != "again" || got.Job("a").Handoff != "the branch name" {
+		t.Fatalf("partial edit wrong: %+v", got.Job("a"))
+	}
+
+	// running job → rejected.
+	ps.Update("p", func(p *pipeline.Pipeline) { p.Job("a").Status = pipeline.JobRunning })
+	if err := e.EditJob("p", "a", &onlyPrompt, nil); !errors.Is(err, ErrJobNotPending) {
+		t.Fatalf("editing a running job should fail with ErrJobNotPending, got %v", err)
+	}
+
+	// unknown job → ErrJobNotFound.
+	if err := e.EditJob("p", "ghost", &onlyPrompt, nil); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("want ErrJobNotFound, got %v", err)
 	}
 }

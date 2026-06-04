@@ -15,8 +15,10 @@ import (
 
 // Emit error sentinels (mapped to HTTP status by the route handler).
 var (
-	ErrJobNotFound   = errors.New("job not found in pipeline")
-	ErrJobNotRunning = errors.New("job is not running")
+	ErrJobNotFound    = errors.New("job not found in pipeline")
+	ErrJobNotRunning  = errors.New("job is not running")
+	ErrJobNotPending  = errors.New("job is not pending")
+	ErrJobNotRetryable = errors.New("job is not in a retryable state")
 )
 
 // Executor performs the side effects the pure pipeline.Plan decides: spawning
@@ -129,6 +131,41 @@ func (e *Executor) markJob(pid, jobID string, fn func(*pipeline.Job)) {
 			fn(j)
 		}
 	})
+}
+
+// EditJob updates a PENDING job's prompt and/or handoff (nil = leave unchanged).
+// Held under the executor lock so it can't race a Reconcile that's about to
+// spawn the same job.
+func (e *Executor) EditJob(pid, jobID string, prompt, handoff *string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var ferr error
+	if err := e.pstore.Update(pid, func(p *pipeline.Pipeline) {
+		j := p.Job(jobID)
+		if j == nil {
+			ferr = ErrJobNotFound
+			return
+		}
+		if j.Status != pipeline.JobPending {
+			ferr = ErrJobNotPending
+			return
+		}
+		if prompt != nil {
+			j.Prompt = *prompt
+		}
+		if handoff != nil {
+			j.Handoff = *handoff
+		}
+	}); err != nil {
+		return err
+	}
+	if ferr != nil {
+		return ferr
+	}
+	if e.notify != nil {
+		e.notify()
+	}
+	return nil
 }
 
 // OnTransition is the poller hook: when a job's session errors or is orphaned,
