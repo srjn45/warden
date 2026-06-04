@@ -68,6 +68,15 @@ type ctxListArgs struct {
 	Prefix string `json:"prefix,omitempty" jsonschema:"optional key prefix filter (empty = all keys)"`
 }
 
+type sendMessageArgs struct {
+	To   string `json:"to" jsonschema:"recipient agent's session id"`
+	Body string `json:"body" jsonschema:"the message text"`
+}
+type readInboxArgs struct {
+	Agent  string `json:"agent,omitempty" jsonschema:"whose inbox to read; defaults to this agent ($AGENTCTL_SESSION_ID)"`
+	Unread bool   `json:"unread,omitempty" jsonschema:"only return unread messages"`
+}
+
 // ctxWriter attributes shared-context writes to this agent when running inside
 // one (AGENTCTL_SESSION_ID), else a generic "agent".
 func ctxWriter() string {
@@ -219,6 +228,40 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		res, err := jsonResult(entries)
+		return res, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "send_message",
+		Description: "Send a directed message to another agent's inbox (wakes it only if it's idle/waiting). Use for peer consultation or handoff signals.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a sendMessageArgs) (*mcpsdk.CallToolResult, any, error) {
+		m, woke, err := s.cl.MsgSend(ctx, a.To, ctxWriter(), a.Body)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		msg := "sent to " + a.To + " (id " + m.ID + ")"
+		if woke {
+			msg += " — woke recipient"
+		}
+		return textResult(msg), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "read_inbox",
+		Description: "Read directed messages addressed to this agent (marks them read).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a readInboxArgs) (*mcpsdk.CallToolResult, any, error) {
+		who := a.Agent
+		if who == "" {
+			who = os.Getenv("AGENTCTL_SESSION_ID")
+		}
+		if who == "" {
+			return textResult("error: no agent id — set AGENTCTL_SESSION_ID or pass `agent`"), nil, nil
+		}
+		msgs, err := s.cl.MsgInbox(ctx, who, a.Unread)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		res, err := jsonResult(msgs)
 		return res, nil, err
 	})
 

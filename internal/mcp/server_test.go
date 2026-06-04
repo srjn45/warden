@@ -255,3 +255,20 @@ func TestCtxSetClientPath(t *testing.T) {
 		t.Fatalf("got %s %s", gotMethod, gotPath)
 	}
 }
+
+func TestSendMessageClientPath(t *testing.T) {
+	var gotPath, gotMethod string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		w.Write([]byte(`{"message":{"id":"1","from":"agent","to":"agent-1","body":"hi"},"woke":false}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	if _, _, err := srv.cl.MsgSend(context.Background(), "agent-1", "agent", "hi"); err != nil {
+		t.Fatalf("MsgSend: %v", err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/sessions/agent-1/messages" {
+		t.Fatalf("got %s %s", gotMethod, gotPath)
+	}
+}
