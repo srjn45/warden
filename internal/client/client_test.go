@@ -319,3 +319,35 @@ func TestMsgWaitFoundAndTimeout(t *testing.T) {
 		t.Fatalf("timeout case: m=%+v err=%v", m2, err)
 	}
 }
+
+func TestPipelineCreateAndEmit(t *testing.T) {
+	var createBody, emitPath string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/pipelines" && r.Method == http.MethodPost:
+			b, _ := io.ReadAll(r.Body)
+			createBody = string(b)
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"demo","name":"demo","repo":"/r","status":"pending","jobs":[]}`))
+		case strings.HasSuffix(r.URL.Path, "/emit"):
+			emitPath = r.URL.Path
+			w.Write([]byte(`{"status":"emitted"}`))
+		}
+	}))
+	defer ts.Close()
+	c := New(ts.URL)
+
+	p, err := c.PipelineCreate(context.Background(), "name: demo\nrepo: /r\njobs: []\n")
+	if err != nil {
+		t.Fatalf("PipelineCreate: %v", err)
+	}
+	if p.ID != "demo" || !strings.Contains(createBody, `"spec"`) {
+		t.Fatalf("create wrong: p=%+v body=%s", p, createBody)
+	}
+	if err := c.PipelineEmit(context.Background(), "demo", "a", "done"); err != nil {
+		t.Fatalf("PipelineEmit: %v", err)
+	}
+	if emitPath != "/pipelines/demo/jobs/a/emit" {
+		t.Fatalf("emit path %s", emitPath)
+	}
+}

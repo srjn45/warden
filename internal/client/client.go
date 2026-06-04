@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/approval"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -388,4 +389,45 @@ func (c *Client) MsgWait(ctx context.Context, id, from string, timeoutSec int) (
 		return nil, nil
 	}
 	return resp.Message, nil
+}
+
+// PipelineCreate sends a YAML spec to the daemon, which parses, validates, and
+// stores it.
+func (c *Client) PipelineCreate(ctx context.Context, specYAML string) (*pipeline.Pipeline, error) {
+	var p pipeline.Pipeline
+	if err := c.do(ctx, http.MethodPost, "/pipelines", map[string]string{"spec": specYAML}, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (c *Client) PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error) {
+	var resp struct {
+		Pipelines []*pipeline.Pipeline `json:"pipelines"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/pipelines", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Pipelines, nil
+}
+
+func (c *Client) PipelineGet(ctx context.Context, id string) (*pipeline.Pipeline, error) {
+	var p pipeline.Pipeline
+	if err := c.do(ctx, http.MethodGet, "/pipelines/"+url.PathEscape(id), nil, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (c *Client) PipelineStart(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/start", nil, nil)
+}
+
+func (c *Client) PipelineCancel(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/cancel", nil, nil)
+}
+
+func (c *Client) PipelineEmit(ctx context.Context, pid, job, text string) error {
+	path := "/pipelines/" + url.PathEscape(pid) + "/jobs/" + url.PathEscape(job) + "/emit"
+	return c.do(ctx, http.MethodPost, path, map[string]string{"text": text}, nil)
 }

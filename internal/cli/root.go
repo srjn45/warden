@@ -20,6 +20,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newSendCmd(), newTailCmd())
 	root.AddCommand(newCtxCmd())
 	root.AddCommand(newMsgCmd())
+	root.AddCommand(newPipelineCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newTUICmd())
 	root.Args = cobra.NoArgs
