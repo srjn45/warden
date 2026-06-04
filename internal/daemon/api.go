@@ -114,6 +114,12 @@ func (s *Server) notify() {
 	}
 }
 
+// Notify is the exported SSE-notify hook the Executor calls after it changes state.
+func (s *Server) Notify() { s.notify() }
+
+// SetExecutor wires the executor after construction (executor needs Server.Notify).
+func (s *Server) SetExecutor(e *Executor) { s.exec = e }
+
 // Lifecycle is the subset of operations the API delegates to (Phase 4+).
 // The daemon defines this interface in terms of its own SpawnRequest DTO so
 // Phase 2 stays decoupled from the lifecycle package (built in Phase 4). The

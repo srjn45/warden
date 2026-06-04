@@ -16,6 +16,7 @@ import (
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/mailbox"
 	"github.com/srajanpathak/agentctl/internal/notify"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/poller"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -58,8 +59,19 @@ func newDaemonCmd() *cobra.Command {
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
-			pl.OnTransition = daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
-			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox)
+			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
+			if err != nil {
+				return err
+			}
+			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
+			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
+			srv.SetExecutor(exec)
+
+			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
+			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
+				notifyHook(sess, from, to)
+				exec.OnTransition(sess, from, to)
+			}
 			log.Printf("agentctl daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},
