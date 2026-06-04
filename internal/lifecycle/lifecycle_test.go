@@ -91,7 +91,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	// Worktree on a new branch.
 	require.Contains(t, fr.calledArgs(), []string{"git", "worktree", "add", ".worktrees/PROJ-350", "-b", "PROJ-350"})
 	// Detached tmux session in the worktree.
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 	// Launch claude UNATTENDED, with a pinned session id and display name.
 	require.NotEmpty(t, s.ClaudeSessionID)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", false), "Enter"})
@@ -102,7 +102,7 @@ func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
 	// must be force-removed so a failed spawn doesn't leak it.
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
-		"tmux new-session -d -s PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
+		"tmux new-session -d -s PROJ-350 -e AGENTCTL_SESSION_ID=PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
 	}}
 	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
@@ -118,7 +118,7 @@ func TestSpawnDoesNotRemoveAdoptedWorktreeOnFailure(t *testing.T) {
 	// NOT delete the user's pre-existing worktree.
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees + "\nworktree /repo/.worktrees/PROJ-350\nHEAD def\nbranch refs/heads/PROJ-350\n"},
-		"tmux new-session -d -s PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
+		"tmux new-session -d -s PROJ-350 -e AGENTCTL_SESSION_ID=PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
 	}}
 	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
@@ -161,7 +161,7 @@ func TestSpawnAdoptsExistingWorktree(t *testing.T) {
 	require.NoError(t, err)
 	// Adopt: must NOT call `git worktree add` again.
 	require.NotContains(t, fr.calledArgs(), []string{"git", "worktree", "add", ".worktrees/PROJ-350", "-b", "PROJ-350"})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 }
 
 func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
@@ -177,7 +177,7 @@ func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
 	for _, argv := range fr.calledArgs() {
 		require.NotEqual(t, "git", argv[0], "no-worktree type must not call git")
 	}
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/repo"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/repo"})
 	require.NotEmpty(t, s.ClaudeSessionID)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, false), "Enter"})
 }
@@ -405,7 +405,7 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	}
 	// Launches in the caller's cwd; no per-agent directory is ever created.
 	require.Equal(t, "/work/project", s.Workdir, "launches in caller cwd")
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/work/project"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/work/project"})
 	for _, argv := range fr.calledArgs() {
 		if argv[0] == "mkdir" {
 			require.Equal(t, []string{"mkdir", "-p", "/state/prompts"}, argv, "only the shared prompts dir is created")
@@ -423,7 +423,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 
 	// Claude launches from the caller's cwd.
 	require.Equal(t, "/work/project", s.Workdir, "sess.Workdir is the caller cwd")
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-c", "/work/project"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/work/project"})
 	// The prompt file lives in the shared state dir, keyed by agent id — never
 	// in the caller's project and never in a per-agent directory.
 	promptFile := "/state/prompts/" + s.ID
@@ -586,7 +586,7 @@ func TestRestoreRecreatesAndResumes(t *testing.T) {
 	sess := &store.Session{ID: "agent-r1", TmuxSession: "agent-r1", Workdir: workdir, ClaudeSessionID: sid}
 
 	require.NoError(t, lc.Restore(context.Background(), sess))
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-r1", "-c", workdir})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-r1", "-e", "AGENTCTL_SESSION_ID=agent-r1", "-c", workdir})
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-r1", claudeResume(sid, "agent-r1", false), "Enter"})
 }
 
@@ -710,7 +710,7 @@ func TestAdoptResumeMode(t *testing.T) {
 	require.Equal(t, store.TypeOther, sess.Type)
 	require.Equal(t, store.StatusSpawning, sess.Status)
 	require.Equal(t, workdir, sess.Workdir)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-a1", "-c", workdir})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-a1", "-e", "AGENTCTL_SESSION_ID=agent-a1", "-c", workdir})
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-a1", claudeResume(sid, "agent-a1", false), "Enter"})
 }
 
@@ -790,7 +790,7 @@ func TestSpawnSetsMouseOnAgentSession(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", s.ID, "mouse", "on"})
 	require.Greater(t,
 		fr.callIndex("tmux set-option -t "+s.ID+" mouse on"),
-		fr.callIndex("tmux new-session -d -s "+s.ID+" -c /repo"),
+		fr.callIndex("tmux new-session -d -s "+s.ID+" -e AGENTCTL_SESSION_ID="+s.ID+" -c /repo"),
 		"mouse on must be set after new-session")
 }
 
@@ -803,7 +803,7 @@ func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", s.ID, "mouse", "on"})
 	require.Greater(t,
 		fr.callIndex("tmux set-option -t "+s.ID+" mouse on"),
-		fr.callIndex("tmux new-session -d -s "+s.ID+" -c /work/project"),
+		fr.callIndex("tmux new-session -d -s "+s.ID+" -e AGENTCTL_SESSION_ID="+s.ID+" -c /work/project"),
 		"mouse on must follow new-session")
 }
 
@@ -814,7 +814,7 @@ func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", "ag1", "mouse", "on"})
 	require.Greater(t,
 		fr.callIndex("tmux set-option -t ag1 mouse on"),
-		fr.callIndex("tmux new-session -d -s ag1 -c /cwd"),
+		fr.callIndex("tmux new-session -d -s ag1 -e AGENTCTL_SESSION_ID=ag1 -c /cwd"),
 		"mouse on must follow new-session")
 }
 
@@ -825,7 +825,7 @@ func TestSpawnRaisesHistoryLimitBeforeNewSession(t *testing.T) {
 	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
 	require.NoError(t, err)
 	setIdx := fr.callIndex("tmux set-option -g history-limit 50000")
-	newIdx := fr.callIndex("tmux new-session -d -s " + s.ID + " -c /repo")
+	newIdx := fr.callIndex("tmux new-session -d -s " + s.ID + " -e AGENTCTL_SESSION_ID=" + s.ID + " -c /repo")
 	require.NotEqual(t, -1, setIdx, "history-limit must be raised when current is lower")
 	require.Less(t, setIdx, newIdx, "history-limit must be raised BEFORE new-session")
 }
@@ -870,7 +870,7 @@ func TestResumeSucceedsWhenMouseSetFails(t *testing.T) {
 
 func TestResumeFailsWhenNewSessionFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
-		"tmux new-session -d -s ag1 -c /cwd": {Err: errors.New("boom")},
+		"tmux new-session -d -s ag1 -e AGENTCTL_SESSION_ID=ag1 -c /cwd": {Err: errors.New("boom")},
 	}}
 	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", false)
 	require.Error(t, err, "new-session failure stays fatal")
@@ -904,6 +904,18 @@ func TestSpawnSupervisedPromptModeUsesAcceptEdits(t *testing.T) {
 		}
 	}
 	require.True(t, found, "expected a tmux send-keys call")
+}
+
+func TestNewAgentSessionSetsSessionIDEnv(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr)
+	if err := lc.newAgentSession(context.Background(), "", "agent-xyz", "/work"); err != nil {
+		t.Fatalf("newAgentSession: %v", err)
+	}
+	require.Contains(t, fr.calledArgs(), []string{
+		"tmux", "new-session", "-d", "-s", "agent-xyz",
+		"-e", "AGENTCTL_SESSION_ID=agent-xyz", "-c", "/work",
+	})
 }
 
 // TestSpawnSupervisedTypedModeUsesAcceptEdits mirrors TestSpawnNonSupervisedTypedMode

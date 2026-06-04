@@ -532,7 +532,11 @@ const agentHistoryLimit = 50000
 // option-setting failures are non-fatal so a tmux quirk never blocks a launch.
 func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string) error {
 	l.ensureScrollback(ctx) // before new-session: the new pane inherits the limit
-	if out, err := l.run.Run(ctx, runDir, "tmux", "new-session", "-d", "-s", id, "-c", cwd); err != nil {
+	// -e sets AGENTCTL_SESSION_ID in the session environment so the agent's own
+	// shell tools (e.g. `agentctl msg`/`ctx`) know which agent they are without
+	// needing --as. Inherited by the claude process and its Bash subprocesses.
+	if out, err := l.run.Run(ctx, runDir, "tmux", "new-session", "-d", "-s", id,
+		"-e", "AGENTCTL_SESSION_ID="+id, "-c", cwd); err != nil {
 		return fmt.Errorf("tmux new-session: %w: %s", err, out)
 	}
 	// mouse is a live session option: the wheel enters copy-mode, and the cockpit
