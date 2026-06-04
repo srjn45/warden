@@ -356,3 +356,25 @@ func TestItemsPrependsPipelinesAndFiltersOwnedSessions(t *testing.T) {
 		t.Fatalf("pipeline-owned session must not appear as a flat session row")
 	}
 }
+
+func TestRenderItemLinePipelineRows(t *testing.T) {
+	head := renderItemLine(item{pipeline: &pipeline.Pipeline{ID: "demo", Status: pipeline.StatusRunning}}, false, 60)
+	if !strings.Contains(head, "demo") || !strings.Contains(head, "▸") || !strings.Contains(head, "running") {
+		t.Fatalf("pipeline header row wrong: %q", head)
+	}
+	jobRow := renderItemLine(item{pjPipe: "demo", pjJob: &pipeline.Job{ID: "a", Status: pipeline.JobDone, DependsOn: []string{"x"}}}, false, 60)
+	if !strings.Contains(jobRow, "a") || !strings.Contains(jobRow, jobGlyph(pipeline.JobDone)) || !strings.Contains(jobRow, "x") {
+		t.Fatalf("job row wrong: %q", jobRow)
+	}
+}
+
+func TestJobGlyphDistinct(t *testing.T) {
+	seen := map[string]bool{}
+	for _, s := range []pipeline.JobStatus{pipeline.JobPending, pipeline.JobRunning, pipeline.JobDone, pipeline.JobFailed, pipeline.JobSkipped, pipeline.JobNeedsAttention} {
+		g := jobGlyph(s)
+		if g == "" || seen[g] {
+			t.Fatalf("glyph for %s is empty or duplicate: %q", s, g)
+		}
+		seen[g] = true
+	}
+}

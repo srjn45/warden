@@ -361,6 +361,24 @@ func renderList(items []item, cursor, width, height int) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
+// jobGlyph maps a pipeline job status to a one-rune status glyph.
+func jobGlyph(s pipeline.JobStatus) string {
+	switch s {
+	case pipeline.JobDone:
+		return "●"
+	case pipeline.JobRunning:
+		return "◐"
+	case pipeline.JobFailed:
+		return "✗"
+	case pipeline.JobNeedsAttention:
+		return "⚠"
+	case pipeline.JobSkipped:
+		return "⊘"
+	default: // pending
+		return "○"
+	}
+}
+
 // renderItemLine renders one body row: an agent's columns, or the placeholder
 // line for an empty opened dir. The cursor row gets the "› " caret + cursor style.
 func renderItemLine(it item, selected bool, width int) string {
@@ -373,6 +391,14 @@ func renderItemLine(it item, selected bool, width int) string {
 		} else {
 			line = stStatus.Render(txt)
 		}
+	case it.pipeline != nil:
+		line = stPaneTitle.Render("▸ "+it.pipeline.ID) + "  " + stMuted.Render(string(it.pipeline.Status))
+	case it.pjJob != nil:
+		deps := ""
+		if len(it.pjJob.DependsOn) > 0 {
+			deps = stMuted.Render("  (deps: " + strings.Join(it.pjJob.DependsOn, ",") + ")")
+		}
+		line = fmt.Sprintf("    %s %-12s %-13s", jobGlyph(it.pjJob.Status), trunc(it.pjJob.ID, 12), string(it.pjJob.Status)) + deps
 	case it.session == nil:
 		line = stMuted.Render("(no agents — n to spawn here)")
 	default:
@@ -385,7 +411,7 @@ func renderItemLine(it item, selected bool, width int) string {
 	cur := "  "
 	if selected {
 		cur = stCursor.Render("› ")
-		if it.session != nil || it.approvals {
+		if it.session != nil || it.approvals || it.pipeline != nil || it.pjJob != nil {
 			line = stCursor.Render(line)
 		}
 	}
