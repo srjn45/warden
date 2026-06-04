@@ -175,3 +175,15 @@ func TestAdoptSendsBodyAndParsesResponse(t *testing.T) {
 	require.Equal(t, "sid", gotBody["session_id"])
 	require.Equal(t, "work", gotBody["tmux_session"])
 }
+
+func TestClientSpawnSendsSupervised(t *testing.T) {
+	var got map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		w.Write([]byte(`{"id":"a1"}`))
+	}))
+	defer ts.Close()
+	_, err := New(ts.URL).Spawn(context.Background(), SpawnParams{Prompt: "x", Supervised: true})
+	require.NoError(t, err)
+	require.Equal(t, true, got["supervised"])
+}
