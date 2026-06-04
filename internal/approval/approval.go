@@ -68,14 +68,12 @@ func Parse(pane string) (Approval, bool) {
 		return Approval{}, false
 	}
 
-	boxed := false
-	for i := start; i <= end; i++ {
-		if strings.ContainsAny(lines[i], "│┃|") {
-			boxed = true
-			break
-		}
-	}
-	if !boxed {
+	// Distinguish a real permission menu from a bare numbered list in agent prose.
+	// A real menu has a ❯ selection cursor on its default option, OR box/divider
+	// chrome framing the prompt. We require one of those: older Claude boxes drew
+	// │ on each option line, but current ones render plain indented options under
+	// a ──── divider — so the chrome lives ABOVE the run, not on the option lines.
+	if sel == 0 && !chromeNear(lines, start, end) {
 		return Approval{}, false
 	}
 
@@ -102,6 +100,22 @@ func Parse(pane string) (Approval, bool) {
 		break
 	}
 	return a, true
+}
+
+// chromeNear reports whether box-drawing chrome (panel borders or a ──── divider)
+// appears on the option lines or in the few lines just above them — the frame a
+// real permission box draws around its prompt, which a bare numbered list lacks.
+func chromeNear(lines []string, start, end int) bool {
+	from := start - 8
+	if from < 0 {
+		from = 0
+	}
+	for i := from; i <= end; i++ {
+		if strings.ContainsAny(lines[i], "│┃|─╭╮╰╯") {
+			return true
+		}
+	}
+	return false
 }
 
 // looksLikeAction reports whether a line resembles a tool invocation header
@@ -140,4 +154,3 @@ func BuildView(id, pane string) View {
 		Options: a.Options, Fingerprint: Fingerprint(a.Options), Recognized: true,
 	}
 }
-

@@ -24,6 +24,22 @@ func TestParseRecognizesBashPrompt(t *testing.T) {
 	require.Equal(t, "Bash(rm -rf node_modules)", a.Action)
 }
 
+func TestParseRecognizesPlainBoxBashPrompt(t *testing.T) {
+	// Current Claude Code renders the options as plain indented lines under a
+	// ──── divider — no │ on the option lines (older boxes drew │ per line).
+	// Captured live from a supervised agent's rm prompt; the regression guard
+	// for the fixtures-vs-real-box gap.
+	a, ok := Parse(readFixture(t, "bash_prompt_plain.txt"))
+	require.True(t, ok, "a real plain-option permission box must be recognized")
+	require.Equal(t, []string{
+		"Yes",
+		"Yes, and always allow access to tmp/ from this project",
+		"No",
+	}, a.Options)
+	require.Equal(t, 1, a.SelectedIdx)
+	require.Equal(t, "Do you want to proceed?", a.Question)
+}
+
 func TestParseRecognizesEditPrompt(t *testing.T) {
 	a, ok := Parse(readFixture(t, "edit_prompt.txt"))
 	require.True(t, ok)
