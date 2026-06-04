@@ -62,3 +62,52 @@ func TestPersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("not persisted: %+v err=%v", e, err)
 	}
 }
+
+func TestListByPrefixSorted(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Set("pipeline.p1.b.output", "B", "b")
+	s.Set("pipeline.p1.a.output", "A", "a")
+	s.Set("global.x", "X", "x")
+
+	all, err := s.List("")
+	if err != nil {
+		t.Fatalf("List all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("want 3, got %d", len(all))
+	}
+	// sorted by key: global.x, pipeline.p1.a.output, pipeline.p1.b.output
+	if all[0].Key != "global.x" || all[1].Key != "pipeline.p1.a.output" {
+		t.Fatalf("not sorted: %+v", all)
+	}
+
+	pref, _ := s.List("pipeline.p1.")
+	if len(pref) != 2 {
+		t.Fatalf("prefix want 2, got %d", len(pref))
+	}
+}
+
+func TestListEmptyStoreReturnsEmptySlice(t *testing.T) {
+	s, _ := New(t.TempDir())
+	got, err := s.List("")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("want empty non-nil slice, got %#v", got)
+	}
+}
+
+func TestDel(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Set("k", "v", "a")
+	if err := s.Del("k"); err != nil {
+		t.Fatalf("Del: %v", err)
+	}
+	if _, err := s.Get("k"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("still present after Del")
+	}
+	if err := s.Del("k"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Del missing want ErrNotFound, got %v", err)
+	}
+}

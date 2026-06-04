@@ -12,6 +12,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -116,4 +117,38 @@ func (s *Store) Get(key string) (Entry, error) {
 		return Entry{}, ErrNotFound
 	}
 	return e, nil
+}
+
+// List returns all entries whose key starts with prefix (empty = all), sorted
+// by key. Always returns a non-nil slice.
+func (s *Store) List(prefix string) ([]Entry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	m, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	out := []Entry{}
+	for k, e := range m {
+		if prefix == "" || strings.HasPrefix(k, prefix) {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out, nil
+}
+
+// Del removes key, returning ErrNotFound if it was absent.
+func (s *Store) Del(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.load()
+	if err != nil {
+		return err
+	}
+	if _, ok := m[key]; !ok {
+		return ErrNotFound
+	}
+	delete(m, key)
+	return s.save(m)
 }
