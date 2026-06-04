@@ -335,6 +335,13 @@ highlighted agent to open it in the right pane.
 | `?` | Toggle help |
 | `q` | Quit and tear down the whole cockpit |
 
+Pipelines appear in the list pane under a **▸ Pipelines** section (one header row
+per pipeline, then an indented row per job with a status glyph). Selecting a
+pipeline header shows its DAG in the detail pane. On a pipeline row, `x` cancels
+it; on a job row, `r` retries a failed/needs-attention job and `a` attaches to a
+running job's session. (Authoring pipelines is via `agentctl pipeline create -f`;
+editing job prompts and building pipelines in the TUI are not yet available.)
+
 > **Getting back from an agent.** Attaching moves your single tmux client onto
 > the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to
 > jump back to the dashboard — not `Ctrl-b d`. `Ctrl-b d` still works but it
