@@ -114,3 +114,74 @@ func TestPipelineShow404(t *testing.T) {
 	}
 	_ = context.Background()
 }
+
+func TestPipelineEditJobRoute(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) // job "a", pending
+
+	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/edit", "application/json", strings.NewReader(`{"prompt":"new prompt"}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("edit status %d", resp.StatusCode)
+	}
+	got, _ := ps.Get("demo")
+	if got.Job("a").Prompt != "new prompt" {
+		t.Fatalf("prompt not edited: %q", got.Job("a").Prompt)
+	}
+}
+
+func TestPipelineEditJobNothing400(t *testing.T) {
+	ts, _ := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/edit", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty edit want 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestPipelineRetryRoute(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	// force job a into a failed state.
+	ps.Update("demo", func(p *pipeline.Pipeline) {
+		p.Job("a").Status = pipeline.JobFailed
+		p.Status = pipeline.StatusStalled
+	})
+
+	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/retry", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("retry status %d", resp.StatusCode)
+	}
+	got, _ := ps.Get("demo")
+	if got.Job("a").Status != pipeline.JobRunning {
+		t.Fatalf("retried job should be running, got %s", got.Job("a").Status)
+	}
+}
+
+func TestPipelineRetryNotRetryable409(t *testing.T) {
+	ts, _ := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck // a pending
+	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/retry", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("retry pending want 409, got %d", resp.StatusCode)
+	}
+}

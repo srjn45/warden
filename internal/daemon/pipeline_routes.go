@@ -19,6 +19,10 @@ type pipelinesResponse struct {
 type emitRequest struct {
 	Text string `json:"text"`
 }
+type editJobRequest struct {
+	Prompt  *string `json:"prompt,omitempty"`
+	Handoff *string `json:"handoff,omitempty"`
+}
 
 func (s *Server) registerPipelineRoutes(r chi.Router) {
 	r.Post("/pipelines", s.handleCreatePipeline)
@@ -27,6 +31,8 @@ func (s *Server) registerPipelineRoutes(r chi.Router) {
 	r.Post("/pipelines/{pid}/start", s.handleStartPipeline)
 	r.Post("/pipelines/{pid}/cancel", s.handleCancelPipeline)
 	r.Post("/pipelines/{pid}/jobs/{job}/emit", s.handleEmit)
+	r.Post("/pipelines/{pid}/jobs/{job}/edit", s.handleEditJob)
+	r.Post("/pipelines/{pid}/jobs/{job}/retry", s.handleRetry)
 }
 
 func (s *Server) handleCreatePipeline(w http.ResponseWriter, r *http.Request) {
@@ -158,5 +164,49 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 	default:
 		writeJSON(w, http.StatusOK, map[string]string{"status": "emitted"})
+	}
+}
+
+func (s *Server) handleEditJob(w http.ResponseWriter, r *http.Request) {
+	pid, job := chi.URLParam(r, "pid"), chi.URLParam(r, "job")
+	var req editJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	if req.Prompt == nil && req.Handoff == nil {
+		writeErr(w, http.StatusBadRequest, "nothing to edit (provide prompt and/or handoff)")
+		return
+	}
+	err := s.exec.EditJob(pid, job, req.Prompt, req.Handoff)
+	switch {
+	case errors.Is(err, pipeline.ErrNotFound):
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+	case errors.Is(err, ErrJobNotFound):
+		writeErr(w, http.StatusNotFound, "job not found")
+	case errors.Is(err, ErrJobNotPending):
+		writeErr(w, http.StatusConflict, "job is not pending (can only edit before it starts)")
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "edited"})
+	}
+}
+
+func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
+	pid, job := chi.URLParam(r, "pid"), chi.URLParam(r, "job")
+	// Background context: retry reconciles and may spawn worktree jobs.
+	err := s.exec.Retry(context.Background(), pid, job)
+	switch {
+	case errors.Is(err, pipeline.ErrNotFound):
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+	case errors.Is(err, ErrJobNotFound):
+		writeErr(w, http.StatusNotFound, "job not found")
+	case errors.Is(err, ErrJobNotRetryable):
+		writeErr(w, http.StatusConflict, "job is not failed or needs-attention")
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "retrying"})
 	}
 }
