@@ -7,6 +7,7 @@ import DirPicker from './DirPicker';
 export default function QuickSpawn({ onCreated }: { onCreated: (id: string) => void }) {
   const [prompt, setPrompt] = useState('');
   const [dir, setDir] = useState<string | null>(null);
+  const [supervised, setSupervised] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -16,7 +17,7 @@ export default function QuickSpawn({ onCreated }: { onCreated: (id: string) => v
     if (!dir) { setErr('choose a directory to launch the agent from'); return; }
     setBusy(true);
     try {
-      const s = await spawn({ prompt, cwd: dir });
+      const s = await spawn({ prompt, cwd: dir, supervised });
       setPrompt('');
       onCreated(s.id);
     } catch (e) {
@@ -36,6 +37,10 @@ export default function QuickSpawn({ onCreated }: { onCreated: (id: string) => v
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
       />
       <DirPicker value={dir} onChange={setDir} />
+        <label className="supervised-toggle">
+          <input type="checkbox" checked={supervised} onChange={(e) => setSupervised((e.target as HTMLInputElement).checked)} />
+          Supervised (prompts for risky tools — answer in the inbox)
+        </label>
       {err && <p className="warn">{err}</p>}
       <button disabled={busy || !dir} onClick={submit}>Launch agent</button>
     </div>

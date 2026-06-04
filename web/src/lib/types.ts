@@ -35,4 +35,5 @@ export interface Session {
   updated_at: string;
   events: AgentEvent[] | null;
   last_pane_excerpt: string;
+  supervised: boolean;
 }

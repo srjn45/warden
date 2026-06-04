@@ -6,7 +6,7 @@ function sess(p: Partial<Session>): Session {
   return {
     id: '', type: '', ticket: '', tmux_session: '', repo: '', worktree: '',
     branch: '', pr: '', prompt: '', workdir: '', subject: '', status: 'idle',
-    pid: 0, created_at: '', updated_at: '', events: null, last_pane_excerpt: '',
+    pid: 0, created_at: '', updated_at: '', events: null, last_pane_excerpt: '', supervised: false,
     ...p,
   };
 }

@@ -8,6 +8,7 @@ export default function NewAgentModal({ onClose, onCreated }: {
 }) {
   const [prompt, setPrompt] = useState('');
   const [dir, setDir] = useState<string | null>(null);
+  const [supervised, setSupervised] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -17,7 +18,7 @@ export default function NewAgentModal({ onClose, onCreated }: {
     if (!dir) { setErr('choose a directory to launch the agent from'); return; }
     setBusy(true);
     try {
-      const s = await spawn({ prompt, cwd: dir });
+      const s = await spawn({ prompt, cwd: dir, supervised });
       onCreated(s.id);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : (e instanceof Error ? e.message : String(e)));
@@ -44,6 +45,10 @@ export default function NewAgentModal({ onClose, onCreated }: {
           <DirPicker value={dir} onChange={setDir} />
         </label>
         <p className="muted">The type label is assigned automatically once it starts.</p>
+        <label className="supervised-toggle">
+          <input type="checkbox" checked={supervised} onChange={(e) => setSupervised((e.target as HTMLInputElement).checked)} />
+          Supervised (prompts for risky tools — answer in the inbox)
+        </label>
         {err && <p className="warn">{err}</p>}
         <div className="actions">
           <button disabled={busy || !dir} onClick={submit}>Create</button>

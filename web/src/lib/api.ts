@@ -16,6 +16,7 @@ export interface SpawnParams {
   worktree?: boolean;
   prompt?: string;
   cwd?: string;
+  supervised?: boolean;
 }
 
 async function parse<T>(res: Response): Promise<T> {
@@ -46,7 +47,7 @@ export async function spawn(p: SpawnParams): Promise<Session> {
     body: JSON.stringify({
       type: p.type ?? '', ticket: p.ticket ?? '', repo: p.repo ?? '',
       branch: p.branch ?? '', pr: p.pr ?? '', worktree: !!p.worktree,
-      prompt: p.prompt ?? '', cwd: p.cwd ?? '',
+      prompt: p.prompt ?? '', cwd: p.cwd ?? '', supervised: !!p.supervised,
     }),
   }));
 }

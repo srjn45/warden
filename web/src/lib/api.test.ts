@@ -27,7 +27,7 @@ describe('api', () => {
     expect(url).toBe('/spawn');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({
-      type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false, prompt: '', cwd: '',
+      type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false, prompt: '', cwd: '', supervised: false,
     });
   });
 
@@ -36,7 +36,7 @@ describe('api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await spawn({ prompt: 'do research on X' });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-      type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false, prompt: 'do research on X', cwd: '',
+      type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false, prompt: 'do research on X', cwd: '', supervised: false,
     });
   });
 
@@ -109,5 +109,13 @@ describe('api', () => {
     expect(f).toHaveBeenCalledWith('/sessions/a1/approve', expect.objectContaining({ method: 'POST' }));
     const body = JSON.parse((f.mock.calls[0][1] as any).body);
     expect(body).toEqual({ option: 2, fingerprint: 'ff' });
+  });
+
+  it('spawn sends supervised', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'a1' }) });
+    globalThis.fetch = f as any;
+    await spawn({ prompt: 'x', supervised: true });
+    const body = JSON.parse((f.mock.calls[0][1] as any).body);
+    expect(body.supervised).toBe(true);
   });
 });
