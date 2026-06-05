@@ -3,6 +3,7 @@ package digest
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -19,7 +20,7 @@ func (n ClaudeNarrator) Summarize(ctx context.Context, f Facts) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return cleanLine(out), nil
+	return stripPreamble(cleanLine(out)), nil
 }
 
 // NarratorPrompt builds the compact prompt from deterministic facts.
@@ -43,4 +44,39 @@ func NarratorPrompt(f Facts) string {
 func cleanLine(out string) string {
 	s := strings.TrimSpace(out)
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// preamblePrefixes are leading meta-fragments the model sometimes prepends
+// despite being told to reply with ONLY the summary (e.g. "This is a
+// summarization task.", "No skill applies.", "Based on the agent's last
+// message:"). Each matches only at the very start of the (whitespace-collapsed)
+// reply; stripPreamble peels them off until the real summary remains.
+var preamblePrefixes = []*regexp.Regexp{
+	regexp.MustCompile(`(?is)^this is (?:just |simply |really )?an?\b[^.:]*\btask\b[^.:]*[.:]\s*`),
+	regexp.MustCompile(`(?is)^no skills? (?:applies?|apply|are needed|is needed|needed)[^.]*\.\s*`),
+	regexp.MustCompile(`(?is)^based on [^.:]*:\s*`),
+	regexp.MustCompile(`(?is)^here(?:'s| is)[^.:]*:\s*`),
+}
+
+// stripPreamble removes leading model preamble. It is conservative: if peeling
+// would leave nothing, it returns the original text unchanged.
+func stripPreamble(s string) string {
+	out := strings.TrimSpace(s)
+	for {
+		matched := false
+		for _, re := range preamblePrefixes {
+			if loc := re.FindStringIndex(out); loc != nil {
+				out = strings.TrimSpace(out[loc[1]:])
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			break
+		}
+	}
+	if out == "" {
+		return strings.TrimSpace(s)
+	}
+	return out
 }

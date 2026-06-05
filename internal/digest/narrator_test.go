@@ -36,6 +36,65 @@ func TestClaudeNarratorSummarize(t *testing.T) {
 	}
 }
 
+func TestStripPreamble(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			"this-is-task + based-on-colon (live leak)",
+			"This is a summarization task. Based on the agent's last message: The agent read the handoff doc and got synced.",
+			"The agent read the handoff doc and got synced.",
+		},
+		{
+			"this-is-just-task + no-skill (live leak)",
+			"This is just a summarization task. No skill applies. The agent read the handoff doc and got synced on the work.",
+			"The agent read the handoff doc and got synced on the work.",
+		},
+		{
+			"here is the summary colon",
+			"Here is the summary: Refactored the parser and added tests.",
+			"Refactored the parser and added tests.",
+		},
+		{
+			"no preamble — untouched",
+			"Refactored the parser and added tests.",
+			"Refactored the parser and added tests.",
+		},
+		{
+			"legit sentence mentioning a task is kept",
+			"Completed the migration task and updated the docs.",
+			"Completed the migration task and updated the docs.",
+		},
+		{
+			"strip-only result would be empty — fall back to original",
+			"This is a summarization task.",
+			"This is a summarization task.",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := stripPreamble(c.in); got != c.want {
+				t.Errorf("stripPreamble(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestClaudeNarratorSummarizeStripsPreamble(t *testing.T) {
+	n := ClaudeNarrator{Run: func(_ context.Context, _ string) (string, error) {
+		return "This is a summarization task. Based on the agent's last message: It fixed the bug.\n", nil
+	}}
+	got, err := n.Summarize(context.Background(), Facts{})
+	if err != nil {
+		t.Fatalf("Summarize err: %v", err)
+	}
+	if got != "It fixed the bug." {
+		t.Errorf("Summarize = %q, want preamble stripped", got)
+	}
+}
+
 func TestClaudeNarratorSummarizeError(t *testing.T) {
 	n := ClaudeNarrator{Run: func(_ context.Context, _ string) (string, error) {
 		return "x", errors.New("boom")
