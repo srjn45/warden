@@ -1,0 +1,15 @@
+{"type":"last-prompt","prompt":"ignore me"}
+{"type":"custom-title","title":"x"}
+{"type":"attachment","data":"x"}
+{"type":"file-history-snapshot","snapshot":{}}
+{"type":"user","message":{"role":"user","content":"Implement the foo feature"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Sure, starting now."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"readonly.go"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"a.go","content":"package a"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"a.go","old_string":"a","new_string":"b"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"MultiEdit","input":{"file_path":"b.go","edits":[]}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"NotebookEdit","input":{"notebook_path":"nb.ipynb","new_source":"x"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"go test ./..."}}]}}
+{"type":"system","subtype":"x"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All done — added a.go, b.go, nb.ipynb."}]}}

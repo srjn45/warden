@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"Fix the bug"}}
+{not valid json at all
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"fix.go"
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fixed it."}]}}
