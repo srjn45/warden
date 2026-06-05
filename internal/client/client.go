@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/approval"
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -224,6 +225,16 @@ func (c *Client) Approvals(ctx context.Context) (bool, []approval.View, error) {
 func (c *Client) Approve(ctx context.Context, id string, option int, fingerprint string) error {
 	body := map[string]any{"option": option, "fingerprint": fingerprint}
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/approve", body, nil)
+}
+
+// Digest fetches an agent's completion digest. Uses longTimeout because the
+// daemon's narrator (claude -p) dominates latency.
+func (c *Client) Digest(ctx context.Context, id string) (*digest.Digest, error) {
+	var d digest.Digest
+	if err := c.doT(ctx, longTimeout, http.MethodGet, "/sessions/"+id+"/digest", nil, &d); err != nil {
+		return nil, err
+	}
+	return &d, nil
 }
 
 // DirEntry is one subdirectory in a DirListing.
