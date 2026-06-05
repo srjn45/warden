@@ -13,7 +13,9 @@ import (
 
 	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
+	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeNarrator struct {
@@ -138,4 +140,32 @@ func TestDigestUnknownSession(t *testing.T) {
 	if code != http.StatusNotFound {
 		t.Errorf("code = %d, want 404", code)
 	}
+}
+
+// TestHandleDigestServesPipelineSnapshot verifies that a reaped pipeline job's
+// session returns the stored snapshot instead of attempting a live rebuild.
+func TestHandleDigestServesPipelineSnapshot(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	require.NoError(t, err)
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusDone,
+		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone,
+			Digest: &digest.Digest{Summary: "frozen snapshot", Turns: 7}}},
+	})
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{
+		ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusDone,
+	})
+	fl := &fakeLife{}
+	srv := &Server{store: fs, life: fl, exec: NewExecutor(ps, fs, fl, nil, func() {})}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/sessions/p-a/digest")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var got digest.Digest
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	require.Equal(t, "frozen snapshot", got.Summary)
+	require.Equal(t, 7, got.Turns)
 }

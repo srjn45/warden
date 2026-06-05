@@ -26,6 +26,12 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if s.exec != nil && sess.PipelineID != "" && sess.JobID != "" {
+		if snap := s.exec.JobDigest(sess.PipelineID, sess.JobID); snap != nil {
+			writeJSON(w, http.StatusOK, *snap)
+			return
+		}
+	}
 	d := s.buildDigest(r.Context(), sess)
 	writeJSON(w, http.StatusOK, d)
 }
