@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -34,6 +35,7 @@ type spawnArgs struct {
 	Prompt     string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
 	Dir        string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
 	Supervised bool   `json:"supervised,omitempty" jsonschema:"supervised mode: launch with --permission-mode acceptEdits so risky tools prompt (answerable in the approvals inbox) instead of bypassing all permissions"`
+	Force      bool   `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -130,7 +132,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "spawn_agent",
-		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; buildkite-debug/test-run/env-test run in the repo; analysis/spike take an optional worktree). Launches claude --dangerously-skip-permissions by default; set supervised=true for --permission-mode acceptEdits (risky tools prompt → answerable in the approvals inbox).",
+		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; buildkite-debug/test-run/env-test run in the repo; analysis/spike take an optional worktree). Launches claude --dangerously-skip-permissions by default; set supervised=true for --permission-mode acceptEdits (risky tools prompt → answerable in the approvals inbox). If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a spawnArgs) (*mcpsdk.CallToolResult, any, error) {
 		cwd := a.Dir
 		if cwd == "" {
@@ -143,9 +145,14 @@ func NewServer(daemonBase string) *Server {
 		sess, err := s.cl.Spawn(ctx, client.SpawnParams{
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree,
-			Prompt: a.Prompt, Cwd: cwd, Supervised: a.Supervised,
+			Prompt: a.Prompt, Cwd: cwd, Supervised: a.Supervised, Force: a.Force,
 		})
 		if err != nil {
+			var cre *client.ErrConfirmationRequired
+			if errors.As(err, &cre) {
+				return textResult("memory-pressure gate: " + cre.Verdict.Reason +
+					"\nRe-call spawn_agent with force=true to spawn anyway."), nil, nil
+			}
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		res, err := jsonResult(sess)
