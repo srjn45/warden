@@ -340,6 +340,29 @@ func TestEmitReapsAgentAndSnapshotsDigest(t *testing.T) {
 	}
 }
 
+// A reaped (terminated) done job's session transition must not flip the job off `done`.
+// After Terminate, the poller observes the session die and fires OnTransition with
+// errored or orphaned — the existing status guards must leave JobDone untouched.
+func TestOnTransitionLeavesDoneJobUntouched(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusDone,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "x", Status: pipeline.JobDone, SessionID: "p-a"}},
+	})
+	e := NewExecutor(ps, newFakeStore(), &fakeLife{}, nil, func() {})
+	sess := &store.Session{ID: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusErrored}
+	// Simulate the poller observing the reaped session die — both terminal transitions.
+	e.OnTransition(sess, store.StatusWorking, store.StatusErrored)
+	e.OnTransition(sess, store.StatusWorking, store.StatusOrphaned)
+	p, _ := ps.Get("p")
+	if got := p.Job("a").Status; got != pipeline.JobDone {
+		t.Fatalf("done job must stay done after reaped-session transition, got %s", got)
+	}
+}
+
 // With keep-done enabled, the agent is left alive (no Terminate, no snapshot).
 func TestEmitKeepDoneSkipsReap(t *testing.T) {
 	ps, err := pipeline.NewStore(t.TempDir())
