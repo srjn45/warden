@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, retryJob } from './api';
+import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -142,6 +142,22 @@ describe('pipelines api', () => {
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe('/pipelines/demo/cancel');
     expect(opts.method).toBe('POST');
+  });
+
+  it('deletePipeline DELETEs the pipeline endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'deleted' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await deletePipeline('demo');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('/pipelines/demo');
+    expect(opts.method).toBe('DELETE');
+  });
+
+  it('deletePipeline surfaces a 409 (live jobs) as ApiError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      jsonResponse({ error: 'pipeline has live jobs — cancel it first' }, 409),
+    ));
+    await expect(deletePipeline('demo')).rejects.toBeInstanceOf(ApiError);
   });
 
   it('retryJob POSTs to the job retry endpoint', async () => {

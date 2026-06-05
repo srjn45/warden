@@ -134,6 +134,12 @@ export async function cancelPipeline(id: string): Promise<void> {
   await parse<unknown>(await fetch(`/pipelines/${encodeURIComponent(id)}/cancel`, { method: 'POST' }));
 }
 
+// deletePipeline removes a pipeline's record. The daemon refuses with 409 while
+// any job is still live (running / needs_attention) — surfaced as an ApiError.
+export async function deletePipeline(id: string): Promise<void> {
+  await parse<unknown>(await fetch(`/pipelines/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+}
+
 export async function retryJob(pid: string, job: string): Promise<void> {
   await parse<unknown>(await fetch(
     `/pipelines/${encodeURIComponent(pid)}/jobs/${encodeURIComponent(job)}/retry`,

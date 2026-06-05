@@ -69,6 +69,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "closed " + abbrevHome(it.dir)
 			}
 			return m, nil
+		case "D":
+			it := itemAt(m.items(), m.cursor)
+			if it.pipeline != nil {
+				if pipelineHasLiveJobs(it.pipeline) {
+					m.status = "cancel " + it.pipeline.ID + " first (it has live jobs)"
+					return m, nil
+				}
+				m.pendingDelete = it.pipeline.ID
+				m.mode = modeConfirmDeletePipeline
+			}
+			return m, nil
 		case "a":
 			it := itemAt(m.items(), m.cursor)
 			if it.session != nil {
@@ -143,6 +154,26 @@ func (m Model) updateConfirmSpawn(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 		m.spawnVerdict = ""
 		m.status = "spawn cancelled"
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) updateConfirmDeletePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	pid := m.pendingDelete
+	switch msg.String() {
+	case "esc", "n", "N":
+		m.mode = modeNormal
+		m.pendingDelete = ""
+		m.status = ""
+		return m, nil
+	case "y", "Y":
+		m.mode = modeNormal
+		m.pendingDelete = ""
+		if pid != "" {
+			m.status = "deleting " + pid
+			return m, deletePipelineCmd(m.api, pid)
+		}
 		return m, nil
 	}
 	return m, nil

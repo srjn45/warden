@@ -28,6 +28,31 @@ func TestListPaneGroupsBySourceDir(t *testing.T) {
 	require.Equal(t, []string{"b1", "b2", "a1"}, ids, "cockpit list pane stores grouped order")
 }
 
+func TestListPaneDeletePipelineConfirmsThenDeletes(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+	m = lstep(m, pipelinesMsg{pipelines: donePipeline()})
+	require.NotNil(t, itemAt(m.items(), m.cursor).pipeline)
+	m = lstep(m, key("D"))
+	require.Equal(t, modeConfirmDeletePipeline, m.mode)
+	_, cmd := m.Update(key("y"))
+	require.NotNil(t, cmd)
+	cmd() // drives fakeAPI.PipelineDelete
+	require.Equal(t, "demo", f.deletedPipe)
+}
+
+func TestListPaneDeletePipelineRefusedWhenLive(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+	m = lstep(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{
+		{ID: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}},
+	}})
+	m = lstep(m, key("D"))
+	require.NotEqual(t, modeConfirmDeletePipeline, m.mode)
+	require.Empty(t, f.deletedPipe)
+	require.Contains(t, m.status, "cancel")
+}
+
 func TestListPaneSpawnModal(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9")
 	m = lstep(m, key("n"))

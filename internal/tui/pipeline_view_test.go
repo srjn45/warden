@@ -19,3 +19,26 @@ func TestRenderPipeline(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderPipelineFooterMentionsDelete(t *testing.T) {
+	p := &pipeline.Pipeline{ID: "demo", Status: pipeline.StatusCanceled, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}}
+	out := renderPipeline(p, 60, 20)
+	if !strings.Contains(out, "D delete") {
+		t.Fatalf("renderPipeline footer should mention D delete, got:\n%s", out)
+	}
+}
+
+func TestPipelineHasLiveJobs(t *testing.T) {
+	live := &pipeline.Pipeline{Jobs: []pipeline.Job{{Status: pipeline.JobDone}, {Status: pipeline.JobRunning}}}
+	if !pipelineHasLiveJobs(live) {
+		t.Fatal("a running job should count as live")
+	}
+	attn := &pipeline.Pipeline{Jobs: []pipeline.Job{{Status: pipeline.JobNeedsAttention}}}
+	if !pipelineHasLiveJobs(attn) {
+		t.Fatal("a needs_attention job should count as live")
+	}
+	stopped := &pipeline.Pipeline{Jobs: []pipeline.Job{{Status: pipeline.JobDone}, {Status: pipeline.JobSkipped}, {Status: pipeline.JobFailed}}}
+	if pipelineHasLiveJobs(stopped) {
+		t.Fatal("done/skipped/failed jobs are not live")
+	}
+}

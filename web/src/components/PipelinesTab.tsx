@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Pipeline, PipelineJob } from '../lib/types';
-import { listPipelines, cancelPipeline, retryJob } from '../lib/api';
-import { jobStatusClass, isJobRetryable } from '../lib/pipelines';
+import { listPipelines, cancelPipeline, deletePipeline, retryJob, ApiError } from '../lib/api';
+import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs } from '../lib/pipelines';
 
 // PipelinesTab polls /pipelines while mounted (the SSE channel carries sessions,
 // not pipelines). Jobs are sessions, so "Open terminal" reuses onSelect to pin
@@ -23,6 +23,16 @@ export default function PipelinesTab({ onSelect }: { onSelect: (id: string) => v
   const drawerJob: PipelineJob | null = selected && jobId
     ? selected.jobs.find((j) => j.id === jobId) ?? null
     : null;
+
+  const onDelete = (id: string) => {
+    if (!window.confirm(`Delete pipeline "${id}"? This removes its record permanently.`)) return;
+    deletePipeline(id)
+      .then(() => { setSelId(null); setJobId(null); return listPipelines().then(setPipelines); })
+      .catch((e) => {
+        const msg = e instanceof ApiError ? e.message : 'delete failed';
+        window.alert(`Could not delete ${id}: ${msg}`);
+      });
+  };
 
   return (
     <div className="pipelines">
@@ -47,6 +57,9 @@ export default function PipelinesTab({ onSelect }: { onSelect: (id: string) => v
           <header className="pipe-head">
             <h2>{selected.id} <span className={`pipe-status st-${selected.status}`}>{selected.status}</span></h2>
             <button className="btn" onClick={() => cancelPipeline(selected.id).catch(() => { /* ignore */ })}>Cancel</button>
+            {!pipelineHasLiveJobs(selected) && (
+              <button className="btn" onClick={() => onDelete(selected.id)}>Delete</button>
+            )}
           </header>
           <div className="job-grid">
             {selected.jobs.map((j) => (

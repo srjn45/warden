@@ -129,6 +129,8 @@ func (m Model) View() string {
 		footer = stError.Render("Kill & remove " + m.selectedID() + "? y / N")
 	case modeConfirmSpawn:
 		footer = stAttention.Render("⚠ memory pressure: " + m.spawnVerdict + "  [f] spawn anyway  [esc] cancel")
+	case modeConfirmDeletePipeline:
+		footer = stError.Render("Delete pipeline " + m.pendingDelete + "? y / N")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }
@@ -145,6 +147,7 @@ func helpText() string {
 		"  r            retry a failed/needs-attention pipeline job\n" +
 		"  d            generate completion digest for the selected agent\n" +
 		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
+		"  D            delete a stopped pipeline's record (confirm y/N)\n" +
 		"  ?            toggle this help\n" +
 		"  q            quit\n"
 }

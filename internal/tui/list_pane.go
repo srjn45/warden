@@ -40,6 +40,7 @@ type listPaneModel struct {
 	pendingPrompt string
 	pendingDir    string
 	spawnVerdict  string // reason text for the confirm prompt; "" when not confirming
+	pendingDelete string // pid awaiting delete confirmation; "" when not confirming
 	w, h          int
 	ready         bool
 }
@@ -328,6 +329,22 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "spawn cancelled"
 		}
 		return m, nil
+	case modeConfirmDeletePipeline:
+		switch msg.String() {
+		case "esc", "n", "N":
+			m.mode = modeNormal
+			m.pendingDelete = ""
+			m.status = ""
+		case "y", "Y":
+			pid := m.pendingDelete
+			m.mode = modeNormal
+			m.pendingDelete = ""
+			if pid != "" {
+				m.status = "deleting " + pid
+				return m, deletePipelineCmd(m.api, pid)
+			}
+		}
+		return m, nil
 	case modeHelp:
 		m.mode = modeNormal
 		return m, nil
@@ -378,6 +395,16 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case it.dir != "":
 			delete(m.openedDirs, it.dir)
 			m.status = "closed " + abbrevHome(it.dir)
+		}
+	case "D":
+		it := itemAt(m.items(), m.cursor)
+		if it.pipeline != nil {
+			if pipelineHasLiveJobs(it.pipeline) {
+				m.status = "cancel " + it.pipeline.ID + " first (it has live jobs)"
+				return m, nil
+			}
+			m.pendingDelete = it.pipeline.ID
+			m.mode = modeConfirmDeletePipeline
 		}
 	case "r":
 		it := itemAt(m.items(), m.cursor)
@@ -440,6 +467,8 @@ func (m listPaneModel) View() string {
 		footer = stError.Render("Kill & remove " + m.selectedID() + "? y / N")
 	case modeConfirmSpawn:
 		footer = stAttention.Render("⚠ memory pressure: " + m.spawnVerdict + "  [f] spawn anyway  [esc] cancel")
+	case modeConfirmDeletePipeline:
+		footer = stError.Render("Delete pipeline " + m.pendingDelete + "? y / N")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }

@@ -32,6 +32,7 @@ type api interface {
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
 	PipelineRetry(ctx context.Context, pid, job string) error
 	PipelineCancel(ctx context.Context, pid string) error
+	PipelineDelete(ctx context.Context, pid string) error
 	Digest(ctx context.Context, id string) (*digest.Digest, error)
 	Pressure(ctx context.Context) (client.PressureStatus, error)
 }
@@ -44,9 +45,10 @@ const (
 	modeSendMsg
 	modeConfirmKill
 	modeHelp
-	modeOpenDir      // path input for `o`
-	modeNewAgentDir  // dir-override sub-state of modeNewAgent
-	modeConfirmSpawn // memory-pressure confirm before spawning
+	modeOpenDir               // path input for `o`
+	modeNewAgentDir           // dir-override sub-state of modeNewAgent
+	modeConfirmSpawn          // memory-pressure confirm before spawning
+	modeConfirmDeletePipeline // y/N confirm before deleting a stopped pipeline
 )
 
 // Model is the Bubble Tea model. Update is a pure reducer over messages.
@@ -82,6 +84,7 @@ type Model struct {
 	pendingPrompt string
 	pendingDir    string
 	spawnVerdict  string // reason text for the confirm prompt; "" when not confirming
+	pendingDelete string // pid awaiting delete confirmation; "" when not confirming
 }
 
 // New builds an initial model bound to the given api client.
@@ -314,6 +317,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeConfirmSpawn {
 			return m.updateConfirmSpawn(msg)
+		}
+		if m.mode == modeConfirmDeletePipeline {
+			return m.updateConfirmDeletePipeline(msg)
 		}
 		if m.mode == modeNormal && m.apprFocused {
 			switch msg.String() {

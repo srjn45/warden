@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { jobStatusClass, isJobRetryable } from './pipelines';
+import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs } from './pipelines';
+import type { Pipeline, PipelineJobStatus } from './types';
+
+function pipe(statuses: PipelineJobStatus[]): Pipeline {
+  return {
+    id: 'demo',
+    name: 'demo',
+    repo: '',
+    status: 'running',
+    jobs: statuses.map((status, i) => ({ id: `j${i}`, status })),
+  } as Pipeline;
+}
 
 describe('pipelines helpers', () => {
   it('jobStatusClass maps each status to a distinct class', () => {
@@ -15,5 +26,15 @@ describe('pipelines helpers', () => {
     expect(isJobRetryable('running')).toBe(false);
     expect(isJobRetryable('pending')).toBe(false);
     expect(isJobRetryable('done')).toBe(false);
+  });
+
+  it('pipelineHasLiveJobs is true when any job is running or needs_attention', () => {
+    expect(pipelineHasLiveJobs(pipe(['done', 'running']))).toBe(true);
+    expect(pipelineHasLiveJobs(pipe(['needs_attention']))).toBe(true);
+  });
+
+  it('pipelineHasLiveJobs is false when all jobs are stopped', () => {
+    expect(pipelineHasLiveJobs(pipe(['done', 'skipped', 'failed']))).toBe(false);
+    expect(pipelineHasLiveJobs(pipe([]))).toBe(false);
   });
 });

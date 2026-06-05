@@ -39,6 +39,8 @@ type fakeAPI struct {
 	pipelines   []*pipeline.Pipeline
 	retried     string // "<pid>/<job>" of the last PipelineRetry
 	canceled    string // pid of the last PipelineCancel
+	deletedPipe string // pid of the last PipelineDelete
+	deletePErr  error  // error PipelineDelete returns (e.g. simulating a 409)
 	digest      *digest.Digest
 	digestErr   error
 	pressure    client.PressureStatus
@@ -84,6 +86,13 @@ func (f *fakeAPI) PipelineRetry(_ context.Context, pid, job string) error {
 }
 func (f *fakeAPI) PipelineCancel(_ context.Context, pid string) error {
 	f.canceled = pid
+	return nil
+}
+func (f *fakeAPI) PipelineDelete(_ context.Context, pid string) error {
+	if f.deletePErr != nil {
+		return f.deletePErr
+	}
+	f.deletedPipe = pid
 	return nil
 }
 func (f *fakeAPI) Digest(_ context.Context, _ string) (*digest.Digest, error) {
@@ -451,4 +460,57 @@ func TestPipelineActionMsgRefetches(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("a pipeline action should trigger a refetch cmd")
 	}
+}
+
+// donePipeline returns a stopped pipeline (no live jobs) selectable at cursor 0.
+func donePipeline() []*pipeline.Pipeline {
+	return []*pipeline.Pipeline{
+		{ID: "demo", Name: "demo", Status: pipeline.StatusCanceled, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
+	}
+}
+
+func TestPipelineDeleteKeyConfirmsThenDeletes(t *testing.T) {
+	f := &fakeAPI{}
+	m := New(f)
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, pipelinesMsg{pipelines: donePipeline()})
+	require.NotNil(t, itemAt(m.items(), m.cursor).pipeline, "pipeline header should be selected at cursor 0")
+	m = step(m, key("D"))
+	require.Equal(t, modeConfirmDeletePipeline, m.mode)
+	m, _ = submit(m, key("y")) // confirm
+	require.Equal(t, "demo", f.deletedPipe)
+	require.Equal(t, modeNormal, m.mode)
+}
+
+func TestPipelineDeleteRefusedWhenLiveJobs(t *testing.T) {
+	f := &fakeAPI{}
+	m := New(f)
+	m = step(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{
+		{ID: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}},
+	}})
+	m = step(m, key("D"))
+	require.NotEqual(t, modeConfirmDeletePipeline, m.mode, "must not enter confirm while a job is live")
+	require.Empty(t, f.deletedPipe)
+	require.Contains(t, m.status, "cancel")
+}
+
+func TestPipelineDeleteEscCancels(t *testing.T) {
+	f := &fakeAPI{}
+	m := New(f)
+	m = step(m, pipelinesMsg{pipelines: donePipeline()})
+	m = step(m, key("D"))
+	require.Equal(t, modeConfirmDeletePipeline, m.mode)
+	m = step(m, key("esc"))
+	require.Equal(t, modeNormal, m.mode)
+	require.Empty(t, f.deletedPipe)
+}
+
+// A non-pipeline selection (an agent) must not trigger pipeline delete.
+func TestPipelineDeleteIgnoredOnAgentRow(t *testing.T) {
+	f := &fakeAPI{}
+	m := New(f)
+	m = step(m, sessionsMsg{sessions: threeSessions()}) // selected agent "a"
+	m = step(m, key("D"))
+	require.NotEqual(t, modeConfirmDeletePipeline, m.mode)
+	require.Empty(t, f.deletedPipe)
 }

@@ -232,6 +232,12 @@ func cancelPipelineCmd(a api, pid string) tea.Cmd {
 	}
 }
 
+func deletePipelineCmd(a api, pid string) tea.Cmd {
+	return func() tea.Msg {
+		return pipelineActionMsg{err: a.PipelineDelete(context.Background(), pid)}
+	}
+}
+
 func retryJobCmd(a api, pid, job string) tea.Cmd {
 	return func() tea.Msg {
 		return pipelineActionMsg{err: a.PipelineRetry(context.Background(), pid, job)}
