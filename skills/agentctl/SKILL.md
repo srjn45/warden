@@ -92,6 +92,43 @@ The per-agent tools take a `ticket` argument — the agent's **id** as shown by
 | restore a lost/orphaned agent | `agentctl restore <id>` |
 | adopt an existing session | `agentctl adopt [--session-id <uuid>] [--dir <path>]` |
 | attach interactively | `agentctl attach <id>` |
+| rotate yourself into a fresh agent (free your context) | `/agentctl rotate` — see "Rotating a long-running agent" below (self only) |
+
+## Rotating a long-running agent into a fresh one (self-rotation)
+
+When **you yourself** are a long-running agent whose context has grown large and the
+user runs `/agentctl rotate`, hand your work to a fresh successor in the same
+workspace, then retire yourself. This bounds context and returns memory to the OS
+without losing the task. **Self only** — you rotate the agent you are running in
+(your id is in `$AGENTCTL_SESSION_ID`); there is no remote rotate.
+
+Two phases, with a human review gate between them:
+
+1. **Prepare (you do this directly — you have your own context).**
+   - Write a **handoff file** in your working directory (e.g.
+     `./.agentctl/rotate-handoff.md`) capturing what a fresh agent needs to
+     *continue*: the goal, current working-tree state (branch, committed vs.
+     uncommitted), key decisions and approaches already ruled out, precise next
+     steps, and pointers to the relevant files.
+   - Compose a one-paragraph **resume prompt** — the successor's initial task.
+   - Show the user the handoff file path and the resume prompt, and **stop**. Let
+     them edit the file and confirm before you go further.
+
+2. **Commit (only after the user says go):**
+
+   ```sh
+   agentctl rotate --confirm \
+     --resume-file ./.agentctl/rotate-handoff.md \
+     --resume-prompt "<the resume prompt>"
+   ```
+
+   This spawns the successor in your exact working directory (same worktree, same
+   supervised mode), prints the new agent id, then retires you. Nothing
+   irreversible happens without `--confirm`.
+
+Do **not** spawn the successor or terminate yourself by hand — `agentctl rotate`
+inherits your launch config and orders spawn-before-reap safely (a failed spawn
+leaves you running, so no work is stranded).
 
 ---
 
