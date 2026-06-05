@@ -341,6 +341,37 @@ func (l *Lifecycle) transcriptPath(sess *store.Session) string {
 	return ""
 }
 
+// TranscriptPath is the exported accessor the daemon uses to resolve an agent's
+// transcript file (see transcriptPath). Returns "" when unresolved/disabled.
+func (l *Lifecycle) TranscriptPath(sess *store.Session) string {
+	return l.transcriptPath(sess)
+}
+
+// GitBranch returns the current branch name for dir, or "" on any error /
+// non-repo. Best-effort: used only to annotate a digest.
+func (l *Lifecycle) GitBranch(ctx context.Context, dir string) string {
+	out, err := l.run.Run(ctx, dir, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// GitNumstat returns raw `git diff --numstat` output for dir, or "" on error.
+func (l *Lifecycle) GitNumstat(ctx context.Context, dir string) string {
+	out, err := l.run.Run(ctx, dir, "git", "diff", "--numstat")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// RunClaudeP exposes the bounded headless `claude -p` runner (the same plumbing
+// Classify/Summarize use) so the digest Narrator can reuse it.
+func (l *Lifecycle) RunClaudeP(ctx context.Context, arg string) (string, error) {
+	return l.runClaudeP(ctx, arg)
+}
+
 // recentActivity returns recent conversation text: the tail of the agent's
 // transcript file (by pinned session id or newest .jsonl), else the tmux pane.
 func (l *Lifecycle) recentActivity(ctx context.Context, sess *store.Session) string {
