@@ -120,6 +120,9 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	if out, err := run.Run(ctx, "", "tmux", "set-option", "-t", o.session, "mouse", "on"); err != nil {
 		return fmt.Errorf("tmux set-option mouse: %w: %s", err, out)
 	}
+	// Extended-keys passthrough so the master + detail Claude panes see Shift+Enter
+	// as a newline rather than submit. Best-effort: never block the cockpit on it.
+	lifecycle.EnsureExtendedKeys(ctx, run)
 	for _, b := range [][2]string{{"M-Left", "-L"}, {"M-Right", "-R"}, {"M-Up", "-U"}, {"M-Down", "-D"}} {
 		if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", b[0], "select-pane", b[1]); err != nil {
 			return fmt.Errorf("tmux bind-key %s: %w: %s", b[0], err, out)

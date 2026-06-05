@@ -822,6 +822,34 @@ func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 		"mouse on must follow new-session")
 }
 
+func TestSpawnEnablesExtendedKeys(t *testing.T) {
+	fr := &FakeRunner{}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err)
+	// extended-keys on lets Claude see Shift+Enter as a distinct key (newline).
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-s", "extended-keys", "on"})
+	// terminal-features extkeys appended because show-options reported none.
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"})
+}
+
+func TestSpawnDoesNotDuplicateExtkeysWhenPresent(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux show-options -s -v terminal-features": {Out: "xterm*:clipboard:extkeys"},
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err)
+	require.NotContains(t, fr.calledArgs(), []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"},
+		"extkeys already advertised must not be appended again")
+}
+
+func TestSpawnSucceedsWhenExtendedKeysSetFails(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux set-option -s extended-keys on": {Err: errors.New("boom")},
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.NoError(t, err, "extended-keys failure must not fail the spawn")
+}
+
 func TestSpawnRaisesHistoryLimitBeforeNewSession(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -g -v history-limit": {Out: "2000"},

@@ -604,7 +604,8 @@ const agentHistoryLimit = 50000
 // applies scroll-friendly options. Only new-session failing aborts the spawn;
 // option-setting failures are non-fatal so a tmux quirk never blocks a launch.
 func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string, env ...string) error {
-	l.ensureScrollback(ctx) // before new-session: the new pane inherits the limit
+	l.ensureScrollback(ctx)        // before new-session: the new pane inherits the limit
+	EnsureExtendedKeys(ctx, l.run) // so Claude sees Shift+Enter as newline, not submit
 	// -e sets AGENTCTL_SESSION_ID (+ any extra pipeline env) in the session
 	// environment so the agent's shell tools know which agent they are.
 	args := []string{"new-session", "-d", "-s", id, "-e", "AGENTCTL_SESSION_ID=" + id}
@@ -632,6 +633,21 @@ func (l *Lifecycle) ensureScrollback(ctx context.Context) {
 		}
 	}
 	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-g", "history-limit", strconv.Itoa(agentHistoryLimit))
+}
+
+// EnsureExtendedKeys turns on tmux's extended-keys passthrough (a server option)
+// so Claude running inside an agent's tmux session receives Shift+Enter as a
+// distinct CSI-u key — which Claude treats as a newline — instead of the bare CR
+// that tmux collapses Shift+Enter into when extended-keys is off (which Claude
+// treats as submit). terminal-features is appended only when extkeys is absent so
+// repeated spawns don't accumulate duplicate entries. Best-effort: a
+// keyboard-protocol quirk must never block a spawn or cockpit launch.
+func EnsureExtendedKeys(ctx context.Context, run Runner) {
+	_, _ = run.Run(ctx, "", "tmux", "set-option", "-s", "extended-keys", "on")
+	if out, err := run.Run(ctx, "", "tmux", "show-options", "-s", "-v", "terminal-features"); err == nil && strings.Contains(out, "extkeys") {
+		return // outer terminal already advertised; don't append a duplicate
+	}
+	_, _ = run.Run(ctx, "", "tmux", "set-option", "-sa", "terminal-features", "*:extkeys")
 }
 
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
