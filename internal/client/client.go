@@ -16,6 +16,7 @@ import (
 	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
+	"github.com/srajanpathak/agentctl/internal/pressure"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -26,10 +27,21 @@ var ErrDaemonDown = errors.New("daemon not running — start it with `agentctl d
 type StatusError struct {
 	Code int
 	Msg  string
+	Body []byte // raw response body (for structured 4xx payloads)
 }
 
 func (e *StatusError) Error() string {
 	return fmt.Sprintf("daemon error (%d): %s", e.Code, e.Msg)
+}
+
+// ErrConfirmationRequired is returned by Spawn when the daemon's memory-pressure
+// gate warns (HTTP 428). Retry Spawn with SpawnParams.Force = true to proceed.
+type ErrConfirmationRequired struct {
+	Verdict pressure.Verdict
+}
+
+func (e *ErrConfirmationRequired) Error() string {
+	return "spawn gate: " + e.Verdict.Reason + " — re-run with force to spawn anyway"
 }
 
 // Per-operation default deadlines, applied only when the caller's context has
@@ -95,15 +107,16 @@ func (c *Client) doT(ctx context.Context, timeout time.Duration, method, path st
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(resp.Body)
 		var e struct {
 			Error string `json:"error"`
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&e)
+		_ = json.Unmarshal(raw, &e)
 		msg := e.Error
 		if msg == "" {
 			msg = resp.Status
 		}
-		return &StatusError{Code: resp.StatusCode, Msg: msg}
+		return &StatusError{Code: resp.StatusCode, Msg: msg, Body: raw}
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
@@ -145,6 +158,7 @@ type SpawnParams struct {
 	Prompt     string
 	Cwd        string
 	Supervised bool
+	Force      bool
 }
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
@@ -153,8 +167,19 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"type": p.Type, "ticket": p.Ticket, "repo": p.Repo,
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree,
 		"prompt": p.Prompt, "cwd": p.Cwd, "supervised": p.Supervised,
+		"force": p.Force,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
+		var se *StatusError
+		if errors.As(err, &se) && se.Code == http.StatusPreconditionRequired {
+			var cr struct {
+				ConfirmationRequired bool             `json:"confirmation_required"`
+				Verdict              pressure.Verdict `json:"verdict"`
+			}
+			if json.Unmarshal(se.Body, &cr) == nil && cr.ConfirmationRequired {
+				return nil, &ErrConfirmationRequired{Verdict: cr.Verdict}
+			}
+		}
 		return nil, err
 	}
 	return &s, nil
@@ -235,6 +260,22 @@ func (c *Client) Digest(ctx context.Context, id string) (*digest.Digest, error) 
 		return nil, err
 	}
 	return &d, nil
+}
+
+// PressureStatus mirrors GET /pressure.
+type PressureStatus struct {
+	Level       int    `json:"level"`
+	LevelName   string `json:"level_name"`
+	AgentCount  int    `json:"agent_count"`
+	MaxAgents   int    `json:"max_agents"`
+	Elevated    bool   `json:"elevated"`
+	GateEnabled bool   `json:"gate_enabled"`
+}
+
+func (c *Client) Pressure(ctx context.Context) (PressureStatus, error) {
+	var p PressureStatus
+	err := c.do(ctx, http.MethodGet, "/pressure", nil, &p)
+	return p, err
 }
 
 // DirEntry is one subdirectory in a DirListing.

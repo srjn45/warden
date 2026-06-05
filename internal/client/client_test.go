@@ -382,3 +382,43 @@ func TestPipelineCreateAndEmit(t *testing.T) {
 		t.Fatalf("emit path %s", emitPath)
 	}
 }
+
+func TestSpawnConfirmationRequired(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPreconditionRequired)
+		json.NewEncoder(w).Encode(map[string]any{
+			"confirmation_required": true,
+			"verdict": map[string]any{
+				"elevated": true, "level": 2, "agent_count": 6,
+				"max_agents": 5, "reason": "pressure: warn",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	_, err := c.Spawn(context.Background(), SpawnParams{Prompt: "x", Cwd: "/tmp"})
+	var cre *ErrConfirmationRequired
+	if !errors.As(err, &cre) {
+		t.Fatalf("want ErrConfirmationRequired, got %v", err)
+	}
+	if !cre.Verdict.Elevated || cre.Verdict.Reason != "pressure: warn" {
+		t.Fatalf("verdict not carried: %+v", cre.Verdict)
+	}
+}
+
+func TestPressure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"level": 2, "level_name": "warn", "agent_count": 3,
+			"max_agents": 5, "elevated": false, "gate_enabled": true,
+		})
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	p, err := c.Pressure(context.Background())
+	if err != nil || p.LevelName != "warn" || !p.GateEnabled {
+		t.Fatalf("Pressure = (%+v,%v)", p, err)
+	}
+}
