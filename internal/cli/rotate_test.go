@@ -55,6 +55,10 @@ func TestValidateHandoff(t *testing.T) {
 	good := filepath.Join(dir, "good.md")
 	require.NoError(t, os.WriteFile(good, []byte("notes"), 0o644))
 	require.NoError(t, validateHandoff(good))
+
+	aDir := filepath.Join(dir, "subdir")
+	require.NoError(t, os.Mkdir(aDir, 0o755))
+	require.Error(t, validateHandoff(aDir), "a directory is not a valid handoff file")
 }
 
 type fakeRotator struct {

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -49,6 +51,9 @@ func validateHandoff(path string) error {
 	if err != nil {
 		return fmt.Errorf("handoff file %q: %w", path, err)
 	}
+	if info.IsDir() {
+		return fmt.Errorf("handoff file %q is a directory, not a file", path)
+	}
 	if info.Size() == 0 {
 		return fmt.Errorf("handoff file %q is empty", path)
 	}
@@ -65,7 +70,7 @@ type rotator interface {
 	Terminate(ctx context.Context, id string) error
 }
 
-// the real client must satisfy the interface.
+// Client must satisfy rotator.
 var _ rotator = (*client.Client)(nil)
 
 // runRotate performs the irreversible half: spawn the successor in the retiring
@@ -96,4 +101,57 @@ func runRotate(ctx context.Context, r rotator, selfID, successorPrompt string, o
 		return successor, fmt.Errorf("successor %s spawned, but reaping old agent %s failed: %w", successor.ID, selfID, err)
 	}
 	return successor, nil
+}
+
+func newRotateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rotate",
+		Short: "Hand this agent's work to a fresh successor in the same workspace, then retire it",
+		Long: "Run inside an agent session. Phase 1 is driven by the /agentctl skill " +
+			"(the agent writes a handoff file + resume prompt and shows you). On your " +
+			"go-ahead, run with --confirm to spawn the successor and reap this agent.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			confirm, _ := cmd.Flags().GetBool("confirm")
+			if !confirm {
+				return fmt.Errorf("rotate is irreversible; re-run with --confirm once you've reviewed the handoff")
+			}
+			resumeFile, _ := cmd.Flags().GetString("resume-file")
+			resumePrompt, _ := cmd.Flags().GetString("resume-prompt")
+			if resumeFile == "" || resumePrompt == "" {
+				return fmt.Errorf("--resume-file and --resume-prompt are both required with --confirm")
+			}
+			selfID, err := selfSessionID()
+			if err != nil {
+				return err
+			}
+			if err := validateHandoff(resumeFile); err != nil {
+				return err
+			}
+			prompt := composeSuccessorPrompt(resumePrompt, resumeFile)
+			out := cmd.OutOrStdout()
+			// Summary is printed in onSpawned — BEFORE the reap — because the reap
+			// kills this process in self-rotation. See runRotate's doc comment.
+			onSpawned := func(successor *store.Session) {
+				fmt.Fprintf(out, "rotated: successor %s spawned in %s\n", successor.ID, successor.Workdir)
+				fmt.Fprintf(out, "  handoff notes: %s\n", resumeFile)
+				fmt.Fprintf(out, "  old agent %s retiring; its transcript + the handoff file remain on disk for recovery\n", selfID)
+				fmt.Fprintf(out, "  attach to the successor: agentctl attach %s\n", successor.ID)
+			}
+			successor, err := runRotate(cmd.Context(), clientFor(cmd), selfID, prompt, onSpawned)
+			if successor == nil {
+				return err // get/spawn failed; nothing irreversible happened, summary not printed
+			}
+			// Reaching here with a non-nil err means the reap failed — which means the
+			// session was NOT killed, so this process is still alive to warn.
+			if err != nil {
+				fmt.Fprintf(out, "  WARNING: %v — verify and remove manually with: agentctl done %s\n", err, selfID)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Bool("confirm", false, "actually spawn the successor and retire this agent (required)")
+	cmd.Flags().String("resume-file", "", "path to the handoff notes file the successor should read")
+	cmd.Flags().String("resume-prompt", "", "the successor's initial task prompt")
+	return cmd
 }
