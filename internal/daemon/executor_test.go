@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -270,5 +271,24 @@ func TestOnTransitionResumeClearsNeedsAttention(t *testing.T) {
 	got, _ := ps.Get("p")
 	if got.Job("a").Status != pipeline.JobRunning {
 		t.Fatalf("resumed job should be running again, got %s", got.Job("a").Status)
+	}
+}
+
+func TestExecutorJobDigestAccessor(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "x", Status: pipeline.JobDone,
+			Digest: &digest.Digest{Summary: "snap"}}},
+	})
+	e := NewExecutor(ps, newFakeStore(), &fakeLife{}, nil, func() {})
+	if got := e.JobDigest("p", "a"); got == nil || got.Summary != "snap" {
+		t.Fatalf("want snap, got %+v", got)
+	}
+	if got := e.JobDigest("p", "missing"); got != nil {
+		t.Fatalf("want nil for unknown job, got %+v", got)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/pressure"
@@ -38,10 +39,34 @@ type Executor struct {
 	life   Lifecycle
 	cstore *ctxstore.Store
 	notify func() // signals SSE subscribers that state changed (may be nil)
+
+	digestFn func(context.Context, *store.Session) digest.Digest // nil ⇒ skip snapshot
+	keepDone bool                                                 // AGENTCTL_PIPELINE_KEEP_DONE — keep done agents alive
+	snapWG   sync.WaitGroup                                       // tracks in-flight digest snapshots (test sync)
 }
 
 func NewExecutor(ps *pipeline.Store, ss store.Store, life Lifecycle, cs *ctxstore.Store, notify func()) *Executor {
 	return &Executor{pstore: ps, sstore: ss, life: life, cstore: cs, notify: notify}
+}
+
+// SetDigestFn wires the digest builder used to snapshot a job's completion digest
+// (bound to Server.buildDigest in production). nil ⇒ no snapshot.
+func (e *Executor) SetDigestFn(fn func(context.Context, *store.Session) digest.Digest) { e.digestFn = fn }
+
+// SetKeepDoneAgents, when true, leaves a completed job's agent alive (skips the
+// reap) so its tmux pane stays attachable for debugging.
+func (e *Executor) SetKeepDoneAgents(v bool) { e.keepDone = v }
+
+// JobDigest returns a job's stored completion-digest snapshot, or nil.
+func (e *Executor) JobDigest(pid, jobID string) *digest.Digest {
+	p, err := e.pstore.Get(pid)
+	if err != nil {
+		return nil
+	}
+	if j := p.Job(jobID); j != nil {
+		return j.Digest
+	}
+	return nil
 }
 
 // Reconcile advances a pipeline: spawn newly-ready jobs, skip failed branches,
