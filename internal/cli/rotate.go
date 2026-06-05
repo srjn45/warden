@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -27,4 +28,28 @@ func buildSuccessorParams(old *store.Session, prompt string) client.SpawnParams 
 		Cwd:        old.Workdir,
 		Supervised: old.Supervised,
 	}
+}
+
+// selfSessionID returns the current agent's own id from the environment that
+// every agentctl-spawned tmux session carries (AGENTCTL_SESSION_ID, set at
+// `tmux new-session`). rotate is only meaningful from inside an agent.
+func selfSessionID() (string, error) {
+	id := os.Getenv("AGENTCTL_SESSION_ID")
+	if id == "" {
+		return "", fmt.Errorf("rotate must be run inside an agentctl agent session (AGENTCTL_SESSION_ID is unset)")
+	}
+	return id, nil
+}
+
+// validateHandoff fails when the handoff file is missing or empty — caught
+// before anything irreversible (spawn/reap) happens.
+func validateHandoff(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("handoff file %q: %w", path, err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("handoff file %q is empty", path)
+	}
+	return nil
 }
