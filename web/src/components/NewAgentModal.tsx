@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { spawn, ApiError } from '../lib/api';
+import { spawn, ApiError, ConfirmationRequiredError } from '../lib/api';
 import DirPicker from './DirPicker';
 
 export default function NewAgentModal({ onClose, onCreated }: {
@@ -11,17 +11,22 @@ export default function NewAgentModal({ onClose, onCreated }: {
   const [supervised, setSupervised] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<string | null>(null);
 
-  async function submit() {
+  async function doSpawn(force: boolean) {
     setErr(null);
     if (!prompt.trim()) { setErr('a prompt is required'); return; }
     if (!dir) { setErr('choose a directory to launch the agent from'); return; }
     setBusy(true);
     try {
-      const s = await spawn({ prompt, cwd: dir, supervised });
+      const s = await spawn({ prompt, cwd: dir, supervised, force });
       onCreated(s.id);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e instanceof Error ? e.message : String(e)));
+      if (e instanceof ConfirmationRequiredError) {
+        setConfirm(e.verdict.reason);
+      } else {
+        setErr(e instanceof ApiError ? e.message : (e instanceof Error ? e.message : String(e)));
+      }
     } finally {
       setBusy(false);
     }
@@ -38,7 +43,7 @@ export default function NewAgentModal({ onClose, onCreated }: {
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="e.g. Review the auth module for security issues and propose fixes…"
             autoFocus
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) doSpawn(false); }}
           />
         </label>
         <label>Launch directory
@@ -50,8 +55,13 @@ export default function NewAgentModal({ onClose, onCreated }: {
           Supervised (prompts for risky tools — answer in the inbox)
         </label>
         {err && <p className="warn">{err}</p>}
+        {confirm && (
+          <p className="warn">⚠ memory pressure: {confirm}. Spawn anyway?</p>
+        )}
         <div className="actions">
-          <button disabled={busy || !dir} onClick={submit}>Create</button>
+          {confirm
+            ? <button disabled={busy} onClick={() => doSpawn(true)}>Spawn anyway</button>
+            : <button disabled={busy || !dir} onClick={() => doSpawn(false)}>Create</button>}
           <button onClick={onClose}>Cancel</button>
         </div>
       </div>

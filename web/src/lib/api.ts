@@ -1,9 +1,17 @@
 import type { Session, ApprovalView, Pipeline, Digest } from './types';
+import type { Verdict, PressureStatus } from './pressure';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = 'ApiError';
+  }
+}
+
+export class ConfirmationRequiredError extends Error {
+  constructor(public verdict: Verdict) {
+    super(verdict.reason);
+    this.name = 'ConfirmationRequiredError';
   }
 }
 
@@ -17,6 +25,7 @@ export interface SpawnParams {
   prompt?: string;
   cwd?: string;
   supervised?: boolean;
+  force?: boolean;
 }
 
 async function parse<T>(res: Response): Promise<T> {
@@ -41,15 +50,21 @@ export async function getSession(id: string): Promise<Session> {
 }
 
 export async function spawn(p: SpawnParams): Promise<Session> {
-  return parse<Session>(await fetch('/spawn', {
+  const res = await fetch('/spawn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       type: p.type ?? '', ticket: p.ticket ?? '', repo: p.repo ?? '',
       branch: p.branch ?? '', pr: p.pr ?? '', worktree: !!p.worktree,
       prompt: p.prompt ?? '', cwd: p.cwd ?? '', supervised: !!p.supervised,
+      force: !!p.force,
     }),
-  }));
+  });
+  if (res.status === 428) {
+    const body = await res.json() as { verdict: Verdict };
+    throw new ConfirmationRequiredError(body.verdict);
+  }
+  return parse<Session>(res);
 }
 
 export interface DirEntry { name: string; path: string; }
@@ -91,6 +106,10 @@ export async function getOutput(id: string, lines = 200): Promise<string> {
 
 export async function getDigest(id: string): Promise<Digest> {
   return parse<Digest>(await fetch(`/sessions/${encodeURIComponent(id)}/digest`));
+}
+
+export async function getPressure(): Promise<PressureStatus> {
+  return parse<PressureStatus>(await fetch('/pressure'));
 }
 
 export async function listApprovals(): Promise<{ enabled: boolean; approvals: ApprovalView[] }> {

@@ -73,6 +73,10 @@ body { margin: 0; }
 .fleet-stats .stat.attention .stat-n { color: var(--attention); }
 .fleet-stats .stat.error .stat-n { color: var(--error); }
 .fleet-stats .stat-dirs { display: flex; flex-wrap: wrap; gap: .5rem; width: 100%; font-size: .8rem; }
+.pressure-gauge { margin-left: auto; font-size: 0.85em; padding: 2px 8px; border-radius: 4px; }
+.pressure-gauge.ok { color: var(--busy); }
+.pressure-gauge.warn { color: var(--attention); }
+.pressure-gauge.crit { color: var(--error); font-weight: 600; }
 .quick-spawn { display: flex; flex-direction: column; gap: .5rem; }
 .quick-spawn textarea { padding: .5rem; font: inherit; resize: vertical; }
 
