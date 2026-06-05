@@ -145,7 +145,7 @@ func newRotateCmd() *cobra.Command {
 			// Reaching here with a non-nil err means the reap failed — which means the
 			// session was NOT killed, so this process is still alive to warn.
 			if err != nil {
-				fmt.Fprintf(out, "  WARNING: %v — verify and remove manually with: agentctl done %s\n", err, selfID)
+				fmt.Fprintf(out, "  WARNING: %v — check `agentctl ls`; if it's still running, retry `agentctl done %s` or attach and /exit\n", err, selfID)
 			}
 			return nil
 		},
