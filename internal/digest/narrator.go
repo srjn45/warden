@@ -3,7 +3,6 @@ package digest
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -23,11 +22,17 @@ func (n ClaudeNarrator) Summarize(ctx context.Context, f Facts) (string, error) 
 	return stripPreamble(cleanLine(out)), nil
 }
 
-// NarratorPrompt builds the compact prompt from deterministic facts.
+// NarratorPrompt builds the compact prompt from deterministic facts. The
+// instruction is deliberately blunt about omitting preamble: the narrator's
+// `claude -p` inherits the project's skill/CLAUDE.md context and otherwise
+// tends to narrate its meta-reasoning ("No skill applies.", "This is a
+// summarization task.") before the actual summary.
 func NarratorPrompt(f Facts) string {
 	var b strings.Builder
-	b.WriteString("You are summarizing what a coding agent accomplished. ")
-	b.WriteString("In 1-2 sentences, plainly describe what it did. Reply with ONLY the summary.\n\n")
+	b.WriteString("Summarize, in 1-2 sentences, what a coding agent accomplished. ")
+	b.WriteString("Output ONLY the summary itself — start with the first word of the summary. ")
+	b.WriteString("Do NOT restate this request, do NOT mention skills or instructions, ")
+	b.WriteString("do NOT add any preamble, label, or quotes.\n\n")
 	if f.Task != "" {
 		fmt.Fprintf(&b, "Task: %s\n", f.Task)
 	}
@@ -46,34 +51,67 @@ func cleanLine(out string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// preamblePrefixes are leading meta-fragments the model sometimes prepends
-// despite being told to reply with ONLY the summary (e.g. "This is a
-// summarization task.", "No skill applies.", "Based on the agent's last
-// message:"). Each matches only at the very start of the (whitespace-collapsed)
-// reply; stripPreamble peels them off until the real summary remains.
-var preamblePrefixes = []*regexp.Regexp{
-	regexp.MustCompile(`(?is)^this is (?:just |simply |really )?an?\b[^.:]*\btask\b[^.:]*[.:]\s*`),
-	regexp.MustCompile(`(?is)^no skills? (?:applies?|apply|are needed|is needed|needed)[^.]*\.\s*`),
-	regexp.MustCompile(`(?is)^based on [^.:]*:\s*`),
-	regexp.MustCompile(`(?is)^here(?:'s| is)[^.:]*:\s*`),
+// metaMarkers are self-referential phrases that mark a fragment as model
+// preamble (narration about the summarization task / skills / instructions)
+// rather than a description of what the agent did. They are deliberately
+// specific so they don't fire on a genuine summary that merely mentions a
+// "task" or a "summary" the agent produced.
+var metaMarkers = []string{
+	"no skill", "skill applies", "no relevant skill", "skill is needed", "skills apply",
+	"the instruction is", "the instructions are", "per the instruction", "instruction is clear",
+	"based on the agent", "based on the last", "based on the transcript", "based on what",
+	"here is the summary", "here's the summary", "here is a summary", "here's a summary",
+	"1-2 sentence", "1 to 2 sentence", "one to two sentence", "in two sentences",
+	"what the agent did", "what this agent did", "what the agent accomplished",
+	"this is a summarization", "this is just a summarization", "summarization task",
+	"plain summary", "plain-language summary", "a plain summary",
 }
 
-// stripPreamble removes leading model preamble. It is conservative: if peeling
-// would leave nothing, it returns the original text unchanged.
+func isMetaFragment(seg string) bool {
+	l := strings.ToLower(seg)
+	for _, m := range metaMarkers {
+		if strings.Contains(l, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// sentenceEnd returns the index just past the first sentence terminator that is
+// followed by a space (i.e. an internal sentence boundary), or -1 if there is
+// none — so the final/only sentence is never treated as a leading fragment.
+func sentenceEnd(s string) int {
+	for i := 0; i+1 < len(s); i++ {
+		if (s[i] == '.' || s[i] == '!' || s[i] == '?') && s[i+1] == ' ' {
+			return i + 1
+		}
+	}
+	return -1
+}
+
+// stripPreamble peels leading model preamble off a summary. The narrator's
+// `claude -p` sometimes prepends meta-narration in free-form phrasings, as a
+// colon lead-in ("Based on the agent's last message: <summary>") or as whole
+// meta sentences ("No skill applies. <summary>"). We drop a leading fragment
+// only when it is clearly meta (see metaMarkers), stopping at the first real
+// sentence. Conservative: if peeling would leave nothing, the original is kept.
 func stripPreamble(s string) string {
 	out := strings.TrimSpace(s)
 	for {
-		matched := false
-		for _, re := range preamblePrefixes {
-			if loc := re.FindStringIndex(out); loc != nil {
-				out = strings.TrimSpace(out[loc[1]:])
-				matched = true
-				break
+		// Colon lead-in: a meta phrase before a ':' that precedes the first '.'.
+		if ci := strings.IndexByte(out, ':'); ci > 0 {
+			pi := strings.IndexByte(out, '.')
+			if (pi == -1 || ci < pi) && isMetaFragment(out[:ci]) {
+				out = strings.TrimSpace(out[ci+1:])
+				continue
 			}
 		}
-		if !matched {
-			break
+		// Leading meta sentence.
+		if si := sentenceEnd(out); si > 0 && isMetaFragment(out[:si]) {
+			out = strings.TrimSpace(out[si:])
+			continue
 		}
+		break
 	}
 	if out == "" {
 		return strings.TrimSpace(s)

@@ -58,6 +58,11 @@ func TestStripPreamble(t *testing.T) {
 			"Refactored the parser and added tests.",
 		},
 		{
+			"instruction-is-clear colon + restated instruction (live leak)",
+			"The instruction is clear: produce a 1-2 sentence plain summary of what the agent did. The agent read a handoff doc and synced itself.",
+			"The agent read a handoff doc and synced itself.",
+		},
+		{
 			"no preamble — untouched",
 			"Refactored the parser and added tests.",
 			"Refactored the parser and added tests.",
@@ -66,6 +71,11 @@ func TestStripPreamble(t *testing.T) {
 			"legit sentence mentioning a task is kept",
 			"Completed the migration task and updated the docs.",
 			"Completed the migration task and updated the docs.",
+		},
+		{
+			"real summary mentioning a status summary is kept",
+			"The agent gave a one-paragraph status summary covering the design, then asked the user a question.",
+			"The agent gave a one-paragraph status summary covering the design, then asked the user a question.",
 		},
 		{
 			"strip-only result would be empty — fall back to original",
