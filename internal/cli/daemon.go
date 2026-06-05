@@ -13,6 +13,7 @@ import (
 	"github.com/srajanpathak/agentctl/internal/config"
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
 	"github.com/srajanpathak/agentctl/internal/daemon"
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/mailbox"
 	"github.com/srajanpathak/agentctl/internal/notify"
@@ -66,6 +67,7 @@ func newDaemonCmd() *cobra.Command {
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
+			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
 
 			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
