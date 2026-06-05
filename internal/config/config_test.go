@@ -59,3 +59,39 @@ func TestApprovalsEnabled(t *testing.T) {
 	t.Setenv("AGENTCTL_APPROVALS", "")
 	require.False(t, Load().ApprovalsEnabled)
 }
+
+func TestSpawnGateDefaults(t *testing.T) {
+	t.Setenv("AGENTCTL_SPAWN_GATE", "")
+	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "")
+	c := Load()
+	if !c.SpawnGateEnabled {
+		t.Error("spawn gate must default ON")
+	}
+	if c.SpawnGateMaxAgents != 5 {
+		t.Errorf("max agents default = %d, want 5", c.SpawnGateMaxAgents)
+	}
+}
+
+func TestSpawnGateDisable(t *testing.T) {
+	for _, v := range []string{"0", "off", "false", "OFF"} {
+		t.Setenv("AGENTCTL_SPAWN_GATE", v)
+		if Load().SpawnGateEnabled {
+			t.Errorf("AGENTCTL_SPAWN_GATE=%q should disable the gate", v)
+		}
+	}
+	t.Setenv("AGENTCTL_SPAWN_GATE", "1")
+	if !Load().SpawnGateEnabled {
+		t.Error("AGENTCTL_SPAWN_GATE=1 should enable the gate")
+	}
+}
+
+func TestSpawnGateMaxAgentsOverride(t *testing.T) {
+	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "8")
+	if Load().SpawnGateMaxAgents != 8 {
+		t.Error("max agents override not applied")
+	}
+	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "garbage")
+	if Load().SpawnGateMaxAgents != 5 {
+		t.Error("unparseable max agents should fall back to 5")
+	}
+}

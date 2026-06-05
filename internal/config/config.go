@@ -3,15 +3,18 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 type Config struct {
-	Addr              string
-	DataDir           string
-	ClaudeProjectsDir string
-	NotifyEnabled     bool
-	ApprovalsEnabled  bool
+	Addr               string
+	DataDir            string
+	ClaudeProjectsDir  string
+	NotifyEnabled      bool
+	ApprovalsEnabled   bool
+	SpawnGateEnabled   bool
+	SpawnGateMaxAgents int
 }
 
 func envOr(key, def string) string {
@@ -57,13 +60,36 @@ func approvalsEnabled() bool {
 	return false
 }
 
+// spawnGateEnabled reads AGENTCTL_SPAWN_GATE; ON by default (the gate is soft,
+// never hard-blocks), disabled only for 0/off/false.
+func spawnGateEnabled() bool {
+	switch strings.ToLower(os.Getenv("AGENTCTL_SPAWN_GATE")) {
+	case "0", "off", "false":
+		return false
+	}
+	return true
+}
+
+// spawnGateMaxAgents reads AGENTCTL_SPAWN_GATE_MAX_AGENTS (default 5). The count
+// co-trigger fires when this many agents are already live. Unparseable → 5.
+func spawnGateMaxAgents() int {
+	if v := os.Getenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 5
+}
+
 // Load reads config from environment, applying defaults.
 func Load() Config {
 	return Config{
-		Addr:              envOr("AGENTCTL_ADDR", "127.0.0.1:8765"),
-		DataDir:           envOr("AGENTCTL_DATA_DIR", defaultDataDir()),
-		ClaudeProjectsDir: envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
-		NotifyEnabled:     notifyEnabled(),
-		ApprovalsEnabled:  approvalsEnabled(),
+		Addr:               envOr("AGENTCTL_ADDR", "127.0.0.1:8765"),
+		DataDir:            envOr("AGENTCTL_DATA_DIR", defaultDataDir()),
+		ClaudeProjectsDir:  envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
+		NotifyEnabled:      notifyEnabled(),
+		ApprovalsEnabled:   approvalsEnabled(),
+		SpawnGateEnabled:   spawnGateEnabled(),
+		SpawnGateMaxAgents: spawnGateMaxAgents(),
 	}
 }
