@@ -49,6 +49,8 @@ func NewExecutor(ps *pipeline.Store, ss store.Store, life Lifecycle, cs *ctxstor
 	return &Executor{pstore: ps, sstore: ss, life: life, cstore: cs, notify: notify}
 }
 
+// Both setters are called once at server construction, before any concurrent use.
+
 // SetDigestFn wires the digest builder used to snapshot a job's completion digest
 // (bound to Server.buildDigest in production). nil ⇒ no snapshot.
 func (e *Executor) SetDigestFn(fn func(context.Context, *store.Session) digest.Digest) { e.digestFn = fn }
@@ -288,7 +290,8 @@ func (e *Executor) Retry(ctx context.Context, pid, jobID string) error {
 }
 
 // Emit records a job's handoff: write to shared context, capture its branch from
-// its session, mark it done, then reconcile to unblock dependents.
+// its session, mark it done, reap the agent, snapshot its digest, then reconcile
+// to unblock dependents.
 func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	p, err := e.pstore.Get(pid)
 	if err != nil {
@@ -306,11 +309,13 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	if job.Status != pipeline.JobRunning && job.Status != pipeline.JobNeedsAttention {
 		return fmt.Errorf("%w (status %s)", ErrJobNotRunning, job.Status)
 	}
-	branch := ""
+	var sess *store.Session
 	if job.SessionID != "" {
-		if sess, gerr := e.sstore.Get(ctx, job.SessionID); gerr == nil {
-			branch = sess.Branch
-		}
+		sess, _ = e.sstore.Get(ctx, job.SessionID)
+	}
+	branch := ""
+	if sess != nil {
+		branch = sess.Branch
 	}
 	if e.cstore != nil {
 		_, _ = e.cstore.Set("pipeline."+pid+"."+jobID+".output", text, "pipeline:"+pid)
@@ -323,6 +328,28 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		}
 	}); err != nil {
 		return err
+	}
+	// Reap the completed agent (free the slot + RAM) and snapshot its digest.
+	// Terminate ONLY — never Teardown — so the worktree + branch survive for
+	// downstream `from:<job>` jobs (same invariant as `rotate`).
+	if sess != nil && !e.keepDone {
+		_ = e.life.Terminate(ctx, sess.TmuxSession)
+		if e.digestFn != nil {
+			e.snapWG.Add(1)
+			go func(s *store.Session) {
+				defer e.snapWG.Done()
+				d := e.digestFn(context.Background(), s)
+				d.Status = string(store.StatusDone)
+				_ = e.pstore.Update(pid, func(p *pipeline.Pipeline) {
+					if j := p.Job(jobID); j != nil {
+						j.Digest = &d
+					}
+				})
+				if e.notify != nil {
+					e.notify()
+				}
+			}(sess)
+		}
 	}
 	return e.Reconcile(ctx, pid)
 }

@@ -292,3 +292,77 @@ func TestExecutorJobDigestAccessor(t *testing.T) {
 		t.Fatalf("want nil for unknown job, got %+v", got)
 	}
 }
+
+// On emit→done, the job's agent is reaped via Terminate (never Teardown), the
+// digest snapshot is persisted, and downstream still spawns off the branch.
+func TestEmitReapsAgentAndSnapshotsDigest(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{
+			{ID: "a", Prompt: "analyze", Worktree: "fresh", Status: pipeline.JobPending},
+			{ID: "b", Prompt: "impl", DependsOn: []string{"a"}, Worktree: "from:a", Status: pipeline.JobPending},
+		},
+	})
+	fl := &fakeLife{}
+	ss := newFakeStore()
+	e := NewExecutor(ps, ss, fl, nil, func() {})
+	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest {
+		return digest.Digest{Summary: "snap for " + s.ID}
+	}
+	if err := e.Reconcile(context.Background(), "p"); err != nil { // spawns job a
+		t.Fatal(err)
+	}
+	if err := e.Emit(context.Background(), "p", "a", "done analyzing"); err != nil {
+		t.Fatal(err)
+	}
+	e.snapWG.Wait() // wait for the async snapshot
+
+	p, _ := ps.Get("p")
+	ja := p.Job("a")
+	if ja.Status != pipeline.JobDone {
+		t.Fatalf("a not done: %s", ja.Status)
+	}
+	if fl.terminated != "p-a" { // fake SpawnJob sets TmuxSession == "<pid>-<job>"
+		t.Fatalf("expected Terminate(p-a), got %q", fl.terminated)
+	}
+	if fl.tornDown != "" {
+		t.Fatalf("must NOT Teardown a done job, got %q", fl.tornDown)
+	}
+	if ja.Digest == nil || ja.Digest.Summary != "snap for p-a" {
+		t.Fatalf("digest snapshot not persisted: %+v", ja.Digest)
+	}
+	if p.Job("b").Status != pipeline.JobRunning {
+		t.Fatalf("dependent b should have spawned, got %s", p.Job("b").Status)
+	}
+}
+
+// With keep-done enabled, the agent is left alive (no Terminate, no snapshot).
+func TestEmitKeepDoneSkipsReap(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "analyze", Worktree: "fresh", Status: pipeline.JobPending}},
+	})
+	fl := &fakeLife{}
+	e := NewExecutor(ps, newFakeStore(), fl, nil, func() {})
+	e.keepDone = true
+	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest { return digest.Digest{Summary: "x"} }
+	_ = e.Reconcile(context.Background(), "p")
+	if err := e.Emit(context.Background(), "p", "a", "done"); err != nil {
+		t.Fatal(err)
+	}
+	e.snapWG.Wait()
+	if fl.terminated != "" {
+		t.Fatalf("keep-done must not Terminate, got %q", fl.terminated)
+	}
+	if p, _ := ps.Get("p"); p.Job("a").Digest != nil {
+		t.Fatalf("keep-done must not snapshot a digest")
+	}
+}
