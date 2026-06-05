@@ -55,6 +55,31 @@ func claudeLaunch(sessionID, name string, supervised bool) string {
 	return claudeBase(supervised) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
 }
 
+// pipelineHintGuidance is appended to a freshly spawned plain agent's system
+// prompt so that, handed a large/multi-phase task, the agent recommends
+// decomposing it into an agentctl pipeline of short-lived stages (which keeps
+// each agent's context bounded and returns its memory to the OS on teardown)
+// before proceeding. Worded conditionally so small tasks trigger no advisory.
+// No apostrophes — keeps the single-quoted shell form (shellQuoteArg) clean.
+const pipelineHintGuidance = "You were launched as a standalone agentctl agent. " +
+	"If this task is large or spans multiple distinct phases (for example analyze, " +
+	"implement, test, review) such that you would accumulate a very large context, " +
+	"briefly recommend up front that it be split into an agentctl pipeline of smaller " +
+	"stages (each a short-lived agent with a fresh, bounded context), then proceed with " +
+	"the task as a single agent unless told otherwise."
+
+// pipelineHint returns the claude flag fragment that injects pipelineHintGuidance
+// as a system-prompt addendum, or "" when AGENTCTL_NO_PIPELINE_HINT is set (any
+// non-empty value, per the repo's env convention). The leading space lets callers
+// concatenate it directly onto a claudeLaunch string. Applied only by Spawn (plain
+// agents); SpawnJob (pipeline jobs, already decomposed) and resume omit it.
+func pipelineHint() string {
+	if os.Getenv("AGENTCTL_NO_PIPELINE_HINT") != "" {
+		return ""
+	}
+	return " --append-system-prompt " + shellQuoteArg(pipelineHintGuidance)
+}
+
 // claudeResume builds the invocation that resumes an existing agent conversation
 // by its pinned session id (continues the same transcript). --name re-applies the
 // display label so the resumed session still reads as the agent id.

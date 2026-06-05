@@ -1007,3 +1007,19 @@ func TestSpawnJobNoneRunsInRepoRoot(t *testing.T) {
 		require.NotEqual(t, "worktree", argAt(a, 1), "none-mode must not create a worktree")
 	}
 }
+
+func TestPipelineHint(t *testing.T) {
+	t.Run("on by default", func(t *testing.T) {
+		t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // empty == unset for our check
+		got := pipelineHint()
+		require.Contains(t, got, "--append-system-prompt")
+		require.Contains(t, got, "agentctl pipeline")
+		require.True(t, strings.HasPrefix(got, " "), "leading space so it concatenates onto claudeLaunch output")
+		require.NotContains(t, got, "\n", "must stay a single typed line")
+		require.NotContains(t, pipelineHintGuidance, "'", "guidance must stay apostrophe-free (comment invariant; keeps the single-quoted shell form clean)")
+	})
+	t.Run("opt-out via env", func(t *testing.T) {
+		t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "1")
+		require.Equal(t, "", pipelineHint())
+	})
+}
