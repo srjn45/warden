@@ -70,7 +70,7 @@ export interface PipelineJob {
   status: PipelineJobStatus;
   output: string;
   branch?: string;
-  digest?: { summary: string; turns?: number; branch?: string; task?: string };
+  digest?: Digest;
 }
 
 export interface Pipeline {
