@@ -164,6 +164,7 @@ func TestHandleDigestServesPipelineSnapshot(t *testing.T) {
 	resp, err := http.Get(ts.URL + "/sessions/p-a/digest")
 	require.NoError(t, err)
 	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var got digest.Digest
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	require.Equal(t, "frozen snapshot", got.Summary)

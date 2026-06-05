@@ -26,6 +26,9 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Pipeline jobs capture a digest snapshot at reap time; serve it directly so the
+	// transcript/git rebuild is skipped for reaped agents. A nil snapshot (job not yet
+	// reaped) falls through to the live rebuild below.
 	if s.exec != nil && sess.PipelineID != "" && sess.JobID != "" {
 		if snap := s.exec.JobDigest(sess.PipelineID, sess.JobID); snap != nil {
 			writeJSON(w, http.StatusOK, *snap)
