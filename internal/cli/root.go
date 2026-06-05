@@ -15,7 +15,7 @@ func newRootCmd() *cobra.Command {
 	}
 	root.PersistentFlags().String("addr", "", "daemon address (overrides AGENTCTL_ADDR)")
 	root.AddCommand(newDaemonCmd())
-	root.AddCommand(newLsCmd(), newStatusCmd())
+	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd())
 	root.AddCommand(newStartCmd(), newTerminateCmd(), newDeleteCmd(), newRemoveWorktreeCmd(), newDoneCmd(), newRestoreCmd(), newAttachCmd(), newAdoptCmd())
 	root.AddCommand(newSendCmd(), newTailCmd())
 	root.AddCommand(newApprovalsCmd(), newApproveCmd())
