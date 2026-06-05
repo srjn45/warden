@@ -48,6 +48,7 @@ func jobIsTerminal(s pipeline.JobStatus) bool {
 
 // renderPipelineJob draws one job's full details in the detail pane — used for
 // terminal-status jobs whose agent has been reaped (no live tmux to attach).
+// width is accepted for symmetry with renderPipeline and reserved for future line-wrapping; it is not yet used.
 func renderPipelineJob(j *pipeline.Job, width, height int) string {
 	var b strings.Builder
 	b.WriteString(stMuted.Render(jobGlyph(j.Status)+" job "+j.ID+" — "+string(j.Status)) + "\n")
@@ -67,6 +68,5 @@ func renderPipelineJob(j *pipeline.Job, width, height int) string {
 	if j.Digest != nil && j.Digest.Summary != "" {
 		b.WriteString("\n" + stMuted.Render("Digest") + "\n" + j.Digest.Summary + "\n")
 	}
-	_ = width // reserved for future line-wrapping
 	return padTo(strings.TrimRight(b.String(), "\n"), height)
 }

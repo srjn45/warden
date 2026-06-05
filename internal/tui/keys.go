@@ -87,7 +87,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if it.pjJob != nil {
 				if jobIsTerminal(it.pjJob.Status) {
-					m.status = "agent reaped — showing job details (d for digest)"
+					m.status = "agent reaped; showing job details (d for digest)"
 					return m, nil
 				}
 				if it.pjJob.SessionID != "" {
