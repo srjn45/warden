@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,8 +31,15 @@ func newStartCmd() *cobra.Command {
 					return err
 				}
 				supervised, _ := cmd.Flags().GetBool("supervised")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0], Cwd: dir, Supervised: supervised})
+				force, _ := cmd.Flags().GetBool("force")
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0], Cwd: dir, Supervised: supervised, Force: force})
 				if err != nil {
+					var cre *client.ErrConfirmationRequired
+					if errors.As(err, &cre) {
+						fmt.Fprintf(cmd.ErrOrStderr(),
+							"⚠ memory pressure: %s\n  re-run with --force to spawn anyway\n", cre.Verdict.Reason)
+						return fmt.Errorf("spawn blocked by memory-pressure gate")
+					}
 					return err
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "spawned %s (classifying…) — attach with `agentctl attach %s`\n", s.ID, s.ID)
@@ -58,10 +66,17 @@ func newStartCmd() *cobra.Command {
 			if len(args) == 1 {
 				ticket = args[0]
 			}
+			force, _ := cmd.Flags().GetBool("force")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, Supervised: supervised,
+				Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, Supervised: supervised, Force: force,
 			})
 			if err != nil {
+				var cre *client.ErrConfirmationRequired
+				if errors.As(err, &cre) {
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"⚠ memory pressure: %s\n  re-run with --force to spawn anyway\n", cre.Verdict.Reason)
+					return fmt.Errorf("spawn blocked by memory-pressure gate")
+				}
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "spawned %s [%s] (%s) — attach with `agentctl attach %s`\n", s.ID, s.Type, s.Status, s.ID)
@@ -75,6 +90,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
 	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
 	cmd.Flags().Bool("supervised", false, "launch in acceptEdits mode (prompts for risky tools → answerable in the approvals inbox)")
+	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	return cmd
 }
 
