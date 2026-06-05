@@ -86,7 +86,12 @@ func (m Model) View() string {
 			if detailTitle == "" {
 				detailTitle = "—"
 			}
-			detailBody = renderDetail(m.selected(), m.vp, m.outputFocused, detailOuter-2)
+			if id := m.selectedID(); id != "" && id == m.digestFor && (m.digestLoading || m.digestErr != nil || m.digest != nil) {
+				detailTitle = "Digest — " + id
+				detailBody = renderDigest(m.digest, m.digestLoading, m.digestErr, detailOuter-2)
+			} else {
+				detailBody = renderDetail(m.selected(), m.vp, m.outputFocused, detailOuter-2)
+			}
 		}
 		left := titleBox(listTitle, renderList(m.items(), m.cursor, listOuter-2, bodyH-2), listOuter, bodyH)
 		right := titleBox(detailTitle, detailBody, detailOuter, bodyH)
@@ -119,6 +124,7 @@ func helpText() string {
 		"  s            send a message to the selected agent\n" +
 		"  a            attach to its tmux session (or a running pipeline job's session)\n" +
 		"  r            retry a failed/needs-attention pipeline job\n" +
+		"  d            generate completion digest for the selected agent\n" +
 		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
 		"  ?            toggle this help\n" +
 		"  q            quit\n"

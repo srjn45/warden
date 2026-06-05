@@ -13,6 +13,7 @@ import (
 
 	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -31,6 +32,7 @@ type api interface {
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
 	PipelineRetry(ctx context.Context, pid, job string) error
 	PipelineCancel(ctx context.Context, pid string) error
+	Digest(ctx context.Context, id string) (*digest.Digest, error)
 }
 
 type mode int
@@ -70,6 +72,10 @@ type Model struct {
 	apprFocused   bool
 	approvalsOn   bool
 	pipelines     []*pipeline.Pipeline
+	digest        *digest.Digest
+	digestFor     string // session id the current digest/loading belongs to
+	digestLoading bool
+	digestErr     error
 }
 
 // New builds an initial model bound to the given api client.
@@ -213,6 +219,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tp.Blur()
 		m.dirCandidates = nil
 		m.repin("")
+		return m, nil
+
+	case digestMsg:
+		m.digestLoading = false
+		m.digestErr = msg.err
+		if msg.err == nil {
+			m.digest = msg.digest
+			m.digestFor = msg.id
+		}
 		return m, nil
 
 	case outputMsg:

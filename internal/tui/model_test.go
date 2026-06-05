@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
@@ -38,6 +39,8 @@ type fakeAPI struct {
 	pipelines   []*pipeline.Pipeline
 	retried     string // "<pid>/<job>" of the last PipelineRetry
 	canceled    string // pid of the last PipelineCancel
+	digest      *digest.Digest
+	digestErr   error
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -70,7 +73,9 @@ func (f *fakeAPI) Approve(_ context.Context, id string, option int, fp string) e
 	f.approvedID, f.approvedOpt, f.approvedFP = id, option, fp
 	return f.approveErr
 }
-func (f *fakeAPI) PipelineList(context.Context) ([]*pipeline.Pipeline, error) { return f.pipelines, nil }
+func (f *fakeAPI) PipelineList(context.Context) ([]*pipeline.Pipeline, error) {
+	return f.pipelines, nil
+}
 func (f *fakeAPI) PipelineRetry(_ context.Context, pid, job string) error {
 	f.retried = pid + "/" + job
 	return nil
@@ -78,6 +83,9 @@ func (f *fakeAPI) PipelineRetry(_ context.Context, pid, job string) error {
 func (f *fakeAPI) PipelineCancel(_ context.Context, pid string) error {
 	f.canceled = pid
 	return nil
+}
+func (f *fakeAPI) Digest(_ context.Context, _ string) (*digest.Digest, error) {
+	return f.digest, f.digestErr
 }
 
 // step applies a msg and returns the updated concrete Model.
@@ -408,7 +416,7 @@ func TestApprovalsPassiveDoesNotMoveCursor(t *testing.T) {
 	require.Greater(t, before, 0)
 	// a new approval arrives
 	m = step(m, approvalsMsg{enabled: true, views: []approval.View{{ID: "a1", Recognized: true, Options: []string{"Yes"}}}})
-	require.Equal(t, before, m.cursor) // selection did not move
+	require.Equal(t, before, m.cursor)          // selection did not move
 	require.Equal(t, 1, m.items()[0].apprCount) // inbox row count bumped
 }
 

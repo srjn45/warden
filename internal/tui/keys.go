@@ -85,6 +85,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, retryJobCmd(m.api, it.pjPipe, it.pjJob.ID)
 			}
 			return m, nil
+		case "d":
+			if id := m.selectedID(); id != "" {
+				m.digestLoading = true
+				m.digestErr = nil
+				m.digestFor = id
+				return m, digestCmd(m.api, id)
+			}
+			return m, nil
 		case "?":
 			m.mode = modeHelp
 			return m, nil

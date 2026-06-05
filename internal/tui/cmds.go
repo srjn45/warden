@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -32,6 +33,21 @@ type cleanupDoneMsg struct {
 type inputDoneMsg struct{ err error }
 type attachDoneMsg struct{ err error }
 type tickMsg time.Time
+
+type digestMsg struct {
+	id     string
+	digest *digest.Digest
+	err    error
+}
+
+func digestCmd(a api, id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bgLong() // narrator (claude -p) dominates latency
+		defer cancel()
+		d, err := a.Digest(ctx, id)
+		return digestMsg{id: id, digest: d, err: err}
+	}
+}
 
 func bg() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 10*time.Second)
