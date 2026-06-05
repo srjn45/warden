@@ -69,7 +69,8 @@ export interface PipelineJob {
   session_id: string;
   status: PipelineJobStatus;
   output: string;
-  branch: string;
+  branch?: string;
+  digest?: { summary: string; turns?: number; branch?: string; task?: string };
 }
 
 export interface Pipeline {

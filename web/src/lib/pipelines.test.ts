@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs } from './pipelines';
+import { describe, it, expect, test } from 'vitest';
+import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs, jobDigestSummary } from './pipelines';
 import type { Pipeline, PipelineJobStatus } from './types';
 
 function pipe(statuses: PipelineJobStatus[]): Pipeline {
@@ -37,4 +37,11 @@ describe('pipelines helpers', () => {
     expect(pipelineHasLiveJobs(pipe(['done', 'skipped', 'failed']))).toBe(false);
     expect(pipelineHasLiveJobs(pipe([]))).toBe(false);
   });
+});
+
+test('jobDigestSummary returns the digest summary when present', () => {
+  expect(jobDigestSummary({ id: 'a', status: 'done', digest: { summary: 'did it' } } as any)).toBe('did it');
+});
+test('jobDigestSummary returns empty string when absent', () => {
+  expect(jobDigestSummary({ id: 'a', status: 'running' } as any)).toBe('');
 });

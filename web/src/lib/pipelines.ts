@@ -1,4 +1,4 @@
-import type { Pipeline, PipelineJobStatus } from './types';
+import type { Pipeline, PipelineJob, PipelineJobStatus } from './types';
 
 // jobStatusClass returns the CSS class for a job card (styled in app.css).
 export function jobStatusClass(s: PipelineJobStatus): string {
@@ -8,6 +8,11 @@ export function jobStatusClass(s: PipelineJobStatus): string {
 // isJobRetryable reports whether `pipeline retry` applies to this job.
 export function isJobRetryable(s: PipelineJobStatus): boolean {
   return s === 'failed' || s === 'needs_attention';
+}
+
+// jobDigestSummary returns the digest summary for a job, or empty string if absent.
+export function jobDigestSummary(j: PipelineJob): string {
+  return j.digest?.summary ?? '';
 }
 
 // pipelineHasLiveJobs reports whether any job is still running or awaiting input.

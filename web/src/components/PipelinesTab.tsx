@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Pipeline, PipelineJob } from '../lib/types';
 import { listPipelines, cancelPipeline, deletePipeline, retryJob, ApiError } from '../lib/api';
-import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs } from '../lib/pipelines';
+import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs, jobDigestSummary } from '../lib/pipelines';
 
 // PipelinesTab polls /pipelines while mounted (the SSE channel carries sessions,
 // not pipelines). Jobs are sessions, so "Open terminal" reuses onSelect to pin
@@ -89,6 +89,8 @@ export default function PipelinesTab({ onSelect }: { onSelect: (id: string) => v
           <pre className="job-text">{drawerJob.prompt}</pre>
           {drawerJob.handoff && (<><label>Handoff hint</label><pre className="job-text">{drawerJob.handoff}</pre></>)}
           {drawerJob.output && (<><label>Output</label><pre className="job-text">{drawerJob.output}</pre></>)}
+          {drawerJob.branch && (<><label>Branch</label><pre className="job-text">{drawerJob.branch}</pre></>)}
+          {jobDigestSummary(drawerJob) && (<><label>Digest</label><pre className="job-text">{jobDigestSummary(drawerJob)}</pre></>)}
           <div className="drawer-actions">
             {drawerJob.session_id && drawerJob.status === 'running' && (
               <button className="btn" onClick={() => onSelect(drawerJob.session_id)}>Open terminal</button>
