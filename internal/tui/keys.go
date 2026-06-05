@@ -123,11 +123,29 @@ func (m Model) updateNewAgent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "prompt was empty"
 			return m, nil
 		}
-		return m, spawnCmd(m.api, prompt, m.targetDir)
+		m.pendingPrompt, m.pendingDir = prompt, m.targetDir
+		return m, spawnCmd(m.api, prompt, m.targetDir, false)
 	}
 	var cmd tea.Cmd
 	m.ta, cmd = m.ta.Update(msg)
 	return m, cmd
+}
+
+func (m Model) updateConfirmSpawn(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "f", "F":
+		m.mode = modeNormal
+		prompt, dir := m.pendingPrompt, m.pendingDir
+		m.spawnVerdict = ""
+		m.status = "spawning (forced)…"
+		return m, spawnCmd(m.api, prompt, dir, true)
+	case "esc", "n", "N":
+		m.mode = modeNormal
+		m.spawnVerdict = ""
+		m.status = "spawn cancelled"
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m Model) updateOpenDir(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

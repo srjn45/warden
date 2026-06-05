@@ -9,7 +9,7 @@ import (
 
 func TestSpawnCmdUsesGivenCwd(t *testing.T) {
 	f := &fakeAPI{}
-	msg := spawnCmd(f, "do the thing", "/work/api")()
+	msg := spawnCmd(f, "do the thing", "/work/api", false)()
 	done, ok := msg.(spawnDoneMsg)
 	require.True(t, ok)
 	require.NoError(t, done.err)

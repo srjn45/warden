@@ -5,7 +5,21 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/srajanpathak/agentctl/internal/client"
 )
+
+// pressureChip renders the header memory-pressure gauge. Empty until the first
+// sample arrives (Level 0 = no sample yet); amber when elevated, grey otherwise.
+func pressureChip(p client.PressureStatus) string {
+	if p.Level == 0 {
+		return ""
+	}
+	style := stIdle
+	if p.Elevated {
+		style = stAttention
+	}
+	return style.Render(fmt.Sprintf("pressure: %s · %d/%d", p.LevelName, p.AgentCount, p.MaxAgents))
+}
 
 // detailChrome is the number of non-viewport lines renderDetail emits
 // (head, dir, subject, blank, output-title).
@@ -56,6 +70,9 @@ func (m Model) View() string {
 		conn = stError.Render("reconnecting…")
 	}
 	header := stHeader.Render("agentctl") + "  " + conn
+	if chip := pressureChip(m.pressure); chip != "" {
+		header += "  " + chip
+	}
 	if !m.connected {
 		header += "  " + stError.Render("daemon not running — start it with `agentctl daemon`")
 	}
@@ -110,6 +127,8 @@ func (m Model) View() string {
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
 		footer = stError.Render("Kill & remove " + m.selectedID() + "? y / N")
+	case modeConfirmSpawn:
+		footer = stAttention.Render("⚠ memory pressure: " + m.spawnVerdict + "  [f] spawn anyway  [esc] cancel")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }

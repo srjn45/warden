@@ -41,6 +41,8 @@ type fakeAPI struct {
 	canceled    string // pid of the last PipelineCancel
 	digest      *digest.Digest
 	digestErr   error
+	pressure    client.PressureStatus
+	pressureErr error
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -86,6 +88,9 @@ func (f *fakeAPI) PipelineCancel(_ context.Context, pid string) error {
 }
 func (f *fakeAPI) Digest(_ context.Context, _ string) (*digest.Digest, error) {
 	return f.digest, f.digestErr
+}
+func (f *fakeAPI) Pressure(context.Context) (client.PressureStatus, error) {
+	return f.pressure, f.pressureErr
 }
 
 // step applies a msg and returns the updated concrete Model.

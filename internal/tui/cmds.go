@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"time"
 
@@ -23,8 +24,9 @@ type outputMsg struct {
 	err  error // non-nil ⇒ fetch failed; keep the last good output, don't blank it
 }
 type spawnDoneMsg struct {
-	id  string
-	err error
+	id      string
+	err     error
+	confirm *client.ErrConfirmationRequired // non-nil ⇒ daemon's memory-pressure gate warned (HTTP 428)
 }
 type cleanupDoneMsg struct {
 	id  string
@@ -85,15 +87,33 @@ func outputCmd(a api, id string) tea.Cmd {
 	}
 }
 
-func spawnCmd(a api, prompt, cwd string) tea.Cmd {
+func spawnCmd(a api, prompt, cwd string, force bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Cwd: cwd})
+		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Cwd: cwd, Force: force})
 		if err != nil {
+			var cre *client.ErrConfirmationRequired
+			if errors.As(err, &cre) {
+				return spawnDoneMsg{confirm: cre}
+			}
 			return spawnDoneMsg{err: err}
 		}
 		return spawnDoneMsg{id: s.ID}
+	}
+}
+
+type pressureMsg struct {
+	status client.PressureStatus
+	err    error
+}
+
+func pressureCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		ps, err := a.Pressure(ctx)
+		return pressureMsg{status: ps, err: err}
 	}
 }
 

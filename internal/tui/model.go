@@ -33,6 +33,7 @@ type api interface {
 	PipelineRetry(ctx context.Context, pid, job string) error
 	PipelineCancel(ctx context.Context, pid string) error
 	Digest(ctx context.Context, id string) (*digest.Digest, error)
+	Pressure(ctx context.Context) (client.PressureStatus, error)
 }
 
 type mode int
@@ -43,8 +44,9 @@ const (
 	modeSendMsg
 	modeConfirmKill
 	modeHelp
-	modeOpenDir     // path input for `o`
-	modeNewAgentDir // dir-override sub-state of modeNewAgent
+	modeOpenDir      // path input for `o`
+	modeNewAgentDir  // dir-override sub-state of modeNewAgent
+	modeConfirmSpawn // memory-pressure confirm before spawning
 )
 
 // Model is the Bubble Tea model. Update is a pure reducer over messages.
@@ -76,6 +78,10 @@ type Model struct {
 	digestFor     string // session id the current digest/loading belongs to
 	digestLoading bool
 	digestErr     error
+	pressure      client.PressureStatus
+	pendingPrompt string
+	pendingDir    string
+	spawnVerdict  string // reason text for the confirm prompt; "" when not confirming
 }
 
 // New builds an initial model bound to the given api client.
@@ -149,7 +155,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(listCmd(m.api), outputCmd(m.api, m.selectedID()), approvalsCmd(m.api), pipelinesCmd(m.api), tick())
+		return m, tea.Batch(listCmd(m.api), outputCmd(m.api, m.selectedID()), approvalsCmd(m.api), pipelinesCmd(m.api), pressureCmd(m.api), tick())
+
+	case pressureMsg:
+		if msg.err == nil {
+			m.pressure = msg.status
+		}
+		return m, nil
 
 	case sessionsMsg:
 		if msg.err != nil {
@@ -242,9 +254,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spawnDoneMsg:
-		if msg.err != nil {
+		switch {
+		case msg.confirm != nil:
+			m.mode = modeConfirmSpawn
+			m.spawnVerdict = msg.confirm.Verdict.Reason
+			m.status = "memory pressure: " + msg.confirm.Verdict.Reason
+		case msg.err != nil:
 			m.status = "spawn failed: " + msg.err.Error()
-		} else {
+		default:
 			m.status = "spawned " + msg.id
 			m.pendingSelect = msg.id
 		}
@@ -294,6 +311,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeConfirmKill {
 			return m.updateConfirmKill(msg)
+		}
+		if m.mode == modeConfirmSpawn {
+			return m.updateConfirmSpawn(msg)
 		}
 		if m.mode == modeNormal && m.apprFocused {
 			switch msg.String() {

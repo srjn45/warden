@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -35,6 +36,10 @@ type listPaneModel struct {
 	connected     bool
 	pendingSelect string
 	pipelines     []*pipeline.Pipeline
+	pressure      client.PressureStatus
+	pendingPrompt string
+	pendingDir    string
+	spawnVerdict  string // reason text for the confirm prompt; "" when not confirming
 	w, h          int
 	ready         bool
 }
@@ -95,7 +100,12 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		return m, tea.Batch(listCmd(m.api), pipelinesCmd(m.api), tick())
+		return m, tea.Batch(listCmd(m.api), pipelinesCmd(m.api), pressureCmd(m.api), tick())
+	case pressureMsg:
+		if msg.err == nil {
+			m.pressure = msg.status
+		}
+		return m, nil
 	case sessionsMsg:
 		if msg.err != nil {
 			m.connected = false
@@ -141,9 +151,14 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.repin("")
 		return m, nil
 	case spawnDoneMsg:
-		if msg.err != nil {
+		switch {
+		case msg.confirm != nil:
+			m.mode = modeConfirmSpawn
+			m.spawnVerdict = msg.confirm.Verdict.Reason
+			m.status = "memory pressure: " + msg.confirm.Verdict.Reason
+		case msg.err != nil:
 			m.status = "spawn failed: " + msg.err.Error()
-		} else {
+		default:
 			m.status, m.pendingSelect = "spawned "+msg.id, msg.id
 		}
 		return m, nil
@@ -223,7 +238,8 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "prompt was empty"
 				return m, nil
 			}
-			return m, spawnCmd(m.api, prompt, m.targetDir)
+			m.pendingPrompt, m.pendingDir = prompt, m.targetDir
+			return m, spawnCmd(m.api, prompt, m.targetDir, false)
 		}
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
@@ -296,6 +312,20 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if id := m.selectedID(); id != "" {
 				return m, killCmd(m.api, id)
 			}
+		}
+		return m, nil
+	case modeConfirmSpawn:
+		switch msg.String() {
+		case "f", "F":
+			m.mode = modeNormal
+			prompt, dir := m.pendingPrompt, m.pendingDir
+			m.spawnVerdict = ""
+			m.status = "spawning (forced)…"
+			return m, spawnCmd(m.api, prompt, dir, true)
+		case "esc", "n", "N":
+			m.mode = modeNormal
+			m.spawnVerdict = ""
+			m.status = "spawn cancelled"
 		}
 		return m, nil
 	case modeHelp:
@@ -377,6 +407,9 @@ func (m listPaneModel) View() string {
 		conn = stError.Render("reconnecting…")
 	}
 	header := stHeader.Render("agentctl") + "  " + conn
+	if chip := pressureChip(m.pressure); chip != "" {
+		header += "  " + chip
+	}
 	if !m.connected {
 		header += "  " + stError.Render("daemon not running — start it with `agentctl daemon`")
 	}
@@ -405,6 +438,8 @@ func (m listPaneModel) View() string {
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
 		footer = stError.Render("Kill & remove " + m.selectedID() + "? y / N")
+	case modeConfirmSpawn:
+		footer = stAttention.Render("⚠ memory pressure: " + m.spawnVerdict + "  [f] spawn anyway  [esc] cancel")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }
