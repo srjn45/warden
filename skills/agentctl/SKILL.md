@@ -1,6 +1,6 @@
 ---
 name: agentctl
-description: Use to manage Claude Code agent sessions via agentctl — spawn, list, monitor, talk to, and tear down agents; run multi-stage DAG **pipelines** of dependent agent jobs; and share data / pass messages between agents. Triggers include "spawn/create an agent", "list/check/triage my agents", "what is agent <id> doing", "tell/ask agent <id> to …", "terminate/kill agent(s)"; "create/run/show/cancel/delete a pipeline", "run these steps in order", "multi-stage or dependent agent work", an analyze→implement→review chain; "share data between agents", "have one agent message/ask another". Drives the agentctl MCP tools or the agentctl CLI — both first-class; pipelines are CLI-only.
+description: Use to manage Claude Code agent sessions via agentctl — spawn, list, monitor, talk to, and tear down agents; run multi-stage DAG **pipelines** of dependent agent jobs; and share data / pass messages between agents. Triggers include "spawn/create an agent", "list/check/triage my agents", "what is agent <id> doing", "tell/ask agent <id> to …", "terminate/kill agent(s)"; "create/run/show/cancel/delete a pipeline", "run these steps in order", "multi-stage or dependent agent work", an analyze→implement→review chain; "this is a big/multi-phase/long-running task", "this will take a while", "break this down into stages"; "share data between agents", "have one agent message/ask another". Drives the agentctl MCP tools or the agentctl CLI — both first-class; pipelines are CLI-only.
 ---
 
 # agentctl — drive your agent fleet & pipelines
@@ -24,6 +24,14 @@ capability is lost.
 **Litmus test: does any step need to wait for another step's result — its output
 or its code — before it can start?** No → plain agent(s). Yes → pipeline.
 
+**Second axis — size & longevity:** would one agent accumulate a large or
+long-lived context (a multi-phase task, a long unattended run, anything likely to
+approach the context limit and auto-compact)? If yes, **decompose it into a
+pipeline of bounded stages** — even when the steps are sequential and one agent
+could do them. Each stage gets a fresh, small context and is **torn down on
+completion**, returning memory to the OS and avoiding the compaction spikes a
+long-lived large-context agent causes.
+
 | Use… | When | How |
 |---|---|---|
 | **Plain agent** *(default)* | one self-contained task; OR several **independent** tasks (none needs another's result — just spawn several) | `spawn_agent` / `agentctl start "…"` |
@@ -33,7 +41,8 @@ or its code — before it can start?** No → plain agent(s). Yes → pipeline.
 **Don't:** use a pipeline for a single task (needless overhead — use a plain agent);
 use plain agents + manual relay for a clear dependency chain (that's exactly what a
 pipeline automates); hand-roll `ctx`/`msg` coordination that a pipeline already
-gives you.
+gives you; run a big multi-phase task as one long-lived plain agent — decompose it
+into pipeline stages so each agent stays small and closes when its phase finishes.
 
 ## Preconditions
 
