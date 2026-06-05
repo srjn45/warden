@@ -33,7 +33,8 @@ var editTools = map[string]bool{"Write": true, "Edit": true, "MultiEdit": true, 
 
 // ParseTranscript reads a Claude Code transcript JSONL stream and returns
 // deterministic Facts. Malformed lines are skipped (not fatal); only a reader
-// error is returned.
+// error is returned. A single line exceeding the 16 MiB scanner cap yields a
+// bufio error; callers should treat it as a partial result and degrade gracefully.
 func ParseTranscript(r io.Reader) (Facts, error) {
 	var f Facts
 	seen := map[string]bool{}

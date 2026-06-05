@@ -42,6 +42,5 @@ func NarratorPrompt(f Facts) string {
 // cleanLine collapses a model reply to a trimmed single paragraph.
 func cleanLine(out string) string {
 	s := strings.TrimSpace(out)
-	s = strings.ReplaceAll(s, "\n", " ")
 	return strings.Join(strings.Fields(s), " ")
 }

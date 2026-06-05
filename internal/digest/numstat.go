@@ -19,7 +19,7 @@ func ParseNumstat(out string) map[string]LineDelta {
 		if len(fields) != 3 {
 			continue
 		}
-		res[fields[2]] = LineDelta{Added: atoiDash(fields[0]), Removed: atoiDash(fields[1])}
+		res[strings.TrimRight(fields[2], "\r")] = LineDelta{Added: atoiDash(fields[0]), Removed: atoiDash(fields[1])}
 	}
 	return res
 }
@@ -35,6 +35,7 @@ func atoiDash(s string) int {
 // MergeFiles unions transcript-edited files (authoritative for WHICH files,
 // kept in first-seen order) with git-changed files (annotated +/-). Edited files
 // come first in transcript order; git-only files follow, sorted for determinism.
+// Returns a nil slice when there are no files; JSON consumers should treat null as "no files".
 func MergeFiles(edited []string, stats map[string]LineDelta) []FileChange {
 	editedSet := map[string]bool{}
 	var out []FileChange

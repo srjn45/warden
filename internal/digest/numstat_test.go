@@ -18,6 +18,17 @@ func TestParseNumstat(t *testing.T) {
 	}
 }
 
+func TestParseNumstatCRLF(t *testing.T) {
+	// Ensure CRLF-tainted input (e.g. from Windows) keys on the clean path.
+	got := ParseNumstat("3\t1\ta.go\r\n")
+	if _, ok := got["a.go"]; !ok {
+		t.Errorf("ParseNumstat CRLF: expected key %q, got keys %v", "a.go", got)
+	}
+	if _, bad := got["a.go\r"]; bad {
+		t.Errorf("ParseNumstat CRLF: key %q should not exist", "a.go\r")
+	}
+}
+
 func TestMergeFilesUnion(t *testing.T) {
 	// a.go edited+changed; reverted.go edited but reverted (no numstat row);
 	// sideeffect.go changed by git only (e.g. a formatter), never an edit target.
