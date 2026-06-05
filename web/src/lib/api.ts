@@ -1,4 +1,4 @@
-import type { Session, ApprovalView, Pipeline } from './types';
+import type { Session, ApprovalView, Pipeline, Digest } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -87,6 +87,10 @@ export async function getOutput(id: string, lines = 200): Promise<string> {
     await fetch(`/sessions/${encodeURIComponent(id)}/output?lines=${lines}`),
   );
   return data.output;
+}
+
+export async function getDigest(id: string): Promise<Digest> {
+  return parse<Digest>(await fetch(`/sessions/${encodeURIComponent(id)}/digest`));
 }
 
 export async function listApprovals(): Promise<{ enabled: boolean; approvals: ApprovalView[] }> {

@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import type { Session } from '../lib/types';
+import type { Session, Digest } from '../lib/types';
+import { getDigest } from '../lib/api';
+import { fileLabel, hasFiles } from '../lib/digest';
 import AttachTerminal from './AttachTerminal';
 import EventTimeline from './EventTimeline';
 import TerminateControls from './TerminateControls';
@@ -12,6 +14,20 @@ export default function AgentTab({ session, onClosed }: {
   onClosed: () => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
+  const [digest, setDigest] = useState<Digest | null>(null);
+  const [digestBusy, setDigestBusy] = useState(false);
+  const [digestErr, setDigestErr] = useState<string | null>(null);
+
+  async function loadDigest() {
+    setDigestBusy(true); setDigestErr(null);
+    try {
+      setDigest(await getDigest(session.id));
+    } catch (e) {
+      setDigestErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDigestBusy(false);
+    }
+  }
 
   return (
     <div className="agent-tab">
@@ -25,9 +41,28 @@ export default function AgentTab({ session, onClosed }: {
 
       <AttachTerminal id={session.id} />
 
-      <button className="details-toggle" onClick={() => setShowDetails((v) => !v)}>
-        {showDetails ? '▾ Hide details' : '▸ Details & history'}
-      </button>
+      <div className="agent-tab-actions">
+        <button className="details-toggle" onClick={() => setShowDetails((v) => !v)}>
+          {showDetails ? '▾ Hide details' : '▸ Details & history'}
+        </button>
+        <button className="details-toggle" onClick={loadDigest} disabled={digestBusy}>
+          {digestBusy ? '⏳ Generating digest…' : '✦ Digest'}
+        </button>
+      </div>
+      {digestErr && <span className="warn">{digestErr}</span>}
+      {digest && (
+        <section className="digest-panel">
+          <p className="digest-summary" style={{ whiteSpace: 'pre-wrap' }}>{digest.summary}</p>
+          <pre className="digest-files">
+            {hasFiles(digest)
+              ? digest.files!.map(fileLabel).join('\n')
+              : '(no files touched)'}
+          </pre>
+          <div className="muted digest-meta">
+            branch: {digest.branch || '—'} · turns: {digest.turns} · status: {digest.status}
+          </div>
+        </section>
+      )}
       {showDetails && (
         <section className="agent-details">
           {session.prompt && (

@@ -91,7 +91,12 @@ body { margin: 0; }
 .agent-tab-head h2 { margin: 0; font-size: 1.1rem; }
 .xterm-host { height: 420px; background: #0b0b0b; border-radius: .4rem; padding: .4rem; }
 .details-toggle { align-self: flex-start; background: none; border: none; color: var(--idle); cursor: pointer; font: inherit; }
+.agent-tab-actions { display: flex; gap: 1rem; }
 .agent-details { display: flex; flex-direction: column; gap: .5rem; }
+.digest-panel { display: flex; flex-direction: column; gap: .5rem; border: 1px solid #8883; border-radius: .4rem; padding: .6rem; }
+.digest-summary { margin: 0; }
+.digest-files { margin: 0; white-space: pre; overflow-x: auto; font: inherit; }
+.digest-meta { font-size: .85rem; }
 
 /* ── Directory picker ── */
 .dirpicker { display: flex; flex-direction: column; gap: .4rem; }

@@ -17,6 +17,22 @@ export interface ApprovalView {
   recognized: boolean;
 }
 
+export interface FileChange {
+  path: string;
+  added: number;
+  removed: number;
+  edited: boolean;
+}
+
+export interface Digest {
+  summary: string;
+  files: FileChange[] | null;
+  branch: string;
+  turns: number;
+  status: string;
+  task: string;
+}
+
 export interface Session {
   id: string;
   type: string;
