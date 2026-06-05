@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
+	"github.com/srajanpathak/agentctl/internal/pressure"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -69,6 +71,9 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			PipelineID: p.ID, JobID: job.ID, Repo: p.Repo,
 			Prompt: pipeline.ComposePrompt(p, job), Worktree: worktree,
 			BaseBranch: base, Type: store.NormalizeType(job.Type), Supervised: job.Supervised,
+		}
+		if lvl, _ := e.life.MemoryPressure(ctx); lvl >= pressure.Warn {
+			log.Printf("pipeline %s job %s: spawning under memory pressure (%s)", req.PipelineID, jobID, lvl)
 		}
 		sess, serr := e.life.SpawnJob(ctx, req)
 		if serr != nil {
