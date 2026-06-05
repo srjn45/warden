@@ -98,6 +98,9 @@ func (m Model) View() string {
 		case cur.pipeline != nil:
 			detailTitle = cur.pipeline.ID
 			detailBody = renderPipeline(cur.pipeline, detailOuter-2, bodyH-2)
+		case cur.pjJob != nil && jobIsTerminal(cur.pjJob.Status):
+			detailTitle = cur.pjPipe + "/" + cur.pjJob.ID
+			detailBody = renderPipelineJob(cur.pjJob, detailOuter-2, bodyH-2)
 		default:
 			detailTitle = m.selectedID()
 			if detailTitle == "" {

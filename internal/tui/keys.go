@@ -85,8 +85,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if it.session != nil {
 				return m, attachCmd(it.session.ID)
 			}
-			if it.pjJob != nil && it.pjJob.SessionID != "" {
-				return m, attachCmd(it.pjJob.SessionID)
+			if it.pjJob != nil {
+				if jobIsTerminal(it.pjJob.Status) {
+					m.status = "agent reaped — showing job details (d for digest)"
+					return m, nil
+				}
+				if it.pjJob.SessionID != "" {
+					return m, attachCmd(it.pjJob.SessionID)
+				}
 			}
 			return m, nil
 		case "r":

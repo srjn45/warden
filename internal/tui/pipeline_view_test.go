@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 )
 
@@ -40,5 +41,32 @@ func TestPipelineHasLiveJobs(t *testing.T) {
 	stopped := &pipeline.Pipeline{Jobs: []pipeline.Job{{Status: pipeline.JobDone}, {Status: pipeline.JobSkipped}, {Status: pipeline.JobFailed}}}
 	if pipelineHasLiveJobs(stopped) {
 		t.Fatal("done/skipped/failed jobs are not live")
+	}
+}
+
+func TestRenderPipelineJobShowsDetails(t *testing.T) {
+	j := &pipeline.Job{
+		ID: "impl", Status: pipeline.JobDone, Prompt: "implement the thing",
+		Handoff: "branch + summary", Output: "did the thing", Branch: "p-impl",
+		Digest: &digest.Digest{Summary: "narrated summary"},
+	}
+	out := renderPipelineJob(j, 80, 40)
+	for _, want := range []string{"impl", "implement the thing", "branch + summary", "did the thing", "p-impl", "narrated summary"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered job missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestJobIsTerminal(t *testing.T) {
+	for _, s := range []pipeline.JobStatus{pipeline.JobDone, pipeline.JobSkipped, pipeline.JobFailed} {
+		if !jobIsTerminal(s) {
+			t.Fatalf("%s should be terminal", s)
+		}
+	}
+	for _, s := range []pipeline.JobStatus{pipeline.JobPending, pipeline.JobRunning, pipeline.JobNeedsAttention} {
+		if jobIsTerminal(s) {
+			t.Fatalf("%s should NOT be terminal", s)
+		}
 	}
 }

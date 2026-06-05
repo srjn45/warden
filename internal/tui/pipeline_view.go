@@ -39,3 +39,34 @@ func renderPipeline(p *pipeline.Pipeline, width, height int) string {
 	b.WriteString("\n" + stMuted.Render("x cancel pipeline · D delete (when stopped) · on a job: r retry · a attach"))
 	return padTo(strings.TrimRight(b.String(), "\n"), height)
 }
+
+// jobIsTerminal reports whether a job's agent is gone (done/skipped/failed), so the
+// detail pane should render the job's stored details instead of attaching to tmux.
+func jobIsTerminal(s pipeline.JobStatus) bool {
+	return s == pipeline.JobDone || s == pipeline.JobSkipped || s == pipeline.JobFailed
+}
+
+// renderPipelineJob draws one job's full details in the detail pane — used for
+// terminal-status jobs whose agent has been reaped (no live tmux to attach).
+func renderPipelineJob(j *pipeline.Job, width, height int) string {
+	var b strings.Builder
+	b.WriteString(stMuted.Render(jobGlyph(j.Status)+" job "+j.ID+" — "+string(j.Status)) + "\n")
+	if len(j.DependsOn) > 0 {
+		b.WriteString(stMuted.Render("deps: "+strings.Join(j.DependsOn, ",")) + "\n")
+	}
+	if j.Branch != "" {
+		b.WriteString(stMuted.Render("branch: "+j.Branch) + "\n")
+	}
+	b.WriteString("\n" + stMuted.Render("Prompt") + "\n" + j.Prompt + "\n")
+	if j.Handoff != "" {
+		b.WriteString("\n" + stMuted.Render("Handoff") + "\n" + j.Handoff + "\n")
+	}
+	if j.Output != "" {
+		b.WriteString("\n" + stMuted.Render("Output") + "\n" + j.Output + "\n")
+	}
+	if j.Digest != nil && j.Digest.Summary != "" {
+		b.WriteString("\n" + stMuted.Render("Digest") + "\n" + j.Digest.Summary + "\n")
+	}
+	_ = width // reserved for future line-wrapping
+	return padTo(strings.TrimRight(b.String(), "\n"), height)
+}
