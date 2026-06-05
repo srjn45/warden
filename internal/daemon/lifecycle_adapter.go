@@ -99,3 +99,15 @@ func (a *lifecycleAdapter) SendKeys(ctx context.Context, tmuxSession, key string
 func (a *lifecycleAdapter) SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
 	return a.lc.SpawnJob(ctx, req)
 }
+
+func (a *lifecycleAdapter) TranscriptPath(sess *store.Session) string {
+	return a.lc.TranscriptPath(sess)
+}
+
+func (a *lifecycleAdapter) GitBranch(ctx context.Context, dir string) string {
+	return a.lc.GitBranch(ctx, dir)
+}
+
+func (a *lifecycleAdapter) GitNumstat(ctx context.Context, dir string) string {
+	return a.lc.GitNumstat(ctx, dir)
+}

@@ -121,6 +121,10 @@ func (f *fakeLife) Output(_ context.Context, s string, n int) (string, error) {
 }
 func (f *fakeLife) SendKeys(_ context.Context, s, key string) error { f.lastKey = key; return nil }
 
+func (f *fakeLife) TranscriptPath(sess *store.Session) string         { return "" }
+func (f *fakeLife) GitBranch(ctx context.Context, dir string) string  { return "" }
+func (f *fakeLife) GitNumstat(ctx context.Context, dir string) string { return "" }
+
 func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
 	id := req.PipelineID + "-" + req.JobID
 	branch := ""

@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/mailbox"
 	"github.com/srajanpathak/agentctl/internal/poller"
@@ -26,11 +27,11 @@ type EventRequest struct {
 
 // SpawnRequest is the body for POST /spawn.
 type SpawnRequest struct {
-	Type     string `json:"type"`     // required; normalized via store.NormalizeType
-	Ticket   string `json:"ticket"`   // optional; becomes the id when present
-	Repo     string `json:"repo"`     // required
-	Branch   string `json:"branch"`   // optional; development branch / pr-review checkout
-	PR       string `json:"pr"`       // optional; pr-review
+	Type       string `json:"type"`       // required; normalized via store.NormalizeType
+	Ticket     string `json:"ticket"`     // optional; becomes the id when present
+	Repo       string `json:"repo"`       // required
+	Branch     string `json:"branch"`     // optional; development branch / pr-review checkout
+	PR         string `json:"pr"`         // optional; pr-review
 	Worktree   bool   `json:"worktree"`   // analysis/spike opt-in
 	Prompt     string `json:"prompt"`     // prompt-mode: the agent's initial prompt
 	Cwd        string `json:"cwd"`        // dir to launch claude from (caller cwd / web pick)
@@ -104,6 +105,8 @@ type Server struct {
 	mbox *mailbox.Store
 	// exec drives pipeline execution (nil if pipelines are unused).
 	exec *Executor
+	// narrator produces the digest's LLM summary (nil ⇒ degrade to LastMessage).
+	narrator digest.Narrator
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -119,6 +122,10 @@ func (s *Server) Notify() { s.notify() }
 
 // SetExecutor wires the executor after construction (executor needs Server.Notify).
 func (s *Server) SetExecutor(e *Executor) { s.exec = e }
+
+// SetNarrator wires the digest narrator after construction (optional; nil ⇒ the
+// digest summary degrades to the agent's last transcript message).
+func (s *Server) SetNarrator(n digest.Narrator) { s.narrator = n }
 
 // Lifecycle is the subset of operations the API delegates to (Phase 4+).
 // The daemon defines this interface in terms of its own SpawnRequest DTO so
@@ -149,6 +156,11 @@ type Lifecycle interface {
 	SendKeys(ctx context.Context, tmuxSession, key string) error
 	// SpawnJob launches one pipeline-job agent (worktree strategy + pipeline env).
 	SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error)
+	// TranscriptPath resolves the agent's transcript file ("" when none).
+	TranscriptPath(sess *store.Session) string
+	// GitBranch / GitNumstat read git state in dir (best-effort, "" on error).
+	GitBranch(ctx context.Context, dir string) string
+	GitNumstat(ctx context.Context, dir string) string
 }
 
 // recoverMiddleware converts a panic in any handler into a 500 response instead
