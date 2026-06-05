@@ -82,7 +82,10 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	// warn (HTTP 428) instead of spawning onto a strained machine. The client
 	// re-spawns with force=true to confirm. Pipelines bypass this (they spawn
 	// in-process via SpawnJob, not through this handler).
-	if s.spawnGate && !req.Force {
+	s.pressMu.RLock()
+	gateOn := s.spawnGate
+	s.pressMu.RUnlock()
+	if gateOn && !req.Force {
 		if v := s.spawnVerdict(r.Context()); v.Elevated {
 			writeJSON(w, http.StatusPreconditionRequired, confirmationResponse{
 				ConfirmationRequired: true,
