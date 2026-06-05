@@ -39,6 +39,11 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, d)
 }
 
+// BuildDigest is the exported entry point for wiring buildDigest into the executor.
+func (s *Server) BuildDigest(ctx context.Context, sess *store.Session) digest.Digest {
+	return s.buildDigest(ctx, sess)
+}
+
 // buildDigest assembles a completion digest from a session's on-disk transcript
 // and git stats, enriched by a best-effort narrator that degrades to the last
 // assistant message. Side-effect-free; reused by the pipeline executor to snapshot
