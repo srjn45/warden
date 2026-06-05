@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -25,37 +26,38 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	d := s.buildDigest(r.Context(), sess)
+	writeJSON(w, http.StatusOK, d)
+}
 
+// buildDigest assembles a completion digest from a session's on-disk transcript
+// and git stats, enriched by a best-effort narrator that degrades to the last
+// assistant message. Side-effect-free; reused by the pipeline executor to snapshot
+// a job's digest at completion.
+func (s *Server) buildDigest(ctx context.Context, sess *store.Session) digest.Digest {
 	d := digest.Digest{Status: string(sess.Status)}
-
 	path := s.life.TranscriptPath(sess)
 	if path == "" {
 		d.Summary = "no transcript available"
-		writeJSON(w, http.StatusOK, d)
-		return
+		return d
 	}
 	f, err := os.Open(path)
 	if err != nil {
 		d.Summary = "no transcript available"
-		writeJSON(w, http.StatusOK, d)
-		return
+		return d
 	}
 	defer f.Close()
-
-	facts, _ := digest.ParseTranscript(f) // scanner I/O error ignored — malformed lines are skipped internally; partial facts still beat a 500
-	stats := digest.ParseNumstat(s.life.GitNumstat(r.Context(), sess.Workdir))
-
+	facts, _ := digest.ParseTranscript(f)
+	stats := digest.ParseNumstat(s.life.GitNumstat(ctx, sess.Workdir))
 	d.Files = digest.MergeFiles(facts.EditedFiles, stats)
-	d.Branch = s.life.GitBranch(r.Context(), sess.Workdir)
+	d.Branch = s.life.GitBranch(ctx, sess.Workdir)
 	d.Turns = facts.Turns
 	d.Task = facts.Task
-
-	// Deterministic fallback first; the narrator only enriches.
 	d.Summary = facts.LastMessage
 	if s.narrator != nil {
-		if out, err := s.narrator.Summarize(r.Context(), facts); err == nil && strings.TrimSpace(out) != "" {
+		if out, err := s.narrator.Summarize(ctx, facts); err == nil && strings.TrimSpace(out) != "" {
 			d.Summary = out
 		}
 	}
-	writeJSON(w, http.StatusOK, d)
+	return d
 }
