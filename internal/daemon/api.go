@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -37,6 +38,15 @@ type SpawnRequest struct {
 	Prompt     string `json:"prompt"`     // prompt-mode: the agent's initial prompt
 	Cwd        string `json:"cwd"`        // dir to launch claude from (caller cwd / web pick)
 	Supervised bool   `json:"supervised"` // opt-in supervised mode (acceptEdits prompts)
+	Force      bool   `json:"force"`      // bypass the memory-pressure spawn gate
+}
+
+// confirmationResponse is the 428 body when the spawn gate warns. The client
+// turns confirmation_required into ErrConfirmationRequired so surfaces can
+// re-spawn with force=true.
+type confirmationResponse struct {
+	ConfirmationRequired bool             `json:"confirmation_required"`
+	Verdict              pressure.Verdict `json:"verdict"`
 }
 
 // AdoptRequest is the body for POST /adopt.
@@ -108,6 +118,12 @@ type Server struct {
 	exec *Executor
 	// narrator produces the digest's LLM summary (nil ⇒ degrade to LastMessage).
 	narrator digest.Narrator
+	// pressure caching for the spawn gate + GET /pressure. Sampled by a
+	// background loop (sibling to the poller); read on the spawn hot path.
+	pressMu      sync.RWMutex
+	pressLevel   pressure.Level
+	spawnGate    bool // AGENTCTL_SPAWN_GATE
+	spawnGateMax int  // AGENTCTL_SPAWN_GATE_MAX_AGENTS
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -127,6 +143,19 @@ func (s *Server) SetExecutor(e *Executor) { s.exec = e }
 // SetNarrator wires the digest narrator after construction (optional; nil ⇒ the
 // digest summary degrades to the agent's last transcript message).
 func (s *Server) SetNarrator(n digest.Narrator) { s.narrator = n }
+
+// SetSpawnGate configures the memory-pressure spawn gate. enabled=false leaves
+// the gauge live but never warns on spawn. Initializes the cached level to
+// Normal so reads before the first sample are safe.
+func (s *Server) SetSpawnGate(enabled bool, maxAgents int) {
+	s.pressMu.Lock()
+	defer s.pressMu.Unlock()
+	s.spawnGate = enabled
+	s.spawnGateMax = maxAgents
+	if s.pressLevel == 0 {
+		s.pressLevel = pressure.Normal
+	}
+}
 
 // Lifecycle is the subset of operations the API delegates to (Phase 4+).
 // The daemon defines this interface in terms of its own SpawnRequest DTO so

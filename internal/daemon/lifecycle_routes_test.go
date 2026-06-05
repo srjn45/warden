@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
+	"github.com/srajanpathak/agentctl/internal/pressure"
 	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -124,6 +125,9 @@ func (f *fakeLife) SendKeys(_ context.Context, s, key string) error { f.lastKey 
 func (f *fakeLife) TranscriptPath(sess *store.Session) string         { return "" }
 func (f *fakeLife) GitBranch(ctx context.Context, dir string) string  { return "" }
 func (f *fakeLife) GitNumstat(ctx context.Context, dir string) string { return "" }
+func (f *fakeLife) MemoryPressure(_ context.Context) (pressure.Level, error) {
+	return pressure.Normal, nil
+}
 
 func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
 	id := req.PipelineID + "-" + req.JobID

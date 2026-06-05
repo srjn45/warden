@@ -25,6 +25,7 @@ func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Get("/sessions/{id}/output", s.handleOutput)
 	r.Get("/sessions/{id}/attach", s.handleAttach)
 	r.Post("/sessions/{id}/restore", s.handleRestore)
+	r.Get("/pressure", s.handlePressure)
 }
 
 func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +75,19 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if req.Cwd != "" {
 		if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {
 			writeErr(w, http.StatusBadRequest, "cwd is not an existing directory: "+req.Cwd)
+			return
+		}
+	}
+	// Memory-pressure soft gate: when enabled and the caller hasn't forced,
+	// warn (HTTP 428) instead of spawning onto a strained machine. The client
+	// re-spawns with force=true to confirm. Pipelines bypass this (they spawn
+	// in-process via SpawnJob, not through this handler).
+	if s.spawnGate && !req.Force {
+		if v := s.spawnVerdict(r.Context()); v.Elevated {
+			writeJSON(w, http.StatusPreconditionRequired, confirmationResponse{
+				ConfirmationRequired: true,
+				Verdict:              v,
+			})
 			return
 		}
 	}

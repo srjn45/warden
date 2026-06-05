@@ -68,6 +68,7 @@ func newDaemonCmd() *cobra.Command {
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
+			srv.SetSpawnGate(cfg.SpawnGateEnabled, cfg.SpawnGateMaxAgents)
 
 			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
