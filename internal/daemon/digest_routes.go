@@ -47,12 +47,13 @@ func (s *Server) buildDigest(ctx context.Context, sess *store.Session) digest.Di
 		return d
 	}
 	defer f.Close()
-	facts, _ := digest.ParseTranscript(f)
+	facts, _ := digest.ParseTranscript(f) // scanner I/O error ignored — malformed lines are skipped internally; partial facts still beat a 500
 	stats := digest.ParseNumstat(s.life.GitNumstat(ctx, sess.Workdir))
 	d.Files = digest.MergeFiles(facts.EditedFiles, stats)
 	d.Branch = s.life.GitBranch(ctx, sess.Workdir)
 	d.Turns = facts.Turns
 	d.Task = facts.Task
+	// Deterministic fallback first; the narrator only enriches.
 	d.Summary = facts.LastMessage
 	if s.narrator != nil {
 		if out, err := s.narrator.Summarize(ctx, facts); err == nil && strings.TrimSpace(out) != "" {
