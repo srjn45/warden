@@ -489,7 +489,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		if err := l.newAgentSession(ctx, "", id, req.Cwd); err != nil {
 			return nil, err
 		}
-		launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+		launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 			l.killSession(id) // the session exists but launch failed — don't orphan it
 			return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -519,7 +519,8 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		}
 		return nil, err
 	}
-	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, claudeLaunch(sess.ClaudeSessionID, id, req.Supervised), "Enter"); err != nil {
+	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + pipelineHint()
+	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.killSession(id)
 		if worktreeCreated {
 			l.rollbackWorktree(sess)

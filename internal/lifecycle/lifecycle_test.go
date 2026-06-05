@@ -74,6 +74,7 @@ func TestClaudeProjectDir(t *testing.T) {
 const noOtherWorktrees = "worktree /repo\nHEAD abc\nbranch refs/heads/main\n"
 
 func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 	}}
@@ -94,7 +95,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 	// Launch claude UNATTENDED, with a pinned session id and display name.
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", false), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", false) + pipelineHint(), "Enter"})
 }
 
 func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
@@ -165,6 +166,7 @@ func TestSpawnAdoptsExistingWorktree(t *testing.T) {
 }
 
 func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
 	fr := &FakeRunner{}
 	lc := New(fr)
 	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
@@ -179,7 +181,7 @@ func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/repo"})
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, false), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint(), "Enter"})
 }
 
 func TestSpawnPRReviewChecksOutPR(t *testing.T) {
@@ -414,6 +416,7 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 }
 
 func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
 	fr := &FakeRunner{}
 	prompt := "fix the auth bug"
 	l := New(fr)
@@ -429,7 +432,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", "/state/prompts"})
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -464,6 +467,7 @@ func TestNewestTranscriptTailPicksNewestAndTails(t *testing.T) {
 }
 
 func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
 	fr := &FakeRunner{}
 	prompt := "line one\nline two with a ' quote\nline three"
 	l := New(fr)
@@ -477,7 +481,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 
 	// The launch line is a single physical line; the multi-line prompt is read
 	// back via $(cat …) so no embedded newline is ever typed into the pane.
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	require.NotContains(t, launch, "\n", "the typed launch command must never contain a raw newline")
 }
@@ -1005,6 +1009,53 @@ func TestSpawnJobNoneRunsInRepoRoot(t *testing.T) {
 	}
 	for _, a := range fr.calledArgs() {
 		require.NotEqual(t, "worktree", argAt(a, 1), "none-mode must not create a worktree")
+	}
+}
+
+func TestSpawnInjectsPipelineHint(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // force on
+	fr := &FakeRunner{}
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "fix the auth bug", Cwd: "/work/project"})
+	require.NoError(t, err)
+
+	promptFile := "/state/prompts/" + s.ID
+	want := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
+	require.Contains(t, want, "--append-system-prompt")
+}
+
+func TestSpawnRespectsPipelineHintOptOut(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "1")
+	fr := &FakeRunner{}
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "fix the auth bug", Cwd: "/work/project"})
+	require.NoError(t, err)
+	_ = s
+
+	for _, argv := range fr.calledArgs() {
+		for _, a := range argv {
+			require.NotContains(t, a, "--append-system-prompt", "opt-out env must suppress the hint")
+		}
+	}
+}
+
+func TestSpawnJobOmitsPipelineHint(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // even with the hint ON, pipeline jobs must not get it
+	fr := &FakeRunner{}
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	_, err := l.SpawnJob(context.Background(), JobSpawnRequest{
+		PipelineID: "p", JobID: "a", Repo: "/repo", Prompt: "do the thing",
+	})
+	require.NoError(t, err)
+
+	for _, argv := range fr.calledArgs() {
+		for _, a := range argv {
+			require.NotContains(t, a, "--append-system-prompt", "pipeline jobs are already decomposed")
+		}
 	}
 }
 
