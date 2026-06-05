@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -43,10 +44,11 @@ type Job struct {
 	Supervised bool     `json:"supervised,omitempty" yaml:"supervised,omitempty"`
 	Type       string   `json:"type,omitempty" yaml:"type,omitempty"`
 
-	SessionID string    `json:"session_id,omitempty" yaml:"-"`
-	Status    JobStatus `json:"status,omitempty" yaml:"-"`
-	Output    string    `json:"output,omitempty" yaml:"-"`
-	Branch    string    `json:"branch,omitempty" yaml:"-"`
+	SessionID string         `json:"session_id,omitempty" yaml:"-"`
+	Status    JobStatus      `json:"status,omitempty" yaml:"-"`
+	Output    string         `json:"output,omitempty" yaml:"-"`
+	Branch    string         `json:"branch,omitempty" yaml:"-"`
+	Digest    *digest.Digest `json:"digest,omitempty" yaml:"-"` // completion snapshot (nil until reaped)
 }
 
 type Pipeline struct {

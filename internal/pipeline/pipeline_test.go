@@ -1,8 +1,11 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/srajanpathak/agentctl/internal/digest"
 )
 
 func valid() *Pipeline {
@@ -74,5 +77,20 @@ func TestJobLookup(t *testing.T) {
 	p := valid()
 	if p.Job("impl") == nil || p.Job("nope") != nil {
 		t.Fatalf("Job() lookup wrong")
+	}
+}
+
+func TestJobDigestRoundTrips(t *testing.T) {
+	j := Job{ID: "impl", Prompt: "do it", Digest: &digest.Digest{Summary: "did it", Turns: 3}}
+	b, err := json.Marshal(j)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got Job
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Digest == nil || got.Digest.Summary != "did it" || got.Digest.Turns != 3 {
+		t.Fatalf("digest did not round-trip: %+v", got.Digest)
 	}
 }
