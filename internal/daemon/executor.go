@@ -333,7 +333,8 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	// Terminate ONLY — never Teardown — so the worktree + branch survive for
 	// downstream `from:<job>` jobs (same invariant as `rotate`).
 	if sess != nil && !e.keepDone {
-		_ = e.life.Terminate(ctx, sess.TmuxSession)
+		// Background ctx: the reap must complete even if the emit request is cancelled.
+		_ = e.life.Terminate(context.Background(), sess.TmuxSession)
 		if e.digestFn != nil {
 			e.snapWG.Add(1)
 			go func(s *store.Session) {

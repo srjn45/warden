@@ -78,7 +78,12 @@ func (f *fakeLife) getClassified() string {
 	defer f.mu.Unlock()
 	return f.classified
 }
-func (f *fakeLife) Terminate(_ context.Context, tmux string) error { f.terminated = tmux; return nil }
+func (f *fakeLife) Terminate(_ context.Context, tmux string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.terminated = tmux
+	return nil
+}
 func (f *fakeLife) RemoveWorktree(_ context.Context, sess *store.Session, force bool) error {
 	f.removedWT = sess.ID
 	return f.removeWTErr
