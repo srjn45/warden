@@ -15,6 +15,7 @@ import (
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 	"github.com/srajanpathak/agentctl/internal/mailbox"
 	"github.com/srajanpathak/agentctl/internal/poller"
+	"github.com/srajanpathak/agentctl/internal/pressure"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -161,6 +162,9 @@ type Lifecycle interface {
 	// GitBranch / GitNumstat read git state in dir (best-effort, "" on error).
 	GitBranch(ctx context.Context, dir string) string
 	GitNumstat(ctx context.Context, dir string) string
+	// MemoryPressure reads the current macOS memory-pressure level (Normal on
+	// non-macOS / error). Used by the sampler loop and the spawn gate.
+	MemoryPressure(ctx context.Context) (pressure.Level, error)
 }
 
 // recoverMiddleware converts a panic in any handler into a 500 response instead

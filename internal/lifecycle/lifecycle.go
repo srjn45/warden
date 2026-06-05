@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/srajanpathak/agentctl/internal/pressure"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -364,6 +365,21 @@ func (l *Lifecycle) GitNumstat(ctx context.Context, dir string) string {
 		return ""
 	}
 	return out
+}
+
+// MemoryPressure reads the macOS memory-pressure level via sysctl. Best-effort:
+// on any error (sysctl missing on non-macOS, unparseable output) it degrades to
+// pressure.Normal with no error, so the spawn gate falls back to count-only.
+func (l *Lifecycle) MemoryPressure(ctx context.Context) (pressure.Level, error) {
+	out, err := l.run.Run(ctx, "", "sysctl", "-n", "kern.memorystatus_vm_pressure_level")
+	if err != nil {
+		return pressure.Normal, nil
+	}
+	lvl, perr := pressure.ParseSysctl(out)
+	if perr != nil {
+		return pressure.Normal, nil
+	}
+	return lvl, nil
 }
 
 // RunClaudeP exposes the bounded headless `claude -p` runner (the same plumbing

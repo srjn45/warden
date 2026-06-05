@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
+	"github.com/srajanpathak/agentctl/internal/pressure"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
@@ -110,4 +111,8 @@ func (a *lifecycleAdapter) GitBranch(ctx context.Context, dir string) string {
 
 func (a *lifecycleAdapter) GitNumstat(ctx context.Context, dir string) string {
 	return a.lc.GitNumstat(ctx, dir)
+}
+
+func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, error) {
+	return a.lc.MemoryPressure(ctx)
 }
