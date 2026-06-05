@@ -42,7 +42,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	facts, _ := digest.ParseTranscript(f) // malformed lines tolerated inside
+	facts, _ := digest.ParseTranscript(f) // scanner I/O error ignored — malformed lines are skipped internally; partial facts still beat a 500
 	stats := digest.ParseNumstat(s.life.GitNumstat(r.Context(), sess.Workdir))
 
 	d.Files = digest.MergeFiles(facts.EditedFiles, stats)

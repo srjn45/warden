@@ -43,6 +43,7 @@ func digestEnv(t *testing.T, transcript string, narrator digest.Narrator) (*http
 	runGit("init", "-b", "feature/digest")
 	runGit("config", "user.email", "t@t")
 	runGit("config", "user.name", "t")
+	runGit("config", "commit.gpgsign", "false")
 	os.WriteFile(filepath.Join(work, "a.go"), []byte("package a\n"), 0o644)
 	runGit("add", "a.go")
 	runGit("commit", "-m", "init")
