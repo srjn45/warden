@@ -1,0 +1,140 @@
+package daemon
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/srajanpathak/agentctl/internal/digest"
+	"github.com/srajanpathak/agentctl/internal/lifecycle"
+	"github.com/srajanpathak/agentctl/internal/store"
+)
+
+type fakeNarrator struct {
+	out string
+	err error
+}
+
+func (n fakeNarrator) Summarize(_ context.Context, _ digest.Facts) (string, error) {
+	return n.out, n.err
+}
+
+// digestEnv wires a Server with a real lifecycle adapter pointed at a temp
+// transcript root + a temp git repo as the session workdir.
+func digestEnv(t *testing.T, transcript string, narrator digest.Narrator) (*httptest.Server, string) {
+	t.Helper()
+	projects := t.TempDir()
+	work := t.TempDir()
+
+	// init a real git repo with one committed + one unstaged change.
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = work
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	runGit("init", "-b", "feature/digest")
+	runGit("config", "user.email", "t@t")
+	runGit("config", "user.name", "t")
+	os.WriteFile(filepath.Join(work, "a.go"), []byte("package a\n"), 0o644)
+	runGit("add", "a.go")
+	runGit("commit", "-m", "init")
+	os.WriteFile(filepath.Join(work, "a.go"), []byte("package a\n// edit\n"), 0o644)
+
+	// Place the transcript where TranscriptPath will find it: <projects>/<glob>/<id>.jsonl.
+	encDir := filepath.Join(projects, "encoded")
+	os.MkdirAll(encDir, 0o755)
+	claudeID := "11111111-1111-1111-1111-111111111111"
+	if transcript != "" {
+		os.WriteFile(filepath.Join(encDir, claudeID+".jsonl"), []byte(transcript), 0o644)
+	}
+
+	lc := lifecycle.New(lifecycle.ExecRunner{})
+	lc.ProjectsDir = projects
+	fs := newFakeStore()
+	fs.data["agent-d1"] = &store.Session{
+		ID: "agent-d1", Workdir: work, ClaudeSessionID: claudeID, Status: store.Status("working"),
+	}
+	srv := &Server{store: fs, life: NewLifecycleAdapter(lc, fs), narrator: narrator}
+	return httptest.NewServer(srv.router()), claudeID
+}
+
+const digestTranscript = `{"type":"user","message":{"role":"user","content":"Edit a.go"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"a.go","old_string":"x","new_string":"y"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Edited a.go."}]}}
+`
+
+func getDigest(t *testing.T, ts *httptest.Server, id string) (*digest.Digest, int) {
+	t.Helper()
+	resp, err := http.Get(ts.URL + "/sessions/" + id + "/digest")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode
+	}
+	var d digest.Digest
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return &d, resp.StatusCode
+}
+
+func TestDigestHappyPath(t *testing.T) {
+	ts, _ := digestEnv(t, digestTranscript, fakeNarrator{out: "Edited a.go to add a comment."})
+	defer ts.Close()
+	d, code := getDigest(t, ts, "agent-d1")
+	if code != http.StatusOK {
+		t.Fatalf("code = %d", code)
+	}
+	if d.Summary != "Edited a.go to add a comment." {
+		t.Errorf("Summary = %q (want narrator output)", d.Summary)
+	}
+	if d.Branch != "feature/digest" {
+		t.Errorf("Branch = %q, want feature/digest", d.Branch)
+	}
+	if d.Turns != 2 || d.Task != "Edit a.go" || d.Status != "working" {
+		t.Errorf("facts wrong: %+v", d)
+	}
+	if len(d.Files) != 1 || d.Files[0].Path != "a.go" || !d.Files[0].Edited || d.Files[0].Added == 0 {
+		t.Errorf("Files = %+v, want a.go edited with +lines", d.Files)
+	}
+}
+
+func TestDigestNarratorFailureDegrades(t *testing.T) {
+	ts, _ := digestEnv(t, digestTranscript, fakeNarrator{err: errors.New("claude down")})
+	defer ts.Close()
+	d, _ := getDigest(t, ts, "agent-d1")
+	if d.Summary != "Edited a.go." {
+		t.Errorf("Summary = %q, want fallback to LastMessage", d.Summary)
+	}
+}
+
+func TestDigestMissingTranscript(t *testing.T) {
+	ts, _ := digestEnv(t, "", fakeNarrator{out: "unused"})
+	defer ts.Close()
+	d, code := getDigest(t, ts, "agent-d1")
+	if code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", code)
+	}
+	if d.Summary != "no transcript available" || d.Status != "working" {
+		t.Errorf("missing-transcript digest = %+v", d)
+	}
+}
+
+func TestDigestUnknownSession(t *testing.T) {
+	ts, _ := digestEnv(t, digestTranscript, fakeNarrator{out: "x"})
+	defer ts.Close()
+	_, code := getDigest(t, ts, "nope")
+	if code != http.StatusNotFound {
+		t.Errorf("code = %d, want 404", code)
+	}
+}
