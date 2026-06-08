@@ -155,9 +155,10 @@ type item struct {
 	approvals bool // synthetic top-of-list inbox row
 	apprCount int  // number of waiting agents (inbox row only)
 
-	pipeline *pipeline.Pipeline // pipeline header row
-	pjPipe   string             // pipelineJob row: owning pipeline id
-	pjJob    *pipeline.Job      // pipelineJob row: the job
+	pipeline  *pipeline.Pipeline // pipeline header row
+	collapsed bool               // pipeline header row: jobs hidden (▸ vs ▾)
+	pjPipe    string             // pipelineJob row: owning pipeline id
+	pjJob     *pipeline.Job      // pipelineJob row: the job
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't
@@ -237,11 +238,16 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 }
 
 // pipelineItems flattens pipelines into a header row per pipeline followed by an
-// indented row per job. Each job row holds a distinct *Job pointer.
-func pipelineItems(ps []*pipeline.Pipeline) []item {
+// indented row per job. Each job row holds a distinct *Job pointer. A pipeline
+// whose id is marked in `collapsed` emits only its header row (jobs hidden).
+func pipelineItems(ps []*pipeline.Pipeline, collapsed map[string]bool) []item {
 	var out []item
 	for _, p := range ps {
-		out = append(out, item{pipeline: p})
+		c := collapsed[p.ID]
+		out = append(out, item{pipeline: p, collapsed: c})
+		if c {
+			continue
+		}
 		for i := range p.Jobs {
 			j := p.Jobs[i] // fresh var each iteration → distinct pointer
 			out = append(out, item{pjPipe: p.ID, pjJob: &j})
@@ -402,6 +408,45 @@ func jobBadge(s pipeline.JobStatus) (string, lipgloss.Style) {
 	}
 }
 
+// pipelineDisplayStatus maps a pipeline to its display label, color style, and
+// glyph. It derives a "partial" state (amber ◑) when the pipeline has reached a
+// terminal status (done/stalled/canceled) but ≥1 job failed or needs attention —
+// so a pipeline that "finished" with casualties is not shown plain green/grey.
+// Otherwise it maps the real status. By caller convention the glyph and label
+// are both rendered in the returned style.
+func pipelineDisplayStatus(p *pipeline.Pipeline) (string, lipgloss.Style, string) {
+	if pipelineIsTerminal(p.Status) && pipelineHasFailure(p) {
+		return "partial", stAttention, "◑" // amber
+	}
+	switch p.Status {
+	case pipeline.StatusRunning:
+		return "running", stRunning, "◐" // cyan
+	case pipeline.StatusDone:
+		return "done", stBusy, "●" // green
+	case pipeline.StatusStalled:
+		return "stalled", stAttention, "⚠" // amber
+	case pipeline.StatusCanceled:
+		return "canceled", stMuted, "⊘" // grey
+	default: // pending
+		return "pending", stMuted, "○" // grey
+	}
+}
+
+// pipelineIsTerminal reports whether a pipeline status is a stopped/final state.
+func pipelineIsTerminal(s pipeline.Status) bool {
+	return s == pipeline.StatusDone || s == pipeline.StatusStalled || s == pipeline.StatusCanceled
+}
+
+// pipelineHasFailure reports whether any job failed or needs attention.
+func pipelineHasFailure(p *pipeline.Pipeline) bool {
+	for i := range p.Jobs {
+		if p.Jobs[i].Status == pipeline.JobFailed || p.Jobs[i].Status == pipeline.JobNeedsAttention {
+			return true
+		}
+	}
+	return false
+}
+
 // renderItemLine renders one body row: an agent's columns, or the placeholder
 // line for an empty opened dir. The cursor row gets the "› " caret + cursor style.
 func renderItemLine(it item, selected bool, width int) string {
@@ -415,7 +460,12 @@ func renderItemLine(it item, selected bool, width int) string {
 			line = stStatus.Render(txt)
 		}
 	case it.pipeline != nil:
-		line = stPaneTitle.Render("▸ "+it.pipeline.ID) + "  " + stMuted.Render(string(it.pipeline.Status))
+		exp := "▾" // expanded
+		if it.collapsed {
+			exp = "▸" // collapsed
+		}
+		label, st, glyph := pipelineDisplayStatus(it.pipeline)
+		line = exp + " " + stPaneTitle.Render(it.pipeline.ID) + "  " + st.Render(glyph+" "+label)
 	case it.pjJob != nil:
 		deps := ""
 		if len(it.pjJob.DependsOn) > 0 {

@@ -303,7 +303,7 @@ func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 func TestPipelineItems(t *testing.T) {
 	ps := []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}, {ID: "b", Status: pipeline.JobPending}}}}
-	items := pipelineItems(ps)
+	items := pipelineItems(ps, nil)
 	if len(items) != 3 {
 		t.Fatalf("want 3 items (1 pipeline + 2 jobs), got %d", len(items))
 	}
@@ -353,9 +353,15 @@ func TestItemsPrependsPipelinesAndFiltersOwnedSessions(t *testing.T) {
 }
 
 func TestRenderItemLinePipelineRows(t *testing.T) {
+	// expanded (default): ▾ indicator
 	head := renderItemLine(item{pipeline: &pipeline.Pipeline{ID: "demo", Status: pipeline.StatusRunning}}, false, 60)
-	if !strings.Contains(head, "demo") || !strings.Contains(head, "▸") || !strings.Contains(head, "running") {
-		t.Fatalf("pipeline header row wrong: %q", head)
+	if !strings.Contains(head, "demo") || !strings.Contains(head, "▾") || !strings.Contains(head, "running") {
+		t.Fatalf("expanded pipeline header row wrong: %q", head)
+	}
+	// collapsed: ▸ indicator
+	col := renderItemLine(item{pipeline: &pipeline.Pipeline{ID: "demo", Status: pipeline.StatusRunning}, collapsed: true}, false, 60)
+	if !strings.Contains(col, "▸") {
+		t.Fatalf("collapsed pipeline header row should show ▸: %q", col)
 	}
 	glyph, _ := jobBadge(pipeline.JobDone)
 	jobRow := renderItemLine(item{pjPipe: "demo", pjJob: &pipeline.Job{ID: "a", Status: pipeline.JobDone, DependsOn: []string{"x"}}}, false, 60)
@@ -460,6 +466,81 @@ func TestBuildRowsNoHeaderForPipelineRows(t *testing.T) {
 			t.Fatalf("spurious empty group header above pipeline rows: %q", r.header)
 		}
 	}
+}
+
+func TestPipelineDisplayStatus(t *testing.T) {
+	job := func(s pipeline.JobStatus) pipeline.Job { return pipeline.Job{ID: "j", Status: s} }
+	cases := []struct {
+		name  string
+		p     *pipeline.Pipeline
+		label string
+		glyph string
+		color lipgloss.Color
+	}{
+		{"pending", &pipeline.Pipeline{Status: pipeline.StatusPending}, "pending", "○", lipgloss.Color("8")},
+		{"running", &pipeline.Pipeline{Status: pipeline.StatusRunning}, "running", "◐", lipgloss.Color("6")},
+		{"done", &pipeline.Pipeline{Status: pipeline.StatusDone, Jobs: []pipeline.Job{job(pipeline.JobDone)}}, "done", "●", lipgloss.Color("2")},
+		{"stalled", &pipeline.Pipeline{Status: pipeline.StatusStalled, Jobs: []pipeline.Job{job(pipeline.JobDone), job(pipeline.JobSkipped)}}, "stalled", "⚠", lipgloss.Color("3")},
+		{"canceled", &pipeline.Pipeline{Status: pipeline.StatusCanceled, Jobs: []pipeline.Job{job(pipeline.JobDone)}}, "canceled", "⊘", lipgloss.Color("8")},
+		// derived partial: terminal pipeline with a failed / needs_attention job.
+		{"partial-done-failed", &pipeline.Pipeline{Status: pipeline.StatusDone, Jobs: []pipeline.Job{job(pipeline.JobDone), job(pipeline.JobFailed)}}, "partial", "◑", lipgloss.Color("3")},
+		{"partial-stalled-needs", &pipeline.Pipeline{Status: pipeline.StatusStalled, Jobs: []pipeline.Job{job(pipeline.JobDone), job(pipeline.JobNeedsAttention)}}, "partial", "◑", lipgloss.Color("3")},
+		{"partial-canceled-failed", &pipeline.Pipeline{Status: pipeline.StatusCanceled, Jobs: []pipeline.Job{job(pipeline.JobFailed)}}, "partial", "◑", lipgloss.Color("3")},
+		// negative: a failed job on a NON-terminal pipeline is not "partial".
+		{"running-with-failed-not-partial", &pipeline.Pipeline{Status: pipeline.StatusRunning, Jobs: []pipeline.Job{job(pipeline.JobFailed)}}, "running", "◐", lipgloss.Color("6")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			label, st, glyph := pipelineDisplayStatus(c.p)
+			require.Equal(t, c.label, label)
+			require.Equal(t, c.glyph, glyph)
+			require.Equal(t, c.color, st.GetForeground())
+		})
+	}
+}
+
+func TestPipelineItemsHonorsCollapsed(t *testing.T) {
+	ps := []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}, {ID: "b", Status: pipeline.JobPending}}}}
+
+	// collapsed → header only.
+	items := pipelineItems(ps, map[string]bool{"demo": true})
+	require.Len(t, items, 1, "collapsed pipeline emits only its header row")
+	require.NotNil(t, items[0].pipeline)
+	require.True(t, items[0].collapsed, "header item carries collapsed state")
+
+	// expanded (explicit false) → header + jobs.
+	items = pipelineItems(ps, map[string]bool{"demo": false})
+	require.Len(t, items, 3, "expanded pipeline emits header + job rows")
+	require.False(t, items[0].collapsed)
+}
+
+func TestKeyCollapseExpandPipeline(t *testing.T) {
+	m := pipeModel()
+	m.cursor = 0 // pipeline header
+
+	// collapse with h
+	updated, _ := m.handleKey(key("h"))
+	mc := updated.(listPaneModel)
+	require.True(t, mc.collapsed["demo"], "h collapses the pipeline under the cursor")
+	require.Len(t, mc.items(), 1, "collapsed → only the header remains")
+
+	// expand with l
+	updated, _ = mc.handleKey(key("l"))
+	me := updated.(listPaneModel)
+	require.False(t, me.collapsed["demo"], "l expands the pipeline under the cursor")
+	require.Len(t, me.items(), 3, "expanded → header + 2 jobs")
+}
+
+func TestKeyCollapseFromJobRepinsCursorToHeader(t *testing.T) {
+	m := pipeModel()
+	m.cursor = 1 // job "a" (a hidden row once collapsed)
+
+	updated, _ := m.handleKey(key("h"))
+	mc := updated.(listPaneModel)
+	require.True(t, mc.collapsed["demo"], "h on a job collapses its parent pipeline")
+	require.Equal(t, 0, mc.cursor, "cursor re-pinned to the header, never a hidden row")
+	require.NotNil(t, itemAt(mc.items(), mc.cursor).pipeline, "cursor lands on the pipeline header")
 }
 
 func TestFlatSessionsIncludesOrphanedPipelineAgents(t *testing.T) {

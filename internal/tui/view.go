@@ -22,6 +22,7 @@ func pressureChip(p client.PressureStatus) string {
 func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
+		"  ←/→ or h/l   collapse / expand the pipeline under the cursor\n" +
 		"  enter        open the selected agent in the detail pane\n" +
 		"  n            new agent (prompt)\n" +
 		"  o            open a directory as a group (spawn target for n)\n" +

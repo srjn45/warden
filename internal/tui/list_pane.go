@@ -36,6 +36,7 @@ type listPaneModel struct {
 	connected     bool
 	pendingSelect string
 	pipelines     []*pipeline.Pipeline
+	collapsed     map[string]bool // pipeline id → jobs hidden in the list
 	pressure      client.PressureStatus
 	pendingPrompt string
 	pendingDir    string
@@ -56,14 +57,14 @@ func newListPane(a api, detailPane string) listPaneModel {
 	tp.Placeholder = "~/path/to/dir"
 	return listPaneModel{
 		api: a, ta: ta, ti: ti, tp: tp, detailPane: detailPane,
-		openedDirs: map[string]time.Time{}, connected: true,
+		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, connected: true,
 	}
 }
 
 func (m listPaneModel) items() []item {
 	// Pipeline-owned sessions are shown under their pipeline, not the flat list —
 	// except orphans whose pipeline was deleted, which fall back to the flat list.
-	return append(pipelineItems(m.pipelines), buildItems(flatSessions(m.sessions, m.pipelines), m.openedDirs)...)
+	return append(pipelineItems(m.pipelines, m.collapsed), buildItems(flatSessions(m.sessions, m.pipelines), m.openedDirs)...)
 }
 
 func (m listPaneModel) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
@@ -395,6 +396,21 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor > 0 {
 			m.cursor--
 		}
+	case "right", "l":
+		if it := itemAt(m.items(), m.cursor); it.pipeline != nil {
+			m.collapsed[it.pipeline.ID] = false
+		}
+	case "left", "h":
+		it := itemAt(m.items(), m.cursor)
+		switch {
+		case it.pipeline != nil:
+			m.collapsed[it.pipeline.ID] = true
+		case it.pjJob != nil:
+			// Collapsing hides the job under the cursor; re-pin to the parent
+			// header so the cursor never lands on a now-hidden row.
+			m.collapsed[it.pjPipe] = true
+			m.repin(itemKey(item{pipeline: &pipeline.Pipeline{ID: it.pjPipe}}))
+		}
 	case "n":
 		m.targetDir = m.activeDir()
 		m.mode = modeNewAgent
@@ -481,7 +497,7 @@ func (m listPaneModel) View() string {
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
-	footer := stMuted.Render("enter open · n new · o open dir · s send · a attach · c ctx/msgs · r retry · x kill/cancel · ? help · q quit")
+	footer := stMuted.Render("enter open · ←/→ collapse/expand · n new · o open dir · s send · a attach · c ctx/msgs · r retry · x kill/cancel · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
