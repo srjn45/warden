@@ -146,6 +146,23 @@ export async function listPipelines(): Promise<Pipeline[]> {
   return data.pipelines ?? [];
 }
 
+// createPipeline submits a spec (raw YAML, or JSON which is a valid YAML subset)
+// to the existing POST /pipelines. The daemon re-parses and re-validates it, so
+// a 400 surfaces the authoritative validation error as an ApiError.
+export async function createPipeline(spec: string): Promise<Pipeline> {
+  return parse<Pipeline>(await fetch('/pipelines', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spec }),
+  }));
+}
+
+// startPipeline kicks off DAG reconciliation. The daemon refuses with 409 if the
+// pipeline already started — surfaced as an ApiError.
+export async function startPipeline(id: string): Promise<void> {
+  await parse<unknown>(await fetch(`/pipelines/${encodeURIComponent(id)}/start`, { method: 'POST' }));
+}
+
 export async function cancelPipeline(id: string): Promise<void> {
   await parse<unknown>(await fetch(`/pipelines/${encodeURIComponent(id)}/cancel`, { method: 'POST' }));
 }

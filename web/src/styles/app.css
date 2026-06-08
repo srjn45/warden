@@ -146,6 +146,43 @@ body { margin: 0; }
 .pipelines .empty { padding: 12px; color: #999; }
 .pipelines .drawer-head .tab-close { background: none; border: none; color: #999; cursor: pointer; font-size: 14px; }
 .pipelines .drawer-head .tab-close:hover { color: #ddd; }
+.pipelines .pipe-new { margin-bottom: 6px; text-align: center; }
+
+/* Pipeline DAG (layered directed graph; geometry from lib/dag) */
+.dag-scroll { margin-top: 10px; overflow: auto; max-height: 100%; }
+.dag { position: relative; }
+.dag-edges { position: absolute; top: 0; left: 0; pointer-events: none; }
+.dag-node {
+  position: absolute; display: flex; flex-direction: column; gap: 4px; justify-content: center;
+  padding: 8px; border-radius: 6px; border: 1px solid #2a2a30; background: #1b1b1f;
+  color: inherit; cursor: pointer; text-align: left; overflow: hidden;
+}
+.dag-node.on { outline: 2px solid #6cf; }
+.dag-node-id { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dag-node-st { font-size: 11px; opacity: 0.85; }
+/* reuse the per-status left-border accents from .job-* */
+.dag-node.job-running { border-left: 3px solid #6cf; }
+.dag-node.job-done { border-left: 3px solid #4a7; }
+.dag-node.job-failed { border-left: 3px solid #e55; }
+.dag-node.job-needs_attention { border-left: 3px solid #e84; }
+.dag-node.job-skipped { border-left: 3px solid #555; opacity: 0.6; }
+.dag-node.job-pending { border-left: 3px solid #888; }
+
+/* New-pipeline authoring modal */
+.modal.pipe-modal { width: min(640px, 94vw); max-height: 88vh; overflow-y: auto; }
+.pipe-modal-head { display: flex; gap: .6rem; }
+.pipe-modal-head label { flex: 1; }
+.pipe-jobs { display: flex; flex-direction: column; gap: .6rem; }
+.pipe-job-card { border: 1px solid #2a2a30; border-radius: 6px; padding: .6rem; display: flex; flex-direction: column; gap: .4rem; background: #15151833; }
+.pipe-job-row { display: flex; gap: .6rem; align-items: flex-end; }
+.pipe-job-row .grow { flex: 1; }
+.pipe-job-rm { background: none; border: 1px solid #34424c; border-radius: 6px; color: #999; cursor: pointer; padding: .3rem .5rem; }
+.pipe-job-rm:hover { color: #ddd; }
+.pipe-add-job { align-self: flex-start; background: #26323a; border: 1px solid #34424c; border-radius: 6px; color: inherit; cursor: pointer; padding: .4rem .8rem; }
+.pipe-add-job:hover { background: #2f3e48; }
+.pipe-modal select[multiple] { min-height: 3.4rem; }
+.pipe-errors { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .2rem; }
+.pipe-errors .warn { font-size: .85rem; }
 
 /* Context & Messages inspector (read-only) */
 .inspector { padding: 1rem; display: flex; flex-direction: column; gap: 1.5rem; overflow: auto; }

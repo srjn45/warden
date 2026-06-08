@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob } from './api';
+import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -166,5 +166,30 @@ describe('pipelines api', () => {
     await retryJob('demo', 'a');
     expect(fetchMock.mock.calls[0][0]).toBe('/pipelines/demo/jobs/a/retry');
     expect(fetchMock.mock.calls[0][1].method).toBe('POST');
+  });
+
+  it('createPipeline POSTs the spec to /pipelines', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'demo', jobs: [] }, 201));
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await createPipeline('{"name":"demo"}');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('/pipelines');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({ spec: '{"name":"demo"}' });
+    expect(out.id).toBe('demo');
+  });
+
+  it('createPipeline surfaces a 400 (bad spec) as ApiError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: 'pipeline repo is required' }, 400)));
+    await expect(createPipeline('{}')).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('startPipeline POSTs to the start endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'started' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await startPipeline('demo');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('/pipelines/demo/start');
+    expect(opts.method).toBe('POST');
   });
 });
