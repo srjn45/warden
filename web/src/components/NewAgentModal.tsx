@@ -40,7 +40,7 @@ export default function NewAgentModal({ onClose, onCreated }: {
             rows={6}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Leave blank to open Claude interactively, or describe a task to run autonomously…"
+            placeholder="Describe a task to run autonomously, or leave blank…"
             autoFocus
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) doSpawn(false); }}
           />
@@ -60,7 +60,7 @@ export default function NewAgentModal({ onClose, onCreated }: {
         <div className="actions">
           {confirm
             ? <button disabled={busy} onClick={() => doSpawn(true)}>Spawn anyway</button>
-            : <button disabled={busy || !dir} onClick={() => doSpawn(false)}>Create</button>}
+            : <button disabled={busy || !dir} onClick={() => doSpawn(false)}>Launch agent</button>}
           <button onClick={onClose}>Cancel</button>
         </div>
       </div>

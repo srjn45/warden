@@ -32,7 +32,7 @@ export default function QuickSpawn({ onCreated }: { onCreated: (id: string) => v
         rows={3}
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
-        placeholder="Describe a task, or leave blank to open Claude and type instructions yourself (⌘/Ctrl+Enter to launch)"
+        placeholder="Describe a task, or leave blank to open Claude interactively (⌘/Ctrl+Enter)"
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
       />
       <DirPicker value={dir} onChange={setDir} />
