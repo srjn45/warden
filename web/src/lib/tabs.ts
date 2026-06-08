@@ -1,10 +1,18 @@
-// The shell has three fixed tabs ('overview', 'cockpit', 'pipelines') that always
-// exist, plus zero or more pinned agent tabs (keyed by agent id). `active` is
-// whichever tab is showing — a fixed id or a pinned agent id.
+// The shell has a fixed set of always-present tabs (FIXED_TABS) plus zero or more
+// pinned agent tabs (keyed by agent id). `active` is whichever tab is showing —
+// a fixed id or a pinned agent id.
+
+// FIXED_TABS are the non-closeable tabs that always exist. Pruning never drops
+// the active tab when it is one of these.
+export const FIXED_TABS = ['overview', 'cockpit', 'pipelines', 'context'] as const;
+
+export function isFixedTab(id: string): boolean {
+  return (FIXED_TABS as readonly string[]).includes(id);
+}
 
 export interface TabsState {
   pinned: string[]; // agent ids, in open order
-  active: string;   // 'overview' | 'cockpit' | <agent id>
+  active: string;   // a FIXED_TABS id | <agent id>
 }
 
 export type TabsAction =
@@ -31,7 +39,7 @@ export function tabsReducer(s: TabsState, a: TabsAction): TabsState {
     case 'prune': {
       const alive = new Set(a.alive);
       const pinned = s.pinned.filter((id) => alive.has(id));
-      const active = pinned.includes(s.active) || s.active === 'overview' || s.active === 'cockpit' || s.active === 'pipelines'
+      const active = pinned.includes(s.active) || isFixedTab(s.active)
         ? s.active
         : 'overview';
       return { pinned, active };

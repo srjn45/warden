@@ -45,6 +45,11 @@ type fakeAPI struct {
 	digestErr   error
 	pressure    client.PressureStatus
 	pressureErr error
+	ctxEntries  []client.ContextEntry
+	ctxListErr  error
+	messages    []client.Message
+	msgErr      error
+	msgLimit    int // last limit passed to MsgRecent
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -108,6 +113,13 @@ func (f *fakeAPI) Digest(_ context.Context, _ string) (*digest.Digest, error) {
 }
 func (f *fakeAPI) Pressure(context.Context) (client.PressureStatus, error) {
 	return f.pressure, f.pressureErr
+}
+func (f *fakeAPI) CtxList(_ context.Context, _ string) ([]client.ContextEntry, error) {
+	return f.ctxEntries, f.ctxListErr
+}
+func (f *fakeAPI) MsgRecent(_ context.Context, limit int) ([]client.Message, error) {
+	f.msgLimit = limit
+	return f.messages, f.msgErr
 }
 
 // step applies a msg and returns the updated concrete Model.

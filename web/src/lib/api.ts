@@ -1,4 +1,4 @@
-import type { Session, ApprovalView, Pipeline, Digest } from './types';
+import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message } from './types';
 import type { Verdict, PressureStatus } from './pressure';
 
 export class ApiError extends Error {
@@ -123,6 +123,22 @@ export async function approve(id: string, option: number, fingerprint: string): 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ option, fingerprint }),
   }));
+}
+
+// listContext returns the daemon's shared-context entries (read-only inspector).
+export async function listContext(): Promise<ContextEntry[]> {
+  const data = await parse<{ entries: ContextEntry[] | null }>(await fetch('/context'));
+  return data.entries ?? [];
+}
+
+// listMessages returns recent message traffic across ALL agent inboxes,
+// newest-first. Read-only: unlike a per-agent inbox fetch, this never marks
+// anything read.
+export async function listMessages(limit = 100): Promise<Message[]> {
+  const data = await parse<{ messages: Message[] | null }>(
+    await fetch(`/messages?limit=${limit}`),
+  );
+  return data.messages ?? [];
 }
 
 export async function listPipelines(): Promise<Pipeline[]> {

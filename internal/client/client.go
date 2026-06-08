@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -411,6 +412,23 @@ func (c *Client) MsgInbox(ctx context.Context, id string, unreadOnly bool) ([]Me
 	p := "/sessions/" + url.PathEscape(id) + "/messages"
 	if unreadOnly {
 		p += "?unread=true"
+	}
+	var resp struct {
+		Messages []Message `json:"messages"`
+	}
+	if err := c.do(ctx, http.MethodGet, p, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Messages, nil
+}
+
+// MsgRecent returns recent message traffic across ALL agent inboxes, newest
+// first (limit <= 0 lets the daemon pick its default). This is the read-only
+// global view behind the inspector — it never marks anything read.
+func (c *Client) MsgRecent(ctx context.Context, limit int) ([]Message, error) {
+	p := "/messages"
+	if limit > 0 {
+		p += "?limit=" + strconv.Itoa(limit)
 	}
 	var resp struct {
 		Messages []Message `json:"messages"`

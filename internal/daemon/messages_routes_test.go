@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/srajanpathak/agentctl/internal/mailbox"
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -136,5 +137,74 @@ func TestInboxListsAndMarksRead(t *testing.T) {
 	resp.Body.Close()
 	if len(ir2.Messages) != 0 {
 		t.Fatalf("want 0 unread after read, got %d", len(ir2.Messages))
+	}
+}
+
+func TestRecentMessagesPure(t *testing.T) {
+	base := time.Unix(1000, 0).UTC()
+	in := []mailbox.Message{
+		{ID: "1", From: "a", To: "x", Body: "old", TS: base},
+		{ID: "1", From: "b", To: "y", Body: "new", TS: base.Add(2 * time.Hour)},
+		{ID: "2", From: "c", To: "x", Body: "mid", TS: base.Add(time.Hour)},
+	}
+	got := recentMessages(in, 2)
+	if len(got) != 2 {
+		t.Fatalf("want 2 (capped), got %d", len(got))
+	}
+	if got[0].Body != "new" || got[1].Body != "mid" {
+		t.Fatalf("want newest-first [new mid], got [%s %s]", got[0].Body, got[1].Body)
+	}
+}
+
+func TestRecentMessagesNonPositiveLimitUsesDefault(t *testing.T) {
+	in := make([]mailbox.Message, defaultRecentLimit+10)
+	for i := range in {
+		in[i] = mailbox.Message{ID: "1", Body: "m", TS: time.Unix(int64(i), 0)}
+	}
+	if got := recentMessages(in, 0); len(got) != defaultRecentLimit {
+		t.Fatalf("limit 0 should fall back to default %d, got %d", defaultRecentLimit, len(got))
+	}
+	if got := recentMessages(in, -5); len(got) != defaultRecentLimit {
+		t.Fatalf("negative limit should fall back to default, got %d", len(got))
+	}
+}
+
+func TestRecentMessagesRouteAcrossInboxes(t *testing.T) {
+	srv, _, mb := newMsgServer(t)
+	mb.Append(mailbox.Message{To: "agent-1", From: "x", Body: "to-one"})
+	mb.Append(mailbox.Message{To: "agent-2", From: "y", Body: "to-two"})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/messages")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	var mr struct {
+		Messages []mailbox.Message `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&mr)
+	if len(mr.Messages) != 2 {
+		t.Fatalf("want 2 messages across inboxes, got %d", len(mr.Messages))
+	}
+}
+
+func TestRecentMessagesRouteIsReadOnly(t *testing.T) {
+	srv, _, mb := newMsgServer(t)
+	mb.Append(mailbox.Message{To: "agent-1", From: "x", Body: "one"})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/messages")
+	resp.Body.Close()
+
+	// The global view must NOT mark messages read (unlike the per-agent inbox).
+	msgs, _ := mb.Messages("agent-1")
+	if len(msgs) != 1 || msgs[0].Read {
+		t.Fatalf("global view must not mark read: %+v", msgs)
 	}
 }

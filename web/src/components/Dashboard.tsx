@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import type { Session } from '../lib/types';
 import { listSessions, subscribeSessions } from '../lib/api';
-import { tabsReducer, initialTabs, type TabsState } from '../lib/tabs';
+import { tabsReducer, initialTabs, isFixedTab, type TabsState } from '../lib/tabs';
 import { waitingTransitions } from '../lib/notify';
 import AttentionBar from './AttentionBar';
 import TabBar from './TabBar';
@@ -10,6 +10,7 @@ import CockpitTab from './CockpitTab';
 import AgentTab from './AgentTab';
 import NewAgentModal from './NewAgentModal';
 import PipelinesTab from './PipelinesTab';
+import ContextMessagesTab from './ContextMessagesTab';
 
 const TABS_KEY = 'agentctl.tabs';
 
@@ -93,8 +94,9 @@ export default function Dashboard() {
         {tabs.active === 'overview' && <OverviewTab sessions={sessions} onSelect={select} />}
         {tabs.active === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} />}
         {tabs.active === 'pipelines' && <PipelinesTab onSelect={select} />}
+        {tabs.active === 'context' && <ContextMessagesTab />}
         {activeSession && <AgentTab session={activeSession} onClosed={() => dispatch({ kind: 'close', id: activeSession.id })} />}
-        {tabs.active !== 'overview' && tabs.active !== 'cockpit' && tabs.active !== 'pipelines' && !activeSession && (
+        {!isFixedTab(tabs.active) && !activeSession && (
           <div className="detail empty">That agent has ended.</div>
         )}
       </main>

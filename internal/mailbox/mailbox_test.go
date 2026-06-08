@@ -2,6 +2,8 @@ package mailbox
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -128,5 +130,51 @@ func TestTakeFirstUnreadEmpty(t *testing.T) {
 	s, _ := New(t.TempDir())
 	if _, ok, err := s.TakeFirstUnread("nobody", ""); ok || err != nil {
 		t.Fatalf("want (false,nil), got ok=%v err=%v", ok, err)
+	}
+}
+
+func TestAllGathersEveryInbox(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Append(Message{To: "agent-1", From: "x", Body: "a"})
+	s.Append(Message{To: "agent-1", From: "y", Body: "b"})
+	s.Append(Message{To: "agent-2", From: "z", Body: "c"})
+
+	all, err := s.All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("want 3 messages across inboxes, got %d: %+v", len(all), all)
+	}
+	bodies := map[string]bool{}
+	for _, m := range all {
+		bodies[m.Body] = true
+	}
+	if !bodies["a"] || !bodies["b"] || !bodies["c"] {
+		t.Fatalf("missing a message: %+v", all)
+	}
+}
+
+func TestAllEmptyDir(t *testing.T) {
+	s, _ := New(t.TempDir())
+	all, err := s.All()
+	if err != nil || len(all) != 0 {
+		t.Fatalf("want ([],nil), got len=%d err=%v", len(all), err)
+	}
+}
+
+func TestAllIgnoresTempFiles(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Append(Message{To: "agent-1", From: "x", Body: "a"})
+	// A leftover atomic-write temp file must not be parsed as an inbox.
+	if err := os.WriteFile(filepath.Join(s.dir, ".tmp-garbage"), []byte("not json"), 0o644); err != nil {
+		t.Fatalf("write temp: %v", err)
+	}
+	all, err := s.All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("want 1 (temp ignored), got %d: %+v", len(all), all)
 	}
 }

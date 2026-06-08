@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,6 +121,31 @@ func (s *Store) Messages(to string) ([]Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.load(path)
+}
+
+// All returns every message across all recipients' inboxes (read-only, no
+// mark-read), in unspecified order. Backs the daemon's global, read-only
+// message-traffic view. Temp files from in-flight atomic writes (.tmp-*) and any
+// non-.json entry are skipped; a single corrupt inbox aborts with its error.
+func (s *Store) All() ([]Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ents, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	out := []Message{}
+	for _, ent := range ents {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
+			continue
+		}
+		ms, err := s.load(filepath.Join(s.dir, ent.Name()))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ms...)
+	}
+	return out, nil
 }
 
 // MarkRead flags the given message IDs read in to's inbox. Unknown IDs are

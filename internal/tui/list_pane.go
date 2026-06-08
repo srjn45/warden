@@ -39,8 +39,10 @@ type listPaneModel struct {
 	pressure      client.PressureStatus
 	pendingPrompt string
 	pendingDir    string
-	spawnVerdict  string // reason text for the confirm prompt; "" when not confirming
-	pendingDelete string // pid awaiting delete confirmation; "" when not confirming
+	spawnVerdict  string                // reason text for the confirm prompt; "" when not confirming
+	pendingDelete string                // pid awaiting delete confirmation; "" when not confirming
+	ctxEntries    []client.ContextEntry // inspector: shared-context snapshot
+	messages      []client.Message      // inspector: recent message traffic
 	w, h          int
 	ready         bool
 }
@@ -96,10 +98,24 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		return m, tea.Batch(listCmd(m.api), pipelinesCmd(m.api), pressureCmd(m.api), tick())
+		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), pressureCmd(m.api), tick()}
+		if m.mode == modeInspector {
+			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
+		}
+		return m, tea.Batch(cmds...)
 	case pressureMsg:
 		if msg.err == nil {
 			m.pressure = msg.status
+		}
+		return m, nil
+	case contextMsg:
+		if msg.err == nil { // keep last good snapshot on a transient blip
+			m.ctxEntries = msg.entries
+		}
+		return m, nil
+	case messagesMsg:
+		if msg.err == nil {
+			m.messages = msg.messages
 		}
 		return m, nil
 	case sessionsMsg:
@@ -338,6 +354,14 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case modeInspector:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+		case "esc", "c":
+			m.mode = modeNormal
+		}
+		return m, nil
 	case modeHelp:
 		m.mode = modeNormal
 		return m, nil
@@ -346,6 +370,11 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+	case "c":
+		// Open the read-only shared-context + message-traffic inspector and
+		// kick off an immediate fetch (the tick keeps it fresh while open).
+		m.mode = modeInspector
+		return m, tea.Batch(contextCmd(m.api), messagesCmd(m.api))
 	case "enter":
 		if m.detailPane != "" {
 			attach, jobPipe, jobID := cockpitDetailCmd(itemAt(m.items(), m.cursor))
@@ -445,10 +474,14 @@ func (m listPaneModel) View() string {
 	if m.mode == modeHelp {
 		return header + "\n" + lipgloss.NewStyle().Width(m.w).Height(bodyH).Render(helpText())
 	}
+	if m.mode == modeInspector {
+		body := titleBox("Context & Messages", inspectorBody(m.ctxEntries, m.messages, m.w-4), m.w, bodyH)
+		return header + "\n" + body + "\n" + stMuted.Render("read-only · c/esc back · q quit")
+	}
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
-	footer := stMuted.Render("enter open · n new · o open dir · s send · a attach · r retry · x kill/cancel · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · o open dir · s send · a attach · c ctx/msgs · r retry · x kill/cancel · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}

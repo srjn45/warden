@@ -187,3 +187,96 @@ func TestRespawnJobDetailArgs(t *testing.T) {
 			"/usr/bin/agentctl tui --pane=jobdetail --pipeline=pl --job=only"},
 		respawnJobDetailArgs("%3", "/usr/bin/agentctl", "pl", "only"))
 }
+
+func TestListPaneInspectorTogglesAndFetches(t *testing.T) {
+	f := &fakeAPI{
+		ctxEntries: []client.ContextEntry{{Key: "global.k", Value: "v"}},
+		messages:   []client.Message{{From: "a", To: "b", Body: "hi"}},
+	}
+	m := newListPane(f, "%9")
+	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// `c` opens the inspector and fires the read-only fetch commands.
+	nm, cmd := m.Update(key("c"))
+	m = nm.(listPaneModel)
+	require.Equal(t, modeInspector, m.mode)
+
+	// Run the fetch commands and feed their results back into the model.
+	for _, msg := range collectFast(cmd) {
+		m = lstep(m, msg)
+	}
+	require.Equal(t, inspectorMsgLimit, f.msgLimit, "MsgRecent should be called with the inspector limit")
+
+	view := m.View()
+	require.Contains(t, view, "Context & Messages")
+	require.Contains(t, view, "global.k")
+	require.Contains(t, view, "hi")
+
+	// `esc` returns to the normal list view.
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeNormal, m.mode)
+}
+
+func TestListPaneInspectorTickRefreshesOnlyWhenOpen(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+
+	// A tick in normal mode must not fetch context/messages.
+	_, cmd := m.Update(tickMsg(time.Now()))
+	ctx, msg := batchHasInspectorFetches(collectFast(cmd))
+	require.False(t, ctx || msg, "normal-mode tick must not fetch context/messages")
+
+	// Once the inspector is open, the tick batch includes the inspector fetches.
+	m.mode = modeInspector
+	_, cmd = m.Update(tickMsg(time.Now()))
+	ctx, msg = batchHasInspectorFetches(collectFast(cmd))
+	require.True(t, ctx, "inspector tick should refresh context")
+	require.True(t, msg, "inspector tick should refresh messages")
+}
+
+// collectFast runs a (possibly batched) command and returns the messages from
+// every sub-command that completes quickly, dropping slow ones like tick()
+// (which sleeps a second before emitting). The fake api's commands return
+// immediately, so the fetches we care about are always captured.
+func collectFast(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	first := cmd()
+	batch, ok := first.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{first}
+	}
+	ch := make(chan tea.Msg, len(batch))
+	n := 0
+	for _, c := range batch {
+		if c == nil {
+			continue
+		}
+		n++
+		go func(c tea.Cmd) { ch <- c() }(c)
+	}
+	deadline := time.After(500 * time.Millisecond)
+	var out []tea.Msg
+	for i := 0; i < n; i++ {
+		select {
+		case m := <-ch:
+			out = append(out, m)
+		case <-deadline:
+			return out
+		}
+	}
+	return out
+}
+
+func batchHasInspectorFetches(msgs []tea.Msg) (ctx, msg bool) {
+	for _, m := range msgs {
+		switch m.(type) {
+		case contextMsg:
+			ctx = true
+		case messagesMsg:
+			msg = true
+		}
+	}
+	return ctx, msg
+}

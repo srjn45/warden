@@ -49,4 +49,10 @@ describe('tabsReducer', () => {
     const out = tabsReducer(s, { kind: 'prune', alive: [] });
     expect(out.active).toBe('pipelines');
   });
+
+  it('prune keeps the context fixed tab active', () => {
+    const s = { pinned: [], active: 'context' };
+    const out = tabsReducer(s, { kind: 'prune', alive: [] });
+    expect(out.active).toBe('context');
+  });
 });

@@ -54,6 +54,24 @@ export interface Session {
   supervised: boolean;
 }
 
+// ContextEntry mirrors the daemon's shared-context entry (GET /context).
+export interface ContextEntry {
+  key: string;
+  value: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+// Message mirrors the daemon's mailbox message (GET /messages — read-only).
+export interface Message {
+  id: string;
+  from: string;
+  to: string;
+  body: string;
+  ts: string;
+  read: boolean;
+}
+
 export type PipelineStatus = 'pending' | 'running' | 'done' | 'stalled' | 'canceled';
 export type PipelineJobStatus =
   | 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'needs_attention';

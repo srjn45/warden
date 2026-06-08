@@ -36,6 +36,8 @@ type api interface {
 	PipelineDelete(ctx context.Context, pid string) error
 	Digest(ctx context.Context, id string) (*digest.Digest, error)
 	Pressure(ctx context.Context) (client.PressureStatus, error)
+	CtxList(ctx context.Context, prefix string) ([]client.ContextEntry, error)
+	MsgRecent(ctx context.Context, limit int) ([]client.Message, error)
 }
 
 type mode int
@@ -50,6 +52,7 @@ const (
 	modeNewAgentDir           // dir-override sub-state of modeNewAgent
 	modeConfirmSpawn          // memory-pressure confirm before spawning
 	modeConfirmDeletePipeline // y/N confirm before deleting a stopped pipeline
+	modeInspector             // read-only shared-context + message-traffic view
 )
 
 // Model is the Bubble Tea model. Update is a pure reducer over messages.

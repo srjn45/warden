@@ -213,6 +213,40 @@ func approveCmd(a api, id string, option int, fingerprint string) tea.Cmd {
 	}
 }
 
+// contextMsg / messagesMsg carry the inspector's read-only fetches. On error we
+// keep the last good data (like outputMsg) so a transient blip doesn't blank the
+// view the user is reading.
+type contextMsg struct {
+	entries []client.ContextEntry
+	err     error
+}
+type messagesMsg struct {
+	messages []client.Message
+	err      error
+}
+
+func contextCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		es, err := a.CtxList(ctx, "")
+		return contextMsg{entries: es, err: err}
+	}
+}
+
+// inspectorMsgLimit bounds the recent-message fetch behind the inspector — a
+// full pane's worth without unbounded reads.
+const inspectorMsgLimit = 100
+
+func messagesCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		ms, err := a.MsgRecent(ctx, inspectorMsgLimit)
+		return messagesMsg{messages: ms, err: err}
+	}
+}
+
 type pipelinesMsg struct {
 	pipelines []*pipeline.Pipeline
 	err       error

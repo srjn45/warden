@@ -422,3 +422,33 @@ func TestPressure(t *testing.T) {
 		t.Fatalf("Pressure = (%+v,%v)", p, err)
 	}
 }
+
+func TestMsgRecent(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/messages", r.URL.Path)
+		require.Equal(t, "5", r.URL.Query().Get("limit"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"messages":[{"id":"1","from":"a","to":"b","body":"hi"}]}`))
+	}))
+	defer ts.Close()
+
+	msgs, err := New(ts.URL).MsgRecent(t.Context(), 5)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	require.Equal(t, "a", msgs[0].From)
+	require.Equal(t, "b", msgs[0].To)
+	require.Equal(t, "hi", msgs[0].Body)
+}
+
+func TestMsgRecentOmitsLimitWhenNonPositive(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "", r.URL.RawQuery, "non-positive limit must not be sent")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"messages":[]}`))
+	}))
+	defer ts.Close()
+
+	msgs, err := New(ts.URL).MsgRecent(t.Context(), 0)
+	require.NoError(t, err)
+	require.Empty(t, msgs)
+}
