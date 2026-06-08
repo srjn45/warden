@@ -24,6 +24,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newPipelineCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newTUICmd())
+	root.AddCommand(newDoctorCmd())
 	root.Args = cobra.NoArgs
 	root.RunE = func(cmd *cobra.Command, args []string) error {
 		return runCockpitOrClassic(clientFor(cmd), false)
