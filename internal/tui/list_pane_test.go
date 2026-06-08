@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -215,6 +216,47 @@ func TestListPaneInspectorTogglesAndFetches(t *testing.T) {
 	// `esc` returns to the normal list view.
 	m = lstep(m, key("esc"))
 	require.Equal(t, modeNormal, m.mode)
+}
+
+func TestListPaneInspectorScrollAndRefreshPreservesOffset(t *testing.T) {
+	// Enough context entries to overflow the viewport so scrolling is meaningful.
+	var entries []client.ContextEntry
+	for i := 0; i < 60; i++ {
+		entries = append(entries, client.ContextEntry{Key: fmt.Sprintf("global.k%02d", i), Value: "v"})
+	}
+	f := &fakeAPI{ctxEntries: entries}
+	m := newListPane(f, "%9")
+	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Open the inspector and load the (large) context snapshot.
+	m = lstep(m, key("c"))
+	m = lstep(m, contextMsg{entries: entries})
+	require.Equal(t, 0, m.vp.YOffset, "a freshly opened inspector starts at the top")
+
+	// Scroll down a few lines.
+	for i := 0; i < 5; i++ {
+		m = lstep(m, key("down"))
+	}
+	scrolled := m.vp.YOffset
+	require.Greater(t, scrolled, 0, "↓ should scroll the inspector viewport")
+
+	// A refresh tick (new contextMsg) must NOT snap back to the top.
+	m = lstep(m, contextMsg{entries: entries})
+	require.Equal(t, scrolled, m.vp.YOffset, "refresh must preserve the scroll offset")
+
+	// G jumps to the bottom; g returns to the top.
+	m = lstep(m, key("G"))
+	require.Greater(t, m.vp.YOffset, scrolled, "G should jump toward the bottom")
+	m = lstep(m, key("g"))
+	require.Equal(t, 0, m.vp.YOffset, "g should jump back to the top")
+
+	// Re-opening the inspector resets to the top.
+	for i := 0; i < 5; i++ {
+		m = lstep(m, key("down"))
+	}
+	m = lstep(m, key("esc"))
+	m = lstep(m, key("c"))
+	require.Equal(t, 0, m.vp.YOffset, "re-opening the inspector resets to the top")
 }
 
 func TestListPaneInspectorTickRefreshesOnlyWhenOpen(t *testing.T) {

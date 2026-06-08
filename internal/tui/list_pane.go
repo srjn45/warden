@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -44,6 +45,7 @@ type listPaneModel struct {
 	pendingDelete string                // pid awaiting delete confirmation; "" when not confirming
 	ctxEntries    []client.ContextEntry // inspector: shared-context snapshot
 	messages      []client.Message      // inspector: recent message traffic
+	vp            viewport.Model        // inspector scroll viewport (modeInspector only)
 	w, h          int
 	ready         bool
 }
@@ -58,6 +60,7 @@ func newListPane(a api, detailPane string) listPaneModel {
 	return listPaneModel{
 		api: a, ta: ta, ti: ti, tp: tp, detailPane: detailPane,
 		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, connected: true,
+		vp: viewport.New(0, 0),
 	}
 }
 
@@ -87,6 +90,24 @@ func (m listPaneModel) activeDir() string {
 	return activeDir(m.items(), m.cursor, m.fallbackDir())
 }
 
+// bodyH is the height of the framed pane body, shared by View and the inspector
+// viewport sizing so the two never disagree.
+func (m listPaneModel) bodyH() int {
+	if h := m.h - 2; h >= 3 {
+		return h
+	}
+	return 3
+}
+
+// setInspectorContent re-renders the inspector body into the viewport, preserving
+// the current scroll offset (SetContent/SetYOffset clamp it), so refresh ticks and
+// resizes do not snap the view back to the top.
+func (m *listPaneModel) setInspectorContent() {
+	off := m.vp.YOffset
+	m.vp.SetContent(inspectorBody(m.ctxEntries, m.messages, m.vp.Width))
+	m.vp.SetYOffset(off)
+}
+
 func (m listPaneModel) Init() tea.Cmd { return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), tick()) }
 
 func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -96,6 +117,13 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ta.SetWidth(m.w - 2)
 		m.ta.SetHeight(4)
 		m.ti.Width = m.w - 20
+		// Size the inspector viewport to the titleBox interior (width w-4 leaves
+		// the same right margin inspectorBody used; height bodyH-2 matches the box).
+		m.vp.Width = max(1, m.w-4)
+		m.vp.Height = max(1, m.bodyH()-2)
+		if m.mode == modeInspector {
+			m.setInspectorContent() // re-flow for the new width, keep scroll position
+		}
 		m.ready = true
 		return m, nil
 	case tickMsg:
@@ -112,11 +140,17 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case contextMsg:
 		if msg.err == nil { // keep last good snapshot on a transient blip
 			m.ctxEntries = msg.entries
+			if m.mode == modeInspector {
+				m.setInspectorContent() // refresh without snapping back to the top
+			}
 		}
 		return m, nil
 	case messagesMsg:
 		if msg.err == nil {
 			m.messages = msg.messages
+			if m.mode == modeInspector {
+				m.setInspectorContent()
+			}
 		}
 		return m, nil
 	case sessionsMsg:
@@ -361,8 +395,19 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
 		case "esc", "c":
 			m.mode = modeNormal
+			return m, nil
+		case "g":
+			m.vp.GotoTop()
+			return m, nil
+		case "G":
+			m.vp.GotoBottom()
+			return m, nil
 		}
-		return m, nil
+		// Everything else (↑/↓, pgup/pgdn, and the viewport's own j/k/d/u bindings)
+		// scrolls the content. No mouse capture — keyboard only.
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
 	case modeHelp:
 		m.mode = modeNormal
 		return m, nil
@@ -375,6 +420,8 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Open the read-only shared-context + message-traffic inspector and
 		// kick off an immediate fetch (the tick keeps it fresh while open).
 		m.mode = modeInspector
+		m.setInspectorContent()
+		m.vp.GotoTop() // a freshly opened inspector starts at the top
 		return m, tea.Batch(contextCmd(m.api), messagesCmd(m.api))
 	case "enter":
 		if m.detailPane != "" {
@@ -491,8 +538,8 @@ func (m listPaneModel) View() string {
 		return header + "\n" + lipgloss.NewStyle().Width(m.w).Height(bodyH).Render(helpText())
 	}
 	if m.mode == modeInspector {
-		body := titleBox("Context & Messages", inspectorBody(m.ctxEntries, m.messages, m.w-4), m.w, bodyH)
-		return header + "\n" + body + "\n" + stMuted.Render("read-only · c/esc back · q quit")
+		body := titleBox("Context & Messages", m.vp.View(), m.w, bodyH)
+		return header + "\n" + body + "\n" + stMuted.Render("read-only · ↑/↓ pgup/pgdn g/G scroll · c/esc back · q quit")
 	}
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
