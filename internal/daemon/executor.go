@@ -200,17 +200,23 @@ func (e *Executor) EditJob(pid, jobID string, prompt, handoff *string) error {
 	return nil
 }
 
-// OnTransition is the poller hook: when a job's session errors, is orphaned, or
-// goes idle (stuck-detection grace window elapsed), the job status is updated
-// and the pipeline reconciled accordingly.
-// Job completion is NOT inferred here — that comes only via `emit`.
+// OnTransition reconciles a job when its session changes state: errored/orphaned/
+// done end the agent, idle flags stuck, working clears the flag. Driven by the
+// poller for errored/orphaned/idle/working, and by handleEvent for the SessionEnd
+// (done) hook — the poller skips terminal sessions, so done would otherwise never
+// be reconciled. Job *completion* is still inferred only via `emit`; a done
+// transition with the job still running means it exited without emitting.
 func (e *Executor) OnTransition(sess *store.Session, _ store.Status, to store.Status) {
 	if sess.PipelineID == "" {
 		return
 	}
 	switch to {
-	case store.StatusErrored, store.StatusOrphaned:
-		// The session died → the job failed; descendants get skipped on reconcile.
+	case store.StatusErrored, store.StatusOrphaned, store.StatusDone:
+		// The session ended: errored/orphaned = died; done = the CLI exited (the
+		// SessionEnd hook). A job still "running" here never emitted its handoff
+		// (emit completes a job synchronously before the agent exits), so it failed
+		// its contract → mark failed (descendants skip on reconcile). A job already
+		// completed via emit is JobDone here and the guard leaves it untouched.
 		e.markJob(sess.PipelineID, sess.JobID, func(j *pipeline.Job) {
 			if j.Status == pipeline.JobRunning {
 				j.Status = pipeline.JobFailed

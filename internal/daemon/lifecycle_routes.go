@@ -263,6 +263,9 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notify()
+	// Terminate sets the session done directly (no poller swap, no event), so
+	// reconcile the owning pipeline job here too — otherwise it stays stuck running.
+	s.reconcileJobOnTerminal(sess, store.StatusDone)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "terminated"})
 }
 

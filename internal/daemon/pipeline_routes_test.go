@@ -266,6 +266,61 @@ func TestPipelineDeleteReapsJobSessions(t *testing.T) {
 	}
 }
 
+// Terminating a running job's agent (HTTP terminate sets the session done
+// directly, bypassing the poller) must also fail the job, or it stays stuck
+// "running" with a dead agent.
+func TestTerminateFailsRunningPipelineJob(t *testing.T) {
+	ps, _ := pipeline.NewStore(t.TempDir())
+	cs, _ := ctxstore.New(t.TempDir())
+	ss := newFakeStore()
+	fl := &fakeLife{}
+	exec := NewExecutor(ps, ss, fl, cs, func() {})
+	srv := &Server{store: ss, life: fl, exec: exec, hub: newHub(), done: make(chan struct{})}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	ps.Create(&pipeline.Pipeline{ID: "demo", Name: "demo", Repo: "/r", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "only", Status: pipeline.JobRunning, SessionID: "demo-only"}}})
+	ss.Insert(context.Background(), &store.Session{ID: "demo-only", TmuxSession: "demo-only", PipelineID: "demo", JobID: "only", Status: store.StatusWorking})
+
+	resp, err := http.Post(ts.URL+"/sessions/demo-only/terminate", "application/json", nil)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	got, _ := ps.Get("demo")
+	if got.Job("only").Status != pipeline.JobFailed {
+		t.Fatalf("terminating a running job's agent should fail the job, got %s", got.Job("only").Status)
+	}
+}
+
+// The SessionEnd hook moves a job's session to done; since the poller skips
+// terminal sessions, handleEvent must reconcile the still-running job (→ failed)
+// so it doesn't stay stuck "running" with a dead agent.
+func TestSessionEndFailsRunningPipelineJob(t *testing.T) {
+	ps, _ := pipeline.NewStore(t.TempDir())
+	cs, _ := ctxstore.New(t.TempDir())
+	ss := newFakeStore()
+	fl := &fakeLife{}
+	exec := NewExecutor(ps, ss, fl, cs, func() {})
+	srv := &Server{store: ss, life: fl, exec: exec, hub: newHub(), done: make(chan struct{})}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	ps.Create(&pipeline.Pipeline{ID: "demo", Name: "demo", Repo: "/r", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "only", Status: pipeline.JobRunning, SessionID: "demo-only"}}})
+	ss.Insert(context.Background(), &store.Session{ID: "demo-only", PipelineID: "demo", JobID: "only", Status: store.StatusWorking})
+
+	resp, err := http.Post(ts.URL+"/events", "application/json",
+		strings.NewReader(`{"session":"demo-only","type":"SessionEnd"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	got, _ := ps.Get("demo")
+	if got.Job("only").Status != pipeline.JobFailed {
+		t.Fatalf("SessionEnd on a running job's session should fail the job, got %s", got.Job("only").Status)
+	}
+}
+
 func TestPipelineDeleteRefusesLiveJob(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()

@@ -97,6 +97,24 @@ func TestOnTransitionFailsJobAndSkipsDescendants(t *testing.T) {
 	}
 }
 
+// A running job whose agent CLI exits (SessionEnd→done) without ever emitting its
+// handoff has failed its contract — the job must leave "running" (→ failed), or it
+// stays stuck forever (the poller skips terminal sessions).
+func TestOnTransitionDoneFailsRunningJob(t *testing.T) {
+	e, ps, ss := newTestExecutor(t)
+	ps.Create(chain())
+	e.Reconcile(context.Background(), "p") // a running, session p-a inserted
+	sess, _ := ss.Get(context.Background(), "p-a")
+	e.OnTransition(sess, store.StatusWorking, store.StatusDone)
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobFailed {
+		t.Fatalf("a should be failed after done-without-emit, got %s", got.Job("a").Status)
+	}
+	if got.Job("b").Status != pipeline.JobSkipped {
+		t.Fatalf("b (descendant) should be skipped, got %s", got.Job("b").Status)
+	}
+}
+
 func TestReconcileConcurrentNoDoubleSpawn(t *testing.T) {
 	// Concurrent triggers (HTTP emit + poller OnTransition) must not both spawn
 	// the same ready job — which would orphan a live agent and falsely stall.

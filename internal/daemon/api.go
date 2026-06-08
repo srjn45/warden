@@ -303,6 +303,18 @@ func statusForHook(t string) store.Status {
 	}
 }
 
+// reconcileJobOnTerminal reconciles a pipeline job when its session reaches a
+// terminal status outside the poller's view — both the SessionEnd hook and the
+// terminate handler set "done" directly (no poller swap). The poller skips
+// terminal sessions, so without this a job still "running" when its agent ends
+// would stay stuck forever. OnTransition's guard leaves an already-completed
+// (emit'd) job untouched; a still-running one is failed.
+func (s *Server) reconcileJobOnTerminal(sess *store.Session, to store.Status) {
+	if s.exec != nil && sess != nil && sess.PipelineID != "" {
+		s.exec.OnTransition(sess, sess.Status, to)
+	}
+}
+
 func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	var req EventRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -311,9 +323,10 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	ev := store.Event{Type: req.Type, Detail: req.Detail}
+	to := statusForHook(req.Type)
 	// Append the event and apply any status transition in one atomic write so a
 	// crash can't log the event without the status change (or vice versa).
-	if err := s.store.AppendEventStatus(ctx, req.Session, ev, statusForHook(req.Type)); err != nil {
+	if err := s.store.AppendEventStatus(ctx, req.Session, ev, to); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			// Fail soft: never error a hook for an unknown session.
 			w.WriteHeader(http.StatusNoContent)
@@ -323,5 +336,12 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notify()
+	// The SessionEnd hook moves a session to a terminal status (done) — reconcile
+	// the owning pipeline job (see reconcileJobOnTerminal).
+	if to == store.StatusDone {
+		if sess, gerr := s.store.Get(ctx, req.Session); gerr == nil {
+			s.reconcileJobOnTerminal(sess, to)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
