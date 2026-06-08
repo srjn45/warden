@@ -39,3 +39,9 @@ func TestStartSupervisedFlagRegistered(t *testing.T) {
 	require.NotNil(t, f, "--supervised flag must be registered on start")
 	require.Equal(t, "false", f.DefValue, "--supervised must default to false")
 }
+
+func TestPromptFromArgs(t *testing.T) {
+	require.Equal(t, "fix the bug", promptFromArgs([]string{"fix the bug"}), "single arg is the prompt")
+	require.Equal(t, "", promptFromArgs(nil), "no args means an interactive (empty-prompt) spawn")
+	require.Equal(t, "", promptFromArgs([]string{}), "no args means an interactive (empty-prompt) spawn")
+}

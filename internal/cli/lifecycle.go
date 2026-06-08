@@ -12,19 +12,29 @@ import (
 	"github.com/srajanpathak/agentctl/internal/client"
 )
 
+// promptFromArgs returns the prompt for a free-form (no --type) spawn: the
+// single positional argument, or "" when none is given — an empty prompt opens
+// claude interactively in the launch dir and waits for instructions.
+func promptFromArgs(args []string) string {
+	if len(args) == 1 {
+		return args[0]
+	}
+	return ""
+}
+
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "start [TICKET|\"<prompt>\"] [--type <TYPE>]",
-		Short: "Spawn an agent — `start \"<prompt>\"` (auto-typed) or `start TICKET --type <TYPE>` (managed worktree)",
+		Use:   "start [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>]",
+		Short: "Spawn an agent — `start \"<prompt>\"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			typ, _ := cmd.Flags().GetString("type")
 
-			// Prompt mode: `agentctl start "<prompt>"` with no --type.
+			// Free-form mode: `agentctl start "<prompt>" [--dir]` (autonomous) or
+			// `agentctl start --dir <path>` with no prompt (interactive: opens
+			// claude in the dir and waits). No --type.
 			if typ == "" {
-				if len(args) != 1 {
-					return fmt.Errorf("provide a prompt: agentctl start \"<prompt>\"  (or use --type for a managed worktree)")
-				}
+				prompt := promptFromArgs(args)
 				dirFlag, _ := cmd.Flags().GetString("dir")
 				dir, err := resolveDir(dirFlag)
 				if err != nil {
@@ -32,7 +42,7 @@ func newStartCmd() *cobra.Command {
 				}
 				supervised, _ := cmd.Flags().GetBool("supervised")
 				force, _ := cmd.Flags().GetBool("force")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: args[0], Cwd: dir, Supervised: supervised, Force: force})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: prompt, Cwd: dir, Supervised: supervised, Force: force})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -42,7 +52,11 @@ func newStartCmd() *cobra.Command {
 					}
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "spawned %s (classifying…) — attach with `agentctl attach %s`\n", s.ID, s.ID)
+				verb := "spawned %s (classifying…)"
+				if prompt == "" {
+					verb = "opened interactive agent %s"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), verb+" — attach with `agentctl attach %s`\n", s.ID, s.ID)
 				return nil
 			}
 
