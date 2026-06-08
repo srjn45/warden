@@ -24,8 +24,7 @@ func TestListWindow(t *testing.T) {
 }
 
 func TestRenderListContainsAgeColumn(t *testing.T) {
-	m := New(&fakeAPI{})
-	m.sessions = []*store.Session{
+	sessions := []*store.Session{
 		{
 			ID:        "agent-abc",
 			Status:    store.StatusWorking,
@@ -33,7 +32,7 @@ func TestRenderListContainsAgeColumn(t *testing.T) {
 			Subject:   "test subject",
 		},
 	}
-	out := renderList(buildItems(m.sessions, nil), m.cursor, 120, 10)
+	out := renderList(buildItems(sessions, nil), 0, 120, 10)
 	require.Contains(t, out, "<1m", "renderList output should contain the age token <1m")
 	// Ensure the subject is still present too.
 	require.True(t, strings.Contains(out, "test subject") || strings.Contains(out, "test subjec"),
@@ -41,29 +40,27 @@ func TestRenderListContainsAgeColumn(t *testing.T) {
 }
 
 func TestRenderListClampsToHeightAndKeepsCursor(t *testing.T) {
-	m := New(&fakeAPI{})
+	var sessions []*store.Session
 	for i := 0; i < 20; i++ {
-		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
+		sessions = append(sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
-	m.cursor = 18
-	out := renderList(buildItems(m.sessions, nil), m.cursor, 80, 8)
+	out := renderList(buildItems(sessions, nil), 18, 80, 8)
 	require.Len(t, strings.Split(out, "\n"), 8, "rendered to exactly height lines")
 	require.Contains(t, out, "agent-18", "the selected row is within the window")
 	require.Contains(t, out, "more", "a ▲/▼ hint appears when rows are hidden")
 }
 
 func TestRenderListShortListPadsToHeight(t *testing.T) {
-	m := New(&fakeAPI{})
-	m.sessions = []*store.Session{{ID: "only", Status: store.StatusWorking}}
-	require.Len(t, strings.Split(renderList(buildItems(m.sessions, nil), m.cursor, 80, 6), "\n"), 6, "short list padded to height")
+	sessions := []*store.Session{{ID: "only", Status: store.StatusWorking}}
+	require.Len(t, strings.Split(renderList(buildItems(sessions, nil), 0, 80, 6), "\n"), 6, "short list padded to height")
 }
 
 func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
-	m := New(&fakeAPI{})
+	var sessions []*store.Session
 	for i := 0; i < 5; i++ {
-		m.sessions = append(m.sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
+		sessions = append(sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
-	require.Len(t, strings.Split(renderList(buildItems(m.sessions, nil), m.cursor, 80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
+	require.Len(t, strings.Split(renderList(buildItems(sessions, nil), 0, 80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
 }
 
 func TestSourceDir(t *testing.T) {
@@ -107,13 +104,12 @@ func TestGroupSortStableForSingleOrEmpty(t *testing.T) {
 }
 
 func TestRenderListGroupsBySourceDir(t *testing.T) {
-	m := New(&fakeAPI{})
-	m.sessions = groupSort([]*store.Session{
+	sessions := groupSort([]*store.Session{
 		{ID: "a1", Workdir: "/work/alpha", Status: store.StatusWorking, UpdatedAt: time.Now()},
 		{ID: "a2", Workdir: "/work/alpha", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-time.Minute)},
 		{ID: "b1", Workdir: "/work/beta", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-2 * time.Minute)},
 	})
-	out := renderList(buildItems(m.sessions, nil), m.cursor, 120, 12)
+	out := renderList(buildItems(sessions, nil), 0, 120, 12)
 	require.Contains(t, out, "/work/alpha (2)", "alpha group header with count")
 	require.Contains(t, out, "/work/beta (1)", "beta group header with count")
 	require.Contains(t, out, "a1")
@@ -285,7 +281,6 @@ func TestItemKeyApprovals(t *testing.T) {
 }
 
 func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
-	m := New(&fakeAPI{})
 	now := time.Now()
 	var ss []*store.Session
 	for i := 0; i < 6; i++ {
@@ -296,10 +291,9 @@ func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 			UpdatedAt: now.Add(-time.Duration(i) * time.Minute),
 		})
 	}
-	m.sessions = groupSort(ss)
-	m.cursor = 5
+	sessions := groupSort(ss)
 	for h := 1; h <= 4; h++ {
-		out := renderList(buildItems(m.sessions, nil), m.cursor, 80, h)
+		out := renderList(buildItems(sessions, nil), 5, 80, h)
 		require.Len(t, strings.Split(out, "\n"), h, "exactly height lines at h=%d", h)
 		require.Contains(t, out, "a5", "selected agent must stay visible at h=%d", h)
 	}
@@ -325,7 +319,7 @@ func TestPipelineItems(t *testing.T) {
 }
 
 func TestItemsPrependsPipelinesAndFiltersOwnedSessions(t *testing.T) {
-	m := New(&fakeAPI{})
+	m := newListPane(&fakeAPI{}, "")
 	m.sessions = []*store.Session{
 		{ID: "free", Status: store.StatusWorking},
 		{ID: "demo-a", Status: store.StatusWorking, PipelineID: "demo", JobID: "a"},
@@ -379,8 +373,8 @@ func TestJobGlyphDistinct(t *testing.T) {
 	}
 }
 
-func pipeModel() Model {
-	m := New(&fakeAPI{})
+func pipeModel() listPaneModel {
+	m := newListPane(&fakeAPI{}, "")
 	m.ready = true
 	m.pipelines = []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{
 		{ID: "a", Status: pipeline.JobFailed, SessionID: "demo-a"},
@@ -397,7 +391,7 @@ func TestKeyCancelPipeline(t *testing.T) {
 		t.Fatalf("x on a pipeline row should return a cancel cmd")
 	}
 	cmd() // runs the command (calls the fake api)
-	fa := updated.(Model).api.(*fakeAPI)
+	fa := updated.(listPaneModel).api.(*fakeAPI)
 	if fa.canceled != "demo" {
 		t.Fatalf("want canceled=demo, got %q", fa.canceled)
 	}

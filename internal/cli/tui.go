@@ -10,7 +10,6 @@ import (
 )
 
 func newTUICmd() *cobra.Command {
-	var classic bool
 	var pane, detailPane, pipelineID, jobID string
 	cmd := &cobra.Command{
 		Use:   "tui",
@@ -24,13 +23,12 @@ func newTUICmd() *cobra.Command {
 			case "jobdetail":
 				return tui.RunJobDetailPane(a, pipelineID, jobID)
 			case "":
-				return runCockpitOrClassic(a, classic)
+				return runCockpit(a)
 			default:
 				return fmt.Errorf("unknown --pane %q (want list or jobdetail)", pane)
 			}
 		},
 	}
-	cmd.Flags().BoolVar(&classic, "classic", false, "use the legacy single-pane TUI (no tmux)")
 	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (list, jobdetail)")
 	cmd.Flags().StringVar(&detailPane, "detail-pane", "", "internal: tmux id of the detail pane the list drives")
 	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "internal: pipeline id for --pane=jobdetail")
@@ -41,12 +39,10 @@ func newTUICmd() *cobra.Command {
 	return cmd
 }
 
-// runCockpitOrClassic launches the tmux cockpit, or the legacy single-pane TUI
-// when --classic is set, tmux is unavailable, or we are already inside tmux.
-func runCockpitOrClassic(a *client.Client, classic bool) error {
-	if tui.ChooseClassic(classic, tui.TmuxAvailable(), os.Getenv("TMUX") != "") {
-		return tui.Run(a)
-	}
+// runCockpit builds the tmux cockpit for this process and attaches to it. The
+// list pane runs in the launching shell's directory so agents spawned from it
+// (`n`) launch in that dir.
+func runCockpit(a *client.Client) error {
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("locate agentctl binary: %w", err)

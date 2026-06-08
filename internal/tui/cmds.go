@@ -3,13 +3,10 @@ package tui
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
 )
@@ -17,11 +14,6 @@ import (
 type sessionsMsg struct {
 	sessions []*store.Session
 	err      error
-}
-type outputMsg struct {
-	id   string
-	text string
-	err  error // non-nil ⇒ fetch failed; keep the last good output, don't blank it
 }
 type spawnDoneMsg struct {
 	id      string
@@ -35,21 +27,6 @@ type cleanupDoneMsg struct {
 type inputDoneMsg struct{ err error }
 type attachDoneMsg struct{ err error }
 type tickMsg time.Time
-
-type digestMsg struct {
-	id     string
-	digest *digest.Digest
-	err    error
-}
-
-func digestCmd(a api, id string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := bgLong() // narrator (claude -p) dominates latency
-		defer cancel()
-		d, err := a.Digest(ctx, id)
-		return digestMsg{id: id, digest: d, err: err}
-	}
-}
 
 func bg() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 10*time.Second)
@@ -69,21 +46,6 @@ func listCmd(a api) tea.Cmd {
 		defer cancel()
 		ss, err := a.List(ctx)
 		return sessionsMsg{sessions: ss, err: err}
-	}
-}
-
-func outputCmd(a api, id string) tea.Cmd {
-	if id == "" {
-		return nil
-	}
-	return func() tea.Msg {
-		ctx, cancel := bg()
-		defer cancel()
-		out, err := a.Output(ctx, id, 400)
-		if err != nil {
-			return outputMsg{id: id, err: err}
-		}
-		return outputMsg{id: id, text: out}
 	}
 }
 
@@ -140,13 +102,6 @@ func killCmd(a api, id string) tea.Cmd {
 	}
 }
 
-func attachCmd(id string) tea.Cmd {
-	c := exec.Command("tmux", "attach", "-t", id)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return attachDoneMsg{err: err}
-	})
-}
-
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
@@ -182,34 +137,6 @@ func openDirCmd(a api, dir string) tea.Cmd {
 		defer cancel()
 		_, err := a.ListDirs(ctx, dir)
 		return openDirMsg{dir: dir, err: err}
-	}
-}
-
-type approvalsMsg struct {
-	enabled bool
-	views   []approval.View
-	err     error
-}
-
-type approveResultMsg struct {
-	id  string
-	err error
-}
-
-func approvalsCmd(a api) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := bg()
-		defer cancel()
-		on, views, err := a.Approvals(ctx)
-		return approvalsMsg{enabled: on, views: views, err: err}
-	}
-}
-
-func approveCmd(a api, id string, option int, fingerprint string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := bg()
-		defer cancel()
-		return approveResultMsg{id: id, err: a.Approve(ctx, id, option, fingerprint)}
 	}
 }
 

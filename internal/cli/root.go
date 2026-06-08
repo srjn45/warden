@@ -27,7 +27,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newDoctorCmd())
 	root.Args = cobra.NoArgs
 	root.RunE = func(cmd *cobra.Command, args []string) error {
-		return runCockpitOrClassic(clientFor(cmd), false)
+		return runCockpit(clientFor(cmd))
 	}
 	return root
 }
