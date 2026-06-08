@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,6 +113,44 @@ func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
 	require.Contains(t, fr.calledArgs(),
 		[]string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/PROJ-350"},
 		"a worktree we created must be rolled back on spawn failure")
+}
+
+func TestSpawnLogsWorktreeRollbackFailure(t *testing.T) {
+	// new-session fails AFTER we created the worktree, AND the rollback itself
+	// fails. The failed rollback must be LOGGED (not silently dropped) so the
+	// leaked worktree is visible.
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+		"tmux new-session -d -s PROJ-350 -e AGENTCTL_SESSION_ID=PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
+		"git -C /repo worktree remove --force .worktrees/PROJ-350":                                                  {Err: errStub("remove boom")},
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
+	})
+	require.Error(t, err)
+	require.Contains(t, buf.String(), "rollback worktree", "a failed worktree rollback must be logged, not silently dropped")
+}
+
+func TestSpawnLogsKillSessionFailure(t *testing.T) {
+	// send-keys fails after the session was created, and kill-session also fails.
+	// The orphaned session that couldn't be killed must be LOGGED.
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	fr := &FakeRunner{FailIf: func(argv []string) error {
+		if len(argv) >= 2 && argv[0] == "tmux" && (argv[1] == "send-keys" || argv[1] == "kill-session") {
+			return errStub("boom")
+		}
+		return nil
+	}}
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	require.Error(t, err)
+	require.Contains(t, buf.String(), "kill tmux session", "a failed kill-session must be logged, not silently dropped")
 }
 
 func TestSpawnDoesNotRemoveAdoptedWorktreeOnFailure(t *testing.T) {
