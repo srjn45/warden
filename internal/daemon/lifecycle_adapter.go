@@ -20,8 +20,9 @@ func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st store.Store) Lifecycle {
 }
 
 // Spawn translates the daemon's wire DTO into the lifecycle request, normalizing
-// the type so unknown types collapse to "other" (no worktree). In prompt mode
-// (Prompt set, Type empty) the Type is left empty so the doc stays "classifying".
+// the type so unknown types collapse to "other" (no worktree). In free-form mode
+// (no Type — prompted or interactive) the Type is left empty so the doc stays
+// "classifying" and lifecycle.Spawn launches in the caller's cwd.
 func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
 	lr := lifecycle.SpawnRequest{
 		Ticket:     req.Ticket,
@@ -33,8 +34,12 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		Cwd:        req.Cwd,
 		Supervised: req.Supervised,
 	}
-	// Leave Type empty in prompt mode so it stays "classifying"; otherwise normalize.
-	if !(req.Prompt != "" && req.Type == "") {
+	// Normalize only a typed spawn. Free-form (Type empty) is keyed on cwd, not the
+	// prompt: leaving Type empty keeps lifecycle.Spawn on the cwd-launch path and the
+	// doc "classifying" — for both prompted and empty-prompt (interactive) spawns.
+	// (Must NOT normalize when Type=="", or NormalizeType collapses "" → "other",
+	// flipping an interactive spawn onto the typed/managed-worktree path.)
+	if req.Type != "" {
 		lr.Type = store.NormalizeType(req.Type)
 	}
 	return a.lc.Spawn(ctx, lr)

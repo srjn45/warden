@@ -29,14 +29,14 @@ type EventRequest struct {
 
 // SpawnRequest is the body for POST /spawn.
 type SpawnRequest struct {
-	Type       string `json:"type"`       // required; normalized via store.NormalizeType
+	Type       string `json:"type"`       // typed mode: task type (normalized); empty = free-form
 	Ticket     string `json:"ticket"`     // optional; becomes the id when present
-	Repo       string `json:"repo"`       // required
+	Repo       string `json:"repo"`       // required in typed mode
 	Branch     string `json:"branch"`     // optional; development branch / pr-review checkout
 	PR         string `json:"pr"`         // optional; pr-review
 	Worktree   bool   `json:"worktree"`   // analysis/spike opt-in
-	Prompt     string `json:"prompt"`     // prompt-mode: the agent's initial prompt
-	Cwd        string `json:"cwd"`        // dir to launch claude from (caller cwd / web pick)
+	Prompt     string `json:"prompt"`     // free-form: the agent's initial prompt; empty = interactive
+	Cwd        string `json:"cwd"`        // free-form: dir to launch claude from (caller cwd / web pick)
 	Supervised bool   `json:"supervised"` // opt-in supervised mode (acceptEdits prompts)
 	Force      bool   `json:"force"`      // bypass the memory-pressure spawn gate
 }
