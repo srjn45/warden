@@ -52,12 +52,21 @@ func TestNotifyEnabledFromEnv(t *testing.T) {
 	}
 }
 
-func TestApprovalsEnabled(t *testing.T) {
+func TestApprovalsEnabledByDefault(t *testing.T) {
+	t.Setenv("AGENTCTL_APPROVALS", "")
+	require.True(t, Load().ApprovalsEnabled, "approvals on by default")
+
 	t.Setenv("AGENTCTL_APPROVALS", "on")
 	require.True(t, Load().ApprovalsEnabled)
+}
 
-	t.Setenv("AGENTCTL_APPROVALS", "")
-	require.False(t, Load().ApprovalsEnabled)
+func TestApprovalsDisableFromEnv(t *testing.T) {
+	for _, v := range []string{"0", "off", "false", "OFF"} {
+		t.Setenv("AGENTCTL_APPROVALS", v)
+		require.False(t, Load().ApprovalsEnabled, "AGENTCTL_APPROVALS=%q should disable approvals", v)
+	}
+	t.Setenv("AGENTCTL_APPROVALS", "1")
+	require.True(t, Load().ApprovalsEnabled, "AGENTCTL_APPROVALS=1 should enable approvals")
 }
 
 func TestSpawnGateDefaults(t *testing.T) {

@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/srajanpathak/agentctl/internal/approval"
 	"github.com/srajanpathak/agentctl/internal/client"
 )
+
+const approvalsDisabledMsg = "approvals disabled (set AGENTCTL_APPROVALS=on)"
 
 // Server wraps an MCP server bound to a daemon client.
 type Server struct {
@@ -77,6 +81,30 @@ type sendMessageArgs struct {
 type readInboxArgs struct {
 	Agent  string `json:"agent,omitempty" jsonschema:"whose inbox to read; defaults to this agent ($AGENTCTL_SESSION_ID)"`
 	Unread bool   `json:"unread,omitempty" jsonschema:"only return unread messages"`
+}
+
+type approveArgs struct {
+	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id with the pending prompt"`
+	Option int    `json:"option" jsonschema:"the 1-based option number to answer (as shown by list_approvals)"`
+}
+
+// findApproval locates the view for id in the live queue and validates that the
+// option is answerable, mirroring the CLI/web guards. The daemon still re-verifies
+// the fingerprint on POST (TOCTOU 409 guard); this just surfaces friendly errors.
+func findApproval(views []approval.View, id string, option int) (approval.View, error) {
+	for _, v := range views {
+		if v.ID != id {
+			continue
+		}
+		if !v.Recognized {
+			return approval.View{}, fmt.Errorf("prompt for %s is not a recognized menu — attach instead", id)
+		}
+		if option < 1 || option > len(v.Options) {
+			return approval.View{}, fmt.Errorf("option %d out of range (1-%d)", option, len(v.Options))
+		}
+		return v, nil
+	}
+	return approval.View{}, fmt.Errorf("no pending approval for %s (run list_approvals)", id)
 }
 
 // ctxWriter attributes shared-context writes to this agent when running inside
@@ -270,6 +298,42 @@ func NewServer(daemonBase string) *Server {
 		}
 		res, err := jsonResult(msgs)
 		return res, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_approvals",
+		Description: "List pending tool-permission prompts waiting for an answer (supervised agents). Recognized prompts include their numbered options + a stable fingerprint; answer one with the approve tool. Returns the disabled message when AGENTCTL_APPROVALS is off.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		enabled, views, err := s.cl.Approvals(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		if !enabled {
+			return textResult(approvalsDisabledMsg), nil, nil
+		}
+		res, err := jsonResult(views)
+		return res, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "approve",
+		Description: "Answer a pending tool-permission prompt by 1-based option number. Re-fetches the live queue, validates the option, and passes the prompt's fingerprint so the daemon can re-verify the menu hasn't changed (TOCTOU guard). Returns the disabled message when AGENTCTL_APPROVALS is off.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a approveArgs) (*mcpsdk.CallToolResult, any, error) {
+		enabled, views, err := s.cl.Approvals(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		if !enabled {
+			return textResult(approvalsDisabledMsg), nil, nil
+		}
+		v, err := findApproval(views, a.Ticket, a.Option)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		if err := s.cl.Approve(ctx, a.Ticket, a.Option, v.Fingerprint); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult(fmt.Sprintf("approved %s → %d. %s", a.Ticket, a.Option, v.Options[a.Option-1])), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
