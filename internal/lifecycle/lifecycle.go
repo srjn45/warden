@@ -183,9 +183,10 @@ type Lifecycle struct {
 	// lookup disabled; the daemon sets it from config). Overridable in tests.
 	ProjectsDir string
 	// PromptsDir is a single shared directory (the daemon sets it from config,
-	// e.g. ~/.agentctl/prompts) where prompt-mode agents drop their initial
-	// prompt file, keyed by agent id. It is NOT per-agent and is never the dir
-	// the agent runs in — agents launch in the caller's cwd. Overridable in tests.
+	// e.g. ~/.agentctl/prompts) where free-form agents with a prompt drop their
+	// initial prompt file, keyed by agent id. It is NOT per-agent and is never the
+	// dir the agent runs in — agents launch in the caller's cwd. Interactive
+	// (empty-prompt) agents write no file. Overridable in tests.
 	PromptsDir string
 }
 
@@ -199,8 +200,8 @@ type SpawnRequest struct {
 	Branch     string // optional; development branch / pr-review checkout target
 	PR         string // optional; pr-review
 	Worktree   bool   // analysis/spike opt-in
-	Prompt     string // prompt-mode: the agent's initial prompt (no repo/worktree)
-	Cwd        string // prompt-mode: dir to launch claude from (the caller's "master shell"); required
+	Prompt     string // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
+	Cwd        string // free-form: dir to launch claude from (the caller's "master shell"); required
 	Supervised bool   // opt-in: launch with --permission-mode acceptEdits (prompts) instead of bypass
 }
 
