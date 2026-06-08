@@ -43,17 +43,17 @@ type fakeLife struct {
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
 	f.spawnedCwd = req.Cwd
-	promptMode := req.Prompt != "" && req.Type == ""
+	freeMode := req.Type == ""
 	id := req.Ticket
 	if id == "" {
-		if promptMode {
+		if freeMode {
 			id = "agent-test"
 		} else {
 			id = req.Type + "-auto"
 		}
 	}
 	typ := store.Type("")
-	if !promptMode {
+	if !freeMode {
 		typ = store.NormalizeType(req.Type)
 	}
 	f.spawned = &store.Session{
@@ -588,6 +588,29 @@ func TestAdoptLiveNoClaudeIDWarns(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	require.NotEmpty(t, got.Warning, "live register without a claude id must warn")
 	require.Empty(t, fl.adoptParams.ClaudeSessionID, "claude id stays empty")
+}
+
+func TestPostSpawnInteractiveNoPrompt(t *testing.T) {
+	fl := &fakeLife{}
+	ts := lifeServer(t, newFakeStore(), fl)
+	defer ts.Close()
+	dir := t.TempDir() // cwd must be an existing directory
+	body, _ := json.Marshal(SpawnRequest{Cwd: dir})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "empty prompt + cwd is a valid interactive spawn")
+	require.Equal(t, dir, fl.spawnedCwd)
+	require.Equal(t, "", fl.spawned.Prompt)
+}
+
+func TestPostSpawnRejectsEmptyRequest(t *testing.T) {
+	fl := &fakeLife{}
+	ts := lifeServer(t, newFakeStore(), fl)
+	defer ts.Close()
+	body, _ := json.Marshal(SpawnRequest{}) // no type, no repo, no cwd
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestPostSpawnSupervised(t *testing.T) {

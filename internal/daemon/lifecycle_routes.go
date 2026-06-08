@@ -44,10 +44,10 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	promptMode := req.Prompt != "" && req.Type == ""
-	if !promptMode {
-		if req.Type == "" || req.Repo == "" {
-			writeErr(w, http.StatusBadRequest, "provide a prompt, or type and repo")
+	freeMode := req.Type == ""
+	if !freeMode {
+		if req.Repo == "" {
+			writeErr(w, http.StatusBadRequest, "typed spawn requires repo")
 			return
 		}
 		// Reject an unknown type rather than silently collapsing it to "other".
@@ -65,11 +65,11 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Prompt-mode agents launch in the caller's cwd (the "master shell" dir),
+	// Free-form agents launch in the caller's cwd (the "master shell" dir),
 	// which is already trusted by Claude Code. It is required — we no longer
 	// create a per-agent directory to fall back to — and must be a real dir.
-	if promptMode && req.Cwd == "" {
-		writeErr(w, http.StatusBadRequest, "prompt-mode spawn requires cwd (the directory to launch the agent in)")
+	if freeMode && req.Cwd == "" {
+		writeErr(w, http.StatusBadRequest, "provide a launch dir (cwd; prompt optional), or type and repo")
 		return
 	}
 	if req.Cwd != "" {
@@ -112,7 +112,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	s.notify()
 	writeJSON(w, http.StatusCreated, sess)
-	if promptMode {
+	if freeMode && req.Prompt != "" {
 		go s.classifyAndUpdate(sess.ID, req.Prompt)
 	}
 }
