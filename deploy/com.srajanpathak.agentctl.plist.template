@@ -13,7 +13,6 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>AGENTCTL_ADDR</key><string>__ADDR__</string>
-    <key>AGENTCTL_APPROVALS</key><string>on</string>
     <key>AGENTCTL_SPAWN_GATE_MAX_AGENTS</key><string>10</string>
     <key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>

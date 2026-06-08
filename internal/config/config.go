@@ -50,14 +50,14 @@ func notifyEnabled() bool {
 	return false
 }
 
-// approvalsEnabled reads AGENTCTL_APPROVALS; off by default, on only for
-// 1/on/true. Gates the approvals-inbox feature (parse + inline answer).
+// approvalsEnabled reads AGENTCTL_APPROVALS; ON by default, disabled only for
+// 0/off/false. Gates the approvals-inbox feature (parse + inline answer).
 func approvalsEnabled() bool {
 	switch strings.ToLower(os.Getenv("AGENTCTL_APPROVALS")) {
-	case "1", "on", "true":
-		return true
+	case "0", "off", "false":
+		return false
 	}
-	return false
+	return true
 }
 
 // spawnGateEnabled reads AGENTCTL_SPAWN_GATE; ON by default (the gate is soft,
