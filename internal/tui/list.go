@@ -126,6 +126,25 @@ func groupSort(sessions []*store.Session) []*store.Session {
 	return out
 }
 
+// flatSessions returns the sessions that belong in the flat agent list: those
+// not owned by a pipeline, plus orphans whose owning pipeline no longer exists.
+// The latter case keeps a deleted pipeline's leftover agents visible (and
+// terminable) instead of hiding them — they have no pipeline header to render
+// under, so without this they'd vanish from the list while still being counted.
+func flatSessions(sessions []*store.Session, pipelines []*pipeline.Pipeline) []*store.Session {
+	known := make(map[string]bool, len(pipelines))
+	for _, p := range pipelines {
+		known[p.ID] = true
+	}
+	out := make([]*store.Session, 0, len(sessions))
+	for _, s := range sessions {
+		if s.PipelineID == "" || !known[s.PipelineID] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // item is one navigable row: a real agent (session != nil) or a placeholder for
 // an opened directory that currently has no agents (session == nil). dir is the
 // group directory and is always set.

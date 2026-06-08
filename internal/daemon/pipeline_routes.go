@@ -99,6 +99,17 @@ func (s *Server) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Reap each job's agent session so deleting the pipeline never orphans agents
+	// (a finished/failed job's tmux can still be alive). Best-effort: terminate the
+	// tmux+claude process and archive the record (keeps the worktree, mirroring the
+	// per-agent delete default). The live-job guard above already excluded running /
+	// needs_attention jobs, so this only ever reaps settled sessions.
+	for i := range p.Jobs {
+		if sid := p.Jobs[i].SessionID; sid != "" {
+			_ = s.life.Terminate(r.Context(), sid)
+			_ = s.store.Archive(r.Context(), sid)
+		}
+	}
 	if err := s.exec.pstore.Delete(pid); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

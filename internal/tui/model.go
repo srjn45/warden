@@ -99,14 +99,9 @@ func New(a api) Model {
 }
 
 func (m Model) items() []item {
-	// Pipeline-owned sessions are shown under their pipeline, not the flat list.
-	flat := make([]*store.Session, 0, len(m.sessions))
-	for _, s := range m.sessions {
-		if s.PipelineID == "" {
-			flat = append(flat, s)
-		}
-	}
-	base := buildItems(flat, m.openedDirs)
+	// Pipeline-owned sessions are shown under their pipeline, not the flat list —
+	// except orphans whose pipeline was deleted, which fall back to the flat list.
+	base := buildItems(flatSessions(m.sessions, m.pipelines), m.openedDirs)
 
 	var head []item
 	if m.approvalsOn {

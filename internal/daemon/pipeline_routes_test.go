@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/srajanpathak/agentctl/internal/ctxstore"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
+	"github.com/srajanpathak/agentctl/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -228,6 +230,39 @@ func TestPipelineDeleteRoute(t *testing.T) {
 	}
 	if _, gerr := ps.Get("demo"); gerr == nil {
 		t.Fatalf("pipeline should be gone after delete")
+	}
+}
+
+func TestPipelineDeleteReapsJobSessions(t *testing.T) {
+	ps, _ := pipeline.NewStore(t.TempDir())
+	cs, _ := ctxstore.New(t.TempDir())
+	ss := newFakeStore()
+	fl := &fakeLife{}
+	exec := NewExecutor(ps, ss, fl, cs, func() {})
+	srv := &Server{store: ss, life: fl, exec: exec, hub: newHub(), done: make(chan struct{})}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	// job "a" finished but its agent session still lingers (tmux alive).
+	ps.Update("demo", func(p *pipeline.Pipeline) {
+		p.Job("a").Status = pipeline.JobDone
+		p.Job("a").SessionID = "demo-a"
+	})
+	ss.Insert(context.Background(), &store.Session{ID: "demo-a", PipelineID: "demo", JobID: "a", Status: store.StatusDone})
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/pipelines/demo", nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete status %d", resp.StatusCode)
+	}
+	if fl.terminated != "demo-a" {
+		t.Fatalf("expected job session demo-a terminated, got %q", fl.terminated)
+	}
+	if _, gerr := ss.Get(context.Background(), "demo-a"); !errors.Is(gerr, store.ErrNotFound) {
+		t.Fatalf("expected job session demo-a reaped from store, got err=%v", gerr)
 	}
 }
 

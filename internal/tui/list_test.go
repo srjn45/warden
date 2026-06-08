@@ -447,3 +447,21 @@ func TestBuildRowsNoHeaderForPipelineRows(t *testing.T) {
 		}
 	}
 }
+
+func TestFlatSessionsIncludesOrphanedPipelineAgents(t *testing.T) {
+	sessions := []*store.Session{
+		{ID: "plain"}, // not pipeline-owned → flat
+		{ID: "p1-a", PipelineID: "p1", JobID: "a"},     // owned by a live pipeline → not flat
+		{ID: "gone-x", PipelineID: "gone", JobID: "x"}, // pipeline deleted → orphan, must be flat
+	}
+	pipelines := []*pipeline.Pipeline{{ID: "p1"}}
+
+	got := flatSessions(sessions, pipelines)
+
+	ids := make([]string, len(got))
+	for i, s := range got {
+		ids[i] = s.ID
+	}
+	require.ElementsMatch(t, []string{"plain", "gone-x"}, ids,
+		"flat list must include un-owned agents and orphans of deleted pipelines, but not live-pipeline-owned agents")
+}
