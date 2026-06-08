@@ -15,7 +15,6 @@ export default function NewAgentModal({ onClose, onCreated }: {
 
   async function doSpawn(force: boolean) {
     setErr(null);
-    if (!prompt.trim()) { setErr('a prompt is required'); return; }
     if (!dir) { setErr('choose a directory to launch the agent from'); return; }
     setBusy(true);
     try {
@@ -36,12 +35,12 @@ export default function NewAgentModal({ onClose, onCreated }: {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>New agent</h2>
-        <label>What should this agent do?
+        <label>What should this agent do? <span className="muted">(leave blank to open Claude and type instructions yourself)</span>
           <textarea
             rows={6}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. Review the auth module for security issues and propose fixes…"
+            placeholder="Leave blank to open Claude interactively, or describe a task to run autonomously…"
             autoFocus
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) doSpawn(false); }}
           />

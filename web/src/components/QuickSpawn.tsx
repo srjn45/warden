@@ -13,7 +13,6 @@ export default function QuickSpawn({ onCreated }: { onCreated: (id: string) => v
 
   async function submit() {
     setErr(null);
-    if (!prompt.trim()) { setErr('a prompt is required'); return; }
     if (!dir) { setErr('choose a directory to launch the agent from'); return; }
     setBusy(true);
     try {
@@ -33,7 +32,7 @@ export default function QuickSpawn({ onCreated }: { onCreated: (id: string) => v
         rows={3}
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
-        placeholder="What should a new agent do? (⌘/Ctrl+Enter to launch)"
+        placeholder="Describe a task, or leave blank to open Claude and type instructions yourself (⌘/Ctrl+Enter to launch)"
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
       />
       <DirPicker value={dir} onChange={setDir} />
