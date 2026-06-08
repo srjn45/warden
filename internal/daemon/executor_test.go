@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -410,5 +411,55 @@ func TestEmitKeepDoneSkipsReap(t *testing.T) {
 	}
 	if p, _ := ps.Get("p"); p.Job("a").Digest != nil {
 		t.Fatalf("keep-done must not snapshot a digest")
+	}
+}
+
+func TestEmitAutoCommitsWorktreeJob(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "impl", Worktree: "fresh", Status: pipeline.JobPending}},
+	})
+	fl := &fakeLife{}
+	e := NewExecutor(ps, newFakeStore(), fl, nil, func() {})
+	if err := e.Reconcile(context.Background(), "p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Emit(context.Background(), "p", "a", "implemented X"); err != nil {
+		t.Fatal(err)
+	}
+	// A job with its own worktree must be auto-committed before reap, so the
+	// branch advances and downstream from:<job> never forks an empty base.
+	if fl.commitCalls != 1 {
+		t.Fatalf("Emit must auto-commit a worktree job once, got %d calls", fl.commitCalls)
+	}
+	if !strings.Contains(fl.committedMsg, "p/a") {
+		t.Fatalf("commit message should identify the job, got %q", fl.committedMsg)
+	}
+}
+
+func TestEmitSkipsCommitForNoWorktreeJob(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "analyze", Worktree: "none", Status: pipeline.JobPending}},
+	})
+	fl := &fakeLife{}
+	e := NewExecutor(ps, newFakeStore(), fl, nil, func() {})
+	if err := e.Reconcile(context.Background(), "p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Emit(context.Background(), "p", "a", "done"); err != nil {
+		t.Fatal(err)
+	}
+	// worktree:none runs in the repo root (read-only/analysis) — never commit it.
+	if fl.commitCalls != 0 {
+		t.Fatalf("a worktree:none job must NOT be auto-committed, got %d calls", fl.commitCalls)
 	}
 }

@@ -39,6 +39,11 @@ type fakeLife struct {
 	adoptErr       error
 	adoptParams    AdoptParams
 	lastKey        string
+	commitCalls    int
+	committedDir   string
+	committedMsg   string
+	commitResult   bool
+	commitErr      error
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -138,15 +143,25 @@ func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*
 	id := req.PipelineID + "-" + req.JobID
 	branch := ""
 	wt := ""
+	workdir := req.Repo
 	if req.Worktree {
 		branch = id
 		wt = ".worktrees/" + id
+		workdir = req.Repo + "/" + wt
 	}
 	return &store.Session{
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Status: store.StatusSpawning, PipelineID: req.PipelineID, JobID: req.JobID,
-		Branch: branch, Worktree: wt,
+		Branch: branch, Worktree: wt, Workdir: workdir,
 	}, nil
+}
+
+func (f *fakeLife) CommitWorktree(_ context.Context, dir, message string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commitCalls++
+	f.committedDir, f.committedMsg = dir, message
+	return f.commitResult, f.commitErr
 }
 
 func lifeServer(t *testing.T, fs *fakeStore, fl *fakeLife) *httptest.Server {

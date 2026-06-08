@@ -118,6 +118,10 @@ func (a *lifecycleAdapter) GitNumstat(ctx context.Context, dir string) string {
 	return a.lc.GitNumstat(ctx, dir)
 }
 
+func (a *lifecycleAdapter) CommitWorktree(ctx context.Context, dir, message string) (bool, error) {
+	return a.lc.CommitWorktree(ctx, dir, message)
+}
+
 func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, error) {
 	return a.lc.MemoryPressure(ctx)
 }

@@ -186,6 +186,9 @@ type Lifecycle interface {
 	SendKeys(ctx context.Context, tmuxSession, key string) error
 	// SpawnJob launches one pipeline-job agent (worktree strategy + pipeline env).
 	SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error)
+	// CommitWorktree stages+commits any changes in dir; committed=false when clean.
+	// Used on job emit so a job's work lands on its branch before downstream forks.
+	CommitWorktree(ctx context.Context, dir, message string) (bool, error)
 	// TranscriptPath resolves the agent's transcript file ("" when none).
 	TranscriptPath(sess *store.Session) string
 	// GitBranch / GitNumstat read git state in dir (best-effort, "" on error).

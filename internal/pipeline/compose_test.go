@@ -36,3 +36,13 @@ func TestComposePromptNoDepsNoUpstreamBlock(t *testing.T) {
 		t.Fatalf("footer always present")
 	}
 }
+
+func TestComposePromptInstructsCommitBeforeEmit(t *testing.T) {
+	p := &Pipeline{ID: "p", Name: "p", Jobs: []Job{{ID: "a", Prompt: "do x", Worktree: "fresh"}}}
+	out := ComposePrompt(p, p.Job("a"))
+	// The pipeline chains a job's branch downstream by commit, so the footer must
+	// tell the agent to commit its work before emitting.
+	if !strings.Contains(strings.ToLower(out), "commit") {
+		t.Fatalf("footer must instruct the agent to commit before emitting:\n%s", out)
+	}
+}

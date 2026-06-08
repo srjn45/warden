@@ -23,8 +23,11 @@ func ComposePrompt(p *Pipeline, job *Job) string {
 	}
 	b.WriteString(job.Prompt)
 	fmt.Fprintf(&b, "\n\n---\nYou are job `%s` in pipeline `%s`. When your task is complete, "+
-		"publish your handoff for downstream jobs by running:\n"+
-		"  agentctl pipeline emit \"<your handoff text>\"\n", job.ID, p.ID)
+		"commit ALL your changes with git, then publish your handoff for downstream "+
+		"jobs by running:\n"+
+		"  agentctl pipeline emit \"<your handoff text>\"\n"+
+		"(The pipeline chains your branch to downstream jobs by commit; the daemon "+
+		"also auto-commits any leftover changes on emit as a safety net.)\n", job.ID, p.ID)
 	if strings.TrimSpace(job.Handoff) != "" {
 		fmt.Fprintf(&b, "Include specifically: %s\n", job.Handoff)
 	}

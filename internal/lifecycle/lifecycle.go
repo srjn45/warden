@@ -379,6 +379,29 @@ func (l *Lifecycle) GitNumstat(ctx context.Context, dir string) string {
 	return out
 }
 
+// CommitWorktree stages and commits every change in dir on its current branch.
+// It returns committed=false (no error) when the tree is already clean — either
+// the agent committed its own work, or it produced nothing. The pipeline calls
+// this when a job emits, so a job's work always lands on its branch before any
+// downstream from:<job> job forks it (otherwise an agent that finished without
+// committing would silently hand its dependents an empty base).
+func (l *Lifecycle) CommitWorktree(ctx context.Context, dir, message string) (bool, error) {
+	out, err := l.run.Run(ctx, dir, "git", "status", "--porcelain")
+	if err != nil {
+		return false, fmt.Errorf("git status: %w: %s", err, out)
+	}
+	if strings.TrimSpace(out) == "" {
+		return false, nil // clean tree — nothing to commit
+	}
+	if out, err := l.run.Run(ctx, dir, "git", "add", "-A"); err != nil {
+		return false, fmt.Errorf("git add: %w: %s", err, out)
+	}
+	if out, err := l.run.Run(ctx, dir, "git", "commit", "-m", message); err != nil {
+		return false, fmt.Errorf("git commit: %w: %s", err, out)
+	}
+	return true, nil
+}
+
 // MemoryPressure reads the macOS memory-pressure level via sysctl. Best-effort:
 // on any error (sysctl missing on non-macOS, unparseable output) it degrades to
 // pressure.Normal with no error, so the spawn gate falls back to count-only.

@@ -22,6 +22,11 @@ import (
 // if that call hangs; the snapshot degrades gracefully when it is cut short.
 const digestSnapshotTimeout = 5 * time.Second
 
+// commitTimeout bounds the auto-commit done on emit. It runs on a background
+// context (not the emit request's) so a cancelled request can't abort the commit
+// and leave the branch un-advanced for downstream from:<job> jobs.
+const commitTimeout = 30 * time.Second
+
 // Emit error sentinels (mapped to HTTP status by the route handler).
 var (
 	ErrJobNotFound     = errors.New("job not found in pipeline")
@@ -328,6 +333,23 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	branch := ""
 	if sess != nil {
 		branch = sess.Branch
+	}
+	// Auto-commit the job's work before reaping so its branch advances. A
+	// downstream from:<job> forks the branch ref, so an agent that finished
+	// without committing would silently hand its dependents an empty base.
+	// Only jobs with their OWN worktree: a worktree:none job runs in the repo
+	// root (read-only/analysis) and must never be committed.
+	if sess != nil && sess.Worktree != "" {
+		cctx, cancel := context.WithTimeout(context.Background(), commitTimeout)
+		committed, cerr := e.life.CommitWorktree(cctx, sess.Workdir,
+			fmt.Sprintf("pipeline %s/%s: %s", pid, jobID, text))
+		cancel()
+		switch {
+		case cerr != nil:
+			log.Printf("pipeline %s/%s: auto-commit failed (work may be uncommitted in %s): %v", pid, jobID, sess.Workdir, cerr)
+		case !committed:
+			log.Printf("pipeline %s/%s: produced no commits — downstream from:%s jobs will fork an empty base", pid, jobID, jobID)
+		}
 	}
 	if e.cstore != nil {
 		_, _ = e.cstore.Set("pipeline."+pid+"."+jobID+".output", text, "pipeline:"+pid)
