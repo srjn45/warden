@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/agentctl/internal/mailbox"
+	"github.com/srajanpathak/warden/internal/mailbox"
 )
 
 const (

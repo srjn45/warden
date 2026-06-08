@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/srajanpathak/agentctl/internal/ctxstore"
+	"github.com/srajanpathak/warden/internal/ctxstore"
 )
 
 func newCtxTestServer(t *testing.T) *httptest.Server {

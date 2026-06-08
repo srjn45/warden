@@ -4,7 +4,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.srajanpathak.agentctl</string>
+  <string>com.srajanpathak.warden</string>
   <key>ProgramArguments</key>
   <array>
     <string>__BINARY__</string>
@@ -12,13 +12,13 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>AGENTCTL_ADDR</key><string>__ADDR__</string>
-    <key>AGENTCTL_SPAWN_GATE_MAX_AGENTS</key><string>10</string>
+    <key>WARDEN_ADDR</key><string>__ADDR__</string>
+    <key>WARDEN_SPAWN_GATE_MAX_AGENTS</key><string>10</string>
     <key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/agentctl.daemon.log</string>
-  <key>StandardErrorPath</key><string>/tmp/agentctl.daemon.err</string>
+  <key>StandardOutPath</key><string>/tmp/warden.daemon.log</string>
+  <key>StandardErrorPath</key><string>/tmp/warden.daemon.err</string>
 </dict>
 </plist>

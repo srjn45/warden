@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
-# Shared library for agentctl service scripts.
+# Shared library for warden service scripts.
 # Source this file ("source common.sh"); do not execute it directly.
 # Defines config vars + helper functions only — no service-mutating side effects.
 
 # --- config ---------------------------------------------------------------
-LABEL="com.srajanpathak.agentctl"
+LABEL="com.srajanpathak.warden"
 # Common-name of the self-signed code-signing cert created by codesign-setup.sh.
 # Signing the binary with a stable identity keeps macOS Full Disk Access grants
 # valid across rebuilds (see codesign-setup.sh for the full rationale).
-CODESIGN_IDENTITY="agentctl-codesign"
-ADDR="${AGENTCTL_ADDR:-127.0.0.1:8765}"
+CODESIGN_IDENTITY="warden-codesign"
+# WARDEN_ADDR is canonical; AGENTCTL_ADDR is still honored as a fallback.
+ADDR="${WARDEN_ADDR:-${AGENTCTL_ADDR:-127.0.0.1:8765}}"
 INSTALL_BIN_DIR="$HOME/.local/bin"
-INSTALL_BIN="$INSTALL_BIN_DIR/agentctl"
+INSTALL_BIN="$INSTALL_BIN_DIR/warden"
+# Short alias symlink (wd -> warden) created alongside the binary.
+INSTALL_ALIAS="$INSTALL_BIN_DIR/wd"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-LOG_OUT="/tmp/agentctl.daemon.log"
-LOG_ERR="/tmp/agentctl.daemon.err"
+LOG_OUT="/tmp/warden.daemon.log"
+LOG_ERR="/tmp/warden.daemon.err"
 UID_NUM="$(id -u)"
 
 # Resolve repo root from this file's location (scripts/ sits at the repo root).
@@ -42,10 +45,13 @@ build_release() {
 }
 
 deploy_binary() {
-  [ -f "$REPO_ROOT/bin/agentctl" ] || die "bin/agentctl not found — build first (run without --no-build, or 'make release')"
+  [ -f "$REPO_ROOT/bin/warden" ] || die "bin/warden not found — build first (run without --no-build, or 'make release')"
   mkdir -p "$INSTALL_BIN_DIR"
-  cp "$REPO_ROOT/bin/agentctl" "$INSTALL_BIN" || die "failed to copy binary to $INSTALL_BIN"
+  cp "$REPO_ROOT/bin/warden" "$INSTALL_BIN" || die "failed to copy binary to $INSTALL_BIN"
   info "installed binary -> $INSTALL_BIN"
+  # Short alias: `wd` -> warden (the alias is provided purely by argv0).
+  ln -sfn warden "$INSTALL_ALIAS"
+  info "linked alias -> $INSTALL_ALIAS"
   codesign_binary
   # The binary was (re)written and (re)signed, so its code-signature cdhash
   # changed. launchd pins a Lightweight Code Requirement (LWCR) to the running

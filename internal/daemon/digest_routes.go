@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/agentctl/internal/digest"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/digest"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // handleDigest builds an on-demand completion digest for one agent: deterministic

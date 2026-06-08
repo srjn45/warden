@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // ErrBadRecipient is returned when a recipient id is unsafe as a filename.

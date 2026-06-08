@@ -12,7 +12,7 @@ import NewAgentModal from './NewAgentModal';
 import PipelinesTab from './PipelinesTab';
 import ContextMessagesTab from './ContextMessagesTab';
 
-const TABS_KEY = 'agentctl.tabs';
+const TABS_KEY = 'warden.tabs';
 
 function loadTabs(): TabsState {
   try {

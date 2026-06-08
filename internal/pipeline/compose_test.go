@@ -18,7 +18,7 @@ func TestComposePromptWithUpstreamAndFooter(t *testing.T) {
 	if !strings.Contains(out, "do the work") {
 		t.Fatalf("missing job prompt")
 	}
-	if !strings.Contains(out, "agentctl pipeline emit") || !strings.Contains(out, "job `impl`") || !strings.Contains(out, "pipeline `refactor-auth`") {
+	if !strings.Contains(out, "warden pipeline emit") || !strings.Contains(out, "job `impl`") || !strings.Contains(out, "pipeline `refactor-auth`") {
 		t.Fatalf("missing/incorrect footer:\n%s", out)
 	}
 	if !strings.Contains(out, "the branch name") {
@@ -32,7 +32,7 @@ func TestComposePromptNoDepsNoUpstreamBlock(t *testing.T) {
 	if strings.Contains(out, "Upstream output") {
 		t.Fatalf("should have no upstream block:\n%s", out)
 	}
-	if !strings.Contains(out, "agentctl pipeline emit") {
+	if !strings.Contains(out, "warden pipeline emit") {
 		t.Fatalf("footer always present")
 	}
 }

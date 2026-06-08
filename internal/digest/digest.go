@@ -29,7 +29,7 @@ type Digest struct {
 	Files   []FileChange `json:"files"`
 	Branch  string       `json:"branch"` // "" when cwd isn't a git repo
 	Turns   int          `json:"turns"`
-	Status  string       `json:"status"` // current agentctl status, set by the daemon
+	Status  string       `json:"status"` // current warden status, set by the daemon
 	Task    string       `json:"task"`
 }
 

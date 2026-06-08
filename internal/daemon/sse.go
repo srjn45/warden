@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // handleEventsStream streams the full session list as SSE. It sends an initial

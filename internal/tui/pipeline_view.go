@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/srajanpathak/agentctl/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/pipeline"
 )
 
 // RunJobDetailPane renders one terminal job's stored detail to stdout and then

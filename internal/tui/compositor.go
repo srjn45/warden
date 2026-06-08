@@ -10,17 +10,17 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/srajanpathak/agentctl/internal/lifecycle"
+	"github.com/srajanpathak/warden/internal/lifecycle"
 )
 
 // cockpitSession returns the tmux session name for the cockpit owned by the given pid.
 func cockpitSession(pid int) string {
-	return fmt.Sprintf("agentctl-tui-%d", pid)
+	return fmt.Sprintf("warden-tui-%d", pid)
 }
 
 type cockpitOpts struct {
-	session   string // tmux session name, e.g. "agentctl-tui-1234"
-	self      string // absolute path to the agentctl binary
+	session   string // tmux session name, e.g. "warden-tui-1234"
+	self      string // absolute path to the warden binary
 	homeDir   string // cwd for the list pane process
 	masterCwd string // cwd for the master claude pane (the launching shell's dir)
 }
@@ -133,8 +133,8 @@ func pidAlive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// cleanStaleCockpits kills cockpit tmux sessions (agentctl-tui-<pid>) whose
-// owning agentctl process is dead — orphans left behind when a user detached
+// cleanStaleCockpits kills cockpit tmux sessions (warden-tui-<pid>) whose
+// owning warden process is dead — orphans left behind when a user detached
 // (Ctrl-b d) instead of quitting. Best-effort: a missing tmux server (no
 // sessions yet) or any error is ignored. Live cockpits and the user's own
 // sessions are never touched.
@@ -143,7 +143,7 @@ func cleanStaleCockpits(run lifecycle.Runner) {
 	if err != nil {
 		return
 	}
-	const prefix = "agentctl-tui-"
+	const prefix = "warden-tui-"
 	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
 		if !strings.HasPrefix(name, prefix) {
 			continue

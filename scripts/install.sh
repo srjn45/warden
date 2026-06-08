@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install agentctl as a launchd service: build, deploy binary, plist, load,
+# Install warden as a launchd service: build, deploy binary, plist, load,
 # link the Claude skill, and register the MCP server. Idempotent.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,29 +15,38 @@ for arg in "$@"; do
   esac
 done
 
-info "installing agentctl service"
+info "installing warden service"
 
 if [ "$NO_BUILD" -eq 0 ]; then
   build_release
 else
-  warn "--no-build: skipping make release, using existing bin/agentctl"
+  warn "--no-build: skipping make release, using existing bin/warden"
 fi
 
 deploy_binary
 render_plist
+
+# Migrate the legacy data dir (~/.agentctl) to ~/.warden before the daemon
+# loads, so existing sessions/state carry over on the rename. One-time, only when
+# the new dir does not yet exist.
+if [ ! -d "$HOME/.warden" ] && [ -d "$HOME/.agentctl" ]; then
+  mv "$HOME/.agentctl" "$HOME/.warden"
+  info "migrated data dir ~/.agentctl -> ~/.warden"
+fi
+
 restart_service
 
 # Claude skill symlink (matches 'make install-skill')
 mkdir -p "$HOME/.claude/skills"
-ln -sfn "$REPO_ROOT/skills/agentctl" "$HOME/.claude/skills/agentctl"
-info "linked skill -> ~/.claude/skills/agentctl"
+ln -sfn "$REPO_ROOT/skills/warden" "$HOME/.claude/skills/warden"
+info "linked skill -> ~/.claude/skills/warden"
 
 # MCP server registration (idempotent: remove-then-add).
 # May be blocked by enterprise MCP policy; degrade to a warning that surfaces why.
 if claude_available; then
-  claude mcp remove agentctl >/dev/null 2>&1 || true
-  if mcp_out="$(claude mcp add agentctl --scope user -- agentctl mcp 2>&1)"; then
-    info "registered MCP server 'agentctl' (user scope)"
+  claude mcp remove warden >/dev/null 2>&1 || true
+  if mcp_out="$(claude mcp add warden --scope user -- warden mcp 2>&1)"; then
+    info "registered MCP server 'warden' (user scope)"
   else
     warn "MCP auto-registration skipped: ${mcp_out:-unknown error}"
     warn "register manually if needed — see README 'Orchestrator (MCP)'"

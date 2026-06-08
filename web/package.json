@@ -1,5 +1,5 @@
 {
-  "name": "agentctl-web",
+  "name": "warden-web",
   "private": true,
   "type": "module",
   "scripts": {

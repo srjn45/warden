@@ -1,11 +1,11 @@
-# agentctl
+# warden
 
-A single Go binary that spawns, monitors, and tears down Claude Code agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and a file-based JSON store (no database to run).
+A single Go binary (`warden`, aliased as `wd`) that spawns, monitors, and tears down Claude Code agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and a file-based JSON store (no database to run).
 
-One binary, multiple faces: `agentctl daemon` is the single writer to the on-disk session store, serving a loopback REST API and running a background poller. `agentctl ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `agentctl mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator Claude session to query agents and talk to a specific running agent.
+One binary, multiple faces: `warden daemon` is the single writer to the on-disk session store, serving a loopback REST API and running a background poller. `warden ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `warden mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator Claude session to query agents and talk to a specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
 
 ```
-alias agents=agentctl
+alias agents=warden
 ```
 
 > **New here?** See [docs/USAGE.md](docs/USAGE.md) for a task-oriented guide to running agents day to day. The sections below cover build, install, and contributor setup.
@@ -25,7 +25,7 @@ alias agents=agentctl
 ## Build
 
 ```sh
-make build           # produces bin/agentctl
+make build           # produces bin/warden
 ```
 
 ---
@@ -33,7 +33,7 @@ make build           # produces bin/agentctl
 ## Install the daemon as a launchd service (auto-start)
 
 Install with the script — it builds the release, installs the binary to
-`~/.local/bin/agentctl`, renders and loads the launchd plist, links the Claude
+`~/.local/bin/warden`, renders and loads the launchd plist, links the Claude
 skill, and registers the MCP server:
 
 ```sh
@@ -43,14 +43,14 @@ skill, and registers the MCP server:
 The daemon then starts automatically at login and restarts on crash
 (`KeepAlive = true`), listening on `127.0.0.1:8765` by default.
 
-> `~/.local/bin` must be on your `PATH` to run `agentctl` from the shell — the
+> `~/.local/bin` must be on your `PATH` to run `warden` from the shell — the
 > installer warns if it isn't.
 
-### Stop macOS "agentctl would like to access…" prompts (optional, macOS)
+### Stop macOS "warden would like to access…" prompts (optional, macOS)
 
 The launchd daemon is the macOS TCC *responsible process* for the agents it
 spawns and for its own directory picker, so reads of protected folders
-(Downloads, Documents, Desktop, the Music/media library) surface as *"agentctl
+(Downloads, Documents, Desktop, the Music/media library) surface as *"warden
 would like to access…"* prompts. Granting Full Disk Access once silences them —
 but macOS ties the grant to the binary's code identity, and an unsigned Go
 binary gets a new identity on every rebuild, which brings the prompts back.
@@ -63,12 +63,12 @@ Run the one-time setup to give the binary a **stable** self-signed identity:
 ```
 
 Then grant access once: **System Settings → Privacy & Security → Full Disk
-Access → "+"** and add `~/.local/bin/agentctl`. Because the signing identity is
+Access → "+"** and add `~/.local/bin/warden`. Because the signing identity is
 stable, the grant survives future rebuilds. (`install.sh`/`reinstall.sh` sign
 automatically when the cert exists; without it they warn and leave the binary
 unsigned.)
 
-**Redeploy after a code change** (replaces `make release && ./bin/agentctl daemon`):
+**Redeploy after a code change** (replaces `make release && ./bin/warden daemon`):
 
 ```sh
 ./scripts/reinstall.sh             # rebuild UI + binary, redeploy, restart
@@ -77,19 +77,19 @@ unsigned.)
 ```
 
 **Uninstall** (stops and removes the service, binary, skill link, and MCP
-registration; **preserves** your session store at `~/.agentctl` and the logs):
+registration; **preserves** your session store at `~/.warden` and the logs):
 
 ```sh
 ./scripts/uninstall.sh                 # or: make uninstall
-./scripts/uninstall.sh --keep-binary   # leave ~/.local/bin/agentctl in place
+./scripts/uninstall.sh --keep-binary   # leave ~/.local/bin/warden in place
 ```
 
 Logs:
 
-- stdout: `/tmp/agentctl.daemon.log`
-- stderr: `/tmp/agentctl.daemon.err`
+- stdout: `/tmp/warden.daemon.log`
+- stderr: `/tmp/warden.daemon.err`
 
-> **Notifications:** off by default. When enabled with `AGENTCTL_NOTIFY=on`, the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
+> **Notifications:** off by default. When enabled with `WARDEN_NOTIFY=on`, the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
 
 ---
 
@@ -109,7 +109,7 @@ cp hooks/settings.snippet.json ~/.claude/settings.json
 
 The snippet references the installed hook location:
 ```
-~/workspace/personal/agentctl/hooks/agentctl-hook.sh
+~/workspace/personal/agentctl/hooks/warden-hook.sh
 ```
 
 The hook fails soft — it never blocks or errors the agent, even if the daemon is down or the session is unknown.
@@ -120,12 +120,12 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 
 | Variable | Default | Description |
 |---|---|---|
-| `AGENTCTL_ADDR` | `127.0.0.1:8765` | Daemon listen address |
-| `AGENTCTL_DATA_DIR` | `~/.agentctl` | Directory for session JSON files (`sessions/`, `closed/`) |
-| `AGENTCTL_WORKDIR` | `~/agentctl-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
+| `WARDEN_ADDR` | `127.0.0.1:8765` | Daemon listen address |
+| `WARDEN_DATA_DIR` | `~/.warden` | Directory for session JSON files (`sessions/`, `closed/`) |
+| `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
-| `AGENTCTL_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
-| `AGENTCTL_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces one-click answer buttons. Web AttentionQueue shows option buttons; TUI gains a pinned **⏳ Approvals** row (press `i` to focus, answer with number keys). Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
+| `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
+| `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces one-click answer buttons. Web AttentionQueue shows option buttons; TUI gains a pinned **⏳ Approvals** row (press `i` to focus, answer with number keys). Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
 
 All variables can also be overridden with `--addr` on any command.
 
@@ -136,8 +136,8 @@ All variables can also be overridden with `--addr` on any command.
 The simplest way to create an agent is to give it a plain prompt and let the system figure out the rest:
 
 ```sh
-agentctl start "review the auth module for security issues"
-# spawned agent-a1b2 (classifying…) — attach with `agentctl attach agent-a1b2`
+warden start "review the auth module for security issues"
+# spawned agent-a1b2 (classifying…) — attach with `warden attach agent-a1b2`
 ```
 
 In the web GUI, **+ New agent** opens a single prompt textarea — no type or repo fields.
@@ -147,12 +147,12 @@ In the web GUI, **+ New agent** opens a single prompt textarea — no type or re
 - **Runs in the caller's directory.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` (or `--permission-mode acceptEdits` with `--supervised`) in the directory you invoked `start` from (or the `--dir` you pass) — no per-agent directory is created. Point it elsewhere with `--dir`, and include any extra repo context in the prompt itself.
 - **Type is auto-assigned.** Shortly after creation the daemon classifies the prompt with `claude -p` and updates the type label. It appears as "classifying…" until then. Requires `claude` on the daemon's `PATH`; falls back to `other` if unavailable.
 - **Subject is auto-generated.** Each agent has a one-line subject summarizing what it is currently working on. It is seeded from the first words of the prompt at spawn, then refreshed periodically by the poller: the poller reads the agent's Claude Code transcript (looked up by `CLAUDE_PROJECTS_DIR`) or, if no transcript is found, captures the tmux pane, then asks `claude -p` for an ≤8-word phrase. Refreshes are throttled and only run when the pane content has changed.
-- **Managed worktrees still available.** `agentctl start TICKET --type development --repo …` is unchanged — see the section below.
+- **Managed worktrees still available.** `warden start TICKET --type development --repo …` is unchanged — see the section below.
 
 To launch an agent in a directory other than your current one, pass `--dir`:
 
 ```sh
-agentctl start "summarize recent changes" --dir /path/to/repo
+warden start "summarize recent changes" --dir /path/to/repo
 ```
 
 ---
@@ -174,7 +174,7 @@ When you need a managed git worktree (e.g. a development branch tied to a Jira t
 
 By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously; the `Notification` hook still records them as events in the session doc.
 
-Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer (web AttentionQueue one-click buttons / TUI `⏳ Approvals` row, when `AGENTCTL_APPROVALS` is on). A restored agent keeps its supervised setting.
+Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer (web AttentionQueue one-click buttons / TUI `⏳ Approvals` row, when `WARDEN_APPROVALS` is on). A restored agent keeps its supervised setting.
 
 If a worktree for the ticket already exists on disk, the spawn adopts it (reattaches claude to the existing branch) instead of erroring.
 
@@ -183,15 +183,15 @@ If a worktree for the ticket already exists on disk, the spawn adopts it (reatta
 ## Terminal UI
 
 ```sh
-agentctl tui   # open the cockpit
-agentctl       # bare invocation — same thing
+warden tui   # open the cockpit
+warden       # bare invocation — same thing
 ```
 
-`agentctl tui` (or bare `agentctl`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), an embedded interactive **master Claude** session wired to the `agentctl` MCP server (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
+`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), an embedded interactive **master Claude** session wired to the `warden` MCP server (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
 
-The cockpit **falls back to the legacy single-pane view** (`--classic`) when tmux isn't installed or when `agentctl tui` is launched from inside an existing tmux session. The classic view is the original [Bubble Tea](https://github.com/charmbracelet/bubbletea) app — a list on the left and a static detail panel on the right (no embedded sessions). Requires **tmux ≥ 3.1** for the cockpit.
+The cockpit **falls back to the legacy single-pane view** (`--classic`) when tmux isn't installed or when `warden tui` is launched from inside an existing tmux session. The classic view is the original [Bubble Tea](https://github.com/charmbracelet/bubbletea) app — a list on the left and a static detail panel on the right (no embedded sessions). Requires **tmux ≥ 3.1** for the cockpit.
 
-The list pane polls the daemon about once a second. The daemon must be running (`agentctl daemon`) before opening the TUI.
+The list pane polls the daemon about once a second. The daemon must be running (`warden.daemon`) before opening the TUI.
 
 **Keys (cockpit)**
 
@@ -212,45 +212,45 @@ Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix). See [doc
 
 ## Command reference
 
-### `agentctl tui`
+### `warden tui`
 
-Open the live terminal cockpit. Also launched by bare `agentctl` with no subcommand.
+Open the live terminal cockpit. Also launched by bare `warden` with no subcommand.
 
 ```sh
-agentctl tui
-agentctl       # equivalent
+warden tui
+warden       # equivalent
 ```
 
 See the [Terminal UI](#terminal-ui) section above for the full key reference.
 
-### `agentctl start [TICKET|"<prompt>"] [--type <TYPE>]`
+### `warden start [TICKET|"<prompt>"] [--type <TYPE>]`
 
 Spawn a new agent session. Two modes:
 
 **Prompt mode** (no `--type`) — pass a quoted prompt; the type is assigned automatically:
 
 ```sh
-agentctl start "review the auth module for security issues"
-agentctl start "investigate why the nightly build is flaky"
+warden start "review the auth module for security issues"
+warden start "investigate why the nightly build is flaky"
 ```
 
 **Managed worktree mode** (`--type` required) — creates a git worktree for the ticket:
 
 ```sh
 # Development agent for a Jira ticket:
-agentctl start PROJ-350 --type development
+warden start PROJ-350 --type development
 
 # PR review — checks out the PR branch in a fresh worktree:
-agentctl start --type pr-review --pr 1234
+warden start --type pr-review --pr 1234
 
 # Buildkite debug — no worktree, runs in current directory:
-agentctl start --type buildkite-debug
+warden start --type buildkite-debug
 
 # Spike with an optional scratch worktree:
-agentctl start --type spike --worktree
+warden start --type spike --worktree
 
 # Point at a specific repo and branch:
-agentctl start PROJ-350 --type development --repo /path/to/repo --branch my-branch
+warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
 ```
 
 Flags:
@@ -259,14 +259,14 @@ Flags:
 - `--branch` — new branch name (development) or checkout target (pr-review)
 - `--pr` — PR number or URL (pr-review only)
 - `--worktree` — opt-in worktree for analysis/spike
-- `--supervised` — launch with `--permission-mode acceptEdits` instead of the default `--dangerously-skip-permissions`; risky tools prompt and the approvals inbox surfaces them (see `AGENTCTL_APPROVALS`)
+- `--supervised` — launch with `--permission-mode acceptEdits` instead of the default `--dangerously-skip-permissions`; risky tools prompt and the approvals inbox surfaces them (see `WARDEN_APPROVALS`)
 
-### `agentctl ls`
+### `warden ls`
 
 List all active agent sessions with their type, status, working directory, and subject.
 
 ```sh
-agentctl ls
+warden ls
 # ID                TYPE         STATUS    AGE   DIR                SUBJECT
 # PROJ-350    development  working   2m    PROJ-350     refactoring auth middleware
 # prreview-a1b2     pr-review    idle      5m    prreview-a1b2      reviewing PR 1234
@@ -278,120 +278,120 @@ agentctl ls
 Use `--json` for machine-readable output (a JSON array of full session objects; an empty fleet prints `[]`). Useful for scripts and for Claude driving the CLI:
 
 ```sh
-agentctl ls --json
+warden ls --json
 ```
 
-### `agentctl status <TICKET>`
+### `warden status <TICKET>`
 
 Show full detail for one session: working directory, subject, worktree, branch, PR, all events.
 
 ```sh
-agentctl status PROJ-350
+warden status PROJ-350
 ```
 
 Add `--json` to emit the full session as a single JSON object (including the `events` array):
 
 ```sh
-agentctl status PROJ-350 --json
+warden status PROJ-350 --json
 ```
 
-### `agentctl adopt [--session-id <uuid>] [--dir <path>]`
+### `warden adopt [--session-id <uuid>] [--dir <path>]`
 
-Register an existing Claude session into agentctl.
+Register an existing Claude session into warden.
 
 - **Plain shell** — finds the newest Claude conversation for the directory and resumes it under a new tmux session (`claude --resume`).
 - **Inside tmux** — registers the current tmux session live without relaunching claude.
 
 ```sh
-agentctl adopt                          # newest session for cwd, resume under tmux
-agentctl adopt --session-id <uuid>      # pick a specific Claude conversation
-agentctl adopt --dir /path/to/project   # target a different directory
+warden adopt                          # newest session for cwd, resume under tmux
+warden adopt --session-id <uuid>      # pick a specific Claude conversation
+warden adopt --dir /path/to/project   # target a different directory
 ```
 
-### `agentctl attach <TICKET>`
+### `warden attach <TICKET>`
 
 Attach your terminal to the agent's tmux session interactively.
 
 ```sh
-agentctl attach PROJ-350
+warden attach PROJ-350
 ```
 
-### `agentctl done <TICKET>`
+### `warden done <TICKET>`
 
 Terminate the agent (kill its tmux + claude session) **and** clear its stored record in one step. It does **not** remove the git worktree — that is a separate, explicitly-confirmed step (`remove-worktree`). Equivalent to `terminate` followed by `delete`.
 
 ```sh
-agentctl done PROJ-350          # terminate + clear record (worktree kept)
-agentctl done PROJ-350 --hard   # purge the record instead of archiving it
+warden done PROJ-350          # terminate + clear record (worktree kept)
+warden done PROJ-350 --hard   # purge the record instead of archiving it
 ```
 
-### `agentctl terminate <TICKET>`
+### `warden terminate <TICKET>`
 
-Stop an agent: kill its tmux + claude session, but **keep** the record and worktree. This is the safe "stop this agent" default — it is reversible with `agentctl restore`.
+Stop an agent: kill its tmux + claude session, but **keep** the record and worktree. This is the safe "stop this agent" default — it is reversible with `warden restore`.
 
 ```sh
-agentctl terminate PROJ-350
+warden terminate PROJ-350
 ```
 
-### `agentctl restore <TICKET>`
+### `warden restore <TICKET>`
 
 Recreate and resume a lost/orphaned agent's tmux + claude session (`claude --resume`). Use only when the agent's tmux session is gone (status `orphaned`).
 
 ```sh
-agentctl restore PROJ-350
+warden restore PROJ-350
 ```
 
-### `agentctl delete <TICKET>`
+### `warden delete <TICKET>`
 
 Clear an agent's stored record (archives by default; `--hard` purges). Does not touch tmux or the worktree.
 
 ```sh
-agentctl delete PROJ-350
-agentctl delete PROJ-350 --hard
+warden delete PROJ-350
+warden delete PROJ-350 --hard
 ```
 
-### `agentctl remove-worktree <TICKET>`
+### `warden remove-worktree <TICKET>`
 
 Remove an agent's git worktree and branch. **Destructive.** It refuses if the agent is still running (terminate it first) or if the worktree has uncommitted changes or unpushed commits — use `--force` to override the guard.
 
 ```sh
-agentctl remove-worktree PROJ-350
-agentctl remove-worktree PROJ-350 --force
+warden remove-worktree PROJ-350
+warden remove-worktree PROJ-350 --force
 ```
 
-### `agentctl send <TICKET> <message...>`
+### `warden send <TICKET> <message...>`
 
 Type a message into the agent's claude session and press Enter.
 
 ```sh
-agentctl send PROJ-350 "run the unit tests and fix any failures"
+warden send PROJ-350 "run the unit tests and fix any failures"
 ```
 
-### `agentctl tail <TICKET>`
+### `warden tail <TICKET>`
 
 Print the recent terminal output of the agent's claude session.
 
 ```sh
-agentctl tail PROJ-350
-agentctl tail PROJ-350 --lines 80
+warden tail PROJ-350
+warden tail PROJ-350 --lines 80
 ```
 
-### `agentctl daemon`
+### `warden.daemon`
 
 Run the daemon (HTTP API + background poller). Normally managed by launchd; run manually for debugging.
 
 ```sh
-agentctl daemon
-agentctl daemon --addr 127.0.0.1:9000
+warden.daemon
+warden.daemon --addr 127.0.0.1:9000
 ```
 
-### `agentctl mcp`
+### `warden mcp`
 
 Run the MCP stdio server so an orchestrator Claude session can manage agents via tool calls.
 
 ```sh
-agentctl mcp
-agentctl mcp --addr 127.0.0.1:8765
+warden mcp
+warden mcp --addr 127.0.0.1:8765
 ```
 
 Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`.
@@ -400,16 +400,16 @@ Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_t
 
 ## Orchestrator (MCP)
 
-Register `agentctl mcp` as an MCP server in your orchestrator Claude session's MCP config (e.g. `~/.claude/claude_desktop_config.json` or the project-level `.claude/mcp.json`):
+Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP config (e.g. `~/.claude/claude_desktop_config.json` or the project-level `.claude/mcp.json`):
 
 ```json
 {
   "mcpServers": {
-    "agentctl": {
-      "command": "agentctl",
+    "warden": {
+      "command": "warden",
       "args": ["mcp"],
       "env": {
-        "AGENTCTL_ADDR": "127.0.0.1:8765"
+        "WARDEN_ADDR": "127.0.0.1:8765"
       }
     }
   }
@@ -440,20 +440,20 @@ Example orchestrator prompts:
 - "Spawn a buildkite-debug agent in /path/to/repo" — calls `spawn_agent` with `type`+`repo`
 - "Stop PROJ-350" — calls `terminate_agent` (reversible); "clear its record too" — then `delete_agent`
 
-### Drive it from Claude (the `agentctl` skill)
+### Drive it from Claude (the `warden` skill)
 
 Beyond raw tool access, install the packaged **Claude Code skill** so any Claude
 session knows *how and when* to manage your fleet (triage, create-from-prompt,
 relay "tell X to do Y", terminate-with-confirmation, daemon-down handling):
 
 ```sh
-make install-skill   # symlinks skills/agentctl into ~/.claude/skills/agentctl
+make install-skill   # symlinks skills/warden into ~/.claude/skills/warden
 ```
 
 With the MCP server registered (above) and the skill installed, just talk to a
 Claude session: *"list my agents"*, *"spin up an agent to research X"*,
 *"what is agent-4f2a doing?"*, *"tell agent-4f2a to run the tests"*, *"kill the
-idle ones"* — it drives the MCP tools (falling back to the `agentctl` CLI if the
+idle ones"* — it drives the MCP tools (falling back to the `warden` CLI if the
 MCP server isn't registered). The daemon must be running.
 
 ---
@@ -466,17 +466,17 @@ MCP server isn't registered). The daemon must be running.
 make run-daemon        # foreground, for debugging only (blocks the terminal; ctrl-C to stop)
 
 # 2. Spawn an agent for a ticket
-agentctl start PROJ-350 --type development
+warden start PROJ-350 --type development
 
 # 3. Watch what it's doing
-agentctl ls
-agentctl status PROJ-350
+warden ls
+warden status PROJ-350
 
 # 4. Drop into its terminal if needed
-agentctl attach PROJ-350
+warden attach PROJ-350
 
 # 5. Clean up when done
-agentctl done PROJ-350
+warden done PROJ-350
 ```
 
 ---
@@ -484,7 +484,7 @@ agentctl done PROJ-350
 ## Development
 
 ```sh
-make build          # go build -o bin/agentctl ./cmd/agentctl
+make build          # go build -o bin/warden ./cmd/warden
 make test           # go test ./...
 make lint           # go vet ./...
 make run-daemon     # build + start daemon in the foreground (debugging only)
@@ -505,8 +505,8 @@ The daemon embeds a React dashboard (Astro + React) and serves it at `http://loc
 ### Build & run
 
 ```sh
-make release     # 1. builds the Astro UI (web/), 2. embeds it via go:embed, 3. builds bin/agentctl
-agentctl daemon  # start the daemon as usual
+make release     # 1. builds the Astro UI (web/), 2. embeds it via go:embed, 3. builds bin/warden
+warden.daemon  # start the daemon as usual
 ```
 
 Then open `http://localhost:8765` in a browser.
@@ -520,7 +520,7 @@ The dashboard is a **tabbed mission-control shell**: two fixed tabs — **Overvi
 - **Overview tab** — live fleet list over SSE (no manual refresh), each row with a coloured busy/idle badge (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) and the agent's auto-generated **subject**, plus fleet stats and an **attention queue** that surfaces agents in `waiting_for_input`/`errored`/`orphaned`.
 - **Cockpit tab** — a multi-pane view for watching several agents at once.
 - **Agent tabs** — pin any agent to its own tab to get a **live, interactive terminal** (`AttachTerminal`) — a real `tmux attach` bridged to the browser over a WebSocket, so you can type into the agent and watch it respond in real time. (The old read-only polled snapshot + separate send box were removed.)
-- **Create agent** — **+ New agent** opens a prompt box (with a directory picker and a **Supervised** checkbox). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. Tick **Supervised** to launch with `--permission-mode acceptEdits` instead of full bypass. For a managed worktree, use the CLI: `agentctl start TICKET --type development --repo …`.
+- **Create agent** — **+ New agent** opens a prompt box (with a directory picker and a **Supervised** checkbox). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. Tick **Supervised** to launch with `--permission-mode acceptEdits` instead of full bypass. For a managed worktree, use the CLI: `warden start TICKET --type development --repo …`.
 - **Terminate** — surfaces the git guard (409 → **Force** + optional **hard-delete**) when there's uncommitted/unpushed work.
 - **Browser notifications** — opt in to get a desktop notification when an agent enters `waiting_for_input` (gated so they only fire while the tab is hidden).
 
@@ -530,7 +530,7 @@ Run two terminals in parallel — no rebuild loop needed while iterating on the 
 
 ```sh
 # Terminal 1 — daemon (REST API + SSE on :8765)
-agentctl daemon
+warden.daemon
 
 # Terminal 2 — Astro dev server (:4321, proxies /sessions (incl. the /attach WebSocket) /spawn /events /healthz to :8765)
 make ui-dev

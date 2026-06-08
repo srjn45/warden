@@ -14,15 +14,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/srajanpathak/agentctl/internal/approval"
-	"github.com/srajanpathak/agentctl/internal/digest"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/pressure"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/approval"
+	"github.com/srajanpathak/warden/internal/digest"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/pressure"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // ErrDaemonDown signals the daemon is unreachable (connection refused / timeout).
-var ErrDaemonDown = errors.New("daemon not running — start it with `agentctl daemon` (or via launchd)")
+var ErrDaemonDown = errors.New("daemon not running — start it with `warden daemon` (or via launchd)")
 
 // StatusError is returned for non-2xx daemon responses, exposing the HTTP code.
 type StatusError struct {

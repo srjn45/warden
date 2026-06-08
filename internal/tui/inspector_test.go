@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/warden/internal/client"
 )
 
 func TestOneLineCollapsesWhitespace(t *testing.T) {

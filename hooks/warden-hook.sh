@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# agentctl Claude Code hook. Fails soft: never blocks the agent.
-# Usage (from settings.json): agentctl-hook.sh <EVENT_TYPE>
-# The session id is the tmux session name (set when agentctl spawned it).
+# warden Claude Code hook. Fails soft: never blocks the agent.
+# Usage (from settings.json): warden-hook.sh <EVENT_TYPE>
+# The session id is the tmux session name (set when warden spawned it).
 set -u
 
 EVENT_TYPE="${1:-Unknown}"
-ADDR="${AGENTCTL_ADDR:-127.0.0.1:8765}"
+# WARDEN_ADDR is canonical; AGENTCTL_ADDR is still honored as a fallback.
+ADDR="${WARDEN_ADDR:-${AGENTCTL_ADDR:-127.0.0.1:8765}}"
 
-# tmux session name == agentctl session id. Outside tmux → no-op.
+# tmux session name == warden session id. Outside tmux → no-op.
 SESSION="$(tmux display-message -p '#S' 2>/dev/null || true)"
 [ -z "$SESSION" ] && exit 0
 

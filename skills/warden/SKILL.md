@@ -1,11 +1,11 @@
 ---
-name: agentctl
-description: Use to manage Claude Code agent sessions via agentctl — spawn, list, monitor, talk to, and tear down agents; run multi-stage DAG **pipelines** of dependent agent jobs; and share data / pass messages between agents. Triggers include "spawn/create an agent", "list/check/triage my agents", "what is agent <id> doing", "tell/ask agent <id> to …", "terminate/kill agent(s)"; "create/run/show/cancel/delete a pipeline", "run these steps in order", "multi-stage or dependent agent work", an analyze→implement→review chain; "this is a big/multi-phase/long-running task", "this will take a while", "break this down into stages"; "share data between agents", "have one agent message/ask another". Drives the agentctl MCP tools or the agentctl CLI — both first-class; pipelines are CLI-only.
+name: warden
+description: Use to manage Claude Code agent sessions via warden — spawn, list, monitor, talk to, and tear down agents; run multi-stage DAG **pipelines** of dependent agent jobs; and share data / pass messages between agents. Triggers include "spawn/create an agent", "list/check/triage my agents", "what is agent <id> doing", "tell/ask agent <id> to …", "terminate/kill agent(s)"; "create/run/show/cancel/delete a pipeline", "run these steps in order", "multi-stage or dependent agent work", an analyze→implement→review chain; "this is a big/multi-phase/long-running task", "this will take a while", "break this down into stages"; "share data between agents", "have one agent message/ask another". Drives the warden MCP tools or the warden CLI — both first-class; pipelines are CLI-only.
 ---
 
-# agentctl — drive your agent fleet & pipelines
+# warden — drive your agent fleet & pipelines
 
-agentctl runs a local daemon that manages per-task Claude Code agents (each in its
+warden (the CLI is `warden`, aliased as `wd`) runs a local daemon that manages per-task Claude Code agents (each in its
 own tmux session, some in a git worktree). You can put them to work three ways:
 
 - **plain agents** — independent one-off tasks;
@@ -14,7 +14,7 @@ own tmux session, some in a git worktree). You can put them to work three ways:
 - **shared context + messages** — a KV blackboard and per-agent inboxes for ad-hoc
   coordination between agents.
 
-Drive it through the **agentctl MCP tools** (when registered) or the **`agentctl`
+Drive it through the **warden MCP tools** (when registered) or the **`warden`
 CLI** (always available — and the only way to drive pipelines). MCP registration may
 be blocked by enterprise policy; when the MCP tools are absent, use the CLI — no
 capability is lost.
@@ -34,9 +34,9 @@ long-lived large-context agent causes.
 
 | Use… | When | How |
 |---|---|---|
-| **Plain agent** *(default)* | one self-contained task; OR several **independent** tasks (none needs another's result — just spawn several) | `spawn_agent` / `agentctl start "…"` |
-| **Pipeline** | **dependent stages** — sequential handoff (analyze→implement→review), fan-out→fan-in (parallel work → a synthesis/merge step), code flowing downstream (a later job builds on an earlier job's branch), or anything to run **unattended** | `agentctl pipeline create -f spec.yaml` then `start` |
-| **ctx / msg** | ad-hoc coordination between otherwise-independent agents — a shared scratchpad, or one agent asking another a question | `agentctl ctx …` / `agentctl msg …` |
+| **Plain agent** *(default)* | one self-contained task; OR several **independent** tasks (none needs another's result — just spawn several) | `spawn_agent` / `warden start "…"` |
+| **Pipeline** | **dependent stages** — sequential handoff (analyze→implement→review), fan-out→fan-in (parallel work → a synthesis/merge step), code flowing downstream (a later job builds on an earlier job's branch), or anything to run **unattended** | `warden pipeline create -f spec.yaml` then `start` |
+| **ctx / msg** | ad-hoc coordination between otherwise-independent agents — a shared scratchpad, or one agent asking another a question | `warden ctx …` / `warden msg …` |
 
 **Don't:** use a pipeline for a single task (needless overhead — use a plain agent);
 use plain agents + manual relay for a clear dependency chain (that's exactly what a
@@ -47,10 +47,10 @@ into pipeline stages so each agent stays small and closes when its phase finishe
 ## Preconditions
 
 - The daemon must be running. If a tool/command returns a connection / "daemon not
-  running" error, tell the user to start it (`agentctl daemon`, or via launchd) — do
+  running" error, tell the user to start it (`warden daemon`, or via launchd) — do
   not guess at state.
-- MCP tools (when registered) and the `agentctl` CLI both wrap the same daemon REST
-  API. Pipelines are **CLI-only** (no MCP tools) — drive them with `agentctl
+- MCP tools (when registered) and the `warden` CLI both wrap the same daemon REST
+  API. Pipelines are **CLI-only** (no MCP tools) — drive them with `warden
   pipeline …`.
 
 ---
@@ -82,31 +82,31 @@ The per-agent tools take a `ticket` argument — the agent's **id** as shown by
 
 | Intent | CLI command |
 |---|---|
-| list / triage agents | `agentctl ls` (add `--json` for machine-readable output) |
-| full status of one agent | `agentctl status <id>` (add `--json`) |
-| recent terminal output | `agentctl tail <id>` |
-| spawn from a prompt | `agentctl start "<prompt>"` |
-| spawn a managed worktree agent | `agentctl start <TICKET> --type <TYPE> --repo <repo>` |
-| send a message to an agent | `agentctl send <id> "<text>"` |
-| terminate / clean up | `agentctl done <id>` (terminate + clear record; keeps the worktree). Remove the worktree with `agentctl remove-worktree <id>` (guarded; `--force` overrides) |
-| restore a lost/orphaned agent | `agentctl restore <id>` |
-| adopt an existing session | `agentctl adopt [--session-id <uuid>] [--dir <path>]` |
-| attach interactively | `agentctl attach <id>` |
-| rotate yourself into a fresh agent (free your context) | `/agentctl rotate` — see "Rotating a long-running agent" below (self only) |
+| list / triage agents | `warden ls` (add `--json` for machine-readable output) |
+| full status of one agent | `warden status <id>` (add `--json`) |
+| recent terminal output | `warden tail <id>` |
+| spawn from a prompt | `warden start "<prompt>"` |
+| spawn a managed worktree agent | `warden start <TICKET> --type <TYPE> --repo <repo>` |
+| send a message to an agent | `warden send <id> "<text>"` |
+| terminate / clean up | `warden done <id>` (terminate + clear record; keeps the worktree). Remove the worktree with `warden remove-worktree <id>` (guarded; `--force` overrides) |
+| restore a lost/orphaned agent | `warden restore <id>` |
+| adopt an existing session | `warden adopt [--session-id <uuid>] [--dir <path>]` |
+| attach interactively | `warden attach <id>` |
+| rotate yourself into a fresh agent (free your context) | `/warden rotate` — see "Rotating a long-running agent" below (self only) |
 
 ## Rotating a long-running agent into a fresh one (self-rotation)
 
 When **you yourself** are a long-running agent whose context has grown large and the
-user runs `/agentctl rotate`, hand your work to a fresh successor in the same
+user runs `/warden rotate`, hand your work to a fresh successor in the same
 workspace, then retire yourself. This bounds context and returns memory to the OS
 without losing the task. **Self only** — you rotate the agent you are running in
-(your id is in `$AGENTCTL_SESSION_ID`); there is no remote rotate.
+(your id is in `$WARDEN_SESSION_ID`); there is no remote rotate.
 
 Two phases, with a human review gate between them:
 
 1. **Prepare (you do this directly — you have your own context).**
    - Write a **handoff file** in your working directory (e.g.
-     `./.agentctl/rotate-handoff.md`) capturing what a fresh agent needs to
+     `./.warden/rotate-handoff.md`) capturing what a fresh agent needs to
      *continue*: the goal, current working-tree state (branch, committed vs.
      uncommitted), key decisions and approaches already ruled out, precise next
      steps, and pointers to the relevant files.
@@ -117,8 +117,8 @@ Two phases, with a human review gate between them:
 2. **Commit (only after the user says go):**
 
    ```sh
-   agentctl rotate --confirm \
-     --resume-file ./.agentctl/rotate-handoff.md \
+   warden rotate --confirm \
+     --resume-file ./.warden/rotate-handoff.md \
      --resume-prompt "<the resume prompt>"
    ```
 
@@ -126,7 +126,7 @@ Two phases, with a human review gate between them:
    supervised mode), prints the new agent id, then retires you. Nothing
    irreversible happens without `--confirm`.
 
-Do **not** spawn the successor or terminate yourself by hand — `agentctl rotate`
+Do **not** spawn the successor or terminate yourself by hand — `warden rotate`
 inherits your launch config and orders spawn-before-reap safely (a failed spawn
 leaves you running, so no work is stranded).
 
@@ -142,12 +142,12 @@ YAML spec for the user.
 ## Lifecycle
 
 ```sh
-agentctl pipeline create -f spec.yaml   # validate (DAG/refs/cycles) + register
-agentctl pipeline start <name>          # spawn jobs with no deps; the daemon drives the rest
-agentctl pipeline show <name>           # per-job status + branch + emitted output
-agentctl pipeline list                  # all pipelines + status
-agentctl pipeline cancel <name>         # stop (terminates any live jobs)
-agentctl pipeline delete <name>         # remove the record (cancel first if jobs are live)
+warden pipeline create -f spec.yaml   # validate (DAG/refs/cycles) + register
+warden pipeline start <name>          # spawn jobs with no deps; the daemon drives the rest
+warden pipeline show <name>           # per-job status + branch + emitted output
+warden pipeline list                  # all pipelines + status
+warden pipeline cancel <name>         # stop (terminates any live jobs)
+warden pipeline delete <name>         # remove the record (cancel first if jobs are live)
 ```
 
 ## Authoring the spec (analyze → implement → review)
@@ -170,7 +170,7 @@ jobs:
     worktree: from:implement   # branch off implement's branch (builds on its commits)
 ```
 
-Then: `agentctl pipeline create -f refactor-auth.yaml && agentctl pipeline start refactor-auth`.
+Then: `warden pipeline create -f refactor-auth.yaml && warden pipeline start refactor-auth`.
 
 Per-job fields: `id` (required, unique, safe — no `/` `:`), `prompt` (required),
 `depends_on` (list of job ids), `worktree` (`none` | `fresh` | `from:<job>`,
@@ -185,7 +185,7 @@ upstream job's branch, so the job inherits the upstream's commits; a fan-in job
 
 **Authoring rule (important):** write each job's `prompt` as a plain task
 description, plus a `handoff` line for what it should pass downstream. **Do NOT put
-`agentctl pipeline emit` instructions in the prompt** — the daemon auto-appends the
+`warden pipeline emit` instructions in the prompt** — the daemon auto-appends the
 emit footer to every job and auto-injects each upstream job's output into its
 dependents' prompts. You only describe the work.
 
@@ -193,13 +193,13 @@ dependents' prompts. You only describe the work.
 
 | Intent | Command |
 |---|---|
-| publish a job's handoff (an agent runs this itself when done; you or a lead can run it on a job's behalf) | `agentctl pipeline emit "<text>" [--pipeline <p> --job <j>]` (defaults from `$AGENTCTL_PIPELINE_ID`/`$AGENTCTL_JOB_ID`) |
-| tweak a *pending* job before it starts | `agentctl pipeline edit-job <p> <job> --prompt "…" --handoff "…"` |
-| re-run a failed / needs-attention job (reopens skipped descendants) | `agentctl pipeline retry <p> <job>` |
+| publish a job's handoff (an agent runs this itself when done; you or a lead can run it on a job's behalf) | `warden pipeline emit "<text>" [--pipeline <p> --job <j>]` (defaults from `$WARDEN_PIPELINE_ID`/`$WARDEN_JOB_ID`) |
+| tweak a *pending* job before it starts | `warden pipeline edit-job <p> <job> --prompt "…" --handoff "…"` |
+| re-run a failed / needs-attention job (reopens skipped descendants) | `warden pipeline retry <p> <job>` |
 
 A job whose agent goes quiet without emitting is flagged `needs_attention` (the
 pipeline stays `running`) — resolve it with `emit` (if it actually finished) or
-`retry`. **Results are durable:** `agentctl pipeline show` prints each job's branch
+`retry`. **Results are durable:** `warden pipeline show` prints each job's branch
 and emitted output even after the agents are gone (also in shared-context keys
 `pipeline.<id>.<job>.output` and on the job branches).
 
@@ -213,26 +213,26 @@ want light cross-talk but not a full pipeline.
 **Shared context** — a namespaced key/value blackboard agents read and write:
 
 ```sh
-agentctl ctx set <key> <value>     # or: --file <path> / --stdin
-agentctl ctx get <key>
-agentctl ctx list [<prefix>]
-agentctl ctx del <key>
+warden ctx set <key> <value>     # or: --file <path> / --stdin
+warden ctx get <key>
+warden ctx list [<prefix>]
+warden ctx del <key>
 ```
 
 Keys are dot-namespaced (`global.*`, `agent.<id>.*`, `pipeline.<id>.*`). Writes are
-attributed to `$AGENTCTL_SESSION_ID` (set per agent) or `--as <id>`.
+attributed to `$WARDEN_SESSION_ID` (set per agent) or `--as <id>`.
 
 **Directed messages** — a durable per-agent inbox:
 
 ```sh
-agentctl msg send <agent-id> "<message>"        # delivers; wakes it only if idle/waiting
-agentctl msg inbox [--unread]                   # read my messages (marks read)
-agentctl msg wait [--from <id>] [--timeout <sec>]  # block until a message, then print it
+warden msg send <agent-id> "<message>"        # delivers; wakes it only if idle/waiting
+warden msg inbox [--unread]                   # read my messages (marks read)
+warden msg wait [--from <id>] [--timeout <sec>]  # block until a message, then print it
 ```
 
 A *working* agent is never interrupted (woken only when idle/waiting). `msg wait`
 blocks in the daemon, so an agent awaits a reply in a single call with no busy-loop.
-Identity defaults to `$AGENTCTL_SESSION_ID`; override with `--as <id>`.
+Identity defaults to `$WARDEN_SESSION_ID`; override with `--as <id>`.
 
 ---
 
@@ -246,7 +246,7 @@ Identity defaults to `$AGENTCTL_SESSION_ID`; override with `--as <id>`.
 - **Cancel a pipeline before deleting it** — `pipeline delete` refuses while any job
   is live (running / needs-attention).
 - Never fabricate state — read it (`list_agents`/`get_agent`/`get_agent_output`,
-  `agentctl pipeline show`).
+  `warden pipeline show`).
 - When the daemon is unreachable, say so plainly and stop — don't invent results.
 - Don't hand-roll coordination with `ctx`/`msg` that a pipeline already provides.
 

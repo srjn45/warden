@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,10 +16,10 @@ func TestNotifyMessageActionable(t *testing.T) {
 		wantTitle  string
 		wantInBody string
 	}{
-		{store.StatusWaitingForInput, "agentctl — needs input", "review auth"},
-		{store.StatusIdle, "agentctl — stuck", "went idle"},
-		{store.StatusOrphaned, "agentctl — agent lost", "tmux gone"},
-		{store.StatusErrored, "agentctl — errored", "agent-x"},
+		{store.StatusWaitingForInput, "warden — needs input", "review auth"},
+		{store.StatusIdle, "warden — stuck", "went idle"},
+		{store.StatusOrphaned, "warden — agent lost", "tmux gone"},
+		{store.StatusErrored, "warden — errored", "agent-x"},
 	}
 	for _, tc := range cases {
 		title, body, ok := notifyMessage(s, tc.to)

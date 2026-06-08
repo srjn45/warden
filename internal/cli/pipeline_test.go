@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/srajanpathak/agentctl/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/pipeline"
 )
 
 func TestRenderPipelineDetailShowsBranchAndOutput(t *testing.T) {

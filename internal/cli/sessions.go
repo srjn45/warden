@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 func newLsCmd() *cobra.Command {
@@ -93,7 +93,7 @@ func typeOrPending(t store.Type) string {
 }
 
 // printJSON writes v as indented JSON followed by a newline. Used by the
-// --json flag so agents/scripts can parse agentctl output reliably.
+// --json flag so agents/scripts can parse warden output reliably.
 func printJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

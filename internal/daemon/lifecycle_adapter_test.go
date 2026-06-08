@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/srajanpathak/agentctl/internal/lifecycle"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/lifecycle"
+	"github.com/srajanpathak/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 

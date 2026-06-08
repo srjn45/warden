@@ -10,22 +10,22 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/agentctl/internal/config"
-	"github.com/srajanpathak/agentctl/internal/ctxstore"
-	"github.com/srajanpathak/agentctl/internal/daemon"
-	"github.com/srajanpathak/agentctl/internal/digest"
-	"github.com/srajanpathak/agentctl/internal/lifecycle"
-	"github.com/srajanpathak/agentctl/internal/mailbox"
-	"github.com/srajanpathak/agentctl/internal/notify"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/poller"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/config"
+	"github.com/srajanpathak/warden/internal/ctxstore"
+	"github.com/srajanpathak/warden/internal/daemon"
+	"github.com/srajanpathak/warden/internal/digest"
+	"github.com/srajanpathak/warden/internal/lifecycle"
+	"github.com/srajanpathak/warden/internal/mailbox"
+	"github.com/srajanpathak/warden/internal/notify"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/poller"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 func newDaemonCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "daemon",
-		Short: "Run the agentctl hub (HTTP API + poller; the single writer to the file store)",
+		Short: "Run the warden hub (HTTP API + poller; the single writer to the file store)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.Load()
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
@@ -70,14 +70,14 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
 			srv.SetSpawnGate(cfg.SpawnGateEnabled, cfg.SpawnGateMaxAgents)
 			exec.SetDigestFn(srv.BuildDigest)
-			exec.SetKeepDoneAgents(os.Getenv("AGENTCTL_PIPELINE_KEEP_DONE") != "")
+			exec.SetKeepDoneAgents(os.Getenv("WARDEN_PIPELINE_KEEP_DONE") != "" || os.Getenv("AGENTCTL_PIPELINE_KEEP_DONE") != "")
 
 			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
 			}
-			log.Printf("agentctl daemon listening on %s", cfg.Addr)
+			log.Printf("warden daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
 		},
 	}

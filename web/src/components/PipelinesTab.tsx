@@ -50,7 +50,7 @@ export default function PipelinesTab({ onSelect }: { onSelect: (id: string) => v
       <aside className="pipe-list">
         <button className="btn pipe-new" onClick={() => setAuthoring(true)}>+ New pipeline</button>
         {pipelines.length === 0 && (
-          <div className="empty">No pipelines yet. Create one above, or with <code>agentctl pipeline create -f spec.yaml</code>.</div>
+          <div className="empty">No pipelines yet. Create one above, or with <code>warden pipeline create -f spec.yaml</code>.</div>
         )}
         {pipelines.map((p) => (
           <button

@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/srajanpathak/agentctl/internal/ctxstore"
-	"github.com/srajanpathak/agentctl/internal/mailbox"
-	"github.com/srajanpathak/agentctl/internal/poller"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/ctxstore"
+	"github.com/srajanpathak/warden/internal/mailbox"
+	"github.com/srajanpathak/warden/internal/poller"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.Duration, approvals bool, cstore *ctxstore.Store, mbox *mailbox.Store, exec *Executor) *Server {

@@ -70,7 +70,7 @@ export default function AgentTab({ session, onClosed }: {
           )}
           <EventTimeline events={session.events} />
           {session.worktree && (
-            <p className="muted">Attach in a terminal: <code>agentctl attach {session.id}</code></p>
+            <p className="muted">Attach in a terminal: <code>warden attach {session.id}</code></p>
           )}
         </section>
       )}

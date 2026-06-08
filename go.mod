@@ -1,4 +1,4 @@
-module github.com/srajanpathak/agentctl
+module github.com/srajanpathak/warden
 
 go 1.26.2
 

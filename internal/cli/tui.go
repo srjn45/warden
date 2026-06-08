@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/tui"
+	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srajanpathak/warden/internal/tui"
 )
 
 func newTUICmd() *cobra.Command {
@@ -45,7 +45,7 @@ func newTUICmd() *cobra.Command {
 func runCockpit(a *client.Client) error {
 	self, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locate agentctl binary: %w", err)
+		return fmt.Errorf("locate warden binary: %w", err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {

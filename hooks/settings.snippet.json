@@ -1,19 +1,19 @@
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh SessionStart" } ] }
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/warden-hook.sh SessionStart" } ] }
     ],
     "Notification": [
-      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh Notification" } ] }
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/warden-hook.sh Notification" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh Stop" } ] }
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/warden-hook.sh Stop" } ] }
     ],
     "SubagentStop": [
-      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh SubagentStop" } ] }
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/warden-hook.sh SubagentStop" } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/agentctl-hook.sh SessionEnd" } ] }
+      { "hooks": [ { "type": "command", "command": "~/workspace/personal/agentctl/hooks/warden-hook.sh SessionEnd" } ] }
     ]
   }
 }

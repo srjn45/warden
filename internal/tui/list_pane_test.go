@@ -6,9 +6,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -185,8 +185,8 @@ func TestCockpitDetailCmdPipelineHeaderShowsNothing(t *testing.T) {
 func TestRespawnJobDetailArgs(t *testing.T) {
 	require.Equal(t,
 		[]string{"respawn-pane", "-k", "-t", "%3",
-			"/usr/bin/agentctl tui --pane=jobdetail --pipeline=pl --job=only"},
-		respawnJobDetailArgs("%3", "/usr/bin/agentctl", "pl", "only"))
+			"/usr/bin/warden tui --pane=jobdetail --pipeline=pl --job=only"},
+		respawnJobDetailArgs("%3", "/usr/bin/warden", "pl", "only"))
 }
 
 func TestListPaneInspectorTogglesAndFetches(t *testing.T) {

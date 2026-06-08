@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # One-time setup: create a self-signed code-signing certificate in the login
-# keychain so the agentctl binary has a STABLE code identity across rebuilds.
+# keychain so the warden binary has a STABLE code identity across rebuilds.
 #
 # Why this exists:
-#   agentctl's daemon (under launchd) is the macOS TCC "responsible process" for
+#   warden's daemon (under launchd) is the macOS TCC "responsible process" for
 #   the agents it spawns and for its own /fs/dirs directory picker. When either
 #   reads a protected folder (Downloads, Documents, Desktop, the Music/media
-#   library), macOS shows a "agentctl would like to access…" consent prompt.
+#   library), macOS shows a "warden would like to access…" consent prompt.
 #   Granting Full Disk Access once silences these — but TCC keys the grant to the
 #   binary's code identity. An UNSIGNED Go binary gets a fresh ad-hoc cdhash on
 #   every rebuild, which invalidates the grant and brings the prompts back.
@@ -56,7 +56,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
 # -legacy + a non-empty passphrase: OpenSSL 3 defaults to a PKCS#12 MAC that
 # macOS's Security.framework cannot verify (and empty-password p12s fail
 # outright), so the bundle must use the legacy SHA1 MAC / 3DES encoding.
-p12pass="agentctl-import"
+p12pass="warden-import"
 openssl pkcs12 -export -legacy -inkey "$tmp/key.pem" -in "$tmp/cert.pem" \
   -out "$tmp/cert.p12" -passout "pass:$p12pass" -name "$CODESIGN_IDENTITY" \
   || die "openssl failed to package the certificate"
@@ -86,7 +86,7 @@ cat <<EOF
   1. Reinstall so the binary gets signed with the new identity:
          ./scripts/install.sh
 
-  2. Grant agentctl Full Disk Access ONCE:
+  2. Grant warden Full Disk Access ONCE:
          System Settings → Privacy & Security → Full Disk Access → "+"
          add:  $INSTALL_BIN
      (Toggle it on. You can drag the binary in, or ⌘⇧G and paste the path.)

@@ -17,8 +17,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/srajanpathak/agentctl/internal/pressure"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/pressure"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // claudeCallTimeout bounds every headless `claude -p` invocation (classify /
@@ -59,24 +59,25 @@ func claudeLaunch(sessionID, name string, supervised bool) string {
 
 // pipelineHintGuidance is appended to a freshly spawned plain agent's system
 // prompt so that, handed a large/multi-phase task, the agent recommends
-// decomposing it into an agentctl pipeline of short-lived stages (which keeps
+// decomposing it into an warden pipeline of short-lived stages (which keeps
 // each agent's context bounded and returns its memory to the OS on teardown)
 // before proceeding. Worded conditionally so small tasks trigger no advisory.
 // No apostrophes — keeps the single-quoted shell form (shellQuoteArg) clean.
-const pipelineHintGuidance = "You were launched as a standalone agentctl agent. " +
+const pipelineHintGuidance = "You were launched as a standalone warden agent. " +
 	"If this task is large or spans multiple distinct phases (for example analyze, " +
 	"implement, test, review) such that you would accumulate a very large context, " +
-	"briefly recommend up front that it be split into an agentctl pipeline of smaller " +
+	"briefly recommend up front that it be split into an warden pipeline of smaller " +
 	"stages (each a short-lived agent with a fresh, bounded context), then proceed with " +
 	"the task as a single agent unless told otherwise."
 
 // pipelineHint returns the claude flag fragment that injects pipelineHintGuidance
-// as a system-prompt addendum, or "" when AGENTCTL_NO_PIPELINE_HINT is set (any
-// non-empty value, per the repo's env convention). The leading space lets callers
-// concatenate it directly onto a claudeLaunch string. Applied only by Spawn (plain
-// agents); SpawnJob (pipeline jobs, already decomposed) and resume omit it.
+// as a system-prompt addendum, or "" when WARDEN_NO_PIPELINE_HINT (legacy
+// AGENTCTL_NO_PIPELINE_HINT) is set (any non-empty value, per the repo's env
+// convention). The leading space lets callers concatenate it directly onto a
+// claudeLaunch string. Applied only by Spawn (plain agents); SpawnJob (pipeline
+// jobs, already decomposed) and resume omit it.
 func pipelineHint() string {
-	if os.Getenv("AGENTCTL_NO_PIPELINE_HINT") != "" {
+	if os.Getenv("WARDEN_NO_PIPELINE_HINT") != "" || os.Getenv("AGENTCTL_NO_PIPELINE_HINT") != "" {
 		return ""
 	}
 	return " --append-system-prompt " + shellQuoteArg(pipelineHintGuidance)
@@ -184,7 +185,7 @@ type Lifecycle struct {
 	// lookup disabled; the daemon sets it from config). Overridable in tests.
 	ProjectsDir string
 	// PromptsDir is a single shared directory (the daemon sets it from config,
-	// e.g. ~/.agentctl/prompts) where free-form agents with a prompt drop their
+	// e.g. ~/.warden/prompts) where free-form agents with a prompt drop their
 	// initial prompt file, keyed by agent id. It is NOT per-agent and is never the
 	// dir the agent runs in — agents launch in the caller's cwd. Interactive
 	// (empty-prompt) agents write no file. Overridable in tests.
@@ -682,9 +683,12 @@ const agentHistoryLimit = 50000
 func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string, env ...string) error {
 	l.ensureScrollback(ctx)        // before new-session: the new pane inherits the limit
 	EnsureExtendedKeys(ctx, l.run) // so Claude sees Shift+Enter as newline, not submit
-	// -e sets AGENTCTL_SESSION_ID (+ any extra pipeline env) in the session
-	// environment so the agent's shell tools know which agent they are.
-	args := []string{"new-session", "-d", "-s", id, "-e", "AGENTCTL_SESSION_ID=" + id}
+	// -e sets WARDEN_SESSION_ID (+ legacy AGENTCTL_SESSION_ID, + any extra
+	// pipeline env) in the session environment so the agent's shell tools know
+	// which agent they are. Both variants are set for back-compat.
+	args := []string{"new-session", "-d", "-s", id,
+		"-e", "WARDEN_SESSION_ID=" + id,
+		"-e", "AGENTCTL_SESSION_ID=" + id}
 	for _, kv := range env {
 		args = append(args, "-e", kv)
 	}
@@ -773,7 +777,7 @@ type AdoptRequest struct {
 	TmuxSession     string
 }
 
-// Adopt registers a Claude session agentctl did not spawn. Resume mode resumes
+// Adopt registers a Claude session warden did not spawn. Resume mode resumes
 // the conversation under a new tmux session; live mode adopts an existing tmux
 // session as-is. It returns the (unpersisted) session record for the caller to
 // store. It never relaunches a live session.
@@ -924,7 +928,7 @@ var inputSubmitDelay = 150 * time.Millisecond
 // (newlines stay content; per-session name avoids clobbering across concurrent
 // sends) and then presses Enter as a SEPARATE keystroke after a short settle.
 func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
-	buf := "agentctl-input-" + tmuxSession
+	buf := "warden-input-" + tmuxSession
 	if out, err := l.run.Run(ctx, "", "tmux", "set-buffer", "-b", buf, "--", text); err != nil {
 		return fmt.Errorf("tmux set-buffer: %w: %s", err, out)
 	}
@@ -1039,6 +1043,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	sess.Workdir = workdir
 
 	if err := l.newAgentSession(ctx, req.Repo, id, workdir,
+		"WARDEN_PIPELINE_ID="+req.PipelineID, "WARDEN_JOB_ID="+req.JobID,
 		"AGENTCTL_PIPELINE_ID="+req.PipelineID, "AGENTCTL_JOB_ID="+req.JobID); err != nil {
 		// new-session failed, so no tmux session exists; only undo a worktree we made.
 		l.cleanupFailedSpawn(sess, false, worktreeCreated)

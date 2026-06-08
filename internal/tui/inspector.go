@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/warden/internal/client"
 )
 
 // The inspector is the cockpit's read-only window onto the daemon's shared

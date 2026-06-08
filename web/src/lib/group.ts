@@ -5,7 +5,7 @@ export interface SessionGroup {
   sessions: Session[];
 }
 
-// sourceDir is the grouping key: the directory the agentctl command was
+// sourceDir is the grouping key: the directory the warden command was
 // triggered from. repo (typed/worktree agents) wins; otherwise workdir (prompt
 // agents' caller cwd); '—' when neither is known.
 export function sourceDir(s: Session): string {

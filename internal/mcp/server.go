@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/srajanpathak/agentctl/internal/approval"
-	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/warden/internal/approval"
+	"github.com/srajanpathak/warden/internal/client"
 )
 
-const approvalsDisabledMsg = "approvals disabled (set AGENTCTL_APPROVALS=on)"
+const approvalsDisabledMsg = "approvals disabled (set WARDEN_APPROVALS=on)"
 
 // Server wraps an MCP server bound to a daemon client.
 type Server struct {
@@ -79,7 +79,7 @@ type sendMessageArgs struct {
 	Body string `json:"body" jsonschema:"the message text"`
 }
 type readInboxArgs struct {
-	Agent  string `json:"agent,omitempty" jsonschema:"whose inbox to read; defaults to this agent ($AGENTCTL_SESSION_ID)"`
+	Agent  string `json:"agent,omitempty" jsonschema:"whose inbox to read; defaults to this agent ($WARDEN_SESSION_ID)"`
 	Unread bool   `json:"unread,omitempty" jsonschema:"only return unread messages"`
 }
 
@@ -107,10 +107,19 @@ func findApproval(views []approval.View, id string, option int) (approval.View, 
 	return approval.View{}, fmt.Errorf("no pending approval for %s (run list_approvals)", id)
 }
 
+// sessionID reads this agent's id from the tmux session env, preferring the
+// canonical WARDEN_SESSION_ID and falling back to the legacy AGENTCTL_SESSION_ID.
+func sessionID() string {
+	if id := os.Getenv("WARDEN_SESSION_ID"); id != "" {
+		return id
+	}
+	return os.Getenv("AGENTCTL_SESSION_ID")
+}
+
 // ctxWriter attributes shared-context writes to this agent when running inside
-// one (AGENTCTL_SESSION_ID), else a generic "agent".
+// one (WARDEN_SESSION_ID), else a generic "agent".
 func ctxWriter() string {
-	if id := os.Getenv("AGENTCTL_SESSION_ID"); id != "" {
+	if id := sessionID(); id != "" {
 		return id
 	}
 	return "agent"
@@ -130,7 +139,7 @@ func jsonResult(v any) (*mcpsdk.CallToolResult, error) {
 
 func NewServer(daemonBase string) *Server {
 	s := &Server{
-		mcp: mcpsdk.NewServer(&mcpsdk.Implementation{Name: "agentctl", Version: "0.1.0"}, nil),
+		mcp: mcpsdk.NewServer(&mcpsdk.Implementation{Name: "warden", Version: "0.1.0"}, nil),
 		cl:  client.New(daemonBase),
 	}
 
@@ -189,7 +198,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "adopt_agent",
-		Description: "Register an existing Claude Code session into agentctl: resume the newest conversation for a directory under tmux, or (when tmux_session is given) register a running tmux session live without relaunch.",
+		Description: "Register an existing Claude Code session into warden: resume the newest conversation for a directory under tmux, or (when tmux_session is given) register a running tmux session live without relaunch.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a adoptArgs) (*mcpsdk.CallToolResult, any, error) {
 		cwd := a.Dir
 		if cwd == "" {
@@ -287,10 +296,10 @@ func NewServer(daemonBase string) *Server {
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a readInboxArgs) (*mcpsdk.CallToolResult, any, error) {
 		who := a.Agent
 		if who == "" {
-			who = os.Getenv("AGENTCTL_SESSION_ID")
+			who = sessionID()
 		}
 		if who == "" {
-			return textResult("error: no agent id — set AGENTCTL_SESSION_ID or pass `agent`"), nil, nil
+			return textResult("error: no agent id — set WARDEN_SESSION_ID or pass `agent`"), nil, nil
 		}
 		msgs, err := s.cl.MsgInbox(ctx, who, a.Unread)
 		if err != nil {
@@ -302,7 +311,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_approvals",
-		Description: "List pending tool-permission prompts waiting for an answer (supervised agents). Recognized prompts include their numbered options + a stable fingerprint; answer one with the approve tool. Returns the disabled message when AGENTCTL_APPROVALS is off.",
+		Description: "List pending tool-permission prompts waiting for an answer (supervised agents). Recognized prompts include their numbered options + a stable fingerprint; answer one with the approve tool. Returns the disabled message when WARDEN_APPROVALS is off.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		enabled, views, err := s.cl.Approvals(ctx)
 		if err != nil {
@@ -317,7 +326,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "approve",
-		Description: "Answer a pending tool-permission prompt by 1-based option number. Re-fetches the live queue, validates the option, and passes the prompt's fingerprint so the daemon can re-verify the menu hasn't changed (TOCTOU guard). Returns the disabled message when AGENTCTL_APPROVALS is off.",
+		Description: "Answer a pending tool-permission prompt by 1-based option number. Re-fetches the live queue, validates the option, and passes the prompt's fingerprint so the daemon can re-verify the menu hasn't changed (TOCTOU guard). Returns the disabled message when WARDEN_APPROVALS is off.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a approveArgs) (*mcpsdk.CallToolResult, any, error) {
 		enabled, views, err := s.cl.Approvals(ctx)
 		if err != nil {

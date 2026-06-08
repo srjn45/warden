@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/srajanpathak/agentctl/internal/pressure"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/pressure"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 func TestHandleSpawnGateWarns(t *testing.T) {

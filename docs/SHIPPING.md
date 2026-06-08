@@ -1,6 +1,6 @@
-# Shipping agentctl
+# Shipping warden
 
-This guide describes how to take agentctl from its current **single-developer,
+This guide describes how to take warden from its current **single-developer,
 local-macOS** setup to something other people can install on macOS *and* Linux.
 It documents the real flow as it exists today, the concrete blockers to wider
 distribution, and a step-by-step plan to remove them.
@@ -21,11 +21,11 @@ release: ui build
 Two steps, in order:
 
 1. **`ui`** — `cd web && npm ci && npm run build`, producing `web/dist`.
-2. **`build`** — `go build -o bin/agentctl ./cmd/agentctl`.
+2. **`build`** — `go build -o bin/warden ./cmd/warden`.
 
 The ordering matters: the Go binary embeds the web UI via `go:embed`, so the UI
 must be built *first* or the embed picks up stale/empty assets. The result is a
-**single self-contained binary** at `bin/agentctl` that serves the web GUI, the
+**single self-contained binary** at `bin/warden` that serves the web GUI, the
 HTTP daemon API, the MCP server, the TUI, and the CLI.
 
 ### Install: `scripts/install.sh`
@@ -33,18 +33,18 @@ HTTP daemon API, the MCP server, the TUI, and the CLI.
 `make install` calls `scripts/install.sh`, which (sourcing `scripts/common.sh`):
 
 1. `build_release` — runs `make release` (skip with `NO_BUILD=1` / `--no-build`).
-2. `deploy_binary` — copies `bin/agentctl` → `~/.local/bin/agentctl`, then
-   **code-signs** it with a stable self-signed identity (`agentctl-codesign`,
+2. `deploy_binary` — copies `bin/warden` → `~/.local/bin/warden`, then
+   **code-signs** it with a stable self-signed identity (`warden-codesign`,
    created once by `scripts/codesign-setup.sh`) so a granted macOS Full Disk
    Access survives rebuilds.
-3. `render_plist` — renders `deploy/com.srajanpathak.agentctl.plist.template`
+3. `render_plist` — renders `deploy/com.srajanpathak.warden.plist.template`
    by `sed`-substituting `__BINARY__`, `__ADDR__`, `__HOME__`, writing it to
-   `~/Library/LaunchAgents/com.srajanpathak.agentctl.plist`.
+   `~/Library/LaunchAgents/com.srajanpathak.warden.plist`.
 4. `restart_service` — boots the launchd job (`launchctl bootstrap`, falling
    back to legacy `load -w`). Re-derives launchd's Lightweight Code Requirement
    on binary/plist change to avoid the stale-LWCR spawn failure (EX_CONFIG/78).
-5. **Skill symlink** — `ln -sfn $REPO/skills/agentctl ~/.claude/skills/agentctl`.
-6. **MCP registration** — `claude mcp add agentctl --scope user -- agentctl mcp`
+5. **Skill symlink** — `ln -sfn $REPO/skills/warden ~/.claude/skills/warden`.
+6. **MCP registration** — `claude mcp add warden --scope user -- warden mcp`
    (idempotent remove-then-add; degrades to a warning if enterprise MCP policy
    blocks it).
 7. `check_path` / `report_health` — warns if `~/.local/bin` isn't on `PATH`,
@@ -52,20 +52,20 @@ HTTP daemon API, the MCP server, the TUI, and the CLI.
 
 Companion scripts: `scripts/reinstall.sh` (rebuild + redeploy the running
 daemon) and `scripts/uninstall.sh` (bootout, remove plist/binary/skill-symlink/
-MCP registration; **preserves** `~/.agentctl` data and `/tmp/agentctl.daemon.*`
+MCP registration; **preserves** `~/.warden` data and `/tmp/warden.daemon.*`
 logs).
 
 ### Runtime layout
 
 | Thing | Location |
 |---|---|
-| Binary | `~/.local/bin/agentctl` |
-| launchd job | `~/Library/LaunchAgents/com.srajanpathak.agentctl.plist` |
-| Daemon address | `127.0.0.1:8765` (`AGENTCTL_ADDR`) |
-| Session store | `~/.agentctl/` |
-| Logs | `/tmp/agentctl.daemon.log`, `/tmp/agentctl.daemon.err` |
-| Claude skill | `~/.claude/skills/agentctl` → repo (symlink) |
-| Claude hook | repo `hooks/agentctl-hook.sh`, wired via `settings.snippet.json` |
+| Binary | `~/.local/bin/warden` |
+| launchd job | `~/Library/LaunchAgents/com.srajanpathak.warden.plist` |
+| Daemon address | `127.0.0.1:8765` (`WARDEN_ADDR`) |
+| Session store | `~/.warden/` |
+| Logs | `/tmp/warden.daemon.log`, `/tmp/warden.daemon.err` |
+| Claude skill | `~/.claude/skills/warden` → repo (symlink) |
+| Claude hook | repo `hooks/warden-hook.sh`, wired via `settings.snippet.json` |
 
 ---
 
@@ -77,19 +77,19 @@ are what stop a stranger from installing this cleanly.
 
 1. **No version embedding.** `go build` bakes in no version; the root cobra
    command (`internal/cli/root.go`) sets no `Version` field, and there is no
-   `agentctl --version` or `agentctl doctor`. You cannot tell which build is
+   `warden --version` or `warden doctor`. You cannot tell which build is
    running or triage a broken install in the field.
 
-2. **Hardcoded launchd label.** `com.srajanpathak.agentctl` is wired into
+2. **Hardcoded launchd label.** `com.srajanpathak.warden` is wired into
    `scripts/common.sh` (`LABEL=`), the plist template filename, and the plist
    `<Label>`. It carries one person's name and is not parameterizable.
 
-3. **Skill is symlinked into the repo.** `~/.claude/skills/agentctl` is a
+3. **Skill is symlinked into the repo.** `~/.claude/skills/warden` is a
    *symlink back to the source tree*. Delete or move the checkout and the
    installed tool's skill breaks. A distributed install must own a real copy.
 
 4. **Hook path is hardcoded to one checkout.** `hooks/settings.snippet.json`
-   points every hook at `~/workspace/personal/agentctl/hooks/agentctl-hook.sh`.
+   points every hook at `~/workspace/personal/agentctl/hooks/warden-hook.sh`.
    That path only exists on the author's machine, and it is pasted into the
    user's Claude `settings.json` by hand — there is no installer step for it.
 
@@ -108,17 +108,17 @@ are what stop a stranger from installing this cleanly.
 
 ## 3. Runtime prerequisites
 
-agentctl shells out to several external tools at runtime. These are **not**
+warden shells out to several external tools at runtime. These are **not**
 bundled in the binary and must be present on `PATH` for the daemon and agents to
-function. The planned `agentctl doctor` (§4.1) should check each one.
+function. The planned `warden doctor` (§4.1) should check each one.
 
 | Tool | Why it's needed | Notes |
 |---|---|---|
-| **tmux** | Every agent runs inside a tmux session; the session name *is* the agentctl session id. Spawn, attach, send-keys, copy-mode scrolling, and the web/CLI attach all go through tmux. | Hard requirement. `brew install tmux` / `apt install tmux`. |
+| **tmux** | Every agent runs inside a tmux session; the session name *is* the warden session id. Spawn, attach, send-keys, copy-mode scrolling, and the web/CLI attach all go through tmux. | Hard requirement. `brew install tmux` / `apt install tmux`. |
 | **git** | Worktree-isolated agents, branch/numstat for the completion digest, repo detection. | Hard requirement. |
 | **claude** | The Claude Code CLI is what each agent actually runs. Also used by the installer to register the MCP server and by the digest's `claude -p` narrator. | Hard requirement for spawning agents; MCP registration degrades to a warning if absent. |
 | **gh** | GitHub CLI, used for PR/issue operations in agent workflows. | Recommended; needed for git-hosting tasks. |
-| **curl** | Used by the Claude hook (`agentctl-hook.sh`) to POST events to the daemon, and by the installer's health probe. | Present by default on macOS and most Linux. |
+| **curl** | Used by the Claude hook (`warden-hook.sh`) to POST events to the daemon, and by the installer's health probe. | Present by default on macOS and most Linux. |
 
 Platform notes:
 
@@ -157,18 +157,18 @@ Build with ldflags:
 
 ```sh
 go build -ldflags "\
-  -X github.com/srajanpathak/agentctl/internal/buildinfo.Version=$(git describe --tags --always) \
-  -X github.com/srajanpathak/agentctl/internal/buildinfo.Commit=$(git rev-parse --short HEAD) \
-  -X github.com/srajanpathak/agentctl/internal/buildinfo.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -o bin/agentctl ./cmd/agentctl
+  -X github.com/srajanpathak/warden/internal/buildinfo.Version=$(git describe --tags --always) \
+  -X github.com/srajanpathak/warden/internal/buildinfo.Commit=$(git rev-parse --short HEAD) \
+  -X github.com/srajanpathak/warden/internal/buildinfo.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -o bin/warden ./cmd/warden
 ```
 
 Wire it into cobra in `internal/cli/root.go`:
 
 ```go
 root := &cobra.Command{
-	Use:     "agentctl",
-	Version: buildinfo.Version, // gives `agentctl --version` for free
+	Use:     "warden",
+	Version: buildinfo.Version, // gives `warden --version` for free
 	// ...
 }
 ```
@@ -178,7 +178,7 @@ contract, so a user can paste its output into a bug report:
 
 - version / commit / build date;
 - presence + version of `tmux`, `git`, `claude`, `gh`, `curl` (the §3 table);
-- daemon reachability (`GET /healthz` at `AGENTCTL_ADDR`) and whether the
+- daemon reachability (`GET /healthz` at `WARDEN_ADDR`) and whether the
   service is loaded (launchd/systemd, per platform);
 - install paths: binary location, session store, log files;
 - whether the Claude skill and hook are installed and point at a real file.
@@ -195,11 +195,11 @@ the author's machine, since the defaults stay the same):
 `scripts/common.sh` with an overridable default and make the template generic:
 
 ```sh
-LABEL="${AGENTCTL_LABEL:-com.agentctl.daemon}"
+LABEL="${WARDEN_LABEL:-com.warden.daemon}"
 ```
 
 Rename the template to a placeholder name (e.g.
-`deploy/agentctl.plist.template`) and render `<Label>` from `$LABEL` instead of
+`deploy/warden.plist.template`) and render `<Label>` from `$LABEL` instead of
 hardcoding it. Keep the install/uninstall/reinstall scripts deriving the plist
 path from `$LABEL` (they already do). This drops the author's name from the
 shipped artifact and lets a user pick their own label if they want.
@@ -208,8 +208,8 @@ shipped artifact and lets a user pick their own label if they want.
 `make install-skill`) from `ln -sfn` to a real copy:
 
 ```sh
-rm -rf "$HOME/.claude/skills/agentctl"
-cp -R "$REPO_ROOT/skills/agentctl" "$HOME/.claude/skills/agentctl"
+rm -rf "$HOME/.claude/skills/warden"
+cp -R "$REPO_ROOT/skills/warden" "$HOME/.claude/skills/warden"
 ```
 
 This decouples the installed tool from the source checkout — the whole point of
@@ -220,13 +220,13 @@ the directory unconditionally (or guard with a marker file it wrote).
 **(c) Auto-discover the hook path.** The hook should not reference a specific
 checkout. Two viable approaches, in order of preference:
 
-1. **Ship the hook as a subcommand of the binary.** Add `agentctl hook <EVENT>`
-   that does what `agentctl-hook.sh` does today (read tmux `#S`, read stdin
+1. **Ship the hook as a subcommand of the binary.** Add `warden hook <EVENT>`
+   that does what `warden-hook.sh` does today (read tmux `#S`, read stdin
    JSON, POST `/events`). Then `settings.snippet.json` becomes
-   `"command": "agentctl hook SessionStart"` — no path at all, just relies on
-   `agentctl` being on `PATH`. This is the cleanest: one artifact, no second
+   `"command": "warden hook SessionStart"` — no path at all, just relies on
+   `warden` being on `PATH`. This is the cleanest: one artifact, no second
    file to install, version-locked to the binary.
-2. **Install the script to a stable location** (`~/.local/bin/agentctl-hook.sh`)
+2. **Install the script to a stable location** (`~/.local/bin/warden-hook.sh`)
    and have the installer render the snippet with that absolute path, merging it
    into the user's `~/.claude/settings.json` instead of asking them to paste it.
 
@@ -263,18 +263,18 @@ before:
     - sh -c "cd web && npm ci && npm run build"
 
 builds:
-  - id: agentctl
-    main: ./cmd/agentctl
-    binary: agentctl
+  - id: warden
+    main: ./cmd/warden
+    binary: warden
     env:
       - CGO_ENABLED=0   # creack/pty is syscall-based; flip to 1 only if a
                         # target needs cgo. The point of the split runners is
                         # that each archive is produced on its native OS.
     ldflags:
       - -s -w
-      - -X github.com/srajanpathak/agentctl/internal/buildinfo.Version={{.Version}}
-      - -X github.com/srajanpathak/agentctl/internal/buildinfo.Commit={{.ShortCommit}}
-      - -X github.com/srajanpathak/agentctl/internal/buildinfo.Date={{.Date}}
+      - -X github.com/srajanpathak/warden/internal/buildinfo.Version={{.Version}}
+      - -X github.com/srajanpathak/warden/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/srajanpathak/warden/internal/buildinfo.Date={{.Date}}
     goos: [darwin, linux]
     goarch: [amd64, arm64]
 
@@ -286,7 +286,7 @@ archives:
       - README.md
       - docs/SHIPPING.md
       - deploy/**         # ship the plist + systemd templates
-      - skills/agentctl/**
+      - skills/warden/**
 
 checksum:
   name_template: "checksums.txt"
@@ -294,7 +294,7 @@ checksum:
 release:
   github:
     owner: srajanpathak
-    name: agentctl
+    name: warden
 ```
 
 CI shape (`.github/workflows/release.yml`):
@@ -315,22 +315,22 @@ CI shape (`.github/workflows/release.yml`):
 **Goal:** a Linux parallel to the launchd plist — run the daemon as a managed
 user service.
 
-Ship `deploy/agentctl.service.template` and have a Linux installer path render
+Ship `deploy/warden.service.template` and have a Linux installer path render
 and load it as a **user** unit (`systemctl --user`), mirroring the per-user
 launchd `LaunchAgent` model (no root, runs in the user's session):
 
 ```ini
 [Unit]
-Description=agentctl daemon
+Description=warden daemon
 After=network.target
 
 [Service]
 ExecStart=__BINARY__ daemon
 Restart=always
 RestartSec=2
-Environment=AGENTCTL_ADDR=__ADDR__
-Environment=AGENTCTL_APPROVALS=on
-Environment=AGENTCTL_SPAWN_GATE_MAX_AGENTS=10
+Environment=WARDEN_ADDR=__ADDR__
+Environment=WARDEN_APPROVALS=on
+Environment=WARDEN_SPAWN_GATE_MAX_AGENTS=10
 Environment=TERM=xterm-256color
 # inherit a sane PATH for tmux/git/claude/gh
 Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -358,7 +358,7 @@ Notes:
 ### 4.5 Homebrew tap (primary macOS channel)
 
 **Goal:** the headline install for the macOS-first audience is
-`brew install srajanpathak/tap/agentctl`.
+`brew install srajanpathak/tap/warden`.
 
 GoReleaser can generate and push the formula automatically from the release
 archives. Add a `brews:` block to `.goreleaser.yaml` pointing at a tap repo
@@ -366,11 +366,11 @@ archives. Add a `brews:` block to `.goreleaser.yaml` pointing at a tap repo
 
 ```yaml
 brews:
-  - name: agentctl
+  - name: warden
     repository:
       owner: srajanpathak
       name: homebrew-tap
-    homepage: "https://github.com/srajanpathak/agentctl"
+    homepage: "https://github.com/srajanpathak/warden"
     description: "Spawn, monitor, and tear down Claude Code agent sessions"
     license: "MIT"   # set to the real license
     dependencies:
@@ -379,33 +379,33 @@ brews:
       - gh
     # claude is not in Homebrew core — call it out in the caveat instead.
     caveats: |
-      agentctl needs the Claude Code CLI on your PATH:
+      warden needs the Claude Code CLI on your PATH:
         https://docs.claude.com/claude-code
       Start the daemon as a launchd service:
-        agentctl service install      # (planned installer subcommand)
-      Then run `agentctl doctor` to verify tmux/git/claude/gh and daemon health.
+        warden service install      # (planned installer subcommand)
+      Then run `warden doctor` to verify tmux/git/claude/gh and daemon health.
     service: |
-      run [opt_bin/"agentctl", "daemon"]
+      run [opt_bin/"warden", "daemon"]
       keep_alive true
-      log_path var/"log/agentctl.log"
-      error_log_path var/"log/agentctl.err"
+      log_path var/"log/warden.log"
+      error_log_path var/"log/warden.err"
 ```
 
 Considerations:
 
 - **Formula `service` block vs. our launchd installer.** Homebrew can manage the
-  daemon via `brew services start agentctl` using its own generated plist. That
+  daemon via `brew services start warden` using its own generated plist. That
   is simpler for users but uses Homebrew's label and paths, *not*
-  `com.srajanpathak.agentctl` + `~/.local/bin`. Decide one of:
+  `com.srajanpathak.warden` + `~/.local/bin`. Decide one of:
   (a) lean on `brew services` and retire the bespoke plist for tap users, or
-  (b) keep the formula binary-only and have an `agentctl service install`
+  (b) keep the formula binary-only and have an `warden service install`
   subcommand own the plist (recommended — keeps macOS and Linux service setup
   going through the same code path as §4.4).
 - **`claude` dependency.** The Claude Code CLI isn't in Homebrew core, so it
   can't be a formula `depends_on`. Surface it in `caveats` and have
-  `agentctl doctor` check it.
-- **Skill + hook + MCP** are agentctl-specific and don't belong in a generic
-  formula. Move them behind an `agentctl install` / `agentctl service install`
+  `warden doctor` check it.
+- **Skill + hook + MCP** are warden-specific and don't belong in a generic
+  formula. Move them behind an `warden install` / `warden service install`
   subcommand the user runs once post-`brew install`, replacing the bash
   installer for tap users while the scripts remain for from-source installs.
 - Tag the formula license to match the repo's actual `LICENSE`.

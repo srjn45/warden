@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // composeSuccessorPrompt builds the successor's initial prompt: it points the
@@ -34,12 +34,12 @@ func buildSuccessorParams(old *store.Session, prompt string) client.SpawnParams 
 }
 
 // selfSessionID returns the current agent's own id from the environment that
-// every agentctl-spawned tmux session carries (AGENTCTL_SESSION_ID, set at
+// every warden-spawned tmux session carries (WARDEN_SESSION_ID, set at
 // `tmux new-session`). rotate is only meaningful from inside an agent.
 func selfSessionID() (string, error) {
-	id := os.Getenv("AGENTCTL_SESSION_ID")
+	id := envID("SESSION_ID")
 	if id == "" {
-		return "", fmt.Errorf("rotate must be run inside an agentctl agent session (AGENTCTL_SESSION_ID is unset)")
+		return "", fmt.Errorf("rotate must be run inside a warden agent session (WARDEN_SESSION_ID is unset)")
 	}
 	return id, nil
 }
@@ -107,7 +107,7 @@ func newRotateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rotate",
 		Short: "Hand this agent's work to a fresh successor in the same workspace, then retire it",
-		Long: "Run inside an agent session. Phase 1 is driven by the /agentctl skill " +
+		Long: "Run inside an agent session. Phase 1 is driven by the /warden skill " +
 			"(the agent writes a handoff file + resume prompt and shows you). On your " +
 			"go-ahead, run with --confirm to spawn the successor and reap this agent.",
 		Args: cobra.NoArgs,
@@ -136,7 +136,7 @@ func newRotateCmd() *cobra.Command {
 				fmt.Fprintf(out, "rotated: successor %s spawned in %s\n", successor.ID, successor.Workdir)
 				fmt.Fprintf(out, "  handoff notes: %s\n", resumeFile)
 				fmt.Fprintf(out, "  old agent %s retiring; its transcript + the handoff file remain on disk for recovery\n", selfID)
-				fmt.Fprintf(out, "  attach to the successor: agentctl attach %s\n", successor.ID)
+				fmt.Fprintf(out, "  attach to the successor: warden attach %s\n", successor.ID)
 			}
 			successor, err := runRotate(cmd.Context(), clientFor(cmd), selfID, prompt, onSpawned)
 			if successor == nil {
@@ -145,7 +145,7 @@ func newRotateCmd() *cobra.Command {
 			// Reaching here with a non-nil err means the reap failed — which means the
 			// session was NOT killed, so this process is still alive to warn.
 			if err != nil {
-				fmt.Fprintf(out, "  WARNING: %v — check `agentctl ls`; if it's still running, retry `agentctl done %s` or attach and /exit\n", err, selfID)
+				fmt.Fprintf(out, "  WARNING: %v — check `warden ls`; if it's still running, retry `warden done %s` or attach and /exit\n", err, selfID)
 			}
 			return nil
 		},

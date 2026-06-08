@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Redeploy agentctl: rebuild (default), recopy the binary, restart the service.
-# This replaces the old `make release && ./bin/agentctl daemon` loop.
+# Redeploy warden: rebuild (default), recopy the binary, restart the service.
+# This replaces the old `make release && ./bin/warden daemon` loop.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/common.sh
@@ -15,12 +15,12 @@ for arg in "$@"; do
   esac
 done
 
-info "reinstalling agentctl daemon"
+info "reinstalling warden daemon"
 
 if [ "$NO_BUILD" -eq 0 ]; then
   build_release
 else
-  warn "--no-build: redeploying existing bin/agentctl"
+  warn "--no-build: redeploying existing bin/warden"
 fi
 
 deploy_binary

@@ -11,7 +11,7 @@ func TestOSANotifierBuildsScript(t *testing.T) {
 	var gotName string
 	var gotArgs []string
 	n := osaNotifier{run: func(name string, args ...string) error { gotName = name; gotArgs = args; return nil }}
-	n.Notify("agentctl — needs input", `agent-a1b2: review auth`)
+	n.Notify("warden — needs input", `agent-a1b2: review auth`)
 	require.Equal(t, "osascript", gotName)
 	require.Len(t, gotArgs, 2)
 	require.Equal(t, "-e", gotArgs[0])

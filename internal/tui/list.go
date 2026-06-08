@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 func age(t time.Time) string {
@@ -42,7 +42,7 @@ func trunc(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// sourceDir is the grouping key: the directory the agentctl command was
+// sourceDir is the grouping key: the directory the warden command was
 // triggered from. Repo (set for typed/worktree agents) wins; otherwise Workdir
 // (the caller cwd for prompt agents); "—" when neither is known.
 func sourceDir(s *store.Session) string {

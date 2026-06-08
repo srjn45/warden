@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 

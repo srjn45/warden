@@ -13,9 +13,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // listPaneModel is the top-left cockpit pane: the agents list plus the
@@ -523,12 +523,12 @@ func (m listPaneModel) View() string {
 	if !m.connected {
 		conn = stError.Render("reconnecting…")
 	}
-	header := stHeader.Render("agentctl") + "  " + conn
+	header := stHeader.Render("warden") + "  " + conn
 	if chip := pressureChip(m.pressure); chip != "" {
 		header += "  " + chip
 	}
 	if !m.connected {
-		header += "  " + stError.Render("daemon not running — start it with `agentctl daemon`")
+		header += "  " + stError.Render("daemon not running — start it with `warden daemon`")
 	}
 	bodyH := m.h - 2
 	if bodyH < 3 {
@@ -592,7 +592,7 @@ func switchClientCmd(id string) tea.Cmd {
 		if err := exec.Command("tmux", "switch-client", "-t", id).Run(); err != nil {
 			return attachDoneMsg{err: err}
 		}
-		_ = exec.Command("tmux", "display-message", "agentctl: press Ctrl-b Enter to return to the dashboard").Run()
+		_ = exec.Command("tmux", "display-message", "warden: press Ctrl-b Enter to return to the dashboard").Run()
 		return attachDoneMsg{err: nil}
 	}
 }

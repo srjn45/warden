@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/srajanpathak/agentctl/internal/approval"
+	"github.com/srajanpathak/warden/internal/approval"
 )
 
 func recognizedView(id string) approval.View {
@@ -90,7 +90,7 @@ func TestFormatApprovalsList(t *testing.T) {
 
 	// enabled, recognized present -> id, question, numbered options, answer hint
 	full := formatApprovalsList(true, []approval.View{rec, unrec})
-	for _, want := range []string{"agent-aaa", "Do you want to proceed?", "1. Yes", "3. No", "agentctl approve agent-aaa", "1 other"} {
+	for _, want := range []string{"agent-aaa", "Do you want to proceed?", "1. Yes", "3. No", "warden approve agent-aaa", "1 other"} {
 		if !strings.Contains(full, want) {
 			t.Fatalf("full: missing %q in %q", want, full)
 		}

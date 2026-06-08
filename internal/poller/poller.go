@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // classify derives a status from the latest pane capture + liveness.

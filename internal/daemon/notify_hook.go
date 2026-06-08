@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"github.com/srajanpathak/agentctl/internal/notify"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/notify"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // notifyMessage builds the notification for a transition into status `to`. It
@@ -14,13 +14,13 @@ func notifyMessage(sess *store.Session, to store.Status) (title, body string, ac
 	}
 	switch to {
 	case store.StatusWaitingForInput:
-		return "agentctl — needs input", sess.ID + ": " + subj, true
+		return "warden — needs input", sess.ID + ": " + subj, true
 	case store.StatusIdle:
-		return "agentctl — stuck", sess.ID + " went idle: " + subj, true
+		return "warden — stuck", sess.ID + " went idle: " + subj, true
 	case store.StatusOrphaned:
-		return "agentctl — agent lost", sess.ID + " tmux gone: " + subj, true
+		return "warden — agent lost", sess.ID + " tmux gone: " + subj, true
 	case store.StatusErrored:
-		return "agentctl — errored", sess.ID + ": " + subj, true
+		return "warden — errored", sess.ID + ": " + subj, true
 	}
 	return "", "", false
 }

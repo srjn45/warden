@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/srajanpathak/agentctl/internal/digest"
-	"github.com/srajanpathak/agentctl/internal/lifecycle"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/digest"
+	"github.com/srajanpathak/warden/internal/lifecycle"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 

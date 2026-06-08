@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tear down the agentctl launchd service and integrations.
-# Preserves the session store (~/.agentctl) and daemon logs.
+# Tear down the warden launchd service and integrations.
+# Preserves the session store (~/.warden) and daemon logs.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/common.sh
@@ -15,7 +15,7 @@ for arg in "$@"; do
   esac
 done
 
-info "uninstalling agentctl service"
+info "uninstalling warden service"
 
 unload_service
 
@@ -29,12 +29,17 @@ if [ "$KEEP_BINARY" -eq 0 ]; then
     rm -f "$INSTALL_BIN"
     info "removed $INSTALL_BIN"
   fi
+  # Remove the `wd` alias only when it still points at our binary.
+  if [ -L "$INSTALL_ALIAS" ] && [ "$(readlink "$INSTALL_ALIAS")" = "warden" ]; then
+    rm -f "$INSTALL_ALIAS"
+    info "removed alias $INSTALL_ALIAS"
+  fi
 else
   warn "--keep-binary: left $INSTALL_BIN in place"
 fi
 
 # Skill symlink — only remove if it points back into this repo.
-SKILL_LINK="$HOME/.claude/skills/agentctl"
+SKILL_LINK="$HOME/.claude/skills/warden"
 if [ -L "$SKILL_LINK" ]; then
   target="$(readlink "$SKILL_LINK")"
   case "$target" in
@@ -45,12 +50,12 @@ fi
 
 # MCP registration
 if claude_available; then
-  if claude mcp remove agentctl >/dev/null 2>&1; then
+  if claude mcp remove warden >/dev/null 2>&1; then
     info "removed MCP server registration"
   fi
 fi
 
 info "uninstall complete"
-warn "preserved (not removed): session store ~/.agentctl and logs $LOG_OUT, $LOG_ERR"
+warn "preserved (not removed): session store ~/.warden and logs $LOG_OUT, $LOG_ERR"
 info "to purge logs:          rm -f $LOG_OUT $LOG_ERR"
-info "to purge session store: rm -rf ~/.agentctl   (deletes all agent records)"
+info "to purge session store: rm -rf ~/.warden   (deletes all agent records)"

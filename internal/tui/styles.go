@@ -2,7 +2,7 @@ package tui
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 var (

@@ -9,8 +9,8 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/agentctl/internal/mailbox"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/mailbox"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // sendMessageRequest is the body for POST /sessions/{id}/messages.
@@ -120,7 +120,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	woke := false
 	if parked(sess.Status) {
-		notice := fmt.Sprintf("📨 New message from %s. Run `agentctl msg inbox` to read.", from)
+		notice := fmt.Sprintf("📨 New message from %s. Run `warden msg inbox` to read.", from)
 		if err := s.life.Input(r.Context(), sess.TmuxSession, notice); err == nil {
 			woke = true
 		}

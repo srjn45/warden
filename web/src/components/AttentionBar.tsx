@@ -13,7 +13,7 @@ export default function AttentionBar({
 }) {
   return (
     <header className="topbar">
-      <h1>agentctl</h1>
+      <h1>warden</h1>
       <span className={connected ? 'conn ok' : 'conn down'}>
         {connected ? 'live' : 'reconnecting…'}
       </span>

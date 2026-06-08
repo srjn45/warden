@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/srajanpathak/agentctl/internal/digest"
+	"github.com/srajanpathak/warden/internal/digest"
 )
 
 func newDigestCmd() *cobra.Command {

@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	webui "github.com/srajanpathak/agentctl/web"
+	webui "github.com/srajanpathak/warden/web"
 )
 
-const fallbackHTML = `<!doctype html><html><head><meta charset="utf-8"><title>agentctl</title></head>` +
-	`<body><h1>agentctl</h1><p>UI not built. Run <code>make ui</code> (or <code>make release</code>) and restart the daemon.</p></body></html>`
+const fallbackHTML = `<!doctype html><html><head><meta charset="utf-8"><title>warden</title></head>` +
+	`<body><h1>warden</h1><p>UI not built. Run <code>make ui</code> (or <code>make release</code>) and restart the daemon.</p></body></html>`
 
 // registerStatic serves the embedded Astro UI for any non-API GET path.
 // It MUST be registered last so chi's explicit API routes take precedence.

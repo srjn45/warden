@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/warden/internal/client"
 )
 
 // promptFromArgs returns the prompt for a free-form (no --type) spawn: the
@@ -30,8 +30,8 @@ func newStartCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			typ, _ := cmd.Flags().GetString("type")
 
-			// Free-form mode: `agentctl start "<prompt>" [--dir]` (autonomous) or
-			// `agentctl start --dir <path>` with no prompt (interactive: opens
+			// Free-form mode: `warden start "<prompt>" [--dir]` (autonomous) or
+			// `warden start --dir <path>` with no prompt (interactive: opens
 			// claude in the dir and waits). No --type.
 			if typ == "" {
 				prompt := promptFromArgs(args)
@@ -56,7 +56,7 @@ func newStartCmd() *cobra.Command {
 				if prompt == "" {
 					outcome = fmt.Sprintf("opened interactive agent %s", s.ID)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s — attach with `agentctl attach %s`\n", outcome, s.ID)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s — attach with `warden attach %s`\n", outcome, s.ID)
 				return nil
 			}
 
@@ -93,7 +93,7 @@ func newStartCmd() *cobra.Command {
 				}
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "spawned %s [%s] (%s) — attach with `agentctl attach %s`\n", s.ID, s.Type, s.Status, s.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "spawned %s [%s] (%s) — attach with `warden attach %s`\n", s.ID, s.Type, s.Status, s.ID)
 			return nil
 		},
 	}
@@ -276,7 +276,7 @@ func newAdoptCmd() *cobra.Command {
 			if tmuxSession != "" {
 				mode = "live"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "adopted as %s (%s) — attach with `agentctl attach %s`\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "adopted as %s (%s) — attach with `warden attach %s`\n",
 				res.Session.ID, mode, res.Session.ID)
 			if res.Warning != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", res.Warning)

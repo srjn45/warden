@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/agentctl/internal/lifecycle"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/lifecycle"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 func (s *Server) registerLifecycleRoutes(r chi.Router) {
@@ -59,7 +59,7 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 	// random id, so there is nothing to collide on.
 	if req.Ticket != "" {
 		if _, err := s.store.Get(ctx, req.Ticket); err == nil {
-			return http.StatusConflict, "session already exists — use `agentctl attach " + req.Ticket + "`"
+			return http.StatusConflict, "session already exists — use `warden attach " + req.Ticket + "`"
 		}
 	}
 	// Free-form agents launch in the caller's cwd (the "master shell" dir),
@@ -110,7 +110,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.store.Insert(r.Context(), sess); err != nil {
 		// The tmux session (and any worktree) already exist but no doc tracks
-		// them — roll back so they don't leak beyond reach of `agentctl done`.
+		// them — roll back so they don't leak beyond reach of `warden done`.
 		tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if terr := s.life.Teardown(tctx, sess); terr != nil {
@@ -126,7 +126,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAdopt registers a Claude session agentctl did not spawn. It resolves the
+// handleAdopt registers a Claude session warden did not spawn. It resolves the
 // claude session id (explicit override, else newest transcript for cwd), refuses
 // to adopt a conversation an active session already tracks, then delegates to
 // Lifecycle.Adopt (resume-under-tmux when tmux_session is empty, live register

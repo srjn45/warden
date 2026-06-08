@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/agentctl/internal/ctxstore"
+	"github.com/srajanpathak/warden/internal/ctxstore"
 )
 
 // ctxSetRequest is the body for PUT /context/{key}.

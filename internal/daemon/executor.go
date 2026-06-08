@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srajanpathak/agentctl/internal/ctxstore"
-	"github.com/srajanpathak/agentctl/internal/digest"
-	"github.com/srajanpathak/agentctl/internal/lifecycle"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/pressure"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/ctxstore"
+	"github.com/srajanpathak/warden/internal/digest"
+	"github.com/srajanpathak/warden/internal/lifecycle"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/pressure"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // digestSnapshotTimeout bounds the background completion-digest snapshot taken
@@ -52,7 +52,7 @@ type Executor struct {
 	notify func() // signals SSE subscribers that state changed (may be nil)
 
 	digestFn func(context.Context, *store.Session) digest.Digest // nil ⇒ skip snapshot
-	keepDone bool                                                 // AGENTCTL_PIPELINE_KEEP_DONE — keep done agents alive
+	keepDone bool                                                 // WARDEN_PIPELINE_KEEP_DONE — keep done agents alive
 	snapWG   sync.WaitGroup                                       // tracks in-flight digest snapshots (test sync)
 }
 

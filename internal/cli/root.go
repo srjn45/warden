@@ -8,12 +8,12 @@ import (
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "agentctl",
-		Short:         "Spawn, monitor, and tear down per-ticket Claude Code agent sessions",
+		Use:           "warden",
+		Short:         "warden — spawn, monitor, and tear down per-ticket Claude Code agent sessions (alias: wd)",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.PersistentFlags().String("addr", "", "daemon address (overrides AGENTCTL_ADDR)")
+	root.PersistentFlags().String("addr", "", "daemon address (overrides WARDEN_ADDR)")
 	root.AddCommand(newDaemonCmd())
 	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd())
 	root.AddCommand(newStartCmd(), newTerminateCmd(), newDeleteCmd(), newRemoveWorktreeCmd(), newDoneCmd(), newRestoreCmd(), newAttachCmd(), newAdoptCmd())

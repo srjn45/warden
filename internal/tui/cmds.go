@@ -6,9 +6,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 type sessionsMsg struct {
@@ -90,7 +90,7 @@ func inputCmd(a api, id, text string) tea.Cmd {
 // killCmd kills the agent and removes it from the list in one action: it
 // terminates the tmux+claude session, then soft-deletes (archives) the record
 // so it drops off the list while staying recoverable in closed/. Mirrors
-// `agentctl done`. Terminate is best-effort — an already-dead agent (status
+// `warden done`. Terminate is best-effort — an already-dead agent (status
 // done/orphaned) errors there, which we ignore so its lingering record can
 // still be removed; only a delete failure is surfaced.
 func killCmd(a api, id string) tea.Cmd {

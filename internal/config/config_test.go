@@ -8,25 +8,50 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
+	t.Setenv("WARDEN_ADDR", "")
 	t.Setenv("AGENTCTL_ADDR", "")
 	c := Load()
 	require.Equal(t, "127.0.0.1:8765", c.Addr)
 }
 
 func TestLoadFromEnv(t *testing.T) {
-	t.Setenv("AGENTCTL_ADDR", "127.0.0.1:9000")
+	t.Setenv("WARDEN_ADDR", "127.0.0.1:9000")
 	require.Equal(t, "127.0.0.1:9000", Load().Addr)
 }
 
+// TestConfigFallsBackToLegacyEnv confirms the legacy AGENTCTL_* env vars still
+// resolve when the canonical WARDEN_* is unset.
+func TestConfigFallsBackToLegacyEnv(t *testing.T) {
+	t.Setenv("WARDEN_ADDR", "")
+	t.Setenv("AGENTCTL_ADDR", "127.0.0.1:9100")
+	require.Equal(t, "127.0.0.1:9100", Load().Addr)
+
+	t.Setenv("WARDEN_DATA_DIR", "")
+	t.Setenv("AGENTCTL_DATA_DIR", "/tmp/legacy-data")
+	require.Equal(t, "/tmp/legacy-data", Load().DataDir)
+
+	t.Setenv("WARDEN_APPROVALS", "")
+	t.Setenv("AGENTCTL_APPROVALS", "off")
+	require.False(t, Load().ApprovalsEnabled, "legacy AGENTCTL_APPROVALS=off should disable")
+}
+
+// TestConfigPrefersWardenOverLegacy confirms WARDEN_* wins when both are set.
+func TestConfigPrefersWardenOverLegacy(t *testing.T) {
+	t.Setenv("AGENTCTL_ADDR", "127.0.0.1:1111")
+	t.Setenv("WARDEN_ADDR", "127.0.0.1:2222")
+	require.Equal(t, "127.0.0.1:2222", Load().Addr)
+}
+
 func TestDataDirDefault(t *testing.T) {
+	t.Setenv("WARDEN_DATA_DIR", "")
 	t.Setenv("AGENTCTL_DATA_DIR", "")
 	c := Load()
-	require.True(t, strings.HasSuffix(c.DataDir, ".agentctl"), "got %q", c.DataDir)
+	require.True(t, strings.HasSuffix(c.DataDir, ".warden"), "got %q", c.DataDir)
 }
 
 func TestDataDirFromEnv(t *testing.T) {
-	t.Setenv("AGENTCTL_DATA_DIR", "/tmp/agentctl-data")
-	require.Equal(t, "/tmp/agentctl-data", Load().DataDir)
+	t.Setenv("WARDEN_DATA_DIR", "/tmp/warden-data")
+	require.Equal(t, "/tmp/warden-data", Load().DataDir)
 }
 
 func TestClaudeProjectsDirDefault(t *testing.T) {
@@ -41,36 +66,42 @@ func TestClaudeProjectsDirFromEnv(t *testing.T) {
 }
 
 func TestNotifyDisabledByDefault(t *testing.T) {
+	t.Setenv("WARDEN_NOTIFY", "")
 	t.Setenv("AGENTCTL_NOTIFY", "")
 	require.False(t, Load().NotifyEnabled, "notifications off by default")
 }
 
 func TestNotifyEnabledFromEnv(t *testing.T) {
+	t.Setenv("AGENTCTL_NOTIFY", "")
 	for _, v := range []string{"1", "on", "true", "ON"} {
-		t.Setenv("AGENTCTL_NOTIFY", v)
-		require.True(t, Load().NotifyEnabled, "AGENTCTL_NOTIFY=%q enables", v)
+		t.Setenv("WARDEN_NOTIFY", v)
+		require.True(t, Load().NotifyEnabled, "WARDEN_NOTIFY=%q enables", v)
 	}
 }
 
 func TestApprovalsEnabledByDefault(t *testing.T) {
 	t.Setenv("AGENTCTL_APPROVALS", "")
+	t.Setenv("WARDEN_APPROVALS", "")
 	require.True(t, Load().ApprovalsEnabled, "approvals on by default")
 
-	t.Setenv("AGENTCTL_APPROVALS", "on")
+	t.Setenv("WARDEN_APPROVALS", "on")
 	require.True(t, Load().ApprovalsEnabled)
 }
 
 func TestApprovalsDisableFromEnv(t *testing.T) {
+	t.Setenv("AGENTCTL_APPROVALS", "")
 	for _, v := range []string{"0", "off", "false", "OFF"} {
-		t.Setenv("AGENTCTL_APPROVALS", v)
-		require.False(t, Load().ApprovalsEnabled, "AGENTCTL_APPROVALS=%q should disable approvals", v)
+		t.Setenv("WARDEN_APPROVALS", v)
+		require.False(t, Load().ApprovalsEnabled, "WARDEN_APPROVALS=%q should disable approvals", v)
 	}
-	t.Setenv("AGENTCTL_APPROVALS", "1")
-	require.True(t, Load().ApprovalsEnabled, "AGENTCTL_APPROVALS=1 should enable approvals")
+	t.Setenv("WARDEN_APPROVALS", "1")
+	require.True(t, Load().ApprovalsEnabled, "WARDEN_APPROVALS=1 should enable approvals")
 }
 
 func TestSpawnGateDefaults(t *testing.T) {
+	t.Setenv("WARDEN_SPAWN_GATE", "")
 	t.Setenv("AGENTCTL_SPAWN_GATE", "")
+	t.Setenv("WARDEN_SPAWN_GATE_MAX_AGENTS", "")
 	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "")
 	c := Load()
 	if !c.SpawnGateEnabled {
@@ -82,24 +113,26 @@ func TestSpawnGateDefaults(t *testing.T) {
 }
 
 func TestSpawnGateDisable(t *testing.T) {
+	t.Setenv("AGENTCTL_SPAWN_GATE", "")
 	for _, v := range []string{"0", "off", "false", "OFF"} {
-		t.Setenv("AGENTCTL_SPAWN_GATE", v)
+		t.Setenv("WARDEN_SPAWN_GATE", v)
 		if Load().SpawnGateEnabled {
-			t.Errorf("AGENTCTL_SPAWN_GATE=%q should disable the gate", v)
+			t.Errorf("WARDEN_SPAWN_GATE=%q should disable the gate", v)
 		}
 	}
-	t.Setenv("AGENTCTL_SPAWN_GATE", "1")
+	t.Setenv("WARDEN_SPAWN_GATE", "1")
 	if !Load().SpawnGateEnabled {
-		t.Error("AGENTCTL_SPAWN_GATE=1 should enable the gate")
+		t.Error("WARDEN_SPAWN_GATE=1 should enable the gate")
 	}
 }
 
 func TestSpawnGateMaxAgentsOverride(t *testing.T) {
-	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "8")
+	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "")
+	t.Setenv("WARDEN_SPAWN_GATE_MAX_AGENTS", "8")
 	if Load().SpawnGateMaxAgents != 8 {
 		t.Error("max agents override not applied")
 	}
-	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "garbage")
+	t.Setenv("WARDEN_SPAWN_GATE_MAX_AGENTS", "garbage")
 	if Load().SpawnGateMaxAgents != 5 {
 		t.Error("unparseable max agents should fall back to 5")
 	}

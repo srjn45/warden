@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/agentctl/internal/config"
+	"github.com/srajanpathak/warden/internal/config"
 )
 
-// doctorVersion is the reported agentctl version. There is no build-stamped
+// doctorVersion is the reported warden version. There is no build-stamped
 // version var for the binary yet, so this stays "dev" until one exists.
 const doctorVersion = "dev"
 
-// External tools agentctl shells out to. Required ones must resolve on PATH;
+// External tools warden shells out to. Required ones must resolve on PATH;
 // optional ones are warn-only (gh is only used for some convenience flows).
 var (
 	requiredBinaries = []string{"tmux", "git", "claude"}
@@ -101,7 +101,7 @@ func allRequiredPass(results []checkResult) bool {
 // formatReport renders a human-readable pass/fail report.
 func formatReport(version string, results []checkResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "agentctl doctor (version %s)\n\n", version)
+	fmt.Fprintf(&b, "warden doctor (version %s)\n\n", version)
 	for _, r := range results {
 		mark := "ok  "
 		switch {

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/agentctl/internal/approval"
+	"github.com/srajanpathak/warden/internal/approval"
 )
 
 // parseOption parses a 1-based option argument; rejects non-integers and < 1.
@@ -27,14 +27,14 @@ func validateApproval(views []approval.View, id string, option int) (approval.Vi
 			continue
 		}
 		if !v.Recognized {
-			return approval.View{}, fmt.Errorf("prompt for %s is not a recognized menu — attach with: agentctl attach %s", id, id)
+			return approval.View{}, fmt.Errorf("prompt for %s is not a recognized menu — attach with: warden attach %s", id, id)
 		}
 		if option < 1 || option > len(v.Options) {
 			return approval.View{}, fmt.Errorf("option %d out of range (1-%d)", option, len(v.Options))
 		}
 		return v, nil
 	}
-	return approval.View{}, fmt.Errorf("no pending approval for %s (run: agentctl approvals)", id)
+	return approval.View{}, fmt.Errorf("no pending approval for %s (run: warden approvals)", id)
 }
 
 // formatApprovalsList renders the queue. Recognized prompts are shown with their
@@ -42,7 +42,7 @@ func validateApproval(views []approval.View, id string, option int) (approval.Vi
 // in a footer (they must be attached, not answered here).
 func formatApprovalsList(enabled bool, views []approval.View) string {
 	if !enabled {
-		return "approvals disabled (set AGENTCTL_APPROVALS=on)\n"
+		return "approvals disabled (set WARDEN_APPROVALS=on)\n"
 	}
 	var b strings.Builder
 	recognized, unrecognized := 0, 0
@@ -71,7 +71,7 @@ func formatApproval(v approval.View) string {
 	for i, opt := range v.Options {
 		fmt.Fprintf(&b, "  %d. %s\n", i+1, opt)
 	}
-	fmt.Fprintf(&b, "  answer: agentctl approve %s <n>\n", v.ID)
+	fmt.Fprintf(&b, "  answer: warden approve %s <n>\n", v.ID)
 	return b.String()
 }
 
@@ -108,7 +108,7 @@ func newApproveCmd() *cobra.Command {
 				return err
 			}
 			if !enabled {
-				return fmt.Errorf("approvals disabled (set AGENTCTL_APPROVALS=on)")
+				return fmt.Errorf("approvals disabled (set WARDEN_APPROVALS=on)")
 			}
 			v, err := validateApproval(views, id, option)
 			if err != nil {

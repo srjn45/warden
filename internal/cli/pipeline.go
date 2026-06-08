@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/agentctl/internal/pipeline"
+	"github.com/srajanpathak/warden/internal/pipeline"
 )
 
 // renderPipelineDetail formats a pipeline for `pipeline show`: the header plus,
@@ -61,7 +61,7 @@ func newPipelineCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "created pipeline %s (%d jobs) — start it with `agentctl pipeline start %s`\n", p.ID, len(p.Jobs), p.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "created pipeline %s (%d jobs) — start it with `warden pipeline start %s`\n", p.ID, len(p.Jobs), p.ID)
 			return nil
 		},
 	}
@@ -157,10 +157,10 @@ func newPipelineEmitCmd() *cobra.Command {
 			pid, _ := cmd.Flags().GetString("pipeline")
 			job, _ := cmd.Flags().GetString("job")
 			if pid == "" {
-				pid = os.Getenv("AGENTCTL_PIPELINE_ID")
+				pid = envID("PIPELINE_ID")
 			}
 			if job == "" {
-				job = os.Getenv("AGENTCTL_JOB_ID")
+				job = envID("JOB_ID")
 			}
 			if pid == "" || job == "" {
 				return fmt.Errorf("no pipeline/job: run inside a pipeline job, or pass --pipeline and --job")
@@ -173,8 +173,8 @@ func newPipelineEmitCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("pipeline", "", "pipeline id (defaults to $AGENTCTL_PIPELINE_ID)")
-	cmd.Flags().String("job", "", "job id (defaults to $AGENTCTL_JOB_ID)")
+	cmd.Flags().String("pipeline", "", "pipeline id (defaults to $WARDEN_PIPELINE_ID)")
+	cmd.Flags().String("job", "", "job id (defaults to $WARDEN_JOB_ID)")
 	return cmd
 }
 

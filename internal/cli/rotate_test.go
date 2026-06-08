@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/srajanpathak/agentctl/internal/client"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 func TestBuildSuccessorParams(t *testing.T) {
@@ -26,16 +26,24 @@ func TestBuildSuccessorParams(t *testing.T) {
 }
 
 func TestComposeSuccessorPrompt(t *testing.T) {
-	got := composeSuccessorPrompt("Finish the migration.", "/repo/.agentctl/rotate-handoff.md")
-	require.Contains(t, got, "/repo/.agentctl/rotate-handoff.md", "must point successor at the handoff file")
+	got := composeSuccessorPrompt("Finish the migration.", "/repo/.warden/rotate-handoff.md")
+	require.Contains(t, got, "/repo/.warden/rotate-handoff.md", "must point successor at the handoff file")
 	require.Contains(t, got, "Finish the migration.", "must include the human-reviewed resume prompt")
 }
 
 func TestSelfSessionID(t *testing.T) {
-	t.Setenv("AGENTCTL_SESSION_ID", "agent-abc123")
+	t.Setenv("AGENTCTL_SESSION_ID", "")
+	t.Setenv("WARDEN_SESSION_ID", "agent-abc123")
 	id, err := selfSessionID()
 	require.NoError(t, err)
 	require.Equal(t, "agent-abc123", id)
+
+	// Legacy AGENTCTL_SESSION_ID still resolves when WARDEN_ is unset.
+	t.Setenv("WARDEN_SESSION_ID", "")
+	t.Setenv("AGENTCTL_SESSION_ID", "agent-legacy")
+	id, err = selfSessionID()
+	require.NoError(t, err)
+	require.Equal(t, "agent-legacy", id)
 
 	t.Setenv("AGENTCTL_SESSION_ID", "")
 	_, err = selfSessionID()

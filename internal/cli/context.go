@@ -13,7 +13,7 @@ import (
 // ctxWriter is the default writer identity: the agent's own session id when set
 // (pipeline/agent context), otherwise "human".
 func ctxWriter() string {
-	if id := os.Getenv("AGENTCTL_SESSION_ID"); id != "" {
+	if id := envID("SESSION_ID"); id != "" {
 		return id
 	}
 	return "human"
@@ -69,7 +69,7 @@ func newCtxSetCmd() *cobra.Command {
 	}
 	cmd.Flags().String("file", "", "read value from a file")
 	cmd.Flags().Bool("stdin", false, "read value from stdin")
-	cmd.Flags().String("as", "", "writer identity (defaults to $AGENTCTL_SESSION_ID or 'human')")
+	cmd.Flags().String("as", "", "writer identity (defaults to $WARDEN_SESSION_ID or 'human')")
 	return cmd
 }
 

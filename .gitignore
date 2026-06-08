@@ -1,4 +1,4 @@
-# agentctl web UI
+# warden web UI
 web/node_modules/
 web/.astro/
 web/dist/*

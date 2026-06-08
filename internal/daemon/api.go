@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/agentctl/internal/ctxstore"
-	"github.com/srajanpathak/agentctl/internal/digest"
-	"github.com/srajanpathak/agentctl/internal/lifecycle"
-	"github.com/srajanpathak/agentctl/internal/mailbox"
-	"github.com/srajanpathak/agentctl/internal/poller"
-	"github.com/srajanpathak/agentctl/internal/pressure"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/ctxstore"
+	"github.com/srajanpathak/warden/internal/digest"
+	"github.com/srajanpathak/warden/internal/lifecycle"
+	"github.com/srajanpathak/warden/internal/mailbox"
+	"github.com/srajanpathak/warden/internal/poller"
+	"github.com/srajanpathak/warden/internal/pressure"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 // EventRequest is the body for POST /events (sent by hooks).
@@ -108,7 +108,7 @@ type Server struct {
 	// done is closed when the server begins shutting down. Long-lived handlers
 	// (the SSE stream) watch it so they return promptly and let Shutdown drain.
 	done chan struct{}
-	// approvals gates the approvals-inbox endpoints (AGENTCTL_APPROVALS).
+	// approvals gates the approvals-inbox endpoints (WARDEN_APPROVALS).
 	approvals bool
 	// cstore is the shared-context KV store (the inter-agent blackboard).
 	cstore *ctxstore.Store
@@ -122,8 +122,8 @@ type Server struct {
 	// background loop (sibling to the poller); read on the spawn hot path.
 	pressMu      sync.RWMutex
 	pressLevel   pressure.Level
-	spawnGate    bool // AGENTCTL_SPAWN_GATE
-	spawnGateMax int  // AGENTCTL_SPAWN_GATE_MAX_AGENTS
+	spawnGate    bool // WARDEN_SPAWN_GATE
+	spawnGateMax int  // WARDEN_SPAWN_GATE_MAX_AGENTS
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -177,7 +177,7 @@ type Lifecycle interface {
 	// NewestClaudeSession returns the claude session id of the newest transcript
 	// for cwd (ErrNoTranscript when none).
 	NewestClaudeSession(ctx context.Context, cwd string) (string, error)
-	// Adopt registers a session agentctl did not spawn (resume or live) and
+	// Adopt registers a session warden did not spawn (resume or live) and
 	// returns the unpersisted record.
 	Adopt(ctx context.Context, req AdoptParams) (*store.Session, error)
 	Input(ctx context.Context, tmuxSession, text string) error

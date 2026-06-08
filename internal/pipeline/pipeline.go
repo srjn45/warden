@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/srajanpathak/agentctl/internal/digest"
-	"github.com/srajanpathak/agentctl/internal/store"
+	"github.com/srajanpathak/warden/internal/digest"
+	"github.com/srajanpathak/warden/internal/store"
 )
 
 type Status string

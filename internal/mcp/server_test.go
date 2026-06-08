@@ -282,7 +282,7 @@ func TestListApprovalsToolDisabled(t *testing.T) {
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "list_approvals"})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
-	require.Contains(t, textOf(res), "AGENTCTL_APPROVALS")
+	require.Contains(t, textOf(res), "WARDEN_APPROVALS")
 }
 
 func TestApproveTool(t *testing.T) {
@@ -345,7 +345,7 @@ func TestApproveToolDisabled(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
-	require.Contains(t, textOf(res), "AGENTCTL_APPROVALS")
+	require.Contains(t, textOf(res), "WARDEN_APPROVALS")
 }
 
 func TestApproveToolUnrecognized(t *testing.T) {

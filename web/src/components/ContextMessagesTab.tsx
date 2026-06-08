@@ -30,7 +30,7 @@ export default function ContextMessagesTab() {
         <h2>Shared context <span className="count">{entries.length}</span></h2>
         {entries.length === 0 && (
           <div className="empty">
-            No shared context yet. Agents write keys with <code>agentctl ctx set</code>.
+            No shared context yet. Agents write keys with <code>warden ctx set</code>.
           </div>
         )}
         {groups.map((g) => (
@@ -55,7 +55,7 @@ export default function ContextMessagesTab() {
         <h2>Recent messages <span className="count">{messages.length}</span></h2>
         {messages.length === 0 && (
           <div className="empty">
-            No messages yet. Agents talk with <code>agentctl msg send</code>.
+            No messages yet. Agents talk with <code>warden msg send</code>.
           </div>
         )}
         {messages.length > 0 && (

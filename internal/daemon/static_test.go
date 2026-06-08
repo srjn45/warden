@@ -16,7 +16,7 @@ func TestStaticServesIndexAtRoot(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
 	body, _ := io.ReadAll(resp.Body)
-	require.Contains(t, string(body), "agentctl")
+	require.Contains(t, string(body), "warden")
 }
 
 func TestStaticDoesNotShadowAPI(t *testing.T) {

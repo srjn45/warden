@@ -2,12 +2,11 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/agentctl/internal/client"
+	"github.com/srajanpathak/warden/internal/client"
 )
 
 // resolveSender picks the "from" identity for outgoing messages: --as, else the
@@ -31,7 +30,7 @@ func resolveSelf(asFlag, env string) (string, error) {
 	if env != "" {
 		return env, nil
 	}
-	return "", fmt.Errorf("no agent id: pass --as <id> or set AGENTCTL_SESSION_ID")
+	return "", fmt.Errorf("no agent id: pass --as <id> or set WARDEN_SESSION_ID")
 }
 
 func formatMessage(m client.Message) string {
@@ -47,7 +46,7 @@ func newMsgCmd() *cobra.Command {
 		Use:   "msg",
 		Short: "Send and receive directed messages between agents",
 	}
-	cmd.PersistentFlags().String("as", "", "act as this agent id (defaults to $AGENTCTL_SESSION_ID)")
+	cmd.PersistentFlags().String("as", "", "act as this agent id (defaults to $WARDEN_SESSION_ID)")
 	cmd.AddCommand(newMsgSendCmd(), newMsgInboxCmd(), newMsgWaitCmd())
 	return cmd
 }
@@ -59,7 +58,7 @@ func newMsgSendCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			as, _ := cmd.Flags().GetString("as")
-			from := resolveSender(as, os.Getenv("AGENTCTL_SESSION_ID"))
+			from := resolveSender(as, envID("SESSION_ID"))
 			to, body := args[0], strings.Join(args[1:], " ")
 			m, woke, err := clientFor(cmd).MsgSend(cmd.Context(), to, from, body)
 			if err != nil {
@@ -82,7 +81,7 @@ func newMsgInboxCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			as, _ := cmd.Flags().GetString("as")
-			self, err := resolveSelf(as, os.Getenv("AGENTCTL_SESSION_ID"))
+			self, err := resolveSelf(as, envID("SESSION_ID"))
 			if err != nil {
 				return err
 			}
@@ -112,7 +111,7 @@ func newMsgWaitCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			as, _ := cmd.Flags().GetString("as")
-			self, err := resolveSelf(as, os.Getenv("AGENTCTL_SESSION_ID"))
+			self, err := resolveSelf(as, envID("SESSION_ID"))
 			if err != nil {
 				return err
 			}
