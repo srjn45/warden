@@ -1102,3 +1102,32 @@ func TestPipelineHint(t *testing.T) {
 		require.Equal(t, "", pipelineHint())
 	})
 }
+
+func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, matches production
+	fr := &FakeRunner{}
+	l := New(fr)
+	l.PromptsDir = "" // intentionally empty: the no-prompt path must not need it
+	s, err := l.Spawn(context.Background(), SpawnRequest{Cwd: "/work/project"})
+	require.NoError(t, err)
+
+	// Launches from the caller cwd, like prompt-mode.
+	require.Equal(t, "/work/project", s.Workdir)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/work/project"})
+
+	// No prompt file is written for an interactive agent.
+	require.Equal(t, -1, fr.callIndex("mkdir -p "), "no prompts-dir mkdir for empty prompt")
+	for _, c := range fr.Calls {
+		require.NotEqual(t, "mkdir", c.Argv[0], "no mkdir of a prompts dir")
+		if c.Argv[0] == "sh" {
+			require.NotContains(t, c.Argv, `printf '%s' "$1" > "$2"`, "no prompt-file write")
+		}
+	}
+
+	// The launch carries session-id, name, and the pipeline hint, but NO cat fragment.
+	expectedLaunch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint()
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, expectedLaunch, "Enter"})
+
+	// Subject reads cleanly in the agent list instead of being blank.
+	require.Equal(t, "interactive", s.Subject)
+}

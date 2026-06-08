@@ -96,6 +96,16 @@ func classifyArg(prompt string) string { return classifyInstruction + prompt }
 
 const summaryInstruction = "In 8 words or fewer, summarize what this agent is currently working on. Reply with ONLY the phrase — no quotes, no preamble.\n\nRecent activity:\n"
 
+// spawnSubject is the short list-view label for a spawned agent: the first
+// words of its prompt, or "interactive" when there is no prompt (the agent was
+// opened to wait for instructions typed into Claude directly).
+func spawnSubject(prompt string) string {
+	if prompt == "" {
+		return "interactive"
+	}
+	return firstWords(prompt, 10)
+}
+
 // firstWords returns the first n whitespace-separated words of s, appending an
 // ellipsis when truncated. Used to seed a subject from the prompt (no LLM call).
 func firstWords(s string, n int) string {
@@ -483,8 +493,8 @@ func readFileTail(path string, maxBytes int64) string {
 // claude in Workdir with NO git worktree, seeded with the prompt. Typed mode is
 // the existing per-type worktree flow (unchanged).
 func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
-	promptMode := req.Prompt != "" && req.Type == ""
-	if !promptMode {
+	freeMode := req.Type == ""
+	if !freeMode {
 		req.Type = store.NormalizeType(string(req.Type))
 	}
 	id, err := resolveID(req)
@@ -500,43 +510,49 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Repo:        req.Repo,
 		PR:          req.PR,
 		Prompt:      req.Prompt,
-		Subject:     firstWords(req.Prompt, 10),
+		Subject:     spawnSubject(req.Prompt),
 		Status:      store.StatusSpawning,
 		Supervised:  req.Supervised,
 	}
 	sess.ClaudeSessionID = store.NewSessionID()
 
-	if promptMode {
+	if freeMode {
 		// The agent runs in the caller's directory (the "master shell"), which is
 		// already trusted by Claude Code — we never create a fresh per-agent dir,
 		// which would trigger Claude's per-directory trust/onboarding prompts on
 		// every spawn. cwd is required: there is no directory to fall back to.
 		if req.Cwd == "" {
-			return nil, fmt.Errorf("prompt-mode spawn requires a launch dir (cwd)")
+			return nil, fmt.Errorf("free-form spawn requires a launch dir (cwd)")
 		}
 		sess.Workdir = req.Cwd
-		// Persist the prompt to a file in a single shared state dir (keyed by id),
-		// then launch claude with the prompt read back via "$(cat …)". This keeps
-		// the command typed into the pane to a single physical line: a multi-line
-		// prompt typed directly would have its embedded newlines register as Enter,
-		// submitting the half-typed command. The file lives outside the caller's
-		// project so it never pollutes their working tree. The prompt is passed to
-		// the writer as an exec argument (never through a shell), so quotes and
-		// newlines in it need no escaping.
-		if l.PromptsDir == "" {
-			return nil, fmt.Errorf("prompt-mode spawn requires a prompts dir")
+
+		// launchPrompt is the trailing claude argument. Empty for an interactive
+		// agent (open claude and wait); for an autonomous agent it reads the prompt
+		// back from a file via "$(cat …)". Persisting the prompt to a file (keyed by
+		// id, in a shared state dir outside the caller's project) keeps the command
+		// typed into the pane to a single physical line: a multi-line prompt typed
+		// directly would have its embedded newlines register as Enter and submit a
+		// half-typed command. The prompt is passed to the writer as an exec argument
+		// (never through a shell), so quotes and newlines in it need no escaping.
+		launchPrompt := ""
+		if req.Prompt != "" {
+			if l.PromptsDir == "" {
+				return nil, fmt.Errorf("prompt spawn requires a prompts dir")
+			}
+			if out, err := l.run.Run(ctx, "", "mkdir", "-p", l.PromptsDir); err != nil {
+				return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
+			}
+			promptFile := filepath.Join(l.PromptsDir, id)
+			if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
+				return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
+			}
+			launchPrompt = ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 		}
-		if out, err := l.run.Run(ctx, "", "mkdir", "-p", l.PromptsDir); err != nil {
-			return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
-		}
-		promptFile := filepath.Join(l.PromptsDir, id)
-		if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
-			return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
-		}
+
 		if err := l.newAgentSession(ctx, "", id, req.Cwd); err != nil {
 			return nil, err
 		}
-		launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+		launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + pipelineHint() + launchPrompt
 		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 			l.killSession(id) // the session exists but launch failed — don't orphan it
 			return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
