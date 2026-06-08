@@ -6,7 +6,25 @@ import (
 
 	"github.com/srajanpathak/agentctl/internal/digest"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
+	"github.com/stretchr/testify/require"
 )
+
+func TestJobDetailTextRendersStoredJob(t *testing.T) {
+	p := &pipeline.Pipeline{ID: "pl", Jobs: []pipeline.Job{
+		{ID: "only", Status: pipeline.JobDone, Prompt: "do the thing", Output: "did it"},
+	}}
+	out, err := jobDetailText(p, "only", 80)
+	require.NoError(t, err)
+	require.Contains(t, out, "only")
+	require.Contains(t, out, "do the thing", "prompt must render")
+	require.Contains(t, out, "did it", "output must render")
+}
+
+func TestJobDetailTextMissingJob(t *testing.T) {
+	p := &pipeline.Pipeline{ID: "pl", Jobs: []pipeline.Job{{ID: "a"}}}
+	_, err := jobDetailText(p, "ghost", 80)
+	require.Error(t, err)
+}
 
 func TestRenderPipeline(t *testing.T) {
 	p := &pipeline.Pipeline{ID: "demo", Name: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{

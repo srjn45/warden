@@ -80,6 +80,14 @@ func (f *fakeAPI) Approve(_ context.Context, id string, option int, fp string) e
 func (f *fakeAPI) PipelineList(context.Context) ([]*pipeline.Pipeline, error) {
 	return f.pipelines, nil
 }
+func (f *fakeAPI) PipelineGet(_ context.Context, id string) (*pipeline.Pipeline, error) {
+	for _, p := range f.pipelines {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return nil, fmt.Errorf("pipeline %q not found", id)
+}
 func (f *fakeAPI) PipelineRetry(_ context.Context, pid, job string) error {
 	f.retried = pid + "/" + job
 	return nil

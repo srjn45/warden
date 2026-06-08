@@ -349,11 +349,16 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Sequence(killCockpitCmd(), tea.Quit)
 	case "enter":
-		if s := m.selected(); s != nil && m.detailPane != "" {
-			return m, openInDetailCmd(m.detailPane, s.TmuxSession)
-		}
-		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.SessionID != "" && m.detailPane != "" {
-			return m, openInDetailCmd(m.detailPane, it.pjJob.SessionID)
+		if m.detailPane != "" {
+			attach, jobPipe, jobID := cockpitDetailCmd(itemAt(m.items(), m.cursor))
+			switch {
+			case attach != "":
+				return m, openInDetailCmd(m.detailPane, attach)
+			case jobID != "":
+				// A terminal job's agent tmux is gone — render its stored detail
+				// instead of attaching to a dead session (which leaves a blank pane).
+				return m, openJobDetailCmd(m.detailPane, jobPipe, jobID)
+			}
 		}
 	case "down", "j":
 		if m.cursor < len(m.items())-1 {
@@ -511,6 +516,42 @@ func respawnDetailArgs(detailPane, agentSession string) []string {
 func openInDetailCmd(detailPane, agentSession string) tea.Cmd {
 	return func() tea.Msg {
 		return attachDoneMsg{err: exec.Command("tmux", respawnDetailArgs(detailPane, agentSession)...).Run()}
+	}
+}
+
+// cockpitDetailCmd decides what the cockpit shows in its detail pane for the item
+// under the cursor. A terminal pipeline job (done/failed/skipped) has no live tmux
+// to attach to, so it returns the pipeline+job ids for a stored-detail render;
+// anything else with a live session returns that session to attach. Returns all
+// empty for rows with nothing to open (headers, placeholders, pending jobs).
+func cockpitDetailCmd(it item) (attach, jobPipe, jobID string) {
+	if it.pjJob != nil {
+		if jobIsTerminal(it.pjJob.Status) {
+			return "", it.pjPipe, it.pjJob.ID
+		}
+		return it.pjJob.SessionID, "", ""
+	}
+	if it.session != nil {
+		return it.session.TmuxSession, "", ""
+	}
+	return "", "", ""
+}
+
+// respawnJobDetailArgs builds the tmux command that replaces the detail pane with
+// a render of one terminal job's stored detail (self re-invoked as a hidden pane).
+func respawnJobDetailArgs(detailPane, self, pid, jobID string) []string {
+	return []string{"respawn-pane", "-k", "-t", detailPane,
+		self + " tui --pane=jobdetail --pipeline=" + pid + " --job=" + jobID}
+}
+
+// openJobDetailCmd renders a terminal job's stored detail into the detail pane.
+func openJobDetailCmd(detailPane, pid, jobID string) tea.Cmd {
+	return func() tea.Msg {
+		self, err := os.Executable()
+		if err != nil {
+			return attachDoneMsg{err: err}
+		}
+		return attachDoneMsg{err: exec.Command("tmux", respawnJobDetailArgs(detailPane, self, pid, jobID)...).Run()}
 	}
 }
 

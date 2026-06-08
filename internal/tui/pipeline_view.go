@@ -1,11 +1,34 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 )
+
+// RunJobDetailPane renders one terminal job's stored detail to stdout and then
+// blocks, so the cockpit's detail pane can show a finished job (whose agent tmux
+// is gone) instead of a blank attach. tmux replaces this process via respawn-pane
+// when the user selects another item; scrolling is handled by tmux copy-mode.
+func RunJobDetailPane(a api, pid, jobID string) error {
+	if text, err := loadJobDetail(a, pid, jobID); err != nil {
+		fmt.Println(stMuted.Render("could not load job detail: " + err.Error()))
+	} else {
+		fmt.Println(text)
+	}
+	select {} // hold the pane open until tmux respawns it
+}
+
+// loadJobDetail fetches the pipeline and renders the named job's stored detail.
+func loadJobDetail(a api, pid, jobID string) (string, error) {
+	p, err := a.PipelineGet(context.Background(), pid)
+	if err != nil {
+		return "", err
+	}
+	return jobDetailText(p, jobID, 100)
+}
 
 // pipelineHasLiveJobs reports whether any job is still running or awaiting input.
 // A pipeline can only be deleted once none of its jobs is live (mirrors the
@@ -44,6 +67,18 @@ func renderPipeline(p *pipeline.Pipeline, width, height int) string {
 // detail pane should render the job's stored details instead of attaching to tmux.
 func jobIsTerminal(s pipeline.JobStatus) bool {
 	return s == pipeline.JobDone || s == pipeline.JobSkipped || s == pipeline.JobFailed
+}
+
+// jobDetailText renders a single job's stored detail for the cockpit's job-detail
+// pane (height 0 ⇒ no blank-line padding; the pane scrolls via tmux copy-mode).
+// Returns an error if the job is not in the pipeline.
+func jobDetailText(p *pipeline.Pipeline, jobID string, width int) (string, error) {
+	for i := range p.Jobs {
+		if p.Jobs[i].ID == jobID {
+			return renderPipelineJob(&p.Jobs[i], width, 0), nil
+		}
+	}
+	return "", fmt.Errorf("job %q not found in pipeline %s", jobID, p.ID)
 }
 
 // renderPipelineJob draws one job's full details in the detail pane — used for

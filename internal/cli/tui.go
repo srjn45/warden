@@ -11,7 +11,7 @@ import (
 
 func newTUICmd() *cobra.Command {
 	var classic bool
-	var pane, detailPane string
+	var pane, detailPane, pipelineID, jobID string
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Live terminal cockpit for agents",
@@ -21,18 +21,23 @@ func newTUICmd() *cobra.Command {
 			switch pane {
 			case "list":
 				return tui.RunListPane(a, detailPane)
+			case "jobdetail":
+				return tui.RunJobDetailPane(a, pipelineID, jobID)
 			case "":
 				return runCockpitOrClassic(a, classic)
 			default:
-				return fmt.Errorf("unknown --pane %q (want list)", pane)
+				return fmt.Errorf("unknown --pane %q (want list or jobdetail)", pane)
 			}
 		},
 	}
 	cmd.Flags().BoolVar(&classic, "classic", false, "use the legacy single-pane TUI (no tmux)")
-	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (list)")
+	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (list, jobdetail)")
 	cmd.Flags().StringVar(&detailPane, "detail-pane", "", "internal: tmux id of the detail pane the list drives")
-	_ = cmd.Flags().MarkHidden("pane")
-	_ = cmd.Flags().MarkHidden("detail-pane")
+	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "internal: pipeline id for --pane=jobdetail")
+	cmd.Flags().StringVar(&jobID, "job", "", "internal: job id for --pane=jobdetail")
+	for _, f := range []string{"pane", "detail-pane", "pipeline", "job"} {
+		_ = cmd.Flags().MarkHidden(f)
+	}
 	return cmd
 }
 

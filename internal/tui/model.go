@@ -30,6 +30,7 @@ type api interface {
 	Approvals(ctx context.Context) (bool, []approval.View, error)
 	Approve(ctx context.Context, id string, option int, fingerprint string) error
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
+	PipelineGet(ctx context.Context, id string) (*pipeline.Pipeline, error)
 	PipelineRetry(ctx context.Context, pid, job string) error
 	PipelineCancel(ctx context.Context, pid string) error
 	PipelineDelete(ctx context.Context, pid string) error

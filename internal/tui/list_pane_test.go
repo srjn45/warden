@@ -140,3 +140,36 @@ func TestListPanePipelinesAndCancel(t *testing.T) {
 		t.Fatalf("want canceled=demo, got %q", got)
 	}
 }
+
+func TestCockpitDetailCmdTerminalJobRendersDetail(t *testing.T) {
+	at, jp, jid := cockpitDetailCmd(item{pjPipe: "pl", pjJob: &pipeline.Job{
+		ID: "only", Status: pipeline.JobDone, SessionID: "pl-only"}})
+	require.Equal(t, "", at, "terminal job must not attach to its dead tmux session")
+	require.Equal(t, "pl", jp)
+	require.Equal(t, "only", jid)
+}
+
+func TestCockpitDetailCmdRunningJobAttaches(t *testing.T) {
+	at, jp, jid := cockpitDetailCmd(item{pjPipe: "pl", pjJob: &pipeline.Job{
+		ID: "b", Status: pipeline.JobRunning, SessionID: "pl-b"}})
+	require.Equal(t, "pl-b", at)
+	require.Equal(t, "", jp+jid)
+}
+
+func TestCockpitDetailCmdLiveAgentAttaches(t *testing.T) {
+	at, jp, jid := cockpitDetailCmd(item{session: &store.Session{ID: "x", TmuxSession: "x"}})
+	require.Equal(t, "x", at)
+	require.Equal(t, "", jp+jid)
+}
+
+func TestCockpitDetailCmdPipelineHeaderShowsNothing(t *testing.T) {
+	at, jp, jid := cockpitDetailCmd(item{pipeline: &pipeline.Pipeline{ID: "pl"}})
+	require.Equal(t, "", at+jp+jid)
+}
+
+func TestRespawnJobDetailArgs(t *testing.T) {
+	require.Equal(t,
+		[]string{"respawn-pane", "-k", "-t", "%3",
+			"/usr/bin/agentctl tui --pane=jobdetail --pipeline=pl --job=only"},
+		respawnJobDetailArgs("%3", "/usr/bin/agentctl", "pl", "only"))
+}
