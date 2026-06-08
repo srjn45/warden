@@ -238,6 +238,19 @@ func TestNewAgentModeFlow(t *testing.T) {
 	require.Equal(t, "research SSE", f.spawned.Prompt)
 }
 
+func TestNewAgentEmptyPromptSpawnsInteractive(t *testing.T) {
+	f := &fakeAPI{}
+	m := New(f)
+	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = step(m, key("n"))
+	require.Equal(t, modeNewAgent, m.mode)
+	// Submit immediately, without typing a prompt.
+	m, _ = submit(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	require.NotNil(t, f.spawned, "empty prompt now spawns an interactive agent")
+	require.Equal(t, "", f.spawned.Prompt)
+	require.NotEqual(t, "prompt was empty", m.status)
+}
+
 func TestNewAgentEscCancels(t *testing.T) {
 	m := New(&fakeAPI{})
 	m = step(m, tea.WindowSizeMsg{Width: 100, Height: 30})

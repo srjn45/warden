@@ -227,13 +227,11 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.dirCandidates = nil
 			return m, nil
 		case tea.KeyCtrlS:
+			// An empty prompt is intentional: it opens claude in the target dir
+			// and waits for the user to type instructions into Claude directly.
 			prompt := strings.TrimSpace(m.ta.Value())
 			m.mode = modeNormal
 			m.ta.Blur()
-			if prompt == "" {
-				m.status = "prompt was empty"
-				return m, nil
-			}
 			m.pendingPrompt, m.pendingDir = prompt, m.targetDir
 			return m, spawnCmd(m.api, prompt, m.targetDir, false)
 		}
@@ -456,7 +454,7 @@ func (m listPaneModel) View() string {
 	}
 	switch m.mode {
 	case modeNewAgent:
-		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: change dir · ctrl+s submit · esc cancel)") + "\n" + m.ta.View()
+		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: change dir · ctrl+s submit (blank = open Claude & wait) · esc cancel)") + "\n" + m.ta.View()
 	case modeNewAgentDir:
 		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenDir:

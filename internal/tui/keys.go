@@ -133,13 +133,11 @@ func (m Model) updateNewAgent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.dirCandidates = nil
 		return m, nil
 	case tea.KeyCtrlS:
+		// An empty prompt is intentional: it opens claude in the target dir and
+		// waits for the user to type instructions into Claude directly.
 		prompt := strings.TrimSpace(m.ta.Value())
 		m.mode = modeNormal
 		m.ta.Blur()
-		if prompt == "" {
-			m.status = "prompt was empty"
-			return m, nil
-		}
 		m.pendingPrompt, m.pendingDir = prompt, m.targetDir
 		return m, spawnCmd(m.api, prompt, m.targetDir, false)
 	}
