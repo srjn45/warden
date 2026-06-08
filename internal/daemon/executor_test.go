@@ -328,7 +328,12 @@ func TestEmitReapsAgentAndSnapshotsDigest(t *testing.T) {
 	fl := &fakeLife{}
 	ss := newFakeStore()
 	e := NewExecutor(ps, ss, fl, nil, func() {})
-	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest {
+	e.digestFn = func(ctx context.Context, s *store.Session) digest.Digest {
+		// The background snapshot must run on a bounded context, not an untimed
+		// context.Background(), so a hung digest builder can't leak a goroutine.
+		if _, ok := ctx.Deadline(); !ok {
+			t.Errorf("digest snapshot context must carry a deadline")
+		}
 		return digest.Digest{Summary: "snap for " + s.ID}
 	}
 	if err := e.Reconcile(context.Background(), "p"); err != nil { // spawns job a

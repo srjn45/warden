@@ -28,56 +28,65 @@ func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Get("/pressure", s.handlePressure)
 }
 
-func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
-	var req SpawnRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad json")
-		return
-	}
+// validateSpawnRequest applies the static + uniqueness preconditions for a
+// decoded SpawnRequest, returning an HTTP status + message to write on rejection
+// or (0, "") when the request is acceptable. It runs the same checks, in the
+// same order, that handleSpawn previously inlined — extracted so the handler
+// reads as decode → validate → gate → spawn. The memory-pressure soft gate and
+// the spawn itself stay in the handler (they have non-error response paths).
+func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (int, string) {
 	// A ticket becomes the session id, which is used as a filesystem path
 	// component (the prompt file) and a tmux session name inside Spawn — which
 	// runs before store.Insert (the only other safeID gate). Validate up front so
 	// an unsafe ticket can't escape the prompts dir or break tmux targeting.
 	if req.Ticket != "" {
 		if err := store.SafeID(req.Ticket); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid ticket id (no '/', '\\', ':', or '..')")
-			return
+			return http.StatusBadRequest, "invalid ticket id (no '/', '\\', ':', or '..')"
 		}
 	}
 	freeMode := req.Type == ""
 	if !freeMode {
 		if req.Repo == "" {
-			writeErr(w, http.StatusBadRequest, "typed spawn requires repo")
-			return
+			return http.StatusBadRequest, "typed spawn requires repo"
 		}
 		// Reject an unknown type rather than silently collapsing it to "other".
 		if !store.Type(req.Type).Valid() {
-			writeErr(w, http.StatusBadRequest, "unknown type "+req.Type+
-				"; valid: development, analysis, spike, pr-review, buildkite-debug, test-run, env-test, other")
-			return
+			return http.StatusBadRequest, "unknown type " + req.Type +
+				"; valid: development, analysis, spike, pr-review, buildkite-debug, test-run, env-test, other"
 		}
 	}
 	// Reject duplicate spawn on an existing ticket. No-ticket sessions get a
 	// random id, so there is nothing to collide on.
 	if req.Ticket != "" {
-		if _, err := s.store.Get(r.Context(), req.Ticket); err == nil {
-			writeErr(w, http.StatusConflict, "session already exists — use `agentctl attach "+req.Ticket+"`")
-			return
+		if _, err := s.store.Get(ctx, req.Ticket); err == nil {
+			return http.StatusConflict, "session already exists — use `agentctl attach " + req.Ticket + "`"
 		}
 	}
 	// Free-form agents launch in the caller's cwd (the "master shell" dir),
 	// which is already trusted by Claude Code. It is required — we no longer
 	// create a per-agent directory to fall back to — and must be a real dir.
 	if freeMode && req.Cwd == "" {
-		writeErr(w, http.StatusBadRequest, "provide a launch dir (cwd; prompt optional), or type and repo")
-		return
+		return http.StatusBadRequest, "provide a launch dir (cwd; prompt optional), or type and repo"
 	}
 	if req.Cwd != "" {
 		if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {
-			writeErr(w, http.StatusBadRequest, "cwd is not an existing directory: "+req.Cwd)
-			return
+			return http.StatusBadRequest, "cwd is not an existing directory: " + req.Cwd
 		}
 	}
+	return 0, ""
+}
+
+func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
+	var req SpawnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	if code, msg := s.validateSpawnRequest(r.Context(), req); code != 0 {
+		writeErr(w, code, msg)
+		return
+	}
+	freeMode := req.Type == ""
 	// Memory-pressure soft gate: when enabled and the caller hasn't forced,
 	// warn (HTTP 428) instead of spawning onto a strained machine. The client
 	// re-spawns with force=true to confirm. Pipelines bypass this (they spawn

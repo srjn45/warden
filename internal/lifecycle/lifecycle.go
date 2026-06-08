@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -492,7 +493,8 @@ func readFileTail(path string, maxBytes int64) string {
 
 // Spawn creates an agent session. Prompt mode (Prompt set, no Type) runs a plain
 // claude in Workdir with NO git worktree, seeded with the prompt. Typed mode is
-// the existing per-type worktree flow (unchanged).
+// the existing per-type worktree flow. Spawn resolves the id + claude session id
+// shared by both, then dispatches to spawnFreeForm or spawnTyped.
 func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
 	freeMode := req.Type == ""
 	if !freeMode {
@@ -515,58 +517,73 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Status:      store.StatusSpawning,
 		Supervised:  req.Supervised,
 	}
-	sess.ClaudeSessionID = store.NewSessionID()
-
-	if freeMode {
-		// The agent runs in the caller's directory (the "master shell"), which is
-		// already trusted by Claude Code — we never create a fresh per-agent dir,
-		// which would trigger Claude's per-directory trust/onboarding prompts on
-		// every spawn. cwd is required: there is no directory to fall back to.
-		if req.Cwd == "" {
-			return nil, fmt.Errorf("free-form spawn requires a launch dir (cwd)")
-		}
-		sess.Workdir = req.Cwd
-
-		// launchPrompt is the trailing claude argument. Empty for an interactive
-		// agent (open claude and wait); for an autonomous agent it reads the prompt
-		// back from a file via "$(cat …)". Persisting the prompt to a file (keyed by
-		// id, in a shared state dir outside the caller's project) keeps the command
-		// typed into the pane to a single physical line: a multi-line prompt typed
-		// directly would have its embedded newlines register as Enter and submit a
-		// half-typed command. The prompt is passed to the writer as an exec argument
-		// (never through a shell), so quotes and newlines in it need no escaping.
-		launchPrompt := ""
-		if req.Prompt != "" {
-			if l.PromptsDir == "" {
-				return nil, fmt.Errorf("prompt spawn requires a prompts dir")
-			}
-			if out, err := l.run.Run(ctx, "", "mkdir", "-p", l.PromptsDir); err != nil {
-				return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
-			}
-			promptFile := filepath.Join(l.PromptsDir, id)
-			if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
-				return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
-			}
-			launchPrompt = ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
-		}
-
-		if err := l.newAgentSession(ctx, "", id, req.Cwd); err != nil {
-			return nil, err
-		}
-		launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + pipelineHint() + launchPrompt
-		if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
-			l.killSession(id) // the session exists but launch failed — don't orphan it
-			return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
-		}
-		return sess, nil
+	sess.ClaudeSessionID, err = store.NewSessionID()
+	if err != nil {
+		return nil, err
 	}
 
-	// Typed/managed path.
+	if freeMode {
+		return l.spawnFreeForm(ctx, req, sess)
+	}
+	return l.spawnTyped(ctx, req, sess)
+}
+
+// spawnFreeForm launches a plain claude agent in the caller's cwd with NO git
+// worktree, seeded with req.Prompt (empty prompt = interactive). The agent runs
+// in the caller's directory (the "master shell"), which is already trusted by
+// Claude Code — we never create a fresh per-agent dir, which would trigger
+// Claude's per-directory trust/onboarding prompts on every spawn. cwd is
+// required: there is no directory to fall back to.
+func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *store.Session) (*store.Session, error) {
+	if req.Cwd == "" {
+		return nil, fmt.Errorf("free-form spawn requires a launch dir (cwd)")
+	}
+	sess.Workdir = req.Cwd
+
+	// launchPrompt is the trailing claude argument. Empty for an interactive
+	// agent (open claude and wait); for an autonomous agent it reads the prompt
+	// back from a file via "$(cat …)". Persisting the prompt to a file (keyed by
+	// id, in a shared state dir outside the caller's project) keeps the command
+	// typed into the pane to a single physical line: a multi-line prompt typed
+	// directly would have its embedded newlines register as Enter and submit a
+	// half-typed command. The prompt is passed to the writer as an exec argument
+	// (never through a shell), so quotes and newlines in it need no escaping.
+	launchPrompt := ""
+	if req.Prompt != "" {
+		if l.PromptsDir == "" {
+			return nil, fmt.Errorf("prompt spawn requires a prompts dir")
+		}
+		if out, err := l.run.Run(ctx, "", "mkdir", "-p", l.PromptsDir); err != nil {
+			return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
+		}
+		promptFile := filepath.Join(l.PromptsDir, sess.ID)
+		if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
+			return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
+		}
+		launchPrompt = ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	}
+
+	if err := l.newAgentSession(ctx, "", sess.ID, req.Cwd); err != nil {
+		return nil, err
+	}
+	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Supervised) + pipelineHint() + launchPrompt
+	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
+		// The session exists but launch failed — don't orphan it. No worktree here.
+		l.cleanupFailedSpawn(sess, true, false)
+		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+	}
+	return sess, nil
+}
+
+// spawnTyped runs the per-type managed flow: optionally create a git worktree,
+// start a tmux session in it, and auto-launch claude. On any post-resource
+// failure it rolls back via cleanupFailedSpawn (a worktree only when WE made it).
+func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *store.Session) (*store.Session, error) {
 	workdir := req.Repo
 	worktreeCreated := false
 	if wantWorktree(req) {
-		rel := worktreeRel(id)
-		branch, created, err := l.ensureWorktree(ctx, req, id, rel)
+		rel := worktreeRel(sess.ID)
+		branch, created, err := l.ensureWorktree(ctx, req, sess.ID, rel)
 		if err != nil {
 			return nil, err
 		}
@@ -576,39 +593,58 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		workdir = filepath.Join(req.Repo, rel)
 	}
 	sess.Workdir = workdir
-	if err := l.newAgentSession(ctx, req.Repo, id, workdir); err != nil {
+	if err := l.newAgentSession(ctx, req.Repo, sess.ID, workdir); err != nil {
 		// new-session failed, so no tmux session exists; only undo a worktree we made.
-		if worktreeCreated {
-			l.rollbackWorktree(sess)
-		}
+		l.cleanupFailedSpawn(sess, false, worktreeCreated)
 		return nil, err
 	}
-	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + pipelineHint()
-	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
-		l.killSession(id)
-		if worktreeCreated {
-			l.rollbackWorktree(sess)
-		}
+	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Supervised) + pipelineHint()
+	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
+		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	return sess, nil
 }
 
+// cleanupFailedSpawn best-effort reverses the partial side effects of a spawn
+// that failed after creating resources: it kills the tmux session (when one was
+// actually created — killTmux=false when new-session itself failed) and
+// force-removes the worktree (only when worktreeCreated, i.e. THIS spawn made
+// it — never an adopted, pre-existing one). Both steps are non-fatal and log on
+// failure (via killSession/rollbackWorktree) so a leak is visible. This is the
+// single shared cleanup used by spawnFreeForm, spawnTyped, and SpawnJob, in
+// every case preserving the spawn-before-reap ordering (cleanup runs only after
+// the failing step returns).
+func (l *Lifecycle) cleanupFailedSpawn(sess *store.Session, killTmux, worktreeCreated bool) {
+	if killTmux {
+		l.killSession(sess.ID)
+	}
+	if worktreeCreated {
+		l.rollbackWorktree(sess)
+	}
+}
+
 // killSession best-effort kills a tmux session created during a spawn that then
 // failed, so it does not orphan beyond the reach of the store. A detached
 // context is used so cleanup still runs when the spawn failed via ctx cancellation.
+// A failure is logged (not returned) so a leaked session is visible.
 func (l *Lifecycle) killSession(id string) {
-	_, _ = l.run.Run(context.Background(), "", "tmux", "kill-session", "-t", id)
+	if out, err := l.run.Run(context.Background(), "", "tmux", "kill-session", "-t", id); err != nil {
+		log.Printf("spawn cleanup: kill tmux session %s: %v: %s", id, err, strings.TrimSpace(out))
+	}
 }
 
 // rollbackWorktree best-effort force-removes a worktree (and its branch) that
 // this spawn created when a later step fails. Only ever called for worktrees we
-// created — never for an adopted, pre-existing one (see ensureWorktree).
+// created — never for an adopted, pre-existing one (see ensureWorktree). A
+// failure is logged (not returned) so a leaked worktree is visible.
 func (l *Lifecycle) rollbackWorktree(sess *store.Session) {
-	_ = l.RemoveWorktree(context.Background(), CleanupTarget{
+	if err := l.RemoveWorktree(context.Background(), CleanupTarget{
 		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
 		Branch: sess.Branch, TmuxSession: sess.TmuxSession,
-	}, true)
+	}, true); err != nil {
+		log.Printf("spawn cleanup: rollback worktree %s: %v", sess.Worktree, err)
+	}
 }
 
 // agentHistoryLimit is the scrollback depth (lines) agent panes get, so long
@@ -955,7 +991,11 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		Status: store.StatusSpawning, Supervised: req.Supervised,
 		PipelineID: req.PipelineID, JobID: req.JobID,
 	}
-	sess.ClaudeSessionID = store.NewSessionID()
+	cid, err := store.NewSessionID()
+	if err != nil {
+		return nil, err
+	}
+	sess.ClaudeSessionID = cid
 
 	workdir := req.Repo
 	worktreeCreated := false
@@ -977,26 +1017,19 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 
 	if err := l.newAgentSession(ctx, req.Repo, id, workdir,
 		"AGENTCTL_PIPELINE_ID="+req.PipelineID, "AGENTCTL_JOB_ID="+req.JobID); err != nil {
-		if worktreeCreated {
-			l.rollbackWorktree(sess)
-		}
+		// new-session failed, so no tmux session exists; only undo a worktree we made.
+		l.cleanupFailedSpawn(sess, false, worktreeCreated)
 		return nil, err
 	}
 
 	promptFile, err := l.writePromptFile(ctx, id, req.Prompt)
 	if err != nil {
-		l.killSession(id)
-		if worktreeCreated {
-			l.rollbackWorktree(sess)
-		}
+		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, err
 	}
 	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
-		l.killSession(id)
-		if worktreeCreated {
-			l.rollbackWorktree(sess)
-		}
+		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	return sess, nil

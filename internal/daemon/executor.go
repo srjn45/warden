@@ -16,6 +16,12 @@ import (
 	"github.com/srajanpathak/agentctl/internal/store"
 )
 
+// digestSnapshotTimeout bounds the background completion-digest snapshot taken
+// when a job emits. The builder may shell out to a `claude -p` narrator, so an
+// untimed context.Background() could leak a goroutine for the daemon's lifetime
+// if that call hangs; the snapshot degrades gracefully when it is cut short.
+const digestSnapshotTimeout = 5 * time.Second
+
 // Emit error sentinels (mapped to HTTP status by the route handler).
 var (
 	ErrJobNotFound     = errors.New("job not found in pipeline")
@@ -345,7 +351,9 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 			e.snapWG.Add(1)
 			go func(s *store.Session) {
 				defer e.snapWG.Done()
-				d := e.digestFn(context.Background(), s)
+				dctx, cancel := context.WithTimeout(context.Background(), digestSnapshotTimeout)
+				defer cancel()
+				d := e.digestFn(dctx, s)
 				d.Status = string(store.StatusDone)
 				_ = e.pstore.Update(pid, func(p *pipeline.Pipeline) {
 					if j := p.Job(jobID); j != nil {
