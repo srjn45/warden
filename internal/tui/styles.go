@@ -7,6 +7,7 @@ import (
 
 var (
 	stBusy      = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+	stRunning   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
 	stAttention = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // amber
 	stIdle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // grey
 	stError     = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red

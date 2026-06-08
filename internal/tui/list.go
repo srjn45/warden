@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -382,21 +383,22 @@ func renderList(items []item, cursor, width, height int) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-// jobGlyph maps a pipeline job status to a one-rune status glyph.
-func jobGlyph(s pipeline.JobStatus) string {
+// jobBadge maps a pipeline job status to its status glyph + color style. The
+// glyph and (by caller convention) the status word are rendered in this color.
+func jobBadge(s pipeline.JobStatus) (string, lipgloss.Style) {
 	switch s {
 	case pipeline.JobDone:
-		return "●"
+		return "●", stBusy // green
 	case pipeline.JobRunning:
-		return "◐"
+		return "◐", stRunning // cyan
 	case pipeline.JobFailed:
-		return "✗"
+		return "✗", stError // red
 	case pipeline.JobNeedsAttention:
-		return "⚠"
+		return "⚠", stAttention // amber
 	case pipeline.JobSkipped:
-		return "⊘"
+		return "⊘", stMuted // grey
 	default: // pending
-		return "○"
+		return "○", stMuted // grey
 	}
 }
 
@@ -419,7 +421,9 @@ func renderItemLine(it item, selected bool, width int) string {
 		if len(it.pjJob.DependsOn) > 0 {
 			deps = stMuted.Render("  (deps: " + strings.Join(it.pjJob.DependsOn, ",") + ")")
 		}
-		line = fmt.Sprintf("    %s %-12s %-13s", jobGlyph(it.pjJob.Status), trunc(it.pjJob.ID, 12), string(it.pjJob.Status)) + deps
+		glyph, st := jobBadge(it.pjJob.Status)
+		statusWord := fmt.Sprintf("%-13s", string(it.pjJob.Status))
+		line = fmt.Sprintf("    %s %-12s %s", st.Render(glyph), trunc(it.pjJob.ID, 12), st.Render(statusWord)) + deps
 	case it.session == nil:
 		line = stMuted.Render("(no agents — n to spawn here)")
 	default:

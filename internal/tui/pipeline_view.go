@@ -50,7 +50,8 @@ func renderPipeline(p *pipeline.Pipeline, width, height int) string {
 	b.WriteString(stMuted.Render("pipeline "+p.ID+" — "+string(p.Status)) + "\n\n")
 	for i := range p.Jobs {
 		j := &p.Jobs[i]
-		line := fmt.Sprintf("%s %-12s %-13s", jobGlyph(j.Status), trunc(j.ID, 12), string(j.Status))
+		glyph, st := jobBadge(j.Status)
+		line := fmt.Sprintf("%s %-12s %s", st.Render(glyph), trunc(j.ID, 12), st.Render(fmt.Sprintf("%-13s", string(j.Status))))
 		if len(j.DependsOn) > 0 {
 			line += stMuted.Render("deps: " + strings.Join(j.DependsOn, ","))
 		}
@@ -86,7 +87,8 @@ func jobDetailText(p *pipeline.Pipeline, jobID string, width int) (string, error
 // width is accepted for symmetry with renderPipeline and reserved for future line-wrapping; it is not yet used.
 func renderPipelineJob(j *pipeline.Job, width, height int) string {
 	var b strings.Builder
-	b.WriteString(stMuted.Render(jobGlyph(j.Status)+" job "+j.ID+" — "+string(j.Status)) + "\n")
+	glyph, st := jobBadge(j.Status)
+	b.WriteString(st.Render(glyph) + " job " + j.ID + " — " + st.Render(string(j.Status)) + "\n")
 	if len(j.DependsOn) > 0 {
 		b.WriteString(stMuted.Render("deps: "+strings.Join(j.DependsOn, ",")) + "\n")
 	}

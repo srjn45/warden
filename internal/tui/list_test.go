@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/srajanpathak/agentctl/internal/client"
 	"github.com/srajanpathak/agentctl/internal/pipeline"
 	"github.com/srajanpathak/agentctl/internal/store"
@@ -356,20 +357,39 @@ func TestRenderItemLinePipelineRows(t *testing.T) {
 	if !strings.Contains(head, "demo") || !strings.Contains(head, "▸") || !strings.Contains(head, "running") {
 		t.Fatalf("pipeline header row wrong: %q", head)
 	}
+	glyph, _ := jobBadge(pipeline.JobDone)
 	jobRow := renderItemLine(item{pjPipe: "demo", pjJob: &pipeline.Job{ID: "a", Status: pipeline.JobDone, DependsOn: []string{"x"}}}, false, 60)
-	if !strings.Contains(jobRow, "a") || !strings.Contains(jobRow, jobGlyph(pipeline.JobDone)) || !strings.Contains(jobRow, "x") {
+	if !strings.Contains(jobRow, "a") || !strings.Contains(jobRow, glyph) || !strings.Contains(jobRow, "x") {
 		t.Fatalf("job row wrong: %q", jobRow)
 	}
 }
 
-func TestJobGlyphDistinct(t *testing.T) {
+func TestJobBadge(t *testing.T) {
+	cases := []struct {
+		status pipeline.JobStatus
+		glyph  string
+		color  lipgloss.Color
+	}{
+		{pipeline.JobPending, "○", lipgloss.Color("8")},        // grey
+		{pipeline.JobRunning, "◐", lipgloss.Color("6")},        // cyan
+		{pipeline.JobDone, "●", lipgloss.Color("2")},           // green
+		{pipeline.JobFailed, "✗", lipgloss.Color("1")},         // red
+		{pipeline.JobNeedsAttention, "⚠", lipgloss.Color("3")}, // amber
+		{pipeline.JobSkipped, "⊘", lipgloss.Color("8")},        // grey
+	}
 	seen := map[string]bool{}
-	for _, s := range []pipeline.JobStatus{pipeline.JobPending, pipeline.JobRunning, pipeline.JobDone, pipeline.JobFailed, pipeline.JobSkipped, pipeline.JobNeedsAttention} {
-		g := jobGlyph(s)
-		if g == "" || seen[g] {
-			t.Fatalf("glyph for %s is empty or duplicate: %q", s, g)
+	for _, c := range cases {
+		glyph, st := jobBadge(c.status)
+		if glyph != c.glyph {
+			t.Errorf("jobBadge(%s) glyph = %q, want %q", c.status, glyph, c.glyph)
 		}
-		seen[g] = true
+		if got := st.GetForeground(); got != c.color {
+			t.Errorf("jobBadge(%s) color = %v, want %v", c.status, got, c.color)
+		}
+		if seen[glyph] {
+			t.Errorf("jobBadge(%s) glyph %q is a duplicate", c.status, glyph)
+		}
+		seen[glyph] = true
 	}
 }
 
