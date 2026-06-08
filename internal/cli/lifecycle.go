@@ -52,11 +52,11 @@ func newStartCmd() *cobra.Command {
 					}
 					return err
 				}
-				verb := "spawned %s (classifying…)"
+				outcome := fmt.Sprintf("spawned %s (classifying…)", s.ID)
 				if prompt == "" {
-					verb = "opened interactive agent %s"
+					outcome = fmt.Sprintf("opened interactive agent %s", s.ID)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), verb+" — attach with `agentctl attach %s`\n", s.ID, s.ID)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s — attach with `agentctl attach %s`\n", outcome, s.ID)
 				return nil
 			}
 
