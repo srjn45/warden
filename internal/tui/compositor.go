@@ -13,28 +13,6 @@ import (
 	"github.com/srajanpathak/agentctl/internal/lifecycle"
 )
 
-// chooseClassic decides whether to use the legacy single-pane TUI instead of the
-// tmux-composited cockpit. We require a real, non-nested tmux: composited mode
-// builds a new session and attaches to it, which can't be done cleanly from
-// inside an existing tmux client.
-func chooseClassic(classicFlag, tmuxAvailable, insideTmux bool) bool {
-	return classicFlag || !tmuxAvailable || insideTmux
-}
-
-// tmuxAvailable reports whether the tmux binary is on PATH.
-func tmuxAvailable() bool {
-	_, err := exec.LookPath("tmux")
-	return err == nil
-}
-
-// ChooseClassic is the exported wrapper for chooseClassic (used by the CLI).
-func ChooseClassic(classicFlag, tmuxAvailable, insideTmux bool) bool {
-	return chooseClassic(classicFlag, tmuxAvailable, insideTmux)
-}
-
-// TmuxAvailable reports whether the tmux binary is on PATH (used by the CLI).
-func TmuxAvailable() bool { return tmuxAvailable() }
-
 // cockpitSession returns the tmux session name for the cockpit owned by the given pid.
 func cockpitSession(pid int) string {
 	return fmt.Sprintf("agentctl-tui-%d", pid)
