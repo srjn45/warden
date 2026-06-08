@@ -400,11 +400,11 @@ func TestPostSpawnPromptThenClassifies(t *testing.T) {
 	require.Equal(t, "investigate flaky test", fl.getClassified())
 }
 
-func TestPostSpawnRequiresPromptOrTypeRepo(t *testing.T) {
+func TestPostSpawnRejectsEmptyRequest(t *testing.T) {
 	srv := promptServer(t, newFakeStore(), &fakeLife{})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	body, _ := json.Marshal(SpawnRequest{}) // nothing
+	body, _ := json.Marshal(SpawnRequest{}) // no type, no repo, no cwd → no launch dir
 	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -601,16 +601,6 @@ func TestPostSpawnInteractiveNoPrompt(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "empty prompt + cwd is a valid interactive spawn")
 	require.Equal(t, dir, fl.spawnedCwd)
 	require.Equal(t, "", fl.spawned.Prompt)
-}
-
-func TestPostSpawnRejectsEmptyRequest(t *testing.T) {
-	fl := &fakeLife{}
-	ts := lifeServer(t, newFakeStore(), fl)
-	defer ts.Close()
-	body, _ := json.Marshal(SpawnRequest{}) // no type, no repo, no cwd
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestPostSpawnSupervised(t *testing.T) {
