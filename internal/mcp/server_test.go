@@ -239,6 +239,144 @@ func TestTeardownTools(t *testing.T) {
 	}
 }
 
+func TestListApprovalsTool(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/approvals" {
+			_, _ = w.Write([]byte(`{"enabled":true,"approvals":[{"id":"agent-1","action":"Bash","question":"Run rm?","options":["Yes","No"],"fingerprint":"abc","recognized":true}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, st) }()
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "list_approvals"})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), "agent-1")
+}
+
+func TestListApprovalsToolDisabled(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"enabled":false,"approvals":[]}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, st) }()
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "list_approvals"})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), "AGENTCTL_APPROVALS")
+}
+
+func TestApproveTool(t *testing.T) {
+	var gotPath, gotBody string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/approvals" {
+			_, _ = w.Write([]byte(`{"enabled":true,"approvals":[{"id":"agent-1","action":"Bash","question":"Run rm?","options":["Yes","No"],"fingerprint":"abc","recognized":true}]}`))
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/sessions/agent-1/approve" {
+			gotPath = r.URL.Path
+			b, _ := io.ReadAll(r.Body)
+			gotBody = string(b)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, st) }()
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "approve",
+		Arguments: map[string]any{"ticket": "agent-1", "option": 1},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, "/sessions/agent-1/approve", gotPath)
+	require.Contains(t, gotBody, `"option":1`)
+	require.Contains(t, gotBody, `"fingerprint":"abc"`)
+}
+
+func TestApproveToolDisabled(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"enabled":false,"approvals":[]}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, st) }()
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "approve",
+		Arguments: map[string]any{"ticket": "agent-1", "option": 1},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), "AGENTCTL_APPROVALS")
+}
+
+func TestApproveToolUnrecognized(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/approvals" {
+			_, _ = w.Write([]byte(`{"enabled":true,"approvals":[{"id":"agent-1","recognized":false}]}`))
+			return
+		}
+		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, st) }()
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "approve",
+		Arguments: map[string]any{"ticket": "agent-1", "option": 1},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), "not a recognized menu")
+}
+
 func TestCtxSetClientPath(t *testing.T) {
 	var gotPath, gotMethod string
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
