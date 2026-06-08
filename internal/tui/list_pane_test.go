@@ -61,6 +61,20 @@ func TestListPaneSpawnModal(t *testing.T) {
 	require.Equal(t, modeNormal, m.mode)
 }
 
+func TestListPaneEmptyPromptSpawnsInteractive(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+	m = lstep(m, key("n"))
+	require.Equal(t, modeNewAgent, m.mode)
+	// Submit immediately, without typing a prompt — the cockpit's own Ctrl+S
+	// handler must also treat a blank prompt as an interactive spawn.
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	require.NotNil(t, cmd)
+	cmd() // drives fakeAPI.Spawn
+	require.NotNil(t, f.spawned, "cockpit: empty prompt spawns an interactive agent")
+	require.Equal(t, "", f.spawned.Prompt)
+}
+
 func TestListPaneEnterOpensDetail(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9")
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a", TmuxSession: "a"}}})
