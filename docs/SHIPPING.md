@@ -88,10 +88,11 @@ are what stop a stranger from installing this cleanly.
    *symlink back to the source tree*. Delete or move the checkout and the
    installed tool's skill breaks. A distributed install must own a real copy.
 
-4. **Hook path is hardcoded to one checkout.** `hooks/settings.snippet.json`
-   points every hook at `~/workspace/personal/agentctl/hooks/warden-hook.sh`.
-   That path only exists on the author's machine, and it is pasted into the
-   user's Claude `settings.json` by hand — there is no installer step for it.
+4. **Hook path must be rendered per checkout.** `hooks/settings.snippet.json`
+   uses a `__WARDEN_HOOK__` placeholder that the user substitutes with the
+   absolute path to their clone's `hooks/warden-hook.sh` (the README shows a
+   `sed` one-liner). It is still pasted into the user's Claude `settings.json`
+   by hand — there is no installer step for it.
 
 5. **macOS-only service management.** Everything service-related is launchd
    (`launchctl bootstrap/bootout/kickstart`, `.plist`). There is no Linux

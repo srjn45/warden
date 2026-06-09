@@ -162,7 +162,7 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 | `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
-| `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces one-click answer buttons. Web AttentionQueue shows option buttons; TUI gains a pinned **⏳ Approvals** row (press `i` to focus, answer with number keys). Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
+| `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** count row (view-only — answer via the web or `warden approve`). Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
 
 All variables can also be overridden with `--addr` on any command.
 
@@ -211,7 +211,7 @@ When you need a managed git worktree (e.g. a development branch tied to a Jira t
 
 By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously; the `Notification` hook still records them as events in the session doc.
 
-Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer (web AttentionQueue one-click buttons / TUI `⏳ Approvals` row, when `WARDEN_APPROVALS` is on). A restored agent keeps its supervised setting.
+Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer from the web AttentionQueue (one-click buttons) or the CLI (`warden approve`) when `WARDEN_APPROVALS` is on (the TUI also surfaces a `⏳ Approvals` count row). A restored agent keeps its supervised setting.
 
 If a worktree for the ticket already exists on disk, the spawn adopts it (reattaches claude to the existing branch) instead of erroring.
 
@@ -226,7 +226,7 @@ warden       # bare invocation — same thing
 
 `warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), an embedded interactive **master Claude** session wired to the `warden` MCP server (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
 
-The cockpit **falls back to the legacy single-pane view** (`--classic`) when tmux isn't installed or when `warden tui` is launched from inside an existing tmux session. The classic view is the original [Bubble Tea](https://github.com/charmbracelet/bubbletea) app — a list on the left and a static detail panel on the right (no embedded sessions). Requires **tmux ≥ 3.1** for the cockpit.
+The cockpit **requires tmux ≥ 3.1** (it composites real tmux panes). If tmux isn't installed, or `warden tui` is launched from inside an existing tmux session, the cockpit can't build its panes and exits with an error — run it from a plain terminal.
 
 The list pane polls the daemon about once a second. The daemon must be running (`warden.daemon`) before opening the TUI.
 
@@ -235,15 +235,19 @@ The list pane polls the daemon about once a second. The daemon must be running (
 | Key | Action |
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move selection (detail pane is unaffected) |
-| `Enter` | Open the selected agent in the right detail pane |
+| `←` / `→` or `h` / `l` | Collapse / expand the pipeline under the cursor |
+| `Enter` | Open the selected agent (or running pipeline job) in the right detail pane |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
+| `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
-| `a` | Attach — hands the client to the agent's tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
-| `x` | Terminate the selected agent — confirm with `y`, cancel with `n`/`esc` |
+| `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
+| `r` | Retry a failed / needs-attention pipeline job |
+| `x` | Context-sensitive: terminate the selected agent / cancel a pipeline / close an opened dir (confirm with `y`) |
+| `D` | Delete a stopped pipeline's record (confirm with `y`) |
 | `?` | Toggle help overlay |
 | `q` | Quit and tear down the cockpit |
 
-Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix). See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide, caveats around nested tmux, and the classic-mode key list.
+Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix). See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
 
 ---
 
@@ -415,7 +419,7 @@ warden tail PROJ-350 --lines 80
 
 ### `warden digest <TICKET>`
 
-Summarize what an agent accomplished — files touched, branch, number of turns, and a short narrative (best-effort, via `claude -p`). Also available as a web **Digest** panel and the TUI `d` key.
+Summarize what an agent accomplished — files touched, branch, number of turns, and a short narrative (best-effort, via `claude -p`). Also available as a web **Digest** panel.
 
 ```sh
 warden digest PROJ-350

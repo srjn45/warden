@@ -197,7 +197,7 @@ or an `agent-xxxx` ID for prompt-spawned ones.
 
 ### `warden` / `warden tui`
 Open the tmux-composited cockpit (see §7). Bare `warden` with no
-subcommand does the same thing. Pass `--classic` to use the legacy single-pane view.
+subcommand does the same thing. Requires tmux (see §7).
 
 ### `warden start [TICKET|"<prompt>"] [flags]`
 Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
@@ -293,6 +293,58 @@ Run the hub (HTTP API + poller). Normally launchd's job; run by hand to debug.
 ### `warden mcp [--addr ADDR]`
 Run the MCP stdio server (see §8).
 
+### `warden digest <TICKET> [--json]`
+Summarize what an agent accomplished — files touched, branch, turn count, and a
+short narrative. Also a web **Digest** panel.
+
+### `warden approvals` / `warden approve <TICKET> <option>`
+With the approvals inbox on (`WARDEN_APPROVALS`, default on), `approvals` lists
+recognized tool-permission prompts waiting for an answer (each with its numbered
+options), and `approve` answers one by option number — without attaching. Also
+answerable from the web AttentionQueue. Unrecognized prompts fall back to attach.
+
+```sh
+warden approvals
+warden approve PROJ-350 1     # answer with option 1 (e.g. "Yes")
+```
+
+### `warden rotate --confirm --resume-file <path> --resume-prompt <text>`
+Run **inside an agent session** to retire a context-heavy agent and hand off to
+a fresh successor in the same workdir/worktree. Phase 1 is driven by the
+`/warden` skill (writes the handoff + resume prompt); `--confirm` then spawns the
+successor and reaps the current agent (spawn-before-reap, fail-safe; never
+removes the worktree).
+
+### `warden ctx set|get|list|del`
+Read/write the **shared context** — a namespaced key/value blackboard all agents
+can use to collaborate. Writer defaults to `$WARDEN_SESSION_ID` (else `human`);
+override with `--as`.
+
+```sh
+warden ctx set build.status green --as agent-4f2a
+warden ctx get build.status
+warden ctx list --prefix build.
+warden ctx del build.status
+```
+
+### `warden msg send|inbox|wait`
+**Directed messages** between agents. Sending wakes a parked (idle/waiting)
+recipient; `wait` blocks in the daemon (long-poll) until a message arrives.
+
+```sh
+warden msg send agent-9c1d "the API contract changed — re-check your client"
+warden msg inbox --as agent-9c1d
+warden msg wait --as agent-9c1d --timeout 120
+```
+
+### `warden pipeline create|start|show|list|cancel|retry|edit-job|delete`
+Define and run a **DAG of agent jobs** from a YAML spec (CLI-only authoring). See
+§7.5 below for the full guide.
+
+### `warden doctor`
+Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon
+reachability, and the data directory.
+
 ---
 
 ## 7. The terminal UI (TUI)
@@ -327,22 +379,25 @@ highlighted agent to open it in the right pane.
 | Key | Action |
 |---|---|
 | `↑`/`↓` or `j`/`k` | Move selection (right pane is unaffected) |
-| `Enter` | Open the selected agent in the right detail pane |
+| `←`/`→` or `h`/`l` | Collapse / expand the pipeline under the cursor |
+| `Enter` | Open the selected agent (or running pipeline job) in the right detail pane |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
+| `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
-| `a` | Attach — hands the whole client to the agent's tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
-| `x` | Terminate the selected agent — confirm with `y`, cancel with `n`/`esc` |
+| `a` | Attach — hands the whole client to the agent's (or running job's) tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
+| `r` | Retry a failed / needs-attention pipeline job |
+| `x` | Context-sensitive — terminate the selected agent / cancel a pipeline / close an opened dir (confirm with `y`) |
+| `D` | Delete a stopped pipeline's record (confirm with `y`) |
 | `?` | Toggle help |
 | `q` | Quit and tear down the whole cockpit |
 
 Pipelines appear in the list pane under a **▸ Pipelines** section (one header row
-per pipeline, then an indented row per job with a status glyph) — in both the
-cockpit and `--classic` views. On a pipeline row, `x` cancels it; on a job row,
-`r` retries a failed/needs-attention job, and `a` (or `enter` in the cockpit)
-opens a running job's session. In the `--classic` single-pane view, selecting a
-pipeline header also renders its full DAG (per-job status + captured outputs)
-inline in the detail pane. (Authoring pipelines is via `warden pipeline create
--f`; editing job prompts and building pipelines in the TUI are not yet available.)
+per pipeline, then an indented row per job with a status glyph). Collapse/expand a
+pipeline with `←`/`→` (or `h`/`l`). On a pipeline row, `x` cancels it and `D`
+deletes a stopped pipeline's record; on a job row, `r` retries a
+failed/needs-attention job, and `enter`/`a` opens a running job's session.
+(Authoring pipelines is via `warden pipeline create -f` — see §7.5; editing job
+prompts and building pipelines in the TUI are not yet available.)
 
 > **Getting back from an agent.** Attaching moves your single tmux client onto
 > the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to
@@ -389,29 +444,60 @@ Each cockpit launch creates an independent tmux session (named
 `warden-tui-<pid>`), so opening two terminals and running `warden tui` in
 each gives you two separate cockpits, each with its own ephemeral master.
 
-### Classic (single-pane) mode
+### Requirements
 
-```sh
-warden tui --classic
-```
-
-Runs the original single-pane view: list on the left, a static detail panel on
-the right, no embedded master — the same Bubble Tea app that existed before the
-cockpit. Use it if you prefer a lighter view or need to script into a
-non-interactive environment. The right-pane detail panel in this mode does not
-embed a live agent session.
-
-The cockpit **automatically falls back to `--classic`** in two situations:
-- `tmux` is not installed.
-- `warden tui` is launched from inside an existing tmux session (to avoid
-  nesting sessions).
-
-(There is no tmux-version detection — tmux ≥ 3.1 is a requirement of the
-cockpit, not a fallback trigger; on an older tmux the cockpit may fail to build
-its panes.)
+The cockpit requires **tmux ≥ 3.1** — it composites real tmux panes. There is no
+single-pane fallback: if tmux isn't installed, or you run `warden tui` from
+**inside an existing tmux session** (which would nest sessions), the cockpit
+can't build its panes and exits with an error. Run it from a plain terminal.
 
 The list pane polls the daemon about once a second, so the daemon must be
-running regardless of which mode you use.
+running before you open the TUI.
+
+---
+
+## 7.5 Pipelines (DAG of agent jobs)
+
+A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs
+with no dependencies start first, and each job's `emit` publishes its output and
+unblocks its dependents — so a "lead" Claude stays off the critical path.
+Authoring is CLI-only (`warden pipeline create -f`); the TUI and web show + control
+pipelines but don't author them.
+
+**Lifecycle:**
+
+```sh
+warden pipeline create -f review.yaml   # validate + register (does NOT start)
+warden pipeline start <id>              # spawn jobs with no dependencies
+warden pipeline show <id>               # jobs, status, branches, emitted output
+warden pipeline list
+warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
+warden pipeline edit-job <id> <job> --prompt "…"   # edit a still-pending job
+warden pipeline cancel <id>             # terminate running jobs
+warden pipeline delete <id>             # remove the record (cancel first if live)
+```
+
+**Spec** — a minimal `analyze → implement → review` chain. **Important:** job
+prompts must **not** mention `emit` — the daemon auto-appends the emit step and
+auto-injects each upstream job's output into the dependents' prompts.
+
+```yaml
+name: auth-refactor
+jobs:
+  - id: analyze
+    prompt: "Analyze the auth module and list the concrete refactors needed."
+  - id: implement
+    depends_on: [analyze]
+    worktree: fresh          # none | fresh | from:<base-branch>
+    prompt: "Implement the refactors identified upstream."
+  - id: review
+    depends_on: [implement]
+    prompt: "Review the implementation branch for correctness and regressions."
+```
+
+Results are durable in the pipeline record (`warden pipeline show`), the shared
+context (`pipeline.<id>.<job>.output`), and each job's git branch — they are not
+tied to the (possibly reaped) live agent.
 
 ---
 
