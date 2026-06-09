@@ -159,7 +159,11 @@ func parseMemSize(raw string) uint64 {
 	if i := strings.LastIndex(s, ":"); i >= 0 {
 		s = strings.TrimSpace(s[i+1:])
 	}
-	v, _ := strconv.ParseUint(strings.Fields(s + " ")[0], 10, 64)
+	f := strings.Fields(s)
+	if len(f) == 0 {
+		return 0
+	}
+	v, _ := strconv.ParseUint(f[0], 10, 64)
 	return v
 }
 
