@@ -549,6 +549,23 @@ func TestTickExitFileErrorLeavesFile(t *testing.T) {
 	require.False(t, d.cleared["A"])                 // file LEFT for retry (not cleared on error)
 }
 
+func TestTickClearsExitFileForTerminalSession(t *testing.T) {
+	// A clean exit sets done via the SessionEnd hook; the shell still wrote
+	// exits/<id>=0. The poller must reap that leftover file even though it
+	// skips the terminal session for classification.
+	d := &stubDeps{
+		sessions:  []*store.Session{{ID: "A", Status: store.StatusDone}},
+		alive:     map[string]bool{},
+		panes:     map[string]string{},
+		updates:   map[string]store.Status{},
+		exitCodes: map[string]int{},
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	require.True(t, d.cleared["A"]) // leftover exit-file reaped
+	require.Empty(t, d.finalized)   // no finalize for an already-terminal session
+}
+
 func TestTickThrottlesSummary(t *testing.T) {
 	d := &stubDeps{
 		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},

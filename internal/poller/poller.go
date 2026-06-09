@@ -113,6 +113,10 @@ func (p *Poller) tick(ctx context.Context) error {
 	changed := false
 	for _, s := range sessions {
 		if isTerminal(s.Status) {
+			// Reap any exit-file left by the clean-exit path (SessionEnd hook set
+			// done before the poller read the file); errored/orphaned already
+			// cleared theirs in the finalize branch, making this a no-op there.
+			p.deps.ClearExit(ctx, s.ID)
 			continue
 		}
 		// Exit-file is authoritative: if the agent's shell recorded an exit code,
