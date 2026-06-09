@@ -53,7 +53,7 @@ type Store struct {
 
 // New creates dir (if needed) and returns a store writing to <dir>/context.json.
 func New(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	return &Store{path: filepath.Join(dir, "context.json")}, nil
