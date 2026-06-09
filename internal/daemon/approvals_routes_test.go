@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/approval"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 

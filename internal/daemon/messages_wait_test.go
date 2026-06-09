@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/mailbox"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func TestWaitReturnsExistingMessage(t *testing.T) {

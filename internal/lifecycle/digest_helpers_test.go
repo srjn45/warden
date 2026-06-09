@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func TestGitBranchAndNumstat(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/srajanpathak/warden/internal/approval"
-	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/client"
 )
 
 const approvalsDisabledMsg = "approvals disabled (set WARDEN_APPROVALS=on)"
@@ -30,11 +30,11 @@ type ticketArgs struct {
 // All fields are optional in the schema: the daemon validates that EITHER a
 // prompt OR (type + repo) is provided, so no single field is required here.
 type spawnArgs struct {
-	Type     string `json:"type,omitempty" jsonschema:"task type: development|analysis|spike|pr-review|buildkite-debug|test-run|env-test|other"`
-	Ticket   string `json:"ticket,omitempty" jsonschema:"optional Jira ticket; becomes the session id when present"`
-	Repo     string `json:"repo,omitempty" jsonschema:"absolute path to the repo (managed-worktree mode)"`
-	Branch   string `json:"branch,omitempty" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
-	PR       string `json:"pr,omitempty" jsonschema:"optional PR number/url for pr-review"`
+	Type       string `json:"type,omitempty" jsonschema:"task type: development|analysis|spike|pr-review|buildkite-debug|test-run|env-test|other"`
+	Ticket     string `json:"ticket,omitempty" jsonschema:"optional Jira ticket; becomes the session id when present"`
+	Repo       string `json:"repo,omitempty" jsonschema:"absolute path to the repo (managed-worktree mode)"`
+	Branch     string `json:"branch,omitempty" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
+	PR         string `json:"pr,omitempty" jsonschema:"optional PR number/url for pr-review"`
 	Worktree   bool   `json:"worktree,omitempty" jsonschema:"create a scratch worktree for analysis/spike"`
 	Prompt     string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
 	Dir        string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`

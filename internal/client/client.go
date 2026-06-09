@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/approval"
-	"github.com/srajanpathak/warden/internal/digest"
-	"github.com/srajanpathak/warden/internal/pipeline"
-	"github.com/srajanpathak/warden/internal/pressure"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // ErrDaemonDown signals the daemon is unreachable (connection refused / timeout).

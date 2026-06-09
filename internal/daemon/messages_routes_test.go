@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/mailbox"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // newMsgServer builds a Server wired with a real temp mailbox, a fake store, and

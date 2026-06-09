@@ -3,11 +3,11 @@ package tui
 import (
 	"context"
 
-	"github.com/srajanpathak/warden/internal/approval"
-	"github.com/srajanpathak/warden/internal/client"
-	"github.com/srajanpathak/warden/internal/digest"
-	"github.com/srajanpathak/warden/internal/pipeline"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // api is the subset of *client.Client the TUI needs (fakeable in tests).

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func newLsCmd() *cobra.Command {

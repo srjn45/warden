@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/pressure"
 )
 
 func TestHandlePressure(t *testing.T) {

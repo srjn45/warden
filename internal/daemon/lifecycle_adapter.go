@@ -3,9 +3,9 @@ package daemon
 import (
 	"context"
 
-	"github.com/srajanpathak/warden/internal/lifecycle"
-	"github.com/srajanpathak/warden/internal/pressure"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // lifecycleAdapter combines subprocess lifecycle ops with the store so the

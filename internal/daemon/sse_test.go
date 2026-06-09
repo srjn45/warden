@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -98,8 +98,8 @@ func newStreamRecorder() *streamRecorder {
 	pr, pw := io.Pipe()
 	return &streamRecorder{hdr: make(http.Header), pr: pr, pw: pw}
 }
-func (s *streamRecorder) Header() http.Header      { return s.hdr }
-func (s *streamRecorder) WriteHeader(code int)     { s.code = code }
+func (s *streamRecorder) Header() http.Header         { return s.hdr }
+func (s *streamRecorder) WriteHeader(code int)        { s.code = code }
 func (s *streamRecorder) Write(b []byte) (int, error) { return s.pw.Write(b) }
-func (s *streamRecorder) Flush()                   {}
-func (s *streamRecorder) reader() io.Reader        { return s.pr }
+func (s *streamRecorder) Flush()                      {}
+func (s *streamRecorder) reader() io.Reader           { return s.pr }

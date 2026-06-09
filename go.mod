@@ -1,4 +1,4 @@
-module github.com/srajanpathak/warden
+module github.com/srjn45/warden
 
 go 1.26.2
 

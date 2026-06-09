@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/ctxstore"
-	"github.com/srajanpathak/warden/internal/mailbox"
-	"github.com/srajanpathak/warden/internal/poller"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.Duration, approvals bool, cstore *ctxstore.Store, mbox *mailbox.Store, exec *Executor) *Server {
@@ -67,7 +67,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		scancel()
 	}
 
-	cancel()      // stop the poller (also covers the bind-failure path)
-	<-pollerDone  // wait for its summarizers to drain before returning
+	cancel()     // stop the poller (also covers the bind-failure path)
+	<-pollerDone // wait for its summarizers to drain before returning
 	return retErr
 }

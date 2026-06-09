@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func TestPrintJSON_EmptySlice(t *testing.T) {

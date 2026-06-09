@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/warden/internal/approval"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // approvalsResponse is the body for GET /approvals.

@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 
-	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srjn45/warden/internal/client"
 )
 
 // pressureChip renders the header memory-pressure gauge. Empty until the first

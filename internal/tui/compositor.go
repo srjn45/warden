@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/srajanpathak/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/lifecycle"
 )
 
 // cockpitSession returns the tmux session name for the cockpit owned by the given pid.

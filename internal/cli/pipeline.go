@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/pipeline"
 )
 
 // renderPipelineDetail formats a pipeline for `pipeline show`: the header plus,

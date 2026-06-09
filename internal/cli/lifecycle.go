@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srjn45/warden/internal/client"
 )
 
 // promptFromArgs returns the prompt for a free-form (no --type) spawn: the

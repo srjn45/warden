@@ -157,9 +157,9 @@ Build with ldflags:
 
 ```sh
 go build -ldflags "\
-  -X github.com/srajanpathak/warden/internal/buildinfo.Version=$(git describe --tags --always) \
-  -X github.com/srajanpathak/warden/internal/buildinfo.Commit=$(git rev-parse --short HEAD) \
-  -X github.com/srajanpathak/warden/internal/buildinfo.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -X github.com/srjn45/warden/internal/buildinfo.Version=$(git describe --tags --always) \
+  -X github.com/srjn45/warden/internal/buildinfo.Commit=$(git rev-parse --short HEAD) \
+  -X github.com/srjn45/warden/internal/buildinfo.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -o bin/warden ./cmd/warden
 ```
 
@@ -272,9 +272,9 @@ builds:
                         # that each archive is produced on its native OS.
     ldflags:
       - -s -w
-      - -X github.com/srajanpathak/warden/internal/buildinfo.Version={{.Version}}
-      - -X github.com/srajanpathak/warden/internal/buildinfo.Commit={{.ShortCommit}}
-      - -X github.com/srajanpathak/warden/internal/buildinfo.Date={{.Date}}
+      - -X github.com/srjn45/warden/internal/buildinfo.Version={{.Version}}
+      - -X github.com/srjn45/warden/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/srjn45/warden/internal/buildinfo.Date={{.Date}}
     goos: [darwin, linux]
     goarch: [amd64, arm64]
 
@@ -370,7 +370,7 @@ brews:
     repository:
       owner: srajanpathak
       name: homebrew-tap
-    homepage: "https://github.com/srajanpathak/warden"
+    homepage: "https://github.com/srjn45/warden"
     description: "Spawn, monitor, and tear down Claude Code agent sessions"
     license: "MIT"   # set to the real license
     dependencies:

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srjn45/warden/internal/client"
 )
 
 func TestResolveSenderPrecedence(t *testing.T) {

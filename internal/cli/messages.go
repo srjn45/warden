@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/client"
+	"github.com/srjn45/warden/internal/client"
 )
 
 // resolveSender picks the "from" identity for outgoing messages: --as, else the

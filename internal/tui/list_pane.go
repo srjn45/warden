@@ -13,9 +13,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/srajanpathak/warden/internal/client"
-	"github.com/srajanpathak/warden/internal/pipeline"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // listPaneModel is the top-left cockpit pane: the agents list plus the

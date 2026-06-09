@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/ctxstore"
-	"github.com/srajanpathak/warden/internal/pipeline"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 

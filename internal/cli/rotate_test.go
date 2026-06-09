@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/srajanpathak/warden/internal/client"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func TestBuildSuccessorParams(t *testing.T) {

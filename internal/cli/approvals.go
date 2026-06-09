@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/approval"
+	"github.com/srjn45/warden/internal/approval"
 )
 
 // parseOption parses a 1-based option argument; rejects non-integers and < 1.

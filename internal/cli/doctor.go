@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/config"
+	"github.com/srjn45/warden/internal/config"
 )
 
 // doctorVersion is the reported warden version. There is no build-stamped

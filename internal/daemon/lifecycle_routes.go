@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/warden/internal/lifecycle"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func (s *Server) registerLifecycleRoutes(r chi.Router) {

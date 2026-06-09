@@ -3,9 +3,9 @@ package daemon
 import (
 	"context"
 
-	"github.com/srajanpathak/warden/internal/lifecycle"
-	"github.com/srajanpathak/warden/internal/poller"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/store"
 )
 
 type pollerDeps struct {

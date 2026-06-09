@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/srajanpathak/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/lifecycle"
 )
 
 func TestCockpitNames(t *testing.T) {

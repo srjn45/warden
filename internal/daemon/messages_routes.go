@@ -9,8 +9,8 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/warden/internal/mailbox"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // sendMessageRequest is the body for POST /sessions/{id}/messages.

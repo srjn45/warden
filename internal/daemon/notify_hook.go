@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"github.com/srajanpathak/warden/internal/notify"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/notify"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // notifyMessage builds the notification for a transition into status `to`. It

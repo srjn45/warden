@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	webui "github.com/srajanpathak/warden/web"
+	webui "github.com/srjn45/warden/web"
 )
 
 const fallbackHTML = `<!doctype html><html><head><meta charset="utf-8"><title>warden</title></head>` +

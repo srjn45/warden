@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/digest"
-	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/stretchr/testify/require"
 )
 

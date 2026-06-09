@@ -7,10 +7,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/ctxstore"
-	"github.com/srajanpathak/warden/internal/digest"
-	"github.com/srajanpathak/warden/internal/pipeline"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func newTestExecutor(t *testing.T) (*Executor, *pipeline.Store, *fakeStore) {

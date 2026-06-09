@@ -10,16 +10,16 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/config"
-	"github.com/srajanpathak/warden/internal/ctxstore"
-	"github.com/srajanpathak/warden/internal/daemon"
-	"github.com/srajanpathak/warden/internal/digest"
-	"github.com/srajanpathak/warden/internal/lifecycle"
-	"github.com/srajanpathak/warden/internal/mailbox"
-	"github.com/srajanpathak/warden/internal/notify"
-	"github.com/srajanpathak/warden/internal/pipeline"
-	"github.com/srajanpathak/warden/internal/poller"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/daemon"
+	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/notify"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func newDaemonCmd() *cobra.Command {

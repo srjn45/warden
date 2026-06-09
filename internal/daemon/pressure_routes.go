@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/pressure"
 )
 
 // pressureSampleInterval is how often the sampler refreshes the cached level.

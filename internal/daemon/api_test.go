@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 

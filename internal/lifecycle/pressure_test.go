@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/pressure"
 )
 
 // prFakeRunner returns a canned output/error for any command.

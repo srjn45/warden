@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/ctxstore"
-	"github.com/srajanpathak/warden/internal/digest"
-	"github.com/srajanpathak/warden/internal/lifecycle"
-	"github.com/srajanpathak/warden/internal/pipeline"
-	"github.com/srajanpathak/warden/internal/pressure"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // digestSnapshotTimeout bounds the background completion-digest snapshot taken
@@ -52,8 +52,8 @@ type Executor struct {
 	notify func() // signals SSE subscribers that state changed (may be nil)
 
 	digestFn func(context.Context, *store.Session) digest.Digest // nil ⇒ skip snapshot
-	keepDone bool                                                 // WARDEN_PIPELINE_KEEP_DONE — keep done agents alive
-	snapWG   sync.WaitGroup                                       // tracks in-flight digest snapshots (test sync)
+	keepDone bool                                                // WARDEN_PIPELINE_KEEP_DONE — keep done agents alive
+	snapWG   sync.WaitGroup                                      // tracks in-flight digest snapshots (test sync)
 }
 
 func NewExecutor(ps *pipeline.Store, ss store.Store, life Lifecycle, cs *ctxstore.Store, notify func()) *Executor {
@@ -64,7 +64,9 @@ func NewExecutor(ps *pipeline.Store, ss store.Store, life Lifecycle, cs *ctxstor
 
 // SetDigestFn wires the digest builder used to snapshot a job's completion digest
 // (bound to Server.buildDigest in production). nil ⇒ no snapshot.
-func (e *Executor) SetDigestFn(fn func(context.Context, *store.Session) digest.Digest) { e.digestFn = fn }
+func (e *Executor) SetDigestFn(fn func(context.Context, *store.Session) digest.Digest) {
+	e.digestFn = fn
+}
 
 // SetKeepDoneAgents, when true, leaves a completed job's agent alive (skips the
 // reap) so its tmux pane stays attachable for debugging.

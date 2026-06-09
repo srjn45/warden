@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/srajanpathak/warden/internal/digest"
+	"github.com/srjn45/warden/internal/digest"
 )
 
 func valid() *Pipeline {

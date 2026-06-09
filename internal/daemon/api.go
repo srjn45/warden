@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/warden/internal/ctxstore"
-	"github.com/srajanpathak/warden/internal/digest"
-	"github.com/srajanpathak/warden/internal/lifecycle"
-	"github.com/srajanpathak/warden/internal/mailbox"
-	"github.com/srajanpathak/warden/internal/poller"
-	"github.com/srajanpathak/warden/internal/pressure"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // EventRequest is the body for POST /events (sent by hooks).

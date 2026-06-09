@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/srajanpathak/warden/internal/client"
-	"github.com/srajanpathak/warden/internal/pipeline"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/store"
 )
 
 func age(t time.Time) string {

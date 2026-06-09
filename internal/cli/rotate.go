@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/srajanpathak/warden/internal/client"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // composeSuccessorPrompt builds the successor's initial prompt: it points the

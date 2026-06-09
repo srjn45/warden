@@ -4,8 +4,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/client"
-	"github.com/srajanpathak/warden/internal/config"
+	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/config"
 )
 
 func clientFor(cmd *cobra.Command) *client.Client {

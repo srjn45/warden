@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // classify derives a status from the latest pane capture + liveness.

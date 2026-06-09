@@ -12,7 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/warden/internal/store"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // attachEnv forces TERM=xterm-256color for the tmux attach PTY. The rendering

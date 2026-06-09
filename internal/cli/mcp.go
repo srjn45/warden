@@ -3,8 +3,8 @@ package cli
 import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
-	"github.com/srajanpathak/warden/internal/config"
-	"github.com/srajanpathak/warden/internal/mcp"
+	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/mcp"
 )
 
 func newMCPCmd() *cobra.Command {

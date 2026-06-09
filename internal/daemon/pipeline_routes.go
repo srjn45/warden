@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/srajanpathak/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/pipeline"
 )
 
 type createPipelineRequest struct {
