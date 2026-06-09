@@ -22,6 +22,11 @@ type Store interface {
 	// The poller uses it so a status derived from a stale snapshot can't clobber
 	// a newer status written by a hook between the poller's List and its write.
 	UpdateStatusIf(ctx context.Context, id string, expected, next Status) (bool, error)
+	// FinalizeExit is a compare-and-swap like UpdateStatusIf that also records the
+	// process exit code and, for a non-zero code, appends a "session exited" event
+	// — all in one atomic write. The poller uses it to finalize an agent from its
+	// exit-file without clobbering a status a SessionEnd hook already set.
+	FinalizeExit(ctx context.Context, id string, expected, next Status, code int) (bool, error)
 	UpdateType(ctx context.Context, id string, t Type) error
 	UpdateSubject(ctx context.Context, id, subject string) error
 	AppendEvent(ctx context.Context, id string, ev Event) error

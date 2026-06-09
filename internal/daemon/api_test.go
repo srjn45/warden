@@ -73,6 +73,19 @@ func (f *fakeStore) UpdateStatusIf(_ context.Context, id string, expected, next 
 	s.Status = next
 	return true, nil
 }
+func (f *fakeStore) FinalizeExit(_ context.Context, id string, expected, next store.Status, code int) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok || s.Status != expected {
+		return false, nil
+	}
+	// NB: does not append the exit event; sufficient for handler-level tests.
+	s.Status = next
+	c := code
+	s.ExitCode = &c
+	return true, nil
+}
 func (f *fakeStore) UpdateType(_ context.Context, id string, t store.Type) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

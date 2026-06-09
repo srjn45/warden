@@ -207,6 +207,69 @@ func (fs *FileStore) UpdateStatusIf(ctx context.Context, id string, expected, ne
 	return true, nil
 }
 
+// FinalizeExit sets status next (CAS on expected), records ExitCode=code, and
+// for a non-zero code appends a "session exited" event — in one atomic write.
+func (fs *FileStore) FinalizeExit(ctx context.Context, id string, expected, next Status, code int) (bool, error) {
+	if err := safeID(id); err != nil {
+		return false, err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	s, err := readSession(fs.activePath(id))
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if s.Status != expected {
+		return false, nil
+	}
+	s.Status = next
+	c := code
+	s.ExitCode = &c
+	now := time.Now().UTC()
+	if code != 0 {
+		s.Events = append(s.Events, Event{
+			TS:     now,
+			Type:   "exit",
+			Detail: exitDetail(code),
+		})
+	}
+	s.UpdatedAt = now
+	if err := atomicWriteJSON(fs.activePath(id), s); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// exitDetail renders a human-readable exit reason. A code in the shell's
+// "killed by signal" range (128 < code <= 128+64) names the signal; an unknown
+// signal number in that range falls through to the plain "code N" format.
+func exitDetail(code int) string {
+	if sig := signalName(code - 128); code > 128 && code <= 128+64 && sig != "" {
+		return fmt.Sprintf("session exited: code %d (%s)", code, sig)
+	}
+	return fmt.Sprintf("session exited: code %d", code)
+}
+
+// signalName maps the common termination signals to their names; "" for others.
+func signalName(sig int) string {
+	switch sig {
+	case 2:
+		return "SIGINT"
+	case 6:
+		return "SIGABRT"
+	case 9:
+		return "SIGKILL"
+	case 11:
+		return "SIGSEGV"
+	case 15:
+		return "SIGTERM"
+	}
+	return ""
+}
+
 func (fs *FileStore) UpdateType(ctx context.Context, id string, t Type) error {
 	return fs.mutate(id, func(s *Session) { s.Type = t })
 }

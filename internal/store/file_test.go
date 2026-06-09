@@ -306,6 +306,71 @@ func TestFileConcurrentAccess(t *testing.T) {
 	require.Len(t, got.Events, 20, "every concurrent AppendEvent must be durable (no lost writes)")
 }
 
+func TestFinalizeExitErroredSetsCodeAndEvent(t *testing.T) {
+	fs := newFileStore(t)
+	ctx := context.Background()
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "x", Status: StatusWorking}))
+
+	ok, err := fs.FinalizeExit(ctx, "x", StatusWorking, StatusErrored, 137)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	got, err := fs.Get(ctx, "x")
+	require.NoError(t, err)
+	require.Equal(t, StatusErrored, got.Status)
+	require.NotNil(t, got.ExitCode)
+	require.Equal(t, 137, *got.ExitCode)
+	require.Len(t, got.Events, 1)
+	require.Contains(t, got.Events[0].Detail, "code 137")
+	require.Contains(t, got.Events[0].Detail, "SIGKILL")
+}
+
+func TestFinalizeExitCleanSetsCodeNoEvent(t *testing.T) {
+	fs := newFileStore(t)
+	ctx := context.Background()
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "y", Status: StatusWorking}))
+
+	ok, err := fs.FinalizeExit(ctx, "y", StatusWorking, StatusDone, 0)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	got, _ := fs.Get(ctx, "y")
+	require.Equal(t, StatusDone, got.Status)
+	require.NotNil(t, got.ExitCode)
+	require.Equal(t, 0, *got.ExitCode)
+	require.Empty(t, got.Events) // clean exit logs no event
+}
+
+func TestFinalizeExitNonSignalCodeNoSignalName(t *testing.T) {
+	fs := newFileStore(t)
+	ctx := context.Background()
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "w", Status: StatusWorking}))
+
+	ok, err := fs.FinalizeExit(ctx, "w", StatusWorking, StatusErrored, 1)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	got, _ := fs.Get(ctx, "w")
+	require.Equal(t, StatusErrored, got.Status)
+	require.NotNil(t, got.ExitCode)
+	require.Equal(t, 1, *got.ExitCode)
+	require.Len(t, got.Events, 1)
+	require.Equal(t, "session exited: code 1", got.Events[0].Detail) // plain: no signal name
+}
+
+func TestFinalizeExitCASLoses(t *testing.T) {
+	fs := newFileStore(t)
+	ctx := context.Background()
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "z", Status: StatusDone})) // hook already finished it
+
+	ok, err := fs.FinalizeExit(ctx, "z", StatusWorking, StatusErrored, 1)
+	require.NoError(t, err)
+	require.False(t, ok) // expected!=stored -> no-op
+	got, _ := fs.Get(ctx, "z")
+	require.Equal(t, StatusDone, got.Status)
+	require.Nil(t, got.ExitCode)
+}
+
 func TestNewFileStoreDirsAre0700(t *testing.T) {
 	dir := t.TempDir()
 	fs, err := NewFileStore(dir)
