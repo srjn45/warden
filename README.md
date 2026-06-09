@@ -697,7 +697,7 @@ make test                          # go test ./...
 make web-test                      # frontend unit tests
 ```
 
-CI (build, test, lint) runs on every push and PR to `master` — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI (build, test, lint) runs on every push and PR to `main` — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ---
 
