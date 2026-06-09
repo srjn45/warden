@@ -95,26 +95,36 @@ Behavior (unit-tested in `group.test.ts`):
 - `warden` (no slash) → `warden`
 - `/` → `/` (fallback to original when last segment empty)
 
-### 3. `QuickAddButton.tsx` — isolated spawn side-effect
+### 3. Quick-add: pure helper + thin button
 
-A small component owning its own busy / error / force state, so `AgentGrid`
-stays presentational. Props: `{ dir: string; onCreated: (id: string) => void }`.
+The codebase tests **pure logic in `lib/`** (there are no React component
+tests). So the spawn side-effect is split:
 
-State machine on click:
-1. `spawn({ prompt: '', cwd: dir, supervised: false })`.
-2. **Success** → `onCreated(s.id)` (Dashboard opens that agent's tab).
-3. **`ConfirmationRequiredError` (428 memory pressure)** → enter `confirm`
-   state: button shows a force affordance and `title` shows the reason
-   (`⚠ memory pressure: <reason> — click again to spawn anyway`). A second click
-   re-spawns with `force: true`.
-4. **Other error** → `title` shows the message, button gets `.warn` tint.
+**`lib/quickadd.ts`** — pure, unit-tested helper:
 
-While the request is in flight the button is `disabled` (`busy`). The label is
-`+` normally and `+!` (or warn-tinted `+`) in the force/error state; the precise
-glyph is a detail — the title attribute carries the explanation.
+```ts
+export type QuickAddResult =
+  | { kind: 'created'; id: string }
+  | { kind: 'confirm'; reason: string }  // 428 memory pressure — needs force
+  | { kind: 'error'; message: string };
 
-Mirrors `NewAgentModal`'s spawn/428 logic, minus the modal chrome and the dir
-picker (dir is fixed to the pane's directory).
+// quickAdd does a no-prompt, unsupervised spawn in `dir`. force re-tries past a
+// memory-pressure 428. Never throws — maps every outcome to a QuickAddResult.
+export async function quickAdd(dir: string, force?: boolean): Promise<QuickAddResult>;
+```
+
+**`QuickAddButton.tsx`** — thin presentational shell (no test, matching the
+codebase convention). Props `{ dir: string; onCreated: (id: string) => void }`.
+Owns busy / confirm / error state and renders the `+`:
+1. Click → `quickAdd(dir)`.
+2. `created` → `onCreated(id)` (Dashboard opens that agent's tab).
+3. `confirm` → store the reason; button gets a force affordance and `title`
+   = `⚠ memory pressure: <reason> — click again to spawn anyway`. A second click
+   calls `quickAdd(dir, true)`.
+4. `error` → `title` = message, button gets `.warn` tint.
+
+While in flight the button is `disabled`. Label is `+` normally; warn-tinted in
+the force/error state — the `title` carries the explanation.
 
 ### 4. Wiring — thread `onCreated`
 
@@ -146,9 +156,10 @@ QuickAddButton click
 ## Testing
 
 - **Unit (`group.test.ts`)**: `baseName()` cases above.
-- **Component (`QuickAddButton`)**: spawns with blank prompt + correct cwd;
-  on 428 enters force state and the second click sends `force: true`; surfaces a
-  generic error. (Mock `spawn` from `api.ts`.)
+- **Unit (`quickadd.test.ts`)**: `quickAdd()` stubs `fetch` (same pattern as
+  `api.test.ts`) and asserts the spawn body (`prompt:''`, correct `cwd`,
+  `supervised:false`, `force`), and the result mapping for 200 → `created`,
+  428 → `confirm`, 5xx → `error`.
 - **Manual / Playwright**: cockpit renders titled panes with header bars;
   clicking `+` opens a new agent tab in the right directory; `—` group has no
   `+`.
@@ -157,9 +168,10 @@ QuickAddButton click
 
 - `web/src/lib/group.ts` — add `baseName()`.
 - `web/src/lib/group.test.ts` — `baseName()` tests.
+- `web/src/lib/quickadd.ts` — new pure helper.
+- `web/src/lib/quickadd.test.ts` — new.
+- `web/src/components/QuickAddButton.tsx` — new (thin shell, untested).
 - `web/src/components/AgentGrid.tsx` — pane/header markup, optional `onCreated`.
-- `web/src/components/QuickAddButton.tsx` — new.
-- `web/src/components/QuickAddButton.test.tsx` — new.
 - `web/src/components/CockpitTab.tsx` — thread `onCreated`.
 - `web/src/components/Dashboard.tsx` — pass `onCreated` to `CockpitTab`.
 - `web/src/styles/app.css` — pane + header bar + quick-add styling.
