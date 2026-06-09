@@ -91,7 +91,7 @@ func (r *Recorder) History(since time.Time, limit int) ([]Sample, error) {
 func (r *Recorder) Prune(now time.Time, keepDays int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	cutoff := now.UTC().AddDate(0, 0, -keepDays)
+	cutoff := now.UTC().AddDate(0, 0, -keepDays).Truncate(24 * time.Hour)
 	files, err := filepath.Glob(filepath.Join(r.dir, "*.jsonl"))
 	if err != nil {
 		return err
@@ -102,7 +102,7 @@ func (r *Recorder) Prune(now time.Time, keepDays int) error {
 		if err != nil {
 			continue
 		}
-		if day.Before(cutoff.Truncate(24 * time.Hour)) {
+		if day.Before(cutoff) {
 			_ = os.Remove(fp)
 		}
 	}

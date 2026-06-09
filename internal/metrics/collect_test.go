@@ -79,3 +79,25 @@ func TestCollectorAgentDegradesWhenPaneMissing(t *testing.T) {
 		t.Fatalf("ghost agent should be non-paneable zero: %+v", s.Agents)
 	}
 }
+
+func TestCollectorMultiPaneAgent(t *testing.T) {
+	// An agent with two panes (two root pids) aggregates both subtrees.
+	ps := "  10   1  1000  0.0  01:00\n" +
+		"  20   1  2000  0.0  01:00\n"
+	c := &Collector{
+		Run: fakeRunner{resp: map[string]string{
+			"ps -axo pid=,ppid=,rss=,pcpu=,etime=":    ps,
+			"tmux list-panes -F #{pane_pid} -t multi": "10\n20\n",
+		}}.Run,
+		Lister:   fakeLister{agents: []Agent{{ID: "multi", TmuxSession: "multi", Status: "working"}}},
+		SelfPID:  1,
+		Pressure: func() string { return "normal" },
+	}
+	s, err := c.Sample(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Agents) != 1 || !s.Agents[0].Paneable || s.Agents[0].ProcCount != 2 || s.Agents[0].RSSBytes != (1000+2000)*1024 {
+		t.Fatalf("multi-pane agent = %+v", s.Agents)
+	}
+}

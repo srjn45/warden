@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -65,4 +67,25 @@ func TestRecorderHistoryEmptyDir(t *testing.T) {
 		t.Fatalf("empty history err=%v got=%+v", err, got)
 	}
 	_ = context.Background()
+}
+
+func TestRecorderHistorySkipsMalformedLines(t *testing.T) {
+	dir := t.TempDir()
+	r, _ := NewRecorder(dir)
+	_ = r.Record(Sample{TakenAt: ts("2026-06-09T10:00:00Z"), System: SystemStats{AgentCount: 5}})
+	// Append a junk line to the day-file; History must skip it, not error.
+	fp := filepath.Join(dir, "2026-06-09.jsonl")
+	f, err := os.OpenFile(fp, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("not json\n")
+	f.Close()
+	got, err := r.History(time.Time{}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].System.AgentCount != 5 {
+		t.Fatalf("history should skip malformed line: %+v", got)
+	}
 }

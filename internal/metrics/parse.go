@@ -106,8 +106,10 @@ func parseVMStat(raw string) (pageSize int64, counts map[string]int64) {
 			if i := strings.Index(line, "page size of "); i >= 0 {
 				rest := line[i+len("page size of "):]
 				rest = strings.TrimSuffix(strings.TrimSpace(rest), " bytes)")
-				if n, err := strconv.ParseInt(strings.Fields(rest)[0], 10, 64); err == nil {
-					pageSize = n
+				if ff := strings.Fields(rest); len(ff) > 0 {
+					if n, err := strconv.ParseInt(ff[0], 10, 64); err == nil {
+						pageSize = n
+					}
 				}
 			}
 			continue

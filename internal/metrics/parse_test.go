@@ -106,3 +106,11 @@ func TestBuildSystemStats(t *testing.T) {
 		t.Fatalf("swap/pressure wrong: %+v", ss)
 	}
 }
+
+func TestParseVMStatDegradesOnGarbage(t *testing.T) {
+	// No header, no parseable lines → default page size, empty counts, no panic.
+	pageSize, counts := parseVMStat("garbage\n\n")
+	if pageSize != 4096 || len(counts) != 0 {
+		t.Fatalf("pageSize=%d counts=%+v", pageSize, counts)
+	}
+}
