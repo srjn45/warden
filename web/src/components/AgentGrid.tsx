@@ -36,7 +36,7 @@ export default function AgentGrid({ sessions, onSelect, lines = 8, onCreated }: 
             {g.sessions.map((s) => (
               <button key={s.id} className="grid-tile" onClick={() => onSelect(s.id)}>
                 <div className="tile-head">
-                  <b>{s.id}</b> <BusyIdleBadge status={s.status} />
+                  <b>{s.id}</b> <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
                 </div>
                 <MiniTerminal id={s.id} lines={lines} />
               </button>

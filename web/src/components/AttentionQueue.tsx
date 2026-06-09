@@ -47,7 +47,7 @@ export default function AttentionQueue({ sessions, onSelect }: {
         return (
           <div key={s.id} className="attn-card">
             <div className="attn-card-head">
-              <b>{s.id}</b> <BusyIdleBadge status={s.status} />
+              <b>{s.id}</b> <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
             </div>
             <div className="muted attn-card-sub">
               {(v && (v.action || v.question)) || s.subject || s.prompt || s.type || '—'}

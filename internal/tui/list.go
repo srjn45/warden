@@ -487,7 +487,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		line = stMuted.Render("(no agents — n to spawn here)")
 	default:
 		s := it.session
-		label, st := badge(s.Status)
+		label, st := badge(s.Status, s.ExitCode)
 		line = fmt.Sprintf("%-12s %-9s %-11s %-5s %s",
 			trunc(s.ID, 12), trunc(typeOr(s), 9), st.Render(label), age(s.UpdatedAt),
 			trunc(s.Subject, max(0, width-44)))

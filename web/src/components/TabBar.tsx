@@ -24,7 +24,7 @@ export default function TabBar({ state, sessions, onActivate, onClose }: {
         return (
           <span key={id} className={cls(id)}>
             <button className="tab-label" onClick={() => onActivate(id)}>
-              {id} <BusyIdleBadge status={s.status} />
+              {id} <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
             </button>
             <button className="tab-close" title="Close tab" onClick={() => onClose(id)}>✕</button>
           </span>

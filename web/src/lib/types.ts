@@ -52,6 +52,7 @@ export interface Session {
   events: AgentEvent[] | null;
   last_pane_excerpt: string;
   supervised: boolean;
+  exit_code?: number | null;
 }
 
 // ContextEntry mirrors the daemon's shared-context entry (GET /context).

@@ -17,4 +17,13 @@ describe('busyIdle', () => {
     expect(busyIdle('errored')).toEqual({ label: 'Error', kind: 'error' });
     expect(busyIdle('orphaned')).toEqual({ label: 'Orphaned', kind: 'error' });
   });
+  it('shows the exit code on an errored badge when present', () => {
+    expect(busyIdle('errored', 137).label).toBe('Error (137)');
+  });
+  it('errored without a code keeps the plain Error label', () => {
+    expect(busyIdle('errored').label).toBe('Error');
+  });
+  it('errored with code 0 keeps the plain Error label', () => {
+    expect(busyIdle('errored', 0).label).toBe('Error');
+  });
 });
