@@ -307,6 +307,41 @@ func TestPipelineDeleteReapsJobSessions(t *testing.T) {
 	}
 }
 
+func TestPipelineDeleteClearsContext(t *testing.T) {
+	ps, _ := pipeline.NewStore(t.TempDir())
+	cs, _ := ctxstore.New(t.TempDir())
+	ss := newFakeStore()
+	fl := &fakeLife{}
+	exec := NewExecutor(ps, ss, fl, cs, func() {})
+	srv := &Server{store: ss, life: fl, exec: exec, cstore: cs, hub: newHub(), done: make(chan struct{})}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) // pipeline "demo", job "a" pending
+	// Stand in for the executor's per-job output handoff keys, plus an unrelated key.
+	cs.Set("pipeline.demo.a.output", "result of a", "pipeline:demo")
+	cs.Set("global.keep", "unrelated", "human")
+	cs.Set("pipeline.demo2.a.output", "other pipeline", "pipeline:demo2") // must survive
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/pipelines/demo", nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete status %d", resp.StatusCode)
+	}
+
+	if _, gerr := cs.Get("pipeline.demo.a.output"); !errors.Is(gerr, ctxstore.ErrNotFound) {
+		t.Fatalf("pipeline.demo context key should be cleared, got %v", gerr)
+	}
+	if _, gerr := cs.Get("global.keep"); gerr != nil {
+		t.Fatalf("unrelated key must survive, got %v", gerr)
+	}
+	if _, gerr := cs.Get("pipeline.demo2.a.output"); gerr != nil {
+		t.Fatalf("another pipeline's keys must survive (no prefix collision), got %v", gerr)
+	}
+}
+
 // Terminating a running job's agent (HTTP terminate sets the session done
 // directly, bypassing the poller) must also fail the job, or it stays stuck
 // "running" with a dead agent.

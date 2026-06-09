@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -239,6 +240,45 @@ func TestHandleDeleteArchivesByDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	_, err = fs.Get(context.Background(), "A-1")
 	require.ErrorIs(t, err, store.ErrNotFound, "record removed from active store")
+}
+
+func TestHandleDeleteHardClearsMailbox(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
+	mb, _ := mailbox.New(t.TempDir())
+	mb.Append(mailbox.Message{To: "A-1", From: "B-2", Body: "hi"})
+	srv := &Server{store: fs, life: &fakeLife{}, mbox: mb, hub: newHub(), done: make(chan struct{})}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{"hard":true}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	msgs, err := mb.Messages("A-1")
+	require.NoError(t, err)
+	require.Empty(t, msgs, "hard delete should clear the agent's inbox")
+}
+
+func TestHandleDeleteSoftKeepsMailbox(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
+	mb, _ := mailbox.New(t.TempDir())
+	mb.Append(mailbox.Message{To: "A-1", From: "B-2", Body: "hi"})
+	srv := &Server{store: fs, life: &fakeLife{}, mbox: mb, hub: newHub(), done: make(chan struct{})}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	// Default (archive) delete must NOT touch the inbox.
+	resp, err := http.Post(ts.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	msgs, err := mb.Messages("A-1")
+	require.NoError(t, err)
+	require.Len(t, msgs, 1, "soft/archive delete must leave the inbox intact")
 }
 
 func TestHandleRemoveWorktreeGuardConflict(t *testing.T) {

@@ -148,6 +148,24 @@ func (s *Store) All() ([]Message, error) {
 	return out, nil
 }
 
+// DeleteInbox removes a recipient's entire inbox file. A missing file is a
+// no-op (nil) — inboxes are created lazily, so "never had one" and "had one,
+// now cleared" are the same end state. Backs cleanup when an agent is
+// hard-deleted; safe because nothing (pipelines included) reads another agent's
+// inbox to make progress.
+func (s *Store) DeleteInbox(to string) error {
+	path, err := s.path(to)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // MarkRead flags the given message IDs read in to's inbox. Unknown IDs are
 // ignored; a no-op (nothing changed) avoids a rewrite.
 func (s *Store) MarkRead(to string, ids []string) error {

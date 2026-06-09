@@ -151,6 +151,37 @@ func (s *Store) List(prefix string) ([]Entry, error) {
 	return out, nil
 }
 
+// DelPrefix removes every key starting with prefix and returns how many were
+// removed. An empty prefix is rejected (ErrBadKey) so a caller can never wipe
+// the whole store by accident — this backs pipeline-scoped cleanup, where the
+// caller passes "pipeline.<id>." (trailing dot included so "p1" can't match
+// "p10"). A no-match prefix is not an error; it returns (0, nil).
+func (s *Store) DelPrefix(prefix string) (int, error) {
+	if prefix == "" {
+		return 0, ErrBadKey
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.load()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for k := range m {
+		if strings.HasPrefix(k, prefix) {
+			delete(m, k)
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	if err := s.save(m); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // Del removes key, returning ErrNotFound if it was absent.
 func (s *Store) Del(key string) error {
 	s.mu.Lock()

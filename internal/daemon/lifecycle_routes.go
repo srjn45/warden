@@ -305,6 +305,13 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, derr.Error())
 		return
 	}
+	// Only a hard delete (destroy the record) drops the agent's inbox; an archive
+	// keeps it for the historical message-traffic view. Safe to do unconditionally
+	// here because no pipeline reads another agent's inbox to make progress —
+	// job→job handoff goes through shared context, not the mailbox. Best-effort.
+	if req.Hard && s.mbox != nil {
+		_ = s.mbox.DeleteInbox(id)
+	}
 	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "warning": warn})
 }

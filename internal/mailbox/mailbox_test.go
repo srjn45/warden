@@ -178,3 +178,40 @@ func TestAllIgnoresTempFiles(t *testing.T) {
 		t.Fatalf("want 1 (temp ignored), got %d: %+v", len(all), all)
 	}
 }
+
+func TestDeleteInboxRemovesFile(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := New(dir)
+	s.Append(Message{To: "agent-x", From: "y", Body: "hi"})
+	if _, err := os.Stat(filepath.Join(dir, "agent-x.json")); err != nil {
+		t.Fatalf("inbox file should exist before delete: %v", err)
+	}
+
+	if err := s.DeleteInbox("agent-x"); err != nil {
+		t.Fatalf("DeleteInbox: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "agent-x.json")); !os.IsNotExist(err) {
+		t.Fatalf("inbox file should be gone, stat err=%v", err)
+	}
+	msgs, err := s.Messages("agent-x")
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("want empty inbox after delete, got %d", len(msgs))
+	}
+}
+
+func TestDeleteInboxMissingIsNoError(t *testing.T) {
+	s, _ := New(t.TempDir())
+	if err := s.DeleteInbox("never-used"); err != nil {
+		t.Fatalf("deleting a missing inbox must be a no-op, got %v", err)
+	}
+}
+
+func TestDeleteInboxBadRecipient(t *testing.T) {
+	s, _ := New(t.TempDir())
+	if err := s.DeleteInbox("../escape"); !errors.Is(err, ErrBadRecipient) {
+		t.Fatalf("want ErrBadRecipient, got %v", err)
+	}
+}

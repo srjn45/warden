@@ -143,3 +143,51 @@ func TestDel(t *testing.T) {
 		t.Fatalf("Del missing want ErrNotFound, got %v", err)
 	}
 }
+
+func TestDelPrefixRemovesOnlyMatchingKeys(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Set("global.a", "1", "by")
+	s.Set("pipeline.p1.j1.output", "x", "by")
+	s.Set("pipeline.p1.j2.output", "y", "by")
+	s.Set("pipeline.p10.j1.output", "z", "by") // must NOT match prefix "pipeline.p1."
+
+	n, err := s.DelPrefix("pipeline.p1.")
+	if err != nil {
+		t.Fatalf("DelPrefix: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("want 2 deleted, got %d", n)
+	}
+	if _, err := s.Get("pipeline.p1.j1.output"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("p1.j1 should be gone, got %v", err)
+	}
+	if _, err := s.Get("pipeline.p10.j1.output"); err != nil {
+		t.Fatalf("p10 must survive prefix p1., got %v", err)
+	}
+	if _, err := s.Get("global.a"); err != nil {
+		t.Fatalf("unrelated key must survive, got %v", err)
+	}
+}
+
+func TestDelPrefixNoMatchReturnsZero(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Set("global.a", "1", "by")
+	n, err := s.DelPrefix("pipeline.ghost.")
+	if err != nil {
+		t.Fatalf("DelPrefix: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("want 0 deleted, got %d", n)
+	}
+}
+
+func TestDelPrefixEmptyRejected(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Set("global.a", "1", "by")
+	if _, err := s.DelPrefix(""); !errors.Is(err, ErrBadKey) {
+		t.Fatalf("empty prefix must be rejected with ErrBadKey, got %v", err)
+	}
+	if _, err := s.Get("global.a"); err != nil {
+		t.Fatalf("rejected DelPrefix must not delete anything, got %v", err)
+	}
+}

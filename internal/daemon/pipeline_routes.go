@@ -114,6 +114,13 @@ func (s *Server) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Clear this pipeline's shared-context keys (per-job ".output" handoffs the
+	// executor wrote under pipeline.<id>.). Best-effort: the record is already
+	// gone, so a stale key is a harmless leak, not a failure. Trailing dot keeps
+	// "p1" from matching "p10".
+	if s.exec.cstore != nil {
+		_, _ = s.exec.cstore.DelPrefix("pipeline." + pid + ".")
+	}
 	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
