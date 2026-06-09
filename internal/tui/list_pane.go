@@ -658,7 +658,9 @@ func (m listPaneModel) View() string {
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
-	footer := stMuted.Render("enter open · n new · o dir · s send · a attach · d digest · i approvals · c ctx/msgs · r retry · x kill/cancel · ? help · q quit")
+	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
+	// this stays short enough to fit the narrow list pane and always show `? help`.
+	footer := stMuted.Render("enter open · n new · s send · a attach · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
