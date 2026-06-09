@@ -83,9 +83,16 @@ body { margin: 0; }
 .quick-spawn textarea { padding: .5rem; font: inherit; resize: vertical; }
 
 /* ── Agent grid / cockpit ── */
-.agent-grid-group { margin-bottom: 1rem; }
-.grid-group-head { margin: .3rem 0; font-size: .8rem; }
-.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .6rem; }
+.agent-grid-group { margin-bottom: 1rem; border: 1px solid #8884; border-radius: .5rem; overflow: hidden; }
+.grid-group-bar { display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem; background: #8881; border-bottom: 1px solid #8884; }
+.grid-group-name { font-weight: 600; }
+.grid-group-path { color: var(--idle); font-size: .8rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid-group-count { color: var(--idle); font-size: .8rem; }
+.grid-group-add { border: 1px solid #8884; border-radius: .3rem; background: transparent; color: inherit; cursor: pointer; line-height: 1; padding: .1rem .45rem; font-size: .95rem; }
+.grid-group-add:hover:not(:disabled) { border-color: #2f81f7; }
+.grid-group-add:disabled { opacity: .5; cursor: default; }
+.grid-group-add.warn { border-color: var(--attention); color: var(--attention); }
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .6rem; padding: .6rem; }
 .grid-tile { text-align: left; padding: 0; border: 1px solid #8884; border-radius: .4rem; overflow: hidden; cursor: pointer; background: transparent; color: inherit; }
 .grid-tile:hover { border-color: #2f81f7; }
 .tile-head { display: flex; align-items: center; gap: .4rem; padding: .35rem .5rem; font-size: .85rem; background: #8881; }
