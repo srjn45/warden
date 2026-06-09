@@ -14,8 +14,10 @@ export default function AttentionBar({
   return (
     <header className="topbar">
       <h1 className="brand">
-        <img src="/brand/warden-symbol.svg" alt="" width="26" height="26" />
-        warden
+        <picture>
+          <source srcSet="/brand/warden-wordmark-dark.svg" media="(prefers-color-scheme: dark)" />
+          <img src="/brand/warden-wordmark-light.svg" alt="warden" />
+        </picture>
       </h1>
       <span className={connected ? 'conn ok' : 'conn down'}>
         {connected ? 'live' : 'reconnecting…'}

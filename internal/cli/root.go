@@ -15,11 +15,11 @@ import (
 var version = "dev"
 
 // banner is the ASCII wordmark shown at the top of `warden --help`.
-const banner = `                    _
- __      ____ _ _ __| | ___ _ __
- \ \ /\ / / _` + "`" + ` | '__| |/ _ \ '_ \
-  \ V  V / (_| | |  | |  __/ | | |
-   \_/\_/ \__,_|_|  |_|\___|_| |_|`
+const banner = `                       _
+__      ____ _ _ __ __| | ___ _ __
+\ \ /\ / / _` + "`" + ` | '__/ _` + "`" + ` |/ _ \ '_ \
+ \ V  V / (_| | | | (_| |  __/ | | |
+  \_/\_/ \__,_|_|  \__,_|\___|_| |_|`
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
