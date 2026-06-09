@@ -1212,6 +1212,24 @@ func TestExitSuffixAndReadClear(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 }
 
+func TestSpawnAppendsExitSuffix(t *testing.T) {
+	t.Setenv("WARDEN_NO_PIPELINE_HINT", "") // anchor: hint on, matches production
+	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "")
+	fr := &FakeRunner{}
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	l.ExitsDir = t.TempDir()
+	prompt := "do a thing"
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: prompt, Cwd: "/work/project"})
+	require.NoError(t, err)
+
+	promptFile := "/state/prompts/" + s.ID
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() +
+		` "$(cat ` + shellQuoteArg(promptFile) + `)"` +
+		" ; printf '%s' \"$?\" > " + shellQuoteArg(filepath.Join(l.ExitsDir, s.ID))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+}
+
 func TestExitSuffixEmptyWhenDirUnset(t *testing.T) {
 	l := New(ExecRunner{}) // ExitsDir == ""
 	require.Equal(t, "", l.exitSuffix("agent-1"))

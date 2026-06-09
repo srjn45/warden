@@ -595,7 +595,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	if err := l.newAgentSession(ctx, "", sess.ID, req.Cwd); err != nil {
 		return nil, err
 	}
-	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Supervised) + pipelineHint() + launchPrompt
+	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Supervised) + pipelineHint() + launchPrompt + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
 		l.cleanupFailedSpawn(sess, true, false)
@@ -627,7 +627,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		l.cleanupFailedSpawn(sess, false, worktreeCreated)
 		return nil, err
 	}
-	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Supervised) + pipelineHint()
+	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Supervised) + pipelineHint() + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -741,7 +741,8 @@ func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID string, 
 	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
 		return err
 	}
-	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, claudeResume(claudeID, id, supervised), "Enter"); err != nil {
+	resume := claudeResume(claudeID, id, supervised) + l.exitSuffix(id)
+	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, resume, "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
 	}
 	return nil
@@ -1102,7 +1103,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, err
 	}
-	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
