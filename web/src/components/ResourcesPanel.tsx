@@ -30,6 +30,15 @@ export default function ResourcesPanel() {
     const s = historySeries(history);
     const data: uPlot.AlignedData = [s.t, s.rssGiB, s.pressure];
     if (!plotRef.current) {
+      // Theme-neutral grays: uPlot defaults axis text/ticks/grid to black,
+      // which vanishes on the dark theme. #888 reads on both light and dark.
+      const axisStroke = '#888';
+      const gridStroke = '#8883';
+      const ax = {
+        stroke: axisStroke,
+        grid: { stroke: gridStroke },
+        ticks: { stroke: gridStroke },
+      };
       const opts: uPlot.Options = {
         width: chartRef.current.clientWidth || 600,
         height: 160,
@@ -39,7 +48,11 @@ export default function ResourcesPanel() {
           { label: 'attributed RSS (GiB)', stroke: '#4ea1ff', width: 2 },
           { label: 'pressure', stroke: '#ff6b6b', width: 1, scale: 'p' },
         ],
-        axes: [{}, { label: 'GiB' }, { scale: 'p', side: 1, label: 'pressure' }],
+        axes: [
+          { ...ax },
+          { ...ax, label: 'GiB' },
+          { ...ax, scale: 'p', side: 1, label: 'pressure' },
+        ],
       };
       plotRef.current = new uPlot(opts, data, chartRef.current);
     } else {
