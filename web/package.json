@@ -15,7 +15,8 @@
     "@xterm/xterm": "^5.5.0",
     "astro": "^5.4.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

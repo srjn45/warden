@@ -1,6 +1,7 @@
 import type { Session } from '../lib/types';
 import AttentionQueue from './AttentionQueue';
 import FleetStats from './FleetStats';
+import ResourcesPanel from './ResourcesPanel';
 import QuickSpawn from './QuickSpawn';
 import AgentGrid from './AgentGrid';
 import ActivityFeed from './ActivityFeed';
@@ -20,6 +21,10 @@ export default function OverviewTab({ sessions, onSelect }: {
       <section className="card">
         <h3>Fleet</h3>
         <FleetStats sessions={sessions} />
+      </section>
+      <section className="card">
+        <h3>Resources</h3>
+        <ResourcesPanel />
       </section>
       <section className="card">
         <h3>Quick spawn</h3>
