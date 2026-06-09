@@ -62,6 +62,7 @@ func newDaemonCmd() *cobra.Command {
 			// file goes in this single shared dir (keyed by agent id), not a
 			// per-agent directory.
 			lc.PromptsDir = filepath.Join(cfg.DataDir, "prompts")
+			lc.ExitsDir = filepath.Join(cfg.DataDir, "exits")
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHardenDataDir(t *testing.T) {
@@ -33,4 +35,14 @@ func TestHardenDataDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "inbox")); !os.IsNotExist(err) {
 		t.Fatalf("inbox should not exist, stat err = %v", err)
 	}
+}
+
+func TestHardenedSubdirsIncludesExits(t *testing.T) {
+	found := false
+	for _, s := range hardenedSubdirs {
+		if s == "exits" {
+			found = true
+		}
+	}
+	require.True(t, found, "exits dir must be hardened to 0o700 like the other data dirs")
 }

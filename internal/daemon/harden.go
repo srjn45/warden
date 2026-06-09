@@ -8,7 +8,7 @@ import (
 // hardenedSubdirs are warden's known data subdirectories under the data root.
 // HardenDataDir tightens each that exists; new dirs are created 0o700 at their
 // own creation sites (the stores; the prompts dir via `mkdir -m 700`).
-var hardenedSubdirs = []string{"sessions", "closed", "context", "inbox", "pipelines", "prompts", "metrics"}
+var hardenedSubdirs = []string{"sessions", "closed", "context", "inbox", "pipelines", "prompts", "metrics", "exits"}
 
 // HardenDataDir chmods the data root and each known subdirectory that already
 // exists to 0o700 (owner-only), so pre-existing installs created at 0o755 are
