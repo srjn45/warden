@@ -305,3 +305,21 @@ func TestFileConcurrentAccess(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got.Events, 20, "every concurrent AppendEvent must be durable (no lost writes)")
 }
+
+func TestNewFileStoreDirsAre0700(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close(context.Background())
+	for _, sub := range []string{"sessions", "closed"} {
+		info, err := os.Stat(filepath.Join(dir, sub))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("%s mode = %o, want 700", sub, info.Mode().Perm())
+		}
+	}
+}

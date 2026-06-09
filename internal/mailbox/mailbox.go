@@ -38,7 +38,7 @@ type Store struct {
 
 // New creates dir (if needed) and returns a ready store.
 func New(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	return &Store{dir: dir}, nil

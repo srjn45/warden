@@ -38,10 +38,10 @@ func NewFileStore(dir string) (*FileStore, error) {
 		sessions: filepath.Join(dir, "sessions"),
 		closed:   filepath.Join(dir, "closed"),
 	}
-	if err := os.MkdirAll(fs.sessions, 0o755); err != nil {
+	if err := os.MkdirAll(fs.sessions, 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(fs.closed, 0o755); err != nil {
+	if err := os.MkdirAll(fs.closed, 0o700); err != nil {
 		return nil, err
 	}
 	return fs, nil

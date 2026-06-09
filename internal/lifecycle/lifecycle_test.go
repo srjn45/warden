@@ -450,7 +450,7 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "WARDEN_SESSION_ID=" + s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/work/project"})
 	for _, argv := range fr.calledArgs() {
 		if argv[0] == "mkdir" {
-			require.Equal(t, []string{"mkdir", "-p", "/state/prompts"}, argv, "only the shared prompts dir is created")
+			require.Equal(t, []string{"mkdir", "-m", "700", "-p", "/state/prompts"}, argv, "only the shared prompts dir is created")
 		}
 	}
 }
@@ -471,7 +471,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	// The prompt file lives in the shared state dir, keyed by agent id — never
 	// in the caller's project and never in a per-agent directory.
 	promptFile := "/state/prompts/" + s.ID
-	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-p", "/state/prompts"})
+	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-m", "700", "-p", "/state/prompts"})
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
 	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})

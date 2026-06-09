@@ -24,7 +24,7 @@ type Store struct {
 }
 
 func NewStore(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	return &Store{dir: dir}, nil

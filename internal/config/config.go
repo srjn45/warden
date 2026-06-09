@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,7 @@ type Config struct {
 	SpawnGateEnabled   bool
 	SpawnGateMaxAgents int
 	MetricsEnabled     bool
+	AllowNonLoopback   bool
 }
 
 func envOr(key, def string) string {
@@ -113,6 +115,39 @@ func metricsEnabled() bool {
 	return true
 }
 
+// allowNonLoopback reads WARDEN_ALLOW_NONLOOPBACK (legacy AGENTCTL_ALLOW_NONLOOPBACK);
+// OFF by default, on only for 1/on/true. Gates binding the auth-less daemon to a
+// non-loopback address.
+func allowNonLoopback() bool {
+	switch strings.ToLower(env("ALLOW_NONLOOPBACK")) {
+	case "1", "on", "true":
+		return true
+	}
+	return false
+}
+
+// IsLoopbackHost reports whether addr (host:port, or a bare host) binds only the
+// loopback interface. An empty host (e.g. ":8765") binds all interfaces and is
+// NOT loopback. Unresolvable hostnames are treated as non-loopback (fail safe).
+// No DNS lookups.
+func IsLoopbackHost(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr // no port present
+	}
+	host = strings.TrimSpace(host)
+	switch host {
+	case "":
+		return false
+	case "localhost":
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
 // Load reads config from environment, applying defaults.
 func Load() Config {
 	return Config{
@@ -124,5 +159,6 @@ func Load() Config {
 		SpawnGateEnabled:   spawnGateEnabled(),
 		SpawnGateMaxAgents: spawnGateMaxAgents(),
 		MetricsEnabled:     metricsEnabled(),
+		AllowNonLoopback:   allowNonLoopback(),
 	}
 }

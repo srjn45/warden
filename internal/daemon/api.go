@@ -229,6 +229,8 @@ func recoverMiddleware(next http.Handler) http.Handler {
 func (s *Server) router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(recoverMiddleware)
+	r.Use(maxBytes(maxBodyBytes))
+	r.Use(writeTimeout(writeTimeoutDur))
 	r.Get("/healthz", s.handleHealthz)
 	r.Get("/sessions", s.handleListSessions)
 	r.Get("/sessions/{id}", s.handleGetSession)

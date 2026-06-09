@@ -577,7 +577,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 		if l.PromptsDir == "" {
 			return nil, fmt.Errorf("prompt spawn requires a prompts dir")
 		}
-		if out, err := l.run.Run(ctx, "", "mkdir", "-p", l.PromptsDir); err != nil {
+		if out, err := l.run.Run(ctx, "", "mkdir", "-m", "700", "-p", l.PromptsDir); err != nil {
 			return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
 		}
 		promptFile := filepath.Join(l.PromptsDir, sess.ID)
@@ -994,7 +994,7 @@ func (l *Lifecycle) writePromptFile(ctx context.Context, id, prompt string) (str
 	if l.PromptsDir == "" {
 		return "", fmt.Errorf("prompts dir not configured")
 	}
-	if out, err := l.run.Run(ctx, "", "mkdir", "-p", l.PromptsDir); err != nil {
+	if out, err := l.run.Run(ctx, "", "mkdir", "-m", "700", "-p", l.PromptsDir); err != nil {
 		return "", fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
 	}
 	path := filepath.Join(l.PromptsDir, id)

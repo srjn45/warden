@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -31,6 +32,9 @@ func newDaemonCmd() *cobra.Command {
 			cfg := config.Load()
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
 				cfg.Addr = a
+			}
+			if !config.IsLoopbackHost(cfg.Addr) && !cfg.AllowNonLoopback {
+				return fmt.Errorf("refusing to bind non-loopback address %q: the warden daemon has no authentication; set WARDEN_ALLOW_NONLOOPBACK=1 to override", cfg.Addr)
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -63,6 +67,9 @@ func newDaemonCmd() *cobra.Command {
 			pl := poller.New(pd, 5*time.Minute)
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
+				return err
+			}
+			if err := daemon.HardenDataDir(cfg.DataDir); err != nil {
 				return err
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
