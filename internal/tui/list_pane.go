@@ -41,6 +41,7 @@ type listPaneModel struct {
 	pendingSelect string
 	pipelines     []*pipeline.Pipeline
 	collapsed     map[string]bool // pipeline id → jobs hidden in the list
+	seen          map[string]bool // pipeline ids the default-collapse has been applied to
 	pressure      client.PressureStatus
 	pendingPrompt string
 	pendingDir    string
@@ -67,7 +68,7 @@ func newListPane(a api, detailPane string) listPaneModel {
 	tp.Placeholder = "~/path/to/dir"
 	return listPaneModel{
 		api: a, ta: ta, ti: ti, tp: tp, detailPane: detailPane,
-		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, connected: true,
+		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{}, connected: true,
 		vp: viewport.New(0, 0),
 	}
 }
@@ -123,6 +124,21 @@ func (m *listPaneModel) setInspectorContent() {
 	off := m.vp.YOffset
 	m.vp.SetContent(inspectorBody(m.ctxEntries, m.messages, m.vp.Width))
 	m.vp.SetYOffset(off)
+}
+
+// applyDefaultCollapse folds away each newly-seen completed pipeline once, so the
+// list opens with finished work collapsed. Pipelines are auto-collapsed only on
+// first sighting (tracked in `seen`), so a manual expand survives later refreshes.
+func (m *listPaneModel) applyDefaultCollapse() {
+	for _, p := range m.pipelines {
+		if m.seen[p.ID] {
+			continue
+		}
+		m.seen[p.ID] = true
+		if pipelineIsCompleted(p.Status) {
+			m.collapsed[p.ID] = true
+		}
+	}
 }
 
 func (m listPaneModel) Init() tea.Cmd {
@@ -186,6 +202,7 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			prev := m.selectedKey()
 			m.pipelines = msg.pipelines
+			m.applyDefaultCollapse()
 			m.repin(prev)
 		}
 		return m, nil
@@ -660,7 +677,7 @@ func (m listPaneModel) View() string {
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow list pane and always show `? help`.
-	footer := stMuted.Render("enter open · n new · s send · a attach · ? help · q quit")
+	footer := stMuted.Render("n new · o dir · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
