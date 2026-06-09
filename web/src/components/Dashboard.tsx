@@ -92,7 +92,7 @@ export default function Dashboard() {
       />
       <main className="tab-content">
         {tabs.active === 'overview' && <OverviewTab sessions={sessions} onSelect={select} />}
-        {tabs.active === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} />}
+        {tabs.active === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} onCreated={(id) => dispatch({ kind: 'open', id })} />}
         {tabs.active === 'pipelines' && <PipelinesTab onSelect={select} />}
         {tabs.active === 'context' && <ContextMessagesTab />}
         {activeSession && <AgentTab session={activeSession} onClosed={() => dispatch({ kind: 'close', id: activeSession.id })} />}
