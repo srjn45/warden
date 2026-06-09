@@ -30,3 +30,12 @@ export function groupSessions(sessions: Session[]): SessionGroup[] {
     .map(([dir, ss]) => ({ dir, sessions: ss }))
     .sort((a, b) => maxTs(b.sessions) - maxTs(a.sessions));
 }
+
+// baseName returns the last path segment of a grouping dir, for the pane title.
+// A trailing slash is ignored. The '—' sentinel (unknown dir) and any input
+// whose last segment is empty are returned unchanged.
+export function baseName(dir: string): string {
+  const trimmed = dir.replace(/\/+$/, '');
+  const seg = trimmed.slice(trimmed.lastIndexOf('/') + 1);
+  return seg || dir;
+}

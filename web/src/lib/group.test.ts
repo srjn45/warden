@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupSessions, sourceDir } from './group';
+import { groupSessions, sourceDir, baseName } from './group';
 import type { Session } from './types';
 
 function sess(p: Partial<Session>): Session {
@@ -40,5 +40,23 @@ describe('groupSessions', () => {
     expect(out).toHaveLength(1);
     expect(out[0].dir).toBe('/w');
     expect(out[0].sessions).toHaveLength(2);
+  });
+});
+
+describe('baseName', () => {
+  it('returns the last path segment', () => {
+    expect(baseName('/Users/x/workspace/personal/warden')).toBe('warden');
+  });
+  it('ignores a trailing slash', () => {
+    expect(baseName('/Users/x/warden/')).toBe('warden');
+  });
+  it('returns the dash sentinel as-is', () => {
+    expect(baseName('—')).toBe('—');
+  });
+  it('returns a bare name unchanged', () => {
+    expect(baseName('warden')).toBe('warden');
+  });
+  it('falls back to the original when there is no segment', () => {
+    expect(baseName('/')).toBe('/');
   });
 });
