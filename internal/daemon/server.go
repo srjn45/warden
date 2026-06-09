@@ -46,6 +46,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	if s.life != nil {
 		go s.runPressureSampler(runCtx)
 	}
+	go s.runMetricsRecorder(runCtx)
 
 	httpSrv := &http.Server{Addr: addr, Handler: s.router()}
 	errCh := make(chan error, 1)

@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/store"
@@ -124,6 +125,11 @@ type Server struct {
 	pressLevel   pressure.Level
 	spawnGate    bool // WARDEN_SPAWN_GATE
 	spawnGateMax int  // WARDEN_SPAWN_GATE_MAX_AGENTS
+	// metrics collection (resource observability). nil collector ⇒ /metrics
+	// returns an empty sample; nil recorder ⇒ no on-disk recording.
+	mcollector *metrics.Collector
+	mrecorder  *metrics.Recorder
+	metricsOn  bool // WARDEN_METRICS — gates the disk recorder goroutine
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil
@@ -235,6 +241,8 @@ func (s *Server) router() http.Handler {
 	r.Get("/approvals", s.handleApprovals)
 	r.Post("/sessions/{id}/approve", s.handleApprove)
 	r.Get("/sessions/{id}/digest", s.handleDigest)
+	r.Get("/metrics", s.handleMetrics)
+	r.Get("/metrics/history", s.handleMetricsHistory)
 	s.registerContextRoutes(r)
 	s.registerMessageRoutes(r)
 	s.registerPipelineRoutes(r)
