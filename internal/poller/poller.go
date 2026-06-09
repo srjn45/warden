@@ -48,6 +48,13 @@ type Deps interface {
 	SessionAlive(ctx context.Context, tmuxName string) bool
 	CapturePane(ctx context.Context, tmuxName string) (string, error)
 	Summarize(ctx context.Context, s *store.Session) (string, error)
+	// ExitCode returns the exit status recorded for the agent's shell, if any.
+	ExitCode(ctx context.Context, id string) (code int, present bool)
+	// FinalizeExit transitions the session to its terminal status from the exit
+	// code (CAS on expected), recording the code (+ event for crashes).
+	FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (bool, error)
+	// ClearExit removes the consumed exit-file so it can't be re-read.
+	ClearExit(ctx context.Context, id string)
 }
 
 type Poller struct {

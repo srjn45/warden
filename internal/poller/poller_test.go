@@ -91,6 +91,11 @@ type stubDeps struct {
 	// summarizeFn, when set, overrides the canned result — lets a test inspect
 	// the context or block, e.g. to exercise the per-call timeout.
 	summarizeFn func(context.Context, *store.Session) (string, error)
+
+	exitCodes map[string]int          // id -> recorded exit code (presence = in map)
+	finalized map[string]store.Status // records FinalizeExit successful swaps
+	finalCode map[string]int          // records the code passed to FinalizeExit
+	cleared   map[string]bool         // records ClearExit calls
 }
 
 func (d *stubDeps) List(_ context.Context) ([]*store.Session, error) { return d.sessions, nil }
@@ -167,6 +172,32 @@ func TestRunSummaryAppliesPerCallTimeout(t *testing.T) {
 	_, busy := p.inflight["A-1"]
 	p.mu.Unlock()
 	require.False(t, busy, "inflight must be cleared after the summary times out")
+}
+func (d *stubDeps) ExitCode(_ context.Context, id string) (int, bool) {
+	c, ok := d.exitCodes[id]
+	return c, ok
+}
+func (d *stubDeps) FinalizeExit(_ context.Context, id string, expected, next store.Status, code int) (bool, error) {
+	if d.lastExpected == nil {
+		d.lastExpected = map[string]store.Status{}
+	}
+	d.lastExpected[id] = expected
+	if d.casFail[id] {
+		return false, nil
+	}
+	if d.finalized == nil {
+		d.finalized = map[string]store.Status{}
+		d.finalCode = map[string]int{}
+	}
+	d.finalized[id] = next
+	d.finalCode[id] = code
+	return true, nil
+}
+func (d *stubDeps) ClearExit(_ context.Context, id string) {
+	if d.cleared == nil {
+		d.cleared = map[string]bool{}
+	}
+	d.cleared[id] = true
 }
 func (d *stubDeps) SessionAlive(_ context.Context, name string) bool { return d.alive[name] }
 func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {

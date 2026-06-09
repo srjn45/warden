@@ -39,3 +39,12 @@ func (d *pollerDeps) SessionAlive(ctx context.Context, name string) bool {
 func (d *pollerDeps) CapturePane(ctx context.Context, name string) (string, error) {
 	return d.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", name)
 }
+func (d *pollerDeps) ExitCode(_ context.Context, id string) (int, bool) {
+	return d.lc.ReadExit(id)
+}
+func (d *pollerDeps) FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (bool, error) {
+	return d.store.FinalizeExit(ctx, id, expected, next, code)
+}
+func (d *pollerDeps) ClearExit(_ context.Context, id string) {
+	d.lc.ClearExit(id)
+}
