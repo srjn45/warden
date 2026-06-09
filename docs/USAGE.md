@@ -424,8 +424,7 @@ the master can still drive the fleet using the `warden` CLI directly.
 > **The master is ephemeral.** It starts fresh every time you open the cockpit
 > and dies when you quit it. Persisting the master across sessions (so it can
 > survive long-running orchestration and resume context on next launch) is a
-> planned future enhancement — see
-> `docs/superpowers/specs/2026-06-03-agentctl-tui-master-pane-design.md`.
+> planned future enhancement.
 
 **Right (full height) — live agent detail pane.** When you press `Enter` on an
 agent in the list, a live, interactive terminal of that agent's `claude` session

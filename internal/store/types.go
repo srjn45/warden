@@ -33,7 +33,7 @@ const (
 	TypePRReview       Type = "pr-review"
 	TypeBuildkiteDebug Type = "buildkite-debug"
 	TypeTestRun        Type = "test-run"
-	TypeEnvTest       Type = "env-test"
+	TypeEnvTest        Type = "env-test"
 	TypeOther          Type = "other"
 )
 

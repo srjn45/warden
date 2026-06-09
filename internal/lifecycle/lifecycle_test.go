@@ -127,7 +127,7 @@ func TestSpawnLogsWorktreeRollbackFailure(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 		"tmux new-session -d -s PROJ-350 -e WARDEN_SESSION_ID=PROJ-350 -e AGENTCTL_SESSION_ID=PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
-		"git -C /repo worktree remove --force .worktrees/PROJ-350":                                                                                     {Err: errStub("remove boom")},
+		"git -C /repo worktree remove --force .worktrees/PROJ-350":                                                                   {Err: errStub("remove boom")},
 	}}
 	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
