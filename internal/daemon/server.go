@@ -48,7 +48,13 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	}
 	go s.runMetricsRecorder(runCtx)
 
-	httpSrv := &http.Server{Addr: addr, Handler: s.router()}
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           s.router(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpSrv.ListenAndServe() }()
 
