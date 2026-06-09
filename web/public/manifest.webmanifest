@@ -1,0 +1,11 @@
+{
+  "name": "warden",
+  "short_name": "warden",
+  "description": "Spawn, monitor, and orchestrate Claude Code agent sessions.",
+  "display": "standalone",
+  "theme_color": "#36506B",
+  "background_color": "#EEF2F5",
+  "icons": [
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

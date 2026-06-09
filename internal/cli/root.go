@@ -14,10 +14,18 @@ import (
 // (goreleaser sets this automatically from the git tag.)
 var version = "dev"
 
+// banner is the ASCII wordmark shown at the top of `warden --help`.
+const banner = `                    _
+ __      ____ _ _ __| | ___ _ __
+ \ \ /\ / / _` + "`" + ` | '__| |/ _ \ '_ \
+  \ V  V / (_| | |  | |  __/ | | |
+   \_/\_/ \__,_|_|  |_|\___|_| |_|`
+
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "warden",
 		Short:         "warden — spawn, monitor, and tear down per-ticket Claude Code agent sessions (alias: wd)",
+		Long:          banner + "\n\nspawn, monitor, and tear down Claude Code agent sessions.\nRun `warden` with no arguments to open the cockpit TUI. Alias: wd.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

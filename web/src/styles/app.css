@@ -8,6 +8,8 @@ body { margin: 0; }
 .layout { display: flex; flex-direction: column; height: 100vh; }
 .topbar { display: flex; align-items: center; gap: 1rem; padding: .6rem 1rem; border-bottom: 1px solid #8884; }
 .topbar h1 { font-size: 1.1rem; margin: 0; }
+.topbar h1.brand { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; }
+.topbar h1.brand img { display: block; }
 .topbar button { margin-left: auto; }
 .conn { font-size: .8rem; padding: .1rem .5rem; border-radius: 1rem; }
 .conn.ok { background: #1a7f3722; color: var(--busy); }
