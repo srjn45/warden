@@ -191,3 +191,26 @@ func buildSystemStats(pageSize int64, counts map[string]int64, total, swapUsed u
 		PressureLevel:   pressure,
 	}
 }
+
+// parseLsofFDCount counts numbered file descriptors in `lsof -F f` output:
+// lines of the form "f<digits>" (e.g. "f0", "f12"). Pseudo-entries (fcwd, ftxt,
+// fmem, frtd) and the "p<pid>" header line are ignored.
+func parseLsofFDCount(out string) int {
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) < 2 || line[0] != 'f' {
+			continue
+		}
+		allDigits := true
+		for _, r := range line[1:] {
+			if r < '0' || r > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			n++
+		}
+	}
+	return n
+}

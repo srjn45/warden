@@ -101,3 +101,14 @@ func TestCollectorMultiPaneAgent(t *testing.T) {
 		t.Fatalf("multi-pane agent = %+v", s.Agents)
 	}
 }
+
+func TestOpenFDCountViaLsof(t *testing.T) {
+	// pid 999999999 has no /proc/<pid>/fd on any OS, so this exercises the lsof
+	// fallback deterministically (macOS + Linux CI alike).
+	c := &Collector{Run: fakeRunner{resp: map[string]string{
+		"lsof -wnP -p 999999999 -F f": "p1\nfcwd\nftxt\nf0\nf1\nf2\nf7\n",
+	}}.Run}
+	if got := c.openFDCount(context.Background(), 999999999); got != 4 {
+		t.Fatalf("openFDCount = %d, want 4 (f0,f1,f2,f7)", got)
+	}
+}

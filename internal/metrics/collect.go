@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"runtime"
 	"strconv"
@@ -78,7 +79,7 @@ func (c *Collector) Sample(ctx context.Context) (Sample, error) {
 	out.System = c.systemStats(ctx)
 	out.System.AgentCount = len(agents)
 	out.System.AttributedRSSBytes = attributed
-	out.Daemon = c.daemonStats(tbl)
+	out.Daemon = c.daemonStats(ctx, tbl)
 	return out, nil
 }
 
@@ -115,24 +116,29 @@ func (c *Collector) systemStats(ctx context.Context) SystemStats {
 	return buildSystemStats(pageSize, counts, parseMemSize(memOut), parseSwapUsed(swapOut), level)
 }
 
-func (c *Collector) daemonStats(tbl map[int]ProcRow) DaemonStat {
+func (c *Collector) daemonStats(ctx context.Context, tbl map[int]ProcRow) DaemonStat {
 	pid := c.SelfPID
 	if pid == 0 {
 		pid = os.Getpid()
 	}
-	d := DaemonStat{Goroutines: runtime.NumGoroutine(), OpenFDs: countOpenFDs()}
+	d := DaemonStat{Goroutines: runtime.NumGoroutine(), OpenFDs: c.openFDCount(ctx, pid)}
 	if r, ok := tbl[pid]; ok {
 		d.RSSBytes = r.RSSKiB * 1024
 	}
 	return d
 }
 
-// countOpenFDs counts the daemon's open file descriptors (best-effort; 0 if the
-// platform doesn't expose /dev/fd).
-func countOpenFDs() int {
-	entries, err := os.ReadDir("/dev/fd")
+// openFDCount counts the process's open file descriptors. On Linux it reads
+// /proc/<pid>/fd (cheap, authoritative). Elsewhere (macOS/BSD have no /proc, and
+// /dev/fd does not enumerate reliably under launchd) it falls back to counting
+// the numbered fds in `lsof -F f`. Best-effort: 0 when neither is available.
+func (c *Collector) openFDCount(ctx context.Context, pid int) int {
+	if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid)); err == nil {
+		return len(entries)
+	}
+	out, err := c.Run(ctx, "", "lsof", "-wnP", "-p", strconv.Itoa(pid), "-F", "f")
 	if err != nil {
 		return 0
 	}
-	return len(entries)
+	return parseLsofFDCount(out)
 }

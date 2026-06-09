@@ -114,3 +114,15 @@ func TestParseVMStatDegradesOnGarbage(t *testing.T) {
 		t.Fatalf("pageSize=%d counts=%+v", pageSize, counts)
 	}
 }
+
+func TestParseLsofFDCount(t *testing.T) {
+	// `lsof -F f` output: p<pid> header, pseudo-fds (cwd/txt/mem/rtd), then
+	// numbered fds. Only the numbered ones count.
+	out := "p123\nfcwd\nftxt\nftxt\nf0\nf1\nf2\nf3\nfmem\nfrtd\n"
+	if got := parseLsofFDCount(out); got != 4 {
+		t.Fatalf("parseLsofFDCount = %d, want 4", got)
+	}
+	if parseLsofFDCount("") != 0 {
+		t.Fatal("empty input should be 0")
+	}
+}
