@@ -152,3 +152,33 @@ func TestMetricsEnabledOff(t *testing.T) {
 		t.Fatal("WARDEN_METRICS=off should disable")
 	}
 }
+
+func TestIsLoopbackHost(t *testing.T) {
+	cases := map[string]bool{
+		"127.0.0.1:8765":   true,
+		"localhost:8765":   true,
+		"[::1]:8765":       true,
+		"127.0.0.1":        true,  // bare host, no port
+		":8765":            false, // empty host = all interfaces
+		"0.0.0.0:8765":     false,
+		"192.168.1.5:8765": false,
+		"example.com:8765": false, // unresolved hostname → fail safe
+	}
+	for addr, want := range cases {
+		if got := IsLoopbackHost(addr); got != want {
+			t.Fatalf("IsLoopbackHost(%q)=%v want %v", addr, got, want)
+		}
+	}
+}
+
+func TestAllowNonLoopbackFlag(t *testing.T) {
+	t.Setenv("WARDEN_ALLOW_NONLOOPBACK", "")
+	t.Setenv("AGENTCTL_ALLOW_NONLOOPBACK", "")
+	if Load().AllowNonLoopback {
+		t.Fatal("should default OFF")
+	}
+	t.Setenv("WARDEN_ALLOW_NONLOOPBACK", "1")
+	if !Load().AllowNonLoopback {
+		t.Fatal("WARDEN_ALLOW_NONLOOPBACK=1 should enable")
+	}
+}
