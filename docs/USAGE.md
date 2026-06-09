@@ -426,6 +426,11 @@ the master can still drive the fleet using the `warden` CLI directly.
 > survive long-running orchestration and resume context on next launch) is a
 > planned future enhancement.
 
+Press **Alt+t** to toggle this slot between the master Claude session and a
+shell. The shell is created on first use and both keep running across toggles —
+switching back and forth never loses the conversation or the shell's scrollback.
+Exit the shell (`exit` / Ctrl-D) and the next **Alt+t** starts a fresh one.
+
 **Right (full height) — live agent detail pane.** When you press `Enter` on an
 agent in the list, a live, interactive terminal of that agent's `claude` session
 opens here — the same way the bottom-left master pane works. You can type
