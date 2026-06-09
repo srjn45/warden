@@ -44,7 +44,7 @@ func detailPlaceholderCmd() string {
 	return `sh -c 'printf "Select an agent and press Enter to open it here.\n"; exec sleep 2147483647'`
 }
 
-// shellToggleScript returns the sh command bound to M-t in the cockpit. On each
+// shellToggleScript returns the sh command bound to <prefix> t in the cockpit. On each
 // press it surfaces a shell in the bottom-left master slot, or returns to the
 // master Claude, by swapping the two panes — neither process is killed. The
 // shell is created lazily on the first toggle in a hidden holding window and
@@ -131,11 +131,15 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 			return fmt.Errorf("tmux bind-key %s: %w: %s", b[0], err, out)
 		}
 	}
-	// M-t toggles the bottom-left master pane between Claude and a shell, swapping
-	// them without killing either (see shellToggleScript). Prefix-less, like the
-	// M-Arrow bindings above.
-	if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", "M-t", "run-shell", "-b", shellToggleScript(o.session, masterID, o.masterCwd)); err != nil {
-		return fmt.Errorf("tmux bind-key M-t: %w: %s", err, out)
+	// <prefix> t toggles the bottom-left master pane between Claude and a shell,
+	// swapping them without killing either (see shellToggleScript). It's a prefix
+	// binding (not prefix-less like M-Arrow) because with extended-keys on — which
+	// the cockpit needs for Shift+Enter — a focused Claude pane consumes Alt+letter
+	// combos itself (Alt+t = its thinking-mode toggle), so a root M-t binding never
+	// fires; tmux always catches its prefix. This overrides tmux's default
+	// <prefix> t (clock-mode), so killCockpitCmd unbinds it on teardown.
+	if out, err := run.Run(ctx, "", "tmux", "bind-key", "t", "run-shell", "-b", shellToggleScript(o.session, masterID, o.masterCwd)); err != nil {
+		return fmt.Errorf("tmux bind-key t: %w: %s", err, out)
 	}
 	// 6. Focus the list pane.
 	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", listID); err != nil {

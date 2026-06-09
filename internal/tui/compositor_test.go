@@ -38,8 +38,8 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[9].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[10].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[11].Argv)
-	// M-t toggles the bottom-left master pane between Claude and a shell.
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-t", "run-shell", "-b", shellToggleScript("S", "%1", "/work")}, fr.Calls[12].Argv)
+	// <prefix> t toggles the bottom-left master pane between Claude and a shell.
+	require.Equal(t, []string{"tmux", "bind-key", "t", "run-shell", "-b", shellToggleScript("S", "%1", "/work")}, fr.Calls[12].Argv)
 	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[13].Argv)
 	// Return-to-dashboard binding for the full-screen attach path (`a`).
 	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[14].Argv)
