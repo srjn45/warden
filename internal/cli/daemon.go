@@ -16,6 +16,7 @@ import (
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/poller"
@@ -69,6 +70,12 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
 			srv.SetSpawnGate(cfg.SpawnGateEnabled, cfg.SpawnGateMaxAgents)
+			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)
+			mrec, err := metrics.NewRecorder(filepath.Join(cfg.DataDir, "metrics"))
+			if err != nil {
+				return err
+			}
+			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled)
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(os.Getenv("WARDEN_PIPELINE_KEEP_DONE") != "" || os.Getenv("AGENTCTL_PIPELINE_KEEP_DONE") != "")
 
