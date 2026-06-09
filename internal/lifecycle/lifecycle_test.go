@@ -1181,3 +1181,48 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 	// Subject reads cleanly in the agent list instead of being blank.
 	require.Equal(t, "interactive", s.Subject)
 }
+
+func TestExitSuffixAndReadClear(t *testing.T) {
+	dir := t.TempDir()
+	l := New(ExecRunner{})
+	l.ExitsDir = dir
+
+	suffix := l.exitSuffix("agent-1")
+	require.Contains(t, suffix, `printf '%s' "$?"`)
+	require.Contains(t, suffix, filepath.Join(dir, "agent-1"))
+
+	// No file yet -> not present.
+	_, ok := l.ReadExit("agent-1")
+	require.False(t, ok)
+
+	// Simulate the shell writing the exit code.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "agent-1"), []byte("137"), 0o600))
+	code, ok := l.ReadExit("agent-1")
+	require.True(t, ok)
+	require.Equal(t, 137, code)
+
+	// Malformed body -> treated as absent.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "agent-1"), []byte("nope"), 0o600))
+	_, ok = l.ReadExit("agent-1")
+	require.False(t, ok)
+
+	// Clear removes the file.
+	l.ClearExit("agent-1")
+	_, err := os.Stat(filepath.Join(dir, "agent-1"))
+	require.True(t, os.IsNotExist(err))
+}
+
+func TestExitSuffixEmptyWhenDirUnset(t *testing.T) {
+	l := New(ExecRunner{}) // ExitsDir == ""
+	require.Equal(t, "", l.exitSuffix("agent-1"))
+}
+
+func TestExitSuffixClearsStaleFile(t *testing.T) {
+	dir := t.TempDir()
+	l := New(ExecRunner{})
+	l.ExitsDir = dir
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "agent-1"), []byte("9"), 0o600))
+	_ = l.exitSuffix("agent-1") // building the suffix at spawn must clear a prior run's file
+	_, err := os.Stat(filepath.Join(dir, "agent-1"))
+	require.True(t, os.IsNotExist(err))
+}

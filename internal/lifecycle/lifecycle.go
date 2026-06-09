@@ -190,6 +190,11 @@ type Lifecycle struct {
 	// dir the agent runs in — agents launch in the caller's cwd. Interactive
 	// (empty-prompt) agents write no file. Overridable in tests.
 	PromptsDir string
+	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
+	// each agent's shell records claude's exit status, keyed by agent id. Empty
+	// (tests) disables exit capture — agents then fall back to orphaned-only
+	// classification. Never the dir the agent runs in.
+	ExitsDir string
 }
 
 func New(r Runner) *Lifecycle { return &Lifecycle{run: r} }
@@ -986,6 +991,48 @@ type JobSpawnRequest struct {
 	BaseBranch string // worktree base ref ("" = off HEAD); ignored when Worktree is false
 	Type       store.Type
 	Supervised bool
+}
+
+// exitSuffix ensures ExitsDir exists, clears any stale exit-file for id (from a
+// reused id), and returns the shell suffix that records claude's exit status to
+// it. Returns "" (no capture) when ExitsDir is unset or the dir can't be made —
+// best-effort, consistent with the other launch-time side effects.
+func (l *Lifecycle) exitSuffix(id string) string {
+	if l.ExitsDir == "" {
+		return ""
+	}
+	if err := os.MkdirAll(l.ExitsDir, 0o700); err != nil {
+		log.Printf("exit-capture: mkdir %s: %v", l.ExitsDir, err)
+		return ""
+	}
+	path := filepath.Join(l.ExitsDir, id)
+	_ = os.Remove(path) // clear a prior run's file so the poller can't consume it
+	return " ; printf '%s' \"$?\" > " + shellQuoteArg(path)
+}
+
+// ReadExit returns the exit code recorded for id and whether one is present.
+// A missing or malformed file reports (0, false) — treat as "not yet recorded".
+func (l *Lifecycle) ReadExit(id string) (int, bool) {
+	if l.ExitsDir == "" {
+		return 0, false
+	}
+	b, err := os.ReadFile(filepath.Join(l.ExitsDir, id))
+	if err != nil {
+		return 0, false
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0, false
+	}
+	return code, true
+}
+
+// ClearExit removes id's exit-file (best-effort) once the poller has consumed it.
+func (l *Lifecycle) ClearExit(id string) {
+	if l.ExitsDir == "" {
+		return
+	}
+	_ = os.Remove(filepath.Join(l.ExitsDir, id))
 }
 
 // writePromptFile persists prompt to <PromptsDir>/<id> and returns the path, so
