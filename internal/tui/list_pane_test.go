@@ -136,6 +136,30 @@ func TestRespawnDetailArgs(t *testing.T) {
 		respawnDetailArgs("%9", "agent-4f98"))
 }
 
+func TestListPaneCollapsesCompletedPipelinesByDefault(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	m = lstep(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{
+		{ID: "done1", Status: pipeline.StatusDone, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
+		{ID: "cancel1", Status: pipeline.StatusCanceled, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
+		{ID: "run1", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}},
+	}})
+	require.True(t, m.collapsed["done1"], "done pipeline collapsed by default")
+	require.True(t, m.collapsed["cancel1"], "canceled pipeline collapsed by default")
+	require.False(t, m.collapsed["run1"], "running pipeline stays expanded")
+}
+
+func TestListPaneRespectsManualExpandAcrossRefresh(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	pipes := []*pipeline.Pipeline{
+		{ID: "done1", Status: pipeline.StatusDone, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
+	}
+	m = lstep(m, pipelinesMsg{pipelines: pipes})
+	require.True(t, m.collapsed["done1"], "completed pipeline starts collapsed")
+	m.collapsed["done1"] = false // user expands it
+	m = lstep(m, pipelinesMsg{pipelines: pipes})
+	require.False(t, m.collapsed["done1"], "manual expand survives refresh; not re-collapsed")
+}
+
 func TestListPanePipelinesAndCancel(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9")
 	m = lstep(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{

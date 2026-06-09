@@ -439,6 +439,13 @@ func pipelineIsTerminal(s pipeline.Status) bool {
 	return s == pipeline.StatusDone || s == pipeline.StatusStalled || s == pipeline.StatusCanceled
 }
 
+// pipelineIsCompleted reports whether a pipeline finished cleanly enough to be
+// collapsed by default in the list (done or canceled). Stalled is excluded: it
+// signals casualties the user should see, so it stays expanded.
+func pipelineIsCompleted(s pipeline.Status) bool {
+	return s == pipeline.StatusDone || s == pipeline.StatusCanceled
+}
+
 // pipelineHasFailure reports whether any job failed or needs attention.
 func pipelineHasFailure(p *pipeline.Pipeline) bool {
 	for i := range p.Jobs {
