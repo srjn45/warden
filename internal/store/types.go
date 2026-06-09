@@ -89,6 +89,7 @@ type Session struct {
 	Subject         string    `json:"subject"`  // one-line auto summary of what it's doing
 	Status          Status    `json:"status"`
 	PID             int       `json:"pid"`
+	ExitCode        *int      `json:"exit_code,omitempty"` // process exit status when recovered: nil=unknown (orphaned/pre-feature), 0=clean, non-zero=crash
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	Events          []Event   `json:"events"`

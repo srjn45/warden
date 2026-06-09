@@ -56,3 +56,21 @@ func TestTypeNormalizeAndWorktreePolicy(t *testing.T) {
 	require.False(t, TypeBuildkiteDebug.DefaultWorktree())
 	require.False(t, TypeSpike.DefaultWorktree()) // opt-in via --worktree, not default
 }
+
+func TestSessionExitCodeJSONRoundTrip(t *testing.T) {
+	code := 137
+	s := Session{ID: "a", Status: StatusErrored, ExitCode: &code}
+	b, err := json.Marshal(s)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"exit_code":137`)
+
+	// nil ExitCode is omitted entirely (omitempty).
+	b2, err := json.Marshal(Session{ID: "b", Status: StatusWorking})
+	require.NoError(t, err)
+	require.NotContains(t, string(b2), "exit_code")
+
+	var back Session
+	require.NoError(t, json.Unmarshal(b, &back))
+	require.NotNil(t, back.ExitCode)
+	require.Equal(t, 137, *back.ExitCode)
+}
