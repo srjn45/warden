@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none" role="img" aria-label="Warden">
+  <!-- warden monochrome mark — single color via currentColor.
+       Recolor with CSS `color:` (web) or fill/stroke override. Ideal for terminals,
+       favicons, stamps, and single-ink contexts. Reads cleanly down to 16px. -->
+  <g stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="120,20 206.6,70 206.6,170 120,220 33.4,170 33.4,70" stroke-width="13"/>
+    <polyline points="74,86 96,154 120,116 144,154 166,86" stroke-width="13"/>
+  </g>
+</svg>

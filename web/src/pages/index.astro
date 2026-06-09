@@ -8,6 +8,20 @@ import '../styles/app.css';
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>warden</title>
+    <meta name="theme-color" content="#36506B" />
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/svg+xml" href="/brand/warden-symbol-mono.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon-180.png" />
+
+    <!-- Social preview (og:image needs an absolute URL when served from a public domain) -->
+    <meta property="og:title" content="warden" />
+    <meta property="og:description" content="Spawn, monitor, and orchestrate Claude Code agents." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/brand/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
     <Dashboard client:only="react" />
