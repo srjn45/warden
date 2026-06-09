@@ -92,10 +92,11 @@ type stubDeps struct {
 	// the context or block, e.g. to exercise the per-call timeout.
 	summarizeFn func(context.Context, *store.Session) (string, error)
 
-	exitCodes map[string]int          // id -> recorded exit code (presence = in map)
-	finalized map[string]store.Status // records FinalizeExit successful swaps
-	finalCode map[string]int          // records the code passed to FinalizeExit
-	cleared   map[string]bool         // records ClearExit calls
+	exitCodes   map[string]int          // id -> recorded exit code (presence = in map)
+	finalized   map[string]store.Status // records FinalizeExit successful swaps
+	finalCode   map[string]int          // records the code passed to FinalizeExit
+	cleared     map[string]bool         // records ClearExit calls
+	finalizeErr error                   // when set, FinalizeExit returns this error
 }
 
 func (d *stubDeps) List(_ context.Context) ([]*store.Session, error) { return d.sessions, nil }
@@ -178,6 +179,9 @@ func (d *stubDeps) ExitCode(_ context.Context, id string) (int, bool) {
 	return c, ok
 }
 func (d *stubDeps) FinalizeExit(_ context.Context, id string, expected, next store.Status, code int) (bool, error) {
+	if d.finalizeErr != nil {
+		return false, d.finalizeErr
+	}
 	if d.lastExpected == nil {
 		d.lastExpected = map[string]store.Status{}
 	}
@@ -462,6 +466,87 @@ func TestTickNoTransitionForTerminalStatus(t *testing.T) {
 	p.OnTransition = func(*store.Session, store.Status, store.Status) { fired = true }
 	require.NoError(t, p.tick(context.Background()))
 	require.False(t, fired, "terminal status is skipped → no transition")
+}
+
+func TestTickFinalizesFromExitFile(t *testing.T) {
+	cases := []struct {
+		name     string
+		code     int
+		wantNext store.Status
+	}{
+		{"clean exit hook missed", 0, store.StatusDone},
+		{"crash with code", 137, store.StatusErrored},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &stubDeps{
+				sessions:  []*store.Session{{ID: "A", Status: store.StatusWorking}},
+				alive:     map[string]bool{"A": true},
+				panes:     map[string]string{},
+				updates:   map[string]store.Status{},
+				exitCodes: map[string]int{"A": tc.code},
+			}
+			p := New(d, 5*time.Minute)
+			var gotFrom, gotTo store.Status
+			fired := false
+			p.OnTransition = func(_ *store.Session, from, to store.Status) {
+				fired = true
+				gotFrom, gotTo = from, to
+			}
+			require.NoError(t, p.tick(context.Background()))
+			require.Equal(t, tc.wantNext, d.finalized["A"])
+			require.Equal(t, tc.code, d.finalCode["A"])
+			require.True(t, d.cleared["A"]) // file consumed
+			require.True(t, fired, "OnTransition must fire on a finalize swap")
+			require.Equal(t, store.StatusWorking, gotFrom)
+			require.Equal(t, tc.wantNext, gotTo)
+		})
+	}
+}
+
+func TestTickOrphanedOnlyWhenNoExitFile(t *testing.T) {
+	// Window gone, no exit-file -> orphaned via the existing classify path.
+	d := &stubDeps{
+		sessions:  []*store.Session{{ID: "A", Status: store.StatusWorking}},
+		alive:     map[string]bool{"A": false},
+		panes:     map[string]string{},
+		updates:   map[string]store.Status{},
+		exitCodes: map[string]int{}, // empty -> not present
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, store.StatusOrphaned, d.updates["A"]) // via UpdateStatusIf
+	require.Empty(t, d.finalized)                          // FinalizeExit not called
+}
+
+func TestTickExitFileCASLosesToHook(t *testing.T) {
+	d := &stubDeps{
+		sessions:  []*store.Session{{ID: "A", Status: store.StatusWorking}},
+		alive:     map[string]bool{"A": true},
+		panes:     map[string]string{},
+		updates:   map[string]store.Status{},
+		exitCodes: map[string]int{"A": 1},
+		casFail:   map[string]bool{"A": true}, // hook already finalized it
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	require.Empty(t, d.finalized["A"]) // swap lost
+	require.True(t, d.cleared["A"])    // stale file still cleared
+}
+
+func TestTickExitFileErrorLeavesFile(t *testing.T) {
+	d := &stubDeps{
+		sessions:    []*store.Session{{ID: "A", Status: store.StatusWorking}},
+		alive:       map[string]bool{"A": true},
+		panes:       map[string]string{},
+		updates:     map[string]store.Status{},
+		exitCodes:   map[string]int{"A": 1},
+		finalizeErr: errors.New("store boom"),
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background())) // tick swallows per-session errors
+	require.Empty(t, d.finalized)                    // no swap recorded
+	require.False(t, d.cleared["A"])                 // file LEFT for retry (not cleared on error)
 }
 
 func TestTickThrottlesSummary(t *testing.T) {

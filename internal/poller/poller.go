@@ -97,7 +97,11 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 var summaryTimeout = 60 * time.Second
 
 func isTerminal(s store.Status) bool {
-	return s == store.StatusDone
+	switch s {
+	case store.StatusDone, store.StatusErrored, store.StatusOrphaned:
+		return true
+	}
+	return false
 }
 
 func (p *Poller) tick(ctx context.Context) error {
@@ -109,6 +113,28 @@ func (p *Poller) tick(ctx context.Context) error {
 	changed := false
 	for _, s := range sessions {
 		if isTerminal(s.Status) {
+			continue
+		}
+		// Exit-file is authoritative: if the agent's shell recorded an exit code,
+		// finalize from it (CAS so a SessionEnd hook that already set done wins)
+		// and skip liveness/pane classification this tick.
+		if code, ok := p.deps.ExitCode(ctx, s.ID); ok {
+			next := store.StatusDone
+			if code != 0 {
+				next = store.StatusErrored
+			}
+			swapped, err := p.deps.FinalizeExit(ctx, s.ID, s.Status, next, code)
+			if err != nil {
+				log.Printf("poller: finalize %s: %v", s.ID, err)
+				continue // leave the file; retry next tick
+			}
+			p.deps.ClearExit(ctx, s.ID) // consumed (clear even if CAS lost — the file is stale)
+			if swapped {
+				changed = true
+				if p.OnTransition != nil {
+					p.OnTransition(s, s.Status, next)
+				}
+			}
 			continue
 		}
 		alive := p.deps.SessionAlive(ctx, s.TmuxSession)
