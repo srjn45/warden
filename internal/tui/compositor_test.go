@@ -69,6 +69,7 @@ func TestShellToggleScript(t *testing.T) {
 	require.Contains(t, s, `"${SHELL:-/bin/sh}"`)
 	// Exited shells are kept as [exited] then respawned, not orphaned.
 	require.Contains(t, s, "remain-on-exit on")
+	require.Contains(t, s, `grep -qx "$sp 1"`)
 	require.Contains(t, s, "respawn-pane")
 	// Swaps the shell with the master pane and focuses whatever lands in the slot.
 	require.Contains(t, s, `swap-pane -s "$sp" -t %1`)

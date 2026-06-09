@@ -52,6 +52,9 @@ func detailPlaceholderCmd() string {
 // the user exiting the shell (kept as [exited] via remain-on-exit, then
 // respawned). session is the cockpit tmux session, masterPane the master
 // Claude pane's stable id, and cwd the directory the shell starts in.
+// session and masterPane are interpolated unquoted, so callers must pass safe
+// tmux tokens (cockpitSession yields warden-tui-<pid>; pane ids are %<n>); only
+// cwd, which can contain spaces, is shquoted.
 func shellToggleScript(session, masterPane, cwd string) string {
 	c := shquote(cwd)
 	return fmt.Sprintf(`sp=$(tmux show-options -v -t %[1]s @warden_shell_pane 2>/dev/null)
