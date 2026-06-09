@@ -94,3 +94,94 @@ func aggregateTree(tbl map[int]ProcRow, roots []int) (rssBytes uint64, cpu float
 	}
 	return rssBytes, cpu, procs, uptimeSec
 }
+
+// parseVMStat parses `vm_stat` output: the page size from the header and each
+// "Key: N." line into a counts map (keyed by the text before the colon).
+func parseVMStat(raw string) (pageSize int64, counts map[string]int64) {
+	counts = make(map[string]int64)
+	pageSize = 4096 // sane default if the header is missing
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Mach Virtual Memory Statistics") {
+			if i := strings.Index(line, "page size of "); i >= 0 {
+				rest := line[i+len("page size of "):]
+				rest = strings.TrimSuffix(strings.TrimSpace(rest), " bytes)")
+				if n, err := strconv.ParseInt(strings.Fields(rest)[0], 10, 64); err == nil {
+					pageSize = n
+				}
+			}
+			continue
+		}
+		i := strings.LastIndex(line, ":")
+		if i < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:i])
+		val := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line[i+1:]), "."))
+		if n, err := strconv.ParseInt(val, 10, 64); err == nil {
+			counts[key] = n
+		}
+	}
+	return pageSize, counts
+}
+
+// parseSwapUsed extracts the "used = N.NNM" figure from `sysctl vm.swapusage`
+// and returns it in bytes (suffix M=MiB, G=GiB, K=KiB).
+func parseSwapUsed(raw string) uint64 {
+	i := strings.Index(raw, "used =")
+	if i < 0 {
+		return 0
+	}
+	f := strings.Fields(raw[i+len("used ="):])
+	if len(f) == 0 {
+		return 0
+	}
+	tok := f[0]
+	mult := 1.0
+	switch {
+	case strings.HasSuffix(tok, "G"):
+		mult, tok = 1<<30, strings.TrimSuffix(tok, "G")
+	case strings.HasSuffix(tok, "M"):
+		mult, tok = 1<<20, strings.TrimSuffix(tok, "M")
+	case strings.HasSuffix(tok, "K"):
+		mult, tok = 1<<10, strings.TrimSuffix(tok, "K")
+	}
+	v, err := strconv.ParseFloat(tok, 64)
+	if err != nil {
+		return 0
+	}
+	return uint64(v * mult)
+}
+
+// parseMemSize parses `sysctl -n hw.memsize` (bare value or "hw.memsize: N").
+func parseMemSize(raw string) uint64 {
+	s := strings.TrimSpace(raw)
+	if i := strings.LastIndex(s, ":"); i >= 0 {
+		s = strings.TrimSpace(s[i+1:])
+	}
+	v, _ := strconv.ParseUint(strings.Fields(s + " ")[0], 10, 64)
+	return v
+}
+
+// buildSystemStats assembles SystemStats from parsed pieces. UsedBytes is
+// total-free (guarded against underflow). Agent count/attributed RSS are filled
+// by the Collector, not here.
+func buildSystemStats(pageSize int64, counts map[string]int64, total, swapUsed uint64, pressure string) SystemStats {
+	px := uint64(pageSize)
+	free := uint64(counts["Pages free"]) * px
+	wired := uint64(counts["Pages wired down"]) * px
+	compressed := uint64(counts["Pages occupied by compressor"]) * px
+	used := uint64(0)
+	if total > free {
+		used = total - free
+	}
+	return SystemStats{
+		TotalBytes:      total,
+		UsedBytes:       used,
+		FreeBytes:       free,
+		WiredBytes:      wired,
+		CompressedBytes: compressed,
+		SwapUsedBytes:   swapUsed,
+		PressureLevel:   pressure,
+	}
+}

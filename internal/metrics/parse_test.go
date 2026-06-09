@@ -54,3 +54,55 @@ func TestAggregateTreeMissingRoot(t *testing.T) {
 		t.Fatalf("missing root should aggregate to zero, got rss=%d procs=%d", rss, procs)
 	}
 }
+
+func TestParseVMStat(t *testing.T) {
+	raw := "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n" +
+		"Pages free:                          100.\n" +
+		"Pages active:                        200.\n" +
+		"Pages inactive:                       50.\n" +
+		"Pages wired down:                     30.\n" +
+		"Pages occupied by compressor:         40.\n"
+	pageSize, counts := parseVMStat(raw)
+	if pageSize != 16384 {
+		t.Fatalf("pageSize=%d", pageSize)
+	}
+	if counts["Pages free"] != 100 || counts["Pages occupied by compressor"] != 40 {
+		t.Fatalf("counts=%+v", counts)
+	}
+}
+
+func TestParseSwapUsed(t *testing.T) {
+	raw := "vm.swapusage: total = 2048.00M  used = 512.50M  free = 1535.50M  (encrypted)"
+	got := parseSwapUsed(raw)
+	want := uint64(512.5 * 1024 * 1024)
+	if got != want {
+		t.Fatalf("swap used=%d want %d", got, want)
+	}
+}
+
+func TestParseMemSize(t *testing.T) {
+	if got := parseMemSize("17179869184\n"); got != 17179869184 {
+		t.Fatalf("memsize=%d", got)
+	}
+	if got := parseMemSize("hw.memsize: 17179869184"); got != 17179869184 {
+		t.Fatalf("memsize with prefix=%d", got)
+	}
+}
+
+func TestBuildSystemStats(t *testing.T) {
+	counts := map[string]int64{
+		"Pages free":                   100,
+		"Pages wired down":             30,
+		"Pages occupied by compressor": 40,
+	}
+	ss := buildSystemStats(16384, counts, 1<<24 /*16MiB total*/, 1024*1024, "warn")
+	if ss.FreeBytes != 100*16384 || ss.WiredBytes != 30*16384 || ss.CompressedBytes != 40*16384 {
+		t.Fatalf("ss=%+v", ss)
+	}
+	if ss.UsedBytes != ss.TotalBytes-ss.FreeBytes || ss.TotalBytes != 1<<24 {
+		t.Fatalf("used/total wrong: %+v", ss)
+	}
+	if ss.SwapUsedBytes != 1024*1024 || ss.PressureLevel != "warn" {
+		t.Fatalf("swap/pressure wrong: %+v", ss)
+	}
+}
