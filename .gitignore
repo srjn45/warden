@@ -5,7 +5,16 @@ web/dist/*
 !web/dist/.gitkeep
 
 bin/
+dist/
 .claude/
+
+# warden runtime state / worktrees (created when running agents from this checkout)
+.agentctl/
+.warden/
+.worktrees/
+
+# stray subagent typo dir
+.claire/
 
 # brainstorming visual companion
 .superpowers/

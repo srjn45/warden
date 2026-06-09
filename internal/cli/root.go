@@ -6,10 +6,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is the warden version string. It defaults to "dev" for source builds
+// and is overridden at release time via the linker:
+//
+//	-ldflags "-X github.com/srjn45/warden/internal/cli.version=<tag>"
+//
+// (goreleaser sets this automatically from the git tag.)
+var version = "dev"
+
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "warden",
 		Short:         "warden — spawn, monitor, and tear down per-ticket Claude Code agent sessions (alias: wd)",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

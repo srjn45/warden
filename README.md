@@ -1,5 +1,10 @@
 # warden
 
+[![CI](https://github.com/srjn45/warden/actions/workflows/ci.yml/badge.svg)](https://github.com/srjn45/warden/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Go Reference](https://pkg.go.dev/badge/github.com/srjn45/warden.svg)](https://pkg.go.dev/github.com/srjn45/warden)
+[![Release](https://img.shields.io/github/v/release/srjn45/warden?sort=semver)](https://github.com/srjn45/warden/releases)
+
 A single Go binary (`warden`, aliased as `wd`) that spawns, monitors, and tears down Claude Code agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and a file-based JSON store (no database to run).
 
 One binary, multiple faces: `warden daemon` is the single writer to the on-disk session store, serving a loopback REST API and running a background poller. `warden ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `warden mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator Claude session to query agents and talk to a specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
@@ -14,7 +19,7 @@ alias agents=warden
 
 ## Prerequisites
 
-- **Go 1.22+** — to build the binary
+- **Go 1.26+** — to build the binary (only needed for `go install` or building from source)
 - **tmux** — every agent session runs in a detached tmux window
 - **git** — worktree creation and guarded cleanup
 - **Claude Code** (`claude` on PATH) — the agent runtime launched in each session
@@ -22,11 +27,43 @@ alias agents=warden
 
 ---
 
-## Build
+## Install
+
+warden is one self-contained binary. Pick whichever fits:
+
+### 1. Download a release binary (quickest)
+
+Grab the archive for your OS/arch from the [latest release](https://github.com/srjn45/warden/releases/latest), extract `warden`, and put it on your `PATH`. Released binaries have the web dashboard embedded.
 
 ```sh
-make build           # produces bin/warden
+# example: macOS arm64 (adjust the version/arch)
+curl -fsSL https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_darwin_arm64.tar.gz | tar -xz
+sudo mv warden /usr/local/bin/        # or any dir on your PATH
+warden --version
 ```
+
+> **macOS Gatekeeper:** downloaded binaries are unsigned, so the first run may be blocked. Clear the quarantine flag once: `xattr -d com.apple.quarantine $(which warden)` (or right-click → Open). Building from source — option 3 — avoids this.
+
+### 2. `go install` (Go toolchain)
+
+```sh
+go install github.com/srjn45/warden/cmd/warden@latest
+```
+
+This installs the `warden` binary (CLI + daemon + MCP server + TUI). **Note:** `go install` does *not* bundle the web dashboard (the UI is built from `web/` and embedded at release time, and isn't committed to the repo). The CLI, daemon API, TUI, and MCP server all work; for the embedded web GUI use a release binary (option 1) or build from source (option 3).
+
+### 3. Build from source
+
+```sh
+git clone https://github.com/srjn45/warden.git
+cd warden
+make build           # CLI/daemon/TUI only → bin/warden
+make release         # builds the web UI first, then embeds it → full GUI
+```
+
+### Run it as a background service (macOS)
+
+The recommended setup on macOS installs warden as an auto-starting launchd daemon (and links the Claude skill + registers the MCP server). See the next section.
 
 ---
 
@@ -97,19 +134,19 @@ Logs:
 
 The hook script posts lifecycle events (`SessionStart`, `Notification`, `Stop`, `SubagentStop`, `SessionEnd`) to the daemon so it can update agent status in real time without polling. `SessionEnd` marks the session **done** (terminal) when claude exits.
 
-Merge `hooks/settings.snippet.json` into `~/.claude/settings.json`:
+Merge `hooks/settings.snippet.json` into `~/.claude/settings.json`. The snippet
+uses a `__WARDEN_HOOK__` placeholder — substitute the absolute path to
+`hooks/warden-hook.sh` in your clone first:
 
 ```sh
-# If ~/.claude/settings.json doesn't exist yet:
-cp hooks/settings.snippet.json ~/.claude/settings.json
+# from the repo root, render the snippet with the real hook path:
+sed "s|__WARDEN_HOOK__|$(pwd)/hooks/warden-hook.sh|g" hooks/settings.snippet.json
 
-# If it already exists, add the "hooks" key from settings.snippet.json
-# into the root of your existing settings.json object.
-```
+# If ~/.claude/settings.json doesn't exist yet, write it directly:
+sed "s|__WARDEN_HOOK__|$(pwd)/hooks/warden-hook.sh|g" hooks/settings.snippet.json > ~/.claude/settings.json
 
-The snippet references the installed hook location:
-```
-~/workspace/personal/agentctl/hooks/warden-hook.sh
+# If it already exists, merge the rendered "hooks" key into the root of your
+# existing settings.json object.
 ```
 
 The hook fails soft — it never blocks or errors the agent, even if the daemon is down or the session is unknown.
@@ -376,6 +413,94 @@ warden tail PROJ-350
 warden tail PROJ-350 --lines 80
 ```
 
+### `warden digest <TICKET>`
+
+Summarize what an agent accomplished — files touched, branch, number of turns, and a short narrative (best-effort, via `claude -p`). Also available as a web **Digest** panel and the TUI `d` key.
+
+```sh
+warden digest PROJ-350
+warden digest PROJ-350 --json
+```
+
+### `warden approvals` / `warden approve <TICKET> <option>`
+
+The **approvals inbox** (on by default; see `WARDEN_APPROVALS`). When a `--supervised` agent hits a tool-permission prompt, the daemon recognizes it and surfaces the numbered options so you can answer without attaching.
+
+```sh
+warden approvals                 # list pending permission prompts (with their options)
+warden approve PROJ-350 1  # answer prompt for that agent with option 1 (e.g. "Yes")
+```
+
+Unrecognized prompts always fall back to attach. Also surfaced in the web AttentionQueue (one-click buttons) and the TUI **⏳ Approvals** row.
+
+### `warden doctor`
+
+Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon reachability, and the data directory.
+
+```sh
+warden doctor
+```
+
+### `warden rotate` (self-rotation)
+
+Run **inside an agent session** to retire a long-lived, context-heavy agent and hand off to a fresh successor in the same workdir/worktree. Phase 1 is driven by the `/warden` skill (the agent writes a handoff file + resume prompt and shows you); on your go-ahead it spawns the successor and reaps itself.
+
+```sh
+warden rotate --confirm \
+  --resume-file ./HANDOFF.md \
+  --resume-prompt "Continue the migration from where the notes leave off"
+```
+
+Spawn-before-reap is fail-safe: if the successor fails to spawn, the current agent keeps running. Rotation reuses the worktree by cwd and never removes it.
+
+### Pipelines — `warden pipeline`
+
+Define a **DAG of agent jobs** in YAML and let the daemon run them: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents. The daemon owns the cheap "await + fire" so the lead Claude stays off the critical path.
+
+```sh
+warden pipeline create -f review.yaml   # validate + register (does not start)
+warden pipeline start <id>              # spawn jobs with no dependencies
+warden pipeline show <id>               # jobs, status, branches, and emitted output
+warden pipeline list
+warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
+warden pipeline cancel <id>             # terminate running jobs
+warden pipeline delete <id>             # remove the record (cancel first if live)
+```
+
+A minimal `analyze → implement → review` spec (job prompts must **not** mention `emit` — the daemon auto-appends it and auto-injects upstream outputs):
+
+```yaml
+name: auth-refactor
+jobs:
+  - id: analyze
+    prompt: "Analyze the auth module and list the concrete refactors needed."
+  - id: implement
+    depends_on: [analyze]
+    worktree: fresh
+    prompt: "Implement the refactors identified upstream."
+  - id: review
+    depends_on: [implement]
+    prompt: "Review the implementation branch for correctness and regressions."
+```
+
+Pipelines have full TUI and web visibility (a ▸ Pipelines section / a Pipelines tab). See [docs/USAGE.md](docs/USAGE.md) for the full authoring guide.
+
+### Shared context & messaging — `warden ctx` / `warden msg`
+
+The substrate pipelines are built on, usable directly so agents can collaborate:
+
+```sh
+# Shared context: a namespaced key/value blackboard all agents can read/write
+warden ctx set build.status "green" --as agent-4f2a
+warden ctx get build.status
+warden ctx list --prefix build.
+
+# Directed messages: per-agent inbox; sending wakes a parked (idle/waiting) agent
+warden msg send agent-9c1d "the API contract changed — re-check your client"
+warden msg inbox --as agent-9c1d
+warden msg wait --as agent-9c1d --timeout 120   # block in the daemon until a message arrives
+```
+
 ### `warden.daemon`
 
 Run the daemon (HTTP API + background poller). Normally managed by launchd; run manually for debugging.
@@ -394,7 +519,7 @@ warden mcp
 warden mcp --addr 127.0.0.1:8765
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`.
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `send_message`, `read_inbox`, `list_approvals`, `approve`.
 
 ---
 
@@ -430,6 +555,11 @@ Once registered, the orchestrator session can call these tools directly:
 | `restore_agent` | Recreate and resume a lost/orphaned agent's session (`claude --resume`) |
 | `delete_agent` | Clear an agent's stored record (archives by default; `hard` purges). Does not touch tmux or the worktree |
 | `remove_worktree` | Remove an agent's git worktree + branch — **destructive**; refuses while the agent runs or has uncommitted/unpushed work unless `force` |
+| `ctx_set` / `ctx_get` / `ctx_list` | Read/write the shared-context key/value blackboard agents collaborate through |
+| `send_message` / `read_inbox` | Send a directed message to an agent (wakes it if parked) / read this agent's inbox |
+| `list_approvals` / `approve` | List recognized pending tool-permission prompts / answer one by option number |
+
+> Pipelines are CLI-only for now (no MCP pipeline tools) — author them with `warden pipeline create -f` and the `/warden` skill.
 
 Example orchestrator prompts:
 
@@ -546,3 +676,34 @@ go test ./...    # Go suite — covers daemon hub, SSE endpoint, static embed, a
 ```
 
 The frontend Vitest suite lives in `web/src/lib/` alongside the source files (`status.test.ts`, `api.test.ts`). The Go daemon tests cover the broadcaster (`hub_test.go`), the SSE handler (`sse_test.go`), and the static file serving with SPA fallback (`static_test.go`).
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a PR:
+
+```sh
+gofmt -l $(git ls-files '*.go')   # must be empty (CI enforces gofmt)
+make lint                          # go vet ./...
+make test                          # go test ./...
+make web-test                      # frontend unit tests
+```
+
+CI (build, test, lint) runs on every push and PR to `master` — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+---
+
+## License
+
+Licensed under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+```
+Copyright 2026 Srajan Pathak
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```

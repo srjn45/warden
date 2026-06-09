@@ -1,0 +1,56 @@
+# goreleaser configuration for warden.
+# Docs: https://goreleaser.com  —  run `goreleaser check` to validate.
+version: 2
+
+project_name: warden
+
+before:
+  hooks:
+    # Build the web UI first so go:embed bakes the real dashboard into the
+    # binary (the Go build embeds web/dist).
+    - sh -c "cd web && npm ci && npm run build"
+
+builds:
+  - id: warden
+    main: ./cmd/warden
+    binary: warden
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/srjn45/warden/internal/cli.version={{ .Version }}
+
+archives:
+  - id: warden
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge branch"
+      - "Merge pull request"
+
+release:
+  github:
+    owner: srjn45
+    name: warden
+  draft: false
+  prerelease: auto
+  name_template: "warden {{ .Tag }}"
