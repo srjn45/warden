@@ -15,6 +15,7 @@ type Config struct {
 	ApprovalsEnabled   bool
 	SpawnGateEnabled   bool
 	SpawnGateMaxAgents int
+	MetricsEnabled     bool
 }
 
 func envOr(key, def string) string {
@@ -101,6 +102,17 @@ func spawnGateMaxAgents() int {
 	return 5
 }
 
+// metricsEnabled reads WARDEN_METRICS (legacy AGENTCTL_METRICS); ON by default
+// (the recorder is cheap and must run before a freeze to capture it), disabled
+// only for 0/off/false.
+func metricsEnabled() bool {
+	switch strings.ToLower(env("METRICS")) {
+	case "0", "off", "false":
+		return false
+	}
+	return true
+}
+
 // Load reads config from environment, applying defaults.
 func Load() Config {
 	return Config{
@@ -111,5 +123,6 @@ func Load() Config {
 		ApprovalsEnabled:   approvalsEnabled(),
 		SpawnGateEnabled:   spawnGateEnabled(),
 		SpawnGateMaxAgents: spawnGateMaxAgents(),
+		MetricsEnabled:     metricsEnabled(),
 	}
 }

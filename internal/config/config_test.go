@@ -137,3 +137,18 @@ func TestSpawnGateMaxAgentsOverride(t *testing.T) {
 		t.Error("unparseable max agents should fall back to 5")
 	}
 }
+
+func TestMetricsEnabledDefaultsOn(t *testing.T) {
+	t.Setenv("WARDEN_METRICS", "")
+	t.Setenv("AGENTCTL_METRICS", "")
+	if !Load().MetricsEnabled {
+		t.Fatal("metrics should default ON")
+	}
+}
+
+func TestMetricsEnabledOff(t *testing.T) {
+	t.Setenv("WARDEN_METRICS", "off")
+	if Load().MetricsEnabled {
+		t.Fatal("WARDEN_METRICS=off should disable")
+	}
+}
