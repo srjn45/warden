@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs, jobDigestSummary } from './pipelines';
-import type { Pipeline, PipelineJobStatus } from './types';
+import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs, pipelineIsCancelable, jobDigestSummary } from './pipelines';
+import type { Pipeline, PipelineStatus, PipelineJobStatus } from './types';
 
-function pipe(statuses: PipelineJobStatus[]): Pipeline {
+function pipe(statuses: PipelineJobStatus[], status: PipelineStatus = 'running'): Pipeline {
   return {
     id: 'demo',
     name: 'demo',
     repo: '',
-    status: 'running',
-    jobs: statuses.map((status, i) => ({ id: `j${i}`, status })),
+    status,
+    jobs: statuses.map((s, i) => ({ id: `j${i}`, status: s })),
   } as Pipeline;
 }
 
@@ -36,6 +36,21 @@ describe('pipelines helpers', () => {
   it('pipelineHasLiveJobs is false when all jobs are stopped', () => {
     expect(pipelineHasLiveJobs(pipe(['done', 'skipped', 'failed']))).toBe(false);
     expect(pipelineHasLiveJobs(pipe([]))).toBe(false);
+  });
+
+  it('pipelineIsCancelable is true while pending or running', () => {
+    expect(pipelineIsCancelable(pipe(['pending'], 'pending'))).toBe(true);
+    expect(pipelineIsCancelable(pipe(['running'], 'running'))).toBe(true);
+  });
+
+  it('pipelineIsCancelable is false once finished (done/canceled)', () => {
+    expect(pipelineIsCancelable(pipe(['done'], 'done'))).toBe(false);
+    expect(pipelineIsCancelable(pipe(['skipped'], 'canceled'))).toBe(false);
+  });
+
+  it('pipelineIsCancelable for stalled depends on whether jobs are still live', () => {
+    expect(pipelineIsCancelable(pipe(['failed', 'running'], 'stalled'))).toBe(true);
+    expect(pipelineIsCancelable(pipe(['failed', 'skipped'], 'stalled'))).toBe(false);
   });
 
   it('jobDigestSummary returns the digest summary when present', () => {

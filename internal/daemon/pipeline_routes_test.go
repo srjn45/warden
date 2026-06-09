@@ -214,6 +214,47 @@ func TestPipelineCancelSkipsNeedsAttention(t *testing.T) {
 	}
 }
 
+func TestPipelineCancelRejectsFinished(t *testing.T) {
+	cases := []struct {
+		name      string
+		setup     func(p *pipeline.Pipeline)
+		wantCode  int
+		wantState pipeline.Status
+	}{
+		{"done", func(p *pipeline.Pipeline) {
+			p.Job("a").Status = pipeline.JobDone
+			p.Status = pipeline.StatusDone
+		}, http.StatusConflict, pipeline.StatusDone},
+		{"stalled-no-live", func(p *pipeline.Pipeline) {
+			p.Job("a").Status = pipeline.JobFailed
+			p.Status = pipeline.StatusStalled
+		}, http.StatusConflict, pipeline.StatusStalled},
+		{"already-canceled", func(p *pipeline.Pipeline) {
+			p.Job("a").Status = pipeline.JobSkipped
+			p.Status = pipeline.StatusCanceled
+		}, http.StatusConflict, pipeline.StatusCanceled},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts, ps := newPipeServer(t)
+			defer ts.Close()
+			http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+			ps.Update("demo", tc.setup)
+
+			resp, err := http.Post(ts.URL+"/pipelines/demo/cancel", "application/json", nil)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.wantCode {
+				t.Fatalf("cancel want %d, got %d", tc.wantCode, resp.StatusCode)
+			}
+			got, _ := ps.Get("demo")
+			if got.Status != tc.wantState {
+				t.Fatalf("status should stay %s, got %s", tc.wantState, got.Status)
+			}
+		})
+	}
+}
+
 func TestPipelineDeleteRoute(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()

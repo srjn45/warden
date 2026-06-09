@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Pipeline, PipelineJob } from '../lib/types';
 import { listPipelines, cancelPipeline, deletePipeline, retryJob, startPipeline, ApiError } from '../lib/api';
-import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs, jobDigestSummary } from '../lib/pipelines';
+import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs, pipelineIsCancelable, jobDigestSummary } from '../lib/pipelines';
 import PipelineDag from './PipelineDag';
 import NewPipelineModal from './NewPipelineModal';
 
@@ -71,7 +71,12 @@ export default function PipelinesTab({ onSelect }: { onSelect: (id: string) => v
             {selected.status === 'pending' && (
               <button className="btn" onClick={() => startPipeline(selected.id).catch(() => { /* ignore */ })}>Start</button>
             )}
-            <button className="btn" onClick={() => cancelPipeline(selected.id).catch(() => { /* ignore */ })}>Cancel</button>
+            <button
+              className="btn"
+              disabled={!pipelineIsCancelable(selected)}
+              title={pipelineIsCancelable(selected) ? '' : 'Pipeline already finished — delete it instead'}
+              onClick={() => cancelPipeline(selected.id).catch(() => { /* ignore */ })}
+            >Cancel</button>
             {!pipelineHasLiveJobs(selected) && (
               <button className="btn" onClick={() => onDelete(selected.id)}>Delete</button>
             )}

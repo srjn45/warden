@@ -69,6 +69,32 @@ func (p *Pipeline) Job(id string) *Job {
 	return nil
 }
 
+// HasLiveJobs reports whether any job is still running or awaiting input.
+func (p *Pipeline) HasLiveJobs() bool {
+	for i := range p.Jobs {
+		if p.Jobs[i].Status == JobRunning || p.Jobs[i].Status == JobNeedsAttention {
+			return true
+		}
+	}
+	return false
+}
+
+// IsCancelable reports whether a pipeline can still be canceled. A finished
+// pipeline (done/canceled) cannot — it can only be deleted. A stalled pipeline
+// (a job failed) is still cancelable only while it has live jobs left to
+// terminate on parallel branches; once nothing is live it is effectively
+// finished and only deletion remains.
+func (p *Pipeline) IsCancelable() bool {
+	switch p.Status {
+	case StatusDone, StatusCanceled:
+		return false
+	case StatusStalled:
+		return p.HasLiveJobs()
+	default: // pending | running
+		return true
+	}
+}
+
 // ParseWorktree splits a worktree spec into (mode, fromJob). "from:impl" ->
 // ("from","impl"); "fresh"/"none" -> (mode, "").
 func ParseWorktree(s string) (mode, fromJob string) {

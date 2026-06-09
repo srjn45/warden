@@ -157,6 +157,12 @@ func (s *Server) handleCancelPipeline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// A finished pipeline (done, or stalled with nothing live) can't be canceled —
+	// only deleted. Reject the terminal→canceled transition.
+	if !p.IsCancelable() {
+		writeErr(w, http.StatusConflict, "pipeline already finished (status "+string(p.Status)+") — nothing to cancel; delete it instead")
+		return
+	}
 	// Terminate any live job sessions (best-effort), then mark canceled. A
 	// needs_attention job's tmux session is typically still alive, so terminate
 	// it too — not just running jobs.

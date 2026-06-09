@@ -21,3 +21,13 @@ export function jobDigestSummary(j: PipelineJob): string {
 export function pipelineHasLiveJobs(p: Pipeline): boolean {
   return p.jobs.some((j) => j.status === 'running' || j.status === 'needs_attention');
 }
+
+// pipelineIsCancelable reports whether a pipeline can still be canceled. A
+// finished pipeline (done/canceled) can only be deleted, not canceled. A
+// stalled pipeline (a job failed) stays cancelable only while it has live jobs
+// to terminate on parallel branches. Mirrors the daemon's POST cancel guard.
+export function pipelineIsCancelable(p: Pipeline): boolean {
+  if (p.status === 'done' || p.status === 'canceled') return false;
+  if (p.status === 'stalled') return pipelineHasLiveJobs(p);
+  return true; // pending | running
+}
