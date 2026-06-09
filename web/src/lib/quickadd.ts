@@ -1,4 +1,4 @@
-import { spawn, ApiError, ConfirmationRequiredError } from './api';
+import { spawn, ConfirmationRequiredError } from './api';
 
 // QuickAddResult is the discriminated outcome of a one-click pane spawn. The
 // button maps each variant to UI state; quickAdd never throws.
@@ -17,8 +17,7 @@ export async function quickAdd(dir: string, force = false): Promise<QuickAddResu
     if (e instanceof ConfirmationRequiredError) {
       return { kind: 'confirm', reason: e.verdict.reason };
     }
-    const message = e instanceof ApiError ? e.message
-      : e instanceof Error ? e.message : String(e);
+    const message = e instanceof Error ? e.message : String(e);
     return { kind: 'error', message };
   }
 }

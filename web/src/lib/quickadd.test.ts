@@ -16,7 +16,8 @@ describe('quickAdd', () => {
     const out = await quickAdd('/work/project');
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe('/spawn');
-    expect(JSON.parse(opts.body)).toMatchObject({
+    expect(JSON.parse(opts.body)).toEqual({
+      type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false,
       prompt: '', cwd: '/work/project', supervised: false, force: false,
     });
     expect(out).toEqual({ kind: 'created', id: 'agent-1' });
@@ -45,5 +46,11 @@ describe('quickAdd', () => {
     vi.stubGlobal('fetch', fetchMock);
     const out = await quickAdd('/work/project');
     expect(out).toEqual({ kind: 'error', message: 'boom' });
+  });
+
+  it('maps a network failure (fetch rejects) to an error result', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    const out = await quickAdd('/work/project');
+    expect(out).toEqual({ kind: 'error', message: 'Failed to fetch' });
   });
 });
