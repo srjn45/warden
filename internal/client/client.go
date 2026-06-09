@@ -16,6 +16,7 @@ import (
 
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/store"
@@ -527,4 +528,37 @@ func (c *Client) PipelineRetry(ctx context.Context, pid, job string) error {
 	path := "/pipelines/" + url.PathEscape(pid) + "/jobs/" + url.PathEscape(job) + "/retry"
 	// longTimeout: retry reconciles and may spawn a worktree job.
 	return c.doT(ctx, longTimeout, http.MethodPost, path, nil, nil)
+}
+
+// GetMetrics fetches the live resource snapshot (GET /metrics).
+func (c *Client) GetMetrics(ctx context.Context) (*metrics.Sample, error) {
+	var s metrics.Sample
+	if err := c.do(ctx, http.MethodGet, "/metrics", nil, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// GetMetricsHistory fetches recorded samples (GET /metrics/history). since is an
+// RFC3339 timestamp ("" lets the daemon default to its look-back window); limit
+// <= 0 lets the daemon pick its cap.
+func (c *Client) GetMetricsHistory(ctx context.Context, since string, limit int) ([]metrics.Sample, error) {
+	p := "/metrics/history"
+	q := url.Values{}
+	if since != "" {
+		q.Set("since", since)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if e := q.Encode(); e != "" {
+		p += "?" + e
+	}
+	var resp struct {
+		Samples []metrics.Sample `json:"samples"`
+	}
+	if err := c.do(ctx, http.MethodGet, p, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Samples, nil
 }
