@@ -1,5 +1,5 @@
 import type { Session } from '../lib/types';
-import { groupSessions, baseName } from '../lib/group';
+import { groupSessions, baseName, UNKNOWN_DIR } from '../lib/group';
 import MiniTerminal from './MiniTerminal';
 import BusyIdleBadge from './BusyIdleBadge';
 import QuickAddButton from './QuickAddButton';
@@ -28,7 +28,7 @@ export default function AgentGrid({ sessions, onSelect, lines = 8, onCreated }: 
             <span className="grid-group-name">{baseName(g.dir)}</span>
             <span className="grid-group-path">{g.dir}</span>
             <span className="grid-group-count">{g.sessions.length}</span>
-            {onCreated && g.dir !== '—' && (
+            {onCreated && g.dir !== UNKNOWN_DIR && (
               <QuickAddButton dir={g.dir} onCreated={onCreated} />
             )}
           </div>

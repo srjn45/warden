@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { quickAdd } from '../lib/quickadd';
 
 // QuickAddButton is the per-pane '+' that spawns a no-prompt agent in `dir`.
@@ -11,12 +11,16 @@ export default function QuickAddButton({ dir, onCreated }: {
   const [busy, setBusy] = useState(false);
   const [confirmReason, setConfirmReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pending = useRef(false);
 
   async function click() {
+    if (pending.current) return;
+    pending.current = true;
     setBusy(true);
     setError(null);
     const res = await quickAdd(dir, confirmReason !== null);
     setBusy(false);
+    pending.current = false;
     if (res.kind === 'created') {
       setConfirmReason(null);
       onCreated(res.id);
@@ -40,6 +44,7 @@ export default function QuickAddButton({ dir, onCreated }: {
       className={`grid-group-add${warn ? ' warn' : ''}`}
       disabled={busy}
       title={title}
+      aria-label={busy ? 'Spawning agent…' : `Add agent in ${dir}`}
       onClick={(e) => { e.stopPropagation(); click(); }}
     >
       {busy ? '…' : '+'}

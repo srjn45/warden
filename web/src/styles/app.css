@@ -92,6 +92,7 @@ body { margin: 0; }
 .grid-group-add:hover:not(:disabled) { border-color: #2f81f7; }
 .grid-group-add:disabled { opacity: .5; cursor: default; }
 .grid-group-add.warn { border-color: var(--attention); color: var(--attention); }
+.grid-group-add.warn:hover:not(:disabled) { border-color: var(--attention); color: var(--attention); }
 .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .6rem; padding: .6rem; }
 .grid-tile { text-align: left; padding: 0; border: 1px solid #8884; border-radius: .4rem; overflow: hidden; cursor: pointer; background: transparent; color: inherit; }
 .grid-tile:hover { border-color: #2f81f7; }

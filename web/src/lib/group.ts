@@ -5,11 +5,14 @@ export interface SessionGroup {
   sessions: Session[];
 }
 
+// UNKNOWN_DIR is the sentinel value used when neither repo nor workdir is set.
+export const UNKNOWN_DIR = '—';
+
 // sourceDir is the grouping key: the directory the warden command was
 // triggered from. repo (typed/worktree agents) wins; otherwise workdir (prompt
-// agents' caller cwd); '—' when neither is known.
+// agents' caller cwd); UNKNOWN_DIR when neither is known.
 export function sourceDir(s: Session): string {
-  return s.repo || s.workdir || '—';
+  return s.repo || s.workdir || UNKNOWN_DIR;
 }
 
 // groupSessions buckets sessions by sourceDir and orders the groups by their
