@@ -44,6 +44,28 @@ func detailPlaceholderCmd() string {
 	return `sh -c 'printf "Select an agent and press Enter to open it here.\n"; exec sleep 2147483647'`
 }
 
+// shellToggleScript returns the sh command bound to M-t in the cockpit. On each
+// press it surfaces a shell in the bottom-left master slot, or returns to the
+// master Claude, by swapping the two panes — neither process is killed. The
+// shell is created lazily on the first toggle in a hidden holding window and
+// tracked by the session user-option @warden_shell_pane, so the toggle survives
+// the user exiting the shell (kept as [exited] via remain-on-exit, then
+// respawned). session is the cockpit tmux session, masterPane the master
+// Claude pane's stable id, and cwd the directory the shell starts in.
+func shellToggleScript(session, masterPane, cwd string) string {
+	c := shquote(cwd)
+	return fmt.Sprintf(`sp=$(tmux show-options -v -t %[1]s @warden_shell_pane 2>/dev/null)
+if [ -z "$sp" ] || ! tmux list-panes -s -t %[1]s -F '#{pane_id}' | grep -qx "$sp"; then
+  sp=$(tmux new-window -d -t %[1]s -n warden-shell -c %[3]s -P -F '#{pane_id}' "${SHELL:-/bin/sh}")
+  tmux set-option -t %[1]s @warden_shell_pane "$sp"
+  tmux set-option -p -t "$sp" remain-on-exit on
+elif tmux list-panes -s -t %[1]s -F '#{pane_id} #{pane_dead}' | grep -qx "$sp 1"; then
+  tmux respawn-pane -t "$sp" -c %[3]s "${SHELL:-/bin/sh}"
+fi
+tmux swap-pane -s "$sp" -t %[2]s
+tmux select-pane -t '{bottom-left}'`, session, masterPane, c)
+}
+
 // runPaneCreate runs a pane-creating tmux command (-P -F '#{pane_id}') and
 // returns the new pane id, so later commands target panes by stable id rather
 // than by spatial index (which tmux renumbers on every split).
