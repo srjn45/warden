@@ -28,6 +28,9 @@ func helpText() string {
 		"  o            open a directory as a group (spawn target for n)\n" +
 		"  s            send a message to the selected agent\n" +
 		"  a            full-screen attach to its tmux session (or a running pipeline job's session)\n" +
+		"  d            completion digest for the selected agent (scrollable; d/esc to close)\n" +
+		"  i            answer pending approvals (or enter on the ⏳ row; 1-9 to answer, tab for next)\n" +
+		"  c            shared-context + message-traffic inspector\n" +
 		"  r            retry a failed/needs-attention pipeline job\n" +
 		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +

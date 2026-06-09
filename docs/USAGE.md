@@ -295,13 +295,15 @@ Run the MCP stdio server (see §8).
 
 ### `warden digest <TICKET> [--json]`
 Summarize what an agent accomplished — files touched, branch, turn count, and a
-short narrative. Also a web **Digest** panel.
+short narrative. Also a web **Digest** panel and the cockpit `d` key.
 
 ### `warden approvals` / `warden approve <TICKET> <option>`
 With the approvals inbox on (`WARDEN_APPROVALS`, default on), `approvals` lists
 recognized tool-permission prompts waiting for an answer (each with its numbered
 options), and `approve` answers one by option number — without attaching. Also
-answerable from the web AttentionQueue. Unrecognized prompts fall back to attach.
+answerable from the web AttentionQueue or the cockpit (the **⏳ Approvals** row →
+`i`/`enter`, then `1`-`9`; `tab` cycles waiting agents). Unrecognized prompts fall
+back to attach.
 
 ```sh
 warden approvals
@@ -385,6 +387,9 @@ highlighted agent to open it in the right pane.
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — hands the whole client to the agent's (or running job's) tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
+| `d` | Completion digest for the selected agent — scrollable overlay (`d`/`esc` to close) |
+| `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
+| `c` | Shared-context + message-traffic inspector |
 | `r` | Retry a failed / needs-attention pipeline job |
 | `x` | Context-sensitive — terminate the selected agent / cancel a pipeline / close an opened dir (confirm with `y`) |
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |

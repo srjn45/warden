@@ -45,4 +45,6 @@ const (
 	modeConfirmSpawn          // memory-pressure confirm before spawning
 	modeConfirmDeletePipeline // y/N confirm before deleting a stopped pipeline
 	modeInspector             // read-only shared-context + message-traffic view
+	modeDigest                // scrollable completion digest for the selected agent
+	modeApprovals             // answer pending tool-permission prompts
 )

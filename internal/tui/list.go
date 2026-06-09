@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -491,6 +493,78 @@ func renderItemLine(it item, selected bool, width int) string {
 		}
 	}
 	return cur + line
+}
+
+// recognizedApprovals returns the subset of views that are answerable menus
+// (Recognized) — the ones the cockpit can present option keys for. Unrecognized
+// prompts must be attached to, not answered here.
+func recognizedApprovals(views []approval.View) []approval.View {
+	out := make([]approval.View, 0, len(views))
+	for _, v := range views {
+		if v.Recognized {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// digestBody renders a completion digest for the modeDigest overlay: task,
+// metadata line, changed files with +/- counts, and the narrative summary.
+func digestBody(d *digest.Digest, width int) string {
+	if d == nil {
+		return stMuted.Render("(no digest)")
+	}
+	var b strings.Builder
+	if d.Task != "" {
+		b.WriteString(stMuted.Render("Task: ") + d.Task + "\n")
+	}
+	meta := []string{}
+	if d.Status != "" {
+		meta = append(meta, "status "+d.Status)
+	}
+	if d.Branch != "" {
+		meta = append(meta, "branch "+d.Branch)
+	}
+	meta = append(meta, fmt.Sprintf("%d turns", d.Turns))
+	b.WriteString(stMuted.Render(strings.Join(meta, " · ")) + "\n\n")
+	if len(d.Files) > 0 {
+		b.WriteString(stPaneTitle.Render("Files") + "\n")
+		for _, f := range d.Files {
+			b.WriteString(fmt.Sprintf("  %s  (+%d/-%d)\n", f.Path, f.Added, f.Removed))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(stPaneTitle.Render("Summary") + "\n")
+	if strings.TrimSpace(d.Summary) == "" {
+		b.WriteString(stMuted.Render("(no summary)") + "\n")
+	} else {
+		b.WriteString(d.Summary + "\n")
+	}
+	return b.String()
+}
+
+// approvalsBody renders the modeApprovals overlay: the focused prompt's question
+// and numbered options, with a "N of M waiting" indicator when several are queued.
+func approvalsBody(rec []approval.View, cursor, width int) string {
+	if len(rec) == 0 {
+		return stMuted.Render("(no pending approvals)")
+	}
+	if cursor < 0 || cursor >= len(rec) {
+		cursor = 0
+	}
+	v := rec[cursor]
+	var b strings.Builder
+	if len(rec) > 1 {
+		b.WriteString(stMuted.Render(fmt.Sprintf("%d of %d waiting (tab for next)", cursor+1, len(rec))) + "\n")
+	}
+	b.WriteString(stPaneTitle.Render(v.ID) + "\n")
+	if v.Question != "" {
+		b.WriteString(v.Question + "\n")
+	}
+	for i, opt := range v.Options {
+		b.WriteString(fmt.Sprintf("  %d. %s\n", i+1, opt))
+	}
+	return b.String()
 }
 
 // padTo pads s with blank lines to exactly height lines.

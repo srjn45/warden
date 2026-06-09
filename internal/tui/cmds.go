@@ -6,7 +6,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -202,5 +204,51 @@ func deletePipelineCmd(a api, pid string) tea.Cmd {
 func retryJobCmd(a api, pid, job string) tea.Cmd {
 	return func() tea.Msg {
 		return pipelineActionMsg{err: a.PipelineRetry(context.Background(), pid, job)}
+	}
+}
+
+// digestMsg carries a fetched completion digest (or an error) back to the model.
+type digestMsg struct {
+	id  string
+	d   *digest.Digest
+	err error
+}
+
+// digestCmd fetches the agent's completion digest. It uses the long deadline
+// because the daemon may shell `claude -p` to write the narrative.
+func digestCmd(a api, id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bgLong()
+		defer cancel()
+		d, err := a.Digest(ctx, id)
+		return digestMsg{id: id, d: d, err: err}
+	}
+}
+
+// approvalsMsg carries the pending tool-permission queue (enabled flag + views).
+type approvalsMsg struct {
+	enabled bool
+	views   []approval.View
+	err     error
+}
+
+func approvalsCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		enabled, views, err := a.Approvals(ctx)
+		return approvalsMsg{enabled: enabled, views: views, err: err}
+	}
+}
+
+type approveDoneMsg struct{ err error }
+
+// approveCmd answers one prompt by 1-based option, echoing the fingerprint so the
+// daemon can prove the menu hasn't changed underneath it.
+func approveCmd(a api, id string, option int, fingerprint string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		return approveDoneMsg{err: a.Approve(ctx, id, option, fingerprint)}
 	}
 }

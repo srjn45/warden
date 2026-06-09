@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,7 +14,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -45,7 +48,12 @@ type listPaneModel struct {
 	pendingDelete string                // pid awaiting delete confirmation; "" when not confirming
 	ctxEntries    []client.ContextEntry // inspector: shared-context snapshot
 	messages      []client.Message      // inspector: recent message traffic
-	vp            viewport.Model        // inspector scroll viewport (modeInspector only)
+	vp            viewport.Model        // scroll viewport (modeInspector / modeDigest)
+	approvals     []approval.View       // pending tool-permission prompts
+	apprEnabled   bool                  // WARDEN_APPROVALS on
+	apprCursor    int                   // focused recognized approval (modeApprovals)
+	digest        *digest.Digest        // last fetched digest (modeDigest)
+	digestID      string                // agent id the digest is for
 	w, h          int
 	ready         bool
 }
@@ -65,9 +73,18 @@ func newListPane(a api, detailPane string) listPaneModel {
 }
 
 func (m listPaneModel) items() []item {
+	var head []item
+	// A pinned approvals row appears at the top when prompts are waiting to be
+	// answered (recognized menus only — unrecognized ones must be attached to).
+	if m.apprEnabled {
+		if rec := recognizedApprovals(m.approvals); len(rec) > 0 {
+			head = append(head, item{approvals: true, apprCount: len(rec)})
+		}
+	}
 	// Pipeline-owned sessions are shown under their pipeline, not the flat list —
 	// except orphans whose pipeline was deleted, which fall back to the flat list.
-	return append(pipelineItems(m.pipelines, m.collapsed), buildItems(flatSessions(m.sessions, m.pipelines), m.openedDirs)...)
+	head = append(head, pipelineItems(m.pipelines, m.collapsed)...)
+	return append(head, buildItems(flatSessions(m.sessions, m.pipelines), m.openedDirs)...)
 }
 
 func (m listPaneModel) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
@@ -108,7 +125,9 @@ func (m *listPaneModel) setInspectorContent() {
 	m.vp.SetYOffset(off)
 }
 
-func (m listPaneModel) Init() tea.Cmd { return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), tick()) }
+func (m listPaneModel) Init() tea.Cmd {
+	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), tick())
+}
 
 func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -127,7 +146,7 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), pressureCmd(m.api), tick()}
+		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -177,6 +196,35 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = ""
 		}
 		return m, pipelinesCmd(m.api)
+	case approvalsMsg:
+		if msg.err == nil {
+			prev := m.selectedKey()
+			m.apprEnabled = msg.enabled
+			m.approvals = msg.views
+			if rc := len(recognizedApprovals(m.approvals)); m.apprCursor >= rc {
+				m.apprCursor = 0
+			}
+			m.repin(prev) // the approvals row appearing/disappearing shifts indices
+		}
+		return m, nil
+	case digestMsg:
+		if msg.err != nil {
+			m.status = "digest failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.digest, m.digestID = msg.d, msg.id
+		m.mode = modeDigest
+		m.vp.SetContent(digestBody(msg.d, m.vp.Width))
+		m.vp.GotoTop()
+		m.status = ""
+		return m, nil
+	case approveDoneMsg:
+		if msg.err != nil {
+			m.status = "approve failed: " + msg.err.Error()
+		} else {
+			m.status = "answered"
+		}
+		return m, approvalsCmd(m.api) // refresh the queue right away
 	case dirListMsg:
 		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {
 			completed, cands := completeDir(msg.listing, msg.typed)
@@ -408,6 +456,47 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.vp, cmd = m.vp.Update(msg)
 		return m, cmd
+	case modeDigest:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+		case "esc", "d":
+			m.mode = modeNormal
+			return m, nil
+		case "g":
+			m.vp.GotoTop()
+			return m, nil
+		case "G":
+			m.vp.GotoBottom()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
+	case modeApprovals:
+		rec := recognizedApprovals(m.approvals)
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+		case "esc", "i":
+			m.mode = modeNormal
+			return m, nil
+		case "tab":
+			if len(rec) > 0 {
+				m.apprCursor = (m.apprCursor + 1) % len(rec)
+			}
+			return m, nil
+		}
+		// A digit 1..len(options) answers the focused prompt.
+		if n, err := strconv.Atoi(msg.String()); err == nil && len(rec) > 0 && m.apprCursor < len(rec) {
+			v := rec[m.apprCursor]
+			if n >= 1 && n <= len(v.Options) {
+				m.mode = modeNormal
+				m.status = "answering " + v.ID + " → " + strconv.Itoa(n)
+				return m, approveCmd(m.api, v.ID, n, v.Fingerprint)
+			}
+		}
+		return m, nil
 	case modeHelp:
 		m.mode = modeNormal
 		return m, nil
@@ -424,6 +513,13 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vp.GotoTop() // a freshly opened inspector starts at the top
 		return m, tea.Batch(contextCmd(m.api), messagesCmd(m.api))
 	case "enter":
+		if itemAt(m.items(), m.cursor).approvals {
+			if len(recognizedApprovals(m.approvals)) > 0 {
+				m.mode = modeApprovals
+				m.apprCursor = 0
+			}
+			return m, nil
+		}
 		if m.detailPane != "" {
 			attach, jobPipe, jobID := cockpitDetailCmd(itemAt(m.items(), m.cursor))
 			switch {
@@ -509,6 +605,16 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.SessionID != "" {
 			return m, switchClientCmd(it.pjJob.SessionID)
 		}
+	case "d":
+		if s := m.selected(); s != nil {
+			m.status = "generating digest for " + s.ID + "…"
+			return m, digestCmd(m.api, s.ID)
+		}
+	case "i":
+		if len(recognizedApprovals(m.approvals)) > 0 {
+			m.mode = modeApprovals
+			m.apprCursor = 0
+		}
 	case "?":
 		m.mode = modeHelp
 	}
@@ -541,10 +647,18 @@ func (m listPaneModel) View() string {
 		body := titleBox("Context & Messages", m.vp.View(), m.w, bodyH)
 		return header + "\n" + body + "\n" + stMuted.Render("read-only · ↑/↓ pgup/pgdn g/G scroll · c/esc back · q quit")
 	}
+	if m.mode == modeDigest {
+		body := titleBox("Digest — "+m.digestID, m.vp.View(), m.w, bodyH)
+		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · d/esc back · q quit")
+	}
+	if m.mode == modeApprovals {
+		body := titleBox("Approvals", approvalsBody(recognizedApprovals(m.approvals), m.apprCursor, m.w-2), m.w, bodyH)
+		return header + "\n" + body + "\n" + stMuted.Render("1-9 answer · tab next · i/esc back · q quit")
+	}
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
-	footer := stMuted.Render("enter open · ←/→ collapse/expand · n new · o open dir · s send · a attach · c ctx/msgs · r retry · x kill/cancel · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · o dir · s send · a attach · d digest · i approvals · c ctx/msgs · r retry · x kill/cancel · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}

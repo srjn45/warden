@@ -162,7 +162,7 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 | `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
-| `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** count row (view-only — answer via the web or `warden approve`). Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
+| `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approve`. Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
 
 All variables can also be overridden with `--addr` on any command.
 
@@ -211,7 +211,7 @@ When you need a managed git worktree (e.g. a development branch tied to a Jira t
 
 By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously; the `Notification` hook still records them as events in the session doc.
 
-Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer from the web AttentionQueue (one-click buttons) or the CLI (`warden approve`) when `WARDEN_APPROVALS` is on (the TUI also surfaces a `⏳ Approvals` count row). A restored agent keeps its supervised setting.
+Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer from the web AttentionQueue (one-click buttons), the TUI (`⏳ Approvals` row → `i`/`1`-`9`), or the CLI (`warden approve`) when `WARDEN_APPROVALS` is on. A restored agent keeps its supervised setting.
 
 If a worktree for the ticket already exists on disk, the spawn adopts it (reattaches claude to the existing branch) instead of erroring.
 
@@ -241,6 +241,9 @@ The list pane polls the daemon about once a second. The daemon must be running (
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
+| `d` | Completion digest for the selected agent — scrollable overlay; `d`/`esc` to close |
+| `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
+| `c` | Shared-context + message-traffic inspector |
 | `r` | Retry a failed / needs-attention pipeline job |
 | `x` | Context-sensitive: terminate the selected agent / cancel a pipeline / close an opened dir (confirm with `y`) |
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
@@ -419,7 +422,7 @@ warden tail PROJ-350 --lines 80
 
 ### `warden digest <TICKET>`
 
-Summarize what an agent accomplished — files touched, branch, number of turns, and a short narrative (best-effort, via `claude -p`). Also available as a web **Digest** panel.
+Summarize what an agent accomplished — files touched, branch, number of turns, and a short narrative (best-effort, via `claude -p`). Also available as a web **Digest** panel and, in the cockpit, the `d` key (opens a scrollable digest for the selected agent).
 
 ```sh
 warden digest PROJ-350
