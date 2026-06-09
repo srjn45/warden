@@ -1,5 +1,6 @@
 import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message } from './types';
 import type { Verdict, PressureStatus } from './pressure';
+import type { MetricsSample } from './metrics';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -110,6 +111,21 @@ export async function getDigest(id: string): Promise<Digest> {
 
 export async function getPressure(): Promise<PressureStatus> {
   return parse<PressureStatus>(await fetch('/pressure'));
+}
+
+export async function getMetrics(): Promise<MetricsSample> {
+  return parse<MetricsSample>(await fetch('/metrics'));
+}
+
+export async function getMetricsHistory(sinceISO?: string, limit = 480): Promise<MetricsSample[]> {
+  const q = new URLSearchParams();
+  if (sinceISO) q.set('since', sinceISO);
+  if (limit) q.set('limit', String(limit));
+  const qs = q.toString();
+  const data = await parse<{ samples: MetricsSample[] | null }>(
+    await fetch(`/metrics/history${qs ? `?${qs}` : ''}`),
+  );
+  return data.samples ?? [];
 }
 
 export async function listApprovals(): Promise<{ enabled: boolean; approvals: ApprovalView[] }> {
