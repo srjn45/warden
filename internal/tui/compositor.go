@@ -44,31 +44,6 @@ func detailPlaceholderCmd() string {
 	return `sh -c 'printf "Select an agent and press Enter to open it here.\n"; exec sleep 2147483647'`
 }
 
-// shellToggleScript returns the sh command bound to <prefix> t in the cockpit. On each
-// press it surfaces a shell in the bottom-left master slot, or returns to the
-// master Claude, by swapping the two panes — neither process is killed. The
-// shell is created lazily on the first toggle in a hidden holding window and
-// tracked by the session user-option @warden_shell_pane, so the toggle survives
-// the user exiting the shell (kept as [exited] via remain-on-exit, then
-// respawned). session is the cockpit tmux session, masterPane the master
-// Claude pane's stable id, and cwd the directory the shell starts in.
-// session and masterPane are interpolated unquoted, so callers must pass safe
-// tmux tokens (cockpitSession yields warden-tui-<pid>; pane ids are %<n>); only
-// cwd, which can contain spaces, is shquoted.
-func shellToggleScript(session, masterPane, cwd string) string {
-	c := shquote(cwd)
-	return fmt.Sprintf(`sp=$(tmux show-options -v -t %[1]s @warden_shell_pane 2>/dev/null)
-if [ -z "$sp" ] || ! tmux list-panes -s -t %[1]s -F '#{pane_id}' | grep -qx "$sp"; then
-  sp=$(tmux new-window -d -t %[1]s -n warden-shell -c %[3]s -P -F '#{pane_id}' "${SHELL:-/bin/sh}")
-  tmux set-option -t %[1]s @warden_shell_pane "$sp"
-  tmux set-option -p -t "$sp" remain-on-exit on
-elif tmux list-panes -s -t %[1]s -F '#{pane_id} #{pane_dead}' | grep -qx "$sp 1"; then
-  tmux respawn-pane -t "$sp" -c %[3]s "${SHELL:-/bin/sh}"
-fi
-tmux swap-pane -s "$sp" -t %[2]s
-tmux select-pane -t '{bottom-left}'`, session, masterPane, c)
-}
-
 // runPaneCreate runs a pane-creating tmux command (-P -F '#{pane_id}') and
 // returns the new pane id, so later commands target panes by stable id rather
 // than by spatial index (which tmux renumbers on every split).
@@ -130,16 +105,6 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 		if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", b[0], "select-pane", b[1]); err != nil {
 			return fmt.Errorf("tmux bind-key %s: %w: %s", b[0], err, out)
 		}
-	}
-	// <prefix> t toggles the bottom-left master pane between Claude and a shell,
-	// swapping them without killing either (see shellToggleScript). It's a prefix
-	// binding (not prefix-less like M-Arrow) because with extended-keys on — which
-	// the cockpit needs for Shift+Enter — a focused Claude pane consumes Alt+letter
-	// combos itself (Alt+t = its thinking-mode toggle), so a root M-t binding never
-	// fires; tmux always catches its prefix. This overrides tmux's default
-	// <prefix> t (clock-mode), so killCockpitCmd unbinds it on teardown.
-	if out, err := run.Run(ctx, "", "tmux", "bind-key", "t", "run-shell", "-b", shellToggleScript(o.session, masterID, o.masterCwd)); err != nil {
-		return fmt.Errorf("tmux bind-key t: %w: %s", err, out)
 	}
 	// 6. Focus the list pane.
 	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", listID); err != nil {

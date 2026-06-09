@@ -23,7 +23,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 
 	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", masterCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
-	require.Len(t, fr.Calls, 15, "unexpected number of tmux calls")
+	require.Len(t, fr.Calls, 14, "unexpected number of tmux calls")
 
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", detailPlaceholderCmd()}, fr.Calls[0].Argv)
 	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", "claude"}, fr.Calls[1].Argv)
@@ -38,11 +38,9 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[9].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[10].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[11].Argv)
-	// <prefix> t toggles the bottom-left master pane between Claude and a shell.
-	require.Equal(t, []string{"tmux", "bind-key", "t", "run-shell", "-b", shellToggleScript("S", "%1", "/work")}, fr.Calls[12].Argv)
-	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[13].Argv)
+	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[12].Argv)
 	// Return-to-dashboard binding for the full-screen attach path (`a`).
-	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[14].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[13].Argv)
 }
 
 func TestCleanStaleCockpits(t *testing.T) {
@@ -60,22 +58,6 @@ func TestCleanStaleCockpits(t *testing.T) {
 		}
 	}
 	require.Equal(t, []string{dead}, killed, "only the dead-pid cockpit is killed; live cockpit and user sessions are left alone")
-}
-
-func TestShellToggleScript(t *testing.T) {
-	s := shellToggleScript("S", "%1", "/work")
-	// Tracks the shell pane in a session user-option so the toggle survives exit.
-	require.Contains(t, s, "@warden_shell_pane")
-	// Lazily creates the shell in a hidden holding window with the user's $SHELL.
-	require.Contains(t, s, "new-window -d -t S -n warden-shell -c '/work'")
-	require.Contains(t, s, `"${SHELL:-/bin/sh}"`)
-	// Exited shells are kept as [exited] then respawned, not orphaned.
-	require.Contains(t, s, "remain-on-exit on")
-	require.Contains(t, s, `grep -qx "$sp 1"`)
-	require.Contains(t, s, "respawn-pane")
-	// Swaps the shell with the master pane and focuses whatever lands in the slot.
-	require.Contains(t, s, `swap-pane -s "$sp" -t %1`)
-	require.Contains(t, s, "select-pane -t '{bottom-left}'")
 }
 
 func TestPaneCommandStrings(t *testing.T) {

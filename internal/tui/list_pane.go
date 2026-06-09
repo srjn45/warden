@@ -707,11 +707,10 @@ func (m listPaneModel) View() string {
 // exits cleanly.
 func killCockpitCmd() tea.Cmd {
 	return func() tea.Msg {
-		// Drop the bindings buildCockpit installed that override tmux defaults
-		// (<prefix> Enter = copy-mode, <prefix> t = clock-mode), then kill the
-		// session. All best-effort (harmless if not inside tmux).
+		// Drop the binding buildCockpit installed that overrides a tmux default
+		// (<prefix> Enter = copy-mode), then kill the session. All best-effort
+		// (harmless if not inside tmux).
 		_ = exec.Command("tmux", "unbind-key", "Enter").Run()
-		_ = exec.Command("tmux", "unbind-key", "t").Run()
 		_ = exec.Command("tmux", "kill-session").Run()
 		return nil
 	}

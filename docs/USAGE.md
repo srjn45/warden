@@ -426,14 +426,6 @@ the master can still drive the fleet using the `warden` CLI directly.
 > survive long-running orchestration and resume context on next launch) is a
 > planned future enhancement.
 
-Press **Ctrl-b t** (the tmux prefix, then `t`) to toggle this slot between the
-master Claude session and a shell. The shell is created on first use and both
-keep running across toggles — switching back and forth never loses the
-conversation or the shell's scrollback. Exit the shell (`exit` / Ctrl-D) and the
-next **Ctrl-b t** starts a fresh one. (It's a prefix binding rather than a single
-Alt key because a focused Claude pane otherwise consumes Alt+letter combos
-itself.)
-
 **Right (full height) — live agent detail pane.** When you press `Enter` on an
 agent in the list, a live, interactive terminal of that agent's `claude` session
 opens here — the same way the bottom-left master pane works. You can type
