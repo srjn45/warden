@@ -24,6 +24,7 @@ type fakeLife struct {
 	spawned        *store.Session
 	lastInput      string
 	output         string
+	outputErr      error
 	classifyResult store.Type
 	classified     string
 	spawnedCwd     string
@@ -128,7 +129,7 @@ func (f *fakeLife) Adopt(_ context.Context, req AdoptParams) (*store.Session, er
 }
 func (f *fakeLife) Input(_ context.Context, s, text string) error { f.lastInput = text; return nil }
 func (f *fakeLife) Output(_ context.Context, s string, n int) (string, error) {
-	return f.output, nil
+	return f.output, f.outputErr
 }
 func (f *fakeLife) SendKeys(_ context.Context, s, key string) error { f.lastKey = key; return nil }
 
@@ -318,6 +319,23 @@ func TestGetOutput(t *testing.T) {
 	var out OutputResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	require.Equal(t, "pane text", out.Output)
+}
+
+// An existing session whose tmux pane can't be captured (still spawning, or
+// just terminated) must yield an empty 200 — not a 500 — so the live grid's
+// thumbnail polling stays quiet.
+func TestGetOutputUncapturablePaneReturnsEmpty200(t *testing.T) {
+	fl := &fakeLife{outputErr: errors.New("tmux capture-pane: exit status 1: can't find session")}
+	fs := newFakeStore()
+	fs.data["A-1"] = &store.Session{ID: "A-1", TmuxSession: "A-1"}
+	ts := lifeServer(t, fs, fl)
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/sessions/A-1/output")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out OutputResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.Equal(t, "", out.Output)
 }
 
 func TestPostInputNotFound(t *testing.T) {

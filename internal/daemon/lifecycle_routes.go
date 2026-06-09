@@ -384,10 +384,14 @@ func (s *Server) handleOutput(w http.ResponseWriter, r *http.Request) {
 			lines = n
 		}
 	}
+	// The session record exists (we 404'd above otherwise), so a capture
+	// failure here means the tmux pane isn't capturable: the agent is still
+	// spawning or was just terminated. This endpoint is a best-effort snapshot
+	// (the live grid polls it per tile), so degrade to an empty 200 rather than
+	// a 500 that floods the browser console during those transient windows.
 	out, err := s.life.Output(r.Context(), sess.TmuxSession, lines)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+		out = ""
 	}
 	writeJSON(w, http.StatusOK, OutputResponse{Output: out})
 }
