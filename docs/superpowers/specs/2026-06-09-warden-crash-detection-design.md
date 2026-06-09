@@ -68,7 +68,7 @@ The `SessionEnd` hook remains the **primary, fast** path to `done` (`statusForHo
 
 ### 3. Data model (`internal/store/types.go`)
 
-- Add `ExitCode *int` to `Session` (pointer so "no exit recorded" is distinct from `0`; `omitempty` in JSON). Set when the poller consumes a non-`done` exit-file, and optionally on a clean `0` for completeness.
+- Add `ExitCode *int` to `Session` (pointer so the three states are distinct: `nil` = no exit info recovered (orphaned / pre-feature agent), `0` = clean exit, non-zero = crash; `omitempty` in JSON). **Always populated** when the poller consumes an exit-file — on the clean `0` path as well as the `errored` path — so the field is a complete record of how every agent that ran the exit-suffix terminated. This is what a future auto-restart ("restart iff `ExitCode` non-zero") and standup rollup ("N clean, M crashed") want; the cost is the `done` path also writing a `0`, with no behavior change.
 - Append a `store.Event` on the terminal transition: `session exited: code N (<signal name if 128<N<=165>)`. This gives a human-readable trail in the events list.
 - `errored`/`orphaned` transitions already flow through `OnTransition` (`poller.go:65`) → the daemon's notification wiring fires automatically. This **is** the "no longer silently stale" win; no new notification plumbing needed.
 
@@ -86,9 +86,9 @@ run     → claude runs as child of the pane's interactive shell
 exit    → shell evaluates $? and writes exits/<id> (unless the shell itself was killed)
 poll    → for each non-terminal session:
             read exits/<id>
-              "0"        → done
-              non-zero   → errored (ExitCode=N, append event)   ─┐ CAS swap;
-              (absent)   → if !SessionAlive → orphaned            │ hook-set done wins
+              "0"        → done    (ExitCode=0)                  ─┐ CAS swap;
+              non-zero   → errored (ExitCode=N, append event)     │ hook-set done wins
+              (absent)   → if !SessionAlive → orphaned (nil)      │
                            else unchanged                        ─┘
             on terminal swap: delete exits/<id>
 notify  → OnTransition fires existing user notification
