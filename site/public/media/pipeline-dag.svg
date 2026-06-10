@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 170" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="A three-stage warden pipeline: analyze, then implement, then review">
+  <defs>
+    <marker id="parrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <!-- connectors -->
+  <g fill="none" stroke="#8b949e" stroke-width="2.5">
+    <line x1="210" y1="85" x2="280" y2="85" marker-end="url(#parrow)"/>
+    <line x1="460" y1="85" x2="530" y2="85" marker-end="url(#parrow)"/>
+  </g>
+
+  <!-- analyze -->
+  <rect x="30" y="50" width="180" height="70" rx="12" fill="#1f6feb" stroke="#0b3d91" stroke-width="1.5"/>
+  <text x="120" y="92" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="600">analyze</text>
+
+  <!-- implement -->
+  <rect x="280" y="50" width="180" height="70" rx="12" fill="#8957e5" stroke="#4c2889" stroke-width="1.5"/>
+  <text x="370" y="92" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="600">implement</text>
+
+  <!-- review -->
+  <rect x="530" y="50" width="180" height="70" rx="12" fill="#238636" stroke="#0f5323" stroke-width="1.5"/>
+  <text x="620" y="92" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="600">review</text>
+</svg>
