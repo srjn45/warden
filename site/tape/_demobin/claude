@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Stub `claude` used ONLY by cockpit.tape for the master pane during screenshot
+# capture — so the recording never starts a real Claude session (no auth, no
+# tokens, no real MCP fleet). Output mirrors the master-Claude prompt a user
+# sees embedded in the cockpit. The real cockpit launches the real `claude`.
+clear
+cat <<'TXT'
+  ✻ Welcome to Claude Code
+
+    Wired to the warden MCP server — spawn,
+    monitor, and steer the fleet from here.
+
+  > triage all my agents and tell me which
+    ones are stuck or waiting on me_
+
+TXT
+exec sleep 2147483647

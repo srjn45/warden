@@ -23,7 +23,7 @@ warden       # bare invocation — same thing
 └───────────────────┘└───────────────────────────┘
 ```
 
-<!-- media: cockpit screenshot (public/media/cockpit.png) embedded here in Task 7 -->
+![The warden cockpit: an agents list grouped by directory with live status and context size, an embedded master Claude pane below it, and the selected agent's live session in the full-height detail pane on the right.](/warden/media/cockpit.png)
 
 ## Cockpit features
 

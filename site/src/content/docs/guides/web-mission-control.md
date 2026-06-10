@@ -10,7 +10,7 @@ warden daemon
 open http://localhost:8765
 ```
 
-<!-- media: web overview screenshot (public/media/web-overview.png) embedded here in Task 7 -->
+![The warden web dashboard Overview tab: a "Needs you" attention queue with one-click approval buttons, a fleet summary, live per-agent resource metrics, a quick-spawn box, and a merged activity feed.](/warden/media/web-overview.png)
 
 ## What it does
 
