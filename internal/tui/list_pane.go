@@ -701,7 +701,7 @@ func (m listPaneModel) View() string {
 	}
 	if m.mode == modeApprovals {
 		body := titleBox("Approvals", approvalsBody(recognizedApprovals(m.approvals), m.apprCursor, m.w-2), m.w, bodyH)
-		return header + "\n" + body + "\n" + stMuted.Render("1-9 answer · tab next · i/esc back · q quit")
+		return header + "\n" + body + "\n" + stMuted.Render("1-9 answer · tab next · p/esc back · q quit")
 	}
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
