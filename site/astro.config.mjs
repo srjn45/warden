@@ -23,7 +23,36 @@ export default defineConfig({
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/srjn45/warden' },
       ],
-      sidebar: [],
+      sidebar: [
+        { label: 'Start here', items: [
+          { label: 'What is warden?', slug: 'start/what-is-warden' },
+          { label: 'Install & setup', slug: 'start/install' },
+          { label: 'Quickstart', slug: 'start/quickstart' },
+        ]},
+        { label: 'Concepts', items: [
+          { label: 'Architecture & the daemon', slug: 'concepts/architecture' },
+          { label: 'Agents & lifecycle', slug: 'concepts/agents-lifecycle' },
+          { label: 'Worktrees & task types', slug: 'concepts/worktrees-task-types' },
+        ]},
+        { label: 'Guides', items: [
+          { label: 'Spawn & watch agents', slug: 'guides/spawn-and-watch' },
+          { label: 'The TUI cockpit', slug: 'guides/tui-cockpit' },
+          { label: 'Web mission control', slug: 'guides/web-mission-control' },
+          { label: 'Approvals & supervised mode', slug: 'guides/approvals-supervised' },
+          { label: 'Self-rotation & digests', slug: 'guides/rotation-digests' },
+        ]},
+        { label: 'Multi-agent', items: [
+          { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },
+          { label: 'Shared context & messages', slug: 'multi-agent/shared-context-messages' },
+          { label: 'Orchestration: MCP & skill', slug: 'multi-agent/mcp-and-skill' },
+        ]},
+        { label: 'Reference', items: [
+          { label: 'CLI command reference', slug: 'reference/cli' },
+          { label: 'Environment variables', slug: 'reference/env-vars' },
+          { label: 'Observability & metrics', slug: 'reference/observability' },
+          { label: 'Troubleshooting', slug: 'reference/troubleshooting' },
+        ]},
+      ],
     }),
   ],
 });

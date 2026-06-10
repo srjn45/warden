@@ -1,0 +1,23 @@
+---
+title: warden
+description: Run a fleet of Claude Code agents from one cockpit.
+template: splash
+hero:
+  tagline: Spawn, watch, approve, and orchestrate Claude Code sessions — from one cockpit.
+  actions:
+    - text: Get started
+      link: /warden/start/what-is-warden/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/srjn45/warden
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+  <Card title="One cockpit" icon="laptop">TUI + web. See every agent's status at a glance.</Card>
+  <Card title="Pipelines" icon="random">Chain dependent agents into a DAG.</Card>
+  <Card title="One binary" icon="seti:binary">Daemon, CLI, TUI, web, MCP. No database.</Card>
+</CardGrid>
