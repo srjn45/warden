@@ -4,7 +4,7 @@ import starlight from '@astrojs/starlight';
 // GitHub Pages project site lives at https://srjn45.github.io/warden
 export default defineConfig({
   site: 'https://srjn45.github.io',
-  base: '/warden',
+  base: '/warden/',
   integrations: [
     starlight({
       title: 'warden',
