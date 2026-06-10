@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 #
-# Pre-push hook: run the same checks CI runs before allowing a push, so a
-# gofmt/vet/test/build failure is caught locally instead of on the runner.
+# Pre-push hook: run the fast, deterministic CI checks before allowing a push,
+# so a gofmt/vet/compile/web failure is caught locally instead of on the runner.
 #
-# Mirrors .github/workflows/ci.yml via `make verify`
-# (gofmt -> go vet -> go tests -> web unit tests -> release build + smoke).
+# Runs `make verify-fast`: gofmt -> go vet -> web unit tests -> release build
+# + binary smoke. This is a SUBSET of CI — it deliberately skips the full
+# `go test ./...`, whose tmux-driven daemon/lifecycle/pipeline/poller/tui
+# packages time out locally when live warden agents compete for the machine.
+# CI's isolated macOS runner owns those tests. For full local parity on an
+# idle machine, run `make verify` by hand.
 #
 # Skip in a pinch with:  git push --no-verify
 set -euo pipefail
@@ -13,8 +17,8 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-echo "pre-push: running 'make verify' (CI parity)…"
-if ! make verify; then
+echo "pre-push: running 'make verify-fast' (gofmt/vet/web/build)…"
+if ! make verify-fast; then
 	echo
 	echo "pre-push: checks failed — push aborted. Fix the above, or bypass with 'git push --no-verify'." >&2
 	exit 1

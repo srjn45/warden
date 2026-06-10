@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt fmt-check verify run-daemon ui ui-dev web-test release install-skill install-hooks install uninstall reinstall
+.PHONY: build test lint fmt fmt-check verify verify-fast run-daemon ui ui-dev web-test release install-skill install-hooks install uninstall reinstall
 
 build:
 	go build -o bin/warden ./cmd/warden
@@ -23,9 +23,19 @@ fmt-check:
 		exit 1; \
 	fi
 
-# Run the same checks CI runs, in the same order: gofmt, vet, Go tests,
-# web unit tests, and a full release build with a binary smoke test.
+# Full CI parity (run on an idle machine): gofmt, vet, ALL Go tests, web unit
+# tests, and a release build with a binary smoke test. NOTE: the tmux-driven
+# daemon/lifecycle/pipeline/poller/tui packages can time out locally when live
+# warden agents are competing for the machine — that's why the pre-push hook
+# uses verify-fast instead and leaves the heavy suite to CI's isolated runner.
 verify: fmt-check lint test web-test release
+	./bin/warden --help >/dev/null
+
+# Fast, deterministic pre-push gate (no tmux-contention-prone Go tests):
+# gofmt, vet, web unit tests, and a release build with a binary smoke test.
+# Catches the formatting/compile/vet/web breakage that CI rejects, in well
+# under a minute. CI's macOS runner owns the full `go test ./...` in isolation.
+verify-fast: fmt-check lint web-test release
 	./bin/warden --help >/dev/null
 
 run-daemon: build
