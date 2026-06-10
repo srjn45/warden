@@ -143,3 +143,60 @@ func TestApprovalsCmdFetchesEnabledAndViews(t *testing.T) {
 		t.Fatalf("approvalsMsg = %+v, want enabled with 1 view", am)
 	}
 }
+
+// --- agent details (the `i` key) ---
+
+func TestDetailBodyRendersAllSections(t *testing.T) {
+	s := &store.Session{
+		ID:              "agent-9f3c",
+		Type:            store.TypeDevelopment,
+		Subject:         "Refactor lifecycle reaper retry path",
+		Status:          store.StatusWaitingForInput,
+		Supervised:      true,
+		ContextTokens:   88000,
+		ContextState:    store.ContextWarning,
+		Repo:            "/Users/me/workspace/warden",
+		Branch:          "fix/reaper-retry",
+		Worktree:        "/Users/me/workspace/warden/.wt/reaper",
+		Ticket:          "WARD-42",
+		PR:              "#318",
+		PipelineID:      "ctx-guard",
+		JobID:           "implement",
+		PID:             48213,
+		TmuxSession:     "warden-9f3c",
+		ClaudeSessionID: "7a1c2d3e-1111-2222-3333-444455556666",
+		Prompt:          "Fix the reaper so completed-job records get reaped.",
+	}
+	out := detailBody(s, 80)
+	for _, want := range []string{
+		"agent-9f3c",                           // header id
+		"Refactor lifecycle reaper retry path", // subject
+		"88k",                                  // context figure
+		"fix/reaper-retry",                     // branch
+		"WARD-42",                              // ticket
+		"#318",                                 // pr
+		"ctx-guard",                            // pipeline
+		"supervised",                           // mode
+		"48213",                                // pid
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("detailBody() missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestDetailBodyOmitsEmptySections(t *testing.T) {
+	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, PID: 10, TmuxSession: "warden-1"}
+	out := detailBody(s, 80)
+	for _, absent := range []string{"ticket", "pr ", "worktree", "pipeline"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("detailBody() should omit %q for an agent without that data:\n%s", absent, out)
+		}
+	}
+}
+
+func TestDetailBodyHandlesNil(t *testing.T) {
+	if got := detailBody(nil, 80); !strings.Contains(got, "no agent") {
+		t.Errorf("detailBody(nil) = %q, want a 'no agent' placeholder", got)
+	}
+}

@@ -534,6 +534,91 @@ func recognizedApprovals(views []approval.View) []approval.View {
 	return out
 }
 
+// detailBody renders the modeDetails overlay: every populated store.Session
+// field for the selected agent, grouped (header, summary, location, refs, mode,
+// plumbing). Empty fields/sections are omitted so the view stays tight. Pure
+// over the session — no fetch. Reuses badge/contextLabel/age/abbrevHome/trunc.
+func detailBody(s *store.Session, width int) string {
+	if s == nil {
+		return stMuted.Render("(no agent selected)")
+	}
+	var b strings.Builder
+	label, st := badge(s.Status, s.ExitCode)
+	permMode := "bypass"
+	if s.Supervised {
+		permMode = "supervised"
+	}
+	b.WriteString(stPaneTitle.Render(s.ID) + "  " + st.Render(label) + " · " + permMode + "\n\n")
+
+	// summary block
+	if s.Subject != "" {
+		b.WriteString(stMuted.Render("subject   ") + s.Subject + "\n")
+	}
+	b.WriteString(stMuted.Render("type      ") + typeOr(s) + "   " + stMuted.Render("age ") + age(s.UpdatedAt) + "\n")
+	if cl, _ := contextLabel(s.ContextTokens, s.ContextState); cl != "" {
+		ctxLine := stMuted.Render("context   ") + cl
+		if s.ContextState != "" {
+			ctxLine += " (" + s.ContextState + ")"
+		}
+		b.WriteString(ctxLine + "\n")
+	}
+
+	// location
+	var loc []string
+	dir := s.Repo
+	if dir == "" {
+		dir = s.Workdir
+	}
+	if dir != "" {
+		loc = append(loc, stMuted.Render("  dir       ")+abbrevHome(dir))
+	}
+	if s.Branch != "" {
+		loc = append(loc, stMuted.Render("  branch    ")+s.Branch)
+	}
+	if s.Worktree != "" {
+		loc = append(loc, stMuted.Render("  worktree  ")+abbrevHome(s.Worktree))
+	}
+	if len(loc) > 0 {
+		b.WriteString("\n" + stPaneTitle.Render("location") + "\n" + strings.Join(loc, "\n") + "\n")
+	}
+
+	// refs
+	var refs []string
+	if s.Ticket != "" {
+		refs = append(refs, stMuted.Render("  ticket    ")+s.Ticket)
+	}
+	if s.PR != "" {
+		refs = append(refs, stMuted.Render("  pr        ")+s.PR)
+	}
+	if s.PipelineID != "" {
+		line := stMuted.Render("  pipeline  ") + s.PipelineID
+		if s.JobID != "" {
+			line += "  " + stMuted.Render("job ") + s.JobID
+		}
+		refs = append(refs, line)
+	}
+	if len(refs) > 0 {
+		b.WriteString("\n" + stPaneTitle.Render("refs") + "\n" + strings.Join(refs, "\n") + "\n")
+	}
+
+	// mode
+	if s.AutoRestart {
+		b.WriteString("\n" + stPaneTitle.Render("mode") + "\n")
+		b.WriteString(fmt.Sprintf("  %s · auto-restart ×%d\n", permMode, s.RestartCount))
+	}
+
+	// plumbing
+	b.WriteString("\n" + stPaneTitle.Render("plumbing") + "\n")
+	b.WriteString(fmt.Sprintf("  pid %d · tmux %s\n", s.PID, s.TmuxSession))
+	if s.ClaudeSessionID != "" {
+		b.WriteString(stMuted.Render("  claude    ") + trunc(s.ClaudeSessionID, 12) + "\n")
+	}
+	if s.Prompt != "" {
+		b.WriteString(stMuted.Render("  prompt    ") + "\"" + trunc(s.Prompt, max(0, width-14)) + "\"\n")
+	}
+	return b.String()
+}
+
 // digestBody renders a completion digest for the modeDigest overlay: task,
 // metadata line, changed files with +/- counts, and the narrative summary.
 func digestBody(d *digest.Digest, width int) string {
