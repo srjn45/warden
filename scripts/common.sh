@@ -61,22 +61,29 @@ deploy_binary() {
   BINARY_CHANGED=1
 }
 
-# Sign the installed binary with the stable self-signed identity so a granted
-# Full Disk Access survives rebuilds. Best-effort: if the identity is missing or
-# codesign fails, warn (the tool still works; macOS just keeps prompting for
-# protected-folder access). Run scripts/codesign-setup.sh once to create the cert.
+# Sign the installed binary with the stable self-signed identity so granted TCC
+# permissions (Full Disk Access, "data from other apps", Desktop/Downloads, …)
+# survive rebuilds. macOS keys those grants to the binary's designated
+# requirement (identifier + cert leaf), which is identical across rebuilds — but
+# ONLY if every build is actually signed with this cert. A single unsigned build
+# falls back to an ad-hoc cdhash identity that matches no grant, so macOS drops
+# every toggle and re-prompts. Signing is therefore MANDATORY on macOS: if the
+# cert is missing or codesign fails, abort the install rather than silently
+# shipping an unsigned binary. Run scripts/codesign-setup.sh once to create the
+# cert. (codesign is absent off-macOS, where this is a clean no-op.)
 codesign_binary() {
   command -v codesign >/dev/null 2>&1 || return 0
   if ! security find-certificate -c "$CODESIGN_IDENTITY" >/dev/null 2>&1; then
-    warn "code-signing identity '$CODESIGN_IDENTITY' not found — binary left unsigned."
-    warn "  run ./scripts/codesign-setup.sh once to stop repeated macOS access prompts."
-    return 0
+    die "code-signing identity '$CODESIGN_IDENTITY' not found — run ./scripts/codesign-setup.sh once, then reinstall. (Shipping an unsigned binary would drop your macOS TCC grants and re-trigger permission prompts.)"
   fi
-  if codesign --force --sign "$CODESIGN_IDENTITY" --identifier "$LABEL" "$INSTALL_BIN" 2>/dev/null; then
-    info "signed $INSTALL_BIN (identity: $CODESIGN_IDENTITY)"
-  else
-    warn "codesign failed — binary left unsigned; macOS may re-prompt for file access."
-  fi
+  codesign --force --sign "$CODESIGN_IDENTITY" --identifier "$LABEL" "$INSTALL_BIN" \
+    || die "codesign failed — refusing to install an unsigned binary that would drop macOS TCC grants. Ensure the login keychain is unlocked and '$CODESIGN_IDENTITY' has codesign access (scripts/codesign-setup.sh)."
+  # Verify the signature actually took and pins the stable designated
+  # requirement — a re-signed rebuild must keep satisfying the grant macOS
+  # stored, or the toggle silently turns itself off.
+  codesign --verify --strict "$INSTALL_BIN" 2>/dev/null \
+    || die "codesign verify failed for $INSTALL_BIN — signature did not stick; aborting to avoid dropping TCC grants."
+  info "signed + verified $INSTALL_BIN (identity: $CODESIGN_IDENTITY)"
 }
 
 # --- plist ----------------------------------------------------------------
