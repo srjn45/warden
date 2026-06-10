@@ -37,3 +37,21 @@ func TestPrintJSON_SessionHasFields(t *testing.T) {
 		t.Fatalf("expected 2-space indented output, got:\n%s", buf.String())
 	}
 }
+
+func TestContextCell(t *testing.T) {
+	cases := []struct {
+		tokens int
+		state  string
+		want   string
+	}{
+		{0, "", "—"},
+		{145000, "ok", "145k"},
+		{210000, "warning", "210k"},
+		{410000, "critical", "410k"},
+	}
+	for _, c := range cases {
+		if got := contextCell(c.tokens, c.state, false); got != c.want {
+			t.Errorf("contextCell(%d,%q)=%q, want %q", c.tokens, c.state, got, c.want)
+		}
+	}
+}
