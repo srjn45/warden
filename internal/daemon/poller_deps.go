@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"context"
+	"os"
 
+	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/store"
@@ -47,4 +49,34 @@ func (d *pollerDeps) FinalizeExit(ctx context.Context, id string, expected, next
 }
 func (d *pollerDeps) ClearExit(_ context.Context, id string) {
 	d.lc.ClearExit(id)
+}
+
+// ContextTokens reads the agent's current context-window occupancy from its
+// transcript JSONL. ok=false when the transcript is missing or has no model
+// turn yet (a just-spawned agent).
+func (d *pollerDeps) ContextTokens(_ context.Context, s *store.Session) (int, bool) {
+	path := d.lc.TranscriptPath(s)
+	if path == "" {
+		return 0, false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+	return ctxtokens.LatestContextTokens(f)
+}
+
+func (d *pollerDeps) UpdateContext(ctx context.Context, id string, tokens int, state string) error {
+	return d.store.UpdateContext(ctx, id, tokens, state)
+}
+
+// Compact sends "/compact" to the agent's tmux pane via the bracketed-paste +
+// Enter path. Called only when the agent is idle/waiting.
+func (d *pollerDeps) Compact(ctx context.Context, s *store.Session) error {
+	return d.lc.Input(ctx, s.ID, "/compact")
+}
+
+func (d *pollerDeps) StampCompact(ctx context.Context, id string) error {
+	return d.store.StampCompact(ctx, id)
 }

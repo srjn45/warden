@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -66,6 +67,11 @@ func newDaemonCmd() *cobra.Command {
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
+			pl.TokenGuard = cfg.TokenGuard
+			pl.TokenWarn = cfg.TokenWarn
+			pl.TokenCrit = cfg.TokenCritical
+			pl.WarnAlert = cfg.TokenWarnAlert
+			pl.AutoCompact = cfg.TokenAutoCompact
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
 				return err
@@ -93,6 +99,11 @@ func newDaemonCmd() *cobra.Command {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
 				restarter.OnTransition(sess, from, to)
+			}
+			ctxNotifier := notify.New(cfg.NotifyEnabled)
+			pl.OnContextAlert = func(sess *store.Session, state ctxtokens.State, tokens int) {
+				title, body := daemon.ContextAlertMessage(sess, state, tokens)
+				go ctxNotifier.Notify(title, body)
 			}
 			log.Printf("warden daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)

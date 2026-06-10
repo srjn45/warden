@@ -141,6 +141,10 @@ func (f *fakeStore) SetRestart(_ context.Context, id string, count int, at time.
 	}
 	return nil
 }
+func (f *fakeStore) UpdateContext(_ context.Context, id string, tokens int, state string) error {
+	return nil
+}
+func (f *fakeStore) StampCompact(_ context.Context, id string) error { return nil }
 func (f *fakeStore) ClearWorktree(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -1,13 +1,30 @@
 package daemon
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
+
+func TestContextAlertMessage(t *testing.T) {
+	s := &store.Session{ID: "agent-x", Subject: "refactor auth"}
+	title, body := ContextAlertMessage(s, ctxtokens.StateWarning, 210000)
+	if title == "" || body == "" {
+		t.Fatal("empty message")
+	}
+	if !strings.Contains(body, "agent-x") || !strings.Contains(body, "210k") {
+		t.Fatalf("body missing id/size: %q", body)
+	}
+	tCrit, bCrit := ContextAlertMessage(s, ctxtokens.StateCritical, 410000)
+	if !strings.Contains(strings.ToLower(tCrit+bCrit), "critical") {
+		t.Fatalf("critical message should say critical: %q / %q", tCrit, bCrit)
+	}
+}
 
 func TestNotifyMessageActionable(t *testing.T) {
 	s := &store.Session{ID: "agent-x", Subject: "review auth"}
