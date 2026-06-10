@@ -11,9 +11,11 @@ When you need a managed git worktree (e.g. a development branch tied to a Jira t
 | `pr-review` | yes (PR branch) | Detached worktree; runs `gh pr checkout <PR>` inside it. Requires `--pr` or `--branch` |
 | `analysis` | opt-in (`--worktree`) | Runs in the repo by default; pass `--worktree` to get a scratch branch |
 | `spike` | opt-in (`--worktree`) | Same as analysis |
-| `buildkite-debug` | no | Runs directly in the repo root |
-| `test-run` | no | Runs directly in the repo root |
-| `env-test` | no | Runs directly in the repo root |
+| `code` | no | Runs directly in the repo root |
+| `docs` | no | Runs directly in the repo root |
+| `website` | no | Runs directly in the repo root |
+| `debug-ci` | no | Runs directly in the repo root |
+| `tests` | no | Runs directly in the repo root |
 | `other` | no | Catch-all; also used for unrecognized type strings |
 
 By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously; the `Notification` hook still records them as events in the session doc.

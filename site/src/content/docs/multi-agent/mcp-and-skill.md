@@ -45,7 +45,7 @@ Example orchestrator prompts:
 - *"Tell PROJ-343 to run the tests"* → `send_to_agent`
 - *"List all my agents"* → `list_agents`
 - *"Spin up an agent to research SSE reconnection"* → `spawn_agent` with a `prompt` (auto-typed)
-- *"Spawn a buildkite-debug agent in /path/to/repo"* → `spawn_agent` with `type`+`repo`
+- *"Spawn a debug-ci agent in /path/to/repo"* → `spawn_agent` with `type`+`repo`
 - *"Stop PROJ-350"* → `terminate_agent` (reversible); "clear its record too" → `delete_agent`
 
 ## The `/warden` Claude skill

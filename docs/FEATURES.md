@@ -46,9 +46,11 @@ on-disk state:
 | `pr-review` | yes (PR branch) | Detached worktree; runs `gh pr checkout <PR>`. Needs `--pr`/`--branch` |
 | `analysis` | opt-in (`--worktree`) | Runs in the repo by default |
 | `spike` | opt-in (`--worktree`) | Same as analysis |
-| `buildkite-debug` | no | Runs in the repo root |
-| `test-run` | no | Runs in the repo root |
-| `env-test` | no | Runs in the repo root |
+| `code` | no | Runs in the repo root |
+| `docs` | no | Runs in the repo root |
+| `website` | no | Runs in the repo root |
+| `debug-ci` | no | Runs in the repo root |
+| `tests` | no | Runs in the repo root |
 | `other` | no | Catch-all / unrecognized type strings |
 
 ---

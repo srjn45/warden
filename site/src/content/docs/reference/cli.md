@@ -68,7 +68,7 @@ Flags:
       --pr string       PR number/url (pr-review)
       --repo string     repo path (default: current directory)
       --supervised      launch in acceptEdits mode (prompts for risky tools → answerable in the approvals inbox)
-      --type string     task type: development|analysis|spike|pr-review|buildkite-debug|test-run|env-test|other
+      --type string     task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
       --worktree        create a scratch worktree for analysis/spike
 ```
 

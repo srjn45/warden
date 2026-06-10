@@ -214,9 +214,11 @@ When you need a managed git worktree (e.g. a development branch tied to a Jira t
 | `pr-review` | yes (PR branch) | Detached worktree; runs `gh pr checkout <PR>` inside it. Requires `--pr` or `--branch` |
 | `analysis` | opt-in (`--worktree`) | Runs in the repo by default; pass `--worktree` to get a scratch branch |
 | `spike` | opt-in (`--worktree`) | Same as analysis |
-| `buildkite-debug` | no | Runs directly in the repo root |
-| `test-run` | no | Runs directly in the repo root |
-| `env-test` | no | Runs directly in the repo root |
+| `code` | no | Runs directly in the repo root |
+| `docs` | no | Runs directly in the repo root |
+| `website` | no | Runs directly in the repo root |
+| `debug-ci` | no | Runs directly in the repo root |
+| `tests` | no | Runs directly in the repo root |
 | `other` | no | Catch-all; also used for unrecognized type strings |
 
 By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously; the `Notification` hook still records them as events in the session doc.
@@ -297,8 +299,8 @@ warden start PROJ-350 --type development
 # PR review — checks out the PR branch in a fresh worktree:
 warden start --type pr-review --pr 1234
 
-# Buildkite debug — no worktree, runs in current directory:
-warden start --type buildkite-debug
+# Debug CI — no worktree, runs in current directory:
+warden start --type debug-ci
 
 # Spike with an optional scratch worktree:
 warden start --type spike --worktree
@@ -584,7 +586,7 @@ Example orchestrator prompts:
 - "Tell PROJ-343 to run the tests" — calls `send_to_agent` with `"run the tests"`
 - "List all my agents" — calls `list_agents`
 - "Spin up an agent to research SSE reconnection" — calls `spawn_agent` with a `prompt` (auto-typed)
-- "Spawn a buildkite-debug agent in /path/to/repo" — calls `spawn_agent` with `type`+`repo`
+- "Spawn a debug-ci agent in /path/to/repo" — calls `spawn_agent` with `type`+`repo`
 - "Stop PROJ-350" — calls `terminate_agent` (reversible); "clear its record too" — then `delete_agent`
 
 ### Drive it from Claude (the `warden` skill)

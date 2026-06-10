@@ -33,8 +33,8 @@ warden start --type pr-review --pr 1234
 # Spike/analysis with an opt-in scratch worktree:
 warden start --type spike --worktree
 
-# Buildkite debug — no worktree, runs in the current repo:
-warden start --type buildkite-debug
+# Debug CI — no worktree, runs in the current repo:
+warden start --type debug-ci
 
 # Be explicit about repo and branch:
 warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch

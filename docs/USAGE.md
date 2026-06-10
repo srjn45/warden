@@ -161,8 +161,8 @@ warden start --type pr-review --pr 1234
 # Spike/analysis with an opt-in scratch worktree:
 warden start --type spike --worktree
 
-# Buildkite debug — no worktree, runs in the current repo:
-warden start --type buildkite-debug
+# Debug CI — no worktree, runs in the current repo:
+warden start --type debug-ci
 
 # Be explicit about repo and branch:
 warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
@@ -176,9 +176,11 @@ warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
 | `pr-review` | yes (PR branch) | Runs `gh pr checkout <PR>` inside it. **Requires `--pr` or `--branch`** |
 | `analysis` | opt-in `--worktree` | Runs in the repo by default |
 | `spike` | opt-in `--worktree` | Same as analysis |
-| `buildkite-debug` | no | Runs in the repo root |
-| `test-run` | no | Runs in the repo root |
-| `env-test` | no | Runs in the repo root |
+| `code` | no | Runs in the repo root |
+| `docs` | no | Runs in the repo root |
+| `website` | no | Runs in the repo root |
+| `debug-ci` | no | Runs in the repo root |
+| `tests` | no | Runs in the repo root |
 | `other` | no | Catch-all; also where unrecognized type strings land |
 
 Notes:
@@ -205,7 +207,7 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 
 | Flag | Meaning |
 |---|---|
-| `--type` | `development\|analysis\|spike\|pr-review\|buildkite-debug\|test-run\|env-test\|other`. Omit for prompt mode. |
+| `--type` | `development\|analysis\|spike\|pr-review\|code\|docs\|website\|debug-ci\|tests\|other`. Omit for prompt mode. |
 | `--repo` | Repo path (default: current directory; managed mode only). |
 | `--branch` | New branch (development) or checkout target (pr-review). |
 | `--pr` | PR number/URL (pr-review). |
@@ -544,7 +546,7 @@ Then just talk to the orchestrator naturally:
 - *"What is PROJ-350 doing?"* → `get_agent`
 - *"Tell PROJ-343 to run the tests"* → `send_to_agent`
 - *"List all my agents"* → `list_agents`
-- *"Spawn a buildkite-debug agent in /path/to/repo"* → `spawn_agent`
+- *"Spawn a debug-ci agent in /path/to/repo"* → `spawn_agent`
 - *"Stop PROJ-350"* → `terminate_agent` (reversible); "clear its record too" → `delete_agent`
 
 ---
