@@ -30,7 +30,7 @@ type ticketArgs struct {
 // All fields are optional in the schema: the daemon validates that EITHER a
 // prompt OR (type + repo) is provided, so no single field is required here.
 type spawnArgs struct {
-	Type       string `json:"type,omitempty" jsonschema:"task type: development|analysis|spike|pr-review|buildkite-debug|test-run|env-test|other"`
+	Type       string `json:"type,omitempty" jsonschema:"task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other"`
 	Ticket     string `json:"ticket,omitempty" jsonschema:"optional Jira ticket; becomes the session id when present"`
 	Repo       string `json:"repo,omitempty" jsonschema:"absolute path to the repo (managed-worktree mode)"`
 	Branch     string `json:"branch,omitempty" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
@@ -169,7 +169,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "spawn_agent",
-		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; buildkite-debug/test-run/env-test run in the repo; analysis/spike take an optional worktree). Launches claude --dangerously-skip-permissions by default; set supervised=true for --permission-mode acceptEdits (risky tools prompt → answerable in the approvals inbox). If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
+		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; code/docs/website/debug-ci/tests run in the repo; analysis/spike take an optional worktree). Launches claude --dangerously-skip-permissions by default; set supervised=true for --permission-mode acceptEdits (risky tools prompt → answerable in the approvals inbox). If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a spawnArgs) (*mcpsdk.CallToolResult, any, error) {
 		cwd := a.Dir
 		if cwd == "" {

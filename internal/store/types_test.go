@@ -54,7 +54,7 @@ func TestTypeNormalizeAndWorktreePolicy(t *testing.T) {
 	// Default worktree policy per design §2.
 	require.True(t, TypeDevelopment.DefaultWorktree())
 	require.True(t, TypePRReview.DefaultWorktree())
-	require.False(t, TypeBuildkiteDebug.DefaultWorktree())
+	require.False(t, TypeDebugCI.DefaultWorktree())
 	require.False(t, TypeSpike.DefaultWorktree()) // opt-in via --worktree, not default
 }
 

@@ -99,7 +99,7 @@ func newStartCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("type", "", "task type: development|analysis|spike|pr-review|buildkite-debug|test-run|env-test|other")
+	cmd.Flags().String("type", "", "task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other")
 	cmd.Flags().String("repo", "", "repo path (default: current directory)")
 	cmd.Flags().String("branch", "", "new branch (development) or checkout target (pr-review)")
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")

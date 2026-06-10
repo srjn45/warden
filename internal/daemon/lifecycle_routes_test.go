@@ -328,7 +328,7 @@ func TestPostSpawnNoTicketIsAllowed(t *testing.T) {
 	fl := &fakeLife{}
 	ts := lifeServer(t, newFakeStore(), fl)
 	defer ts.Close()
-	body, _ := json.Marshal(SpawnRequest{Type: "buildkite-debug", Repo: "/repo"})
+	body, _ := json.Marshal(SpawnRequest{Type: "debug-ci", Repo: "/repo"})
 	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)

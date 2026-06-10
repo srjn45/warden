@@ -52,7 +52,7 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 		// Reject an unknown type rather than silently collapsing it to "other".
 		if !store.Type(req.Type).Valid() {
 			return http.StatusBadRequest, "unknown type " + req.Type +
-				"; valid: development, analysis, spike, pr-review, buildkite-debug, test-run, env-test, other"
+				"; valid: development, analysis, spike, pr-review, code, docs, website, debug-ci, tests, other"
 		}
 	}
 	// Reject duplicate spawn on an existing ticket. No-ticket sessions get a

@@ -27,32 +27,41 @@ func (s Status) Valid() bool {
 type Type string
 
 const (
-	TypeDevelopment    Type = "development"
-	TypeAnalysis       Type = "analysis"
-	TypeSpike          Type = "spike"
-	TypePRReview       Type = "pr-review"
-	TypeBuildkiteDebug Type = "buildkite-debug"
-	TypeTestRun        Type = "test-run"
-	TypeEnvTest        Type = "env-test"
-	TypeOther          Type = "other"
+	TypeDevelopment Type = "development"
+	TypeAnalysis    Type = "analysis"
+	TypeSpike       Type = "spike"
+	TypePRReview    Type = "pr-review"
+	TypeCode        Type = "code"
+	TypeDocs        Type = "docs"
+	TypeWebsite     Type = "website"
+	TypeDebugCI     Type = "debug-ci"
+	TypeTests       Type = "tests"
+	TypeOther       Type = "other"
 )
 
 // Valid reports whether t is one of the known task types.
 func (t Type) Valid() bool {
 	switch t {
 	case TypeDevelopment, TypeAnalysis, TypeSpike, TypePRReview,
-		TypeBuildkiteDebug, TypeTestRun, TypeEnvTest, TypeOther:
+		TypeCode, TypeDocs, TypeWebsite, TypeDebugCI, TypeTests, TypeOther:
 		return true
 	}
 	return false
 }
 
 // NormalizeType maps any input to a known Type, collapsing unknowns to "other".
+// Legacy values are mapped to their new equivalents for backward compat.
 func NormalizeType(s string) Type {
+	switch s {
+	case "buildkite-debug":
+		return TypeDebugCI
+	case "test-run", "env-test":
+		return TypeTests
+	}
 	t := Type(s)
 	switch t {
 	case TypeDevelopment, TypeAnalysis, TypeSpike, TypePRReview,
-		TypeBuildkiteDebug, TypeTestRun, TypeEnvTest, TypeOther:
+		TypeCode, TypeDocs, TypeWebsite, TypeDebugCI, TypeTests, TypeOther:
 		return t
 	}
 	return TypeOther

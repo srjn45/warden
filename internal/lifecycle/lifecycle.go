@@ -91,7 +91,7 @@ func claudeResume(sessionID, name string, supervised bool) string {
 }
 
 // classifyInstruction is prepended to the task prompt for headless classification.
-const classifyInstruction = "You are a classifier. Classify the following agent task into exactly one of these labels: development, analysis, spike, pr-review, buildkite-debug, test-run, env-test, other. Reply with ONLY the label, nothing else.\n\nTask: "
+const classifyInstruction = "You are a classifier. Classify the following agent task into exactly one of these labels: development, analysis, spike, pr-review, code, docs, website, debug-ci, tests, other. Reply with ONLY the label, nothing else.\n\nTask: "
 
 // classifyArg builds the single argument passed to `claude -p`.
 func classifyArg(prompt string) string { return classifyInstruction + prompt }

@@ -149,7 +149,7 @@ func TestSpawnLogsKillSessionFailure(t *testing.T) {
 		}
 		return nil
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.Error(t, err)
 	require.Contains(t, buf.String(), "kill tmux session", "a failed kill-session must be logged, not silently dropped")
 }
@@ -179,7 +179,7 @@ func TestSpawnKillsSessionWhenSendKeysFails(t *testing.T) {
 		}
 		return nil
 	}}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	_ = s
 	require.Error(t, err)
 	killed := false
@@ -210,12 +210,12 @@ func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	lc := New(fr)
-	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Empty(t, s.Worktree)
 	require.Empty(t, s.Branch)
 	require.Empty(t, s.Ticket)
-	require.True(t, strings.HasPrefix(s.ID, "buildkitedebug-"), "auto id for no-ticket session, got %q", s.ID)
+	require.True(t, strings.HasPrefix(s.ID, "debugci-"), "auto id for no-ticket session, got %q", s.ID)
 	// No git calls for a no-worktree type.
 	for _, argv := range fr.calledArgs() {
 		require.NotEqual(t, "git", argv[0], "no-worktree type must not call git")
@@ -374,7 +374,7 @@ func TestParseType(t *testing.T) {
 	require.Equal(t, store.TypeDevelopment, parseType("development"))
 	require.Equal(t, store.TypePRReview, parseType("pr-review\n"))
 	require.Equal(t, store.TypeAnalysis, parseType("This is an analysis task."))
-	require.Equal(t, store.TypeBuildkiteDebug, parseType("Label: buildkite-debug"))
+	require.Equal(t, store.TypeDebugCI, parseType("Label: debug-ci"))
 	require.Equal(t, store.TypeOther, parseType("I am not sure"))
 	require.Equal(t, store.TypeOther, parseType(""))
 }
@@ -433,7 +433,7 @@ func TestSpawnTypedModeRecordsWorkdir(t *testing.T) {
 
 func TestSpawnNoWorktreeTypeRecordsRepoWorkdir(t *testing.T) {
 	fr := &FakeRunner{}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Equal(t, "/repo", s.Workdir, "no-worktree type runs in repo")
 }
@@ -841,7 +841,7 @@ func argAt(a []string, i int) string {
 
 func TestSpawnSetsMouseOnAgentSession(t *testing.T) {
 	fr := &FakeRunner{}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", s.ID, "mouse", "on"})
 	require.Greater(t,
@@ -876,7 +876,7 @@ func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 
 func TestSpawnEnablesExtendedKeys(t *testing.T) {
 	fr := &FakeRunner{}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	// extended-keys on lets Claude see Shift+Enter as a distinct key (newline).
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-s", "extended-keys", "on"})
@@ -888,7 +888,7 @@ func TestSpawnDoesNotDuplicateExtkeysWhenPresent(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -s -v terminal-features": {Out: "xterm*:clipboard:extkeys"},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.NotContains(t, fr.calledArgs(), []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"},
 		"extkeys already advertised must not be appended again")
@@ -898,7 +898,7 @@ func TestSpawnSucceedsWhenExtendedKeysSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -s extended-keys on": {Err: errors.New("boom")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err, "extended-keys failure must not fail the spawn")
 }
 
@@ -906,7 +906,7 @@ func TestSpawnRaisesHistoryLimitBeforeNewSession(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -g -v history-limit": {Out: "2000"},
 	}}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	setIdx := fr.callIndex("tmux set-option -g history-limit 50000")
 	newIdx := fr.callIndex("tmux new-session -d -s " + s.ID + " -e WARDEN_SESSION_ID=" + s.ID + " -e AGENTCTL_SESSION_ID=" + s.ID + " -c /repo")
@@ -920,7 +920,7 @@ func TestSpawnRaisesHistoryLimitWhenCurrentUnreadable(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -g -v history-limit": {Err: errors.New("no server")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-g", "history-limit", "50000"},
 		"unreadable current limit must fall through to raising it")
@@ -930,7 +930,7 @@ func TestSpawnDoesNotLowerHistoryLimit(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -g -v history-limit": {Out: "100000"},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.NotContains(t, fr.calledArgs(), []string{"tmux", "set-option", "-g", "history-limit", "50000"},
 		"a larger user-configured history-limit must be left untouched")
@@ -940,7 +940,7 @@ func TestSpawnSucceedsWhenHistoryLimitSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -g history-limit 50000": {Err: errors.New("boom")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeBuildkiteDebug, Repo: "/repo"})
+	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err, "history-limit failure must not fail the spawn")
 }
 
@@ -1008,7 +1008,7 @@ func TestSpawnSupervisedTypedModeUsesAcceptEdits(t *testing.T) {
 	fr := &FakeRunner{}
 	l := New(fr)
 	s, err := l.Spawn(context.Background(), SpawnRequest{
-		Type:       store.TypeBuildkiteDebug,
+		Type:       store.TypeDebugCI,
 		Repo:       "/repo",
 		Supervised: true,
 	})
