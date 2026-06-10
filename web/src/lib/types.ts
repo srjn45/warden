@@ -53,6 +53,10 @@ export interface Session {
   last_pane_excerpt: string;
   supervised: boolean;
   exit_code?: number | null;
+  context_tokens?: number;
+  context_state?: '' | 'ok' | 'warning' | 'critical';
+  context_checked_at?: string;
+  last_compact_at?: string | null;
 }
 
 // ContextEntry mirrors the daemon's shared-context entry (GET /context).

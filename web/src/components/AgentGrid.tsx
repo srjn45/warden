@@ -2,6 +2,7 @@ import type { Session } from '../lib/types';
 import { groupSessions, baseName, UNKNOWN_DIR } from '../lib/group';
 import MiniTerminal from './MiniTerminal';
 import BusyIdleBadge from './BusyIdleBadge';
+import ContextBadge from './ContextBadge';
 import QuickAddButton from './QuickAddButton';
 
 // AgentGrid renders live thumbnail tiles for every agent, grouped by directory.
@@ -37,6 +38,7 @@ export default function AgentGrid({ sessions, onSelect, lines = 8, onCreated }: 
               <button key={s.id} className="grid-tile" onClick={() => onSelect(s.id)}>
                 <div className="tile-head">
                   <b>{s.id}</b> <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
+                  <ContextBadge tokens={s.context_tokens} state={s.context_state} />
                 </div>
                 <MiniTerminal id={s.id} lines={lines} />
               </button>
