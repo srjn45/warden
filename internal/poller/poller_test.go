@@ -203,7 +203,11 @@ func (d *stubDeps) ClearExit(_ context.Context, id string) {
 	}
 	d.cleared[id] = true
 }
-func (d *stubDeps) SessionAlive(_ context.Context, name string) bool { return d.alive[name] }
+func (d *stubDeps) ContextTokens(_ context.Context, _ *store.Session) (int, bool)    { return 0, false }
+func (d *stubDeps) UpdateContext(_ context.Context, _ string, _ int, _ string) error { return nil }
+func (d *stubDeps) Compact(_ context.Context, _ *store.Session) error                { return nil }
+func (d *stubDeps) StampCompact(_ context.Context, _ string) error                   { return nil }
+func (d *stubDeps) SessionAlive(_ context.Context, name string) bool                 { return d.alive[name] }
 func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {
 	if d.captureErr != nil {
 		return "", d.captureErr

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -55,6 +56,15 @@ type Deps interface {
 	FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (bool, error)
 	// ClearExit removes the consumed exit-file so it can't be re-read.
 	ClearExit(ctx context.Context, id string)
+	// ContextTokens returns the agent's current context-window occupancy read
+	// from its transcript. ok=false when no model turn has been recorded yet.
+	ContextTokens(ctx context.Context, s *store.Session) (tokens int, ok bool)
+	// UpdateContext persists the gauge (tokens + state band).
+	UpdateContext(ctx context.Context, id string, tokens int, state string) error
+	// Compact sends "/compact" to the agent (only called when it is idle/waiting).
+	Compact(ctx context.Context, s *store.Session) error
+	// StampCompact records that /compact was just sent (cooldown guard).
+	StampCompact(ctx context.Context, id string) error
 }
 
 type Poller struct {
@@ -72,6 +82,21 @@ type Poller struct {
 	// per tick). The daemon wires this to fire user notifications.
 	OnTransition func(sess *store.Session, from, to store.Status)
 
+	// Context-size guard config + hooks (set by the daemon after New). When
+	// TokenGuard is false the whole check is skipped. CompactCooldown bounds how
+	// often /compact may be auto-sent to one agent.
+	TokenGuard      bool
+	TokenWarn       int
+	TokenCrit       int
+	WarnAlert       bool
+	AutoCompact     bool
+	CompactCooldown time.Duration
+	CheckEvery      time.Duration // throttle for the per-agent transcript read
+	// OnContextAlert, if set, fires once per upward threshold crossing.
+	OnContextAlert func(sess *store.Session, state ctxtokens.State, tokens int)
+
+	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
+
 	// Summarization runs `claude -p`, which is slow, so it is dispatched to
 	// background workers rather than blocking the tick loop. mu guards inflight;
 	// wg tracks live workers so Run can drain them on shutdown.
@@ -82,11 +107,14 @@ type Poller struct {
 
 func New(d Deps, stuckAfter time.Duration) *Poller {
 	return &Poller{
-		deps:           d,
-		stuckAfter:     stuckAfter,
-		SummarizeAfter: 2 * time.Minute,
-		lastSummary:    map[string]time.Time{},
-		inflight:       map[string]struct{}{},
+		deps:            d,
+		stuckAfter:      stuckAfter,
+		SummarizeAfter:  2 * time.Minute,
+		lastSummary:     map[string]time.Time{},
+		inflight:        map[string]struct{}{},
+		lastCtxCheck:    map[string]time.Time{},
+		CheckEvery:      20 * time.Second,
+		CompactCooldown: 2 * time.Minute,
 	}
 }
 
@@ -180,6 +208,10 @@ func (p *Poller) tick(ctx context.Context) error {
 		if alive && paneChanged && now.Sub(p.lastSummary[s.ID]) >= p.SummarizeAfter {
 			p.dispatchSummary(ctx, s, now)
 		}
+		if p.TokenGuard && alive && p.CheckEvery >= 0 && now.Sub(p.lastCtxCheck[s.ID]) >= p.CheckEvery {
+			p.lastCtxCheck[s.ID] = now
+			p.checkContext(ctx, s, now)
+		}
 	}
 	p.pruneSummaryState(sessions)
 	if changed && p.OnChange != nil {
@@ -192,7 +224,7 @@ func (p *Poller) tick(ctx context.Context) error {
 // store (archived/deleted), so the throttle map can't grow without bound over a
 // long-running daemon. Called only from the tick goroutine, which owns the map.
 func (p *Poller) pruneSummaryState(sessions []*store.Session) {
-	if len(p.lastSummary) == 0 {
+	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 {
 		return
 	}
 	live := make(map[string]struct{}, len(sessions))
@@ -202,6 +234,11 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	for id := range p.lastSummary {
 		if _, ok := live[id]; !ok {
 			delete(p.lastSummary, id)
+		}
+	}
+	for id := range p.lastCtxCheck {
+		if _, ok := live[id]; !ok {
+			delete(p.lastCtxCheck, id)
 		}
 	}
 }

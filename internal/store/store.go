@@ -41,6 +41,8 @@ type Store interface {
 	// UpdateContext persists the context-window gauge (tokens + state band),
 	// appending a "context" event only on a state transition.
 	UpdateContext(ctx context.Context, id string, tokens int, state string) error
+	// StampCompact records the time of an auto-/compact (cooldown guard).
+	StampCompact(ctx context.Context, id string) error
 	// ClearWorktree blanks the Worktree and Branch fields (after the worktree is
 	// removed from disk), so the record no longer points at a gone worktree.
 	ClearWorktree(ctx context.Context, id string) error

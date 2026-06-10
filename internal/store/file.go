@@ -313,6 +313,15 @@ func orNone(s string) string {
 	return s
 }
 
+// StampCompact records that warden auto-sent /compact to id just now (cooldown
+// guard for the context-size guard).
+func (fs *FileStore) StampCompact(ctx context.Context, id string) error {
+	return fs.mutate(id, func(s *Session) {
+		now := time.Now().UTC()
+		s.LastCompactAt = &now
+	})
+}
+
 func (fs *FileStore) ClearWorktree(ctx context.Context, id string) error {
 	return fs.mutate(id, func(s *Session) { s.Worktree = ""; s.Branch = "" })
 }
