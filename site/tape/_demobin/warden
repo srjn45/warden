@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Demo stub used ONLY by hero.tape so the recording is deterministic and has no
+# side effects (the real `warden start` would spawn a live agent; the real
+# `warden ls` would expose the recorder's actual fleet). Output mirrors the real
+# warden format shown in the README.
+case "$1" in
+  start)
+    echo "spawned agent-a1b2 (classifying…) — attach with 'warden attach agent-a1b2'"
+    ;;
+  ls)
+    cat <<'EOF'
+ID              TYPE         STATUS    AGE   DIR             SUBJECT
+agent-a1b2      development  working   2m    flaky-nightly   refactoring retry logic
+prreview-c3d4   pr-review    idle      5m    prreview-c3d4   reviewing PR 1234
+agent-e5f6      spike        working   1m    agent-e5f6      investigate cache misses
+EOF
+    ;;
+  *)
+    echo "warden: $*"
+    ;;
+esac
