@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Warden">
+  <!-- warden symbol — self-contained slate badge, works on light and dark backgrounds -->
+  <!-- Palette: Slate #36506B  Paper #EEF2F5 -->
+
+  <!-- Outer hexagon: slate fill, rounded corners via round-join stroke -->
+  <polygon points="120,20 206.6,70 206.6,170 120,220 33.4,170 33.4,70"
+           fill="#36506B" stroke="#36506B" stroke-width="14" stroke-linejoin="round"/>
+
+  <!-- Inner hexagon outline -->
+  <polygon points="120,44 185.8,82 185.8,158 120,196 54.2,158 54.2,82"
+           fill="none" stroke="#EEF2F5" stroke-width="5" stroke-linejoin="round"/>
+
+  <!-- Double-line W: thick Paper stroke, slate over-stroke creates the hollow outline -->
+  <polyline points="70,84 95,156 120,112 145,156 170,84"
+            fill="none" stroke="#EEF2F5" stroke-width="17"
+            stroke-linejoin="round" stroke-linecap="round"/>
+  <polyline points="70,84 95,156 120,112 145,156 170,84"
+            fill="none" stroke="#36506B" stroke-width="8"
+            stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
