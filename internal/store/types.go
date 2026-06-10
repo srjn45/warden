@@ -75,26 +75,29 @@ type Event struct {
 }
 
 type Session struct {
-	ID              string    `json:"id"`
-	Type            Type      `json:"type"`
-	Ticket          string    `json:"ticket"` // optional
-	TmuxSession     string    `json:"tmux_session"`
-	ClaudeSessionID string    `json:"claude_session_id"` // pinned claude --session-id (UUID); deterministic transcript + future --resume
-	Repo            string    `json:"repo"`
-	Worktree        string    `json:"worktree"` // optional (empty = no worktree)
-	Branch          string    `json:"branch"`   // optional
-	PR              string    `json:"pr"`       // optional (pr-review)
-	Prompt          string    `json:"prompt"`   // initial prompt (prompt-spawned agents)
-	Workdir         string    `json:"workdir"`  // absolute cwd of the tmux session
-	Subject         string    `json:"subject"`  // one-line auto summary of what it's doing
-	Status          Status    `json:"status"`
-	PID             int       `json:"pid"`
-	ExitCode        *int      `json:"exit_code,omitempty"` // process exit status when recovered: nil=unknown (orphaned/pre-feature), 0=clean, non-zero=crash
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	Events          []Event   `json:"events"`
-	LastPaneExcerpt string    `json:"last_pane_excerpt"`
-	Supervised      bool      `json:"supervised"`            // launched with --permission-mode acceptEdits (prompts) instead of bypass
-	PipelineID      string    `json:"pipeline_id,omitempty"` // set for pipeline jobs (back-ref)
-	JobID           string    `json:"job_id,omitempty"`      // set for pipeline jobs (back-ref)
+	ID              string     `json:"id"`
+	Type            Type       `json:"type"`
+	Ticket          string     `json:"ticket"` // optional
+	TmuxSession     string     `json:"tmux_session"`
+	ClaudeSessionID string     `json:"claude_session_id"` // pinned claude --session-id (UUID); deterministic transcript + future --resume
+	Repo            string     `json:"repo"`
+	Worktree        string     `json:"worktree"` // optional (empty = no worktree)
+	Branch          string     `json:"branch"`   // optional
+	PR              string     `json:"pr"`       // optional (pr-review)
+	Prompt          string     `json:"prompt"`   // initial prompt (prompt-spawned agents)
+	Workdir         string     `json:"workdir"`  // absolute cwd of the tmux session
+	Subject         string     `json:"subject"`  // one-line auto summary of what it's doing
+	Status          Status     `json:"status"`
+	PID             int        `json:"pid"`
+	ExitCode        *int       `json:"exit_code,omitempty"` // process exit status when recovered: nil=unknown (orphaned/pre-feature), 0=clean, non-zero=crash
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	Events          []Event    `json:"events"`
+	LastPaneExcerpt string     `json:"last_pane_excerpt"`
+	Supervised      bool       `json:"supervised"`                // launched with --permission-mode acceptEdits (prompts) instead of bypass
+	AutoRestart     bool       `json:"auto_restart,omitempty"`    // opt-in: auto-resume this agent when it errors (capped)
+	RestartCount    int        `json:"restart_count,omitempty"`   // consecutive auto-restart attempts since last sustained-healthy run
+	LastRestartAt   *time.Time `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
+	PipelineID      string     `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
+	JobID           string     `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
 }

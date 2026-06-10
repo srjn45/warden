@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -73,4 +74,25 @@ func TestSessionExitCodeJSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &back))
 	require.NotNil(t, back.ExitCode)
 	require.Equal(t, 137, *back.ExitCode)
+}
+
+func TestSessionAutoRestartFieldsJSON(t *testing.T) {
+	at := time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC)
+	s := Session{ID: "a", AutoRestart: true, RestartCount: 2, LastRestartAt: &at}
+	b, err := json.Marshal(s)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"auto_restart":true`)
+	require.Contains(t, string(b), `"restart_count":2`)
+
+	var back Session
+	require.NoError(t, json.Unmarshal(b, &back))
+	require.True(t, back.AutoRestart)
+	require.Equal(t, 2, back.RestartCount)
+	require.Equal(t, at, back.LastRestartAt.UTC())
+
+	b2, err := json.Marshal(Session{ID: "b"})
+	require.NoError(t, err)
+	require.NotContains(t, string(b2), "restart_count")
+	require.NotContains(t, string(b2), "last_restart_at")
+	require.NotContains(t, string(b2), "auto_restart")
 }
