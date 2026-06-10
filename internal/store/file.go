@@ -282,6 +282,10 @@ func (fs *FileStore) UpdatePane(ctx context.Context, id, excerpt string) error {
 	return fs.mutate(id, func(s *Session) { s.LastPaneExcerpt = excerpt })
 }
 
+func (fs *FileStore) SetRestart(ctx context.Context, id string, count int, at time.Time) error {
+	return fs.mutate(id, func(s *Session) { s.RestartCount = count; t := at; s.LastRestartAt = &t })
+}
+
 func (fs *FileStore) ClearWorktree(ctx context.Context, id string) error {
 	return fs.mutate(id, func(s *Session) { s.Worktree = ""; s.Branch = "" })
 }

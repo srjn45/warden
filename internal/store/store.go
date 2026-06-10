@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrNotFound is returned when a session id does not exist.
@@ -35,6 +36,8 @@ type Store interface {
 	// status transition can never land half-applied.
 	AppendEventStatus(ctx context.Context, id string, ev Event, status Status) error
 	UpdatePane(ctx context.Context, id, excerpt string) error
+	// SetRestart records an auto-restart attempt's counter and timestamp.
+	SetRestart(ctx context.Context, id string, count int, at time.Time) error
 	// ClearWorktree blanks the Worktree and Branch fields (after the worktree is
 	// removed from disk), so the record no longer points at a gone worktree.
 	ClearWorktree(ctx context.Context, id string) error

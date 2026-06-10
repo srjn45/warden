@@ -371,6 +371,22 @@ func TestFinalizeExitCASLoses(t *testing.T) {
 	require.Nil(t, got.ExitCode)
 }
 
+func TestSetRestart(t *testing.T) {
+	fs := newFileStore(t)
+	ctx := context.Background()
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "x", Status: StatusErrored}))
+
+	at := time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC)
+	require.NoError(t, fs.SetRestart(ctx, "x", 1, at))
+
+	got, err := fs.Get(ctx, "x")
+	require.NoError(t, err)
+	require.Equal(t, 1, got.RestartCount)
+	require.NotNil(t, got.LastRestartAt)
+	require.Equal(t, at, got.LastRestartAt.UTC())
+	require.Equal(t, StatusErrored, got.Status) // SetRestart must not touch status
+}
+
 func TestNewFileStoreDirsAre0700(t *testing.T) {
 	dir := t.TempDir()
 	fs, err := NewFileStore(dir)
