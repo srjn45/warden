@@ -100,4 +100,17 @@ type Session struct {
 	LastRestartAt   *time.Time `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
 	PipelineID      string     `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
 	JobID           string     `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
+
+	ContextTokens    int        `json:"context_tokens,omitempty"`     // latest context-window fill; 0 = unknown (no model turn yet)
+	ContextState     string     `json:"context_state,omitempty"`      // "" | ok | warning | critical
+	ContextCheckedAt time.Time  `json:"context_checked_at,omitempty"` // when ContextTokens was last refreshed
+	LastCompactAt    *time.Time `json:"last_compact_at,omitempty"`    // when warden last auto-sent /compact (cooldown guard)
 }
+
+// Context-fill states stored in Session.ContextState. They mirror
+// ctxtokens.State but are duplicated here to keep store free of that import.
+const (
+	ContextOK       = "ok"
+	ContextWarning  = "warning"
+	ContextCritical = "critical"
+)

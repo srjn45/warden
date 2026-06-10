@@ -286,6 +286,33 @@ func (fs *FileStore) SetRestart(ctx context.Context, id string, count int, at ti
 	return fs.mutate(id, func(s *Session) { s.RestartCount = count; t := at; s.LastRestartAt = &t })
 }
 
+// UpdateContext persists an agent's context-window gauge. It stamps
+// ContextCheckedAt, and appends a single "context" event ONLY when the state
+// band actually changes (e.g. ok→warning), so steady-state refreshes don't grow
+// the event log.
+func (fs *FileStore) UpdateContext(ctx context.Context, id string, tokens int, state string) error {
+	return fs.mutate(id, func(s *Session) {
+		if state != "" && state != s.ContextState {
+			s.Events = append(s.Events, Event{
+				TS:     time.Now().UTC(),
+				Type:   "context",
+				Detail: fmt.Sprintf("context %s→%s (%dk)", orNone(s.ContextState), state, tokens/1000),
+			})
+		}
+		s.ContextTokens = tokens
+		s.ContextState = state
+		s.ContextCheckedAt = time.Now().UTC()
+	})
+}
+
+// orNone renders an empty prior state as "none" for the transition event.
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
+}
+
 func (fs *FileStore) ClearWorktree(ctx context.Context, id string) error {
 	return fs.mutate(id, func(s *Session) { s.Worktree = ""; s.Branch = "" })
 }

@@ -404,3 +404,44 @@ func TestNewFileStoreDirsAre0700(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateContextPersistsAndEventsOnTransition(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close(context.Background())
+	ctx := context.Background()
+	s := &Session{ID: "agent-ctx1", Status: StatusWorking}
+	if err := fs.Insert(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+
+	// First write: "" -> warning is a transition, so it appends one event.
+	if err := fs.UpdateContext(ctx, "agent-ctx1", 210000, "warning"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := fs.Get(ctx, "agent-ctx1")
+	if got.ContextTokens != 210000 || got.ContextState != "warning" {
+		t.Fatalf("tokens=%d state=%q", got.ContextTokens, got.ContextState)
+	}
+	if got.ContextCheckedAt.IsZero() {
+		t.Fatal("ContextCheckedAt not stamped")
+	}
+	if len(got.Events) != 1 {
+		t.Fatalf("events=%d, want 1 on transition", len(got.Events))
+	}
+
+	// Same state, new token count: updates tokens, NO new event.
+	if err := fs.UpdateContext(ctx, "agent-ctx1", 220000, "warning"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = fs.Get(ctx, "agent-ctx1")
+	if got.ContextTokens != 220000 {
+		t.Fatalf("tokens=%d, want 220000", got.ContextTokens)
+	}
+	if len(got.Events) != 1 {
+		t.Fatalf("events=%d, want still 1 (no transition)", len(got.Events))
+	}
+}
