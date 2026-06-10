@@ -201,15 +201,16 @@ func New(r Runner) *Lifecycle { return &Lifecycle{run: r} }
 
 // SpawnRequest is the type-aware input to Spawn (design §2 / §6).
 type SpawnRequest struct {
-	Type       store.Type
-	Ticket     string // optional; becomes the id when present
-	Repo       string
-	Branch     string // optional; development branch / pr-review checkout target
-	PR         string // optional; pr-review
-	Worktree   bool   // analysis/spike opt-in
-	Prompt     string // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
-	Cwd        string // free-form: dir to launch claude from (the caller's "master shell"); required
-	Supervised bool   // opt-in: launch with --permission-mode acceptEdits (prompts) instead of bypass
+	Type        store.Type
+	Ticket      string // optional; becomes the id when present
+	Repo        string
+	Branch      string // optional; development branch / pr-review checkout target
+	PR          string // optional; pr-review
+	Worktree    bool   // analysis/spike opt-in
+	Prompt      string // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
+	Cwd         string // free-form: dir to launch claude from (the caller's "master shell"); required
+	Supervised  bool   // opt-in: launch with --permission-mode acceptEdits (prompts) instead of bypass
+	AutoRestart bool   // opt-in: auto-resume this agent when it errors (capped)
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -545,6 +546,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Subject:     spawnSubject(req.Prompt),
 		Status:      store.StatusSpawning,
 		Supervised:  req.Supervised,
+		AutoRestart: req.AutoRestart,
 	}
 	sess.ClaudeSessionID, err = store.NewSessionID()
 	if err != nil {

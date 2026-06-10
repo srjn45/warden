@@ -41,8 +41,9 @@ func newStartCmd() *cobra.Command {
 					return err
 				}
 				supervised, _ := cmd.Flags().GetBool("supervised")
+				autoRestart, _ := cmd.Flags().GetBool("auto-restart")
 				force, _ := cmd.Flags().GetBool("force")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: prompt, Cwd: dir, Supervised: supervised, Force: force})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: prompt, Cwd: dir, Supervised: supervised, AutoRestart: autoRestart, Force: force})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -73,6 +74,7 @@ func newStartCmd() *cobra.Command {
 			pr, _ := cmd.Flags().GetString("pr")
 			worktree, _ := cmd.Flags().GetBool("worktree")
 			supervised, _ := cmd.Flags().GetBool("supervised")
+			autoRestart, _ := cmd.Flags().GetBool("auto-restart")
 			if typ == "pr-review" && pr == "" && branch == "" {
 				return fmt.Errorf("pr-review needs --pr or --branch")
 			}
@@ -82,7 +84,7 @@ func newStartCmd() *cobra.Command {
 			}
 			force, _ := cmd.Flags().GetBool("force")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, Supervised: supervised, Force: force,
+				Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, Supervised: supervised, AutoRestart: autoRestart, Force: force,
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -104,6 +106,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
 	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
 	cmd.Flags().Bool("supervised", false, "launch in acceptEdits mode (prompts for risky tools → answerable in the approvals inbox)")
+	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	return cmd
 }

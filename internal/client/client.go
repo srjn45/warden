@@ -151,16 +151,17 @@ func (c *Client) Get(ctx context.Context, id string) (*store.Session, error) {
 // SpawnParams mirrors the daemon's /spawn body (kept in the client package so
 // the CLI and MCP server don't import the daemon package).
 type SpawnParams struct {
-	Type       string
-	Ticket     string
-	Repo       string
-	Branch     string
-	PR         string
-	Worktree   bool
-	Prompt     string
-	Cwd        string
-	Supervised bool
-	Force      bool
+	Type        string
+	Ticket      string
+	Repo        string
+	Branch      string
+	PR          string
+	Worktree    bool
+	Prompt      string
+	Cwd         string
+	Supervised  bool
+	AutoRestart bool
+	Force       bool
 }
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
@@ -169,7 +170,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"type": p.Type, "ticket": p.Ticket, "repo": p.Repo,
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree,
 		"prompt": p.Prompt, "cwd": p.Cwd, "supervised": p.Supervised,
-		"force": p.Force,
+		"auto_restart": p.AutoRestart, "force": p.Force,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		var se *StatusError

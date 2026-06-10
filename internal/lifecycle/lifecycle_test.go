@@ -255,6 +255,16 @@ func TestSpawnSpikeWorktreeIsOptIn(t *testing.T) {
 	require.Contains(t, fr2.calledArgs(), []string{"git", "worktree", "add", s2.Worktree, "-b", s2.ID})
 }
 
+func TestSpawnPersistsAutoRestart(t *testing.T) {
+	fr := &FakeRunner{}
+	l := New(fr)
+	l.PromptsDir = "/state/prompts"
+	l.ExitsDir = t.TempDir()
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "do x", Cwd: "/work/p", AutoRestart: true})
+	require.NoError(t, err)
+	require.True(t, s.AutoRestart, "AutoRestart must be persisted on the session")
+}
+
 // calledArgs is a test helper.
 func (f *FakeRunner) calledArgs() [][]string {
 	out := make([][]string, 0, len(f.Calls))
