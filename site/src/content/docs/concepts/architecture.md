@@ -16,4 +16,4 @@ One self-contained Go binary that wears several faces, all sharing the same on-d
 | **Security hardening** | `0700` data dir, slowloris/body/write timeouts (bypassed for SSE/WS/long-poll), refuses non-loopback bind unless `WARDEN_ALLOW_NONLOOPBACK=1`. |
 | **`warden doctor`** | Preflight checks: required binaries (`tmux`, `git`, `claude`, `gh`), daemon reachability, data directory. |
 
-<!-- media: architecture diagram (public/media/architecture.svg) embedded here in Task 7 -->
+![warden architecture](/warden/media/architecture.svg)
