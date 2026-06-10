@@ -560,3 +560,21 @@ func TestFlatSessionsIncludesOrphanedPipelineAgents(t *testing.T) {
 	require.ElementsMatch(t, []string{"plain", "gone-x"}, ids,
 		"flat list must include un-owned agents and orphans of deleted pipelines, but not live-pipeline-owned agents")
 }
+
+func TestContextLabel(t *testing.T) {
+	cases := []struct {
+		tokens int
+		state  string
+		want   string
+	}{
+		{0, "", ""},
+		{145000, "ok", "145k"},
+		{210000, "warning", "210k"},
+		{410000, "critical", "410k"},
+	}
+	for _, c := range cases {
+		if got, _ := contextLabel(c.tokens, c.state); got != c.want {
+			t.Errorf("contextLabel(%d,%q)=%q, want %q", c.tokens, c.state, got, c.want)
+		}
+	}
+}

@@ -456,6 +456,24 @@ func pipelineHasFailure(p *pipeline.Pipeline) bool {
 	return false
 }
 
+// contextLabel renders an agent's context gauge as a short figure ("210k") plus
+// the lipgloss style for its state band. An unknown gauge (no model turn yet)
+// renders "" so a just-spawned agent shows nothing rather than a green 0k.
+func contextLabel(tokens int, state string) (string, lipgloss.Style) {
+	if tokens == 0 && state == "" {
+		return "", stMuted
+	}
+	label := fmt.Sprintf("%dk", tokens/1000)
+	switch state {
+	case store.ContextWarning:
+		return label, stCtxWarn
+	case store.ContextCritical:
+		return label, stCtxCrit
+	default:
+		return label, stCtxOK
+	}
+}
+
 // renderItemLine renders one body row: an agent's columns, or the placeholder
 // line for an empty opened dir. The cursor row gets the "› " caret + cursor style.
 func renderItemLine(it item, selected bool, width int) string {
@@ -488,9 +506,11 @@ func renderItemLine(it item, selected bool, width int) string {
 	default:
 		s := it.session
 		label, st := badge(s.Status, s.ExitCode)
-		line = fmt.Sprintf("%-12s %-9s %-11s %-5s %s",
-			trunc(s.ID, 12), trunc(typeOr(s), 9), st.Render(label), age(s.UpdatedAt),
-			trunc(s.Subject, max(0, width-44)))
+		cl, cst := contextLabel(s.ContextTokens, s.ContextState)
+		line = fmt.Sprintf("%-12s %-9s %-11s %-6s %-5s %s",
+			trunc(s.ID, 12), trunc(typeOr(s), 9), st.Render(label),
+			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt),
+			trunc(s.Subject, max(0, width-51)))
 	}
 	cur := "  "
 	if selected {

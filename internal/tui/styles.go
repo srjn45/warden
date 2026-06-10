@@ -18,6 +18,9 @@ var (
 	stMuted     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	stPaneTitle = lipgloss.NewStyle().Bold(true)
 	stStatus    = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	stCtxOK     = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+	stCtxWarn   = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // orange/amber
+	stCtxCrit   = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
 )
 
 // badge maps a status to a short label + style (mirrors the web status.ts mapping).
