@@ -195,6 +195,7 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 | **`warden stats`** | CLI view of the resource metrics. |
 | **Metrics recorder** | Optional 15s JSONL recorder (`WARDEN_METRICS`). |
 | **macOS notifications** | `WARDEN_NOTIFY=on` posts a desktop notification when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
+| **Context-size guard** | `internal/ctxtokens` reads each live agent's context-window fill from its transcript and classifies it `ok`/`warning`/`critical`. The poller shows a state-colored token figure in `ls`/TUI/web, alerts once per upward crossing (`WARDEN_TOKEN_WARN_ALERT`), and auto-sends `/compact` at `critical` when the agent is idle (`WARDEN_TOKEN_AUTO_COMPACT`, cooldown-guarded). Master switch `WARDEN_TOKEN_GUARD`; thresholds `WARDEN_TOKEN_WARN`/`WARDEN_TOKEN_CRITICAL`. |
 
 ---
 
@@ -208,6 +209,11 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript dirs (poller reads these) |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications |
 | `WARDEN_APPROVALS` | `on` | The approvals inbox |
+| `WARDEN_TOKEN_GUARD` | `on` | Context-size guard master switch (gauge + alert + auto-compact) |
+| `WARDEN_TOKEN_WARN_ALERT` | `on` | Notify once per upward crossing into warning/critical (needs `WARDEN_NOTIFY`) |
+| `WARDEN_TOKEN_AUTO_COMPACT` | `on` | Auto-`/compact` at `critical` when the agent is idle (cooldown-guarded) |
+| `WARDEN_TOKEN_WARN` | `200000` | Warning threshold in context tokens (resets with critical if critical ≤ warn) |
+| `WARDEN_TOKEN_CRITICAL` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
 | `WARDEN_ALLOW_NONLOOPBACK` | unset | Allow binding a non-loopback address |
 
 All can be overridden with `--addr` on any command.

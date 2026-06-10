@@ -612,6 +612,11 @@ Set via environment variables (or override the daemon address per-command with
 | `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored — **not** where the agent runs (prompt agents run in the caller's cwd or `--dir`) |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
+| `WARDEN_TOKEN_GUARD` | `on` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web. Disable with `0`/`off`/`false` |
+| `WARDEN_TOKEN_WARN_ALERT` | `on` | Fire a desktop notification (when `WARDEN_NOTIFY` is on) once per upward crossing into warning/critical. Disable with `0`/`off`/`false` |
+| `WARDEN_TOKEN_AUTO_COMPACT` | `on` | Auto-send `/compact` when an agent is `critical` and idle/waiting (cooldown-guarded). Disable with `0`/`off`/`false` |
+| `WARDEN_TOKEN_WARN` | `200000` | Warning threshold in context tokens (inclusive). Both thresholds reset to defaults if critical ≤ warn |
+| `WARDEN_TOKEN_CRITICAL` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
 
 ---
 

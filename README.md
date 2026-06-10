@@ -166,6 +166,11 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
 | `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approve`. Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
+| `WARDEN_TOKEN_GUARD` | `on` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch — disable with `0`/`off`/`false` to turn off the whole guard (gauge, alert, auto-compact) |
+| `WARDEN_TOKEN_WARN_ALERT` | `on` | Fire a desktop notification (when `WARDEN_NOTIFY` is on) once per upward crossing into the warning or critical band. Disable with `0`/`off`/`false` |
+| `WARDEN_TOKEN_AUTO_COMPACT` | `on` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded). Disable with `0`/`off`/`false` |
+| `WARDEN_TOKEN_WARN` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `WARDEN_TOKEN_CRITICAL` is not greater than this, both reset to the defaults |
+| `WARDEN_TOKEN_CRITICAL` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
 
 All variables can also be overridden with `--addr` on any command.
 
