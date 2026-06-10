@@ -18,6 +18,11 @@ type Config struct {
 	SpawnGateMaxAgents int
 	MetricsEnabled     bool
 	AllowNonLoopback   bool
+	TokenGuard         bool
+	TokenWarnAlert     bool
+	TokenAutoCompact   bool
+	TokenWarn          int
+	TokenCritical      int
 }
 
 func envOr(key, def string) string {
@@ -115,6 +120,26 @@ func metricsEnabled() bool {
 	return true
 }
 
+// onByDefault reads a WARDEN_<name> (legacy AGENTCTL_<name>) boolean that
+// defaults ON, disabled only by 0/off/false.
+func onByDefault(name string) bool {
+	switch strings.ToLower(env(name)) {
+	case "0", "off", "false":
+		return false
+	}
+	return true
+}
+
+// envInt reads a WARDEN_<name> integer, returning def when unset/unparseable.
+func envInt(name string, def int) int {
+	if v := env(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
 // allowNonLoopback reads WARDEN_ALLOW_NONLOOPBACK (legacy AGENTCTL_ALLOW_NONLOOPBACK);
 // OFF by default, on only for 1/on/true. Gates binding the auth-less daemon to a
 // non-loopback address.
@@ -150,6 +175,11 @@ func IsLoopbackHost(addr string) bool {
 
 // Load reads config from environment, applying defaults.
 func Load() Config {
+	tWarn := envInt("TOKEN_WARN", 200000)
+	tCrit := envInt("TOKEN_CRITICAL", 400000)
+	if tCrit <= tWarn { // inverted/degenerate config → defaults (warning must be reachable)
+		tWarn, tCrit = 200000, 400000
+	}
 	return Config{
 		Addr:               envOr2("ADDR", "127.0.0.1:8765"),
 		DataDir:            envOr2("DATA_DIR", defaultDataDir()),
@@ -160,5 +190,10 @@ func Load() Config {
 		SpawnGateMaxAgents: spawnGateMaxAgents(),
 		MetricsEnabled:     metricsEnabled(),
 		AllowNonLoopback:   allowNonLoopback(),
+		TokenGuard:         onByDefault("TOKEN_GUARD"),
+		TokenWarnAlert:     onByDefault("TOKEN_WARN_ALERT"),
+		TokenAutoCompact:   onByDefault("TOKEN_AUTO_COMPACT"),
+		TokenWarn:          tWarn,
+		TokenCritical:      tCrit,
 	}
 }

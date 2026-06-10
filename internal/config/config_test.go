@@ -153,6 +153,41 @@ func TestMetricsEnabledOff(t *testing.T) {
 	}
 }
 
+func TestTokenGuardDefaults(t *testing.T) {
+	for _, k := range []string{"WARDEN_TOKEN_GUARD", "WARDEN_TOKEN_WARN_ALERT", "WARDEN_TOKEN_AUTO_COMPACT", "WARDEN_TOKEN_WARN", "WARDEN_TOKEN_CRITICAL", "AGENTCTL_TOKEN_GUARD"} {
+		t.Setenv(k, "")
+	}
+	c := Load()
+	if !c.TokenGuard || !c.TokenWarnAlert || !c.TokenAutoCompact {
+		t.Fatalf("guard=%v warnAlert=%v autoCompact=%v, want all true", c.TokenGuard, c.TokenWarnAlert, c.TokenAutoCompact)
+	}
+	if c.TokenWarn != 200000 || c.TokenCritical != 400000 {
+		t.Fatalf("warn=%d crit=%d, want 200000/400000", c.TokenWarn, c.TokenCritical)
+	}
+}
+
+func TestTokenGuardOverrides(t *testing.T) {
+	t.Setenv("WARDEN_TOKEN_AUTO_COMPACT", "off")
+	t.Setenv("WARDEN_TOKEN_WARN", "100000")
+	t.Setenv("WARDEN_TOKEN_CRITICAL", "150000")
+	c := Load()
+	if c.TokenAutoCompact {
+		t.Fatal("auto-compact should be off")
+	}
+	if c.TokenWarn != 100000 || c.TokenCritical != 150000 {
+		t.Fatalf("warn=%d crit=%d", c.TokenWarn, c.TokenCritical)
+	}
+}
+
+func TestTokenThresholdsFallBackWhenInverted(t *testing.T) {
+	t.Setenv("WARDEN_TOKEN_WARN", "500000")
+	t.Setenv("WARDEN_TOKEN_CRITICAL", "400000") // crit <= warn → defaults
+	c := Load()
+	if c.TokenWarn != 200000 || c.TokenCritical != 400000 {
+		t.Fatalf("inverted config not reset: warn=%d crit=%d", c.TokenWarn, c.TokenCritical)
+	}
+}
+
 func TestIsLoopbackHost(t *testing.T) {
 	cases := map[string]bool{
 		"127.0.0.1:8765":   true,
