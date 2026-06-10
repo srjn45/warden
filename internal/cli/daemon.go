@@ -88,9 +88,11 @@ func newDaemonCmd() *cobra.Command {
 			exec.SetKeepDoneAgents(os.Getenv("WARDEN_PIPELINE_KEEP_DONE") != "" || os.Getenv("AGENTCTL_PIPELINE_KEEP_DONE") != "")
 
 			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
+			restarter := daemon.NewRestarter(life, st)
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
+				restarter.OnTransition(sess, from, to)
 			}
 			log.Printf("warden daemon listening on %s", cfg.Addr)
 			return srv.ListenAndServe(ctx, cfg.Addr)
