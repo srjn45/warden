@@ -430,7 +430,9 @@ func TestEmitDeletesSessionRecord(t *testing.T) {
 	fl := &fakeLife{}
 	ss := newFakeStore()
 	e := NewExecutor(ps, ss, fl, nil, func() {})
-	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest { return digest.Digest{Summary: "snap for " + s.ID} }
+	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest {
+		return digest.Digest{Summary: "snap for " + s.ID}
+	}
 	if err := e.Reconcile(context.Background(), "p"); err != nil { // spawns job a (session p-a)
 		t.Fatal(err)
 	}
