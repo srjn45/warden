@@ -21,9 +21,11 @@ const base = import.meta.env.BASE_URL; // '/warden/'
   <body>
     <Hero />
     <ValueProps />
-    <Showcase side="left"  title="The cockpit" img="cockpit.png"
+    <!-- Screenshots TODO: re-add img="cockpit.png" / img="web-overview.png" once captured
+         from a clean demo env. Without img, Showcase renders a centered text callout. -->
+    <Showcase side="left"  title="The cockpit"
       blurb="Framed panes, live agent detail, scrollable sessions, approvals inbox — all in the terminal." />
-    <Showcase side="right" title="Web mission control" img="web-overview.png"
+    <Showcase side="right" title="Web mission control"
       blurb="Tabbed shell, live xterm terminals, attention queue, resource metrics — in the browser." />
     <FeatureGrid />
     <PipelineDiagram />

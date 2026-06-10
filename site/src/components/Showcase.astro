@@ -3,9 +3,18 @@ const { side = 'left', title = '', img = '', blurb = '' } = Astro.props;
 const base = import.meta.env.BASE_URL;
 const rowDir = side === 'right' ? 'row-reverse' : 'row';
 ---
-<section class="section">
-  <div class="wrap" style={`display:flex;flex-direction:${rowDir};gap:24px;align-items:center;flex-wrap:wrap`}>
-    <img src={`${base}media/${img}`} alt={title} style="flex:1 1 360px;min-width:300px;border:1px solid var(--border);border-radius:8px" />
-    <div style="flex:1 1 240px"><h2>{title}</h2><p style="color:var(--muted);font-size:1.1rem">{blurb}</p></div>
-  </div>
-</section>
+{img ? (
+  <section class="section">
+    <div class="wrap" style={`display:flex;flex-direction:${rowDir};gap:24px;align-items:center;flex-wrap:wrap`}>
+      <img src={`${base}media/${img}`} alt={title} style="flex:1 1 360px;min-width:300px;border:1px solid var(--border);border-radius:8px" />
+      <div style="flex:1 1 240px"><h2>{title}</h2><p style="color:var(--muted);font-size:1.1rem">{blurb}</p></div>
+    </div>
+  </section>
+) : (
+  <section class="section">
+    <div class="wrap" style="max-width:640px;margin:0 auto;text-align:center">
+      <h2>{title}</h2>
+      <p style="color:var(--muted);font-size:1.1rem">{blurb}</p>
+    </div>
+  </section>
+)}
