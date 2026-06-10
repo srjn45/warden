@@ -24,20 +24,37 @@ func TestListWindow(t *testing.T) {
 	require.Equal(t, 0, listWindow(10, 3, 0), "visible<1 → 0")
 }
 
-func TestRenderListContainsAgeColumn(t *testing.T) {
+func TestRenderListRowShowsLeanColumns(t *testing.T) {
 	sessions := []*store.Session{
 		{
 			ID:        "agent-abc",
 			Status:    store.StatusWorking,
 			UpdatedAt: time.Now().Add(-30 * time.Second), // 30s ago → "<1m"
-			Subject:   "test subject",
+			Subject:   "this subject must not appear in the row",
 		},
 	}
 	out := renderList(buildItems(sessions, nil), 0, 120, 10)
-	require.Contains(t, out, "<1m", "renderList output should contain the age token <1m")
-	// Ensure the subject is still present too.
-	require.True(t, strings.Contains(out, "test subject") || strings.Contains(out, "test subjec"),
-		"renderList output should contain (possibly truncated) subject")
+	require.Contains(t, out, "agent-abc", "row should show the ID")
+	require.Contains(t, out, "<1m", "row should show the age token")
+	require.NotContains(t, out, "this subject", "subject must not be rendered in the lean row")
+}
+
+func TestRenderListRowDoesNotClipAtNarrowWidth(t *testing.T) {
+	sessions := []*store.Session{
+		{
+			ID:            "agent-abc",
+			Status:        store.StatusWaitingForInput,
+			ContextTokens: 88000,
+			ContextState:  store.ContextWarning,
+			UpdatedAt:     time.Now().Add(-2 * time.Minute), // "2m"
+		},
+	}
+	// Width 30 is narrower than the old 51-char fixed block; the lean row
+	// (~36 visible chars of fixed columns) must still carry ID + ctx + age.
+	out := renderList(buildItems(sessions, nil), 0, 30, 10)
+	require.Contains(t, out, "agent-abc")
+	require.Contains(t, out, "88k")
+	require.Contains(t, out, "2m")
 }
 
 func TestRenderListClampsToHeightAndKeepsCursor(t *testing.T) {
