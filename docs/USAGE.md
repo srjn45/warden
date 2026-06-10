@@ -1,7 +1,8 @@
 # Using warden
 
 A practical, task-oriented guide to running `warden` day to day. For build,
-install, and contributor details see the [README](../README.md); this document
+install, and contributor details see the [README](../README.md); for a complete
+catalog of what warden can do see [FEATURES.md](FEATURES.md); this document
 focuses on **how to use the tool once it's installed**.
 
 > `alias agents=warden` is handy (and a built-in `wd` symlink aliases `warden`) — every command below works under either name.
