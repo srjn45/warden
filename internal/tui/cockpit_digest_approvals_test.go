@@ -92,15 +92,43 @@ func TestNoApprovalsRowWhenNonePending(t *testing.T) {
 }
 
 // Note: the standalone `i` key now opens the agent-detail overlay (modeDetails);
-// it no longer enters the approvals overlay. The approvals binding moves to `p`
-// in a later task, which re-adds the corresponding key tests.
+// it no longer enters the approvals overlay. The approvals binding moved to `p`.
 
-func TestKeyIDoesNothingWhenNoApprovals(t *testing.T) {
+func TestKeyPEntersApprovalsModeWhenPending(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "")
 	m.apprEnabled = true
-	mm, _ := m.Update(key("i"))
-	if mm.(listPaneModel).mode != modeNormal {
-		t.Fatal("i should be a no-op when there are no pending approvals")
+	m.approvals = []approval.View{{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}}}
+	mm, _ := m.Update(key("p"))
+	m = mm.(listPaneModel)
+	if m.mode != modeApprovals {
+		t.Fatalf("expected modeApprovals after p, got %v", m.mode)
+	}
+}
+
+func TestKeyPStatusWhenDisabled(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "")
+	m.apprEnabled = false
+	mm, _ := m.Update(key("p"))
+	m = mm.(listPaneModel)
+	if m.mode != modeNormal {
+		t.Fatalf("p should not open the overlay when disabled, got %v", m.mode)
+	}
+	if !strings.Contains(m.status, "WARDEN_APPROVALS") {
+		t.Fatalf("expected a 'set WARDEN_APPROVALS' status, got %q", m.status)
+	}
+}
+
+func TestKeyPStatusWhenEnabledButEmpty(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "")
+	m.apprEnabled = true
+	m.approvals = nil
+	mm, _ := m.Update(key("p"))
+	m = mm.(listPaneModel)
+	if m.mode != modeNormal {
+		t.Fatalf("p should not open an empty overlay, got %v", m.mode)
+	}
+	if !strings.Contains(m.status, "no approvals pending") {
+		t.Fatalf("expected 'no approvals pending' status, got %q", m.status)
 	}
 }
 

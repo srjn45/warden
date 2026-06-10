@@ -512,7 +512,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
-		case "esc", "i":
+		case "esc", "p":
 			m.mode = modeNormal
 			return m, nil
 		case "tab":
@@ -649,6 +649,15 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeDetails
 			m.vp.SetContent(detailBody(s, m.vp.Width))
 			m.vp.GotoTop()
+		}
+	case "p":
+		if len(recognizedApprovals(m.approvals)) > 0 {
+			m.mode = modeApprovals
+			m.apprCursor = 0
+		} else if !m.apprEnabled {
+			m.status = "approvals disabled (set WARDEN_APPROVALS)"
+		} else {
+			m.status = "no approvals pending"
 		}
 	case "?":
 		m.mode = modeHelp
