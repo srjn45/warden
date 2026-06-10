@@ -507,8 +507,8 @@ func renderItemLine(it item, selected bool, width int) string {
 		s := it.session
 		label, st := badge(s.Status, s.ExitCode)
 		cl, cst := contextLabel(s.ContextTokens, s.ContextState)
-		line = fmt.Sprintf("%-12s %-11s %-6s %-5s",
-			trunc(s.ID, 12), st.Render(label),
+		line = fmt.Sprintf("%-14s %-11s %-6s %-5s",
+			s.ID, st.Render(label),
 			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt))
 	}
 	cur := "  "

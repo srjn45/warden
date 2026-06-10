@@ -39,6 +39,17 @@ func TestRenderListRowShowsLeanColumns(t *testing.T) {
 	require.NotContains(t, out, "this subject", "subject must not be rendered in the lean row")
 }
 
+func TestRenderListRowShowsFullUntrimmedID(t *testing.T) {
+	// A full prompt-spawned id is "agent-" + 8 hex = 14 chars; it must appear
+	// in full, never truncated with an ellipsis.
+	sessions := []*store.Session{
+		{ID: "agent-fd56deb4", Status: store.StatusWorking, UpdatedAt: time.Now()},
+	}
+	out := renderList(buildItems(sessions, nil), 0, 120, 10)
+	require.Contains(t, out, "agent-fd56deb4", "the full agent id must render untrimmed")
+	require.NotContains(t, out, "…", "the id must not be ellipsis-truncated")
+}
+
 func TestRenderListRowDoesNotClipAtNarrowWidth(t *testing.T) {
 	sessions := []*store.Session{
 		{
