@@ -708,7 +708,7 @@ func (m listPaneModel) View() string {
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow list pane and always show `? help`.
-	footer := stMuted.Render("enter open · n new · o dir · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · o dir · s send · a attach · i info · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
