@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -35,6 +36,18 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	// including an early HTTP bind failure (where ctx itself isn't cancelled).
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// One-time backlog sweep: drop session records of already-completed pipeline
+	// jobs that older builds left behind (reaped tmux, kept the record), which the
+	// poller would otherwise keep flagging "orphaned". Runs before the poller's
+	// first tick so those records never get re-classified.
+	if s.exec != nil {
+		if n, err := s.exec.SweepDoneJobSessions(runCtx); err != nil {
+			log.Printf("daemon: done-job session sweep: %v", err)
+		} else if n > 0 {
+			log.Printf("daemon: swept %d completed pipeline-job session record(s)", n)
+		}
+	}
 
 	pollerDone := make(chan struct{})
 	if s.poller != nil {

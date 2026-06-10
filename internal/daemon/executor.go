@@ -371,6 +371,12 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	if sess != nil && !e.keepDone {
 		// Background ctx: the reap must complete even if the emit request is cancelled.
 		_ = e.life.Terminate(context.Background(), sess.TmuxSession)
+		// Drop the now-redundant session record: the completed-job details
+		// (output/branch/digest) all live on the pipeline job, so the agent row
+		// would otherwise linger only to be re-classified "orphaned" by the poller
+		// once its tmux session is gone. The digest snapshot below reads the
+		// in-memory sess struct + on-disk transcript, so deletion can't race it.
+		_ = e.sstore.Delete(context.Background(), sess.ID)
 		if e.digestFn != nil {
 			e.snapWG.Add(1)
 			go func(s *store.Session) {
@@ -391,4 +397,45 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		}
 	}
 	return e.Reconcile(ctx, pid)
+}
+
+// SweepDoneJobSessions deletes the session records of pipeline jobs that have
+// already completed (JobDone). Emit reaps such sessions going forward; this
+// retroactively clears the backlog left by older builds that killed the agent's
+// tmux session without dropping its store record — where the poller then
+// re-classified it "orphaned" and it piled up on the dashboard. Only JobDone
+// sessions are touched: running/failed/needs-attention jobs keep their records
+// (still needed for attach and retry), as do non-pipeline agents. It returns the
+// number of records removed and is a no-op under keep-done (those agents are
+// intentionally kept alive). Best-effort: a session whose pipeline has since been
+// deleted, or whose delete fails, is simply left in place.
+func (e *Executor) SweepDoneJobSessions(ctx context.Context) (int, error) {
+	if e.keepDone {
+		return 0, nil
+	}
+	sessions, err := e.sstore.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for _, s := range sessions {
+		if s.PipelineID == "" || s.JobID == "" {
+			continue
+		}
+		p, err := e.pstore.Get(s.PipelineID)
+		if err != nil {
+			continue
+		}
+		j := p.Job(s.JobID)
+		if j == nil || j.Status != pipeline.JobDone {
+			continue
+		}
+		// The job already emitted; ensure the agent's tmux is reaped (no-op if it
+		// already died) and drop the redundant record.
+		_ = e.life.Terminate(ctx, s.TmuxSession)
+		if err := e.sstore.Delete(ctx, s.ID); err == nil {
+			removed++
+		}
+	}
+	return removed, nil
 }

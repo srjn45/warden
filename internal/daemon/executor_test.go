@@ -414,6 +414,143 @@ func TestEmitKeepDoneSkipsReap(t *testing.T) {
 	}
 }
 
+// On emit→done the redundant session record is dropped from the store (the agent
+// is reaped), so it can never be re-classified as "orphaned" by the poller. The
+// completed-job details (output/branch/digest) live on the pipeline job and must
+// survive the deletion.
+func TestEmitDeletesSessionRecord(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "analyze", Worktree: "fresh", Status: pipeline.JobPending}},
+	})
+	fl := &fakeLife{}
+	ss := newFakeStore()
+	e := NewExecutor(ps, ss, fl, nil, func() {})
+	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest { return digest.Digest{Summary: "snap for " + s.ID} }
+	if err := e.Reconcile(context.Background(), "p"); err != nil { // spawns job a (session p-a)
+		t.Fatal(err)
+	}
+	if _, err := ss.Get(context.Background(), "p-a"); err != nil {
+		t.Fatalf("precondition: session p-a should exist after spawn: %v", err)
+	}
+	if err := e.Emit(context.Background(), "p", "a", "done analyzing"); err != nil {
+		t.Fatal(err)
+	}
+	e.snapWG.Wait() // let the async digest snapshot land before asserting
+
+	// The session record is gone — nothing for the poller to mark orphaned.
+	if _, err := ss.Get(context.Background(), "p-a"); err == nil {
+		t.Fatalf("emit must delete the reaped job's session record")
+	}
+	// The completed-job details still persist on the pipeline job.
+	p, _ := ps.Get("p")
+	ja := p.Job("a")
+	if ja.Status != pipeline.JobDone || ja.Output != "done analyzing" {
+		t.Fatalf("job details not preserved: %+v", ja)
+	}
+	if ja.Digest == nil || ja.Digest.Summary != "snap for p-a" {
+		t.Fatalf("digest must still land after session deletion: %+v", ja.Digest)
+	}
+}
+
+// keep-done leaves the agent alive for debugging, so its session record must NOT
+// be deleted on emit.
+func TestEmitKeepDoneRetainsSessionRecord(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "analyze", Worktree: "fresh", Status: pipeline.JobPending}},
+	})
+	ss := newFakeStore()
+	e := NewExecutor(ps, ss, &fakeLife{}, nil, func() {})
+	e.keepDone = true
+	_ = e.Reconcile(context.Background(), "p")
+	if err := e.Emit(context.Background(), "p", "a", "done"); err != nil {
+		t.Fatal(err)
+	}
+	e.snapWG.Wait()
+	if _, err := ss.Get(context.Background(), "p-a"); err != nil {
+		t.Fatalf("keep-done must retain the session record, got %v", err)
+	}
+}
+
+// SweepDoneJobSessions retroactively clears the backlog: session records left
+// behind by older builds (which only killed tmux, never the record) for jobs that
+// have already completed. Only JobDone sessions are swept; running/failed sessions
+// (still needed for attach/retry) and the pipeline record itself are untouched.
+func TestSweepDoneJobSessionsRemovesBacklog(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{
+			{ID: "a", Prompt: "x", Status: pipeline.JobDone, SessionID: "p-a", Output: "did a", Digest: &digest.Digest{Summary: "snap a"}},
+			{ID: "b", Prompt: "x", DependsOn: []string{"a"}, Status: pipeline.JobRunning, SessionID: "p-b"},
+		},
+	})
+	ss := newFakeStore()
+	// Backlog: a's session lingers as orphaned; b's is the live running agent.
+	_ = ss.Insert(context.Background(), &store.Session{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
+	_ = ss.Insert(context.Background(), &store.Session{ID: "p-b", TmuxSession: "p-b", PipelineID: "p", JobID: "b", Status: store.StatusWorking})
+	// An unrelated, non-pipeline agent must be left strictly alone.
+	_ = ss.Insert(context.Background(), &store.Session{ID: "solo", TmuxSession: "solo", Status: store.StatusOrphaned})
+
+	e := NewExecutor(ps, ss, &fakeLife{}, nil, func() {})
+	n, err := e.SweepDoneJobSessions(context.Background())
+	if err != nil {
+		t.Fatalf("SweepDoneJobSessions: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("sweep should remove exactly the one done-job session, got %d", n)
+	}
+	if _, err := ss.Get(context.Background(), "p-a"); err == nil {
+		t.Fatalf("done job's orphaned session should have been swept")
+	}
+	if _, err := ss.Get(context.Background(), "p-b"); err != nil {
+		t.Fatalf("running job's session must be preserved: %v", err)
+	}
+	if _, err := ss.Get(context.Background(), "solo"); err != nil {
+		t.Fatalf("non-pipeline session must be preserved: %v", err)
+	}
+	// The pipeline + its completed-job details remain intact.
+	p, _ := ps.Get("p")
+	if p == nil || p.Job("a").Status != pipeline.JobDone || p.Job("a").Output != "did a" || p.Job("a").Digest == nil {
+		t.Fatalf("sweep must not touch the pipeline record / completed-job details")
+	}
+}
+
+// keep-done means agents are intentionally kept alive — the sweep must be a no-op.
+func TestSweepDoneJobSessionsKeepDoneNoop(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "x", Status: pipeline.JobDone, SessionID: "p-a"}},
+	})
+	ss := newFakeStore()
+	_ = ss.Insert(context.Background(), &store.Session{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
+	e := NewExecutor(ps, ss, &fakeLife{}, nil, func() {})
+	e.keepDone = true
+	n, err := e.SweepDoneJobSessions(context.Background())
+	if err != nil || n != 0 {
+		t.Fatalf("keep-done sweep must be a no-op, got n=%d err=%v", n, err)
+	}
+	if _, err := ss.Get(context.Background(), "p-a"); err != nil {
+		t.Fatalf("keep-done must retain the session record, got %v", err)
+	}
+}
+
 func TestEmitAutoCommitsWorktreeJob(t *testing.T) {
 	ps, err := pipeline.NewStore(t.TempDir())
 	if err != nil {
