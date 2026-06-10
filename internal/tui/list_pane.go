@@ -490,6 +490,23 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.vp, cmd = m.vp.Update(msg)
 		return m, cmd
+	case modeDetails:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+		case "esc", "i":
+			m.mode = modeNormal
+			return m, nil
+		case "g":
+			m.vp.GotoTop()
+			return m, nil
+		case "G":
+			m.vp.GotoBottom()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
 	case modeApprovals:
 		rec := recognizedApprovals(m.approvals)
 		switch msg.String() {
@@ -628,9 +645,10 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, digestCmd(m.api, s.ID)
 		}
 	case "i":
-		if len(recognizedApprovals(m.approvals)) > 0 {
-			m.mode = modeApprovals
-			m.apprCursor = 0
+		if s := m.selected(); s != nil {
+			m.mode = modeDetails
+			m.vp.SetContent(detailBody(s, m.vp.Width))
+			m.vp.GotoTop()
 		}
 	case "?":
 		m.mode = modeHelp
@@ -667,6 +685,10 @@ func (m listPaneModel) View() string {
 	if m.mode == modeDigest {
 		body := titleBox("Digest — "+m.digestID, m.vp.View(), m.w, bodyH)
 		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · d/esc back · q quit")
+	}
+	if m.mode == modeDetails {
+		body := titleBox("Details — "+m.selectedID(), m.vp.View(), m.w, bodyH)
+		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · i/esc back · q quit")
 	}
 	if m.mode == modeApprovals {
 		body := titleBox("Approvals", approvalsBody(recognizedApprovals(m.approvals), m.apprCursor, m.w-2), m.w, bodyH)

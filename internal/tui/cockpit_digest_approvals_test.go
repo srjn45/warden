@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/store"
@@ -90,17 +91,9 @@ func TestNoApprovalsRowWhenNonePending(t *testing.T) {
 	}
 }
 
-func TestKeyIEntersApprovalsModeWhenPending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
-	m.apprEnabled = true
-	m.approvals = []approval.View{{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}}}
-
-	mm, _ := m.Update(key("i"))
-	m = mm.(listPaneModel)
-	if m.mode != modeApprovals {
-		t.Fatalf("expected modeApprovals after i, got %v", m.mode)
-	}
-}
+// Note: the standalone `i` key now opens the agent-detail overlay (modeDetails);
+// it no longer enters the approvals overlay. The approvals binding moves to `p`
+// in a later task, which re-adds the corresponding key tests.
 
 func TestKeyIDoesNothingWhenNoApprovals(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "")
@@ -198,5 +191,40 @@ func TestDetailBodyOmitsEmptySections(t *testing.T) {
 func TestDetailBodyHandlesNil(t *testing.T) {
 	if got := detailBody(nil, 80); !strings.Contains(got, "no agent") {
 		t.Errorf("detailBody(nil) = %q, want a 'no agent' placeholder", got)
+	}
+}
+
+func TestKeyIOnAgentEntersDetailsMode(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "")
+	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24}) // size the viewport (the real cockpit always does)
+	mm, _ := m.Update(sessionsMsg{sessions: []*store.Session{
+		{ID: "agent-1", Status: store.StatusWorking, Subject: "doing the thing"},
+	}})
+	m = mm.(listPaneModel)
+
+	mm, _ = m.Update(key("i"))
+	m = mm.(listPaneModel)
+	if m.mode != modeDetails {
+		t.Fatalf("expected modeDetails after i on an agent, got %v", m.mode)
+	}
+	// the detail content should be in the viewport
+	if !strings.Contains(m.vp.View(), "agent-1") {
+		t.Fatalf("details viewport should render the agent id; got:\n%s", m.vp.View())
+	}
+
+	// i again toggles back
+	mm, _ = m.Update(key("i"))
+	m = mm.(listPaneModel)
+	if m.mode != modeNormal {
+		t.Fatalf("expected modeNormal after toggling i again, got %v", m.mode)
+	}
+}
+
+func TestKeyINoOpWhenNoAgentSelected(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "") // no sessions → cursor on nothing selectable
+	mm, _ := m.Update(key("i"))
+	m = mm.(listPaneModel)
+	if m.mode != modeNormal {
+		t.Fatalf("i should be a no-op with no agent selected, got mode %v", m.mode)
 	}
 }

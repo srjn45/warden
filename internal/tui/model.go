@@ -47,4 +47,5 @@ const (
 	modeInspector             // read-only shared-context + message-traffic view
 	modeDigest                // scrollable completion digest for the selected agent
 	modeApprovals             // answer pending tool-permission prompts
+	modeDetails               // scrollable full detail view for the selected agent
 )
