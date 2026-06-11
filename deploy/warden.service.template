@@ -1,0 +1,17 @@
+[Unit]
+Description=warden agent daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__BINARY__ daemon
+Environment=WARDEN_ADDR=__ADDR__
+Environment=WARDEN_SPAWN_GATE_MAX_AGENTS=10
+Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=2
+StandardOutput=append:/tmp/warden.daemon.log
+StandardError=append:/tmp/warden.daemon.err
+
+[Install]
+WantedBy=default.target
