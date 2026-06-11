@@ -34,19 +34,18 @@ func (l *Lifecycle) runClaudeP(ctx context.Context, arg string) (string, error) 
 }
 
 // permissionFlag selects the claude permission mode for a spawned agent.
-// Supervised agents run --permission-mode acceptEdits: file edits + common FS
-// commands auto-approve, but other tools (bash writes, network) PROMPT with the
-// numbered menu the approvals inbox answers. The default is fully autonomous
-// (--dangerously-skip-permissions / bypass) — no prompts.
-func permissionFlag(supervised bool) string {
-	if supervised {
-		return "--permission-mode acceptEdits"
-	}
-	return "--dangerously-skip-permissions"
+// All agents run --permission-mode acceptEdits: file edits + common FS commands
+// auto-approve, but other tools (bash writes, network) PROMPT with the numbered
+// menu the approvals inbox answers. --dangerously-skip-permissions is never used.
+func permissionFlag(_ bool) string {
+	return "--permission-mode acceptEdits"
 }
 
-// claudeBase is the claude command + permission flag every agent session starts from.
-func claudeBase(supervised bool) string { return "claude " + permissionFlag(supervised) }
+// claudeBase is the claude command + model + permission flag every agent session starts from.
+// Uses claude-sonnet-4-5 (1M context window) for all agents.
+func claudeBase(supervised bool) string {
+	return "claude --model claude-sonnet-4-5 " + permissionFlag(supervised)
+}
 
 // claudeLaunch builds the claude invocation for a spawned agent: the base
 // command plus a pinned --session-id (deterministic transcript + future

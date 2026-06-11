@@ -105,7 +105,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
 	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
-	cmd.Flags().Bool("supervised", false, "launch in acceptEdits mode (prompts for risky tools → answerable in the approvals inbox)")
+	cmd.Flags().Bool("supervised", false, "no-op: acceptEdits is now the default for all agents (kept for backwards compatibility)")
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	return cmd

@@ -18,16 +18,21 @@ import (
 
 func TestClaudeLaunchPermissionMode(t *testing.T) {
 	def := claudeLaunch("sid", "agent-1", false)
-	require.Contains(t, def, "--dangerously-skip-permissions")
-	require.NotContains(t, def, "--permission-mode")
+	require.Contains(t, def, "--permission-mode acceptEdits")
+	require.NotContains(t, def, "--dangerously-skip-permissions")
 	sup := claudeLaunch("sid", "agent-1", true)
 	require.Contains(t, sup, "--permission-mode acceptEdits")
 	require.NotContains(t, sup, "--dangerously-skip-permissions")
 }
 
 func TestClaudeResumePermissionMode(t *testing.T) {
-	require.Contains(t, claudeResume("sid", "agent-1", false), "--dangerously-skip-permissions")
+	require.Contains(t, claudeResume("sid", "agent-1", false), "--permission-mode acceptEdits")
 	require.Contains(t, claudeResume("sid", "agent-1", true), "--permission-mode acceptEdits")
+}
+
+func TestClaudeLaunchModel(t *testing.T) {
+	cmd := claudeLaunch("sid", "agent-1", false)
+	require.Contains(t, cmd, "--model claude-sonnet-4-5")
 }
 
 func TestParseSummaryCapsByRune(t *testing.T) {
