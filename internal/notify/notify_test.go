@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -75,5 +74,3 @@ func TestNewWithDarwin(t *testing.T) {
 	require.IsType(t, logNotifier{}, newWith(false, execRun, "darwin", look))
 }
 
-// keep runtime imported so earlier tests still compile on non-darwin
-var _ = runtime.GOOS
