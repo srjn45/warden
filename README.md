@@ -135,6 +135,50 @@ Logs:
 
 ---
 
+### Run it as a background service (Linux — systemd)
+
+The same install script detects Linux and registers a systemd **user service**
+instead of a launchd plist. It builds the release, installs the binary to
+`~/.local/bin/warden`, writes `~/.config/systemd/user/warden.service`, enables
+it, and links the Claude skill and MCP server:
+
+```sh
+./scripts/install.sh        # or: make install
+```
+
+The daemon starts automatically at each login session and restarts on crash
+(`Restart=always`), listening on `127.0.0.1:8765` by default.
+
+> `~/.local/bin` must be on your `PATH` — the installer warns if it isn't.
+
+**Redeploy after a code change:**
+
+```sh
+./scripts/reinstall.sh             # rebuild UI + binary, redeploy, restart
+./scripts/reinstall.sh --no-build  # redeploy existing build only
+# or: make reinstall  /  make reinstall NO_BUILD=1
+```
+
+**Uninstall** (stops and removes the service, binary, skill link, and MCP
+registration; **preserves** `~/.warden` and logs):
+
+```sh
+./scripts/uninstall.sh
+./scripts/uninstall.sh --keep-binary   # leave ~/.local/bin/warden in place
+```
+
+Logs:
+- stdout: `/tmp/warden.daemon.log`
+- stderr: `/tmp/warden.daemon.err`
+- or live: `journalctl --user -u warden -f`
+
+> **Notifications:** off by default. Set `WARDEN_NOTIFY=on` to enable. The
+> daemon calls `notify-send` (libnotify) when it's on `PATH`; install it with
+> `apt install libnotify-bin` (Debian/Ubuntu) or `dnf install libnotify`
+> (Fedora). Degrades to log-only if `notify-send` is not found.
+
+---
+
 ## Wire in the Claude Code hooks
 
 The hook script posts lifecycle events (`SessionStart`, `Notification`, `Stop`, `SubagentStop`, `SessionEnd`) to the daemon so it can update agent status in real time without polling. `SessionEnd` marks the session **done** (terminal) when claude exits.
