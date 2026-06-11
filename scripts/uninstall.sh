@@ -19,9 +19,9 @@ info "uninstalling warden service"
 
 unload_service
 
-if [ -f "$PLIST" ]; then
-  rm -f "$PLIST"
-  info "removed $PLIST"
+if [ -f "$SERVICE_CONFIG" ]; then
+  rm -f "$SERVICE_CONFIG"
+  info "removed $SERVICE_CONFIG"
 fi
 
 if [ "$KEEP_BINARY" -eq 0 ]; then
