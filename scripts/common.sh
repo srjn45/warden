@@ -211,6 +211,7 @@ check_path() {
 # on Linux. All other helpers (build_release, deploy_binary, codesign_binary,
 # report_health, check_path) are already platform-safe.
 if [ "$OS_PLATFORM" = "linux" ]; then
+  command -v systemctl >/dev/null 2>&1 || die "systemctl not found — systemd user session required on Linux"
   SERVICE_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/warden.service"
   TEMPLATE="$REPO_ROOT/deploy/warden.service.template"
 
