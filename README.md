@@ -151,6 +151,11 @@ The daemon starts automatically at each login session and restarts on crash
 
 > `~/.local/bin` must be on your `PATH` — the installer warns if it isn't.
 
+> **Persistent daemon:** `install.sh` calls `loginctl enable-linger` so the
+> systemd user service keeps running after you close your terminal or SSH session
+> (equivalent to launchd `RunAtLoad` on macOS). This requires systemd 219+ and
+> is a no-op on most modern distros.
+
 **Redeploy after a code change:**
 
 ```sh

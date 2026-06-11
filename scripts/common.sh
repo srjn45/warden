@@ -240,6 +240,9 @@ if [ "$OS_PLATFORM" = "linux" ]; then
 
   load_service() {
     mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    # enable-linger keeps the user's systemd session alive after logout so the
+    # daemon persists between SSH/terminal sessions, matching launchd RunAtLoad.
+    loginctl enable-linger "$USER" 2>/dev/null || warn "loginctl enable-linger failed — daemon may stop on logout"
     systemctl --user daemon-reload || die "systemctl daemon-reload failed"
     if systemctl --user enable --now warden 2>/dev/null; then
       info "service enabled and started"

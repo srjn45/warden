@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tear down the warden launchd service and integrations.
+# Tear down the warden service and integrations (launchd on macOS, systemd on Linux).
 # Preserves the session store (~/.warden) and daemon logs.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
