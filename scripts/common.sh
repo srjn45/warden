@@ -25,6 +25,11 @@ _COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$_COMMON_DIR/.." && pwd)"
 TEMPLATE="$REPO_ROOT/deploy/$LABEL.plist.template"
 
+# Detect platform; SERVICE_CONFIG is the canonical service-config path for all
+# scripts — plist on macOS, systemd unit on Linux.
+OS_PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
+SERVICE_CONFIG="$PLIST"   # default: macOS plist; overridden for Linux below
+
 # --- logging --------------------------------------------------------------
 if [ -t 1 ]; then
   _C_RED=$'\033[31m'; _C_YEL=$'\033[33m'; _C_GRN=$'\033[32m'; _C_RST=$'\033[0m'
@@ -200,3 +205,73 @@ check_path() {
        printf '    export PATH="%s:$PATH"\n' "$INSTALL_BIN_DIR" >&2 ;;
   esac
 }
+
+# --- Linux overrides (systemd user service) --------------------------------
+# These five functions replace their launchctl counterparts above when running
+# on Linux. All other helpers (build_release, deploy_binary, codesign_binary,
+# report_health, check_path) are already platform-safe.
+if [ "$OS_PLATFORM" = "linux" ]; then
+  SERVICE_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/warden.service"
+  TEMPLATE="$REPO_ROOT/deploy/warden.service.template"
+
+  render_plist() {
+    [ -f "$TEMPLATE" ] || die "service template not found: $TEMPLATE"
+    mkdir -p "$(dirname "$SERVICE_CONFIG")"
+    local tmp="$SERVICE_CONFIG.tmp.$$"
+    sed -e "s|__BINARY__|$INSTALL_BIN|g" \
+        -e "s|__ADDR__|$ADDR|g" \
+        -e "s|__HOME__|$HOME|g" \
+        "$TEMPLATE" > "$tmp" || { rm -f "$tmp"; die "failed to render service file"; }
+    if [ -f "$SERVICE_CONFIG" ] && cmp -s "$tmp" "$SERVICE_CONFIG"; then
+      rm -f "$tmp"
+      PLIST_CHANGED=0
+      info "service file unchanged: $SERVICE_CONFIG"
+    else
+      mv -f "$tmp" "$SERVICE_CONFIG"
+      PLIST_CHANGED=1
+      info "wrote $SERVICE_CONFIG"
+    fi
+  }
+
+  service_loaded() {
+    systemctl --user is-active --quiet warden 2>/dev/null
+  }
+
+  load_service() {
+    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    systemctl --user daemon-reload || die "systemctl daemon-reload failed"
+    if systemctl --user enable --now warden 2>/dev/null; then
+      info "service enabled and started"
+    else
+      die "failed to enable/start warden service"
+    fi
+  }
+
+  unload_service() {
+    if ! service_loaded; then
+      info "service not active; nothing to stop"
+      return 0
+    fi
+    if systemctl --user disable --now warden 2>/dev/null; then
+      info "service disabled and stopped"
+    else
+      warn "could not stop service (it may already be gone)"
+    fi
+  }
+
+  reload_service() {
+    systemctl --user daemon-reload || die "systemctl daemon-reload failed"
+    systemctl --user restart warden || die "failed to restart warden service"
+    info "service restarted"
+  }
+
+  restart_service() {
+    systemctl --user daemon-reload || die "systemctl daemon-reload failed"
+    if service_loaded; then
+      systemctl --user restart warden || die "failed to restart warden service"
+      info "service restarted"
+    else
+      load_service
+    fi
+  }
+fi
