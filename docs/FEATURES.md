@@ -124,8 +124,8 @@ the agent spawns its successor and reaps itself.
 ## 8. Terminal UI (cockpit)
 
 `warden tui` (or bare `warden`) opens a **tmux-composited cockpit** with three
-panes: an agents list, an embedded interactive **master Claude** wired to the
-warden MCP server, and a full-height live detail pane for the selected agent.
+panes: an agents list, a terminal shell for CLI access, and a full-height live
+detail pane for the selected agent.
 
 | Feature | Description |
 |---|---|
@@ -133,7 +133,7 @@ warden MCP server, and a full-height live detail pane for the selected agent.
 | **Pipeline tree** | Pipelines shown as a collapsible `▸ Pipelines` section; expand/collapse, open running jobs, retry failed jobs. |
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
 | **In-cockpit actions** | `n` new agent, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
-| **Master-pane shell toggle** | `Ctrl-b t` swaps the bottom-left master Claude pane ↔ a shell (both stay alive, self-heals on shell exit). |
+| **Terminal shell pane** | Bottom-left pane runs `$SHELL` for direct CLI access to `warden` commands and other terminal work. |
 | **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). |
 | **Native scrolling** | Per-agent tmux sessions enable `mouse on` + raised `history-limit` for wheel/copy-mode scrolling of long output. |
 

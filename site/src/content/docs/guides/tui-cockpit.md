@@ -1,6 +1,6 @@
 ---
 title: The TUI cockpit
-description: The tmux-composited cockpit — agents list, embedded master Claude, and a live agent detail pane.
+description: The tmux-composited cockpit — agents list, terminal shell, and a live agent detail pane.
 ---
 
 ```sh
@@ -8,22 +8,22 @@ warden tui   # open the cockpit
 warden       # bare invocation — same thing
 ```
 
-`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), an embedded interactive **master Claude** session wired to the `warden` MCP server (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
+`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), a terminal shell for CLI access (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
 
 ```
 ┌─ Agents (3) ──────┐┌─ agent-4f98 ──────────────┐
 │ ▸ agent-4f98  ●   ││                           │
 │   agent-c860  ⠿   ││  (live agent session)     │
 │   agent-d01c  ✔   ││                           │
-├─ Master Claude ───┤│ ...                       │
-│ > triage all my   ││                           │
-│   agents and tell ││                           │
-│   me which are    ││                           │
-│   stuck_          ││                           │
+├─ Shell ───────────┤│ ...                       │
+│ $ warden ls       ││                           │
+│ agent-4f98  ●     ││                           │
+│ agent-c860  ⠿     ││                           │
+│ $ _               ││                           │
 └───────────────────┘└───────────────────────────┘
 ```
 
-![The warden cockpit: an agents list grouped by directory with live status and context size, an embedded master Claude pane below it, and the selected agent's live session in the full-height detail pane on the right.](/warden/media/cockpit.png)
+![The warden cockpit: an agents list grouped by directory with live status and context size, a terminal shell below it, and the selected agent's live session in the full-height detail pane on the right.](/warden/media/cockpit.png)
 
 ## Cockpit features
 
@@ -33,7 +33,7 @@ warden       # bare invocation — same thing
 | **Pipeline tree** | Pipelines shown as a collapsible `▸ Pipelines` section; expand/collapse, open running jobs, retry failed jobs. |
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
 | **In-cockpit actions** | `n` new agent, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
-| **Master-pane shell toggle** | `Ctrl-b t` swaps the bottom-left master Claude pane ↔ a shell (both stay alive, self-heals on shell exit). |
+| **Terminal shell pane** | Bottom-left pane runs `$SHELL` for direct CLI access to `warden` commands and other terminal work. |
 | **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). |
 | **Native scrolling** | Per-agent tmux sessions enable `mouse on` + raised `history-limit` for wheel/copy-mode scrolling of long output. |
 

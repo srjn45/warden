@@ -22,7 +22,7 @@ type cockpitOpts struct {
 	session   string // tmux session name, e.g. "warden-tui-1234"
 	self      string // absolute path to the warden binary
 	homeDir   string // cwd for the list pane process
-	masterCwd string // cwd for the master claude pane (the launching shell's dir)
+	masterCwd string // cwd for the master shell pane (the launching shell's dir)
 }
 
 // shquote single-quotes s so tmux's `sh -c <command>` preserves spaces.
@@ -58,13 +58,14 @@ func runPaneCreate(ctx context.Context, run lifecycle.Runner, args ...string) (s
 // buildCockpit constructs the three-pane layout in a detached tmux session:
 //
 //	┌─ list (top-left) ─┐┌─ detail ─────┐
-//	├─ master (claude) ─┤│ (full height)│
+//	├─ master (shell) ──┤│ (full height)│
 //	└───────────────────┘└──────────────┘
 //
 // Panes are created right-to-left so the list pane (created last) can be handed
 // the detail pane's stable id (--detail-pane) and drive it via respawn-pane. The
 // detail pane starts as a placeholder; the list pane opens an agent into it on
-// Enter. The caller attaches afterwards.
+// Enter. The master pane runs a shell ($SHELL) for terminal access. The caller
+// attaches afterwards.
 func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) error {
 	// 1. Detail pane fills the window initially (placeholder); capture its id.
 	detailID, err := runPaneCreate(ctx, run,
@@ -73,10 +74,15 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	if err != nil {
 		return err
 	}
-	// 2. Master claude to the LEFT of detail (-b), 40% width, in the launch dir.
+	// 2. Master shell to the LEFT of detail (-b), 40% width, in the launch dir.
+	// Uses $SHELL (defaulting to /bin/sh) for a plain terminal pane.
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
 	masterID, err := runPaneCreate(ctx, run,
 		"split-window", "-h", "-b", "-l", "40%", "-t", detailID, "-c", o.masterCwd,
-		"-P", "-F", "#{pane_id}", "claude")
+		"-P", "-F", "#{pane_id}", shell)
 	if err != nil {
 		return err
 	}
@@ -98,8 +104,8 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	if out, err := run.Run(ctx, "", "tmux", "set-option", "-t", o.session, "mouse", "on"); err != nil {
 		return fmt.Errorf("tmux set-option mouse: %w: %s", err, out)
 	}
-	// Extended-keys passthrough so the master + detail Claude panes see Shift+Enter
-	// as a newline rather than submit. Best-effort: never block the cockpit on it.
+	// Extended-keys passthrough so the detail Claude pane sees Shift+Enter as a
+	// newline rather than submit. Best-effort: never block the cockpit on it.
 	lifecycle.EnsureExtendedKeys(ctx, run)
 	for _, b := range [][2]string{{"M-Left", "-L"}, {"M-Right", "-R"}, {"M-Up", "-U"}, {"M-Down", "-D"}} {
 		if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", b[0], "select-pane", b[1]); err != nil {
@@ -160,7 +166,7 @@ func cleanStaleCockpits(run lifecycle.Runner) {
 
 // RunCockpit builds the tmux cockpit for this process and attaches to it,
 // blocking until the user detaches/quits. masterCwd is the launching shell's
-// directory (where the master claude pane runs).
+// directory (where the master shell pane runs).
 func RunCockpit(a api, self, masterCwd string) error {
 	_ = a // the panes hold their own clients; reserved for future inline checks
 	// Reap cockpits orphaned by a prior detach (their owning pid is gone).

@@ -414,28 +414,17 @@ prompts and building pipelines in the TUI are not yet available.)
 > cockpit survives (it's reaped on your next `warden tui`), so an accidental
 > detach no longer destroys your dashboard. Only `q` tears it down.
 
-**Bottom-left — master Claude.** A live, interactive `claude` session embedded
-directly in the cockpit. It is wired to the `warden` MCP server, so you can
-talk to it naturally to manage or monitor the whole fleet — *"triage all my
-agents and tell me which are stuck"*, *"tell PROJ-350 to run the tests"*,
-or anything else Claude Code can do.
-
-The `warden` MCP server is registered when the installer runs
-`claude mcp add warden --scope user -- warden mcp`. If it isn't registered,
-the master can still drive the fleet using the `warden` CLI directly.
-
-> **The master is ephemeral.** It starts fresh every time you open the cockpit
-> and dies when you quit it. Persisting the master across sessions (so it can
-> survive long-running orchestration and resume context on next launch) is a
-> planned future enhancement.
+**Bottom-left — terminal shell.** A live shell (`$SHELL`) running in the directory
+where you launched the cockpit. Use this for running `warden` CLI commands, checking
+git status, or any other terminal work while monitoring your agents. Unlike the old
+embedded Claude pane, this gives you direct command-line access.
 
 **Right (full height) — live agent detail pane.** When you press `Enter` on an
 agent in the list, a live, interactive terminal of that agent's `claude` session
-opens here — the same way the bottom-left master pane works. You can type
-directly into the agent, read its output, and watch it respond in real time.
-Scrolling the agents list with `↑`/`↓` or `j`/`k` does not replace this pane,
-so an agent you're actively working with is never interrupted by casual
-browsing. Press `Enter` again on a different agent to switch.
+opens here. You can type directly into the agent, read its output, and watch it
+respond in real time. Scrolling the agents list with `↑`/`↓` or `j`/`k` does not
+replace this pane, so an agent you're actively working with is never interrupted
+by casual browsing. Press `Enter` again on a different agent to switch.
 
 To move focus between panes without leaving the cockpit, use **Alt+←/→/↑/↓**
 (no tmux prefix needed).
@@ -449,7 +438,7 @@ To move focus between panes without leaving the cockpit, use **Alt+←/→/↑/�
 
 Each cockpit launch creates an independent tmux session (named
 `warden-tui-<pid>`), so opening two terminals and running `warden tui` in
-each gives you two separate cockpits, each with its own ephemeral master.
+each gives you two separate cockpits, each with its own shell.
 
 ### Requirements
 
