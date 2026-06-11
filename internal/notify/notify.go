@@ -15,10 +15,25 @@ type Notifier interface {
 }
 
 // New returns the platform notifier: a macOS desktop notifier when enabled on
-// darwin, else a log-only notifier (non-darwin, or notifications disabled).
+// darwin, a notify-send notifier when enabled on linux (if notify-send is on
+// PATH), else a log-only notifier.
 func New(enabled bool) Notifier {
-	if enabled && runtime.GOOS == "darwin" {
-		return osaNotifier{run: execRun}
+	return newWith(enabled, execRun, runtime.GOOS, exec.LookPath)
+}
+
+// newWith is the testable core of New. goos and lookPath are injected so tests
+// can exercise every branch without depending on the host OS or PATH.
+func newWith(enabled bool, run func(string, ...string) error, goos string, lookPath func(string) (string, error)) Notifier {
+	if !enabled {
+		return logNotifier{}
+	}
+	switch goos {
+	case "darwin":
+		return osaNotifier{run: run}
+	case "linux":
+		if _, err := lookPath("notify-send"); err == nil {
+			return notifySendNotifier{run: run}
+		}
 	}
 	return logNotifier{}
 }
@@ -40,8 +55,20 @@ func (o osaNotifier) Notify(title, body string) {
 	}
 }
 
+// notifySendNotifier shows a desktop notification via notify-send (libnotify).
+// Best-effort: failure is logged, never propagated.
+type notifySendNotifier struct {
+	run func(name string, args ...string) error
+}
+
+func (n notifySendNotifier) Notify(title, body string) {
+	if err := n.run("notify-send", title, body); err != nil {
+		log.Printf("notify: notify-send: %v", err)
+	}
+}
+
 // logNotifier writes the notification to the log — the fallback when desktop
-// notifications aren't available (non-darwin) or are disabled.
+// notifications aren't available or are disabled.
 type logNotifier struct{}
 
 func (logNotifier) Notify(title, body string) { log.Printf("notify: %s — %s", title, body) }
