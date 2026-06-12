@@ -445,3 +445,116 @@ func TestUpdateContextPersistsAndEventsOnTransition(t *testing.T) {
 		t.Fatalf("events=%d, want still 1 (no transition)", len(got.Events))
 	}
 }
+
+func TestFileInsertWithValidName(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	s := sample()
+	s.ID = "agent-a1b2"
+	s.TmuxSession = "agent-a1b2"
+	s.Ticket = ""
+	s.Name = "my-build"
+	require.NoError(t, st.Insert(ctx, s))
+
+	got, err := st.Get(ctx, "agent-a1b2")
+	require.NoError(t, err)
+	require.Equal(t, "my-build", got.Name)
+}
+
+func TestFileInsertInvalidNameFormat(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	cases := []struct {
+		name     string
+		expected error
+	}{
+		{"has space", ErrInvalidName},
+		{"has/slash", ErrInvalidName},
+		{"has.dot", ErrInvalidName},
+		{"has@at", ErrInvalidName},
+		{"", nil}, // empty is valid
+		{"a", nil}, // 1 char is valid
+		{string(make([]byte, 33)), ErrInvalidName}, // 33 chars too long
+		{"valid-name_123", nil},
+		{"UPPERCASE", nil},
+	}
+
+	for _, tc := range cases {
+		s := sample()
+		s.ID = "agent-" + tc.name
+		s.TmuxSession = s.ID
+		s.Ticket = ""
+		s.Name = tc.name
+		err := st.Insert(ctx, s)
+		if tc.expected != nil {
+			require.ErrorIs(t, err, tc.expected, "name=%q", tc.name)
+		} else {
+			require.NoError(t, err, "name=%q should be valid", tc.name)
+		}
+	}
+}
+
+func TestFileInsertDuplicateName(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	s1 := sample()
+	s1.ID = "agent-a1b2"
+	s1.TmuxSession = "agent-a1b2"
+	s1.Ticket = ""
+	s1.Name = "my-agent"
+	require.NoError(t, st.Insert(ctx, s1))
+
+	s2 := sample()
+	s2.ID = "agent-c3d4"
+	s2.TmuxSession = "agent-c3d4"
+	s2.Ticket = ""
+	s2.Name = "my-agent" // duplicate
+	require.ErrorIs(t, st.Insert(ctx, s2), ErrNameExists)
+}
+
+func TestFileNameCaseSensitive(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	s1 := sample()
+	s1.ID = "agent-a1b2"
+	s1.TmuxSession = "agent-a1b2"
+	s1.Ticket = ""
+	s1.Name = "MyAgent"
+	require.NoError(t, st.Insert(ctx, s1))
+
+	s2 := sample()
+	s2.ID = "agent-c3d4"
+	s2.TmuxSession = "agent-c3d4"
+	s2.Ticket = ""
+	s2.Name = "myagent" // different case should be allowed
+	require.NoError(t, st.Insert(ctx, s2))
+
+	s3 := sample()
+	s3.ID = "agent-e5f6"
+	s3.TmuxSession = "agent-e5f6"
+	s3.Ticket = ""
+	s3.Name = "MyAgent" // exact match should fail
+	require.ErrorIs(t, st.Insert(ctx, s3), ErrNameExists)
+}
+
+func TestFileEmptyNamesAllowed(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	s1 := sample()
+	s1.ID = "agent-a1b2"
+	s1.TmuxSession = "agent-a1b2"
+	s1.Ticket = ""
+	s1.Name = "" // empty
+	require.NoError(t, st.Insert(ctx, s1))
+
+	s2 := sample()
+	s2.ID = "agent-c3d4"
+	s2.TmuxSession = "agent-c3d4"
+	s2.Ticket = ""
+	s2.Name = "" // also empty, should not conflict
+	require.NoError(t, st.Insert(ctx, s2))
+}
