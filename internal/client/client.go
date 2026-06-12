@@ -23,7 +23,7 @@ import (
 )
 
 // ErrDaemonDown signals the daemon is unreachable (connection refused / timeout).
-var ErrDaemonDown = errors.New("daemon not running — start it with `warden daemon` (or via launchd)")
+var ErrDaemonDown = errors.New("daemon not running\n\nRun: warden daemon\nOr install as a service: ./scripts/install.sh")
 
 // StatusError is returned for non-2xx daemon responses, exposing the HTTP code.
 type StatusError struct {
