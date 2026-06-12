@@ -85,6 +85,7 @@ type Event struct {
 
 type Session struct {
 	ID              string     `json:"id"`
+	Name            string     `json:"name,omitempty"` // optional human-friendly alias (max 32 chars, alphanumeric + hyphens/underscores)
 	Type            Type       `json:"type"`
 	Ticket          string     `json:"ticket"` // optional
 	TmuxSession     string     `json:"tmux_session"`
