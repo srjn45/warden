@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -64,6 +65,20 @@ func SafeID(id string) error { return safeID(id) }
 func (fs *FileStore) activePath(id string) string { return filepath.Join(fs.sessions, id+".json") }
 func (fs *FileStore) closedPath(id string) string { return filepath.Join(fs.closed, id+".json") }
 
+var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
+
+// validateName checks that name matches the allowed format (alphanumeric + hyphens/underscores, 1-32 chars).
+// Empty names are valid (no-name agents).
+func validateName(name string) error {
+	if name == "" {
+		return nil // empty is valid
+	}
+	if !namePattern.MatchString(name) {
+		return ErrInvalidName
+	}
+	return nil
+}
+
 // atomicWriteJSON marshals v and writes it to path via a temp file + rename, so
 // readers never observe a partial file.
 func atomicWriteJSON(path string, v any) error {
@@ -105,11 +120,31 @@ func readSession(path string) (*Session, error) {
 }
 
 func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
+	// Validate name format
+	if err := validateName(s.Name); err != nil {
+		return err
+	}
+
 	if err := safeID(s.ID); err != nil {
 		return err
 	}
+
+	// Check name uniqueness (only when name is non-empty) before acquiring write lock
+	if s.Name != "" {
+		sessions, err := fs.List(ctx)
+		if err != nil {
+			return err
+		}
+		for _, existing := range sessions {
+			if existing.Name == s.Name {
+				return ErrNameExists
+			}
+		}
+	}
+
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
+
 	path := fs.activePath(s.ID)
 	if _, err := os.Stat(path); err == nil {
 		return ErrExists
