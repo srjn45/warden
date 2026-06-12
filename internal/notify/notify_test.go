@@ -73,4 +73,3 @@ func TestNewWithDarwin(t *testing.T) {
 	require.IsType(t, osaNotifier{}, newWith(true, execRun, "darwin", look))
 	require.IsType(t, logNotifier{}, newWith(false, execRun, "darwin", look))
 }
-
