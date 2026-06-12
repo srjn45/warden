@@ -52,7 +52,9 @@ build_release() {
 deploy_binary() {
   [ -f "$REPO_ROOT/bin/warden" ] || die "bin/warden not found — build first (run without --no-build, or 'make release')"
   mkdir -p "$INSTALL_BIN_DIR"
-  cp "$REPO_ROOT/bin/warden" "$INSTALL_BIN" || die "failed to copy binary to $INSTALL_BIN"
+  local _tmp="$INSTALL_BIN.tmp.$$"
+  cp "$REPO_ROOT/bin/warden" "$_tmp" || die "failed to copy binary to $_tmp"
+  mv -f "$_tmp" "$INSTALL_BIN" || { rm -f "$_tmp"; die "failed to install binary to $INSTALL_BIN"; }
   info "installed binary -> $INSTALL_BIN"
   # Short alias: `wd` -> warden (the alias is provided purely by argv0).
   ln -sfn warden "$INSTALL_ALIAS"
