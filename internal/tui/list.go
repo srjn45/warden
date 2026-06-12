@@ -507,9 +507,20 @@ func renderItemLine(it item, selected bool, width int) string {
 		s := it.session
 		label, st := badge(s.Status, s.ExitCode)
 		cl, cst := contextLabel(s.ContextTokens, s.ContextState)
-		line = fmt.Sprintf("%-14s %-11s %-6s %-5s",
+		// Add branch/worktree info: prefer worktree name (if exists), otherwise branch name
+		branchInfo := ""
+		if s.Worktree != "" {
+			// Extract just the worktree directory name (last component of path)
+			branchInfo = filepath.Base(s.Worktree)
+		} else if s.Branch != "" {
+			branchInfo = s.Branch
+		}
+		if branchInfo != "" {
+			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
+		}
+		line = fmt.Sprintf("%-14s %-11s %-6s %-5s%s",
 			s.ID, st.Render(label),
-			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt))
+			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt), branchInfo)
 	}
 	cur := "  "
 	if selected {
@@ -572,11 +583,13 @@ func detailBody(s *store.Session, width int) string {
 	if dir != "" {
 		loc = append(loc, stMuted.Render("  dir       ")+abbrevHome(dir))
 	}
+	// Show worktree first (if exists), then branch - makes it easier to see the working context
+	if s.Worktree != "" {
+		wtName := filepath.Base(s.Worktree)
+		loc = append(loc, stMuted.Render("  worktree  ")+wtName+" "+stMuted.Render("("+abbrevHome(s.Worktree)+")"))
+	}
 	if s.Branch != "" {
 		loc = append(loc, stMuted.Render("  branch    ")+s.Branch)
-	}
-	if s.Worktree != "" {
-		loc = append(loc, stMuted.Render("  worktree  ")+abbrevHome(s.Worktree))
 	}
 	if len(loc) > 0 {
 		b.WriteString("\n" + stPaneTitle.Render("location") + "\n" + strings.Join(loc, "\n") + "\n")

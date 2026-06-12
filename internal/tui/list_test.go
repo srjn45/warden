@@ -398,6 +398,45 @@ func TestRenderItemLinePipelineRows(t *testing.T) {
 	}
 }
 
+func TestRenderItemLineAgentWithBranchAndWorktree(t *testing.T) {
+	// Agent with worktree — should show worktree name in brackets
+	sWithWorktree := &store.Session{
+		ID:       "agent-123",
+		Status:   store.StatusWorking,
+		Worktree: "/home/user/repo/.worktrees/PROJ-123",
+		Branch:   "feature/proj-123",
+	}
+	row := renderItemLine(item{session: sWithWorktree}, false, 80)
+	if !strings.Contains(row, "agent-123") {
+		t.Errorf("row missing agent ID: %q", row)
+	}
+	if !strings.Contains(row, "PROJ-123") {
+		t.Errorf("row should show worktree name PROJ-123: %q", row)
+	}
+
+	// Agent with only branch — should show branch name in brackets
+	sWithBranch := &store.Session{
+		ID:     "agent-456",
+		Status: store.StatusWorking,
+		Branch: "fix/auth-bug",
+	}
+	row = renderItemLine(item{session: sWithBranch}, false, 80)
+	if !strings.Contains(row, "fix/auth-bug") {
+		t.Errorf("row should show branch name: %q", row)
+	}
+
+	// Agent with neither — should not have brackets
+	sPlain := &store.Session{
+		ID:     "agent-789",
+		Status: store.StatusWorking,
+	}
+	row = renderItemLine(item{session: sPlain}, false, 80)
+	if !strings.Contains(row, "agent-789") {
+		t.Errorf("row missing agent ID: %q", row)
+	}
+	// The row should still render cleanly without crashing
+}
+
 func TestJobBadge(t *testing.T) {
 	cases := []struct {
 		status pipeline.JobStatus
