@@ -12,6 +12,12 @@ var ErrNotFound = errors.New("session not found")
 // ErrExists is returned when inserting a session id that already exists.
 var ErrExists = errors.New("session already exists")
 
+// ErrNameExists is returned when inserting a session with a name that already exists.
+var ErrNameExists = errors.New("agent name already exists")
+
+// ErrInvalidName is returned when a session name is invalid.
+var ErrInvalidName = errors.New("invalid agent name: must be 1-32 alphanumeric chars, hyphens, or underscores")
+
 // Store is the persistence boundary. Only the daemon holds a Store.
 type Store interface {
 	Insert(ctx context.Context, s *Session) error
