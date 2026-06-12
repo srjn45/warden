@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"errors"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
@@ -25,4 +28,30 @@ func envID(name string) string {
 		return v
 	}
 	return os.Getenv("AGENTCTL_" + name)
+}
+
+// isCommandNotFound checks if an error indicates a command was not found.
+// Returns true for exec.ErrNotFound or errors containing "executable file not found".
+func isCommandNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, exec.ErrNotFound) {
+		return true
+	}
+	return strings.Contains(err.Error(), "executable file not found")
+}
+
+// installHint returns a platform-specific installation hint for a command.
+func installHint(cmd string) string {
+	switch cmd {
+	case "tmux":
+		return "Install: brew install tmux (macOS) or apt install tmux (Linux)"
+	case "gh":
+		return "Install: brew install gh (macOS) or apt install gh (Linux)\nOr visit: https://cli.github.com"
+	case "claude":
+		return "Install Claude Code from https://claude.ai/download"
+	default:
+		return "Install " + cmd + " to continue"
+	}
 }
