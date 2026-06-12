@@ -126,6 +126,9 @@ service_loaded() {
 load_service() {
   if launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>/dev/null; then
     info "service bootstrapped"
+    # bootstrap registers the job but may defer the spawn as "speculative";
+    # kickstart forces an immediate launch so report_health doesn't race.
+    launchctl kickstart "gui/$UID_NUM/$LABEL" 2>/dev/null || true
   elif launchctl load -w "$PLIST" 2>/dev/null; then
     info "service loaded (legacy)"
   else
@@ -148,12 +151,20 @@ unload_service() {
 }
 
 # Stop (if loaded) and load again so an updated plist takes effect. Waits for
-# the label to drop from the domain before re-bootstrapping to avoid a race.
+# the label to drop from the domain AND the port to be released before
+# re-bootstrapping to avoid a race where bootout removes the label but the
+# process is still alive holding the port.
 reload_service() {
   unload_service
-  local i
+  local port="${ADDR##*:}" i
   for i in $(seq 1 25); do
     service_loaded || break
+    sleep 0.2
+  done
+  # Wait for the port to be free (bootout is async — the process gets SIGTERM
+  # but may outlive the domain-label removal by several seconds).
+  for i in $(seq 1 25); do
+    lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 || break
     sleep 0.2
   done
   load_service
