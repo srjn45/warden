@@ -45,6 +45,22 @@ func (f *fakeStore) Get(_ context.Context, id string) (*store.Session, error) {
 	}
 	return s, nil
 }
+func (f *fakeStore) GetByNameOrID(_ context.Context, nameOrID string) (*store.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// First check for name match
+	for _, s := range f.data {
+		if s.Name != "" && s.Name == nameOrID {
+			return s, nil
+		}
+	}
+	// Fall back to ID lookup
+	s, ok := f.data[nameOrID]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	return s, nil
+}
 func (f *fakeStore) List(_ context.Context) ([]*store.Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
