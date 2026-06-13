@@ -59,7 +59,7 @@ func digestEnv(t *testing.T, transcript string, narrator digest.Narrator) (*http
 		os.WriteFile(filepath.Join(encDir, claudeID+".jsonl"), []byte(transcript), 0o644)
 	}
 
-	lc := lifecycle.New(lifecycle.ExecRunner{})
+	lc := lifecycle.New(lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}})
 	lc.ProjectsDir = projects
 	fs := newFakeStore()
 	fs.data["agent-d1"] = &store.Session{

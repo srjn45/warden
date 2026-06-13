@@ -56,7 +56,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 
-			runner := lifecycle.ExecRunner{}
+			runner := lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}
 			lc := lifecycle.New(runner)
 			lc.ProjectsDir = cfg.ClaudeProjectsDir
 			// Prompt-mode agents launch in the caller's cwd; their initial prompt
