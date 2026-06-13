@@ -32,6 +32,7 @@ type EventRequest struct {
 type SpawnRequest struct {
 	Type        string `json:"type"`         // typed mode: task type (normalized); empty = free-form
 	Ticket      string `json:"ticket"`       // optional; becomes the id when present
+	Name        string `json:"name"`         // optional; human-readable name for the agent
 	Repo        string `json:"repo"`         // required in typed mode
 	Branch      string `json:"branch"`       // optional; development branch / pr-review checkout
 	PR          string `json:"pr"`           // optional; pr-review

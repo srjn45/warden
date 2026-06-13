@@ -44,6 +44,22 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 			return http.StatusBadRequest, "invalid ticket id (no '/', '\\', ':', or '..')"
 		}
 	}
+	// Validate the optional name field for format and uniqueness.
+	if req.Name != "" {
+		if err := store.ValidateName(req.Name); err != nil {
+			return http.StatusBadRequest, err.Error()
+		}
+		// Check uniqueness: no other session should have the same name.
+		sessions, err := s.store.List(ctx)
+		if err != nil {
+			return http.StatusInternalServerError, "failed to check name uniqueness: " + err.Error()
+		}
+		for _, sess := range sessions {
+			if sess.Name == req.Name {
+				return http.StatusConflict, "name already in use: " + req.Name
+			}
+		}
+	}
 	freeMode := req.Type == ""
 	if !freeMode {
 		if req.Repo == "" {
