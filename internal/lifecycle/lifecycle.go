@@ -269,7 +269,7 @@ func wrapWorktreeError(err error, output, path string) error {
 
 	// Dirty/uncommitted changes
 	if strings.Contains(msg, "contains modified or untracked files") ||
-	   strings.Contains(msg, "uncommitted changes") {
+		strings.Contains(msg, "uncommitted changes") {
 		return fmt.Errorf("%w: %s\nRecovery: commit or stash changes in %s", err, output, path)
 	}
 
@@ -316,7 +316,7 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 		if out, err := l.run.Run(ctx, abs, "gh", "pr", "checkout", req.PR); err != nil {
 			// Wrap gh command-not-found errors with install hint
 			if strings.Contains(strings.ToLower(out), "command not found") ||
-			   strings.Contains(strings.ToLower(out), "not found") {
+				strings.Contains(strings.ToLower(out), "not found") {
 				hint := commandInstallHint("gh")
 				return "", true, fmt.Errorf("gh pr checkout: %w: %s\n%s", err, out, hint)
 			}
