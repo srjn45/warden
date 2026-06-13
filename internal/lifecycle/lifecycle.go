@@ -250,6 +250,33 @@ func wantWorktree(req SpawnRequest) bool {
 	return req.Worktree && (req.Type == store.TypeAnalysis || req.Type == store.TypeSpike)
 }
 
+// wrapWorktreeError detects common git worktree failure patterns and adds recovery hints.
+func wrapWorktreeError(err error, output, path string) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(output)
+
+	// Already exists
+	if strings.Contains(msg, "already exists") || strings.Contains(msg, "already checked out") {
+		return fmt.Errorf("%w: %s\nRecovery: git worktree remove %s --force", err, output, path)
+	}
+
+	// Locked worktree
+	if strings.Contains(msg, "locked") {
+		return fmt.Errorf("%w: %s\nRecovery: git worktree unlock %s", err, output, path)
+	}
+
+	// Dirty/uncommitted changes
+	if strings.Contains(msg, "contains modified or untracked files") ||
+	   strings.Contains(msg, "uncommitted changes") {
+		return fmt.Errorf("%w: %s\nRecovery: commit or stash changes in %s", err, output, path)
+	}
+
+	// Return original error with output
+	return fmt.Errorf("%w: %s", err, output)
+}
+
 // worktreeExists checks `git worktree list --porcelain` for an absolute path.
 func (l *Lifecycle) worktreeExists(ctx context.Context, repo, rel string) (bool, error) {
 	out, err := l.run.Run(ctx, repo, "git", "worktree", "list", "--porcelain")
@@ -283,17 +310,23 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 	if req.Type == store.TypePRReview && req.Branch == "" {
 		// Detached worktree, then let gh resolve + fetch the PR branch.
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", "--detach", rel); err != nil {
-			return "", false, fmt.Errorf("git worktree add --detach: %w: %s", err, out)
+			return "", false, wrapWorktreeError(fmt.Errorf("git worktree add --detach: %w", err), out, rel)
 		}
 		abs := filepath.Join(req.Repo, rel)
 		if out, err := l.run.Run(ctx, abs, "gh", "pr", "checkout", req.PR); err != nil {
+			// Wrap gh command-not-found errors with install hint
+			if strings.Contains(strings.ToLower(out), "command not found") ||
+			   strings.Contains(strings.ToLower(out), "not found") {
+				hint := commandInstallHint("gh")
+				return "", true, fmt.Errorf("gh pr checkout: %w: %s\n%s", err, out, hint)
+			}
 			return "", true, fmt.Errorf("gh pr checkout: %w: %s", err, out)
 		}
 		return "", true, nil
 	}
 	if req.Type == store.TypePRReview { // checkout the given existing branch
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, req.Branch); err != nil {
-			return "", false, fmt.Errorf("git worktree add: %w: %s", err, out)
+			return "", false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 		}
 		return req.Branch, true, nil
 	}
@@ -303,7 +336,7 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 		branch = id
 	}
 	if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, "-b", branch); err != nil {
-		return "", false, fmt.Errorf("git worktree add: %w: %s", err, out)
+		return "", false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 	}
 	return branch, true, nil
 }
@@ -1084,7 +1117,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 			add = append(add, req.BaseBranch)
 		}
 		if out, err := l.run.Run(ctx, req.Repo, "git", add...); err != nil {
-			return nil, fmt.Errorf("git worktree add: %w: %s", err, out)
+			return nil, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 		}
 		sess.Worktree = rel
 		sess.Branch = id
