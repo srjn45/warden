@@ -778,9 +778,96 @@ warden done agent-123 --create-pr
 
 ---
 
+## ⚡ Performance & Scalability
+
+#### 34. Goroutine-based concurrency for agent management
+**Effort:** 3-5 days  
+**Value:** Better performance, scalability for large fleets
+
+Refactor daemon to use goroutines for concurrent agent operations.
+
+**Current state:**
+- Some operations are synchronous
+- Potential bottlenecks with many agents
+- Sequential processing of certain operations
+
+**Improvements:**
+- Concurrent agent monitoring (one goroutine per agent)
+- Parallel status checks via goroutine pool
+- Non-blocking agent spawn/terminate
+- Concurrent pipeline job execution
+- Worker pool for resource-intensive operations
+
+**Implementation areas:**
+
+**1. Agent monitoring (HIGH PRIORITY)**
+```go
+// Current: sequential polling
+// Improved: one goroutine per agent
+for _, agent := range agents {
+    go func(a *Session) {
+        for {
+            checkAgentStatus(a)
+            time.Sleep(pollInterval)
+        }
+    }(agent)
+}
+```
+
+**2. Batch operations**
+```go
+// Parallel terminate, delete, status fetch
+var wg sync.WaitGroup
+for _, agentID := range ids {
+    wg.Add(1)
+    go func(id string) {
+        defer wg.Done()
+        terminateAgent(id)
+    }(agentID)
+}
+wg.Wait()
+```
+
+**3. SSE event broadcasting**
+```go
+// Non-blocking event fan-out to all web clients
+for _, client := range sseClients {
+    go func(c *Client) {
+        c.Send(event)
+    }(client)
+}
+```
+
+**4. Pipeline executor**
+```go
+// Parallel job execution for independent jobs
+for _, job := range readyJobs {
+    go executor.RunJob(job)
+}
+```
+
+**Architecture decisions:**
+- Worker pool size (bounded vs unbounded goroutines)
+- Channel-based communication vs mutex-protected state
+- Context cancellation for graceful shutdown
+- Error aggregation from parallel operations
+
+**Testing:**
+- Race detector (`go test -race`)
+- Load testing with 100+ concurrent agents
+- Benchmark suite for throughput improvements
+
+**Expected benefits:**
+- 2-5x faster `warden ls` with many agents
+- Sub-second response for batch operations
+- Better CPU utilization on multi-core systems
+- Foundation for distributed warden (item #14)
+
+---
+
 ## 🧪 Testing & Quality
 
-#### 34. Integration test suite
+#### 35. Integration test suite
 **Effort:** 1-2 days  
 **Value:** Confidence in releases
 
@@ -799,7 +886,7 @@ End-to-end tests for common workflows.
 
 ---
 
-#### 35. Benchmarking suite
+#### 36. Benchmarking suite
 **Effort:** 4 hours  
 **Value:** Performance regression tracking
 
@@ -817,7 +904,7 @@ Performance benchmarks for critical paths.
 
 ---
 
-#### 36. Fuzz testing
+#### 37. Fuzz testing
 **Effort:** 4 hours  
 **Value:** Security, robustness
 
@@ -835,7 +922,7 @@ Fuzz critical parsers.
 
 ## 🌍 Platform Support
 
-#### 37. Windows support
+#### 38. Windows support
 **Effort:** 2-3 days  
 **Value:** Broader audience
 
@@ -852,7 +939,7 @@ Run warden on Windows (WSL2 required for tmux).
 
 ---
 
-#### 38. Docker/container support
+#### 39. Docker/container support
 **Effort:** 2 days  
 **Value:** Portable, reproducible
 
@@ -868,7 +955,7 @@ Run warden daemon in container.
 
 ## 📚 Documentation & Onboarding
 
-#### 39. Interactive tutorial
+#### 40. Interactive tutorial
 **Effort:** 1 day  
 **Value:** Better onboarding
 
@@ -888,7 +975,7 @@ First-run tutorial in TUI/web.
 
 ---
 
-#### 40. Video demos/screencasts
+#### 41. Video demos/screencasts
 **Effort:** Varies  
 **Value:** Visual learning
 
@@ -902,7 +989,7 @@ Record common workflows, embed in docs.
 
 ---
 
-#### 41. API documentation
+#### 42. API documentation
 **Effort:** 4 hours  
 **Value:** Integration developers
 
@@ -917,7 +1004,58 @@ OpenAPI/Swagger for REST API.
 
 ## 🚀 Advanced Features
 
-#### 42. Agent chaining/handoff
+#### 43. Intelligent inter-agent communication & collaboration ⭐ NEXT-GEN
+**Effort:** 1-2 weeks  
+**Value:** Prevent conflicts, enable true multi-agent collaboration
+
+Agents become aware of each other, detect overlapping work, and coordinate automatically.
+
+**Features:**
+- **File conflict detection**: Agents detect when another agent is modifying the same files
+- **Feature overlap detection**: Agents analyze each other's work to detect related/overlapping features
+- **Auto-coordination**: Agents can negotiate who handles what, merge strategies
+- **Shared context**: Agents can query "what is agent X working on?" and adjust their approach
+- **Conflict resolution**: Agents propose merge strategies when edits overlap
+- **Mutual awareness**: Each agent knows what others are doing in real-time
+
+**Commands:**
+```bash
+# Enable collaboration mode for related agents
+warden collab create auth-feature --agents agent-123,agent-456
+warden collab list
+
+# Agent queries from inside session
+warden collab status  # "agent-456 is editing auth.go:45-80"
+warden collab ask agent-456 "Are you handling the JWT validation?"
+```
+
+**Implementation:**
+- New `internal/collab` package
+- Collaboration groups (explicit or auto-detected by git branch/files)
+- File watch system: track which agent has which files open
+- Git diff analysis: detect overlapping line ranges
+- MCP tools for agents:
+  - `list_collaborating_agents` - see other agents in same collaboration space
+  - `get_agent_status` - what files/features is another agent working on
+  - `send_coordination_message` - ask another agent a question
+  - `propose_work_split` - negotiate work division
+- Real-time file lock hints: "Warning: agent-456 is currently editing this file"
+- Smart merge suggestions when both agents commit
+
+**Use cases:**
+- Multiple agents refactoring same codebase component
+- Parallel feature development with shared files
+- Agent A implements, agent B reviews - coordinated handoff
+- Auto-detect when agents duplicate work and merge efforts
+
+**Challenges:**
+- Performance overhead of cross-agent awareness
+- Conflict resolution complexity
+- Determining when collaboration is needed vs overhead
+
+---
+
+#### 44. Agent chaining/handoff
 **Effort:** 1 day  
 **Value:** Flexible workflows
 
@@ -936,7 +1074,7 @@ warden handoff agent-B "Context: I finished the auth refactor. Next: review the 
 
 ---
 
-#### 43. Shared worktree pool
+#### 45. Shared worktree pool
 **Effort:** 2-3 days (complex)  
 **Value:** Collaboration
 
@@ -951,7 +1089,7 @@ Multiple agents work in same worktree with conflict resolution.
 
 ---
 
-#### 44. Snapshot/checkpoint system
+#### 46. Snapshot/checkpoint system
 **Effort:** 2 days  
 **Value:** Experimentation safety
 
@@ -969,7 +1107,7 @@ warden checkpoint restore agent-123 "before-risky-change"
 
 ---
 
-#### 45. Plugin system
+#### 47. Plugin system
 **Effort:** 3-4 days  
 **Value:** Extensibility
 
@@ -986,7 +1124,7 @@ Load custom plugins for new task types, lifecycle hooks.
 
 ---
 
-#### 46. AI-powered insights
+#### 48. AI-powered insights
 **Effort:** 2-3 days  
 **Value:** Optimization suggestions
 
@@ -1021,22 +1159,26 @@ Analyze agent patterns, suggest optimizations.
 8. **Model selection** - 4-6 hours
 9. **Auto-restart** - 1 day
 10. **Pipeline visualization** - 1-2 days
+11. **Scheduled agents/tasks** - 1-2 days
 
 ### 🎯 Nice to Have (Medium Impact)
 
-11. **Tag system** - 3-4 hours
-12. **Agent grouping/filtering** - 4 hours
-13. **Timeline view** - 1 day
-14. **Dark mode** - 2 hours
-15. **Jira/Slack integrations** - 1-2 days
+12. **Tag system** - 3-4 hours
+13. **Agent grouping/filtering** - 4 hours
+14. **Timeline view** - 1 day
+15. **Dark mode** - 2 hours
+16. **Jira/Slack integrations** - 1-2 days
+17. **Goroutine-based concurrency** - 3-5 days
 
 ### 🔮 Future (High Effort or Complex)
 
-16. **Multi-user support** - 2-3 days
-17. **Windows support** - 2-3 days
-18. **Plugin system** - 3-4 days
-19. **Shared worktree pool** - 2-3 days
-20. **AI-powered insights** - 2-3 days
+18. **Distributed warden (multi-machine)** - 1-2 weeks
+19. **Intelligent inter-agent communication** - 1-2 weeks
+20. **Multi-user support** - 2-3 days
+21. **Windows support** - 2-3 days
+22. **Plugin system** - 3-4 days
+23. **Shared worktree pool** - 2-3 days
+24. **AI-powered insights** - 2-3 days
 
 ---
 
@@ -1045,13 +1187,17 @@ Analyze agent patterns, suggest optimizations.
 1. **`warden ls --watch`** (1-2 hours) - Immediate UX win, builds on existing SSE
 2. **Metrics/stats system** (1-2 days) - Critical for observability, spec already exists
 3. **Remote access** (2-3 days) - Game-changing feature, spec exists
-4. **Model selection** (4-6 hours) - High user demand, straightforward
-5. **Pipeline templates** (2 hours) - Makes pipelines more accessible
-6. **Auto-restart** (1 day) - Resilience improvement, spec exists
-7. **Pipeline visualization** (1-2 days) - Better understand complex workflows
-8. **Full-text search** (6-8 hours) - Helps manage large fleets
-9. **Web keyboard shortcuts** (2 hours) - Power-user productivity
-10. **Dark mode** (2 hours) - Quick win, high user satisfaction
+4. **Scheduled agents/tasks** (1-2 days) - High value automation feature
+5. **Model selection** (4-6 hours) - High user demand, straightforward
+6. **Pipeline templates** (2 hours) - Makes pipelines more accessible
+7. **Auto-restart** (1 day) - Resilience improvement, spec exists
+8. **Goroutine-based concurrency** (3-5 days) - Performance foundation for scaling
+9. **Pipeline visualization** (1-2 days) - Better understand complex workflows
+10. **Full-text search** (6-8 hours) - Helps manage large fleets
+11. **Web keyboard shortcuts** (2 hours) - Power-user productivity
+12. **Dark mode** (2 hours) - Quick win, high user satisfaction
+13. **Distributed warden** (1-2 weeks) - Enterprise-scale multi-machine control
+14. **Intelligent inter-agent communication** (1-2 weeks) - Next-gen collaboration
 
 ---
 
