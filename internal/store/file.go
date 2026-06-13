@@ -67,9 +67,9 @@ func (fs *FileStore) closedPath(id string) string { return filepath.Join(fs.clos
 
 var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
 
-// validateName checks that name matches the allowed format (alphanumeric + hyphens/underscores, 1-32 chars).
+// ValidateName checks that name matches the allowed format (alphanumeric + hyphens/underscores, 1-32 chars).
 // Empty names are valid (no-name agents).
-func validateName(name string) error {
+func ValidateName(name string) error {
 	if name == "" {
 		return nil // empty is valid
 	}
@@ -119,9 +119,32 @@ func readSession(path string) (*Session, error) {
 	return &s, nil
 }
 
+// listLocked reads all active sessions without acquiring a lock. The caller must
+// hold fs.mu (read or write).
+func (fs *FileStore) listLocked(ctx context.Context) ([]*Session, error) {
+	entries, err := os.ReadDir(fs.sessions)
+	if err != nil {
+		return nil, err
+	}
+	var out []*Session
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue // skips .tmp-* temp files too
+		}
+		s, err := readSession(filepath.Join(fs.sessions, e.Name()))
+		if err != nil {
+			log.Printf("filestore: skipping %s: %v", e.Name(), err)
+			continue
+		}
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, nil
+}
+
 func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 	// Validate name format
-	if err := validateName(s.Name); err != nil {
+	if err := ValidateName(s.Name); err != nil {
 		return err
 	}
 
@@ -129,9 +152,12 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 		return err
 	}
 
-	// Check name uniqueness (only when name is non-empty) before acquiring write lock
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	// Check name uniqueness INSIDE lock to prevent race condition
 	if s.Name != "" {
-		sessions, err := fs.List(ctx)
+		sessions, err := fs.listLocked(ctx)
 		if err != nil {
 			return err
 		}
@@ -141,9 +167,6 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 			}
 		}
 	}
-
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
 
 	path := fs.activePath(s.ID)
 	if _, err := os.Stat(path); err == nil {
@@ -174,24 +197,7 @@ func (fs *FileStore) Get(ctx context.Context, id string) (*Session, error) {
 func (fs *FileStore) List(ctx context.Context) ([]*Session, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
-	entries, err := os.ReadDir(fs.sessions)
-	if err != nil {
-		return nil, err
-	}
-	var out []*Session
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-			continue // skips .tmp-* temp files too
-		}
-		s, err := readSession(filepath.Join(fs.sessions, e.Name()))
-		if err != nil {
-			log.Printf("filestore: skipping %s: %v", e.Name(), err)
-			continue
-		}
-		out = append(out, s)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, nil
+	return fs.listLocked(ctx)
 }
 
 // mutate loads the active session, applies fn, bumps UpdatedAt, and writes it
