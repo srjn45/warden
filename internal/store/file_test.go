@@ -558,3 +558,80 @@ func TestFileEmptyNamesAllowed(t *testing.T) {
 	s2.Name = "" // also empty, should not conflict
 	require.NoError(t, st.Insert(ctx, s2))
 }
+
+func TestFileGetByNameOrIDNameFirst(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	s := sample()
+	s.ID = "agent-xyz"
+	s.TmuxSession = "agent-xyz"
+	s.Ticket = ""
+	s.Name = "my-agent"
+	require.NoError(t, st.Insert(ctx, s))
+
+	// GetByNameOrID should find by name
+	got, err := st.GetByNameOrID(ctx, "my-agent")
+	require.NoError(t, err)
+	require.Equal(t, "agent-xyz", got.ID)
+	require.Equal(t, "my-agent", got.Name)
+}
+
+func TestFileGetByNameOrIDFallbackToID(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	s := sample()
+	s.ID = "agent-abc"
+	s.TmuxSession = "agent-abc"
+	s.Ticket = ""
+	s.Name = "my-agent"
+	require.NoError(t, st.Insert(ctx, s))
+
+	// When no name matches, should fall back to ID lookup
+	got, err := st.GetByNameOrID(ctx, "agent-abc")
+	require.NoError(t, err)
+	require.Equal(t, "agent-abc", got.ID)
+	require.Equal(t, "my-agent", got.Name)
+}
+
+func TestFileGetByNameOrIDNotFound(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	s := sample()
+	s.ID = "agent-xyz"
+	s.TmuxSession = "agent-xyz"
+	s.Ticket = ""
+	s.Name = "my-agent"
+	require.NoError(t, st.Insert(ctx, s))
+
+	// Should return ErrNotFound when neither name nor ID match
+	_, err := st.GetByNameOrID(ctx, "nonexistent")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestFileGetByNameOrIDNamePrecedence(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	s1 := sample()
+	s1.ID = "agent-id1"
+	s1.TmuxSession = "agent-id1"
+	s1.Ticket = ""
+	s1.Name = "search-name"
+	require.NoError(t, st.Insert(ctx, s1))
+
+	s2 := sample()
+	s2.ID = "search-name" // same as s1's name
+	s2.TmuxSession = "search-name"
+	s2.Ticket = ""
+	s2.Name = "other-agent"
+	require.NoError(t, st.Insert(ctx, s2))
+
+	// GetByNameOrID should prefer name over ID
+	got, err := st.GetByNameOrID(ctx, "search-name")
+	require.NoError(t, err)
+	require.Equal(t, "agent-id1", got.ID, "should match by name first, not by ID")
+	require.Equal(t, "search-name", got.Name)
+}
