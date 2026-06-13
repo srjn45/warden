@@ -473,8 +473,8 @@ func TestFileInsertInvalidNameFormat(t *testing.T) {
 		{"has/slash", ErrInvalidName},
 		{"has.dot", ErrInvalidName},
 		{"has@at", ErrInvalidName},
-		{"", nil}, // empty is valid
-		{"a", nil}, // 1 char is valid
+		{"", nil},                                  // empty is valid
+		{"a", nil},                                 // 1 char is valid
 		{string(make([]byte, 33)), ErrInvalidName}, // 33 chars too long
 		{"valid-name_123", nil},
 		{"UPPERCASE", nil},
