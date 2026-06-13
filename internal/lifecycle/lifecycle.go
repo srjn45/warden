@@ -202,6 +202,7 @@ func New(r Runner) *Lifecycle { return &Lifecycle{run: r} }
 type SpawnRequest struct {
 	Type        store.Type
 	Ticket      string // optional; becomes the id when present
+	Name        string // optional; human-readable name for the agent
 	Repo        string
 	Branch      string // optional; development branch / pr-review checkout target
 	PR          string // optional; pr-review
@@ -536,6 +537,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 
 	sess := &store.Session{
 		ID:          id,
+		Name:        req.Name,
 		Type:        req.Type,
 		Ticket:      req.Ticket,
 		TmuxSession: id,

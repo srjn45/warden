@@ -26,6 +26,7 @@ func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st store.Store) Lifecycle {
 func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
 	lr := lifecycle.SpawnRequest{
 		Ticket:      req.Ticket,
+		Name:        req.Name,
 		Repo:        req.Repo,
 		Branch:      req.Branch,
 		PR:          req.PR,
