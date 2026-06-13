@@ -300,9 +300,110 @@ export WARDEN_TOKEN=$(warden token generate)
 
 ---
 
+#### 14. Distributed warden - Multi-machine agent control ⭐ ENTERPRISE SCALE
+**Effort:** 1-2 weeks  
+**Value:** Scale across infrastructure, team-wide agent fleet
+
+Control agents across multiple machines from a single dashboard.
+
+**Features:**
+- Central control plane aggregates multiple warden daemons
+- Discover and register remote warden instances
+- Route commands to appropriate machine
+- Unified web dashboard showing all agents across all machines
+- Load balancing: spawn agents on least-loaded machine
+- Machine health monitoring
+
+**Architecture:**
+- Each machine runs local warden daemon (unchanged)
+- New "warden control" service aggregates multiple daemons
+- gRPC or HTTP for inter-daemon communication
+- Service discovery via mDNS, Consul, or static config
+
+**Commands:**
+```bash
+# Register a remote warden instance
+warden cluster add machine-2 https://192.168.1.10:7979 --token <token>
+warden cluster list
+
+# Spawn on specific machine
+warden start "..." --machine machine-2
+
+# Spawn with auto-placement (load balancing)
+warden start "..." --auto-place
+
+# Dashboard shows agents from all machines
+warden ls --all-machines
+```
+
+**Implementation:**
+- New `internal/cluster` package
+- Daemon registry in control plane
+- Proxy layer for routing commands
+- Aggregate SSE streams from all daemons
+- Web UI: machine filter dropdown
+
+**Use cases:**
+- Large teams sharing agent infrastructure
+- Dedicated high-memory machines for context-heavy agents
+- Geographic distribution (spawn close to repo/data)
+- Failover: if one machine goes down, spawn elsewhere
+
+---
+
+## ⏰ Scheduling & Automation
+
+#### 15. Scheduled agents/tasks ⭐ AUTOMATION
+**Effort:** 1-2 days  
+**Value:** Unattended automation, recurring tasks
+
+Run agents on a schedule via cron-like syntax.
+
+**Features:**
+- Cron expression support
+- One-time scheduled runs
+- Recurring scheduled runs
+- Schedule templates (daily, weekly, etc.)
+- Timezone support
+
+**Commands:**
+```bash
+# Schedule a recurring agent (every day at 9am)
+warden schedule create "Review pending PRs" \
+  --cron "0 9 * * *" \
+  --type pr-review
+
+# One-time scheduled run
+warden schedule create "Deploy to prod" \
+  --at "2026-06-15 14:00" \
+  --type deployment
+
+# List scheduled tasks
+warden schedule list
+
+# Cancel a scheduled task
+warden schedule delete <id>
+```
+
+**Implementation:**
+- Store schedules in `~/.warden/schedules.json`
+- Daemon runs scheduler loop (check every minute)
+- Use cron parser library (`github.com/robfig/cron`)
+- Spawn agent when schedule matches
+- Track last run time, next run time
+- Web UI: schedules tab with calendar view
+
+**Use cases:**
+- Daily PR review sweeps
+- Nightly security scans
+- Weekly dependency updates
+- Monthly report generation
+
+---
+
 ## 🔄 Auto-Restart & Resilience
 
-#### 14. Auto-restart on failure
+#### 16. Auto-restart on failure
 **Effort:** 1 day  
 **Value:** Resilience, unattended operation
 
@@ -324,7 +425,7 @@ warden start "..." --auto-restart --max-restarts 5
 
 ---
 
-#### 15. Crash detection improvements
+#### 17. Crash detection improvements
 **Effort:** 4 hours  
 **Value:** Faster recovery
 
