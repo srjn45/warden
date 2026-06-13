@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -106,7 +107,14 @@ func newDaemonCmd() *cobra.Command {
 				go ctxNotifier.Notify(title, body)
 			}
 			log.Printf("warden daemon listening on %s", cfg.Addr)
-			return srv.ListenAndServe(ctx, cfg.Addr)
+			if err := srv.ListenAndServe(ctx, cfg.Addr); err != nil {
+				// Check for port already in use
+				if strings.Contains(err.Error(), "address already in use") {
+					return fmt.Errorf("%w\n\nPort %s already in use.\nCheck if daemon is running: ps aux | grep 'warden daemon'\nOr specify different port: export WARDEN_ADDR=localhost:8766", err, cfg.Addr)
+				}
+				return err
+			}
+			return nil
 		},
 	}
 }
