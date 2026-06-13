@@ -170,7 +170,7 @@ func cleanStaleCockpits(run lifecycle.Runner) {
 func RunCockpit(a api, self, masterCwd string) error {
 	_ = a // the panes hold their own clients; reserved for future inline checks
 	// Reap cockpits orphaned by a prior detach (their owning pid is gone).
-	cleanStaleCockpits(lifecycle.ExecRunner{})
+	cleanStaleCockpits(lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}})
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -182,9 +182,9 @@ func RunCockpit(a api, self, masterCwd string) error {
 		homeDir:   home,
 		masterCwd: masterCwd,
 	}
-	if err := buildCockpit(context.Background(), lifecycle.ExecRunner{}, o); err != nil {
+	if err := buildCockpit(context.Background(), lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}, o); err != nil {
 		// Tear down a half-built session so we never leave an orphan.
-		_, _ = lifecycle.ExecRunner{}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
+		_, _ = lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}.Run(context.Background(), "", "tmux", "kill-session", "-t", o.session)
 		return err
 	}
 

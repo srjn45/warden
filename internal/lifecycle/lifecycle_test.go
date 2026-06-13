@@ -1199,7 +1199,7 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 
 func TestExitSuffixAndReadClear(t *testing.T) {
 	dir := t.TempDir()
-	l := New(ExecRunner{})
+	l := New(HintingExecRunner{Inner: ExecRunner{}})
 	l.ExitsDir = dir
 
 	suffix := l.exitSuffix("agent-1")
@@ -1246,13 +1246,13 @@ func TestSpawnAppendsExitSuffix(t *testing.T) {
 }
 
 func TestExitSuffixEmptyWhenDirUnset(t *testing.T) {
-	l := New(ExecRunner{}) // ExitsDir == ""
+	l := New(HintingExecRunner{Inner: ExecRunner{}}) // ExitsDir == ""
 	require.Equal(t, "", l.exitSuffix("agent-1"))
 }
 
 func TestExitSuffixClearsStaleFile(t *testing.T) {
 	dir := t.TempDir()
-	l := New(ExecRunner{})
+	l := New(HintingExecRunner{Inner: ExecRunner{}})
 	l.ExitsDir = dir
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "agent-1"), []byte("9"), 0o600))
 	_ = l.exitSuffix("agent-1") // building the suffix at spawn must clear a prior run's file
