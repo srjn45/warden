@@ -518,8 +518,15 @@ func renderItemLine(it item, selected bool, width int) string {
 		if branchInfo != "" {
 			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
 		}
-		line = fmt.Sprintf("%-14s %-11s %-6s %-5s%s",
-			s.ID, st.Render(label),
+		// Display name as first column if present
+		nameStr := s.Name
+		if nameStr == "" {
+			nameStr = stMuted.Render("—")
+		} else {
+			nameStr = trunc(nameStr, 15)
+		}
+		line = fmt.Sprintf("%-16s %-14s %-11s %-6s %-5s%s",
+			nameStr, s.ID, st.Render(label),
 			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt), branchInfo)
 	}
 	cur := "  "
@@ -559,9 +566,19 @@ func detailBody(s *store.Session, width int) string {
 	if s.Supervised {
 		permMode = "supervised"
 	}
-	b.WriteString(stPaneTitle.Render(s.ID) + "  " + st.Render(label) + " · " + permMode + "\n\n")
+	// Show name in title if present
+	title := s.ID
+	if s.Name != "" {
+		title = s.ID + " (" + s.Name + ")"
+	}
+	b.WriteString(stPaneTitle.Render(title) + "  " + st.Render(label) + " · " + permMode + "\n\n")
 
 	// summary block
+	nameStr := s.Name
+	if nameStr == "" {
+		nameStr = "—"
+	}
+	b.WriteString(stMuted.Render("name      ") + nameStr + "\n")
 	if s.Subject != "" {
 		b.WriteString(stMuted.Render("subject   ") + s.Subject + "\n")
 	}
