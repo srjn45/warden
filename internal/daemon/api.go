@@ -286,7 +286,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	sess, err := s.store.Get(r.Context(), id)
+	sess, err := s.store.GetByNameOrID(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
