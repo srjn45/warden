@@ -153,6 +153,7 @@ func (c *Client) Get(ctx context.Context, id string) (*store.Session, error) {
 type SpawnParams struct {
 	Type        string
 	Ticket      string
+	Name        string
 	Repo        string
 	Branch      string
 	PR          string
@@ -167,7 +168,7 @@ type SpawnParams struct {
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
 	var s store.Session
 	body := map[string]any{
-		"type": p.Type, "ticket": p.Ticket, "repo": p.Repo,
+		"type": p.Type, "ticket": p.Ticket, "name": p.Name, "repo": p.Repo,
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree,
 		"prompt": p.Prompt, "cwd": p.Cwd, "supervised": p.Supervised,
 		"auto_restart": p.AutoRestart, "force": p.Force,
