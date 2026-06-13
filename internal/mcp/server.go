@@ -40,6 +40,7 @@ type spawnArgs struct {
 	Dir        string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
 	Supervised bool   `json:"supervised,omitempty" jsonschema:"no-op: acceptEdits is now the default for all agents (kept for backwards compatibility)"`
 	Force      bool   `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
+	Name       string `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -183,6 +184,7 @@ func NewServer(daemonBase string) *Server {
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree,
 			Prompt: a.Prompt, Cwd: cwd, Supervised: a.Supervised, Force: a.Force,
+			Name: a.Name,
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired
