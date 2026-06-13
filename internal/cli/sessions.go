@@ -30,10 +30,14 @@ func newLsCmd() *cobra.Command {
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
 			color := isTTY(cmd.OutOrStdout())
-			fmt.Fprintln(tw, "ID\tTYPE\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
+			fmt.Fprintln(tw, "NAME\tID\tTYPE\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
 			for _, s := range sessions {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					s.ID, typeOrPending(s.Type), s.Status, contextCell(s.ContextTokens, s.ContextState, color),
+				name := s.Name
+				if name == "" {
+					name = "—"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					name, s.ID, typeOrPending(s.Type), s.Status, contextCell(s.ContextTokens, s.ContextState, color),
 					age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
 			}
 			return tw.Flush()
@@ -57,8 +61,12 @@ func newStatusCmd() *cobra.Command {
 				return printJSON(cmd.OutOrStdout(), s)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "id:         %s\ntype:       %s\nticket:     %s\nstatus:     %s\nrepo:       %s\nworkdir:    %s\nworktree:   %s\nbranch:     %s\npr:         %s\nsupervised: %v\nsubject:    %s\nclaude:     %s\nupdated:    %s\n",
-				s.ID, typeOrPending(s.Type), s.Ticket, s.Status, s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, s.Supervised, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
+			name := s.Name
+			if name == "" {
+				name = "—"
+			}
+			fmt.Fprintf(out, "id:         %s\nname:       %s\ntype:       %s\nticket:     %s\nstatus:     %s\nrepo:       %s\nworkdir:    %s\nworktree:   %s\nbranch:     %s\npr:         %s\nsupervised: %v\nsubject:    %s\nclaude:     %s\nupdated:    %s\n",
+				s.ID, name, typeOrPending(s.Type), s.Ticket, s.Status, s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, s.Supervised, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
 			fmt.Fprintln(out, "events:")
 			for _, e := range s.Events {
 				fmt.Fprintf(out, "  %s  %-14s %s\n", e.TS.Format("15:04:05"), e.Type, e.Detail)

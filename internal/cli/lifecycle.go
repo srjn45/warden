@@ -40,10 +40,11 @@ func newStartCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				name, _ := cmd.Flags().GetString("name")
 				supervised, _ := cmd.Flags().GetBool("supervised")
 				autoRestart, _ := cmd.Flags().GetBool("auto-restart")
 				force, _ := cmd.Flags().GetBool("force")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Prompt: prompt, Cwd: dir, Supervised: supervised, AutoRestart: autoRestart, Force: force})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, Supervised: supervised, AutoRestart: autoRestart, Force: force})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -53,9 +54,13 @@ func newStartCmd() *cobra.Command {
 					}
 					return err
 				}
-				outcome := fmt.Sprintf("spawned %s (classifying…)", s.ID)
+				nameLabel := ""
+				if s.Name != "" {
+					nameLabel = fmt.Sprintf(" (%s)", s.Name)
+				}
+				outcome := fmt.Sprintf("spawned %s%s (classifying…)", s.ID, nameLabel)
 				if prompt == "" {
-					outcome = fmt.Sprintf("opened interactive agent %s", s.ID)
+					outcome = fmt.Sprintf("opened interactive agent %s%s", s.ID, nameLabel)
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%s — attach with `warden attach %s`\n", outcome, s.ID)
 				return nil
@@ -70,6 +75,7 @@ func newStartCmd() *cobra.Command {
 				}
 				repo = cwd
 			}
+			name, _ := cmd.Flags().GetString("name")
 			branch, _ := cmd.Flags().GetString("branch")
 			pr, _ := cmd.Flags().GetString("pr")
 			worktree, _ := cmd.Flags().GetBool("worktree")
@@ -84,7 +90,7 @@ func newStartCmd() *cobra.Command {
 			}
 			force, _ := cmd.Flags().GetBool("force")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, Supervised: supervised, AutoRestart: autoRestart, Force: force,
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, Supervised: supervised, AutoRestart: autoRestart, Force: force,
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -95,10 +101,15 @@ func newStartCmd() *cobra.Command {
 				}
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "spawned %s [%s] (%s) — attach with `warden attach %s`\n", s.ID, s.Type, s.Status, s.ID)
+			nameLabel := ""
+			if s.Name != "" {
+				nameLabel = fmt.Sprintf(" (%s)", s.Name)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "spawned %s%s [%s] (%s) — attach with `warden attach %s`\n", s.ID, nameLabel, s.Type, s.Status, s.ID)
 			return nil
 		},
 	}
+	cmd.Flags().String("name", "", "optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)")
 	cmd.Flags().String("type", "", "task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other")
 	cmd.Flags().String("repo", "", "repo path (default: current directory)")
 	cmd.Flags().String("branch", "", "new branch (development) or checkout target (pr-review)")
