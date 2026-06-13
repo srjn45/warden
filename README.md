@@ -66,6 +66,51 @@ make build           # CLI/daemon/TUI only → bin/warden
 make release         # builds the web UI first, then embeds it → full GUI
 ```
 
+### Shell Completion
+
+warden supports shell completion for Bash, Zsh, Fish, and PowerShell. Generate the completion script for your shell and install it to the appropriate location:
+
+**Bash:**
+
+```sh
+# System-wide installation:
+warden completion bash | sudo tee /etc/bash_completion.d/warden
+
+# User-only installation:
+warden completion bash > ~/.bash_completion
+```
+
+**Zsh:**
+
+```sh
+# System-wide installation:
+warden completion zsh | sudo tee /usr/local/share/zsh/site-functions/_warden
+
+# User-only installation:
+mkdir -p ~/.zsh/completion
+warden completion zsh > ~/.zsh/completion/_warden
+# Then add to your ~/.zshrc:
+# fpath=(~/.zsh/completion $fpath)
+# autoload -Uz compinit && compinit
+```
+
+**Fish:**
+
+```sh
+warden completion fish > ~/.config/fish/completions/warden.fish
+```
+
+**PowerShell:**
+
+```powershell
+warden completion powershell > warden.ps1
+# Then add to your PowerShell profile
+```
+
+After installing the completion script, restart your shell or source the file for completions to take effect.
+
+---
+
 ### Run it as a background service (macOS)
 
 The recommended setup on macOS installs warden as an auto-starting launchd daemon (and links the Claude skill + registers the MCP server). See the next section.
@@ -588,6 +633,19 @@ warden mcp --addr 127.0.0.1:8765
 ```
 
 Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `send_message`, `read_inbox`, `list_approvals`, `approve`.
+
+### `warden completion <shell>`
+
+Generate shell completion scripts for Bash, Zsh, Fish, or PowerShell.
+
+```sh
+warden completion bash   # generate bash completion script
+warden completion zsh    # generate zsh completion script
+warden completion fish   # generate fish completion script
+warden completion powershell   # generate PowerShell completion script
+```
+
+The completion script should be redirected to the appropriate location for your shell. See the [Shell Completion](#shell-completion) section for installation instructions.
 
 ---
 
