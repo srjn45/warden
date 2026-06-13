@@ -194,6 +194,29 @@ func (fs *FileStore) Get(ctx context.Context, id string) (*Session, error) {
 	return readSession(fs.activePath(id))
 }
 
+func (fs *FileStore) GetByNameOrID(ctx context.Context, nameOrID string) (*Session, error) {
+	if err := safeID(nameOrID); err != nil {
+		return nil, err
+	}
+
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	// First pass: scan for exact name match
+	sessions, err := fs.listLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range sessions {
+		if s.Name != "" && s.Name == nameOrID {
+			return s, nil
+		}
+	}
+
+	// Second pass: fall back to ID lookup
+	return readSession(fs.activePath(nameOrID))
+}
+
 func (fs *FileStore) List(ctx context.Context) ([]*Session, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()

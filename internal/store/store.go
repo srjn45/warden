@@ -22,6 +22,10 @@ var ErrInvalidName = errors.New("invalid agent name: must be 1-32 alphanumeric c
 type Store interface {
 	Insert(ctx context.Context, s *Session) error
 	Get(ctx context.Context, id string) (*Session, error)
+	// GetByNameOrID looks up a session by name first (exact case-sensitive match
+	// among active sessions), falling back to ID lookup if no name matches.
+	// Returns ErrNotFound if neither name nor ID match any active session.
+	GetByNameOrID(ctx context.Context, nameOrID string) (*Session, error)
 	List(ctx context.Context) ([]*Session, error)
 	UpdateStatus(ctx context.Context, id string, status Status) error
 	// UpdateStatusIf is a compare-and-swap: it sets status to next only if the
