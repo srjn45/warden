@@ -112,6 +112,7 @@ type Session struct {
 	LastRestartAt   *time.Time `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
 	PipelineID      string     `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
 	JobID           string     `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
+	Model           string     `json:"model,omitempty"`           // claude model (opus/sonnet/haiku or full ID)
 
 	ContextTokens    int        `json:"context_tokens,omitempty"`     // latest context-window fill; 0 = unknown (no model turn yet)
 	ContextState     string     `json:"context_state,omitempty"`      // "" | ok | warning | critical
