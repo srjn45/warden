@@ -113,6 +113,7 @@ type Session struct {
 	AutoApprove     bool       `json:"auto_approve,omitempty"`    // opt-in: auto-approve yes/no prompts (always option 1)
 	PipelineID      string     `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
 	JobID           string     `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
+	Model           string     `json:"model,omitempty"`           // claude model (opus/sonnet/haiku or full ID)
 
 	ContextTokens    int        `json:"context_tokens,omitempty"`     // latest context-window fill; 0 = unknown (no model turn yet)
 	ContextState     string     `json:"context_state,omitempty"`      // "" | ok | warning | critical
