@@ -45,10 +45,11 @@ func detectRateLimit(pane string) (bool, time.Time, bool) {
 // provides the actual error message.
 //
 // Expected patterns to support (examples):
-//   "Try again at 3:45 PM"
-//   "Available again at 15:45"
-//   "Reset at 2024-06-14 15:45:00"
-//   "retry_after: 1718380800" (unix timestamp)
+//
+//	"Try again at 3:45 PM"
+//	"Available again at 15:45"
+//	"Reset at 2024-06-14 15:45:00"
+//	"retry_after: 1718380800" (unix timestamp)
 func parseRestoreTime(pane string) (time.Time, bool) {
 	// Placeholder: always returns false until exact format is known
 	// TODO: Add regex patterns when user provides actual error message

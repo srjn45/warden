@@ -119,8 +119,8 @@ type Session struct {
 	LastCompactAt    *time.Time `json:"last_compact_at,omitempty"`    // when warden last auto-sent /compact (cooldown guard)
 
 	// Rate limit fields
-	RateLimitedAt       *time.Time `json:"rate_limited_at,omitempty"`       // when limit was first hit
-	RateLimitRestoreAt  *time.Time `json:"rate_limit_restore_at,omitempty"` // scheduled resume time
+	RateLimitedAt       *time.Time `json:"rate_limited_at,omitempty"`        // when limit was first hit
+	RateLimitRestoreAt  *time.Time `json:"rate_limit_restore_at,omitempty"`  // scheduled resume time
 	RateLimitRetryCount int        `json:"rate_limit_retry_count,omitempty"` // number of retry attempts
 }
 

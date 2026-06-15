@@ -404,8 +404,8 @@ func (fs *FileStore) SetRateLimit(ctx context.Context, id string, restoreAt time
 
 		// Append event for tracking
 		sess.Events = append(sess.Events, Event{
-			TS:     now,
-			Type:   "rate-limit",
+			TS:   now,
+			Type: "rate-limit",
 			Detail: fmt.Sprintf("scheduled resume at %s (retry %d)",
 				restoreAt.Format(time.RFC3339), retryCount),
 		})
