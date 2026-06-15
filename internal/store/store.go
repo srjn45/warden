@@ -56,6 +56,10 @@ type Store interface {
 	// ClearWorktree blanks the Worktree and Branch fields (after the worktree is
 	// removed from disk), so the record no longer points at a gone worktree.
 	ClearWorktree(ctx context.Context, id string) error
+	// SetRateLimit records rate limit state and next resume time.
+	SetRateLimit(ctx context.Context, id string, restoreAt time.Time, retryCount int) error
+	// ClearRateLimit removes rate limit metadata (after successful resume).
+	ClearRateLimit(ctx context.Context, id string) error
 	// Archive moves the doc to the closed collection (soft delete).
 	Archive(ctx context.Context, id string) error
 	// Delete hard-removes the doc.
