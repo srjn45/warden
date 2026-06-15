@@ -1,7 +1,7 @@
 .PHONY: build test lint fmt fmt-check verify verify-fast run-daemon ui ui-dev web-test release install-skill install-hooks install uninstall reinstall
 
 build:
-	go build -o bin/warden ./cmd/warden
+	go build -buildvcs=false -o bin/warden ./cmd/warden
 
 test:
 	go test ./...
