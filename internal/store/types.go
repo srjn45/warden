@@ -117,6 +117,11 @@ type Session struct {
 	ContextState     string     `json:"context_state,omitempty"`      // "" | ok | warning | critical
 	ContextCheckedAt time.Time  `json:"context_checked_at,omitempty"` // when ContextTokens was last refreshed
 	LastCompactAt    *time.Time `json:"last_compact_at,omitempty"`    // when warden last auto-sent /compact (cooldown guard)
+
+	// Rate limit fields
+	RateLimitedAt       *time.Time `json:"rate_limited_at,omitempty"`       // when limit was first hit
+	RateLimitRestoreAt  *time.Time `json:"rate_limit_restore_at,omitempty"` // scheduled resume time
+	RateLimitRetryCount int        `json:"rate_limit_retry_count,omitempty"` // number of retry attempts
 }
 
 // Context-fill states stored in Session.ContextState. They mirror

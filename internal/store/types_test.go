@@ -117,3 +117,37 @@ func TestStatusRateLimited_Serialization(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &back))
 	require.Equal(t, StatusRateLimited, back.Status)
 }
+
+func TestSession_RateLimitFields(t *testing.T) {
+	now := time.Now()
+	restoreAt := now.Add(1 * time.Hour)
+
+	s := Session{
+		ID:                  "test",
+		RateLimitedAt:       &now,
+		RateLimitRestoreAt:  &restoreAt,
+		RateLimitRetryCount: 2,
+	}
+
+	b, err := json.Marshal(s)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"rate_limited_at"`)
+	require.Contains(t, string(b), `"rate_limit_restore_at"`)
+	require.Contains(t, string(b), `"rate_limit_retry_count":2`)
+
+	var back Session
+	require.NoError(t, json.Unmarshal(b, &back))
+	require.NotNil(t, back.RateLimitedAt)
+	require.NotNil(t, back.RateLimitRestoreAt)
+	require.Equal(t, 2, back.RateLimitRetryCount)
+}
+
+func TestSession_RateLimitFields_Omitempty(t *testing.T) {
+	s := Session{ID: "test"}
+
+	b, err := json.Marshal(s)
+	require.NoError(t, err)
+	require.NotContains(t, string(b), "rate_limited_at")
+	require.NotContains(t, string(b), "rate_limit_restore_at")
+	require.NotContains(t, string(b), "rate_limit_retry_count")
+}
