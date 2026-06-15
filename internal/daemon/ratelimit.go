@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,9 +87,85 @@ func (r *RateLimitScheduler) scheduleResume(sessionID string, at time.Time) {
 	})
 }
 
-// attemptResume is called when the timer fires (placeholder for now).
+// attemptResume fires when a scheduled timer triggers.
 func (r *RateLimitScheduler) attemptResume(sessionID string) {
-	// Will implement in next task
+	ctx := context.Background()
+
+	sess, err := r.store.Get(ctx, sessionID)
+	if err != nil {
+		// Session gone (deleted, archived)
+		r.mu.Lock()
+		delete(r.timers, sessionID)
+		r.mu.Unlock()
+		return
+	}
+
+	// Only resume if still rate limited
+	if sess.Status != store.StatusRateLimited {
+		// User manually resumed or status changed
+		r.mu.Lock()
+		delete(r.timers, sessionID)
+		r.mu.Unlock()
+		return
+	}
+
+	// Attempt resume
+	err = r.life.Restore(ctx, sess)
+
+	if err == nil {
+		// SUCCESS: transition back to spawning
+		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
+		_ = r.store.ClearRateLimit(ctx, sess.ID)
+
+		// Clean up timer
+		r.mu.Lock()
+		delete(r.timers, sess.ID)
+		r.mu.Unlock()
+
+		return
+	}
+
+	// FAILURE: check if error indicates still rate limited
+	errMsg := err.Error()
+
+	// Try to parse as rate limit error
+	// NOTE: This will use detectRateLimit which only checks keywords for now
+	isRateLimit := false
+	errLower := strings.ToLower(errMsg)
+	rateLimitKeywords := []string{"rate limit", "usage limit", "session limit", "quota exceeded"}
+	for _, kw := range rateLimitKeywords {
+		if strings.Contains(errLower, kw) {
+			isRateLimit = true
+			break
+		}
+	}
+
+	if isRateLimit {
+		// Still rate limited - reschedule
+		// TODO: Parse new restore time when parseRestoreTime is available
+		scheduleAt := time.Now().Add(r.retryInterval)
+		_ = r.store.SetRateLimit(ctx, sess.ID, scheduleAt, sess.RateLimitRetryCount+1)
+		r.scheduleResume(sess.ID, scheduleAt)
+
+		_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
+			TS:     time.Now().UTC(),
+			Type:   "rate-limit-retry",
+			Detail: "no time parsed, retrying in " + r.retryInterval.String(),
+		})
+	} else {
+		// Different error (network, auth, etc.) - transition to errored
+		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusErrored)
+		_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
+			TS:     time.Now().UTC(),
+			Type:   "rate-limit-resume-failed",
+			Detail: "resume failed with non-limit error: " + err.Error(),
+		})
+
+		// Clean up timer
+		r.mu.Lock()
+		delete(r.timers, sess.ID)
+		r.mu.Unlock()
+	}
 }
 
 // envBool parses a boolean from an environment variable, falling back to def.

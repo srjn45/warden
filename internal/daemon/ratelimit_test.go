@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -61,6 +62,13 @@ func (s *rateLimitStore) AppendEvent(_ context.Context, id string, ev store.Even
 	return nil
 }
 
+func (s *rateLimitStore) Get(_ context.Context, id string) (*store.Session, error) {
+	if sess, ok := s.sessions[id]; ok {
+		return sess, nil
+	}
+	return nil, store.ErrNotFound
+}
+
 func TestRateLimitScheduler_OnTransition(t *testing.T) {
 	life := &fakeRateLimitLife{}
 	st := &rateLimitStore{
@@ -108,4 +116,131 @@ func TestRateLimitScheduler_OnTransition_IgnoresOtherStatuses(t *testing.T) {
 	sched.mu.Lock()
 	defer sched.mu.Unlock()
 	require.Empty(t, sched.timers)
+}
+
+func TestRateLimitScheduler_AttemptResume_Success(t *testing.T) {
+	life := &fakeRateLimitLife{restoreErr: nil} // Success
+	st := &rateLimitStore{
+		sessions: make(map[string]*store.Session),
+	}
+
+	st.sessions["test-123"] = &store.Session{
+		ID:     "test-123",
+		Status: store.StatusRateLimited,
+	}
+
+	sched := NewRateLimitScheduler(life, st)
+
+	sched.attemptResume("test-123")
+
+	// Verify Restore was called
+	require.Equal(t, 1, life.restoreCalls)
+
+	// Verify status updated to spawning
+	require.Equal(t, 1, st.updateStatusIfCalls)
+
+	// Verify ClearRateLimit called
+	require.Equal(t, 1, st.clearRateLimitCalls)
+
+	// Verify timer removed
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, exists := sched.timers["test-123"]
+	require.False(t, exists, "timer should be removed after success")
+}
+
+func TestRateLimitScheduler_AttemptResume_SessionGone(t *testing.T) {
+	life := &fakeRateLimitLife{}
+	st := &rateLimitStore{
+		sessions: make(map[string]*store.Session),
+	}
+
+	sched := NewRateLimitScheduler(life, st)
+
+	// Session doesn't exist
+	sched.attemptResume("nonexistent")
+
+	// Should be no-op
+	require.Equal(t, 0, life.restoreCalls)
+}
+
+func TestRateLimitScheduler_AttemptResume_StatusChanged(t *testing.T) {
+	life := &fakeRateLimitLife{}
+	st := &rateLimitStore{
+		sessions: make(map[string]*store.Session),
+	}
+
+	// Session is no longer rate_limited
+	st.sessions["test-123"] = &store.Session{
+		ID:     "test-123",
+		Status: store.StatusWorking,
+	}
+
+	sched := NewRateLimitScheduler(life, st)
+
+	sched.attemptResume("test-123")
+
+	// Should not attempt restore
+	require.Equal(t, 0, life.restoreCalls)
+}
+
+func TestRateLimitScheduler_AttemptResume_StillLimited(t *testing.T) {
+	life := &fakeRateLimitLife{
+		restoreErr: errors.New("Rate limit. Try again later."),
+	}
+	st := &rateLimitStore{
+		sessions: make(map[string]*store.Session),
+	}
+
+	st.sessions["test-123"] = &store.Session{
+		ID:                  "test-123",
+		Status:              store.StatusRateLimited,
+		RateLimitRetryCount: 0,
+	}
+
+	sched := NewRateLimitScheduler(life, st)
+
+	sched.attemptResume("test-123")
+
+	// Verify SetRateLimit called (rescheduling)
+	require.Equal(t, 1, st.setRateLimitCalls)
+
+	// Verify event appended
+	require.Equal(t, 1, st.appendEventCalls)
+
+	// Timer should be rescheduled
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, exists := sched.timers["test-123"]
+	require.True(t, exists, "timer should be rescheduled")
+}
+
+func TestRateLimitScheduler_AttemptResume_OtherError(t *testing.T) {
+	life := &fakeRateLimitLife{
+		restoreErr: errors.New("network connection failed"),
+	}
+	st := &rateLimitStore{
+		sessions: make(map[string]*store.Session),
+	}
+
+	st.sessions["test-123"] = &store.Session{
+		ID:     "test-123",
+		Status: store.StatusRateLimited,
+	}
+
+	sched := NewRateLimitScheduler(life, st)
+
+	sched.attemptResume("test-123")
+
+	// Verify status updated to errored
+	require.Equal(t, 1, st.updateStatusIfCalls)
+
+	// Verify event appended with error detail
+	require.Equal(t, 1, st.appendEventCalls)
+
+	// Timer should be removed (not rescheduled)
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, exists := sched.timers["test-123"]
+	require.False(t, exists, "timer should be removed after non-limit error")
 }
