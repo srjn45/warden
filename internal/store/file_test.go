@@ -635,3 +635,87 @@ func TestFileGetByNameOrIDNamePrecedence(t *testing.T) {
 	require.Equal(t, "agent-id1", got.ID, "should match by name first, not by ID")
 	require.Equal(t, "search-name", got.Name)
 }
+
+func TestFileStore_SetRateLimit(t *testing.T) {
+	st := newFileStore(t)
+	
+	sess := &Session{ID: "test-123", Status: StatusWorking}
+	require.NoError(t, st.Insert(context.Background(), sess))
+	
+	restoreAt := time.Now().Add(1 * time.Hour).UTC()
+	err := st.SetRateLimit(context.Background(), "test-123", restoreAt, 0)
+	require.NoError(t, err)
+	
+	// Verify fields set
+	got, err := st.Get(context.Background(), "test-123")
+	require.NoError(t, err)
+	
+	require.NotNil(t, got.RateLimitedAt, "RateLimitedAt should be set")
+	require.NotNil(t, got.RateLimitRestoreAt, "RateLimitRestoreAt should be set")
+	require.True(t, got.RateLimitRestoreAt.Equal(restoreAt), 
+		"RateLimitRestoreAt = %v, want %v", got.RateLimitRestoreAt, restoreAt)
+	require.Equal(t, 0, got.RateLimitRetryCount, "RateLimitRetryCount should be 0")
+	
+	// Verify event appended
+	require.NotEmpty(t, got.Events, "expected event to be appended")
+	lastEvent := got.Events[len(got.Events)-1]
+	require.Equal(t, "rate-limit", lastEvent.Type, "event type should be rate-limit")
+	require.Contains(t, lastEvent.Detail, "scheduled resume")
+}
+
+func TestFileStore_SetRateLimit_PreservesFirstLimitedAt(t *testing.T) {
+	st := newFileStore(t)
+	
+	firstTime := time.Now().Add(-1 * time.Hour).UTC()
+	sess := &Session{
+		ID:            "test-123",
+		Status:        StatusRateLimited,
+		RateLimitedAt: &firstTime,
+	}
+	require.NoError(t, st.Insert(context.Background(), sess))
+	
+	restoreAt := time.Now().Add(1 * time.Hour).UTC()
+	err := st.SetRateLimit(context.Background(), "test-123", restoreAt, 1)
+	require.NoError(t, err)
+	
+	got, err := st.Get(context.Background(), "test-123")
+	require.NoError(t, err)
+	
+	// First RateLimitedAt should be preserved
+	require.NotNil(t, got.RateLimitedAt)
+	require.True(t, got.RateLimitedAt.Equal(firstTime),
+		"RateLimitedAt should preserve first occurrence")
+	require.Equal(t, 1, got.RateLimitRetryCount)
+}
+
+func TestFileStore_ClearRateLimit(t *testing.T) {
+	st := newFileStore(t)
+	
+	restoreAt := time.Now().Add(1 * time.Hour).UTC()
+	limitedAt := time.Now().UTC()
+	sess := &Session{
+		ID:                  "test-123",
+		Status:              StatusRateLimited,
+		RateLimitedAt:       &limitedAt,
+		RateLimitRestoreAt:  &restoreAt,
+		RateLimitRetryCount: 2,
+	}
+	require.NoError(t, st.Insert(context.Background(), sess))
+	
+	err := st.ClearRateLimit(context.Background(), "test-123")
+	require.NoError(t, err)
+	
+	// Verify fields cleared
+	got, err := st.Get(context.Background(), "test-123")
+	require.NoError(t, err)
+	
+	require.Nil(t, got.RateLimitedAt, "RateLimitedAt should be cleared")
+	require.Nil(t, got.RateLimitRestoreAt, "RateLimitRestoreAt should be cleared")
+	require.Equal(t, 0, got.RateLimitRetryCount, "RateLimitRetryCount should be 0")
+	
+	// Verify resume event appended
+	require.NotEmpty(t, got.Events)
+	lastEvent := got.Events[len(got.Events)-1]
+	require.Equal(t, "rate-limit-resumed", lastEvent.Type)
+	require.Contains(t, lastEvent.Detail, "successfully resumed")
+}

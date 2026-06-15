@@ -390,6 +390,42 @@ func (fs *FileStore) ClearWorktree(ctx context.Context, id string) error {
 	return fs.mutate(id, func(s *Session) { s.Worktree = ""; s.Branch = "" })
 }
 
+func (fs *FileStore) SetRateLimit(ctx context.Context, id string, restoreAt time.Time, retryCount int) error {
+	return fs.mutate(id, func(sess *Session) {
+		now := time.Now().UTC()
+
+		// Preserve first RateLimitedAt time
+		if sess.RateLimitedAt == nil {
+			sess.RateLimitedAt = &now
+		}
+
+		sess.RateLimitRestoreAt = &restoreAt
+		sess.RateLimitRetryCount = retryCount
+
+		// Append event for tracking
+		sess.Events = append(sess.Events, Event{
+			TS:     now,
+			Type:   "rate-limit",
+			Detail: fmt.Sprintf("scheduled resume at %s (retry %d)",
+				restoreAt.Format(time.RFC3339), retryCount),
+		})
+	})
+}
+
+func (fs *FileStore) ClearRateLimit(ctx context.Context, id string) error {
+	return fs.mutate(id, func(sess *Session) {
+		sess.RateLimitedAt = nil
+		sess.RateLimitRestoreAt = nil
+		sess.RateLimitRetryCount = 0
+
+		sess.Events = append(sess.Events, Event{
+			TS:     time.Now().UTC(),
+			Type:   "rate-limit-resumed",
+			Detail: "successfully resumed after rate limit",
+		})
+	})
+}
+
 func (fs *FileStore) AppendEvent(ctx context.Context, id string, ev Event) error {
 	if ev.TS.IsZero() {
 		ev.TS = time.Now().UTC()
