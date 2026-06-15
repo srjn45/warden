@@ -172,6 +172,33 @@ func (f *fakeStore) ClearWorktree(_ context.Context, id string) error {
 	s.Branch = ""
 	return nil
 }
+func (f *fakeStore) SetRateLimit(_ context.Context, id string, restoreAt time.Time, retryCount int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	now := time.Now().UTC()
+	if s.RateLimitedAt == nil {
+		s.RateLimitedAt = &now
+	}
+	s.RateLimitRestoreAt = &restoreAt
+	s.RateLimitRetryCount = retryCount
+	return nil
+}
+func (f *fakeStore) ClearRateLimit(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	s.RateLimitedAt = nil
+	s.RateLimitRestoreAt = nil
+	s.RateLimitRetryCount = 0
+	return nil
+}
 func (f *fakeStore) Archive(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
