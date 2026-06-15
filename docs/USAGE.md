@@ -622,6 +622,77 @@ Set via environment variables (or override the daemon address per-command with
 | `done` | Finished |
 | `errored` | Hit an error |
 | `orphaned` | The daemon lost track of its tmux session |
+| `rate_limited` | Hit API session limit — auto-resuming when limit expires (§12.1) |
+
+---
+
+## 12.1. Rate limit handling
+
+Warden **automatically detects and handles** Claude API rate limits:
+
+### Detection
+
+When an agent hits the API session limit, warden:
+1. Detects the rate limit from the agent's terminal output
+2. Transitions status to `rate_limited` (shown in **yellow/amber**)
+3. Schedules automatic resume when the limit expires
+
+### Viewing rate-limited agents
+
+```bash
+# List all agents (rate_limited shown in yellow)
+warden ls
+
+# View detailed rate limit info with countdown
+warden status <agent-id>
+```
+
+Example output:
+```
+status:     rate_limited
+rate limit:
+  limited at: 2026-06-15 14:30:00
+  resume at:  2026-06-15 15:45:00 (in 1h 15m 23s)
+  retries:    0
+```
+
+### Auto-resume behavior
+
+- **Parsed timestamp**: Resumes at the exact time + 1 minute safety buffer
+- **No timestamp found**: Retries every 30 minutes until successful
+- **Still limited on retry**: Re-parses error for updated time, reschedules
+- **Non-limit error**: Transitions to `errored` status
+
+### Configuration
+
+Environment variables for the daemon:
+
+```bash
+# Disable auto-resume (manual intervention only)
+WARDEN_RATE_LIMIT_AUTO_RESUME=false warden daemon
+
+# Change retry interval (default: 30m)
+WARDEN_RATE_LIMIT_RETRY_INTERVAL=15m warden daemon
+
+# Change safety buffer after parsed time (default: 1m)
+WARDEN_RATE_LIMIT_BUFFER=2m warden daemon
+```
+
+### Manual intervention
+
+You can override the scheduler:
+
+```bash
+# Manually resume immediately (bypasses timer)
+warden attach <agent-id>
+
+# Terminate if no longer needed
+warden done <agent-id>
+```
+
+The scheduler persists across daemon restarts — if you restart the daemon,
+rate-limited agents will have their timers reconstructed and will resume at the
+scheduled time.
 
 ---
 
@@ -665,6 +736,7 @@ warden done prreview-...
 | `remove-worktree` refuses | The agent is still running (terminate it first) or the worktree has uncommitted/unpushed work — the guard is protecting it. Commit/push, or use `--force`. (`done` no longer touches the worktree.) |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json` (§9). The poller still updates it, just less promptly. |
 | Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |
+| Agent stuck in `rate_limited` | Auto-resume disabled or timer not firing. Check daemon logs, or manually `attach` to override. See §12.1 for configuration. |
 
 ---
 
