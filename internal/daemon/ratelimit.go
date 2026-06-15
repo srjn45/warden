@@ -168,6 +168,33 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	}
 }
 
+// ReconstructTimers rebuilds active timers from session state on daemon startup.
+func (r *RateLimitScheduler) ReconstructTimers(ctx context.Context) error {
+	sessions, err := r.store.List(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, sess := range sessions {
+		if sess.Status == store.StatusRateLimited && sess.RateLimitRestoreAt != nil {
+			r.scheduleResume(sess.ID, *sess.RateLimitRestoreAt)
+		}
+	}
+
+	return nil
+}
+
+// CancelTimer stops and removes the timer for a session.
+func (r *RateLimitScheduler) CancelTimer(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if timer := r.timers[sessionID]; timer != nil {
+		timer.Stop()
+		delete(r.timers, sessionID)
+	}
+}
+
 // envBool parses a boolean from an environment variable, falling back to def.
 func envBool(key string, def bool) bool {
 	if v := os.Getenv(key); v != "" {

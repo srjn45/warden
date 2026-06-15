@@ -69,6 +69,14 @@ func (s *rateLimitStore) Get(_ context.Context, id string) (*store.Session, erro
 	return nil, store.ErrNotFound
 }
 
+func (s *rateLimitStore) List(_ context.Context) ([]*store.Session, error) {
+	var sessions []*store.Session
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
+	}
+	return sessions, nil
+}
+
 func TestRateLimitScheduler_OnTransition(t *testing.T) {
 	life := &fakeRateLimitLife{}
 	st := &rateLimitStore{
@@ -243,4 +251,86 @@ func TestRateLimitScheduler_AttemptResume_OtherError(t *testing.T) {
 	defer sched.mu.Unlock()
 	_, exists := sched.timers["test-123"]
 	require.False(t, exists, "timer should be removed after non-limit error")
+}
+
+func TestRateLimitScheduler_ReconstructTimers(t *testing.T) {
+	life := &fakeRateLimitLife{}
+	st := &rateLimitStore{
+		sessions: make(map[string]*store.Session),
+	}
+
+	// Set up sessions: one rate-limited, one not
+	futureTime := time.Now().Add(1 * time.Hour)
+	st.sessions["limited-1"] = &store.Session{
+		ID:                 "limited-1",
+		Status:             store.StatusRateLimited,
+		RateLimitRestoreAt: &futureTime,
+	}
+	st.sessions["working-1"] = &store.Session{
+		ID:     "working-1",
+		Status: store.StatusWorking,
+	}
+
+	sched := NewRateLimitScheduler(life, st)
+
+	err := sched.ReconstructTimers(context.Background())
+	require.NoError(t, err)
+
+	// Verify timer created only for rate-limited session
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+
+	_, exists := sched.timers["limited-1"]
+	require.True(t, exists, "timer should exist for rate-limited session")
+
+	_, exists = sched.timers["working-1"]
+	require.False(t, exists, "should not create timer for non-rate-limited session")
+}
+
+func TestRateLimitScheduler_ReconstructTimers_PastTime(t *testing.T) {
+	life := &fakeRateLimitLife{restoreErr: nil}
+	st := &rateLimitStore{
+		sessions: make(map[string]*store.Session),
+	}
+
+	// Restore time in the past
+	pastTime := time.Now().Add(-1 * time.Hour)
+	st.sessions["test-123"] = &store.Session{
+		ID:                 "test-123",
+		Status:             store.StatusRateLimited,
+		RateLimitRestoreAt: &pastTime,
+	}
+
+	sched := NewRateLimitScheduler(life, st)
+
+	err := sched.ReconstructTimers(context.Background())
+	require.NoError(t, err)
+
+	// Give timer a moment to fire (it should fire immediately)
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify Restore was called (timer fired immediately)
+	require.Equal(t, 1, life.restoreCalls)
+}
+
+func TestRateLimitScheduler_CancelTimer(t *testing.T) {
+	sched := NewRateLimitScheduler(nil, nil)
+
+	// Create a mock timer
+	sched.timers["test-123"] = time.AfterFunc(1*time.Hour, func() {})
+
+	sched.CancelTimer("test-123")
+
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+
+	_, exists := sched.timers["test-123"]
+	require.False(t, exists, "timer should be removed after cancel")
+}
+
+func TestRateLimitScheduler_CancelTimer_NotExists(t *testing.T) {
+	sched := NewRateLimitScheduler(nil, nil)
+
+	// Should not panic
+	sched.CancelTimer("nonexistent")
 }
