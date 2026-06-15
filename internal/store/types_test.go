@@ -96,3 +96,24 @@ func TestSessionAutoRestartFieldsJSON(t *testing.T) {
 	require.NotContains(t, string(b2), "last_restart_at")
 	require.NotContains(t, string(b2), "auto_restart")
 }
+
+func TestStatusRateLimited_Valid(t *testing.T) {
+	if !StatusRateLimited.Valid() {
+		t.Error("StatusRateLimited should be valid")
+	}
+}
+
+func TestStatusRateLimited_Serialization(t *testing.T) {
+	s := Session{
+		ID:     "test",
+		Status: StatusRateLimited,
+	}
+
+	b, err := json.Marshal(s)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"status":"rate_limited"`)
+
+	var back Session
+	require.NoError(t, json.Unmarshal(b, &back))
+	require.Equal(t, StatusRateLimited, back.Status)
+}

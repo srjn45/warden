@@ -12,12 +12,14 @@ const (
 	StatusDone            Status = "done"
 	StatusErrored         Status = "errored"
 	StatusOrphaned        Status = "orphaned"
+	StatusRateLimited     Status = "rate_limited"
 )
 
 func (s Status) Valid() bool {
 	switch s {
 	case StatusSpawning, StatusWorking, StatusWaitingForInput,
-		StatusIdle, StatusDone, StatusErrored, StatusOrphaned:
+		StatusIdle, StatusDone, StatusErrored, StatusOrphaned,
+		StatusRateLimited:
 		return true
 	}
 	return false
