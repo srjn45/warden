@@ -20,6 +20,13 @@ func classify(s *store.Session, pane string, sessionAlive bool, sinceUpdate, stu
 	if !sessionAlive {
 		return store.StatusOrphaned
 	}
+
+	// Check for rate limit BEFORE other classifications
+	// (prevents misclassification as waiting_for_input when prompt is shown)
+	if isLimited, _, _ := detectRateLimit(pane); isLimited {
+		return store.StatusRateLimited
+	}
+
 	if strings.Contains(pane, "esc to interrupt") {
 		return store.StatusWorking
 	}

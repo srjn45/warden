@@ -587,3 +587,50 @@ func TestTickThrottlesSummary(t *testing.T) {
 	p.wg.Wait()
 	require.Equal(t, 1, d.summarizeN, "throttled to one within the interval")
 }
+
+func TestClassify_RateLimited(t *testing.T) {
+	sess := &store.Session{
+		ID:     "test",
+		Status: store.StatusWorking,
+	}
+
+	pane := "Error: rate limit exceeded. Please try again later."
+
+	got := classify(sess, pane, true, 0, 0)
+
+	if got != store.StatusRateLimited {
+		t.Errorf("classify() = %v, want %v", got, store.StatusRateLimited)
+	}
+}
+
+func TestClassify_RateLimitPriority(t *testing.T) {
+	// Rate limit should take priority over prompt detection
+	sess := &store.Session{
+		ID:     "test",
+		Status: store.StatusWorking,
+	}
+
+	pane := "Rate limit exceeded. Try again later.\n❯ Continue?"
+
+	got := classify(sess, pane, true, 0, 0)
+
+	if got != store.StatusRateLimited {
+		t.Errorf("classify() = %v, want %v (rate limit should take priority)",
+			got, store.StatusRateLimited)
+	}
+}
+
+func TestClassify_NoRateLimit(t *testing.T) {
+	sess := &store.Session{
+		ID:     "test",
+		Status: store.StatusWorking,
+	}
+
+	pane := "Working on your request..."
+
+	got := classify(sess, pane, true, 0, 0)
+
+	if got == store.StatusRateLimited {
+		t.Error("classify() should not return rate_limited for normal output")
+	}
+}
