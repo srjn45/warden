@@ -96,16 +96,24 @@ func newDaemonCmd() *cobra.Command {
 
 			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
 			restarter := daemon.NewRestarter(life, st)
+			rateLimitSched := daemon.NewRateLimitScheduler(life, st)
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
 				restarter.OnTransition(sess, from, to)
+				rateLimitSched.OnTransition(sess, from, to)
 			}
 			ctxNotifier := notify.New(cfg.NotifyEnabled)
 			pl.OnContextAlert = func(sess *store.Session, state ctxtokens.State, tokens int) {
 				title, body := daemon.ContextAlertMessage(sess, state, tokens)
 				go ctxNotifier.Notify(title, body)
 			}
+
+			// Reconstruct rate limit timers from persisted state
+			if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
+				log.Printf("daemon: failed to reconstruct rate limit timers: %v", err)
+			}
+
 			log.Printf("warden daemon listening on %s", cfg.Addr)
 			if err := srv.ListenAndServe(ctx, cfg.Addr); err != nil {
 				// Check for port already in use
