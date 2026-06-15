@@ -42,9 +42,10 @@ func permissionFlag(_ bool) string {
 }
 
 // claudeBase is the claude command + model + permission flag every agent session starts from.
-// Uses claude-sonnet-4-5 (1M context window) for all agents.
-func claudeBase(supervised bool) string {
-	return "claude --model claude-sonnet-4-5 " + permissionFlag(supervised)
+// Uses the provided model, or the default (claude-sonnet-4-5) when model is empty.
+func claudeBase(model string, supervised bool) string {
+	modelID := modelOrDefault(model)
+	return "claude --model " + modelID + " " + permissionFlag(supervised)
 }
 
 // claudeLaunch builds the claude invocation for a spawned agent: the base
@@ -52,8 +53,8 @@ func claudeBase(supervised bool) string {
 // --resume) and a --name display label equal to the agent id, so the agent id,
 // tmux session, and claude session all read the same. sessionID is a generated
 // UUID (safe charset); name is the agent id (may be a ticket key) so it is quoted.
-func claudeLaunch(sessionID, name string, supervised bool) string {
-	return claudeBase(supervised) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
+func claudeLaunch(sessionID, name string, model string, supervised bool) string {
+	return claudeBase(model, supervised) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // pipelineHintGuidance is appended to a freshly spawned plain agent's system
@@ -85,8 +86,8 @@ func pipelineHint() string {
 // claudeResume builds the invocation that resumes an existing agent conversation
 // by its pinned session id (continues the same transcript). --name re-applies the
 // display label so the resumed session still reads as the agent id.
-func claudeResume(sessionID, name string, supervised bool) string {
-	return claudeBase(supervised) + " --resume " + sessionID + " --name " + shellQuoteArg(name)
+func claudeResume(sessionID, name string, model string, supervised bool) string {
+	return claudeBase(model, supervised) + " --resume " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // classifyInstruction is prepended to the task prompt for headless classification.
