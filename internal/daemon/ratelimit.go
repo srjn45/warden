@@ -111,8 +111,43 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	// Attempt resume
 	err = r.life.Restore(ctx, sess)
 
+	// If tmux session already exists, try to unpause by sending Enter
+	if err == lifecycle.ErrAlreadyRunning {
+		// The tmux session exists - Claude is paused showing rate limit error
+		// Send Enter to attempt to unpause/resume
+		sendErr := r.life.SendKeys(ctx, sess.TmuxSession, "Enter")
+		if sendErr != nil {
+			// SendKeys failed - treat as non-rate-limit error
+			_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusErrored)
+			_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
+				TS:     time.Now().UTC(),
+				Type:   "rate-limit-resume-failed",
+				Detail: "SendKeys failed: " + sendErr.Error(),
+			})
+
+			r.mu.Lock()
+			delete(r.timers, sess.ID)
+			r.mu.Unlock()
+			return
+		}
+
+		// SendKeys succeeded - transition to spawning and let poller verify
+		// If still rate-limited, poller will detect and call OnTransition again
+		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
+		_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
+			TS:     time.Now().UTC(),
+			Type:   "rate-limit-resumed",
+			Detail: "sent Enter to unpause (tmux session exists)",
+		})
+
+		r.mu.Lock()
+		delete(r.timers, sess.ID)
+		r.mu.Unlock()
+		return
+	}
+
 	if err == nil {
-		// SUCCESS: transition back to spawning
+		// SUCCESS: Restore created new session
 		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
 		_ = r.store.ClearRateLimit(ctx, sess.ID)
 
@@ -158,14 +193,6 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 			Type:   "rate-limit-retry",
 			Detail: detail,
 		})
-	} else if err == lifecycle.ErrAlreadyRunning {
-		// Agent resumed on its own before the timer fired — treat as success.
-		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
-		_ = r.store.ClearRateLimit(ctx, sess.ID)
-
-		r.mu.Lock()
-		delete(r.timers, sess.ID)
-		r.mu.Unlock()
 	} else {
 		// Different error (network, auth, etc.) - transition to errored
 		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusErrored)
