@@ -41,6 +41,7 @@ type spawnArgs struct {
 	Supervised bool   `json:"supervised,omitempty" jsonschema:"no-op: acceptEdits is now the default for all agents (kept for backwards compatibility)"`
 	Force      bool   `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
 	Name       string `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
+	Model      string `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to sonnet-4.5 or WARDEN_MODEL_DEFAULT"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -184,7 +185,7 @@ func NewServer(daemonBase string) *Server {
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree,
 			Prompt: a.Prompt, Cwd: cwd, Supervised: a.Supervised, Force: a.Force,
-			Name: a.Name,
+			Name: a.Name, Model: a.Model,
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired
