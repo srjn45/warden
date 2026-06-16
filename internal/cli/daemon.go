@@ -58,7 +58,7 @@ func newDaemonCmd() *cobra.Command {
 			}
 
 			runner := lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}
-			lc := lifecycle.New(runner)
+			lc := lifecycle.New(runner, cfg)
 			lc.ProjectsDir = cfg.ClaudeProjectsDir
 			// Prompt-mode agents launch in the caller's cwd; their initial prompt
 			// file goes in this single shared dir (keyed by agent id), not a

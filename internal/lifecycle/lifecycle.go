@@ -179,6 +179,7 @@ func shellQuoteArg(s string) string {
 
 type Lifecycle struct {
 	run Runner
+	cfg ConfigProvider
 	// ProjectsDir is the Claude Code transcript root (default empty → transcript
 	// lookup disabled; the daemon sets it from config). Overridable in tests.
 	ProjectsDir string
@@ -195,7 +196,13 @@ type Lifecycle struct {
 	ExitsDir string
 }
 
-func New(r Runner) *Lifecycle { return &Lifecycle{run: r} }
+// ConfigProvider is the subset of config.Config that lifecycle needs.
+// Extracted to avoid a circular dependency and to allow test doubles.
+type ConfigProvider interface {
+	GetDefaultPermissionMode() string
+}
+
+func New(r Runner, cfg ConfigProvider) *Lifecycle { return &Lifecycle{run: r, cfg: cfg} }
 
 // SpawnRequest is the type-aware input to Spawn (design §2 / §6).
 type SpawnRequest struct {
@@ -634,7 +641,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	}
 	mode := req.PermissionMode
 	if mode == "" {
-		mode = "auto" // default until config is wired
+		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + pipelineHint() + launchPrompt + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
@@ -670,7 +677,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	}
 	mode := req.PermissionMode
 	if mode == "" {
-		mode = "auto" // default until config is wired
+		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + pipelineHint() + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
@@ -814,7 +821,7 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	}
 	mode := sess.PermissionMode
 	if mode == "" {
-		mode = "auto" // default until config is wired
+		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode)
 }
@@ -864,7 +871,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 			return nil, ErrWorkdirMissing
 		}
 		sess.Status = store.StatusSpawning
-		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID, req.Model, "auto"); err != nil {
+		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID, req.Model, l.cfg.GetDefaultPermissionMode()); err != nil {
 			return nil, err
 		}
 		return sess, nil
@@ -1158,7 +1165,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	}
 	mode := req.PermissionMode
 	if mode == "" {
-		mode = "auto" // default until config is wired
+		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Model, mode) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
