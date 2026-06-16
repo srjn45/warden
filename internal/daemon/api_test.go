@@ -214,10 +214,19 @@ func (f *fakeStore) Delete(_ context.Context, id string) error {
 	delete(f.data, id)
 	return nil
 }
-func (f *fakeStore) Ping(_ context.Context) error                                     { return nil }
-func (f *fakeStore) Close(_ context.Context) error                                    { return nil }
-func (f *fakeStore) UpdateAutoApprove(_ context.Context, _ string, _ bool) error      { return nil }
-func (f *fakeStore) UpdatePermissionMode(_ context.Context, _ string, _ string) error { return nil }
+func (f *fakeStore) Ping(_ context.Context) error                                { return nil }
+func (f *fakeStore) Close(_ context.Context) error                               { return nil }
+func (f *fakeStore) UpdateAutoApprove(_ context.Context, _ string, _ bool) error { return nil }
+func (f *fakeStore) UpdatePermissionMode(_ context.Context, id string, mode string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	s.PermissionMode = mode
+	return nil
+}
 
 func testServer(t *testing.T, fs *fakeStore) *httptest.Server {
 	t.Helper()

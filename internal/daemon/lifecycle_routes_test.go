@@ -686,3 +686,47 @@ func TestPostSpawnWithPermissionMode(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	require.Equal(t, "acceptEdits", fl.spawned.PermissionMode)
 }
+func TestPatchPermissionMode(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["abc123"] = &store.Session{ID: "abc123", PermissionMode: "auto"}
+	ts := lifeServer(t, fs, &fakeLife{})
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]string{"permission_mode": "acceptEdits"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/sessions/abc123/permission-mode", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Verify the store was updated
+	sess, _ := fs.Get(context.Background(), "abc123")
+	require.Equal(t, "acceptEdits", sess.PermissionMode)
+}
+
+func TestPatchPermissionModeInvalidMode(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["abc123"] = &store.Session{ID: "abc123", PermissionMode: "auto"}
+	ts := lifeServer(t, fs, &fakeLife{})
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]string{"permission_mode": "invalid"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/sessions/abc123/permission-mode", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestPatchPermissionModeNotFound(t *testing.T) {
+	fs := newFakeStore()
+	ts := lifeServer(t, fs, &fakeLife{})
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]string{"permission_mode": "acceptEdits"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/sessions/missing/permission-mode", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}

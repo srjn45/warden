@@ -571,3 +571,8 @@ func (c *Client) SetAutoApprove(ctx context.Context, id string, enabled bool) er
 	body := map[string]bool{"enabled": enabled}
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/auto-approve", body, nil)
 }
+
+func (c *Client) SetPermissionMode(ctx context.Context, id string, mode string) error {
+	body := map[string]string{"permission_mode": mode}
+	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-mode", body, nil)
+}
