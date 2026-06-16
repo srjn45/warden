@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -221,6 +222,37 @@ func TestRateLimitScheduler_AttemptResume_StillLimited(t *testing.T) {
 	defer sched.mu.Unlock()
 	_, exists := sched.timers["test-123"]
 	require.True(t, exists, "timer should be rescheduled")
+}
+
+func TestRateLimitScheduler_AttemptResume_AlreadyRunning(t *testing.T) {
+	life := &fakeRateLimitLife{
+		restoreErr: lifecycle.ErrAlreadyRunning,
+	}
+	st := &rateLimitStore{
+		sessions: make(map[string]*store.Session),
+	}
+
+	st.sessions["test-123"] = &store.Session{
+		ID:     "test-123",
+		Status: store.StatusRateLimited,
+	}
+
+	sched := NewRateLimitScheduler(life, st)
+
+	sched.attemptResume("test-123")
+
+	// Should be treated as success: status → spawning, rate limit cleared
+	require.Equal(t, 1, st.updateStatusIfCalls, "status should be updated")
+	require.Equal(t, 1, st.clearRateLimitCalls, "rate limit should be cleared")
+
+	// No error event should be appended
+	require.Equal(t, 0, st.appendEventCalls, "no event should be appended for already-running")
+
+	// Timer should be removed
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, exists := sched.timers["test-123"]
+	require.False(t, exists, "timer should be removed")
 }
 
 func TestRateLimitScheduler_AttemptResume_OtherError(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -152,6 +153,14 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 			Type:   "rate-limit-retry",
 			Detail: "no time parsed, retrying in " + r.retryInterval.String(),
 		})
+	} else if err == lifecycle.ErrAlreadyRunning {
+		// Agent resumed on its own before the timer fired — treat as success.
+		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
+		_ = r.store.ClearRateLimit(ctx, sess.ID)
+
+		r.mu.Lock()
+		delete(r.timers, sess.ID)
+		r.mu.Unlock()
 	} else {
 		// Different error (network, auth, etc.) - transition to errored
 		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusErrored)
