@@ -66,8 +66,12 @@ func newStatusCmd() *cobra.Command {
 				name = "—"
 			}
 			color := isTTY(out)
-			fmt.Fprintf(out, "id:         %s\nname:       %s\ntype:       %s\nmodel:      %s\nticket:     %s\nstatus:     %s\nrepo:       %s\nworkdir:    %s\nworktree:   %s\nbranch:     %s\npr:         %s\nsupervised: %v\nsubject:    %s\nclaude:     %s\nupdated:    %s\n",
-				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, s.Supervised, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
+			permMode := s.PermissionMode
+			if permMode == "" {
+				permMode = "default"
+			}
+			fmt.Fprintf(out, "id:              %s\nname:            %s\ntype:            %s\nmodel:           %s\nticket:          %s\nstatus:          %s\nrepo:            %s\nworkdir:         %s\nworktree:        %s\nbranch:          %s\npr:              %s\npermission_mode: %s\nsubject:         %s\nclaude:          %s\nupdated:         %s\n",
+				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, permMode, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
 
 			// Show rate limit info if present
 			if rateLimitInfo := formatRateLimitInfo(s); rateLimitInfo != "" {

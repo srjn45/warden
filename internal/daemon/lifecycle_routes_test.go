@@ -66,7 +66,7 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 	f.spawned = &store.Session{
 		ID: id, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning,
-		Supervised: req.Supervised,
+		PermissionMode: req.PermissionMode,
 	}
 	return f.spawned, nil
 }
@@ -676,13 +676,13 @@ func TestPostSpawnInteractiveNoPrompt(t *testing.T) {
 	require.Equal(t, "", fl.spawned.Prompt)
 }
 
-func TestPostSpawnSupervised(t *testing.T) {
+func TestPostSpawnWithPermissionMode(t *testing.T) {
 	fl := &fakeLife{}
 	ts := lifeServer(t, newFakeStore(), fl)
 	defer ts.Close()
-	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo", Supervised: true})
+	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo", PermissionMode: "acceptEdits"})
 	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	require.True(t, fl.spawned.Supervised)
+	require.Equal(t, "acceptEdits", fl.spawned.PermissionMode)
 }
