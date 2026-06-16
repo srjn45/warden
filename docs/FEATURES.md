@@ -95,6 +95,36 @@ attaching. Controlled by `WARDEN_APPROVALS` (on by default).
 | **TUI** | A pinned **⏳ Approvals** row (`i` / `enter`, then `1`-`9`; `tab` cycles agents). |
 | **Safety** | A TOCTOU re-capture + fingerprint re-verify guards answers; unrecognized prompts always fall back to attach. |
 
+### Auto-Approve
+
+Automatically approve yes/no tool-permission prompts by always selecting option 1.
+Off by default (opt-in safety), enabled globally via `WARDEN_AUTO_APPROVE` or
+per-agent via `warden auto-approve <id> on|off`.
+
+**Behavior:**
+- Only triggers for recognized yes/no prompts (parsed via `approval.Parse`)
+- Always selects option 1 (predictable, auditable behavior)
+- Skips multi-select, text-entry, and unrecognized prompts (falls back to manual approval)
+- Logs all auto-approval attempts (success/skip/failure) for auditing
+- Per-agent setting overrides global default
+
+**Configuration:**
+```bash
+# Enable globally (all supervised agents)
+export WARDEN_AUTO_APPROVE=on
+warden daemon
+
+# Toggle for specific agent
+warden auto-approve abc123 on   # enable for agent abc123
+warden auto-approve abc123 off  # disable for agent abc123
+```
+
+**Safety:**
+- Off by default (must explicitly enable)
+- Only works with recognized prompt grammar (strict parser)
+- Never retries on failure (fail-safe to manual approval)
+- Does not bypass approvals inbox (works alongside it)
+
 ---
 
 ## 6. Multi-agent collaboration
