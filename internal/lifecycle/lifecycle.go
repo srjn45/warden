@@ -33,19 +33,17 @@ func (l *Lifecycle) runClaudeP(ctx context.Context, arg string) (string, error) 
 	return l.run.Run(cctx, "", "claude", "-p", arg)
 }
 
-// permissionFlag selects the claude permission mode for a spawned agent.
-// All agents run --permission-mode acceptEdits: file edits + common FS commands
-// auto-approve, but other tools (bash writes, network) PROMPT with the numbered
-// menu the approvals inbox answers. --dangerously-skip-permissions is never used.
-func permissionFlag(_ bool) string {
-	return "--permission-mode acceptEdits"
+// permissionFlag selects the claude permission mode flag for a spawned agent.
+// mode is one of: acceptEdits, auto, bypassPermissions, default, dontAsk, plan.
+func permissionFlag(mode string) string {
+	return "--permission-mode " + mode
 }
 
 // claudeBase is the claude command + model + permission flag every agent session starts from.
 // Uses the provided model, or the default (claude-sonnet-4-5) when model is empty.
-func claudeBase(model string, supervised bool) string {
+func claudeBase(model string, mode string) string {
 	modelID := modelOrDefault(model)
-	return "claude --model " + modelID + " " + permissionFlag(supervised)
+	return "claude --model " + modelID + " " + permissionFlag(mode)
 }
 
 // claudeLaunch builds the claude invocation for a spawned agent: the base
@@ -53,8 +51,8 @@ func claudeBase(model string, supervised bool) string {
 // --resume) and a --name display label equal to the agent id, so the agent id,
 // tmux session, and claude session all read the same. sessionID is a generated
 // UUID (safe charset); name is the agent id (may be a ticket key) so it is quoted.
-func claudeLaunch(sessionID, name string, model string, supervised bool) string {
-	return claudeBase(model, supervised) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
+func claudeLaunch(sessionID, name string, model string, mode string) string {
+	return claudeBase(model, mode) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // pipelineHintGuidance is appended to a freshly spawned plain agent's system
@@ -86,8 +84,8 @@ func pipelineHint() string {
 // claudeResume builds the invocation that resumes an existing agent conversation
 // by its pinned session id (continues the same transcript). --name re-applies the
 // display label so the resumed session still reads as the agent id.
-func claudeResume(sessionID, name string, model string, supervised bool) string {
-	return claudeBase(model, supervised) + " --resume " + sessionID + " --name " + shellQuoteArg(name)
+func claudeResume(sessionID, name string, model string, mode string) string {
+	return claudeBase(model, mode) + " --resume " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // classifyInstruction is prepended to the task prompt for headless classification.
