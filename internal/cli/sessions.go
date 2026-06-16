@@ -30,14 +30,14 @@ func newLsCmd() *cobra.Command {
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
 			color := isTTY(cmd.OutOrStdout())
-			fmt.Fprintln(tw, "NAME\tID\tTYPE\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
+			fmt.Fprintln(tw, "NAME\tID\tTYPE\tMODEL\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
 			for _, s := range sessions {
 				name := s.Name
 				if name == "" {
 					name = "—"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					name, s.ID, typeOrPending(s.Type), statusCell(s.Status, color), contextCell(s.ContextTokens, s.ContextState, color),
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					name, s.ID, typeOrPending(s.Type), modelCell(s.Model), statusCell(s.Status, color), contextCell(s.ContextTokens, s.ContextState, color),
 					age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
 			}
 			return tw.Flush()
@@ -225,4 +225,26 @@ func printJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+// modelCell formats the model for the ls table. Shows short alias if the
+// model matches a known full ID, otherwise shows the full ID. Empty model
+// defaults to "sonnet" display.
+func modelCell(model string) string {
+	if model == "" {
+		return "sonnet" // default
+	}
+
+	// Map of full IDs to short aliases (reverse of lifecycle.modelAliases)
+	aliases := map[string]string{
+		"claude-opus-4-8":   "opus",
+		"claude-sonnet-4-6": "sonnet",
+		"claude-haiku-4-5":  "haiku",
+		"claude-fable-5":    "fable",
+	}
+
+	if alias, ok := aliases[model]; ok {
+		return alias
+	}
+	return model // show full ID if custom
 }
