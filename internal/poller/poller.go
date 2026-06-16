@@ -72,6 +72,8 @@ type Deps interface {
 	Compact(ctx context.Context, s *store.Session) error
 	// StampCompact records that /compact was just sent (cooldown guard).
 	StampCompact(ctx context.Context, id string) error
+	// SendKeys sends a single key (e.g. numbered menu option) to the agent's tmux pane.
+	SendKeys(ctx context.Context, tmuxSession, keys string) error
 }
 
 type Poller struct {
