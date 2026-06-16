@@ -477,3 +477,46 @@ func (s *Server) handleSetAutoApprove(w http.ResponseWriter, r *http.Request) {
 	s.notify()
 	writeJSON(w, http.StatusOK, map[string]bool{"auto_approve": req.Enabled})
 }
+
+// SetPermissionModeRequest is the body for PATCH /sessions/{id}/permission-mode.
+type SetPermissionModeRequest struct {
+	PermissionMode string `json:"permission_mode"`
+}
+
+// handleSetPermissionMode updates a session's permission mode.
+func (s *Server) handleSetPermissionMode(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req SetPermissionModeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad json")
+		return
+	}
+
+	// Validate mode (empty string is allowed - it means use global default)
+	if req.PermissionMode != "" {
+		validModes := []string{"acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"}
+		valid := false
+		for _, m := range validModes {
+			if req.PermissionMode == m {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			writeErr(w, http.StatusBadRequest, "invalid permission mode")
+			return
+		}
+	}
+
+	if err := s.store.UpdatePermissionMode(r.Context(), id, req.PermissionMode); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.notify()
+	writeJSON(w, http.StatusOK, map[string]string{"permission_mode": req.PermissionMode})
+}

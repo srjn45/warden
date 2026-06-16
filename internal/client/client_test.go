@@ -190,6 +190,22 @@ func TestClientSpawnSendsPermissionMode(t *testing.T) {
 	require.Equal(t, "acceptEdits", got["permission_mode"])
 }
 
+func TestClientSetPermissionMode(t *testing.T) {
+	var gotPath, gotMethod string
+	var gotBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Write([]byte(`{"permission_mode":"acceptEdits"}`))
+	}))
+	defer ts.Close()
+	err := New(ts.URL).SetPermissionMode(context.Background(), "abc123", "acceptEdits")
+	require.NoError(t, err)
+	require.Equal(t, http.MethodPatch, gotMethod)
+	require.Equal(t, "/sessions/abc123/permission-mode", gotPath)
+	require.Equal(t, "acceptEdits", gotBody["permission_mode"])
+}
+
 func TestCtxSetSendsValueAndBy(t *testing.T) {
 	var gotPath, gotMethod, gotBody string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
