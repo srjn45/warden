@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/srjn45/warden/internal/digest"
@@ -35,9 +36,25 @@ func digestEnv(t *testing.T, transcript string, narrator digest.Narrator) (*http
 	work := t.TempDir()
 
 	// init a real git repo with one committed + one unstaged change.
+	// Strip GIT_DIR and related variables from the subprocess environment: when
+	// this test runs inside a git pre-commit hook, GIT_DIR is exported and points
+	// at the parent repo's .git dir. Child git processes inheriting it would treat
+	// the temp dir as a separate work-tree and write core.worktree into the parent
+	// repo's .git/config, corrupting it.
+	safeEnv := make([]string, 0, len(os.Environ()))
+	for _, e := range os.Environ() {
+		key, _, _ := strings.Cut(e, "=")
+		switch key {
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR":
+			// drop — would point back at the parent repo
+		default:
+			safeEnv = append(safeEnv, e)
+		}
+	}
 	runGit := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = work
+		cmd.Env = safeEnv
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
