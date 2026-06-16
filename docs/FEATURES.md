@@ -37,6 +37,7 @@ on-disk state:
 | **Managed worktree spawn** | `--type` creates/adopts a git worktree where the type needs one. |
 | **Worktree adoption** | If a worktree for the ticket already exists, the spawn reattaches to it instead of erroring. |
 | **Supervised mode** | `--supervised` launches with `--permission-mode acceptEdits` (risky tools prompt → feed the approvals inbox) instead of the default `--dangerously-skip-permissions` bypass. Persisted and reused on restore. |
+| **Model selection** | Per-agent model selection via `--model` flag (CLI and MCP). Short aliases for common models: `opus`, `sonnet`, `haiku`, `fable`. Environment variable default: `WARDEN_MODEL_DEFAULT`. Fallback: `claude-sonnet-4-5` if not specified. Display: MODEL column in `warden ls`, model field in `warden status`. Stored in session: model preserved on restore/resume. |
 
 ### Task types (`--type`)
 
