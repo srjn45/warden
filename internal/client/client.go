@@ -564,3 +564,8 @@ func (c *Client) GetMetricsHistory(ctx context.Context, since string, limit int)
 	}
 	return resp.Samples, nil
 }
+
+func (c *Client) SetAutoApprove(ctx context.Context, id string, enabled bool) error {
+	body := map[string]bool{"enabled": enabled}
+	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/auto-approve", body, nil)
+}
