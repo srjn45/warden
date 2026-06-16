@@ -55,6 +55,8 @@ type Store interface {
 	StampCompact(ctx context.Context, id string) error
 	// UpdateAutoApprove sets the AutoApprove flag for a session.
 	UpdateAutoApprove(ctx context.Context, id string, enabled bool) error
+	// UpdatePermissionMode sets the permission mode for a session.
+	UpdatePermissionMode(ctx context.Context, id string, mode string) error
 	// ClearWorktree blanks the Worktree and Branch fields (after the worktree is
 	// removed from disk), so the record no longer points at a gone worktree.
 	ClearWorktree(ctx context.Context, id string) error
