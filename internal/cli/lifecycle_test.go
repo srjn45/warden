@@ -45,3 +45,49 @@ func TestPromptFromArgs(t *testing.T) {
 	require.Equal(t, "", promptFromArgs(nil), "no args means an interactive (empty-prompt) spawn")
 	require.Equal(t, "", promptFromArgs([]string{}), "no args means an interactive (empty-prompt) spawn")
 }
+
+func TestStartWithModelFlag(t *testing.T) {
+	// This test requires running daemon - mark as integration test
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// Test spawning with explicit model
+	// Note: This is a minimal example - actual test may need daemon setup
+	cmd := newStartCmd()
+	cmd.SetArgs([]string{"test task", "--model", "opus"})
+
+	// Would need to capture output and verify agent was spawned with opus model
+	// This is a placeholder for actual integration test
+	// Real test would:
+	// 1. Start daemon
+	// 2. Run spawn with --model opus
+	// 3. Query session and verify Model field = "claude-opus-4-8"
+	// 4. Clean up
+}
+
+func TestStartWithEnvVarDefault(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// Set env var
+	t.Setenv("WARDEN_MODEL_DEFAULT", "haiku")
+
+	// Test spawning without explicit model
+	// Should use haiku from env var
+	// Real test would verify Model field = "claude-haiku-4-5"
+}
+
+func TestStartWithHardcodedDefault(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// Ensure env var not set
+	t.Setenv("WARDEN_MODEL_DEFAULT", "")
+
+	// Test spawning without explicit model
+	// Should use claude-sonnet-4-5 default
+	// Real test would verify Model field = "claude-sonnet-4-5"
+}
