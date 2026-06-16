@@ -450,30 +450,3 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "restoring"})
 }
-
-// SetAutoApproveRequest is the body for PATCH /sessions/{id}/auto-approve.
-type SetAutoApproveRequest struct {
-	Enabled bool `json:"enabled"`
-}
-
-// handleSetAutoApprove updates a session's AutoApprove flag.
-func (s *Server) handleSetAutoApprove(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	var req SetAutoApproveRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad json")
-		return
-	}
-
-	if err := s.store.UpdateAutoApprove(r.Context(), id, req.Enabled); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "session not found")
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	s.notify()
-	writeJSON(w, http.StatusOK, map[string]bool{"auto_approve": req.Enabled})
-}

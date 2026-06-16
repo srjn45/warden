@@ -14,20 +14,13 @@ import (
 // fakeRateLimitLife embeds Lifecycle so unused methods stay nil.
 type fakeRateLimitLife struct {
 	Lifecycle
-	restoreCalls  int
-	restoreErr    error
-	sendKeysCalls int
-	sendKeysErr   error
+	restoreCalls int
+	restoreErr   error
 }
 
 func (f *fakeRateLimitLife) Restore(_ context.Context, sess *store.Session) error {
 	f.restoreCalls++
 	return f.restoreErr
-}
-
-func (f *fakeRateLimitLife) SendKeys(_ context.Context, tmuxSession, key string) error {
-	f.sendKeysCalls++
-	return f.sendKeysErr
 }
 
 // rateLimitStore is a minimal store fake for RateLimitScheduler tests.
@@ -240,23 +233,20 @@ func TestRateLimitScheduler_AttemptResume_AlreadyRunning(t *testing.T) {
 	}
 
 	st.sessions["test-123"] = &store.Session{
-		ID:          "test-123",
-		Status:      store.StatusRateLimited,
-		TmuxSession: "test-123",
+		ID:     "test-123",
+		Status: store.StatusRateLimited,
 	}
 
 	sched := NewRateLimitScheduler(life, st)
 
 	sched.attemptResume("test-123")
 
-	// Should send Enter to unpause
-	require.Equal(t, 1, life.sendKeysCalls, "should send Enter key")
-
-	// Should be treated as success: status → spawning
+	// Should be treated as success: status → spawning, rate limit cleared
 	require.Equal(t, 1, st.updateStatusIfCalls, "status should be updated")
+	require.Equal(t, 1, st.clearRateLimitCalls, "rate limit should be cleared")
 
-	// Should append event about sending Enter
-	require.Equal(t, 1, st.appendEventCalls, "should append rate-limit-resumed event")
+	// No error event should be appended
+	require.Equal(t, 0, st.appendEventCalls, "no event should be appended for already-running")
 
 	// Timer should be removed
 	sched.mu.Lock()

@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -73,8 +72,6 @@ type Deps interface {
 	Compact(ctx context.Context, s *store.Session) error
 	// StampCompact records that /compact was just sent (cooldown guard).
 	StampCompact(ctx context.Context, id string) error
-	// SendKeys sends a single key (e.g. numbered menu option) to the agent's tmux pane.
-	SendKeys(ctx context.Context, tmuxSession, keys string) error
 }
 
 type Poller struct {
@@ -104,10 +101,6 @@ type Poller struct {
 	CheckEvery      time.Duration // throttle for the per-agent transcript read
 	// OnContextAlert, if set, fires once per upward threshold crossing.
 	OnContextAlert func(sess *store.Session, state ctxtokens.State, tokens int)
-
-	// AutoApproveGlobal is the global default for auto-approval (from config).
-	// Per-session AutoApprove overrides this.
-	AutoApproveGlobal bool
 
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
 
@@ -144,38 +137,6 @@ func isTerminal(s store.Status) bool {
 		return true
 	}
 	return false
-}
-
-// tryAutoApprove attempts to auto-approve a recognized yes/no prompt by sending
-// option 1. It is called after the session transitions to StatusWaitingForInput.
-// Only attempts auto-approval if:
-// - AutoApproveGlobal OR session.AutoApprove is true
-// - The pane content parses as a recognized prompt (approval.Parse ok=true)
-// - Parsed options list has at least one option
-// Logs all attempts (success/skip/failure) for auditing.
-func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane string) {
-	// Check if auto-approve enabled (global OR per-session)
-	if !p.AutoApproveGlobal && !s.AutoApprove {
-		return
-	}
-
-	// Parse the approval
-	a, ok := approval.Parse(pane)
-	if !ok || len(a.Options) == 0 {
-		log.Printf("auto-approve skipped for %s: unrecognized prompt", s.ID)
-		return
-	}
-
-	// Send option 1
-	if err := p.deps.SendKeys(ctx, s.TmuxSession, "1"); err != nil {
-		log.Printf("auto-approve failed for %s: %v", s.ID, err)
-		return
-	}
-
-	log.Printf("auto-approved %s -> option 1: %s", s.ID, a.Options[0])
-	if p.OnChange != nil {
-		p.OnChange()
-	}
 }
 
 func (p *Poller) tick(ctx context.Context) error {
@@ -252,11 +213,6 @@ func (p *Poller) tick(ctx context.Context) error {
 					changed = true
 					if p.OnTransition != nil {
 						p.OnTransition(s, s.Status, next)
-					}
-
-					// Auto-approve if transitioned to waiting_for_input
-					if next == store.StatusWaitingForInput && pane != "" {
-						p.tryAutoApprove(ctx, s, pane)
 					}
 				}
 			}
