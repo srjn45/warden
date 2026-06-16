@@ -217,3 +217,50 @@ func TestAllowNonLoopbackFlag(t *testing.T) {
 		t.Fatal("WARDEN_ALLOW_NONLOOPBACK=1 should enable")
 	}
 }
+
+func TestAutoApproveEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		val  string
+		want bool
+	}{
+		{"empty", "", false},
+		{"0", "0", false},
+		{"off", "off", false},
+		{"OFF", "OFF", false},
+		{"false", "false", false},
+		{"FALSE", "FALSE", false},
+		{"1", "1", true},
+		{"on", "on", true},
+		{"ON", "ON", true},
+		{"true", "true", true},
+		{"TRUE", "TRUE", true},
+		{"junk", "junk", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("WARDEN_AUTO_APPROVE", tt.val)
+			cfg := Load()
+			if cfg.AutoApproveEnabled != tt.want {
+				t.Errorf("AutoApproveEnabled = %v, want %v", cfg.AutoApproveEnabled, tt.want)
+			}
+		})
+	}
+}
+
+func TestAutoApproveEnabledLegacy(t *testing.T) {
+	t.Setenv("AGENTCTL_AUTO_APPROVE", "1")
+	cfg := Load()
+	if !cfg.AutoApproveEnabled {
+		t.Error("legacy AGENTCTL_AUTO_APPROVE=1 should enable auto-approve")
+	}
+}
+
+func TestAutoApproveEnabledPreferNewVar(t *testing.T) {
+	t.Setenv("WARDEN_AUTO_APPROVE", "0")
+	t.Setenv("AGENTCTL_AUTO_APPROVE", "1")
+	cfg := Load()
+	if cfg.AutoApproveEnabled {
+		t.Error("WARDEN_AUTO_APPROVE should take precedence over AGENTCTL_AUTO_APPROVE")
+	}
+}

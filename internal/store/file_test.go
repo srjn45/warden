@@ -719,3 +719,82 @@ func TestFileStore_ClearRateLimit(t *testing.T) {
 	require.Equal(t, "rate-limit-resumed", lastEvent.Type)
 	require.Contains(t, lastEvent.Detail, "successfully resumed")
 }
+
+func TestAutoApproveFieldPersistence(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Insert session with AutoApprove = true
+	s1 := &Session{
+		ID:          "test-auto-approve-1",
+		TmuxSession: "tmux-1",
+		Repo:        "/repo",
+		Status:      StatusWorking,
+		AutoApprove: true,
+	}
+	require.NoError(t, st.Insert(ctx, s1))
+
+	// Retrieve and verify
+	got, err := st.Get(ctx, "test-auto-approve-1")
+	require.NoError(t, err)
+	require.True(t, got.AutoApprove, "AutoApprove should be true")
+
+	// Insert session with AutoApprove = false (default)
+	s2 := &Session{
+		ID:          "test-auto-approve-2",
+		TmuxSession: "tmux-2",
+		Repo:        "/repo",
+		Status:      StatusWorking,
+		AutoApprove: false,
+	}
+	require.NoError(t, st.Insert(ctx, s2))
+
+	got2, err := st.Get(ctx, "test-auto-approve-2")
+	require.NoError(t, err)
+	require.False(t, got2.AutoApprove, "AutoApprove should be false")
+}
+
+func TestUpdateAutoApprove(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Insert session with AutoApprove = false
+	s := &Session{
+		ID:          "test-update-auto",
+		TmuxSession: "tmux-1",
+		Repo:        "/repo",
+		Status:      StatusWorking,
+		AutoApprove: false,
+	}
+	require.NoError(t, st.Insert(ctx, s))
+
+	// Update to true
+	err = st.UpdateAutoApprove(ctx, "test-update-auto", true)
+	require.NoError(t, err)
+
+	got, err := st.Get(ctx, "test-update-auto")
+	require.NoError(t, err)
+	require.True(t, got.AutoApprove, "AutoApprove should be updated to true")
+
+	// Update to false
+	err = st.UpdateAutoApprove(ctx, "test-update-auto", false)
+	require.NoError(t, err)
+
+	got, err = st.Get(ctx, "test-update-auto")
+	require.NoError(t, err)
+	require.False(t, got.AutoApprove, "AutoApprove should be updated to false")
+}
+
+func TestUpdateAutoApproveNotFound(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	err = st.UpdateAutoApprove(ctx, "nonexistent", true)
+	require.ErrorIs(t, err, ErrNotFound)
+}

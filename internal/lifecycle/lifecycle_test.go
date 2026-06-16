@@ -17,21 +17,21 @@ import (
 )
 
 func TestClaudeLaunchPermissionMode(t *testing.T) {
-	def := claudeLaunch("sid", "agent-1", false)
+	def := claudeLaunch("sid", "agent-1", "", false)
 	require.Contains(t, def, "--permission-mode acceptEdits")
 	require.NotContains(t, def, "--dangerously-skip-permissions")
-	sup := claudeLaunch("sid", "agent-1", true)
+	sup := claudeLaunch("sid", "agent-1", "", true)
 	require.Contains(t, sup, "--permission-mode acceptEdits")
 	require.NotContains(t, sup, "--dangerously-skip-permissions")
 }
 
 func TestClaudeResumePermissionMode(t *testing.T) {
-	require.Contains(t, claudeResume("sid", "agent-1", false), "--permission-mode acceptEdits")
-	require.Contains(t, claudeResume("sid", "agent-1", true), "--permission-mode acceptEdits")
+	require.Contains(t, claudeResume("sid", "agent-1", "", false), "--permission-mode acceptEdits")
+	require.Contains(t, claudeResume("sid", "agent-1", "", true), "--permission-mode acceptEdits")
 }
 
 func TestClaudeLaunchModel(t *testing.T) {
-	cmd := claudeLaunch("sid", "agent-1", false)
+	cmd := claudeLaunch("sid", "agent-1", "", false)
 	require.Contains(t, cmd, "--model claude-sonnet-4-5")
 }
 
@@ -102,7 +102,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "WARDEN_SESSION_ID=PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 	// Launch claude UNATTENDED, with a pinned session id and display name.
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", false) + pipelineHint(), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", "", false) + pipelineHint(), "Enter"})
 }
 
 func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
@@ -227,7 +227,7 @@ func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "WARDEN_SESSION_ID=" + s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/repo"})
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint(), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, "", false) + pipelineHint(), "Enter"})
 }
 
 func TestSpawnPRReviewChecksOutPR(t *testing.T) {
@@ -488,7 +488,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-m", "700", "-p", "/state/prompts"})
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -538,7 +538,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 
 	// The launch line is a single physical line; the multi-line prompt is read
 	// back via $(cat …) so no embedded newline is ever typed into the pane.
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	require.NotContains(t, launch, "\n", "the typed launch command must never contain a raw newline")
 }
@@ -648,7 +648,7 @@ func TestRestoreRecreatesAndResumes(t *testing.T) {
 
 	require.NoError(t, lc.Restore(context.Background(), sess))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-r1", "-e", "WARDEN_SESSION_ID=agent-r1", "-e", "AGENTCTL_SESSION_ID=agent-r1", "-c", workdir})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-r1", claudeResume(sid, "agent-r1", false), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-r1", claudeResume(sid, "agent-r1", "", false), "Enter"})
 }
 
 func TestRestorePreconditionErrors(t *testing.T) {
@@ -772,7 +772,7 @@ func TestAdoptResumeMode(t *testing.T) {
 	require.Equal(t, store.StatusSpawning, sess.Status)
 	require.Equal(t, workdir, sess.Workdir)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-a1", "-e", "WARDEN_SESSION_ID=agent-a1", "-e", "AGENTCTL_SESSION_ID=agent-a1", "-c", workdir})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-a1", claudeResume(sid, "agent-a1", false), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-a1", claudeResume(sid, "agent-a1", "", false), "Enter"})
 }
 
 func TestAdoptResumeGeneratesID(t *testing.T) {
@@ -870,7 +870,7 @@ func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 
 func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 	fr := &FakeRunner{}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id", false)
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id", "", false)
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", "ag1", "mouse", "on"})
 	require.Greater(t,
@@ -953,7 +953,7 @@ func TestResumeSucceedsWhenMouseSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -t ag1 mouse on": {Err: errors.New("boom")},
 	}}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", false)
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", false)
 	require.NoError(t, err, "mouse-on failure must not fail the resume")
 }
 
@@ -961,7 +961,7 @@ func TestResumeFailsWhenNewSessionFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux new-session -d -s ag1 -e WARDEN_SESSION_ID=ag1 -e AGENTCTL_SESSION_ID=ag1 -c /cwd": {Err: errors.New("boom")},
 	}}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", false)
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", false)
 	require.Error(t, err, "new-session failure stays fatal")
 }
 
@@ -1109,7 +1109,7 @@ func TestSpawnInjectsPipelineHint(t *testing.T) {
 	require.NoError(t, err)
 
 	promptFile := "/state/prompts/" + s.ID
-	want := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	want := claudeLaunch(s.ClaudeSessionID, s.ID, "", false) + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
 	require.Contains(t, want, "--append-system-prompt")
 }
@@ -1190,7 +1190,7 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 	}
 
 	// The launch carries session-id, name, and the pipeline hint, but NO cat fragment.
-	expectedLaunch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint()
+	expectedLaunch := claudeLaunch(s.ClaudeSessionID, s.ID, "", false) + pipelineHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, expectedLaunch, "Enter"})
 
 	// Subject reads cleanly in the agent list instead of being blank.
@@ -1239,7 +1239,7 @@ func TestSpawnAppendsExitSuffix(t *testing.T) {
 	require.NoError(t, err)
 
 	promptFile := "/state/prompts/" + s.ID
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, false) + pipelineHint() +
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", false) + pipelineHint() +
 		` "$(cat ` + shellQuoteArg(promptFile) + `)"` +
 		" ; printf '%s' \"$?\" > " + shellQuoteArg(filepath.Join(l.ExitsDir, s.ID))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})

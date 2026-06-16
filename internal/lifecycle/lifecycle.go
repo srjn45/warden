@@ -42,9 +42,10 @@ func permissionFlag(_ bool) string {
 }
 
 // claudeBase is the claude command + model + permission flag every agent session starts from.
-// Uses claude-sonnet-4-5 (1M context window) for all agents.
-func claudeBase(supervised bool) string {
-	return "claude --model claude-sonnet-4-5 " + permissionFlag(supervised)
+// Uses the provided model, or the default (claude-sonnet-4-5) when model is empty.
+func claudeBase(model string, supervised bool) string {
+	modelID := modelOrDefault(model)
+	return "claude --model " + modelID + " " + permissionFlag(supervised)
 }
 
 // claudeLaunch builds the claude invocation for a spawned agent: the base
@@ -52,8 +53,8 @@ func claudeBase(supervised bool) string {
 // --resume) and a --name display label equal to the agent id, so the agent id,
 // tmux session, and claude session all read the same. sessionID is a generated
 // UUID (safe charset); name is the agent id (may be a ticket key) so it is quoted.
-func claudeLaunch(sessionID, name string, supervised bool) string {
-	return claudeBase(supervised) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
+func claudeLaunch(sessionID, name string, model string, supervised bool) string {
+	return claudeBase(model, supervised) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // pipelineHintGuidance is appended to a freshly spawned plain agent's system
@@ -85,8 +86,8 @@ func pipelineHint() string {
 // claudeResume builds the invocation that resumes an existing agent conversation
 // by its pinned session id (continues the same transcript). --name re-applies the
 // display label so the resumed session still reads as the agent id.
-func claudeResume(sessionID, name string, supervised bool) string {
-	return claudeBase(supervised) + " --resume " + sessionID + " --name " + shellQuoteArg(name)
+func claudeResume(sessionID, name string, model string, supervised bool) string {
+	return claudeBase(model, supervised) + " --resume " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // classifyInstruction is prepended to the task prompt for headless classification.
@@ -211,6 +212,7 @@ type SpawnRequest struct {
 	Cwd         string // free-form: dir to launch claude from (the caller's "master shell"); required
 	Supervised  bool   // opt-in: launch with --permission-mode acceptEdits (prompts) instead of bypass
 	AutoRestart bool   // opt-in: auto-resume this agent when it errors (capped)
+	Model       string // claude model (opus/sonnet/haiku or full ID); empty = default
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -581,6 +583,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Status:      store.StatusSpawning,
 		Supervised:  req.Supervised,
 		AutoRestart: req.AutoRestart,
+		Model:       req.Model,
 	}
 	sess.ClaudeSessionID, err = store.NewSessionID()
 	if err != nil {
@@ -631,7 +634,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	if err := l.newAgentSession(ctx, "", sess.ID, req.Cwd); err != nil {
 		return nil, err
 	}
-	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Supervised) + pipelineHint() + launchPrompt + l.exitSuffix(sess.ID)
+	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, req.Supervised) + pipelineHint() + launchPrompt + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
 		l.cleanupFailedSpawn(sess, true, false)
@@ -663,7 +666,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		l.cleanupFailedSpawn(sess, false, worktreeCreated)
 		return nil, err
 	}
-	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Supervised) + pipelineHint() + l.exitSuffix(sess.ID)
+	launch := claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, req.Supervised) + pipelineHint() + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -773,11 +776,11 @@ func EnsureExtendedKeys(ctx context.Context, run Runner) {
 
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
 // claude conversation claudeID inside it. Shared by Restore and Adopt.
-func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID string, supervised bool) error {
+func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID, model string, supervised bool) error {
 	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
 		return err
 	}
-	resume := claudeResume(claudeID, id, supervised) + l.exitSuffix(id)
+	resume := claudeResume(claudeID, id, model, supervised) + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, resume, "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
 	}
@@ -803,7 +806,7 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	if l.transcriptPath(sess) == "" {
 		return ErrNoTranscript
 	}
-	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Supervised)
+	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, sess.Supervised)
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
@@ -817,6 +820,7 @@ type AdoptRequest struct {
 	Cwd             string
 	ClaudeSessionID string
 	TmuxSession     string
+	Model           string // claude model (opus/sonnet/haiku or full ID); empty = default
 }
 
 // Adopt registers a Claude session warden did not spawn. Resume mode resumes
@@ -840,6 +844,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 		Type:            store.TypeOther,
 		Workdir:         req.Cwd,
 		ClaudeSessionID: req.ClaudeSessionID,
+		Model:           req.Model,
 	}
 	if req.TmuxSession == "" { // resume mode
 		if req.ClaudeSessionID == "" {
@@ -849,7 +854,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 			return nil, ErrWorkdirMissing
 		}
 		sess.Status = store.StatusSpawning
-		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID, false); err != nil {
+		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID, req.Model, false); err != nil {
 			return nil, err
 		}
 		return sess, nil
@@ -1028,6 +1033,7 @@ type JobSpawnRequest struct {
 	BaseBranch string // worktree base ref ("" = off HEAD); ignored when Worktree is false
 	Type       store.Type
 	Supervised bool
+	Model      string // claude model (opus/sonnet/haiku or full ID); empty = default
 }
 
 // exitSuffix ensures ExitsDir exists, clears any stale exit-file for id (from a
@@ -1101,6 +1107,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, Supervised: req.Supervised,
 		PipelineID: req.PipelineID, JobID: req.JobID,
+		Model: req.Model,
 	}
 	cid, err := store.NewSessionID()
 	if err != nil {
@@ -1139,7 +1146,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, err
 	}
-	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Supervised) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
+	launch := claudeLaunch(sess.ClaudeSessionID, id, req.Model, req.Supervised) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)

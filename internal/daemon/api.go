@@ -244,6 +244,7 @@ func (s *Server) router() http.Handler {
 	r.Get("/fs/dirs", s.handleListDirs)
 	r.Get("/approvals", s.handleApprovals)
 	r.Post("/sessions/{id}/approve", s.handleApprove)
+	r.Patch("/sessions/{id}/auto-approve", s.handleSetAutoApprove)
 	r.Get("/sessions/{id}/digest", s.handleDigest)
 	r.Get("/metrics", s.handleMetrics)
 	r.Get("/metrics/history", s.handleMetricsHistory)
