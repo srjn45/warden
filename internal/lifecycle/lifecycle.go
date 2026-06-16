@@ -782,11 +782,11 @@ func EnsureExtendedKeys(ctx context.Context, run Runner) {
 
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
 // claude conversation claudeID inside it. Shared by Restore and Adopt.
-func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID, model string, supervised bool) error {
+func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID, model string, mode string) error {
 	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
 		return err
 	}
-	resume := claudeResume(claudeID, id, model, supervised) + l.exitSuffix(id)
+	resume := claudeResume(claudeID, id, model, mode) + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, resume, "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
 	}
@@ -812,7 +812,11 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	if l.transcriptPath(sess) == "" {
 		return ErrNoTranscript
 	}
-	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, sess.Supervised)
+	mode := sess.PermissionMode
+	if mode == "" {
+		mode = "auto" // default until config is wired
+	}
+	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode)
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
@@ -860,7 +864,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 			return nil, ErrWorkdirMissing
 		}
 		sess.Status = store.StatusSpawning
-		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID, req.Model, false); err != nil {
+		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID, req.Model, "auto"); err != nil {
 			return nil, err
 		}
 		return sess, nil
