@@ -46,11 +46,8 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 
 	ctx := context.Background()
 
-	// Parse restore time from pane (already captured by poller)
-	// NOTE: parseRestoreTime is in internal/poller but not exported yet
-	// For now, always fall back to retry interval
-	restoreTime := time.Time{}
-	ok := false
+	// Parse restore time from pane excerpt (already captured by poller)
+	restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt)
 
 	var scheduleAt time.Time
 	if ok && restoreTime.After(time.Now()) {
