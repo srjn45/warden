@@ -392,6 +392,12 @@ func (fs *FileStore) UpdateAutoApprove(ctx context.Context, id string, enabled b
 	})
 }
 
+func (fs *FileStore) UpdatePermissionMode(ctx context.Context, id string, mode string) error {
+	return fs.mutate(id, func(s *Session) {
+		s.PermissionMode = mode
+	})
+}
+
 func (fs *FileStore) ClearWorktree(ctx context.Context, id string) error {
 	return fs.mutate(id, func(s *Session) { s.Worktree = ""; s.Branch = "" })
 }
