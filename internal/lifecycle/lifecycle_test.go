@@ -1290,7 +1290,7 @@ func TestClaudeBase(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {
-			got := claudeBase(tt.mode)
+			got := claudeBase("", tt.mode)
 			if got != tt.want {
 				t.Errorf("claudeBase(%q) = %q, want %q", tt.mode, got, tt.want)
 			}
