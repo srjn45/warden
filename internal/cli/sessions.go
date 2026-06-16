@@ -66,8 +66,8 @@ func newStatusCmd() *cobra.Command {
 				name = "—"
 			}
 			color := isTTY(out)
-			fmt.Fprintf(out, "id:         %s\nname:       %s\ntype:       %s\nticket:     %s\nstatus:     %s\nrepo:       %s\nworkdir:    %s\nworktree:   %s\nbranch:     %s\npr:         %s\nsupervised: %v\nsubject:    %s\nclaude:     %s\nupdated:    %s\n",
-				s.ID, name, typeOrPending(s.Type), s.Ticket, statusCell(s.Status, color), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, s.Supervised, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
+			fmt.Fprintf(out, "id:         %s\nname:       %s\ntype:       %s\nmodel:      %s\nticket:     %s\nstatus:     %s\nrepo:       %s\nworkdir:    %s\nworktree:   %s\nbranch:     %s\npr:         %s\nsupervised: %v\nsubject:    %s\nclaude:     %s\nupdated:    %s\n",
+				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, s.Supervised, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
 
 			// Show rate limit info if present
 			if rateLimitInfo := formatRateLimitInfo(s); rateLimitInfo != "" {
@@ -247,4 +247,13 @@ func modelCell(model string) string {
 		return alias
 	}
 	return model // show full ID if custom
+}
+
+// modelOrDefault returns the model display value for status output.
+// Shows full model ID, or "claude-sonnet-4-5" for empty.
+func modelOrDefault(model string) string {
+	if model == "" {
+		return "claude-sonnet-4-5" // default
+	}
+	return model
 }
