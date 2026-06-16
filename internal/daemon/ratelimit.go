@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -45,11 +46,8 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 
 	ctx := context.Background()
 
-	// Parse restore time from pane (already captured by poller)
-	// NOTE: parseRestoreTime is in internal/poller but not exported yet
-	// For now, always fall back to retry interval
-	restoreTime := time.Time{}
-	ok := false
+	// Parse restore time from pane excerpt (already captured by poller)
+	restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt)
 
 	var scheduleAt time.Time
 	if ok && restoreTime.After(time.Now()) {
@@ -113,8 +111,44 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	// Attempt resume
 	err = r.life.Restore(ctx, sess)
 
+	// If tmux session already exists, send a resume prompt to Claude
+	if err == lifecycle.ErrAlreadyRunning {
+		// The tmux session exists - Claude is paused showing rate limit error
+		// Send a prompt to resume Claude and continue working
+		resumePrompt := "continue"
+		sendErr := r.life.Input(ctx, sess.TmuxSession, resumePrompt)
+		if sendErr != nil {
+			// Input failed - treat as non-rate-limit error
+			_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusErrored)
+			_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
+				TS:     time.Now().UTC(),
+				Type:   "rate-limit-resume-failed",
+				Detail: "Input failed: " + sendErr.Error(),
+			})
+
+			r.mu.Lock()
+			delete(r.timers, sess.ID)
+			r.mu.Unlock()
+			return
+		}
+
+		// Input succeeded - transition to spawning and let poller verify
+		// If still rate-limited, poller will detect and call OnTransition again
+		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
+		_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
+			TS:     time.Now().UTC(),
+			Type:   "rate-limit-resumed",
+			Detail: "sent resume prompt (tmux session exists)",
+		})
+
+		r.mu.Lock()
+		delete(r.timers, sess.ID)
+		r.mu.Unlock()
+		return
+	}
+
 	if err == nil {
-		// SUCCESS: transition back to spawning
+		// SUCCESS: Restore created new session
 		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
 		_ = r.store.ClearRateLimit(ctx, sess.ID)
 
@@ -142,25 +176,24 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	}
 
 	if isRateLimit {
-		// Still rate limited - reschedule
-		// TODO: Parse new restore time when parseRestoreTime is available
-		scheduleAt := time.Now().Add(r.retryInterval)
+		// Still rate limited - reschedule with parsed timestamp if available
+		scheduleAt := time.Now().Add(r.retryInterval) // fallback
+		detail := "no time parsed, retrying in " + r.retryInterval.String()
+
+		// Try to parse restore time from error message
+		if parsedTime, ok := poller.ParseRestoreTime(errMsg); ok {
+			scheduleAt = parsedTime.Add(r.buffer)
+			detail = "parsed restore time: " + parsedTime.Format(time.RFC3339)
+		}
+
 		_ = r.store.SetRateLimit(ctx, sess.ID, scheduleAt, sess.RateLimitRetryCount+1)
 		r.scheduleResume(sess.ID, scheduleAt)
 
 		_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
 			TS:     time.Now().UTC(),
 			Type:   "rate-limit-retry",
-			Detail: "no time parsed, retrying in " + r.retryInterval.String(),
+			Detail: detail,
 		})
-	} else if err == lifecycle.ErrAlreadyRunning {
-		// Agent resumed on its own before the timer fired — treat as success.
-		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
-		_ = r.store.ClearRateLimit(ctx, sess.ID)
-
-		r.mu.Lock()
-		delete(r.timers, sess.ID)
-		r.mu.Unlock()
 	} else {
 		// Different error (network, auth, etc.) - transition to errored
 		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusErrored)

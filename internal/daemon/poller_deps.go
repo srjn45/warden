@@ -80,3 +80,7 @@ func (d *pollerDeps) Compact(ctx context.Context, s *store.Session) error {
 func (d *pollerDeps) StampCompact(ctx context.Context, id string) error {
 	return d.store.StampCompact(ctx, id)
 }
+
+func (d *pollerDeps) SendKeys(ctx context.Context, tmuxSession, keys string) error {
+	return d.lc.SendKeys(ctx, tmuxSession, keys)
+}

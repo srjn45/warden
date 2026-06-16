@@ -70,8 +70,9 @@ func (f *ctxFakeDeps) UpdateContext(_ context.Context, _ string, tokens int, sta
 	f.updated = append(f.updated, fmt.Sprintf("%d:%s", tokens, state))
 	return nil
 }
-func (f *ctxFakeDeps) Compact(context.Context, *store.Session) error { f.compacted++; return nil }
-func (f *ctxFakeDeps) StampCompact(context.Context, string) error    { f.stamped++; return nil }
+func (f *ctxFakeDeps) Compact(context.Context, *store.Session) error  { f.compacted++; return nil }
+func (f *ctxFakeDeps) StampCompact(context.Context, string) error     { f.stamped++; return nil }
+func (f *ctxFakeDeps) SendKeys(context.Context, string, string) error { return nil }
 
 func TestCheckContextCriticalIdleCompactsAndPersists(t *testing.T) {
 	fd := &ctxFakeDeps{tokens: 420000, tokensOK: true}

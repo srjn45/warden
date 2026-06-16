@@ -14,6 +14,7 @@ type Config struct {
 	ClaudeProjectsDir  string
 	NotifyEnabled      bool
 	ApprovalsEnabled   bool
+	AutoApproveEnabled bool // WARDEN_AUTO_APPROVE setting
 	SpawnGateEnabled   bool
 	SpawnGateMaxAgents int
 	MetricsEnabled     bool
@@ -85,6 +86,17 @@ func approvalsEnabled() bool {
 		return false
 	}
 	return true
+}
+
+// autoApproveEnabled reads WARDEN_AUTO_APPROVE (legacy AGENTCTL_AUTO_APPROVE);
+// OFF by default (opt-in safety), enabled only for 1/on/true. Gates the
+// auto-approval feature (automatic option 1 selection for recognized prompts).
+func autoApproveEnabled() bool {
+	switch strings.ToLower(env("AUTO_APPROVE")) {
+	case "1", "on", "true":
+		return true
+	}
+	return false
 }
 
 // spawnGateEnabled reads WARDEN_SPAWN_GATE (legacy AGENTCTL_SPAWN_GATE); ON by
@@ -186,6 +198,7 @@ func Load() Config {
 		ClaudeProjectsDir:  envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
 		NotifyEnabled:      notifyEnabled(),
 		ApprovalsEnabled:   approvalsEnabled(),
+		AutoApproveEnabled: autoApproveEnabled(),
 		SpawnGateEnabled:   spawnGateEnabled(),
 		SpawnGateMaxAgents: spawnGateMaxAgents(),
 		MetricsEnabled:     metricsEnabled(),

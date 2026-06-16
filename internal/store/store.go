@@ -53,6 +53,8 @@ type Store interface {
 	UpdateContext(ctx context.Context, id string, tokens int, state string) error
 	// StampCompact records the time of an auto-/compact (cooldown guard).
 	StampCompact(ctx context.Context, id string) error
+	// UpdateAutoApprove sets the AutoApprove flag for a session.
+	UpdateAutoApprove(ctx context.Context, id string, enabled bool) error
 	// ClearWorktree blanks the Worktree and Branch fields (after the worktree is
 	// removed from disk), so the record no longer points at a gone worktree.
 	ClearWorktree(ctx context.Context, id string) error
