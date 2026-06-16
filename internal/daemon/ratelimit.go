@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -142,16 +143,23 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	}
 
 	if isRateLimit {
-		// Still rate limited - reschedule
-		// TODO: Parse new restore time when parseRestoreTime is available
-		scheduleAt := time.Now().Add(r.retryInterval)
+		// Still rate limited - reschedule with parsed timestamp if available
+		scheduleAt := time.Now().Add(r.retryInterval) // fallback
+		detail := "no time parsed, retrying in " + r.retryInterval.String()
+
+		// Try to parse restore time from error message
+		if parsedTime, ok := poller.ParseRestoreTime(errMsg); ok {
+			scheduleAt = parsedTime.Add(r.buffer)
+			detail = "parsed restore time: " + parsedTime.Format(time.RFC3339)
+		}
+
 		_ = r.store.SetRateLimit(ctx, sess.ID, scheduleAt, sess.RateLimitRetryCount+1)
 		r.scheduleResume(sess.ID, scheduleAt)
 
 		_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
 			TS:     time.Now().UTC(),
 			Type:   "rate-limit-retry",
-			Detail: "no time parsed, retrying in " + r.retryInterval.String(),
+			Detail: detail,
 		})
 	} else if err == lifecycle.ErrAlreadyRunning {
 		// Agent resumed on its own before the timer fired — treat as success.

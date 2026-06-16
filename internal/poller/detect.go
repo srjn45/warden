@@ -34,11 +34,11 @@ func detectRateLimit(pane string) (bool, time.Time, bool) {
 	}
 
 	// Pattern 2: Try to parse restore time
-	restoreTime, ok := parseRestoreTime(pane)
+	restoreTime, ok := ParseRestoreTime(pane)
 	return true, restoreTime, ok
 }
 
-// parseRestoreTime attempts to extract a restore timestamp from the error message.
+// ParseRestoreTime attempts to extract a restore timestamp from the error message.
 // Returns (time, true) if successful, (zero, false) otherwise.
 //
 // Supported patterns:
@@ -46,7 +46,7 @@ func detectRateLimit(pane string) (bool, time.Time, bool) {
 //   - "resets 13:30 (Europe/Madrid)" - 24-hour variant
 //   - "Try again at 3:45 PM" - generic format
 //   - "Available again at 15:45" - 24-hour generic
-func parseRestoreTime(pane string) (time.Time, bool) {
+func ParseRestoreTime(pane string) (time.Time, bool) {
 	// Pattern 1: "resets 1:30pm (Europe/Madrid)" or "resets 13:30 (Europe/Madrid)"
 	// Capture time (e.g., "1:30pm" or "13:30") and timezone (e.g., "Europe/Madrid")
 	reClaudeCode := regexp.MustCompile(`resets\s+(\d{1,2}:\d{2})(?:am|pm)?\s*\(([^)]+)\)`)
