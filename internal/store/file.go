@@ -386,12 +386,6 @@ func (fs *FileStore) StampCompact(ctx context.Context, id string) error {
 	})
 }
 
-func (fs *FileStore) UpdateAutoApprove(ctx context.Context, id string, enabled bool) error {
-	return fs.mutate(id, func(s *Session) {
-		s.AutoApprove = enabled
-	})
-}
-
 func (fs *FileStore) ClearWorktree(ctx context.Context, id string) error {
 	return fs.mutate(id, func(s *Session) { s.Worktree = ""; s.Branch = "" })
 }

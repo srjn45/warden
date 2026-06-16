@@ -88,9 +88,9 @@ func TestParseRestoreTime_Placeholder(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, gotOK := ParseRestoreTime(tt.pane)
+			_, gotOK := parseRestoreTime(tt.pane)
 			if gotOK != tt.wantOK {
-				t.Errorf("ParseRestoreTime() ok = %v, want %v", gotOK, tt.wantOK)
+				t.Errorf("parseRestoreTime() ok = %v, want %v", gotOK, tt.wantOK)
 			}
 		})
 	}

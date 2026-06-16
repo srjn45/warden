@@ -163,7 +163,6 @@ type SpawnParams struct {
 	Supervised  bool
 	AutoRestart bool
 	Force       bool
-	Model       string
 }
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
@@ -173,7 +172,6 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree,
 		"prompt": p.Prompt, "cwd": p.Cwd, "supervised": p.Supervised,
 		"auto_restart": p.AutoRestart, "force": p.Force,
-		"model": p.Model,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		var se *StatusError
@@ -565,9 +563,4 @@ func (c *Client) GetMetricsHistory(ctx context.Context, since string, limit int)
 		return nil, err
 	}
 	return resp.Samples, nil
-}
-
-func (c *Client) SetAutoApprove(ctx context.Context, id string, enabled bool) error {
-	body := map[string]bool{"enabled": enabled}
-	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/auto-approve", body, nil)
 }
