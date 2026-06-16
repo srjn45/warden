@@ -30,18 +30,18 @@ type ticketArgs struct {
 // All fields are optional in the schema: the daemon validates that EITHER a
 // prompt OR (type + repo) is provided, so no single field is required here.
 type spawnArgs struct {
-	Type       string `json:"type,omitempty" jsonschema:"task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other"`
-	Ticket     string `json:"ticket,omitempty" jsonschema:"optional Jira ticket; becomes the session id when present"`
-	Repo       string `json:"repo,omitempty" jsonschema:"absolute path to the repo (managed-worktree mode)"`
-	Branch     string `json:"branch,omitempty" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
-	PR         string `json:"pr,omitempty" jsonschema:"optional PR number/url for pr-review"`
-	Worktree   bool   `json:"worktree,omitempty" jsonschema:"create a scratch worktree for analysis/spike"`
-	Prompt     string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
-	Dir        string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
-	Supervised bool   `json:"supervised,omitempty" jsonschema:"no-op: acceptEdits is now the default for all agents (kept for backwards compatibility)"`
-	Force      bool   `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
-	Name       string `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
-	Model      string `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to sonnet-4.5 or WARDEN_MODEL_DEFAULT"`
+	Type           string `json:"type,omitempty" jsonschema:"task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other"`
+	Ticket         string `json:"ticket,omitempty" jsonschema:"optional Jira ticket; becomes the session id when present"`
+	Repo           string `json:"repo,omitempty" jsonschema:"absolute path to the repo (managed-worktree mode)"`
+	Branch         string `json:"branch,omitempty" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
+	PR             string `json:"pr,omitempty" jsonschema:"optional PR number/url for pr-review"`
+	Worktree       bool   `json:"worktree,omitempty" jsonschema:"create a scratch worktree for analysis/spike"`
+	Prompt         string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
+	Dir            string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
+	PermissionMode string `json:"permission_mode,omitempty" jsonschema:"permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; defaults to config or 'auto'"`
+	Force          bool   `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
+	Name           string `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
+	Model          string `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to sonnet-4.5 or WARDEN_MODEL_DEFAULT"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -184,7 +184,7 @@ func NewServer(daemonBase string) *Server {
 		sess, err := s.cl.Spawn(ctx, client.SpawnParams{
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree,
-			Prompt: a.Prompt, Cwd: cwd, Supervised: a.Supervised, Force: a.Force,
+			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
 			Name: a.Name, Model: a.Model,
 		})
 		if err != nil {

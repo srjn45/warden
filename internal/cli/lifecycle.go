@@ -42,10 +42,15 @@ func newStartCmd() *cobra.Command {
 				}
 				name, _ := cmd.Flags().GetString("name")
 				supervised, _ := cmd.Flags().GetBool("supervised")
+				permissionMode, _ := cmd.Flags().GetString("permission-mode")
+				// --supervised is an alias for --permission-mode acceptEdits
+				if supervised && permissionMode == "" {
+					permissionMode = "acceptEdits"
+				}
 				autoRestart, _ := cmd.Flags().GetBool("auto-restart")
 				force, _ := cmd.Flags().GetBool("force")
 				model, _ := cmd.Flags().GetString("model")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, Supervised: supervised, AutoRestart: autoRestart, Force: force, Model: model})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -81,6 +86,11 @@ func newStartCmd() *cobra.Command {
 			pr, _ := cmd.Flags().GetString("pr")
 			worktree, _ := cmd.Flags().GetBool("worktree")
 			supervised, _ := cmd.Flags().GetBool("supervised")
+			permissionMode, _ := cmd.Flags().GetString("permission-mode")
+			// --supervised is an alias for --permission-mode acceptEdits
+			if supervised && permissionMode == "" {
+				permissionMode = "acceptEdits"
+			}
 			autoRestart, _ := cmd.Flags().GetBool("auto-restart")
 			if typ == "pr-review" && pr == "" && branch == "" {
 				return fmt.Errorf("pr-review needs --pr or --branch")
@@ -92,7 +102,7 @@ func newStartCmd() *cobra.Command {
 			force, _ := cmd.Flags().GetBool("force")
 			model, _ := cmd.Flags().GetString("model")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, Supervised: supervised, AutoRestart: autoRestart, Force: force, Model: model,
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model,
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -118,7 +128,8 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
 	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
-	cmd.Flags().Bool("supervised", false, "no-op: acceptEdits is now the default for all agents (kept for backwards compatibility)")
+	cmd.Flags().Bool("supervised", false, "alias for --permission-mode acceptEdits (kept for backwards compatibility)")
+	cmd.Flags().String("permission-mode", "", "permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')")
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: sonnet-4.5 or WARDEN_MODEL_DEFAULT)")
