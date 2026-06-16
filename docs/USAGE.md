@@ -192,6 +192,104 @@ Notes:
 
 ---
 
+## 5.1. Model Selection
+
+Warden supports per-agent model selection via the `--model` flag. You can specify either a short alias or a full model ID. The model is stored with the session and preserved across restores.
+
+### How to specify a model
+
+**Prompt mode:**
+```sh
+warden start "Complex research task" --model opus
+warden start "Quick analysis" --model haiku
+```
+
+**Managed worktree mode:**
+```sh
+warden start PROJ-350 --type development --model opus
+warden start --type pr-review --pr 1234 --model sonnet
+```
+
+### Model aliases
+
+Warden recognizes these short aliases:
+
+| Alias | Full Model ID | Use Case |
+|---|---|---|
+| `opus` | `claude-opus-4-8` | Complex reasoning, large codebases, architectural decisions |
+| `sonnet` | `claude-sonnet-4-5` | Balanced performance (default) |
+| `haiku` | `claude-3-5-haiku-20241022` | Fast, lightweight tasks |
+| `fable` | `claude-3-7-fable` | Experimental tasks |
+
+You can also use any full model ID directly:
+```sh
+warden start "Task" --model claude-sonnet-4-6
+```
+
+### Default model
+
+If you don't specify `--model`, warden uses:
+
+1. **`WARDEN_MODEL_DEFAULT` environment variable** (if set)
+2. **`claude-sonnet-4-5`** (built-in fallback)
+
+Set your default model:
+```sh
+# In your shell profile (.bashrc, .zshrc, etc.)
+export WARDEN_MODEL_DEFAULT=opus
+
+# Or per-session
+WARDEN_MODEL_DEFAULT=haiku warden start "Quick task"
+```
+
+The environment variable accepts either aliases or full model IDs:
+```sh
+export WARDEN_MODEL_DEFAULT=opus
+export WARDEN_MODEL_DEFAULT=claude-opus-4-8   # same effect
+```
+
+### Viewing the model
+
+The model is shown in multiple places:
+
+**`warden ls`** — MODEL column:
+```sh
+warden ls
+# ID          TYPE      STATUS   AGE  MODEL              DIR         SUBJECT
+# PROJ-350    dev       working  5m   claude-opus-4-8    PROJ-350    refactoring auth
+# agent-a1b2  analysis  idle     2m   claude-haiku-...   agent-a1b2  reviewing logs
+```
+
+**`warden status <id>`** — model field:
+```sh
+warden status PROJ-350
+# id:       PROJ-350
+# type:     development
+# status:   working
+# model:    claude-opus-4-8
+# ...
+```
+
+### MCP tool usage
+
+When spawning agents via the MCP `spawn_agent` tool (from an orchestrator Claude session), pass the `model` parameter:
+
+```typescript
+// Orchestrator Claude calls spawn_agent
+spawn_agent({
+  prompt: "Analyze the auth module",
+  model: "opus"  // or "claude-opus-4-8"
+})
+```
+
+The same default resolution applies: `WARDEN_MODEL_DEFAULT` → `claude-sonnet-4-5`.
+
+### Restored agents
+
+When you `warden restore <id>` an orphaned agent, it resumes with the **original model** it was spawned with — the model is stored in the session record and preserved.
+
+---
+
 ## 6. Command reference
 
 All commands accept `--addr` to point at a non-default daemon (overrides
@@ -212,6 +310,7 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--branch` | New branch (development) or checkout target (pr-review). |
 | `--pr` | PR number/URL (pr-review). |
 | `--worktree` | Create a scratch worktree for analysis/spike. |
+| `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: `WARDEN_MODEL_DEFAULT` env var, or `claude-sonnet-4-5`. |
 
 ### `warden ls`
 List all active sessions: `ID  TYPE  STATUS  AGE  DIR  SUBJECT`.
@@ -602,6 +701,7 @@ Set via environment variables (or override the daemon address per-command with
 | `WARDEN_DATA_DIR` | `~/.warden` | Directory for session JSON files (`sessions/`, `closed/`) and prompt files (`prompts/`) |
 | `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored — **not** where the agent runs (prompt agents run in the caller's cwd or `--dir`) |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects |
+| `WARDEN_MODEL_DEFAULT` | `claude-sonnet-4-5` | Default model for new agents; can be a short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Overridden by `--model` flag |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
 | `WARDEN_TOKEN_GUARD` | `on` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web. Disable with `0`/`off`/`false` |
 | `WARDEN_TOKEN_WARN_ALERT` | `on` | Fire a desktop notification (when `WARDEN_NOTIFY` is on) once per upward crossing into warning/critical. Disable with `0`/`off`/`false` |
