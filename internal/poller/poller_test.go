@@ -3,6 +3,7 @@ package poller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -207,6 +208,7 @@ func (d *stubDeps) ContextTokens(_ context.Context, _ *store.Session) (int, bool
 func (d *stubDeps) UpdateContext(_ context.Context, _ string, _ int, _ string) error { return nil }
 func (d *stubDeps) Compact(_ context.Context, _ *store.Session) error                { return nil }
 func (d *stubDeps) StampCompact(_ context.Context, _ string) error                   { return nil }
+func (d *stubDeps) SendKeys(_ context.Context, _ string, _ string) error             { return nil }
 func (d *stubDeps) SessionAlive(_ context.Context, name string) bool                 { return d.alive[name] }
 func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {
 	if d.captureErr != nil {
@@ -666,4 +668,186 @@ func TestClassify_NoRateLimit(t *testing.T) {
 	if got == store.StatusRateLimited {
 		t.Error("classify() should not return rate_limited for normal output")
 	}
+}
+
+func TestTryAutoApprove(t *testing.T) {
+	// Mock deps that track SendKeys calls
+	var sendKeysLog []struct{ session, keys string }
+	deps := &mockDeps{
+		sendKeys: func(ctx context.Context, sess, keys string) error {
+			sendKeysLog = append(sendKeysLog, struct{ session, keys string }{sess, keys})
+			return nil
+		},
+	}
+
+	p := New(deps, 0)
+	p.AutoApproveGlobal = true
+	ctx := context.Background()
+
+	// Test 1: Auto-approve disabled globally and per-session
+	sess := &store.Session{
+		ID:          "test-1",
+		TmuxSession: "tmux-1",
+		AutoApprove: false,
+	}
+	p.AutoApproveGlobal = false
+	p.tryAutoApprove(ctx, sess, "Do you want?\n❯ 1. Yes\n  2. No")
+	if len(sendKeysLog) != 0 {
+		t.Error("should not auto-approve when disabled")
+	}
+
+	// Test 2: Auto-approve enabled globally, recognized prompt
+	p.AutoApproveGlobal = true
+	p.tryAutoApprove(ctx, sess, "Bash(ls)\nDo you want to proceed?\n❯ 1. Yes\n  2. No")
+	if len(sendKeysLog) != 1 || sendKeysLog[0].keys != "1" {
+		t.Errorf("should auto-approve, got sendKeys log: %+v", sendKeysLog)
+	}
+
+	// Test 3: Auto-approve enabled per-session, recognized prompt
+	sendKeysLog = nil
+	p.AutoApproveGlobal = false
+	sess.AutoApprove = true
+	p.tryAutoApprove(ctx, sess, "Edit(file.go)\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n  3. Other")
+	if len(sendKeysLog) != 1 || sendKeysLog[0].keys != "1" {
+		t.Errorf("should auto-approve with per-session override, got: %+v", sendKeysLog)
+	}
+
+	// Test 4: Unrecognized prompt (no options)
+	sendKeysLog = nil
+	p.AutoApproveGlobal = true
+	p.tryAutoApprove(ctx, sess, "What would you like me to do?")
+	if len(sendKeysLog) != 0 {
+		t.Error("should skip unrecognized prompt")
+	}
+
+	// Test 5: SendKeys fails
+	sendKeysLog = nil
+	deps.sendKeys = func(ctx context.Context, sess, keys string) error {
+		return fmt.Errorf("tmux not responding")
+	}
+	p.tryAutoApprove(ctx, sess, "Do you want?\n❯ 1. Yes\n  2. No")
+	// Should not panic, just log error (we verify no panic by reaching here)
+}
+
+// mockDeps for testing
+type mockDeps struct {
+	list           func(context.Context) ([]*store.Session, error)
+	updateStatusIf func(context.Context, string, store.Status, store.Status) (bool, error)
+	updatePane     func(context.Context, string, string) error
+	updateSubject  func(context.Context, string, string) error
+	sessionAlive   func(context.Context, string) bool
+	capturePane    func(context.Context, string) (string, error)
+	summarize      func(context.Context, *store.Session) (string, error)
+	exitCode       func(context.Context, string) (int, bool)
+	finalizeExit   func(context.Context, string, store.Status, store.Status, int) (bool, error)
+	clearExit      func(context.Context, string)
+	contextTokens  func(context.Context, *store.Session) (int, bool)
+	updateContext  func(context.Context, string, int, string) error
+	compact        func(context.Context, *store.Session) error
+	stampCompact   func(context.Context, string) error
+	sendKeys       func(context.Context, string, string) error
+}
+
+func (m *mockDeps) List(ctx context.Context) ([]*store.Session, error) {
+	if m.list != nil {
+		return m.list(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockDeps) UpdateStatusIf(ctx context.Context, id string, exp, next store.Status) (bool, error) {
+	if m.updateStatusIf != nil {
+		return m.updateStatusIf(ctx, id, exp, next)
+	}
+	return false, nil
+}
+
+func (m *mockDeps) UpdatePane(ctx context.Context, id, ex string) error {
+	if m.updatePane != nil {
+		return m.updatePane(ctx, id, ex)
+	}
+	return nil
+}
+
+func (m *mockDeps) UpdateSubject(ctx context.Context, id, subj string) error {
+	if m.updateSubject != nil {
+		return m.updateSubject(ctx, id, subj)
+	}
+	return nil
+}
+
+func (m *mockDeps) SessionAlive(ctx context.Context, name string) bool {
+	if m.sessionAlive != nil {
+		return m.sessionAlive(ctx, name)
+	}
+	return true
+}
+
+func (m *mockDeps) CapturePane(ctx context.Context, name string) (string, error) {
+	if m.capturePane != nil {
+		return m.capturePane(ctx, name)
+	}
+	return "", nil
+}
+
+func (m *mockDeps) Summarize(ctx context.Context, s *store.Session) (string, error) {
+	if m.summarize != nil {
+		return m.summarize(ctx, s)
+	}
+	return "", nil
+}
+
+func (m *mockDeps) ExitCode(ctx context.Context, id string) (int, bool) {
+	if m.exitCode != nil {
+		return m.exitCode(ctx, id)
+	}
+	return 0, false
+}
+
+func (m *mockDeps) FinalizeExit(ctx context.Context, id string, exp, next store.Status, code int) (bool, error) {
+	if m.finalizeExit != nil {
+		return m.finalizeExit(ctx, id, exp, next, code)
+	}
+	return false, nil
+}
+
+func (m *mockDeps) ClearExit(ctx context.Context, id string) {
+	if m.clearExit != nil {
+		m.clearExit(ctx, id)
+	}
+}
+
+func (m *mockDeps) ContextTokens(ctx context.Context, s *store.Session) (int, bool) {
+	if m.contextTokens != nil {
+		return m.contextTokens(ctx, s)
+	}
+	return 0, false
+}
+
+func (m *mockDeps) UpdateContext(ctx context.Context, id string, tokens int, state string) error {
+	if m.updateContext != nil {
+		return m.updateContext(ctx, id, tokens, state)
+	}
+	return nil
+}
+
+func (m *mockDeps) Compact(ctx context.Context, s *store.Session) error {
+	if m.compact != nil {
+		return m.compact(ctx, s)
+	}
+	return nil
+}
+
+func (m *mockDeps) StampCompact(ctx context.Context, id string) error {
+	if m.stampCompact != nil {
+		return m.stampCompact(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockDeps) SendKeys(ctx context.Context, sess, keys string) error {
+	if m.sendKeys != nil {
+		return m.sendKeys(ctx, sess, keys)
+	}
+	return nil
 }
