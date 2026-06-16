@@ -88,6 +88,18 @@ type FakeCall struct {
 	Argv []string
 }
 
+// FakeConfig is a test double for ConfigProvider.
+type FakeConfig struct {
+	PermissionMode string
+}
+
+func (f *FakeConfig) GetDefaultPermissionMode() string {
+	if f.PermissionMode == "" {
+		return "auto"
+	}
+	return f.PermissionMode
+}
+
 // FakeRunner matches on "name arg1 arg2 ..." joined by spaces.
 type FakeRunner struct {
 	Responses map[string]FakeResp

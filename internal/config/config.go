@@ -207,6 +207,11 @@ func IsLoopbackHost(addr string) bool {
 	return false
 }
 
+// GetDefaultPermissionMode returns the configured default permission mode for agents.
+func (c Config) GetDefaultPermissionMode() string {
+	return c.DefaultPermissionMode
+}
+
 // Load reads config from environment, applying defaults.
 func Load() Config {
 	tWarn := envInt("TOKEN_WARN", 200000)

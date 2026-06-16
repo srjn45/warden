@@ -17,7 +17,7 @@ import (
 // not covered by the route tests (they use fakeLife) or the lifecycle tests
 // (they call Spawn directly), so the adapter glue is exercised here.
 func TestAdapterInteractiveSpawnStaysFreeForm(t *testing.T) {
-	lc := lifecycle.New(&lifecycle.FakeRunner{})
+	lc := lifecycle.New(&lifecycle.FakeRunner{}, &lifecycle.FakeConfig{})
 	a := NewLifecycleAdapter(lc, newFakeStore())
 
 	sess, err := a.Spawn(context.Background(), SpawnRequest{Cwd: t.TempDir()})
@@ -29,7 +29,7 @@ func TestAdapterInteractiveSpawnStaysFreeForm(t *testing.T) {
 // TestAdapterTypedSpawnNormalizes confirms the typed path still normalizes an
 // unknown type down to "other".
 func TestAdapterTypedSpawnNormalizes(t *testing.T) {
-	lc := lifecycle.New(&lifecycle.FakeRunner{})
+	lc := lifecycle.New(&lifecycle.FakeRunner{}, &lifecycle.FakeConfig{})
 	a := NewLifecycleAdapter(lc, newFakeStore())
 
 	sess, err := a.Spawn(context.Background(), SpawnRequest{Type: "bogus", Repo: t.TempDir()})

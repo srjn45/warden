@@ -85,7 +85,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 	}}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	s, err := lc.Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
 	})
@@ -112,7 +112,7 @@ func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 		"tmux new-session -d -s PROJ-350 -e WARDEN_SESSION_ID=PROJ-350 -e AGENTCTL_SESSION_ID=PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
 	})
 	require.Error(t, err)
@@ -134,7 +134,7 @@ func TestSpawnLogsWorktreeRollbackFailure(t *testing.T) {
 		"tmux new-session -d -s PROJ-350 -e WARDEN_SESSION_ID=PROJ-350 -e AGENTCTL_SESSION_ID=PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
 		"git -C /repo worktree remove --force .worktrees/PROJ-350":                                                                   {Err: errStub("remove boom")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
 	})
 	require.Error(t, err)
@@ -154,7 +154,7 @@ func TestSpawnLogsKillSessionFailure(t *testing.T) {
 		}
 		return nil
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.Error(t, err)
 	require.Contains(t, buf.String(), "kill tmux session", "a failed kill-session must be logged, not silently dropped")
 }
@@ -166,7 +166,7 @@ func TestSpawnDoesNotRemoveAdoptedWorktreeOnFailure(t *testing.T) {
 		"git worktree list --porcelain": {Out: noOtherWorktrees + "\nworktree /repo/.worktrees/PROJ-350\nHEAD def\nbranch refs/heads/PROJ-350\n"},
 		"tmux new-session -d -s PROJ-350 -e WARDEN_SESSION_ID=PROJ-350 -e AGENTCTL_SESSION_ID=PROJ-350 -c /repo/.worktrees/PROJ-350": {Err: errStub("tmux boom")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
 	})
 	require.Error(t, err)
@@ -184,7 +184,7 @@ func TestSpawnKillsSessionWhenSendKeysFails(t *testing.T) {
 		}
 		return nil
 	}}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	_ = s
 	require.Error(t, err)
 	killed := false
@@ -200,7 +200,7 @@ func TestSpawnAdoptsExistingWorktree(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees + "\nworktree /repo/.worktrees/PROJ-350\nHEAD def\nbranch refs/heads/PROJ-350\n"},
 	}}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	_, err := lc.Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
 	})
@@ -214,7 +214,7 @@ func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
 	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Empty(t, s.Worktree)
@@ -234,7 +234,7 @@ func TestSpawnPRReviewChecksOutPR(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 	}}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypePRReview, Repo: "/repo", PR: "12345"})
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(s.ID, "prreview-"), "got %q", s.ID)
@@ -248,13 +248,13 @@ func TestSpawnPRReviewChecksOutPR(t *testing.T) {
 func TestSpawnSpikeWorktreeIsOptIn(t *testing.T) {
 	// Default: no worktree.
 	fr := &FakeRunner{}
-	s1, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeSpike, Repo: "/repo"})
+	s1, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeSpike, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Empty(t, s1.Worktree)
 
 	// --worktree: new-branch worktree like development.
 	fr2 := &FakeRunner{Responses: map[string]FakeResp{"git worktree list --porcelain": {Out: noOtherWorktrees}}}
-	s2, err := New(fr2).Spawn(context.Background(), SpawnRequest{Type: store.TypeSpike, Repo: "/repo", Worktree: true})
+	s2, err := New(fr2, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeSpike, Repo: "/repo", Worktree: true})
 	require.NoError(t, err)
 	require.Equal(t, ".worktrees/"+s2.ID, s2.Worktree)
 	require.Contains(t, fr2.calledArgs(), []string{"git", "worktree", "add", s2.Worktree, "-b", s2.ID})
@@ -262,7 +262,7 @@ func TestSpawnSpikeWorktreeIsOptIn(t *testing.T) {
 
 func TestSpawnPersistsAutoRestart(t *testing.T) {
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	l.ExitsDir = t.TempDir()
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "do x", Cwd: "/work/p", AutoRestart: true})
@@ -298,7 +298,7 @@ func TestSpawnPRReviewWithExplicitBranch(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 	}}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{
 		Type: store.TypePRReview, Repo: "/repo", PR: "12345", Branch: "feature-x",
 	})
 	require.NoError(t, err)
@@ -311,7 +311,7 @@ func TestSpawnPRReviewWithExplicitBranch(t *testing.T) {
 func TestInputBracketPastesThenSubmits(t *testing.T) {
 	inputSubmitDelay = 0 // no real wait in tests
 	fr := &FakeRunner{}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	require.NoError(t, lc.Input(context.Background(), "A-1", "what is your status?"))
 	args := fr.calledArgs()
 	// Text is loaded into a per-session buffer and bracketed-pasted (so it is
@@ -339,7 +339,7 @@ func TestInputBracketPastesThenSubmits(t *testing.T) {
 func TestInputMultilineIsPastedAsContentNotEnters(t *testing.T) {
 	inputSubmitDelay = 0
 	fr := &FakeRunner{}
-	require.NoError(t, New(fr).Input(context.Background(), "A-1", "line one\nline two"))
+	require.NoError(t, New(fr, &FakeConfig{}).Input(context.Background(), "A-1", "line one\nline two"))
 	// The whole multi-line message is one buffer (newlines preserved as content).
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-buffer", "-b", "warden-input-A-1", "--", "line one\nline two"})
 	// Exactly one Enter keystroke — the submit — never one per line.
@@ -354,7 +354,7 @@ func TestInputMultilineIsPastedAsContentNotEnters(t *testing.T) {
 
 func TestSendKeysInjectsRawKeystroke(t *testing.T) {
 	fr := &FakeRunner{}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	require.NoError(t, lc.SendKeys(context.Background(), "sess-1", "2"))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "sess-1", "2"})
 }
@@ -363,7 +363,7 @@ func TestOutputCapturesPane(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux capture-pane -p -t A-1 -S -200": {Out: "line1\nline2\n"},
 	}}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	out, err := lc.Output(context.Background(), "A-1", 200)
 	require.NoError(t, err)
 	require.Equal(t, "line1\nline2\n", out)
@@ -389,7 +389,7 @@ func TestClassifyCallsClaudeP(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"claude -p " + classifyArg(prompt): {Out: "development\n"},
 	}}
-	got, err := New(fr).Classify(context.Background(), prompt)
+	got, err := New(fr, &FakeConfig{}).Classify(context.Background(), prompt)
 	require.NoError(t, err)
 	require.Equal(t, store.TypeDevelopment, got)
 	require.Contains(t, fr.calledArgs(), []string{"claude", "-p", classifyArg(prompt)})
@@ -400,14 +400,14 @@ func TestClassifyDefaultsToOtherOnError(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"claude -p " + classifyArg(prompt): {Err: errStub("claude not found")},
 	}}
-	got, err := New(fr).Classify(context.Background(), prompt)
+	got, err := New(fr, &FakeConfig{}).Classify(context.Background(), prompt)
 	require.Error(t, err)
 	require.Equal(t, store.TypeOther, got)
 }
 
 func TestSpawnPromptModeRequiresCwd(t *testing.T) {
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	// A prompt-mode spawn must be given the caller's launch dir; it never
 	// silently invents a per-agent directory to run in.
@@ -431,14 +431,14 @@ func TestSpawnTypedModeRecordsWorkdir(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 	}}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDevelopment, Ticket: "A-1", Repo: "/repo"})
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDevelopment, Ticket: "A-1", Repo: "/repo"})
 	require.NoError(t, err)
 	require.Equal(t, "/repo/.worktrees/A-1", s.Workdir, "typed worktree dir recorded")
 }
 
 func TestSpawnNoWorktreeTypeRecordsRepoWorkdir(t *testing.T) {
 	fr := &FakeRunner{}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Equal(t, "/repo", s.Workdir, "no-worktree type runs in repo")
 }
@@ -446,7 +446,7 @@ func TestSpawnNoWorktreeTypeRecordsRepoWorkdir(t *testing.T) {
 func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	fr := &FakeRunner{}
 	prompt := "research how SSE reconnection works"
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: prompt, Cwd: "/work/project"})
 	require.NoError(t, err)
@@ -475,7 +475,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	prompt := "fix the auth bug"
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: prompt, Cwd: "/work/project"})
 	require.NoError(t, err)
@@ -527,7 +527,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	prompt := "line one\nline two with a ' quote\nline three"
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: prompt, Cwd: "/work/project"})
 	require.NoError(t, err)
@@ -552,7 +552,7 @@ func TestSummarizeUsesTranscriptThenClaudeP(t *testing.T) {
 		[]byte(`{"role":"user","text":"look into the auth bug"}`+"\n"), 0o644))
 
 	fr := &FakeRunner{Responses: map[string]FakeResp{}}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
 	// The claude -p call is keyed by the transcript-derived text.
 	sess := &store.Session{ID: "agent-zz99", TmuxSession: "agent-zz99", Workdir: workdir}
@@ -570,7 +570,7 @@ func TestSummarizeFallsBackToPane(t *testing.T) {
 		"tmux capture-pane -p -t agent-aa11 -S -40":              {Out: "building the REST handler\n"},
 		"claude -p " + summaryArg("building the REST handler\n"): {Out: "building a REST handler"},
 	}}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
 	sess := &store.Session{ID: "agent-aa11", TmuxSession: "agent-aa11", Workdir: "/Users/me/warden-agents/agent-aa11"}
 	got, err := lc.Summarize(context.Background(), sess)
@@ -592,7 +592,7 @@ func TestTranscriptPathBySessionIDBeatsNewest(t *testing.T) {
 	future := time.Now().Add(time.Minute)
 	require.NoError(t, os.Chtimes(decoy, future, future))
 
-	lc := New(&FakeRunner{})
+	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.ProjectsDir = root
 	sess := &store.Session{ID: "agent-zz99", Workdir: workdir, ClaudeSessionID: sid}
 	require.Equal(t, want, lc.transcriptPath(sess), "pinned id beats newest-mtime decoy")
@@ -608,7 +608,7 @@ func TestTranscriptPathGlobFallback(t *testing.T) {
 	want := filepath.Join(other, sid+".jsonl")
 	require.NoError(t, os.WriteFile(want, []byte("X"), 0o644))
 
-	lc := New(&FakeRunner{})
+	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.ProjectsDir = root
 	sess := &store.Session{ID: "agent-x", Workdir: "/mismatch/dir", ClaudeSessionID: sid}
 	require.Equal(t, want, lc.transcriptPath(sess), "unique glob finds it despite dir mismatch")
@@ -625,7 +625,7 @@ func TestTranscriptPathLegacyFallsBackToNewest(t *testing.T) {
 	future := time.Now().Add(time.Minute)
 	require.NoError(t, os.Chtimes(newf, future, future))
 
-	lc := New(&FakeRunner{})
+	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.ProjectsDir = root
 	sess := &store.Session{ID: "agent-leg", Workdir: workdir} // no ClaudeSessionID
 	require.Equal(t, newf, lc.transcriptPath(sess), "empty id -> newest .jsonl (legacy)")
@@ -642,7 +642,7 @@ func TestRestoreRecreatesAndResumes(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux has-session -t agent-r1": {Err: errStub("no session")}, // dead
 	}}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
 	sess := &store.Session{ID: "agent-r1", TmuxSession: "agent-r1", Workdir: workdir, ClaudeSessionID: sid}
 
@@ -658,19 +658,19 @@ func TestRestorePreconditionErrors(t *testing.T) {
 	}
 
 	// no pinned session id (checked before any tmux call)
-	require.ErrorIs(t, New(&FakeRunner{}).Restore(context.Background(),
+	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).Restore(context.Background(),
 		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir()}), ErrNoSessionID)
 
 	// already running: has-session succeeds (FakeRunner default = success = alive)
-	require.ErrorIs(t, New(&FakeRunner{}).Restore(context.Background(),
+	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).Restore(context.Background(),
 		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrAlreadyRunning)
 
 	// workdir gone
-	require.ErrorIs(t, New(dead()).Restore(context.Background(),
+	require.ErrorIs(t, New(dead(), &FakeConfig{}).Restore(context.Background(),
 		&store.Session{ID: "a", TmuxSession: "a", Workdir: "/no/such/dir", ClaudeSessionID: sid}), ErrWorkdirMissing)
 
 	// no transcript: dead, workdir exists, empty ProjectsDir
-	lc := New(dead())
+	lc := New(dead(), &FakeConfig{})
 	lc.ProjectsDir = t.TempDir()
 	require.ErrorIs(t, lc.Restore(context.Background(),
 		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrNoTranscript)
@@ -678,7 +678,7 @@ func TestRestorePreconditionErrors(t *testing.T) {
 
 func TestTerminateKillsTmuxOnly(t *testing.T) {
 	fr := &FakeRunner{}
-	require.NoError(t, New(fr).Terminate(context.Background(), "A-1"))
+	require.NoError(t, New(fr, &FakeConfig{}).Terminate(context.Background(), "A-1"))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "A-1"})
 	for _, a := range fr.calledArgs() {
 		require.NotEqual(t, "git", a[0], "terminate touches no git")
@@ -688,7 +688,7 @@ func TestTerminateKillsTmuxOnly(t *testing.T) {
 func TestRemoveWorktreeRefusesIfAlive(t *testing.T) {
 	// has-session succeeds (FakeRunner default) → agent alive → refuse.
 	fr := &FakeRunner{}
-	err := New(fr).RemoveWorktree(context.Background(), cleanupInput("A-1"), false)
+	err := New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false)
 	require.ErrorIs(t, err, ErrWorktreeAgentAlive)
 	for _, a := range fr.calledArgs() {
 		require.NotEqual(t, "git", a[0], "must not touch git while the agent is alive")
@@ -700,12 +700,12 @@ func TestRemoveWorktreeGuardsDirty(t *testing.T) {
 		"tmux has-session -t A-1":                        {Err: errStub("dead")},
 		"git -C /repo/.worktrees/A-1 status --porcelain": {Out: " M f.go\n"},
 	}}
-	require.ErrorIs(t, New(fr).RemoveWorktree(context.Background(), cleanupInput("A-1"), false), ErrDirtyWorktree)
+	require.ErrorIs(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false), ErrDirtyWorktree)
 }
 
 func TestRemoveWorktreeForceProceeds(t *testing.T) {
 	fr := &FakeRunner{} // has-session would say alive, but force skips the checks
-	require.NoError(t, New(fr).RemoveWorktree(context.Background(), cleanupInput("A-1"), true))
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), true))
 	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/A-1"})
 	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "branch", "-D", "A-1"})
 }
@@ -716,13 +716,13 @@ func TestRemoveWorktreeCleanProceeds(t *testing.T) {
 		"git -C /repo/.worktrees/A-1 status --porcelain":   {Out: ""},
 		"git -C /repo/.worktrees/A-1 log @{u}.. --oneline": {Out: ""},
 	}}
-	require.NoError(t, New(fr).RemoveWorktree(context.Background(), cleanupInput("A-1"), false))
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false))
 	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", ".worktrees/A-1"})
 }
 
 func TestRemoveWorktreeNoWorktreeErrors(t *testing.T) {
 	tgt := CleanupTarget{ID: "x", TmuxSession: "x"} // no Worktree
-	require.ErrorIs(t, New(&FakeRunner{}).RemoveWorktree(context.Background(), tgt, false), ErrNoWorktree)
+	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).RemoveWorktree(context.Background(), tgt, false), ErrNoWorktree)
 }
 
 func TestNewestClaudeSession(t *testing.T) {
@@ -738,7 +738,7 @@ func TestNewestClaudeSession(t *testing.T) {
 	future := time.Now().Add(time.Minute)
 	require.NoError(t, os.Chtimes(filepath.Join(pdir, newer+".jsonl"), future, future))
 
-	lc := New(&FakeRunner{})
+	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.ProjectsDir = root
 	got, err := lc.NewestClaudeSession(workdir)
 	require.NoError(t, err)
@@ -746,12 +746,12 @@ func TestNewestClaudeSession(t *testing.T) {
 }
 
 func TestNewestClaudeSessionNone(t *testing.T) {
-	lc := New(&FakeRunner{})
+	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.ProjectsDir = t.TempDir() // exists but empty
 	_, err := lc.NewestClaudeSession(t.TempDir())
 	require.ErrorIs(t, err, ErrNoTranscript)
 
-	lc2 := New(&FakeRunner{}) // ProjectsDir empty → disabled
+	lc2 := New(&FakeRunner{}, &FakeConfig{}) // ProjectsDir empty → disabled
 	_, err = lc2.NewestClaudeSession(t.TempDir())
 	require.ErrorIs(t, err, ErrNoTranscript)
 }
@@ -760,7 +760,7 @@ func TestAdoptResumeMode(t *testing.T) {
 	workdir := t.TempDir()
 	sid := "33333333-3333-4333-8333-333333333333"
 	fr := &FakeRunner{}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	sess, err := lc.Adopt(context.Background(), AdoptRequest{
 		ID: "agent-a1", Cwd: workdir, ClaudeSessionID: sid, TmuxSession: "",
 	})
@@ -776,7 +776,7 @@ func TestAdoptResumeMode(t *testing.T) {
 }
 
 func TestAdoptResumeGeneratesID(t *testing.T) {
-	sess, err := New(&FakeRunner{}).Adopt(context.Background(), AdoptRequest{
+	sess, err := New(&FakeRunner{}, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
 		ID: "", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "",
 	})
 	require.NoError(t, err)
@@ -785,14 +785,14 @@ func TestAdoptResumeGeneratesID(t *testing.T) {
 }
 
 func TestAdoptResumeNoClaudeID(t *testing.T) {
-	_, err := New(&FakeRunner{}).Adopt(context.Background(), AdoptRequest{
+	_, err := New(&FakeRunner{}, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
 		ID: "agent-a1", Cwd: t.TempDir(), ClaudeSessionID: "", TmuxSession: "",
 	})
 	require.ErrorIs(t, err, ErrNoSessionID)
 }
 
 func TestAdoptResumeWorkdirMissing(t *testing.T) {
-	_, err := New(&FakeRunner{}).Adopt(context.Background(), AdoptRequest{
+	_, err := New(&FakeRunner{}, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
 		ID: "agent-a1", Cwd: "/no/such/dir", ClaudeSessionID: "x", TmuxSession: "",
 	})
 	require.ErrorIs(t, err, ErrWorkdirMissing)
@@ -801,7 +801,7 @@ func TestAdoptResumeWorkdirMissing(t *testing.T) {
 func TestAdoptLiveKeepsName(t *testing.T) {
 	// FakeRunner default = success → has-session succeeds → tmux session alive.
 	fr := &FakeRunner{}
-	sess, err := New(fr).Adopt(context.Background(), AdoptRequest{
+	sess, err := New(fr, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
 		ID: "work", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "work",
 	})
 	require.NoError(t, err)
@@ -817,7 +817,7 @@ func TestAdoptLiveKeepsName(t *testing.T) {
 
 func TestAdoptLiveRenamesWhenIDDiffers(t *testing.T) {
 	fr := &FakeRunner{}
-	sess, err := New(fr).Adopt(context.Background(), AdoptRequest{
+	sess, err := New(fr, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
 		ID: "agent-b2", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "0",
 	})
 	require.NoError(t, err)
@@ -830,7 +830,7 @@ func TestAdoptLiveTmuxGone(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux has-session -t ghost": {Err: errStub("no session")},
 	}}
-	_, err := New(fr).Adopt(context.Background(), AdoptRequest{
+	_, err := New(fr, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
 		ID: "ghost", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "ghost",
 	})
 	require.ErrorIs(t, err, ErrTmuxGone)
@@ -846,7 +846,7 @@ func argAt(a []string, i int) string {
 
 func TestSpawnSetsMouseOnAgentSession(t *testing.T) {
 	fr := &FakeRunner{}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", s.ID, "mouse", "on"})
 	require.Greater(t,
@@ -857,7 +857,7 @@ func TestSpawnSetsMouseOnAgentSession(t *testing.T) {
 
 func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "do a thing", Cwd: "/work/project"})
 	require.NoError(t, err)
@@ -870,7 +870,7 @@ func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 
 func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 	fr := &FakeRunner{}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id", "", "auto")
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", "ag1", "mouse", "on"})
 	require.Greater(t,
@@ -881,7 +881,7 @@ func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 
 func TestSpawnEnablesExtendedKeys(t *testing.T) {
 	fr := &FakeRunner{}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	// extended-keys on lets Claude see Shift+Enter as a distinct key (newline).
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-s", "extended-keys", "on"})
@@ -893,7 +893,7 @@ func TestSpawnDoesNotDuplicateExtkeysWhenPresent(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -s -v terminal-features": {Out: "xterm*:clipboard:extkeys"},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.NotContains(t, fr.calledArgs(), []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"},
 		"extkeys already advertised must not be appended again")
@@ -903,7 +903,7 @@ func TestSpawnSucceedsWhenExtendedKeysSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -s extended-keys on": {Err: errors.New("boom")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err, "extended-keys failure must not fail the spawn")
 }
 
@@ -911,7 +911,7 @@ func TestSpawnRaisesHistoryLimitBeforeNewSession(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -g -v history-limit": {Out: "2000"},
 	}}
-	s, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	setIdx := fr.callIndex("tmux set-option -g history-limit 50000")
 	newIdx := fr.callIndex("tmux new-session -d -s " + s.ID + " -e WARDEN_SESSION_ID=" + s.ID + " -e AGENTCTL_SESSION_ID=" + s.ID + " -c /repo")
@@ -925,7 +925,7 @@ func TestSpawnRaisesHistoryLimitWhenCurrentUnreadable(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -g -v history-limit": {Err: errors.New("no server")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-g", "history-limit", "50000"},
 		"unreadable current limit must fall through to raising it")
@@ -935,7 +935,7 @@ func TestSpawnDoesNotLowerHistoryLimit(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -g -v history-limit": {Out: "100000"},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err)
 	require.NotContains(t, fr.calledArgs(), []string{"tmux", "set-option", "-g", "history-limit", "50000"},
 		"a larger user-configured history-limit must be left untouched")
@@ -945,7 +945,7 @@ func TestSpawnSucceedsWhenHistoryLimitSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -g history-limit 50000": {Err: errors.New("boom")},
 	}}
-	_, err := New(fr).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	require.NoError(t, err, "history-limit failure must not fail the spawn")
 }
 
@@ -953,7 +953,7 @@ func TestResumeSucceedsWhenMouseSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -t ag1 mouse on": {Err: errors.New("boom")},
 	}}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", "auto")
 	require.NoError(t, err, "mouse-on failure must not fail the resume")
 }
 
@@ -961,7 +961,7 @@ func TestResumeFailsWhenNewSessionFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux new-session -d -s ag1 -e WARDEN_SESSION_ID=ag1 -e AGENTCTL_SESSION_ID=ag1 -c /cwd": {Err: errors.New("boom")},
 	}}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", "auto")
 	require.Error(t, err, "new-session failure stays fatal")
 }
 
@@ -969,7 +969,7 @@ func TestResumeFailsWhenNewSessionFails(t *testing.T) {
 // with an explicit PermissionMode uses that mode in the tmux send-keys command.
 func TestSpawnWithPermissionModePromptUsesSpecifiedMode(t *testing.T) {
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	s, err := l.Spawn(context.Background(), SpawnRequest{
 		Prompt:         "investigate the auth bug",
@@ -994,7 +994,7 @@ func TestSpawnWithPermissionModePromptUsesSpecifiedMode(t *testing.T) {
 
 func TestNewAgentSessionSetsSessionIDEnv(t *testing.T) {
 	fr := &FakeRunner{}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	if err := lc.newAgentSession(context.Background(), "", "agent-xyz", "/work"); err != nil {
 		t.Fatalf("newAgentSession: %v", err)
 	}
@@ -1008,7 +1008,7 @@ func TestNewAgentSessionSetsSessionIDEnv(t *testing.T) {
 // with an explicit PermissionMode uses that mode.
 func TestSpawnWithPermissionModeTypedUsesSpecifiedMode(t *testing.T) {
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	s, err := l.Spawn(context.Background(), SpawnRequest{
 		Type:           store.TypeDebugCI,
 		Repo:           "/repo",
@@ -1033,7 +1033,7 @@ func TestSpawnWithPermissionModeTypedUsesSpecifiedMode(t *testing.T) {
 
 func TestSpawnJobFreshWorktreeAndEnv(t *testing.T) {
 	fr := &FakeRunner{}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	lc.PromptsDir = "/tmp/prompts"
 	s, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
 		PipelineID: "refactor", JobID: "impl", Repo: "/repo",
@@ -1064,7 +1064,7 @@ func TestSpawnJobFreshWorktreeAndEnv(t *testing.T) {
 
 func TestSpawnJobFromBaseBranch(t *testing.T) {
 	fr := &FakeRunner{}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	lc.PromptsDir = "/tmp/prompts"
 	_, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
 		PipelineID: "p", JobID: "review", Repo: "/repo",
@@ -1079,7 +1079,7 @@ func TestSpawnJobFromBaseBranch(t *testing.T) {
 
 func TestSpawnJobNoneRunsInRepoRoot(t *testing.T) {
 	fr := &FakeRunner{}
-	lc := New(fr)
+	lc := New(fr, &FakeConfig{})
 	lc.PromptsDir = "/tmp/prompts"
 	s, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
 		PipelineID: "p", JobID: "analyze", Repo: "/repo",
@@ -1100,7 +1100,7 @@ func TestSpawnInjectsPipelineHint(t *testing.T) {
 	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // force on
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "fix the auth bug", Cwd: "/work/project"})
 	require.NoError(t, err)
@@ -1115,7 +1115,7 @@ func TestSpawnRespectsPipelineHintOptOut(t *testing.T) {
 	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "1")
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "1")
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "fix the auth bug", Cwd: "/work/project"})
 	require.NoError(t, err)
@@ -1132,7 +1132,7 @@ func TestSpawnJobOmitsPipelineHint(t *testing.T) {
 	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // even with the hint ON, pipeline jobs must not get it
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	_, err := l.SpawnJob(context.Background(), JobSpawnRequest{
 		PipelineID: "p", JobID: "a", Repo: "/repo", Prompt: "do the thing",
@@ -1168,7 +1168,7 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, matches production
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "" // intentionally empty: the no-prompt path must not need it
 	s, err := l.Spawn(context.Background(), SpawnRequest{Cwd: "/work/project"})
 	require.NoError(t, err)
@@ -1196,7 +1196,7 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 
 func TestExitSuffixAndReadClear(t *testing.T) {
 	dir := t.TempDir()
-	l := New(HintingExecRunner{Inner: ExecRunner{}})
+	l := New(HintingExecRunner{Inner: ExecRunner{}}, &FakeConfig{})
 	l.ExitsDir = dir
 
 	suffix := l.exitSuffix("agent-1")
@@ -1228,7 +1228,7 @@ func TestSpawnAppendsExitSuffix(t *testing.T) {
 	t.Setenv("WARDEN_NO_PIPELINE_HINT", "") // anchor: hint on, matches production
 	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
-	l := New(fr)
+	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
 	l.ExitsDir = t.TempDir()
 	prompt := "do a thing"
@@ -1243,13 +1243,13 @@ func TestSpawnAppendsExitSuffix(t *testing.T) {
 }
 
 func TestExitSuffixEmptyWhenDirUnset(t *testing.T) {
-	l := New(HintingExecRunner{Inner: ExecRunner{}}) // ExitsDir == ""
+	l := New(HintingExecRunner{Inner: ExecRunner{}}, &FakeConfig{}) // ExitsDir == ""
 	require.Equal(t, "", l.exitSuffix("agent-1"))
 }
 
 func TestExitSuffixClearsStaleFile(t *testing.T) {
 	dir := t.TempDir()
-	l := New(HintingExecRunner{Inner: ExecRunner{}})
+	l := New(HintingExecRunner{Inner: ExecRunner{}}, &FakeConfig{})
 	l.ExitsDir = dir
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "agent-1"), []byte("9"), 0o600))
 	_ = l.exitSuffix("agent-1") // building the suffix at spawn must clear a prior run's file
