@@ -870,7 +870,7 @@ func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 
 func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 	fr := &FakeRunner{}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id", "", false)
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id", "", "auto")
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", "ag1", "mouse", "on"})
 	require.Greater(t,
@@ -953,7 +953,7 @@ func TestResumeSucceedsWhenMouseSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -t ag1 mouse on": {Err: errors.New("boom")},
 	}}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", false)
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", "auto")
 	require.NoError(t, err, "mouse-on failure must not fail the resume")
 }
 
@@ -961,7 +961,7 @@ func TestResumeFailsWhenNewSessionFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux new-session -d -s ag1 -e WARDEN_SESSION_ID=ag1 -e AGENTCTL_SESSION_ID=ag1 -c /cwd": {Err: errors.New("boom")},
 	}}
-	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", false)
+	err := New(fr).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", "auto")
 	require.Error(t, err, "new-session failure stays fatal")
 }
 
