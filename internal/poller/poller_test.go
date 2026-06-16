@@ -472,6 +472,39 @@ func TestTickNoTransitionForTerminalStatus(t *testing.T) {
 	require.False(t, fired, "terminal status is skipped → no transition")
 }
 
+// TestTickErroredAgentReclassifiesWhenAlive covers the case where a transient
+// error (e.g. rate-limit resume race) left the agent marked errored but its
+// tmux session is still live — the poller should reclassify it normally.
+func TestTickErroredAgentReclassifiesWhenAlive(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{ID: "A", TmuxSession: "A", Status: store.StatusErrored}},
+		alive:    map[string]bool{"A": true},
+		panes:    map[string]string{"A": "esc to interrupt"},
+		updates:  map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	var gotTo store.Status
+	p.OnTransition = func(_ *store.Session, _, to store.Status) { gotTo = to }
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, store.StatusWorking, gotTo, "errored+alive should reclassify to working")
+}
+
+// TestTickErroredAgentSkippedWhenDead verifies that an errored agent whose
+// tmux session is gone is still treated as terminal (no reclassification).
+func TestTickErroredAgentSkippedWhenDead(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{ID: "A", TmuxSession: "A", Status: store.StatusErrored}},
+		alive:    map[string]bool{"A": false},
+		panes:    map[string]string{},
+		updates:  map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	fired := false
+	p.OnTransition = func(*store.Session, store.Status, store.Status) { fired = true }
+	require.NoError(t, p.tick(context.Background()))
+	require.False(t, fired, "errored+dead session should be skipped with no transition")
+}
+
 func TestTickFinalizesFromExitFile(t *testing.T) {
 	cases := []struct {
 		name     string

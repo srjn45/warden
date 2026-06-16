@@ -152,7 +152,12 @@ func (p *Poller) tick(ctx context.Context) error {
 			// done before the poller read the file); errored/orphaned already
 			// cleared theirs in the finalize branch, making this a no-op there.
 			p.deps.ClearExit(ctx, s.ID)
-			continue
+			// For errored agents: if the tmux session is still alive the error was
+			// transient (e.g. a rate-limit resume race) — fall through to reclassify
+			// so the TUI reflects the real state. done/orphaned are always skipped.
+			if s.Status != store.StatusErrored || !p.deps.SessionAlive(ctx, s.TmuxSession) {
+				continue
+			}
 		}
 		// Exit-file is authoritative: if the agent's shell recorded an exit code,
 		// finalize from it (CAS so a SessionEnd hook that already set done wins)
