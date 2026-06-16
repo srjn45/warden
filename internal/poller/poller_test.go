@@ -851,3 +851,116 @@ func (m *mockDeps) SendKeys(ctx context.Context, sess, keys string) error {
 	}
 	return nil
 }
+
+// --- Rate limit detection tests ---
+
+func TestDetectRateLimit_ClaudeCodeSessionLimit(t *testing.T) {
+	// Actual Claude Code error message format
+	pane := `You've hit your session limit · resets 1:30pm (Europe/Madrid)`
+
+	isLimited, restoreTime, ok := detectRateLimit(pane)
+
+	require.True(t, isLimited, "should detect rate limit")
+	require.True(t, ok, "should parse restore time")
+	require.False(t, restoreTime.IsZero(), "restore time should not be zero")
+
+	// Verify time is parsed correctly (should be 1:30 PM in Madrid timezone)
+	loc, err := time.LoadLocation("Europe/Madrid")
+	require.NoError(t, err)
+	require.Equal(t, loc, restoreTime.Location())
+	require.Equal(t, 13, restoreTime.Hour())
+	require.Equal(t, 30, restoreTime.Minute())
+}
+
+func TestDetectRateLimit_24HourFormat(t *testing.T) {
+	pane := `You've hit your session limit · resets 13:30 (Europe/Madrid)`
+
+	isLimited, restoreTime, ok := detectRateLimit(pane)
+
+	require.True(t, isLimited)
+	require.True(t, ok)
+	require.Equal(t, 13, restoreTime.Hour())
+	require.Equal(t, 30, restoreTime.Minute())
+}
+
+func TestDetectRateLimit_AMTime(t *testing.T) {
+	pane := `You've hit your session limit · resets 8:45am (America/New_York)`
+
+	isLimited, restoreTime, ok := detectRateLimit(pane)
+
+	require.True(t, isLimited)
+	require.True(t, ok)
+
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	require.Equal(t, loc, restoreTime.Location())
+	require.Equal(t, 8, restoreTime.Hour())
+	require.Equal(t, 45, restoreTime.Minute())
+}
+
+func TestDetectRateLimit_NoTimestamp(t *testing.T) {
+	pane := `You've hit your rate limit`
+
+	isLimited, restoreTime, ok := detectRateLimit(pane)
+
+	require.True(t, isLimited, "should detect rate limit")
+	require.False(t, ok, "should not parse restore time")
+	require.True(t, restoreTime.IsZero(), "restore time should be zero")
+}
+
+func TestDetectRateLimit_NotRateLimited(t *testing.T) {
+	pane := `Claude Code v2.1.178
+❯ what are the new features?`
+
+	isLimited, _, ok := detectRateLimit(pane)
+
+	require.False(t, isLimited)
+	require.False(t, ok)
+}
+
+func TestDetectRateLimit_GenericFormat(t *testing.T) {
+	pane := `Try again at 3:45 PM`
+
+	isLimited, restoreTime, ok := detectRateLimit(pane)
+
+	// This won't detect as rate limited without the keyword
+	require.False(t, isLimited)
+	require.False(t, ok)
+	require.True(t, restoreTime.IsZero())
+}
+
+func TestDetectRateLimit_UsageLimitKeyword(t *testing.T) {
+	pane := `Usage limit exceeded · resets 2:15pm (Europe/London)`
+
+	isLimited, restoreTime, ok := detectRateLimit(pane)
+
+	require.True(t, isLimited)
+	require.True(t, ok)
+	require.Equal(t, 14, restoreTime.Hour()) // 2 PM = 14:00
+	require.Equal(t, 15, restoreTime.Minute())
+}
+
+func TestDetectRateLimit_QuotaExceeded(t *testing.T) {
+	pane := `Quota exceeded · resets 11:00am (UTC)`
+
+	isLimited, restoreTime, ok := detectRateLimit(pane)
+
+	require.True(t, isLimited)
+	require.True(t, ok)
+
+	loc, err := time.LoadLocation("UTC")
+	require.NoError(t, err)
+	require.Equal(t, loc, restoreTime.Location())
+	require.Equal(t, 11, restoreTime.Hour())
+	require.Equal(t, 0, restoreTime.Minute())
+}
+
+func TestDetectRateLimit_InvalidTimezone(t *testing.T) {
+	pane := `You've hit your session limit · resets 1:30pm (Invalid/Timezone)`
+
+	isLimited, restoreTime, ok := detectRateLimit(pane)
+
+	require.True(t, isLimited, "should still detect rate limit")
+	require.False(t, ok, "should fail to parse with invalid timezone")
+	require.True(t, restoreTime.IsZero())
+}
