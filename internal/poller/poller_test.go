@@ -756,12 +756,12 @@ func TestApprovalWorkerConsumesEvents(t *testing.T) {
 	// Give worker time to process
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify tryAutoApprove was called by checking log output
-	require.Contains(t, buf.String(), "tryAutoApprove called for agent-123")
-
-	// Stop worker
+	// Stop worker before reading buffer to avoid race
 	cancel()
 	wg.Wait()
+
+	// Verify tryAutoApprove was called by checking log output
+	require.Contains(t, buf.String(), "tryAutoApprove called for agent-123")
 }
 
 func TestApprovalWorkerStopsOnContextCancel(t *testing.T) {
