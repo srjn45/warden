@@ -217,3 +217,95 @@ func TestAllowNonLoopbackFlag(t *testing.T) {
 		t.Fatal("WARDEN_ALLOW_NONLOOPBACK=1 should enable")
 	}
 }
+
+func TestAutoApproveEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		val  string
+		want bool
+	}{
+		{"empty", "", false},
+		{"0", "0", false},
+		{"off", "off", false},
+		{"OFF", "OFF", false},
+		{"false", "false", false},
+		{"FALSE", "FALSE", false},
+		{"1", "1", true},
+		{"on", "on", true},
+		{"ON", "ON", true},
+		{"true", "true", true},
+		{"TRUE", "TRUE", true},
+		{"junk", "junk", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("WARDEN_AUTO_APPROVE", tt.val)
+			cfg := Load()
+			if cfg.AutoApproveEnabled != tt.want {
+				t.Errorf("AutoApproveEnabled = %v, want %v", cfg.AutoApproveEnabled, tt.want)
+			}
+		})
+	}
+}
+
+func TestAutoApproveEnabledLegacy(t *testing.T) {
+	t.Setenv("AGENTCTL_AUTO_APPROVE", "1")
+	cfg := Load()
+	if !cfg.AutoApproveEnabled {
+		t.Error("legacy AGENTCTL_AUTO_APPROVE=1 should enable auto-approve")
+	}
+}
+
+func TestAutoApproveEnabledPreferNewVar(t *testing.T) {
+	t.Setenv("WARDEN_AUTO_APPROVE", "0")
+	t.Setenv("AGENTCTL_AUTO_APPROVE", "1")
+	cfg := Load()
+	if cfg.AutoApproveEnabled {
+		t.Error("WARDEN_AUTO_APPROVE should take precedence over AGENTCTL_AUTO_APPROVE")
+	}
+}
+
+func TestDefaultPermissionMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		val      string
+		want     string
+		wantWarn bool
+	}{
+		{"empty", "", "auto", false},
+		{"acceptEdits", "acceptEdits", "acceptEdits", false},
+		{"auto", "auto", "auto", false},
+		{"bypassPermissions", "bypassPermissions", "bypassPermissions", false},
+		{"default", "default", "default", false},
+		{"dontAsk", "dontAsk", "dontAsk", false},
+		{"plan", "plan", "plan", false},
+		{"invalid", "invalid", "auto", true},
+		{"junk", "foobar", "auto", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("WARDEN_DEFAULT_PERMISSION_MODE", tt.val)
+			cfg := Load()
+			if cfg.DefaultPermissionMode != tt.want {
+				t.Errorf("DefaultPermissionMode = %q, want %q", cfg.DefaultPermissionMode, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultPermissionModeLegacy(t *testing.T) {
+	t.Setenv("AGENTCTL_DEFAULT_PERMISSION_MODE", "bypassPermissions")
+	cfg := Load()
+	if cfg.DefaultPermissionMode != "bypassPermissions" {
+		t.Error("legacy AGENTCTL_DEFAULT_PERMISSION_MODE should work")
+	}
+}
+
+func TestDefaultPermissionModePreferNewVar(t *testing.T) {
+	t.Setenv("WARDEN_DEFAULT_PERMISSION_MODE", "auto")
+	t.Setenv("AGENTCTL_DEFAULT_PERMISSION_MODE", "bypassPermissions")
+	cfg := Load()
+	if cfg.DefaultPermissionMode != "auto" {
+		t.Error("WARDEN_DEFAULT_PERMISSION_MODE should take precedence")
+	}
+}

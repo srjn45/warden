@@ -106,13 +106,14 @@ type Session struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 	Events          []Event    `json:"events"`
 	LastPaneExcerpt string     `json:"last_pane_excerpt"`
-	Supervised      bool       `json:"supervised"`                // launched with --permission-mode acceptEdits (prompts) instead of bypass
-	AutoApprove     bool       `json:"auto_approve,omitempty"`    // per-session auto-approval override (overrides AutoApproveGlobal)
 	AutoRestart     bool       `json:"auto_restart,omitempty"`    // opt-in: auto-resume this agent when it errors (capped)
 	RestartCount    int        `json:"restart_count,omitempty"`   // consecutive auto-restart attempts since last sustained-healthy run
 	LastRestartAt   *time.Time `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
+	PermissionMode  string     `json:"permission_mode,omitempty"` // explicit mode override; empty = use global default
+	AutoApprove     bool       `json:"auto_approve,omitempty"`    // opt-in: auto-approve yes/no prompts (always option 1)
 	PipelineID      string     `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
 	JobID           string     `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
+	Model           string     `json:"model,omitempty"`           // claude model (opus/sonnet/haiku or full ID)
 
 	ContextTokens    int        `json:"context_tokens,omitempty"`     // latest context-window fill; 0 = unknown (no model turn yet)
 	ContextState     string     `json:"context_state,omitempty"`      // "" | ok | warning | critical

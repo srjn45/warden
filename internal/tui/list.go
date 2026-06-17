@@ -562,9 +562,9 @@ func detailBody(s *store.Session, width int) string {
 	}
 	var b strings.Builder
 	label, st := badge(s.Status, s.ExitCode)
-	permMode := "bypass"
-	if s.Supervised {
-		permMode = "supervised"
+	permMode := s.PermissionMode
+	if permMode == "" {
+		permMode = "default"
 	}
 	// Show name in title if present
 	title := s.ID

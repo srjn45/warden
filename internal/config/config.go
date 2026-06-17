@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -9,20 +10,22 @@ import (
 )
 
 type Config struct {
-	Addr               string
-	DataDir            string
-	ClaudeProjectsDir  string
-	NotifyEnabled      bool
-	ApprovalsEnabled   bool
-	SpawnGateEnabled   bool
-	SpawnGateMaxAgents int
-	MetricsEnabled     bool
-	AllowNonLoopback   bool
-	TokenGuard         bool
-	TokenWarnAlert     bool
-	TokenAutoCompact   bool
-	TokenWarn          int
-	TokenCritical      int
+	Addr                  string
+	DataDir               string
+	ClaudeProjectsDir     string
+	NotifyEnabled         bool
+	ApprovalsEnabled      bool
+	AutoApproveEnabled    bool   // WARDEN_AUTO_APPROVE setting
+	DefaultPermissionMode string // from WARDEN_DEFAULT_PERMISSION_MODE
+	SpawnGateEnabled      bool
+	SpawnGateMaxAgents    int
+	MetricsEnabled        bool
+	AllowNonLoopback      bool
+	TokenGuard            bool
+	TokenWarnAlert        bool
+	TokenAutoCompact      bool
+	TokenWarn             int
+	TokenCritical         int
 }
 
 func envOr(key, def string) string {
@@ -85,6 +88,37 @@ func approvalsEnabled() bool {
 		return false
 	}
 	return true
+}
+
+// autoApproveEnabled reads WARDEN_AUTO_APPROVE (legacy AGENTCTL_AUTO_APPROVE);
+// OFF by default (opt-in safety), enabled only for 1/on/true. Gates the
+// auto-approval feature (automatic option 1 selection for recognized prompts).
+func autoApproveEnabled() bool {
+	switch strings.ToLower(env("AUTO_APPROVE")) {
+	case "1", "on", "true":
+		return true
+	}
+	return false
+}
+
+// defaultPermissionMode reads WARDEN_DEFAULT_PERMISSION_MODE (legacy
+// AGENTCTL_DEFAULT_PERMISSION_MODE); defaults to "auto", validates against
+// Claude's 6 supported modes, logs warning for invalid values.
+func defaultPermissionMode() string {
+	val := env("DEFAULT_PERMISSION_MODE")
+	if val == "" {
+		return "auto"
+	}
+
+	validModes := []string{"acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"}
+	for _, mode := range validModes {
+		if val == mode {
+			return mode
+		}
+	}
+
+	log.Printf("WARN: invalid WARDEN_DEFAULT_PERMISSION_MODE=%q, using 'auto'", val)
+	return "auto"
 }
 
 // spawnGateEnabled reads WARDEN_SPAWN_GATE (legacy AGENTCTL_SPAWN_GATE); ON by
@@ -173,6 +207,11 @@ func IsLoopbackHost(addr string) bool {
 	return false
 }
 
+// GetDefaultPermissionMode returns the configured default permission mode for agents.
+func (c Config) GetDefaultPermissionMode() string {
+	return c.DefaultPermissionMode
+}
+
 // Load reads config from environment, applying defaults.
 func Load() Config {
 	tWarn := envInt("TOKEN_WARN", 200000)
@@ -181,19 +220,21 @@ func Load() Config {
 		tWarn, tCrit = 200000, 400000
 	}
 	return Config{
-		Addr:               envOr2("ADDR", "127.0.0.1:8765"),
-		DataDir:            envOr2("DATA_DIR", defaultDataDir()),
-		ClaudeProjectsDir:  envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
-		NotifyEnabled:      notifyEnabled(),
-		ApprovalsEnabled:   approvalsEnabled(),
-		SpawnGateEnabled:   spawnGateEnabled(),
-		SpawnGateMaxAgents: spawnGateMaxAgents(),
-		MetricsEnabled:     metricsEnabled(),
-		AllowNonLoopback:   allowNonLoopback(),
-		TokenGuard:         onByDefault("TOKEN_GUARD"),
-		TokenWarnAlert:     onByDefault("TOKEN_WARN_ALERT"),
-		TokenAutoCompact:   onByDefault("TOKEN_AUTO_COMPACT"),
-		TokenWarn:          tWarn,
-		TokenCritical:      tCrit,
+		Addr:                  envOr2("ADDR", "127.0.0.1:8765"),
+		DataDir:               envOr2("DATA_DIR", defaultDataDir()),
+		ClaudeProjectsDir:     envOr("CLAUDE_PROJECTS_DIR", defaultClaudeProjectsDir()),
+		NotifyEnabled:         notifyEnabled(),
+		ApprovalsEnabled:      approvalsEnabled(),
+		AutoApproveEnabled:    autoApproveEnabled(),
+		DefaultPermissionMode: defaultPermissionMode(),
+		SpawnGateEnabled:      spawnGateEnabled(),
+		SpawnGateMaxAgents:    spawnGateMaxAgents(),
+		MetricsEnabled:        metricsEnabled(),
+		AllowNonLoopback:      allowNonLoopback(),
+		TokenGuard:            onByDefault("TOKEN_GUARD"),
+		TokenWarnAlert:        onByDefault("TOKEN_WARN_ALERT"),
+		TokenAutoCompact:      onByDefault("TOKEN_AUTO_COMPACT"),
+		TokenWarn:             tWarn,
+		TokenCritical:         tCrit,
 	}
 }
