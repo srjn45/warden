@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -725,5 +726,62 @@ func TestPublishApprovalEventDropsWhenFull(t *testing.T) {
 		require.Contains(t, buf.String(), "channel full")
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("publishApprovalEvent blocked when channel was full")
+	}
+}
+
+func TestApprovalWorkerConsumesEvents(t *testing.T) {
+	// Capture log output to verify tryAutoApprove was called
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	p := New(&stubDeps{}, 30*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start worker
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		p.runApprovalWorker(ctx)
+	}()
+
+	// Publish an event
+	sess := &store.Session{ID: "agent-123", Status: store.StatusWaitingForInput, TmuxSession: "tmux-123"}
+	pane := "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
+	p.ApprovalEvents <- ApprovalEvent{Session: sess, Pane: pane}
+
+	// Give worker time to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify tryAutoApprove was called by checking log output
+	require.Contains(t, buf.String(), "tryAutoApprove called for agent-123")
+
+	// Stop worker
+	cancel()
+	wg.Wait()
+}
+
+func TestApprovalWorkerStopsOnContextCancel(t *testing.T) {
+	p := New(&stubDeps{}, 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		p.runApprovalWorker(ctx)
+		close(done)
+	}()
+
+	// Cancel context
+	cancel()
+
+	// Verify worker stops
+	select {
+	case <-done:
+		// Success
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("worker did not stop after context cancellation")
 	}
 }

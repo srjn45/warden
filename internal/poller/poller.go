@@ -152,6 +152,26 @@ func isTerminal(s store.Status) bool {
 	return false
 }
 
+// tryAutoApprove is a stub method for auto-approval logic.
+// Full implementation will be added in a later task.
+func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane string) {
+	// Stub: actual auto-approval logic will be implemented later
+	log.Printf("tryAutoApprove called for %s (stub)", s.ID)
+}
+
+// runApprovalWorker consumes approval events and attempts auto-approval.
+// Runs until ctx is cancelled.
+func (p *Poller) runApprovalWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-p.ApprovalEvents:
+			p.tryAutoApprove(ctx, event.Session, event.Pane)
+		}
+	}
+}
+
 func (p *Poller) tick(ctx context.Context) error {
 	sessions, err := p.deps.List(ctx)
 	if err != nil {
@@ -318,13 +338,20 @@ func (p *Poller) runSummary(ctx context.Context, s *store.Session) {
 
 // Run ticks every interval until ctx is cancelled.
 func (p *Poller) Run(ctx context.Context, interval time.Duration) {
+	// Start approval worker
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		p.runApprovalWorker(ctx)
+	}()
+
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			// Drain in-flight summarizers; ctx cancellation already aborts their
-			// `claude -p` subprocesses, so this returns promptly.
+			// Drain in-flight summarizers + approval worker; ctx cancellation
+			// already aborts their work, so this returns promptly.
 			p.wg.Wait()
 			return
 		case <-t.C:
