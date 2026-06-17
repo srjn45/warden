@@ -342,3 +342,15 @@ func lastLines(s string, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// publishApprovalEvent sends an event to the approval worker.
+// Non-blocking: if the channel is full, the event is dropped (logged).
+func (p *Poller) publishApprovalEvent(s *store.Session, pane string) {
+	select {
+	case p.ApprovalEvents <- ApprovalEvent{Session: s, Pane: pane}:
+		// Event queued successfully
+	default:
+		// Channel full - drop event and log
+		log.Printf("poller: approval event dropped for %s (channel full)", s.ID)
+	}
+}

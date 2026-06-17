@@ -1,8 +1,11 @@
 package poller
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
+	"os"
 	"testing"
 	"time"
 
@@ -674,4 +677,53 @@ func TestPollerApprovalEventChannelInitialized(t *testing.T) {
 
 	// Verify channel is buffered with capacity 100
 	require.Equal(t, 100, cap(p.ApprovalEvents), "ApprovalEvents should have buffer capacity of 100")
+}
+
+func TestPublishApprovalEventNonBlocking(t *testing.T) {
+	p := New(&stubDeps{}, 30*time.Second)
+	sess := &store.Session{ID: "agent-123", Status: store.StatusWaitingForInput}
+	pane := "some pane content"
+
+	// Publish should succeed
+	p.publishApprovalEvent(sess, pane)
+
+	// Verify event was queued
+	select {
+	case event := <-p.ApprovalEvents:
+		require.Equal(t, "agent-123", event.Session.ID)
+		require.Equal(t, pane, event.Pane)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected event to be published")
+	}
+}
+
+func TestPublishApprovalEventDropsWhenFull(t *testing.T) {
+	p := New(&stubDeps{}, 30*time.Second)
+	sess := &store.Session{ID: "agent-123", Status: store.StatusWaitingForInput}
+
+	// Fill the channel to capacity
+	for i := 0; i < 100; i++ {
+		p.ApprovalEvents <- ApprovalEvent{Session: sess, Pane: "fill"}
+	}
+
+	// Capture log output to verify drop message
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	// Publish should drop (not block)
+	done := make(chan struct{})
+	go func() {
+		p.publishApprovalEvent(sess, "should drop")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success - didn't block
+		require.Contains(t, buf.String(), "approval event dropped for agent-123")
+		require.Contains(t, buf.String(), "channel full")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("publishApprovalEvent blocked when channel was full")
+	}
 }
