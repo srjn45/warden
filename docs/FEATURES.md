@@ -36,7 +36,7 @@ on-disk state:
 | **Auto-generated subject** | Each agent gets a one-line ≤8-word summary of what it's doing, seeded from the prompt and refreshed by the poller from the transcript or tmux pane (throttled, change-gated). |
 | **Managed worktree spawn** | `--type` creates/adopts a git worktree where the type needs one. |
 | **Worktree adoption** | If a worktree for the ticket already exists, the spawn reattaches to it instead of erroring. |
-| **Supervised mode** | `--supervised` launches with `--permission-mode acceptEdits` (risky tools prompt → feed the approvals inbox) instead of the default `--dangerously-skip-permissions` bypass. Persisted and reused on restore. |
+| **Configurable permission mode** | Per-agent and global control over Claude permission level. CLI flag: `--permission-mode <mode>` (values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`). Legacy alias: `--supervised` (equivalent to `--permission-mode acceptEdits`). Global default: `WARDEN_DEFAULT_PERMISSION_MODE` env var (defaults to `auto`). Runtime change: `warden set-permission-mode <id> <mode>`. Display: PERMISSION_MODE column in `warden ls`, permission_mode field in `warden status`. Stored in session: mode preserved on restore/resume. Empty mode means "use global default" and displays as `default`. |
 | **Model selection** | Per-agent model selection via `--model` flag (CLI and MCP). Short aliases for common models: `opus`, `sonnet`, `haiku`, `fable`. Environment variable default: `WARDEN_MODEL_DEFAULT`. Fallback: `claude-sonnet-4-5` if not specified. Display: MODEL column in `warden ls`, model field in `warden status`. Stored in session: model preserved on restore/resume. |
 
 ### Task types (`--type`)
@@ -240,6 +240,7 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 | `WARDEN_DATA_DIR` | `~/.warden` | Session JSON store directory |
 | `WARDEN_WORKDIR` | `~/warden-agents` | Where per-agent prompt files are stored |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript dirs (poller reads these) |
+| `WARDEN_DEFAULT_PERMISSION_MODE` | `auto` | Default permission mode for spawned agents (valid: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`) |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications |
 | `WARDEN_APPROVALS` | `on` | The approvals inbox |
 | `WARDEN_TOKEN_GUARD` | `on` | Context-size guard master switch (gauge + alert + auto-compact) |

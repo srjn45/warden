@@ -423,6 +423,20 @@ warden start --type spike --worktree
 
 # Point at a specific repo and branch:
 warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
+
+# Permission mode examples:
+# Use acceptEdits mode for careful prompting on risky operations:
+warden start "refactor the auth module" --permission-mode acceptEdits
+
+# Set a global default for all new agents:
+export WARDEN_DEFAULT_PERMISSION_MODE=acceptEdits
+warden start "debug the API rate limit"  # uses acceptEdits mode
+
+# Override the global default for a specific agent:
+warden start "quick spike" --permission-mode auto  # bypass global setting
+
+# Change permission mode for a running agent:
+warden set-permission-mode agent-abc123 dontAsk
 ```
 
 Flags:
@@ -431,7 +445,8 @@ Flags:
 - `--branch` — new branch name (development) or checkout target (pr-review)
 - `--pr` — PR number or URL (pr-review only)
 - `--worktree` — opt-in worktree for analysis/spike
-- `--supervised` — launch with `--permission-mode acceptEdits` instead of the default `--dangerously-skip-permissions`; risky tools prompt and the approvals inbox surfaces them (see `WARDEN_APPROVALS`)
+- `--permission-mode <mode>` — control Claude's permission level (valid modes: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`); defaults to `WARDEN_DEFAULT_PERMISSION_MODE` env var (default: `auto`)
+- `--supervised` — legacy alias for `--permission-mode acceptEdits`; risky tools prompt and the approvals inbox surfaces them (see `WARDEN_APPROVALS`)
 
 ### `warden ls`
 
