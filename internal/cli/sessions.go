@@ -30,14 +30,18 @@ func newLsCmd() *cobra.Command {
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
 			color := isTTY(cmd.OutOrStdout())
-			fmt.Fprintln(tw, "NAME\tID\tTYPE\tMODEL\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
+			fmt.Fprintln(tw, "NAME\tID\tTYPE\tMODEL\tPERMISSION_MODE\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
 			for _, s := range sessions {
 				name := s.Name
 				if name == "" {
 					name = "—"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					name, s.ID, typeOrPending(s.Type), modelCell(s.Model), statusCell(s.Status, color), contextCell(s.ContextTokens, s.ContextState, color),
+				permMode := s.PermissionMode
+				if permMode == "" {
+					permMode = "default"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					name, s.ID, typeOrPending(s.Type), modelCell(s.Model), permMode, statusCell(s.Status, color), contextCell(s.ContextTokens, s.ContextState, color),
 					age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
 			}
 			return tw.Flush()
