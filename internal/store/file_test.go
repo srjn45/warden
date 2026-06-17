@@ -264,15 +264,6 @@ func TestFileClearWorktree(t *testing.T) {
 	require.ErrorIs(t, st.ClearWorktree(ctx, "nope"), ErrNotFound)
 }
 
-func TestSupervisedRoundTrips(t *testing.T) {
-	fs, err := NewFileStore(t.TempDir())
-	require.NoError(t, err)
-	require.NoError(t, fs.Insert(context.Background(), &Session{ID: "a1", Supervised: true}))
-	got, err := fs.Get(context.Background(), "a1")
-	require.NoError(t, err)
-	require.True(t, got.Supervised)
-}
-
 func TestSafeID(t *testing.T) {
 	require.NoError(t, SafeID("agent-1234"))
 	require.NoError(t, SafeID("work"))
@@ -718,4 +709,162 @@ func TestFileStore_ClearRateLimit(t *testing.T) {
 	lastEvent := got.Events[len(got.Events)-1]
 	require.Equal(t, "rate-limit-resumed", lastEvent.Type)
 	require.Contains(t, lastEvent.Detail, "successfully resumed")
+}
+
+func TestAutoApproveFieldPersistence(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Insert session with AutoApprove = true
+	s1 := &Session{
+		ID:          "test-auto-approve-1",
+		TmuxSession: "tmux-1",
+		Repo:        "/repo",
+		Status:      StatusWorking,
+		AutoApprove: true,
+	}
+	require.NoError(t, st.Insert(ctx, s1))
+
+	// Retrieve and verify
+	got, err := st.Get(ctx, "test-auto-approve-1")
+	require.NoError(t, err)
+	require.True(t, got.AutoApprove, "AutoApprove should be true")
+
+	// Insert session with AutoApprove = false (default)
+	s2 := &Session{
+		ID:          "test-auto-approve-2",
+		TmuxSession: "tmux-2",
+		Repo:        "/repo",
+		Status:      StatusWorking,
+		AutoApprove: false,
+	}
+	require.NoError(t, st.Insert(ctx, s2))
+
+	got2, err := st.Get(ctx, "test-auto-approve-2")
+	require.NoError(t, err)
+	require.False(t, got2.AutoApprove, "AutoApprove should be false")
+}
+
+func TestUpdateAutoApprove(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Insert session with AutoApprove = false
+	s := &Session{
+		ID:          "test-update-auto",
+		TmuxSession: "tmux-1",
+		Repo:        "/repo",
+		Status:      StatusWorking,
+		AutoApprove: false,
+	}
+	require.NoError(t, st.Insert(ctx, s))
+
+	// Update to true
+	err = st.UpdateAutoApprove(ctx, "test-update-auto", true)
+	require.NoError(t, err)
+
+	got, err := st.Get(ctx, "test-update-auto")
+	require.NoError(t, err)
+	require.True(t, got.AutoApprove, "AutoApprove should be updated to true")
+
+	// Update to false
+	err = st.UpdateAutoApprove(ctx, "test-update-auto", false)
+	require.NoError(t, err)
+
+	got, err = st.Get(ctx, "test-update-auto")
+	require.NoError(t, err)
+	require.False(t, got.AutoApprove, "AutoApprove should be updated to false")
+}
+
+func TestUpdateAutoApproveNotFound(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	err = st.UpdateAutoApprove(ctx, "nonexistent", true)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestPermissionModeFieldPersistence(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Insert session with PermissionMode = "bypassPermissions"
+	s1 := &Session{
+		ID:             "test-perm-1",
+		TmuxSession:    "tmux-1",
+		Repo:           "/repo",
+		Status:         StatusWorking,
+		PermissionMode: "bypassPermissions",
+	}
+	require.NoError(t, st.Insert(ctx, s1))
+
+	// Retrieve and verify
+	got, err := st.Get(ctx, "test-perm-1")
+	require.NoError(t, err)
+	require.Equal(t, "bypassPermissions", got.PermissionMode)
+
+	// Insert session with empty PermissionMode (use global default)
+	s2 := &Session{
+		ID:             "test-perm-2",
+		TmuxSession:    "tmux-2",
+		Repo:           "/repo",
+		Status:         StatusWorking,
+		PermissionMode: "",
+	}
+	require.NoError(t, st.Insert(ctx, s2))
+
+	got2, err := st.Get(ctx, "test-perm-2")
+	require.NoError(t, err)
+	require.Equal(t, "", got2.PermissionMode)
+}
+
+func TestUpdatePermissionMode(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Insert session with PermissionMode = ""
+	s := &Session{
+		ID:             "test-update-perm",
+		TmuxSession:    "tmux-1",
+		Repo:           "/repo",
+		Status:         StatusWorking,
+		PermissionMode: "",
+	}
+	require.NoError(t, st.Insert(ctx, s))
+
+	// Update to "auto"
+	err = st.UpdatePermissionMode(ctx, "test-update-perm", "auto")
+	require.NoError(t, err)
+
+	got, err := st.Get(ctx, "test-update-perm")
+	require.NoError(t, err)
+	require.Equal(t, "auto", got.PermissionMode)
+
+	// Update to "acceptEdits"
+	err = st.UpdatePermissionMode(ctx, "test-update-perm", "acceptEdits")
+	require.NoError(t, err)
+
+	got, err = st.Get(ctx, "test-update-perm")
+	require.NoError(t, err)
+	require.Equal(t, "acceptEdits", got.PermissionMode)
+}
+
+func TestUpdatePermissionModeNotFound(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	err = st.UpdatePermissionMode(ctx, "nonexistent", "auto")
+	require.ErrorIs(t, err, ErrNotFound)
 }
