@@ -902,3 +902,112 @@ func TestNoEventOnPaneChangeWhenNotWaiting(t *testing.T) {
 		// Success - no event
 	}
 }
+
+func TestAutoApprovalEndToEnd(t *testing.T) {
+	// Scenario: Agent shows first prompt (status transition), gets auto-approved,
+	// then shows second prompt (pane change, no status transition), gets auto-approved.
+	// This test validates the bug fix where the second prompt would NOT trigger
+	// auto-approval in the old implementation.
+
+	firstPrompt := "First prompt\nDo you want to proceed?\n ❯ 1. Yes\n   2. No"
+	secondPrompt := "Second prompt\nDo you want to continue?\n ❯ 1. Yes\n   2. No"
+
+	d := &stubDeps{
+		sessions: []*store.Session{
+			{
+				ID:          "agent-123",
+				Status:      store.StatusWorking,
+				TmuxSession: "tmux-123",
+				UpdatedAt:   time.Now(),
+			},
+		},
+		alive:       map[string]bool{"tmux-123": true},
+		panes:       map[string]string{"tmux-123": "working..."},
+		updates:     map[string]store.Status{},
+		paneUpdates: map[string]string{},
+	}
+
+	p := New(d, 30*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Track events consumed by the worker
+	eventsConsumed := make(chan string, 10)
+
+	// Start custom worker that tracks events
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event := <-p.ApprovalEvents:
+				// Record which prompt triggered the event
+				eventsConsumed <- event.Session.ID
+				// Simulate auto-approval processing
+				p.tryAutoApprove(ctx, event.Session, event.Pane)
+			}
+		}
+	}()
+
+	// === First prompt: status transition to waiting_for_input ===
+
+	// Simulate first prompt appearing
+	d.panes["tmux-123"] = firstPrompt
+
+	// Tick should transition to waiting_for_input and publish event (Task 4)
+	err := p.tick(ctx)
+	require.NoError(t, err)
+
+	// Check that status transition happened
+	require.Equal(t, store.StatusWaitingForInput, d.updates["agent-123"],
+		"status should have transitioned to waiting_for_input")
+
+	// Verify first event was consumed
+	select {
+	case id := <-eventsConsumed:
+		require.Equal(t, "agent-123", id, "first prompt should trigger event")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("first prompt event was not consumed")
+	}
+
+	// Update session to reflect the transition (simulate next tick's snapshot)
+	d.sessions[0].Status = store.StatusWaitingForInput
+	d.sessions[0].LastPaneExcerpt = lastLines(firstPrompt, 20)
+
+	// === Second prompt: pane change while already waiting_for_input ===
+
+	// Pane changes to show second prompt (THIS IS THE BUG FIX VALIDATION)
+	d.panes["tmux-123"] = secondPrompt
+
+	// Tick should detect pane change and publish event (Task 5 fix)
+	// NO status change - status stays waiting_for_input
+	err = p.tick(ctx)
+	require.NoError(t, err)
+
+	// Verify second event was consumed (validates the bug fix)
+	select {
+	case id := <-eventsConsumed:
+		require.Equal(t, "agent-123", id, "second prompt should trigger event (bug fix validation)")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("second prompt event was not consumed - THIS IS THE BUG being tested")
+	}
+
+	// Verify status did NOT change (still waiting_for_input)
+	require.Equal(t, store.StatusWaitingForInput, d.sessions[0].Status,
+		"status should remain waiting_for_input on second prompt")
+
+	// Verify no more events are pending
+	select {
+	case <-eventsConsumed:
+		t.Fatal("unexpected extra event")
+	case <-time.After(50 * time.Millisecond):
+		// Expected - no more events
+	}
+
+	// Stop worker
+	cancel()
+	p.wg.Wait()
+}
