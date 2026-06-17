@@ -173,7 +173,7 @@ func TestDetailBodyRendersAllSections(t *testing.T) {
 		Type:            store.TypeDevelopment,
 		Subject:         "Refactor lifecycle reaper retry path",
 		Status:          store.StatusWaitingForInput,
-		PermissionMode:  "acceptEdits",
+		Supervised:      true,
 		ContextTokens:   88000,
 		ContextState:    store.ContextWarning,
 		Repo:            "/Users/me/workspace/warden",
@@ -197,7 +197,7 @@ func TestDetailBodyRendersAllSections(t *testing.T) {
 		"WARD-42",                              // ticket
 		"#318",                                 // pr
 		"ctx-guard",                            // pipeline
-		"acceptEdits",                          // permission mode
+		"supervised",                           // mode
 		"48213",                                // pid
 	} {
 		if !strings.Contains(out, want) {

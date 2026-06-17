@@ -30,19 +30,18 @@ type EventRequest struct {
 
 // SpawnRequest is the body for POST /spawn.
 type SpawnRequest struct {
-	Type           string `json:"type"`            // typed mode: task type (normalized); empty = free-form
-	Ticket         string `json:"ticket"`          // optional; becomes the id when present
-	Name           string `json:"name"`            // optional; human-readable name for the agent
-	Repo           string `json:"repo"`            // required in typed mode
-	Branch         string `json:"branch"`          // optional; development branch / pr-review checkout
-	PR             string `json:"pr"`              // optional; pr-review
-	Worktree       bool   `json:"worktree"`        // analysis/spike opt-in
-	Prompt         string `json:"prompt"`          // free-form: the agent's initial prompt; empty = interactive
-	Cwd            string `json:"cwd"`             // free-form: dir to launch claude from (caller cwd / web pick)
-	PermissionMode string `json:"permission_mode"` // explicit permission mode; empty = use global default
-	AutoRestart    bool   `json:"auto_restart"`    // opt-in: auto-resume on error (capped)
-	Force          bool   `json:"force"`           // bypass the memory-pressure spawn gate
-	Model          string `json:"model"`           // claude model (opus/sonnet/haiku or full ID); empty = default
+	Type        string `json:"type"`         // typed mode: task type (normalized); empty = free-form
+	Ticket      string `json:"ticket"`       // optional; becomes the id when present
+	Name        string `json:"name"`         // optional; human-readable name for the agent
+	Repo        string `json:"repo"`         // required in typed mode
+	Branch      string `json:"branch"`       // optional; development branch / pr-review checkout
+	PR          string `json:"pr"`           // optional; pr-review
+	Worktree    bool   `json:"worktree"`     // analysis/spike opt-in
+	Prompt      string `json:"prompt"`       // free-form: the agent's initial prompt; empty = interactive
+	Cwd         string `json:"cwd"`          // free-form: dir to launch claude from (caller cwd / web pick)
+	Supervised  bool   `json:"supervised"`   // opt-in supervised mode (acceptEdits prompts)
+	AutoRestart bool   `json:"auto_restart"` // opt-in: auto-resume on error (capped)
+	Force       bool   `json:"force"`        // bypass the memory-pressure spawn gate
 }
 
 // confirmationResponse is the 428 body when the spawn gate warns. The client
@@ -245,8 +244,6 @@ func (s *Server) router() http.Handler {
 	r.Get("/fs/dirs", s.handleListDirs)
 	r.Get("/approvals", s.handleApprovals)
 	r.Post("/sessions/{id}/approve", s.handleApprove)
-	r.Patch("/sessions/{id}/auto-approve", s.handleSetAutoApprove)
-	r.Patch("/sessions/{id}/permission-mode", s.handleSetPermissionMode)
 	r.Get("/sessions/{id}/digest", s.handleDigest)
 	r.Get("/metrics", s.handleMetrics)
 	r.Get("/metrics/history", s.handleMetricsHistory)

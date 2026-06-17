@@ -79,7 +79,7 @@ func textOf(res *mcpsdk.CallToolResult) string {
 	return out
 }
 
-func TestSpawnAgentToolSendsPermissionMode(t *testing.T) {
+func TestSpawnAgentToolSendsSupervised(t *testing.T) {
 	var gotBody string
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/spawn" {
@@ -105,11 +105,11 @@ func TestSpawnAgentToolSendsPermissionMode(t *testing.T) {
 
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "spawn_agent",
-		Arguments: map[string]any{"prompt": "do X", "permission_mode": "acceptEdits"},
+		Arguments: map[string]any{"prompt": "do X", "supervised": true},
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
-	require.Contains(t, gotBody, `"permission_mode":"acceptEdits"`)
+	require.Contains(t, gotBody, `"supervised":true`)
 }
 
 func TestSpawnAgentToolSendsExplicitDirAsCwd(t *testing.T) {

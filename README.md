@@ -252,27 +252,6 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 
 ---
 
-## Model Selection
-
-Warden supports per-agent model selection:
-
-- **Short aliases:** `opus`, `sonnet`, `haiku`, `fable`
-- **Full model IDs:** `claude-opus-4-8`, `claude-sonnet-4-6`, etc.
-- **Default:** `claude-sonnet-4-5` (or `WARDEN_MODEL_DEFAULT` env var)
-
-```bash
-# Explicit model
-warden start "Complex task" --model opus
-
-# Set user default
-export WARDEN_MODEL_DEFAULT=opus
-
-# View model in agent list
-warden ls  # Shows MODEL column
-```
-
----
-
 ## Environment variables
 
 | Variable | Default | Description |
@@ -281,7 +260,6 @@ warden ls  # Shows MODEL column
 | `WARDEN_DATA_DIR` | `~/.warden` | Directory for session JSON files (`sessions/`, `closed/`) |
 | `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
-| `WARDEN_MODEL_DEFAULT` | `claude-sonnet-4-5` | Default model for new agents; can be a short alias (opus/sonnet/haiku/fable) or full model ID. Overridden by `--model` flag |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
 | `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approve`. Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
 | `WARDEN_TOKEN_GUARD` | `on` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch — disable with `0`/`off`/`false` to turn off the whole guard (gauge, alert, auto-compact) |
@@ -423,20 +401,6 @@ warden start --type spike --worktree
 
 # Point at a specific repo and branch:
 warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
-
-# Permission mode examples:
-# Use acceptEdits mode for careful prompting on risky operations:
-warden start "refactor the auth module" --permission-mode acceptEdits
-
-# Set a global default for all new agents:
-export WARDEN_DEFAULT_PERMISSION_MODE=acceptEdits
-warden start "debug the API rate limit"  # uses acceptEdits mode
-
-# Override the global default for a specific agent:
-warden start "quick spike" --permission-mode auto  # bypass global setting
-
-# Change permission mode for a running agent:
-warden set-permission-mode agent-abc123 dontAsk
 ```
 
 Flags:
@@ -445,8 +409,7 @@ Flags:
 - `--branch` — new branch name (development) or checkout target (pr-review)
 - `--pr` — PR number or URL (pr-review only)
 - `--worktree` — opt-in worktree for analysis/spike
-- `--permission-mode <mode>` — control Claude's permission level (valid modes: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`); defaults to `WARDEN_DEFAULT_PERMISSION_MODE` env var (default: `auto`)
-- `--supervised` — legacy alias for `--permission-mode acceptEdits`; risky tools prompt and the approvals inbox surfaces them (see `WARDEN_APPROVALS`)
+- `--supervised` — launch with `--permission-mode acceptEdits` instead of the default `--dangerously-skip-permissions`; risky tools prompt and the approvals inbox surfaces them (see `WARDEN_APPROVALS`)
 
 ### `warden ls`
 

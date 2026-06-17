@@ -25,17 +25,16 @@ func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st store.Store) Lifecycle {
 // "classifying" and lifecycle.Spawn launches in the caller's cwd.
 func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
 	lr := lifecycle.SpawnRequest{
-		Ticket:         req.Ticket,
-		Name:           req.Name,
-		Repo:           req.Repo,
-		Branch:         req.Branch,
-		PR:             req.PR,
-		Worktree:       req.Worktree,
-		Prompt:         req.Prompt,
-		Cwd:            req.Cwd,
-		PermissionMode: req.PermissionMode,
-		AutoRestart:    req.AutoRestart,
-		Model:          req.Model,
+		Ticket:      req.Ticket,
+		Name:        req.Name,
+		Repo:        req.Repo,
+		Branch:      req.Branch,
+		PR:          req.PR,
+		Worktree:    req.Worktree,
+		Prompt:      req.Prompt,
+		Cwd:         req.Cwd,
+		Supervised:  req.Supervised,
+		AutoRestart: req.AutoRestart,
 	}
 	// Normalize only a typed spawn. Free-form (Type empty) is keyed on cwd, not the
 	// prompt: leaving Type empty keeps lifecycle.Spawn on the cwd-launch path and the

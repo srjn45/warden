@@ -14,11 +14,11 @@ import (
 )
 
 func TestBuildSuccessorParams(t *testing.T) {
-	old := &store.Session{Workdir: "/repo/.worktrees/CRD-1", PermissionMode: "acceptEdits", Repo: "/repo", Worktree: "/repo/.worktrees/CRD-1"}
+	old := &store.Session{Workdir: "/repo/.worktrees/CRD-1", Supervised: true, Repo: "/repo", Worktree: "/repo/.worktrees/CRD-1"}
 	p := buildSuccessorParams(old, "do the thing")
 	require.Equal(t, "do the thing", p.Prompt)
 	require.Equal(t, "/repo/.worktrees/CRD-1", p.Cwd, "successor must launch in the old agent's workdir (the worktree)")
-	require.Equal(t, "acceptEdits", p.PermissionMode, "successor inherits permission mode")
+	require.True(t, p.Supervised, "successor inherits supervised mode")
 	// Prompt-mode spawn: no Type/Repo/Worktree, so the existing worktree is reused by cwd, not recreated.
 	require.Empty(t, p.Type)
 	require.Empty(t, p.Repo)
@@ -95,7 +95,7 @@ func (f *fakeRotator) Terminate(ctx context.Context, id string) error {
 
 func TestRunRotateHappyPath(t *testing.T) {
 	f := &fakeRotator{
-		getSession:  &store.Session{ID: "agent-old", Workdir: "/repo/.worktrees/x", PermissionMode: "acceptEdits"},
+		getSession:  &store.Session{ID: "agent-old", Workdir: "/repo/.worktrees/x", Supervised: true},
 		spawnResult: &store.Session{ID: "agent-new", Workdir: "/repo/.worktrees/x"},
 	}
 	// onSpawned closes over f so its call interleaves into the same ordered log.
@@ -108,7 +108,7 @@ func TestRunRotateHappyPath(t *testing.T) {
 		f.calls,
 		"summary must print AFTER spawn but BEFORE reap — the reap kills this very process in self-rotation")
 	require.Equal(t, "/repo/.worktrees/x", f.spawnParams.Cwd)
-	require.Equal(t, "acceptEdits", f.spawnParams.PermissionMode)
+	require.True(t, f.spawnParams.Supervised)
 }
 
 func TestRunRotateSpawnErrorDoesNotReap(t *testing.T) {

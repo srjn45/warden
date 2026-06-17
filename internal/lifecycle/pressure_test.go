@@ -19,7 +19,7 @@ func (f prFakeRunner) Run(ctx context.Context, dir, name string, args ...string)
 }
 
 func TestMemoryPressureParsesLevel(t *testing.T) {
-	l := New(prFakeRunner{out: "2\n"}, &FakeConfig{})
+	l := New(prFakeRunner{out: "2\n"})
 	got, err := l.MemoryPressure(context.Background())
 	if err != nil || got != pressure.Warn {
 		t.Fatalf("MemoryPressure = (%v,%v), want (warn,nil)", got, err)
@@ -28,7 +28,7 @@ func TestMemoryPressureParsesLevel(t *testing.T) {
 
 func TestMemoryPressureDegradesOnError(t *testing.T) {
 	// Non-macOS / sysctl missing: command errors → degrade to Normal, no error.
-	l := New(prFakeRunner{err: errors.New("exec: sysctl not found")}, &FakeConfig{})
+	l := New(prFakeRunner{err: errors.New("exec: sysctl not found")})
 	got, err := l.MemoryPressure(context.Background())
 	if err != nil || got != pressure.Normal {
 		t.Fatalf("MemoryPressure on exec error = (%v,%v), want (normal,nil)", got, err)
@@ -36,7 +36,7 @@ func TestMemoryPressureDegradesOnError(t *testing.T) {
 }
 
 func TestMemoryPressureDegradesOnGarbage(t *testing.T) {
-	l := New(prFakeRunner{out: "not-a-number"}, &FakeConfig{})
+	l := New(prFakeRunner{out: "not-a-number"})
 	got, err := l.MemoryPressure(context.Background())
 	if err != nil || got != pressure.Normal {
 		t.Fatalf("MemoryPressure on garbage = (%v,%v), want (normal,nil)", got, err)

@@ -27,9 +27,9 @@ func composeSuccessorPrompt(resumePrompt, handoffPath string) string {
 // reuses the existing worktree by cwd rather than creating a new one.
 func buildSuccessorParams(old *store.Session, prompt string) client.SpawnParams {
 	return client.SpawnParams{
-		Prompt:         prompt,
-		Cwd:            old.Workdir,
-		PermissionMode: old.PermissionMode,
+		Prompt:     prompt,
+		Cwd:        old.Workdir,
+		Supervised: old.Supervised,
 	}
 }
 

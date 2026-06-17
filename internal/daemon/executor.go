@@ -107,15 +107,10 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 	for _, jobID := range d.Spawn {
 		job := p.Job(jobID)
 		worktree, base := e.resolveWorktree(p, job)
-		// Convert job.Supervised (bool) to permission mode (string)
-		permissionMode := ""
-		if job.Supervised {
-			permissionMode = "acceptEdits"
-		}
 		req := lifecycle.JobSpawnRequest{
 			PipelineID: p.ID, JobID: job.ID, Repo: p.Repo,
 			Prompt: pipeline.ComposePrompt(p, job), Worktree: worktree,
-			BaseBranch: base, Type: store.NormalizeType(job.Type), PermissionMode: permissionMode,
+			BaseBranch: base, Type: store.NormalizeType(job.Type), Supervised: job.Supervised,
 		}
 		if lvl, _ := e.life.MemoryPressure(ctx); lvl >= pressure.Warn {
 			log.Printf("pipeline %s job %s: spawning under memory pressure (%s)", req.PipelineID, jobID, lvl)
