@@ -230,6 +230,11 @@ func (p *Poller) tick(ctx context.Context) error {
 					_ = p.deps.UpdatePane(ctx, s.ID, excerpt)
 					changed = true
 					paneChanged = true
+
+					// Publish approval event if already waiting
+					if s.Status == store.StatusWaitingForInput && pane != "" {
+						p.publishApprovalEvent(s, pane)
+					}
 				}
 			}
 		}

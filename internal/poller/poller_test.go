@@ -814,3 +814,91 @@ func TestPublishEventOnStatusTransitionToWaitingForInput(t *testing.T) {
 		t.Fatal("expected approval event to be published on status transition")
 	}
 }
+
+func TestPublishEventOnPaneChangeWhileWaiting(t *testing.T) {
+	firstPrompt := "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
+	secondPrompt := "Another prompt?\n ❯ 1. Yes\n   2. No"
+
+	d := &stubDeps{
+		sessions: []*store.Session{
+			{
+				ID:              "agent-123",
+				Status:          store.StatusWaitingForInput,
+				TmuxSession:     "tmux-123",
+				UpdatedAt:       time.Now(),
+				LastPaneExcerpt: lastLines(firstPrompt, 20),
+			},
+		},
+		alive:       map[string]bool{"tmux-123": true},
+		panes:       map[string]string{"tmux-123": firstPrompt},
+		paneUpdates: map[string]string{},
+	}
+
+	p := New(d, 30*time.Second)
+
+	ctx := context.Background()
+
+	// First tick: already waiting with first prompt, no pane change
+	err := p.tick(ctx)
+	require.NoError(t, err)
+
+	// Drain any initial event from the channel
+	select {
+	case <-p.ApprovalEvents:
+	default:
+	}
+
+	// Simulate pane changes to show second prompt (still waiting_for_input)
+	d.panes["tmux-123"] = secondPrompt
+
+	// Tick should detect pane change and publish event
+	err = p.tick(ctx)
+	require.NoError(t, err)
+
+	// Verify event was published
+	select {
+	case event := <-p.ApprovalEvents:
+		require.Equal(t, "agent-123", event.Session.ID)
+		require.Contains(t, event.Pane, "Another prompt")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected approval event on pane change while waiting_for_input")
+	}
+}
+
+func TestNoEventOnPaneChangeWhenNotWaiting(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{
+			{
+				ID:              "agent-123",
+				Status:          store.StatusWorking, // NOT waiting
+				TmuxSession:     "tmux-123",
+				UpdatedAt:       time.Now(),
+				LastPaneExcerpt: "old output",
+			},
+		},
+		alive: map[string]bool{"tmux-123": true},
+		panes: map[string]string{"tmux-123": "old output"},
+	}
+
+	p := New(d, 30*time.Second)
+	ctx := context.Background()
+
+	// First tick
+	err := p.tick(ctx)
+	require.NoError(t, err)
+
+	// Change pane content
+	d.panes["tmux-123"] = "new output"
+
+	// Second tick
+	err = p.tick(ctx)
+	require.NoError(t, err)
+
+	// Verify NO event published (not waiting_for_input)
+	select {
+	case <-p.ApprovalEvents:
+		t.Fatal("should not publish event when status is not waiting_for_input")
+	case <-time.After(50 * time.Millisecond):
+		// Success - no event
+	}
+}
