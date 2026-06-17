@@ -247,6 +247,10 @@ func (p *Poller) tick(ctx context.Context) error {
 					if p.OnTransition != nil {
 						p.OnTransition(s, s.Status, next)
 					}
+					// Publish approval event on transition to waiting_for_input
+					if next == store.StatusWaitingForInput && pane != "" {
+						p.publishApprovalEvent(s, pane)
+					}
 				}
 			}
 		}

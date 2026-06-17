@@ -785,3 +785,32 @@ func TestApprovalWorkerStopsOnContextCancel(t *testing.T) {
 		t.Fatal("worker did not stop after context cancellation")
 	}
 }
+
+func TestPublishEventOnStatusTransitionToWaitingForInput(t *testing.T) {
+	pane := "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
+	d := &stubDeps{
+		sessions: []*store.Session{
+			{ID: "agent-123", Status: store.StatusWorking, TmuxSession: "tmux-123", UpdatedAt: time.Now(), LastPaneExcerpt: "old"},
+		},
+		alive:   map[string]bool{"tmux-123": true},
+		panes:   map[string]string{"tmux-123": pane},
+		updates: map[string]store.Status{},
+	}
+
+	p := New(d, 30*time.Second)
+
+	ctx := context.Background()
+
+	// Tick should detect transition and publish event
+	err := p.tick(ctx)
+	require.NoError(t, err)
+
+	// Verify event was published
+	select {
+	case event := <-p.ApprovalEvents:
+		require.Equal(t, "agent-123", event.Session.ID)
+		require.Contains(t, event.Pane, "Do you want to proceed")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected approval event to be published on status transition")
+	}
+}
