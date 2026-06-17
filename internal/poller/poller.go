@@ -104,12 +104,24 @@ type Poller struct {
 
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
 
+	// ApprovalEvents is a buffered channel for approval opportunities.
+	// Published when: (1) status transitions to waiting_for_input, OR
+	// (2) pane changes while already in waiting_for_input.
+	// Consumed by the approval worker goroutine.
+	ApprovalEvents chan ApprovalEvent
+
 	// Summarization runs `claude -p`, which is slow, so it is dispatched to
 	// background workers rather than blocking the tick loop. mu guards inflight;
 	// wg tracks live workers so Run can drain them on shutdown.
 	mu       sync.Mutex
 	inflight map[string]struct{} // session ids with a summarizer currently running
 	wg       sync.WaitGroup
+}
+
+// ApprovalEvent represents a potential auto-approval opportunity.
+type ApprovalEvent struct {
+	Session *store.Session // snapshot at event time
+	Pane    string         // pane content that triggered the event
 }
 
 func New(d Deps, stuckAfter time.Duration) *Poller {
@@ -122,6 +134,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		lastCtxCheck:    map[string]time.Time{},
 		CheckEvery:      20 * time.Second,
 		CompactCooldown: 2 * time.Minute,
+		ApprovalEvents:  make(chan ApprovalEvent, 100),
 	}
 }
 

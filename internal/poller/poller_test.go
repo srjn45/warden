@@ -667,3 +667,11 @@ func TestClassify_NoRateLimit(t *testing.T) {
 		t.Error("classify() should not return rate_limited for normal output")
 	}
 }
+
+func TestPollerApprovalEventChannelInitialized(t *testing.T) {
+	p := New(&stubDeps{}, 30*time.Second)
+	require.NotNil(t, p.ApprovalEvents, "ApprovalEvents channel should be initialized")
+
+	// Verify channel is buffered with capacity 100
+	require.Equal(t, 100, cap(p.ApprovalEvents), "ApprovalEvents should have buffer capacity of 100")
+}
