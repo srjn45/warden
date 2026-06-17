@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -72,6 +73,8 @@ type Deps interface {
 	Compact(ctx context.Context, s *store.Session) error
 	// StampCompact records that /compact was just sent (cooldown guard).
 	StampCompact(ctx context.Context, id string) error
+	// SendKeys sends a single key (e.g. numbered menu option) to the agent's tmux pane.
+	SendKeys(ctx context.Context, tmuxSession, keys string) error
 }
 
 type Poller struct {
@@ -103,6 +106,10 @@ type Poller struct {
 	OnContextAlert func(sess *store.Session, state ctxtokens.State, tokens int)
 
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
+
+	// AutoApproveGlobal is the global default for auto-approval (from config).
+	// Per-session AutoApprove overrides this.
+	AutoApproveGlobal bool
 
 	// ApprovalEvents is a buffered channel for approval opportunities.
 	// Published when: (1) status transitions to waiting_for_input, OR
@@ -152,11 +159,36 @@ func isTerminal(s store.Status) bool {
 	return false
 }
 
-// tryAutoApprove is a stub method for auto-approval logic.
-// Full implementation will be added in a later task.
+// tryAutoApprove attempts to auto-approve a recognized yes/no prompt by sending
+// option 1 to the agent's tmux pane. Only attempts auto-approval if:
+//   - AutoApproveGlobal OR session.AutoApprove is true
+//   - The pane content parses as a recognized prompt (approval.Parse ok=true)
+//
+// Idempotent and safe to call repeatedly on the same prompt: an unrecognized or
+// already-dismissed prompt is a logged no-op.
 func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane string) {
-	// Stub: actual auto-approval logic will be implemented later
-	log.Printf("tryAutoApprove called for %s (stub)", s.ID)
+	// Check if auto-approve enabled (global OR per-session)
+	if !p.AutoApproveGlobal && !s.AutoApprove {
+		return
+	}
+
+	// Parse the approval
+	a, ok := approval.Parse(pane)
+	if !ok || len(a.Options) == 0 {
+		log.Printf("auto-approve skipped for %s: unrecognized prompt", s.ID)
+		return
+	}
+
+	// Send option 1
+	if err := p.deps.SendKeys(ctx, s.TmuxSession, "1"); err != nil {
+		log.Printf("auto-approve failed for %s: %v", s.ID, err)
+		return
+	}
+
+	log.Printf("auto-approved %s -> option 1: %s", s.ID, a.Options[0])
+	if p.OnChange != nil {
+		p.OnChange()
+	}
 }
 
 // runApprovalWorker consumes approval events and attempts auto-approval.

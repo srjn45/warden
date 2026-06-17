@@ -101,6 +101,35 @@ type stubDeps struct {
 	finalCode   map[string]int          // records the code passed to FinalizeExit
 	cleared     map[string]bool         // records ClearExit calls
 	finalizeErr error                   // when set, FinalizeExit returns this error
+
+	// SendKeys recording (guarded — the approval worker calls SendKeys from its
+	// own goroutine while the test reads these after draining).
+	sendMu    sync.Mutex
+	sentKeys  map[string]string // tmuxSession -> last keys sent
+	sendKeysN int               // total SendKeys calls
+}
+
+func (d *stubDeps) SendKeys(_ context.Context, tmuxSession, keys string) error {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	if d.sentKeys == nil {
+		d.sentKeys = map[string]string{}
+	}
+	d.sentKeys[tmuxSession] = keys
+	d.sendKeysN++
+	return nil
+}
+
+func (d *stubDeps) lastSentKey(tmuxSession string) string {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	return d.sentKeys[tmuxSession]
+}
+
+func (d *stubDeps) sendCount() int {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	return d.sendKeysN
 }
 
 func (d *stubDeps) List(_ context.Context) ([]*store.Session, error) { return d.sessions, nil }
@@ -730,12 +759,14 @@ func TestPublishApprovalEventDropsWhenFull(t *testing.T) {
 }
 
 func TestApprovalWorkerConsumesEvents(t *testing.T) {
-	// Capture log output to verify tryAutoApprove was called
+	// Capture log output to verify the approval was logged
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
 	defer log.SetOutput(os.Stderr)
 
-	p := New(&stubDeps{}, 30*time.Second)
+	d := &stubDeps{}
+	p := New(d, 30*time.Second)
+	p.AutoApproveGlobal = true // worker should actually approve, not just log
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -756,12 +787,14 @@ func TestApprovalWorkerConsumesEvents(t *testing.T) {
 	// Give worker time to process
 	time.Sleep(50 * time.Millisecond)
 
-	// Stop worker before reading buffer to avoid race
+	// Stop worker before reading shared state to avoid race
 	cancel()
 	wg.Wait()
 
-	// Verify tryAutoApprove was called by checking log output
-	require.Contains(t, buf.String(), "tryAutoApprove called for agent-123")
+	// Verify the worker actually auto-approved by sending option 1 to the pane.
+	require.Equal(t, 1, d.sendCount(), "worker should send exactly one key")
+	require.Equal(t, "1", d.lastSentKey("tmux-123"), "worker should send option 1")
+	require.Contains(t, buf.String(), "auto-approved agent-123")
 }
 
 func TestApprovalWorkerStopsOnContextCancel(t *testing.T) {
@@ -928,6 +961,7 @@ func TestAutoApprovalEndToEnd(t *testing.T) {
 	}
 
 	p := New(d, 30*time.Second)
+	p.AutoApproveGlobal = true // both prompts should be auto-approved end-to-end
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1010,4 +1044,10 @@ func TestAutoApprovalEndToEnd(t *testing.T) {
 	// Stop worker
 	cancel()
 	p.wg.Wait()
+
+	// Both prompts must have been auto-approved (option 1 sent each time). This
+	// is the real bug-fix validation: the second prompt (pane change, no status
+	// transition) was previously never approved.
+	require.Equal(t, 2, d.sendCount(), "both prompts should be auto-approved")
+	require.Equal(t, "1", d.lastSentKey("tmux-123"), "auto-approval should send option 1")
 }
