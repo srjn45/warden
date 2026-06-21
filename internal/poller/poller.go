@@ -112,13 +112,9 @@ type Poller struct {
 
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
 
-	// AutoApproveGlobal is the global default for auto-approval (from config).
-	// Per-session AutoApprove overrides this.
-	AutoApproveGlobal bool
-
-	// AutoApproveAllowSticky lets auto-approve press a sticky "don't ask again"
-	// affirmative. Off by default so unattended approval never grants standing perms.
-	AutoApproveAllowSticky bool
+	// AutoApprovePolicy is the global allow/deny policy (from config). Per-session
+	// Session.AutoApprove opts an agent into evaluation against this policy.
+	AutoApprovePolicy approval.Policy
 
 	// ApprovalEvents is a buffered channel for approval opportunities.
 	// Published when: (1) status transitions to waiting_for_input, OR
@@ -170,19 +166,21 @@ func isTerminal(s store.Status) bool {
 
 // tryAutoApprove attempts to auto-approve a recognized prompt by pressing its
 // least-privilege affirmative ("yes") option. Only attempts auto-approval if:
-//   - AutoApproveGlobal OR session.AutoApprove is true
+//   - AutoApprovePolicy.Enabled OR session.AutoApprove is true (the participate-gate)
 //   - The pane content parses as a recognized prompt (approval.Parse ok=true)
 //
 // A recognized prompt naming a destructive/irreversible action is blocked
 // unconditionally (the destructive guard runs first and is not configurable).
-// Prompts with no affirmative option are skipped, as are sticky-only "don't ask
-// again" affirmatives unless AutoApproveAllowSticky is set.
+// The prompt must then match the allow/deny policy (AutoApprovePolicy.Decide):
+// deny wins over allow, and an empty allow list approves nothing. Prompts with no
+// affirmative option are skipped, as are sticky-only "don't ask again"
+// affirmatives unless AutoApprovePolicy.AllowSticky is set.
 //
 // Idempotent and safe to call repeatedly on the same prompt: an unrecognized or
 // already-dismissed prompt is a logged no-op.
 func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane string) {
-	// Check if auto-approve enabled (global OR per-session)
-	if !p.AutoApproveGlobal && !s.AutoApprove {
+	// participate-gate: global master switch OR per-session opt-in.
+	if !p.AutoApprovePolicy.Enabled && !s.AutoApprove {
 		return
 	}
 
@@ -194,15 +192,21 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 	}
 
 	// Never auto-confirm a destructive/irreversible action — escalate to a human.
+	// This guard runs BEFORE Decide, so no allow rule can ever un-block it.
 	if bad, marker := approval.IsDestructive(a); bad {
 		log.Printf("auto-approve BLOCKED for %s: destructive (%q)", s.ID, marker)
+		return
+	}
+	// Evaluate against the allow/deny policy (deny wins; empty allow approves nothing).
+	if d := p.AutoApprovePolicy.Decide(a); !d.Approve {
+		log.Printf("auto-approve skipped for %s: %s", s.ID, d.Reason)
 		return
 	}
 	if a.AffirmativeIdx == 0 {
 		log.Printf("auto-approve skipped for %s: no affirmative option", s.ID)
 		return
 	}
-	if a.AffirmativeSticky && !p.AutoApproveAllowSticky {
+	if a.AffirmativeSticky && !p.AutoApprovePolicy.AllowSticky {
 		log.Printf("auto-approve skipped for %s: only a sticky affirmative (allow_sticky off)", s.ID)
 		return
 	}

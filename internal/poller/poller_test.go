@@ -10,9 +10,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
+
+// allowAllPolicy is an enabled policy whose single empty allow rule matches every
+// non-destructive recognized prompt — the "approve everything" posture used by the
+// worker/end-to-end fixtures that predate the allow/deny engine.
+func allowAllPolicy() approval.Policy {
+	return approval.Policy{
+		Enabled: true,
+		Rules:   approval.Rules{Allow: []approval.Rule{{}}},
+	}
+}
 
 func TestHeuristicWorkingWhenInterruptVisible(t *testing.T) {
 	s := &store.Session{Status: store.StatusIdle}
@@ -780,7 +791,7 @@ func TestApprovalWorkerConsumesEvents(t *testing.T) {
 
 	d := &stubDeps{}
 	p := New(d, 30*time.Second)
-	p.AutoApproveGlobal = true // worker should actually approve, not just log
+	p.AutoApprovePolicy = allowAllPolicy() // worker should actually approve, not just log
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -966,30 +977,55 @@ func TestTryAutoApproveAffirmativeSelection(t *testing.T) {
 		" ❯ 1. No\n" +
 		"   2. Cancel"
 	const plainYesNo = "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
+	const destructiveAllowMatch = "Bash(git push --force origin main)\n" +
+		"Do you want to proceed?\n" +
+		" ❯ 1. Yes\n" +
+		"   2. No"
+
+	// allow is the allow-all posture; deny adds a rule that matches the benign
+	// "Do you want to proceed?" question (deny wins over allow).
+	withSticky := func(p approval.Policy, sticky bool) approval.Policy {
+		p.AllowSticky = sticky
+		return p
+	}
 
 	cases := []struct {
-		name        string
-		pane        string
-		global      bool
-		perSession  bool
-		allowSticky bool
-		wantSends   int
-		wantKey     string // checked only when wantSends > 0
+		name       string
+		pane       string
+		policy     approval.Policy
+		perSession bool
+		wantSends  int
+		wantKey    string // checked only when wantSends > 0
 	}{
-		{name: "sticky-first picks least-privilege yes", pane: stickyFirst, global: true, wantSends: 1, wantKey: "2"},
-		{name: "destructive is blocked", pane: destructive, global: true, wantSends: 0},
-		{name: "sticky-only abstains when allow_sticky off", pane: stickyOnly, global: true, allowSticky: false, wantSends: 0},
-		{name: "sticky-only accepted when allow_sticky on", pane: stickyOnly, global: true, allowSticky: true, wantSends: 1, wantKey: "1"},
-		{name: "no affirmative abstains", pane: noAffirmative, global: true, wantSends: 0},
-		{name: "gate off sends nothing", pane: plainYesNo, global: false, perSession: false, wantSends: 0},
-		{name: "unrecognized prompt sends nothing", pane: "just some neutral text", global: true, wantSends: 0},
+		// allow + non-destructive + non-sticky affirmative -> press least-privilege yes.
+		{name: "sticky-first picks least-privilege yes", pane: stickyFirst, policy: allowAllPolicy(), wantSends: 1, wantKey: "2"},
+		// Destructive guard runs before Decide: an allow rule that WOULD match can't un-block it.
+		{name: "destructive is blocked", pane: destructive, policy: allowAllPolicy(), wantSends: 0},
+		{name: "destructive still wins over a matching allow rule", pane: destructiveAllowMatch,
+			policy: approval.Policy{Enabled: true, Rules: approval.Rules{Allow: []approval.Rule{{Tool: "Bash"}}}}, wantSends: 0},
+		// Policy deny match -> nothing, even with an allow rule present.
+		{name: "policy deny match abstains", pane: plainYesNo,
+			policy: approval.Policy{Enabled: true, Rules: approval.Rules{
+				Allow: []approval.Rule{{}},
+				Deny:  []approval.Rule{{Pattern: "proceed"}},
+			}}, wantSends: 0},
+		// Enabled but empty allow -> approve nothing (fail-safe).
+		{name: "empty allow approves nothing", pane: plainYesNo, policy: approval.Policy{Enabled: true}, wantSends: 0},
+		// Per-session opt-in: a disabled policy still supplies the allow rules.
+		{name: "per-session opt-in participates in global rules", pane: plainYesNo,
+			policy: approval.Policy{Enabled: false, Rules: approval.Rules{Allow: []approval.Rule{{}}}},
+			perSession: true, wantSends: 1, wantKey: "1"},
+		{name: "sticky-only abstains when allow_sticky off", pane: stickyOnly, policy: withSticky(allowAllPolicy(), false), wantSends: 0},
+		{name: "sticky-only accepted when allow_sticky on", pane: stickyOnly, policy: withSticky(allowAllPolicy(), true), wantSends: 1, wantKey: "1"},
+		{name: "no affirmative abstains", pane: noAffirmative, policy: allowAllPolicy(), wantSends: 0},
+		{name: "gate off sends nothing", pane: plainYesNo, policy: approval.Policy{Enabled: false}, perSession: false, wantSends: 0},
+		{name: "unrecognized prompt sends nothing", pane: "just some neutral text", policy: allowAllPolicy(), wantSends: 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &stubDeps{}
 			p := New(d, 30*time.Second)
-			p.AutoApproveGlobal = tc.global
-			p.AutoApproveAllowSticky = tc.allowSticky
+			p.AutoApprovePolicy = tc.policy
 			s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1", AutoApprove: tc.perSession}
 
 			p.tryAutoApprove(context.Background(), s, tc.pane)
@@ -1027,7 +1063,7 @@ func TestAutoApprovalEndToEnd(t *testing.T) {
 	}
 
 	p := New(d, 30*time.Second)
-	p.AutoApproveGlobal = true // both prompts should be auto-approved end-to-end
+	p.AutoApprovePolicy = allowAllPolicy() // both prompts should be auto-approved end-to-end
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
