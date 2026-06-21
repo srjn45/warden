@@ -1979,6 +1979,153 @@ func (d *Daemon) Shutdown(ctx context.Context) error {
 
 ---
 
+## Foundational Layer Hardening (Implemented Messaging & Context Store)
+
+**Status:** Review of the *already-shipped* primitives this collaboration system builds on — `internal/mailbox` (directed per-recipient inboxes) and `internal/ctxstore` (shared key/value blackboard), plus their HTTP/CLI/MCP surface and the `hub` long-poll wake path. The collaboration features above (CollabMonitor/OverlapDetector/BranchTracker) are unbuilt; these primitives are live, so harden them first — every component above sends warnings through the mailbox and infers collaboration from the context store.
+
+The implemented core is sound (atomic temp+rename writes, centralized key/recipient validation, a correctly-reasoned read-then-mark race in `handleInbox`, a clean cap-1 coalescing `hub`). The items below are the gaps found in review, each with a concrete fix and a severity. Fixes are ordered by priority.
+
+### H1. Message & context provenance is unauthenticated (medium)
+
+**Problem:** The `from` field is self-asserted — `handleSendMessage` stores `req.From` verbatim and the MCP `send_message`/`ctx_set` writers come from `ctxWriter()` (env), which an agent controls. Any caller can also *read* an arbitrary inbox via `warden msg inbox --as <id>` or `read_inbox{agent: <id>}`, and write context as anyone. For a localhost single-user daemon this is an acceptable trust model, but it is currently **implicit**, and the collaboration layer is about to start routing automated warnings on top of it.
+
+**Solution — make the trust model explicit and stamp a trusted identity at the daemon edge:**
+
+1. Document the boundary in this spec and in the `mailbox`/`ctxstore` package docs: *"`from`/`updated_by` is advisory provenance, not an authenticated identity; warden assumes a single trusted local user. Do not make security decisions on it."*
+2. For messages the daemon itself originates (conflict/overlap/branch warnings), reserve a sender id that agents cannot forge by validation, not crypto: reject caller-supplied `from`/`updated_by` values matching `^(daemon|system|human)$` on the write path, so only the daemon can stamp `from: "daemon"`. Agent-originated values keep flowing through unchanged.
+
+```go
+// mailbox.Append / ctxstore.Set write gate
+var reservedSenders = map[string]bool{"daemon": true, "system": true}
+func sanitizeSender(from string, internal bool) (string, error) {
+    if !internal && reservedSenders[from] {
+        return "", ErrReservedSender // agents can't impersonate the daemon
+    }
+    if from == "" { from = "human" }
+    return from, nil
+}
+```
+
+3. (Optional, deferred) If multi-user is ever in scope, gate inbox reads so a session token can only read its own `id`; out of scope for the current single-user design.
+
+### H2. Context store has no atomic read-modify-write (medium)
+
+**Problem:** `ctxstore` exposes only `Get` and `Set`. The collaboration layer (and agents using the blackboard for coordination) will do read-modify-write — e.g. appending to `global.findings` or incrementing a counter — as a `Get` then `Set`, which lost-updates under concurrency. This is the gap most likely to corrupt real multi-agent coordination, since the whole point of the blackboard is concurrent shared state.
+
+**Solution — add a compare-and-swap primitive and an append helper, both atomic under the existing write lock:**
+
+```go
+// CompareAndSet writes value only if the current value matches expected
+// (expected "" means "key absent"). Returns ErrConflict on mismatch so the
+// caller can re-read and retry. All under the single mu.Lock() already held
+// by Set — no new lock, no torn read.
+func (s *Store) CompareAndSet(key, expected, value, by string) (Entry, error) {
+    if !validKey(key) { return Entry{}, ErrBadKey }
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    m, err := s.load()
+    if err != nil { return Entry{}, err }
+    cur, ok := m[key]
+    if (!ok && expected != "") || (ok && cur.Value != expected) {
+        return Entry{}, ErrConflict
+    }
+    e := Entry{Key: key, Value: value, UpdatedBy: by, UpdatedAt: time.Now().UTC()}
+    m[key] = e
+    if err := s.save(m); err != nil { return Entry{}, err }
+    return e, nil
+}
+
+// Append atomically concatenates sep+value to an existing value (or creates it),
+// the common "accumulate findings" case, with no read-modify-write race.
+func (s *Store) Append(key, value, sep, by string) (Entry, error) { /* lock, load, concat, save */ }
+```
+
+Expose `CompareAndSet` over HTTP (`POST /context/{key}/cas` with `{expected, value}` → 409 on `ErrConflict`), CLI (`warden ctx cas <key> --expected <v> <value>`), and a `ctx_cas` MCP tool. Agents retry on 409. This keeps the "last write wins" simplicity for plain `Set` while giving coordination code a correct primitive.
+
+### H3. Inboxes grow unbounded and rewrite the full file per op (low–medium)
+
+**Problem:** Messages are only ever appended or marked-read; nothing prunes read history. Because `Append`/`MarkRead`/`Messages` each re-read and rewrite the *entire* inbox JSON, a long-lived agent's inbox grows without bound and every operation gets progressively slower — quadratic write cost over a session. The collaboration layer's automated warnings will accelerate this.
+
+**Solution — bound retention with read-message compaction on write:**
+
+1. On `Append`, after assigning the new id, drop already-read messages beyond a retention window so the file stays small while preserving unread + recent history:
+
+```go
+const (
+    maxInboxMessages = 500          // hard cap on total retained
+    readRetention    = 24 * time.Hour // keep read msgs this long for inbox/history views
+)
+// in Append, before save: compact in place
+ms = compact(ms, maxInboxMessages, readRetention) // keep all unread; keep read if recent; cap total
+```
+
+   Unread messages are **never** dropped (they're undelivered work). Per-inbox ids remain monotonic because they're assigned from a high-water mark, not `len(ms)+1` — switch the id source to `max(existing ids)+1` so compaction can't recycle an id. *(This is a correctness fix to the current `strconv.Itoa(len(ms)+1)` scheme, which already collides if any message is ever removed.)*
+2. Note in the package doc that inbox size is bounded by `maxInboxMessages`; the global `/messages` traffic view is best-effort recent history, not an audit log.
+
+### H4. No long-poll wait for MCP agents (low)
+
+**Problem:** `msg wait` (the single-blocking-call, no-busy-poll await-a-reply primitive) exists only on the CLI. MCP-only agents have just `read_inbox` (poll), so they busy-poll across LLM turns — exactly the token waste `messages/wait` was built to avoid. This is internally consistent with the spec's "CLI-first for MCP-restricted environments" stance, but it should be a deliberate, documented choice.
+
+**Solution:** Add a `wait_for_message` MCP tool that proxies the existing `GET /sessions/{id}/messages/wait` long-poll (it already supports `from` filter and a capped timeout, so this is a thin wrapper — no new daemon logic):
+
+```go
+mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+    Name:        "wait_for_message",
+    Description: "Block until a directed message arrives (or timeout), then return it. One call, no busy-polling across turns.",
+}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a waitArgs) (*mcpsdk.CallToolResult, any, error) {
+    m, err := s.cl.MsgWait(ctx, selfOr(a.Agent), a.From, a.TimeoutSec)
+    // ... jsonResult(m) or "(timed out)"
+})
+```
+
+If a tool is genuinely not wanted on the MCP surface, document in the MCP tools section that long-poll is intentionally CLI-only and MCP agents should shell out to `warden msg wait`.
+
+### H5. Wake-on-send has a status TOCTOU (low)
+
+**Problem:** `handleSendMessage` reads `sess.Status` from an earlier `store.Get`, then injects a keystroke notice via `s.life.Input` if `parked(...)`. An agent can transition idle→working in that window, so the notice can land in a now-busy pane. Impact is low (a stray line), but it's an unguarded race.
+
+**Solution:** Treat injection as best-effort and re-check status as close to the write as possible — re-`Get` immediately before `Input`, and accept that `Input` may still race (document it). The message itself is already safely in the inbox regardless, so the wake is pure optimization:
+
+```go
+// message is durably appended above; waking is best-effort
+if fresh, err := s.store.Get(r.Context(), id); err == nil && parked(fresh.Status) {
+    if err := s.life.Input(r.Context(), fresh.TmuxSession, notice); err == nil { woke = true }
+}
+```
+
+Add a one-line comment at the call site stating that wake is best-effort and the inbox is the source of truth — so no one later "hardens" it into a lock that would serialize sends against the poller.
+
+### H6. Global message view aborts on a single corrupt inbox (low)
+
+**Problem:** `mailbox.All()` (backing `GET /messages`) returns the first `load` error, so one unparseable `*.json` takes down the entire global traffic view. Per-inbox reads are correctly isolated; only the aggregate is brittle.
+
+**Solution:** In `All()` only, skip-and-log a corrupt inbox instead of aborting — the aggregate view is observability, not consumption, so partial data beats no data:
+
+```go
+ms, err := s.load(filepath.Join(s.dir, ent.Name()))
+if err != nil {
+    log.Warn("mailbox: skipping unreadable inbox %s: %v", ent.Name(), err)
+    continue // aggregate view is best-effort; don't fail the whole request
+}
+```
+
+Keep `Messages(to)` strict (a caller asking for a specific inbox should hear that it's corrupt).
+
+### Summary
+
+| ID | Issue | Severity | Fix |
+|----|-------|----------|-----|
+| H1 | Unauthenticated provenance | medium | Document trust model; reserve `daemon`/`system` senders at write gate |
+| H2 | No atomic read-modify-write on ctxstore | medium | Add `CompareAndSet` + `Append` (CLI/HTTP/MCP), retry on 409 |
+| H3 | Unbounded inbox growth, full rewrite/op | low–med | Read-message compaction + cap; high-water-mark ids |
+| H4 | No long-poll for MCP agents | low | `wait_for_message` MCP tool proxying existing wait route |
+| H5 | Wake-on-send status TOCTOU | low | Re-`Get` before `Input`; document wake as best-effort |
+| H6 | `All()` aborts on one corrupt inbox | low | Skip-and-log in aggregate view only |
+
+H1 and H2 should land before the collaboration layer starts routing automated warnings and inferring collaboration from the blackboard; H3–H6 are incremental robustness.
+
+---
+
 ## Concurrency Safety & Architecture
 
 ### Critical Design Principles
@@ -3978,4 +4125,12 @@ func init() {
 - Documented validation questions to answer before building full design
 - Added complete minimal implementation reference (~200 lines)
 - Preserved all original design details for human review and decision
-- **Status: PENDING HUMAN DECISION** on MVP vs full implementation path
+- **Status: PENDING HUMAN DECISION** on MVP vs full implementation path  
+**2026-06-21 (revision 6):** Added **Foundational Layer Hardening** section reviewing the already-shipped primitives this system builds on (`mailbox`, `ctxstore`, hub long-poll). Six findings with concrete fixes:
+- H1 (medium): unauthenticated `from`/`updated_by` provenance — document trust model, reserve `daemon`/`system` senders at the write gate
+- H2 (medium): no atomic read-modify-write on context store — add `CompareAndSet` + `Append` primitives (CLI/HTTP/MCP), retry on 409
+- H3 (low–med): unbounded inbox growth with full-file rewrite per op — read-message compaction, size cap, high-water-mark ids (also fixes the existing `len+1` id-collision bug)
+- H4 (low): no long-poll wait for MCP agents — add `wait_for_message` tool proxying the existing wait route
+- H5 (low): wake-on-send status TOCTOU — re-`Get` before tmux `Input`, document wake as best-effort
+- H6 (low): `mailbox.All()` aborts on one corrupt inbox — skip-and-log in the aggregate view only
+- Recommend landing H1/H2 before the collaboration layer routes automated warnings; H3–H6 incremental
