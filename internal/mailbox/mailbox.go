@@ -7,6 +7,7 @@ package mailbox
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -126,7 +127,10 @@ func (s *Store) Messages(to string) ([]Message, error) {
 // All returns every message across all recipients' inboxes (read-only, no
 // mark-read), in unspecified order. Backs the daemon's global, read-only
 // message-traffic view. Temp files from in-flight atomic writes (.tmp-*) and any
-// non-.json entry are skipped; a single corrupt inbox aborts with its error.
+// non-.json entry are skipped. An unreadable/corrupt inbox is skipped-and-logged
+// rather than failing the whole call: this view is best-effort observability, so
+// one bad file must not blank out everyone else's traffic. (Messages(to) stays
+// strict — a caller asking for a specific inbox should hear that it's corrupt.)
 func (s *Store) All() ([]Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -141,7 +145,8 @@ func (s *Store) All() ([]Message, error) {
 		}
 		ms, err := s.load(filepath.Join(s.dir, ent.Name()))
 		if err != nil {
-			return nil, err
+			log.Printf("mailbox: skipping unreadable inbox %s: %v", ent.Name(), err)
+			continue
 		}
 		out = append(out, ms...)
 	}

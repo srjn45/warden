@@ -81,6 +81,62 @@ func TestContextSetDefaultsWriterToHuman(t *testing.T) {
 	}
 }
 
+func TestContextCASConflictReturns409(t *testing.T) {
+	ts := newCtxTestServer(t)
+	defer ts.Close()
+
+	// Seed a value, then CAS with a stale expected → 409.
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/context/lock", bytes.NewBufferString(`{"value":"agent-A"}`))
+	put, _ := http.DefaultClient.Do(req)
+	put.Body.Close()
+
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/context/lock/cas", bytes.NewBufferString(`{"expected":"someone-else","value":"agent-B"}`))
+	conflict, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("CAS POST: %v", err)
+	}
+	conflict.Body.Close()
+	if conflict.StatusCode != http.StatusConflict {
+		t.Fatalf("want 409 on stale expected, got %d", conflict.StatusCode)
+	}
+
+	// Matching expected → 200 and the value swaps.
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/context/lock/cas", bytes.NewBufferString(`{"expected":"agent-A","value":"agent-B"}`))
+	ok, _ := http.DefaultClient.Do(req)
+	ok.Body.Close()
+	if ok.StatusCode != http.StatusOK {
+		t.Fatalf("want 200 on matching expected, got %d", ok.StatusCode)
+	}
+	resp, _ := http.Get(ts.URL + "/context/lock")
+	var e ctxstore.Entry
+	json.NewDecoder(resp.Body).Decode(&e)
+	resp.Body.Close()
+	if e.Value != "agent-B" {
+		t.Fatalf("want value agent-B after successful CAS, got %q", e.Value)
+	}
+}
+
+func TestContextAppend(t *testing.T) {
+	ts := newCtxTestServer(t)
+	defer ts.Close()
+	for _, v := range []string{"one", "two"} {
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/context/log/append",
+			bytes.NewBufferString(`{"value":"`+v+`","sep":"\n"}`))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("append POST: %v", err)
+		}
+		resp.Body.Close()
+	}
+	resp, _ := http.Get(ts.URL + "/context/log")
+	var e ctxstore.Entry
+	json.NewDecoder(resp.Body).Decode(&e)
+	resp.Body.Close()
+	if e.Value != "one\ntwo" {
+		t.Fatalf("want \"one\\ntwo\", got %q", e.Value)
+	}
+}
+
 func TestContextListAndDelete(t *testing.T) {
 	ts := newCtxTestServer(t)
 	defer ts.Close()

@@ -25,6 +25,10 @@ var ErrNotFound = errors.New("context key not found")
 // separator.
 var ErrBadKey = errors.New("invalid context key")
 
+// ErrConflict is returned by CompareAndSet when the current value does not match
+// the caller's expected value — another writer won the race.
+var ErrConflict = errors.New("context value conflict")
+
 // validKey rejects empty/blank keys and keys containing a path separator. Keys
 // are dot-namespaced strings that travel through a URL path segment; a "/" is
 // not decoded back by the router, so it would be stored under a corrupted key
@@ -110,6 +114,59 @@ func (s *Store) Set(key, value, by string) (Entry, error) {
 		return Entry{}, err
 	}
 	e := Entry{Key: key, Value: value, UpdatedBy: by, UpdatedAt: time.Now().UTC()}
+	m[key] = e
+	if err := s.save(m); err != nil {
+		return Entry{}, err
+	}
+	return e, nil
+}
+
+// CompareAndSet writes value at key only if the current value equals expected
+// (expected "" means "the key must be absent"). On a mismatch it makes no change
+// and returns ErrConflict, so an agent doing read-modify-write on the shared
+// blackboard can re-read and retry instead of silently losing a concurrent
+// writer's update — the atomic alternative to Get-then-Set.
+func (s *Store) CompareAndSet(key, expected, value, by string) (Entry, error) {
+	if !validKey(key) {
+		return Entry{}, ErrBadKey
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.load()
+	if err != nil {
+		return Entry{}, err
+	}
+	cur, ok := m[key]
+	if (!ok && expected != "") || (ok && cur.Value != expected) {
+		return Entry{}, ErrConflict
+	}
+	e := Entry{Key: key, Value: value, UpdatedBy: by, UpdatedAt: time.Now().UTC()}
+	m[key] = e
+	if err := s.save(m); err != nil {
+		return Entry{}, err
+	}
+	return e, nil
+}
+
+// Append atomically sets key to its current value + sep + value, creating the
+// key (with no leading sep) when absent. It is the race-free form of the common
+// "accumulate into a shared key" pattern that a Get-then-Set would corrupt under
+// concurrent writers.
+func (s *Store) Append(key, value, sep, by string) (Entry, error) {
+	if !validKey(key) {
+		return Entry{}, ErrBadKey
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.load()
+	if err != nil {
+		return Entry{}, err
+	}
+	next := value
+	if cur, ok := m[key]; ok {
+		next = cur.Value + sep + value
+	}
+	e := Entry{Key: key, Value: next, UpdatedBy: by, UpdatedAt: time.Now().UTC()}
 	m[key] = e
 	if err := s.save(m); err != nil {
 		return Entry{}, err

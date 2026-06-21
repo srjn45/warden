@@ -169,6 +169,87 @@ func TestDelPrefixRemovesOnlyMatchingKeys(t *testing.T) {
 	}
 }
 
+func TestCompareAndSetCreatesWhenAbsent(t *testing.T) {
+	s, _ := New(t.TempDir())
+	e, err := s.CompareAndSet("global.lock", "", "agent-A", "agent-A")
+	if err != nil {
+		t.Fatalf("CAS on absent key with empty expected must succeed, got %v", err)
+	}
+	if e.Value != "agent-A" {
+		t.Fatalf("want value agent-A, got %q", e.Value)
+	}
+}
+
+func TestCompareAndSetConflictWhenPresentButExpectedAbsent(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Set("global.lock", "agent-A", "agent-A")
+	if _, err := s.CompareAndSet("global.lock", "", "agent-B", "agent-B"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("CAS with empty expected on an existing key must conflict, got %v", err)
+	}
+	e, _ := s.Get("global.lock")
+	if e.Value != "agent-A" {
+		t.Fatalf("conflicting CAS must not overwrite, got %q", e.Value)
+	}
+}
+
+func TestCompareAndSetMatchAndMismatch(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Set("k", "v1", "a")
+	if _, err := s.CompareAndSet("k", "v1", "v2", "b"); err != nil {
+		t.Fatalf("matching expected must swap, got %v", err)
+	}
+	if e, _ := s.Get("k"); e.Value != "v2" {
+		t.Fatalf("want v2 after successful CAS, got %q", e.Value)
+	}
+	if _, err := s.CompareAndSet("k", "v1", "v3", "c"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale expected must conflict, got %v", err)
+	}
+}
+
+// TestCompareAndSetSerializesConcurrentWriters is the point of the primitive:
+// N racing read-modify-write loops must produce exactly N increments with no
+// lost updates (which a Get-then-Set would not guarantee).
+func TestCompareAndSetSerializesConcurrentWriters(t *testing.T) {
+	s, _ := New(t.TempDir())
+	s.Set("counter", "0", "init")
+	const writers = 20
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				e, _ := s.Get("counter")
+				n, _ := strconv.Atoi(e.Value)
+				_, err := s.CompareAndSet("counter", e.Value, strconv.Itoa(n+1), "w")
+				if err == nil {
+					return
+				}
+				if !errors.Is(err, ErrConflict) {
+					t.Errorf("unexpected CAS error: %v", err)
+					return
+				}
+				// lost the race — re-read and retry
+			}
+		}()
+	}
+	wg.Wait()
+	e, _ := s.Get("counter")
+	if e.Value != strconv.Itoa(writers) {
+		t.Fatalf("want %d increments with no lost updates, got %q", writers, e.Value)
+	}
+}
+
+func TestAppendCreatesThenConcatenates(t *testing.T) {
+	s, _ := New(t.TempDir())
+	if e, err := s.Append("log", "first", "\n", "a"); err != nil || e.Value != "first" {
+		t.Fatalf("append to absent key must create with no leading sep, got %q err=%v", e.Value, err)
+	}
+	if e, err := s.Append("log", "second", "\n", "b"); err != nil || e.Value != "first\nsecond" {
+		t.Fatalf("append to existing key must insert sep, got %q err=%v", e.Value, err)
+	}
+}
+
 func TestDelPrefixNoMatchReturnsZero(t *testing.T) {
 	s, _ := New(t.TempDir())
 	s.Set("global.a", "1", "by")
