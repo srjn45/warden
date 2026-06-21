@@ -76,7 +76,7 @@ func printConfig(out io.Writer, cfg config.Config) {
 		{"agents", [][2]string{
 			{"default_permission_mode", cfg.DefaultPermissionMode},
 			{"model_default", cfg.ModelDefault},
-			{"auto_approve", fmt.Sprintf("%t", cfg.AutoApproveEnabled)},
+			{"auto_approve", fmt.Sprintf("%t", cfg.AutoApprove.Enabled)},
 			{"pipeline_hint", fmt.Sprintf("%t", cfg.PipelineHint)},
 			{"pipeline_keep_done", fmt.Sprintf("%t", cfg.PipelineKeepDone)},
 			{"spawn_gate", fmt.Sprintf("%t", cfg.SpawnGateEnabled)},
