@@ -74,6 +74,91 @@ func TestParseRejectsBareNumberedList(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestClassifyOptions(t *testing.T) {
+	cases := []struct {
+		name       string
+		opts       []string
+		wantIdx    int
+		wantSticky bool
+	}{
+		{"plain yes/no", []string{"Yes", "No"}, 1, false},
+		{
+			"plain fixture order (non-sticky Yes is option 1)",
+			[]string{"Yes", "Yes, and always allow access to tmp/ from this project", "No"},
+			1, false,
+		},
+		{
+			"sticky first (least-privilege picks plain Yes at index 2)",
+			[]string{"Yes, and don't ask again for Bash commands", "Yes", "No"},
+			2, false,
+		},
+		{"sticky only", []string{"Yes, allow always", "No, keep asking"}, 1, true},
+		{"no affirmative", []string{"No", "Cancel"}, 0, false},
+		{
+			"negation trap (No, and don't ask again is not affirmative)",
+			[]string{"No, and don't ask again", "Yes"},
+			2, false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx, sticky := classifyOptions(tc.opts)
+			require.Equal(t, tc.wantIdx, idx)
+			require.Equal(t, tc.wantSticky, sticky)
+		})
+	}
+}
+
+func TestParseStickyFirstFixture(t *testing.T) {
+	a, ok := Parse(readFixture(t, "bash_prompt_sticky_first.txt"))
+	require.True(t, ok)
+	require.Equal(t, 2, a.AffirmativeIdx, "least-privilege picks the plain Yes at index 2")
+	require.False(t, a.AffirmativeSticky)
+}
+
+func TestParsePlainFixtureClassifies(t *testing.T) {
+	a, ok := Parse(readFixture(t, "bash_prompt_plain.txt"))
+	require.True(t, ok)
+	require.Equal(t, 1, a.AffirmativeIdx)
+	require.False(t, a.AffirmativeSticky)
+}
+
+func TestIsDestructive(t *testing.T) {
+	cases := []struct {
+		name string
+		a    Approval
+		want bool
+	}{
+		{"rm -rf", Approval{Action: "Bash(rm -rf build)"}, true},
+		{"git push --force", Approval{Action: "Bash(git push --force)"}, true},
+		{"git reset --hard", Approval{Action: "Bash(git reset --hard)"}, true},
+		{"overwrite question", Approval{Question: "Overwrite existing file?"}, true},
+		{
+			"destructive affirmative label",
+			Approval{Options: []string{"Yes, delete it", "No"}, AffirmativeIdx: 1},
+			true,
+		},
+		{"read is safe", Approval{Action: "Read(src/x.go)"}, false},
+		{"edit is safe", Approval{Action: "Edit(src/x.go)"}, false},
+		{
+			"benign yes/no",
+			Approval{Question: "Do you want to proceed?", Options: []string{"Yes", "No"}, AffirmativeIdx: 1},
+			false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bad, marker := IsDestructive(tc.a)
+			require.Equal(t, tc.want, bad)
+			if tc.want {
+				require.NotEmpty(t, marker)
+			} else {
+				require.Empty(t, marker)
+			}
+		})
+	}
+}
+
 func TestFingerprintStableAndDistinct(t *testing.T) {
 	a := Fingerprint([]string{"Yes", "No"})
 	require.Equal(t, a, Fingerprint([]string{"Yes", "No"})) // stable

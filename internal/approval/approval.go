@@ -13,10 +13,85 @@ import (
 
 // Approval is a recognized numbered tool-permission prompt.
 type Approval struct {
-	Action      string   // e.g. "Bash(rm -rf node_modules)"; "" if not found
-	Question    string   // e.g. "Do you want to proceed?"; "" if not found
-	Options     []string // option labels, top-down, 1-indexed by position
-	SelectedIdx int      // 1-based index of the ❯-highlighted option; 0 if none
+	Action            string   // e.g. "Bash(rm -rf node_modules)"; "" if not found
+	Question          string   // e.g. "Do you want to proceed?"; "" if not found
+	Options           []string // option labels, top-down, 1-indexed by position
+	SelectedIdx       int      // 1-based index of the ❯-highlighted option; 0 if none
+	AffirmativeIdx    int      // 1-based least-privilege "yes"; 0 = none found
+	AffirmativeSticky bool     // true when the chosen affirmative is a standing/"don't ask again" grant
+}
+
+// approvalTokens mark an option as an affirmative "yes" answer.
+var approvalTokens = []string{"yes", "approve", "allow", "proceed", "confirm"}
+
+// negationTokens disqualify an option from being affirmative even if it also
+// contains an approval token (e.g. "No, and don't ask again").
+var negationTokens = []string{"no", "n't", "cancel", "reject", "deny", "skip", "keep asking", "abort"}
+
+// stickyTokens mark an affirmative as a standing/"don't ask again" grant.
+var stickyTokens = []string{"don't ask again", "always", "auto-accept", "for the rest", "this session", "this project", "remember"}
+
+// classifyOptions picks the least-privilege affirmative option. It returns the
+// 1-based index of a non-sticky affirmative if one exists; otherwise the index
+// of the sole/first sticky affirmative with sticky=true; otherwise (0, false).
+func classifyOptions(opts []string) (int, bool) {
+	stickyIdx := 0
+	for i, opt := range opts {
+		low := strings.ToLower(opt)
+		if !containsAny(low, approvalTokens) {
+			continue
+		}
+		if containsAny(low, negationTokens) {
+			continue
+		}
+		if containsAny(low, stickyTokens) {
+			if stickyIdx == 0 {
+				stickyIdx = i + 1
+			}
+			continue
+		}
+		return i + 1, false
+	}
+	if stickyIdx != 0 {
+		return stickyIdx, true
+	}
+	return 0, false
+}
+
+// containsAny reports whether s (already lowercased) contains any of subs.
+func containsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// destructiveMarkers are lowercase substrings that mark an irreversible or
+// outward-facing action. Matching any one blocks auto-approval unconditionally.
+var destructiveMarkers = []string{
+	"delete", "remove", "rm -rf", "force", "--force", "overwrite", "truncate",
+	"drop", "push", "publish", "deploy", "release", "reset --hard", "prune",
+	"destroy", "wipe", "purge", "revoke", "format",
+}
+
+// IsDestructive reports whether a's action, question, or chosen affirmative label
+// names a destructive operation. The matched marker is returned for logging.
+func IsDestructive(a Approval) (bool, string) {
+	fields := []string{a.Action, a.Question}
+	if a.AffirmativeIdx > 0 && a.AffirmativeIdx <= len(a.Options) {
+		fields = append(fields, a.Options[a.AffirmativeIdx-1])
+	}
+	for _, f := range fields {
+		low := strings.ToLower(f)
+		for _, m := range destructiveMarkers {
+			if strings.Contains(low, m) {
+				return true, m
+			}
+		}
+	}
+	return false, ""
 }
 
 // optionRe matches a numbered option line, tolerating leading box-drawing
@@ -99,6 +174,7 @@ func Parse(pane string) (Approval, bool) {
 		}
 		break
 	}
+	a.AffirmativeIdx, a.AffirmativeSticky = classifyOptions(a.Options)
 	return a, true
 }
 
