@@ -51,9 +51,10 @@ func (s *Server) handleCtxCAS(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
-	by := req.By
-	if by == "" {
-		by = "human"
+	by, err := sanitizeSender(req.By)
+	if errors.Is(err, errReservedSender) {
+		writeErr(w, http.StatusForbidden, "writer id is reserved for the daemon")
+		return
 	}
 	e, err := s.cstore.CompareAndSet(key, req.Expected, req.Value, by)
 	if errors.Is(err, ctxstore.ErrBadKey) {
@@ -78,9 +79,10 @@ func (s *Server) handleCtxAppend(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
-	by := req.By
-	if by == "" {
-		by = "human"
+	by, err := sanitizeSender(req.By)
+	if errors.Is(err, errReservedSender) {
+		writeErr(w, http.StatusForbidden, "writer id is reserved for the daemon")
+		return
 	}
 	e, err := s.cstore.Append(key, req.Value, req.Sep, by)
 	if errors.Is(err, ctxstore.ErrBadKey) {
@@ -101,9 +103,10 @@ func (s *Server) handleCtxSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
-	by := req.By
-	if by == "" {
-		by = "human"
+	by, err := sanitizeSender(req.By)
+	if errors.Is(err, errReservedSender) {
+		writeErr(w, http.StatusForbidden, "writer id is reserved for the daemon")
+		return
 	}
 	e, err := s.cstore.Set(key, req.Value, by)
 	if errors.Is(err, ctxstore.ErrBadKey) {

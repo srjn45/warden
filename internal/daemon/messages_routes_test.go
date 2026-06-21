@@ -81,6 +81,48 @@ func TestSendMessageWorkingRecipientNotWoken(t *testing.T) {
 	}
 }
 
+func TestSendMessageReservedSenderForbidden(t *testing.T) {
+	srv, fs, mb := newMsgServer(t)
+	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	// An agent must not be able to forge a daemon-originated message.
+	resp, err := http.Post(ts.URL+"/sessions/agent-1/messages", "application/json",
+		strings.NewReader(`{"from":"daemon","body":"impersonation"}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("want 403 for reserved sender, got %d", resp.StatusCode)
+	}
+	// The forged message must not have been appended.
+	if msgs, _ := mb.Messages("agent-1"); len(msgs) != 0 {
+		t.Fatalf("rejected send must not append, got %d messages", len(msgs))
+	}
+}
+
+func TestSendMessageEmptyFromDefaultsToHuman(t *testing.T) {
+	srv, fs, _ := newMsgServer(t)
+	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+	resp, err := http.Post(ts.URL+"/sessions/agent-1/messages", "application/json",
+		strings.NewReader(`{"body":"hi"}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	var sr struct {
+		Message mailbox.Message `json:"message"`
+	}
+	json.NewDecoder(resp.Body).Decode(&sr)
+	resp.Body.Close()
+	if sr.Message.From != "human" {
+		t.Fatalf("empty from should default to 'human', got %q", sr.Message.From)
+	}
+}
+
 func TestSendMessageUnknownRecipient404(t *testing.T) {
 	srv, _, _ := newMsgServer(t)
 	ts := httptest.NewServer(srv.router())

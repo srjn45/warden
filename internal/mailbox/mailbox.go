@@ -2,6 +2,11 @@
 // inbox behind agent-to-agent directed messages. Each recipient's messages live
 // in one JSON file (<dir>/<id>.json), rewritten atomically (temp file + rename)
 // under a mutex. Localhost session-store scale, like internal/ctxstore.
+//
+// The `from` field is advisory provenance, not an authenticated identity: warden
+// assumes a single trusted local user, so callers must not make security
+// decisions on it. The daemon edge (daemon.sanitizeSender) reserves the
+// "daemon"/"system" ids so an agent can't forge daemon-originated messages.
 package mailbox
 
 import (
@@ -21,9 +26,22 @@ import (
 // ErrBadRecipient is returned when a recipient id is unsafe as a filename.
 var ErrBadRecipient = errors.New("invalid recipient")
 
+// retention bounds on a single inbox. An inbox is only ever appended to or
+// marked-read, and every op rewrites the whole file, so without bounds a
+// long-lived agent's inbox grows without limit and each op gets slower. Append
+// compacts to these limits; unread messages are never dropped.
+const (
+	// maxInboxMessages caps total retained messages; the cap only sheds
+	// already-read messages (oldest first), never unread work.
+	maxInboxMessages = 500
+	// readRetention is how long a read message is kept for inbox/history views
+	// before compaction may drop it.
+	readRetention = 24 * time.Hour
+)
+
 // Message is one directed message in a recipient's inbox.
 type Message struct {
-	ID   string    `json:"id"`   // per-inbox sequence, 1-based
+	ID   string    `json:"id"`   // per-inbox id, assigned from a high-water mark (max+1) so compaction never recycles one
 	From string    `json:"from"` // sender id, or "human"/"daemon"
 	To   string    `json:"to"`
 	Body string    `json:"body"`
@@ -91,7 +109,55 @@ func (s *Store) save(path string, ms []Message) error {
 	return os.Rename(tmpName, path)
 }
 
-// Append stores m in m.To's inbox, assigning a per-inbox sequential ID and TS.
+// nextID returns the next per-inbox id as a high-water mark (max existing id +
+// 1), not len+1: compaction can drop messages, so a length-based id would
+// collide with (or recycle) an id still referenced by a MarkRead call or a
+// client's cached view. Non-numeric ids are ignored when scanning.
+func nextID(ms []Message) string {
+	max := 0
+	for _, m := range ms {
+		if n, err := strconv.Atoi(m.ID); err == nil && n > max {
+			max = n
+		}
+	}
+	return strconv.Itoa(max + 1)
+}
+
+// compact bounds an inbox so a long-lived agent's file (and the per-op rewrite
+// cost) stays small. It never drops unread messages (undelivered work); it drops
+// read messages older than readTTL, and if the result still exceeds maxN it
+// sheds the oldest read messages until within the cap (unread are kept even past
+// the cap). Input is assumed in arrival order (ascending TS); that order is
+// preserved.
+func compact(ms []Message, maxN int, readTTL time.Duration) []Message {
+	cutoff := time.Now().Add(-readTTL)
+	kept := make([]Message, 0, len(ms))
+	for _, m := range ms {
+		if m.Read && m.TS.Before(cutoff) {
+			continue // aged-out read message
+		}
+		kept = append(kept, m)
+	}
+	if len(kept) <= maxN {
+		return kept
+	}
+	// Still over the cap: drop oldest read messages first (kept is in arrival
+	// order, so front-to-back is oldest-first); never drop unread work.
+	over := len(kept) - maxN
+	out := make([]Message, 0, len(kept))
+	for _, m := range kept {
+		if over > 0 && m.Read {
+			over--
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// Append stores m in m.To's inbox, assigning a per-inbox ID (high-water mark)
+// and TS, then compacting the inbox to its retention bounds. The freshly
+// appended message is unread, so compaction never drops it.
 func (s *Store) Append(m Message) (Message, error) {
 	path, err := s.path(m.To)
 	if err != nil {
@@ -103,10 +169,11 @@ func (s *Store) Append(m Message) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	m.ID = strconv.Itoa(len(ms) + 1)
+	m.ID = nextID(ms)
 	m.TS = time.Now().UTC()
 	m.Read = false
 	ms = append(ms, m)
+	ms = compact(ms, maxInboxMessages, readRetention)
 	if err := s.save(path, ms); err != nil {
 		return Message{}, err
 	}
