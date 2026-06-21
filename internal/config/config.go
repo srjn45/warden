@@ -52,6 +52,7 @@ type Config struct {
 	RateLimitRetryInterval string `yaml:"rate_limit_retry_interval"`
 	RateLimitBuffer        string `yaml:"rate_limit_buffer"`
 	RateLimitAutoResume    bool   `yaml:"rate_limit_auto_resume"`
+	RateLimitResumePrompt  string `yaml:"rate_limit_resume_prompt"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -91,6 +92,7 @@ var schema = []setting{
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
+	{"rate_limit_resume_prompt", "Text to send when resuming a rate-limited agent. Empty = bare keypress (no injected user turn). Values: any string"},
 }
 
 // fileHeader is the comment written at the very top of a generated config file.
@@ -125,6 +127,7 @@ func defaults() Config {
 		RateLimitRetryInterval: "30m",
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
+		RateLimitResumePrompt:  "",
 	}
 }
 

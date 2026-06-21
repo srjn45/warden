@@ -54,6 +54,18 @@ auto_restart_reset: 10m
 	require.True(t, c.MetricsEnabled)
 }
 
+func TestLoad_RateLimitResumePrompt_Default(t *testing.T) {
+	path := tmpConfig(t, "") // empty file → all defaults
+	c := Load(path)
+	require.Equal(t, "", c.RateLimitResumePrompt, "default must be empty (keypress-only)")
+}
+
+func TestLoad_RateLimitResumePrompt_Set(t *testing.T) {
+	path := tmpConfig(t, "rate_limit_resume_prompt: continue\n")
+	c := Load(path)
+	require.Equal(t, "continue", c.RateLimitResumePrompt)
+}
+
 func TestLoadInvalidPermissionModeFallsBack(t *testing.T) {
 	path := tmpConfig(t, "default_permission_mode: nonsense\n")
 	require.Equal(t, "auto", Load(path).DefaultPermissionMode)
