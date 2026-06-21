@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/approval"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,23 +27,22 @@ import (
 // are stored as Go duration strings (e.g. "5m"); use the typed accessor methods
 // (AutoRestartResetDuration, etc.) to read them.
 type Config struct {
-	Addr                   string `yaml:"addr"`
-	DataDir                string `yaml:"data_dir"`
-	ClaudeProjectsDir      string `yaml:"claude_projects_dir"`
-	NotifyEnabled          bool   `yaml:"notify"`
-	ApprovalsEnabled       bool   `yaml:"approvals"`
-	AutoApproveEnabled     bool   `yaml:"auto_approve"`
-	AutoApproveAllowSticky bool   `yaml:"auto_approve_allow_sticky"`
-	DefaultPermissionMode  string `yaml:"default_permission_mode"`
-	SpawnGateEnabled       bool   `yaml:"spawn_gate"`
-	SpawnGateMaxAgents     int    `yaml:"spawn_gate_max_agents"`
-	MetricsEnabled         bool   `yaml:"metrics"`
-	AllowNonLoopback       bool   `yaml:"allow_nonloopback"`
-	TokenGuard             bool   `yaml:"token_guard"`
-	TokenWarnAlert         bool   `yaml:"token_warn_alert"`
-	TokenAutoCompact       bool   `yaml:"token_auto_compact"`
-	TokenWarn              int    `yaml:"token_warn"`
-	TokenCritical          int    `yaml:"token_critical"`
+	Addr                  string          `yaml:"addr"`
+	DataDir               string          `yaml:"data_dir"`
+	ClaudeProjectsDir     string          `yaml:"claude_projects_dir"`
+	NotifyEnabled         bool            `yaml:"notify"`
+	ApprovalsEnabled      bool            `yaml:"approvals"`
+	AutoApprove           approval.Policy `yaml:"auto_approve"`
+	DefaultPermissionMode string          `yaml:"default_permission_mode"`
+	SpawnGateEnabled      bool            `yaml:"spawn_gate"`
+	SpawnGateMaxAgents    int             `yaml:"spawn_gate_max_agents"`
+	MetricsEnabled        bool            `yaml:"metrics"`
+	AllowNonLoopback      bool            `yaml:"allow_nonloopback"`
+	TokenGuard            bool            `yaml:"token_guard"`
+	TokenWarnAlert        bool            `yaml:"token_warn_alert"`
+	TokenAutoCompact      bool            `yaml:"token_auto_compact"`
+	TokenWarn             int             `yaml:"token_warn"`
+	TokenCritical         int             `yaml:"token_critical"`
 
 	// Migrated from previously-scattered os.Getenv reads.
 	PipelineKeepDone       bool   `yaml:"pipeline_keep_done"`
@@ -74,8 +74,7 @@ var schema = []setting{
 	{"claude_projects_dir", "Claude Code transcript root. Values: absolute path"},
 	{"notify", "Desktop notifications on agent status changes. Values: true | false"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
-	{"auto_approve", "Automatically answer recognized yes/no permission prompts. Values: true | false"},
-	{"auto_approve_allow_sticky", "When auto-approving, also accept \"yes, don't ask again\" (sticky) options. Values: true | false"},
+	{"auto_approve", "Auto-approve policy. The daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, paths})."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"spawn_gate", "Warn (soft, never blocks) before spawning when many agents are live. Values: true | false"},
 	{"spawn_gate_max_agents", "Live-agent count that trips the spawn-gate warning. Values: integer"},
@@ -105,13 +104,16 @@ const fileHeader = "warden configuration — edit values below; run `warden conf
 // the values from here; Load starts from here and overlays the file).
 func defaults() Config {
 	return Config{
-		Addr:                   "127.0.0.1:8765",
-		DataDir:                defaultDataDir(),
-		ClaudeProjectsDir:      defaultClaudeProjectsDir(),
-		NotifyEnabled:          false,
-		ApprovalsEnabled:       true,
-		AutoApproveEnabled:     false,
-		AutoApproveAllowSticky: false,
+		Addr:              "127.0.0.1:8765",
+		DataDir:           defaultDataDir(),
+		ClaudeProjectsDir: defaultClaudeProjectsDir(),
+		NotifyEnabled:     false,
+		ApprovalsEnabled:  true,
+		AutoApprove: approval.Policy{
+			Enabled:     false,
+			AllowSticky: false,
+			Rules:       approval.Rules{Allow: []approval.Rule{}, Deny: []approval.Rule{}},
+		},
 		DefaultPermissionMode:  "auto",
 		SpawnGateEnabled:       true,
 		SpawnGateMaxAgents:     5,
@@ -261,6 +263,11 @@ func Reconcile(path string) error {
 	}
 	mapping := doc.Content[0]
 
+	// Migrate a legacy flat auto_approve (scalar bool, plus the Stage-A
+	// auto_approve_allow_sticky key) into the nested policy block before the
+	// add-missing loop, which would otherwise treat auto_approve as "present".
+	changed := migrateAutoApprove(mapping)
+
 	present := map[string]bool{}
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		present[mapping.Content[i].Value] = true
@@ -269,7 +276,6 @@ func Reconcile(path string) error {
 	if err != nil {
 		return err
 	}
-	changed := false
 	for _, s := range schema {
 		if present[s.Key] {
 			continue
@@ -290,6 +296,101 @@ func Reconcile(path string) error {
 		return err
 	}
 	return writeFile(path, out)
+}
+
+// migrateAutoApprove upgrades a legacy flat auto_approve key into the nested
+// policy block in place. It handles two cases: (a) auto_approve is a scalar bool
+// (the original on/off toggle), possibly alongside a flat
+// auto_approve_allow_sticky key from Stage A; and (b) auto_approve is already a
+// mapping but a stray auto_approve_allow_sticky key lingers. In both it folds the
+// sticky flag into the block and drops the stray key, preserving the existing
+// auto_approve key node and its head-comment (only the value node is swapped).
+// Returns true when it modified mapping.Content.
+func migrateAutoApprove(mapping *yaml.Node) bool {
+	aaVal := findValue(mapping, "auto_approve")
+	if aaVal == nil {
+		return false
+	}
+	stickyVal := findValue(mapping, "auto_approve_allow_sticky")
+	switch aaVal.Kind {
+	case yaml.ScalarNode:
+		enabled := scalarBool(aaVal)
+		sticky := stickyVal != nil && scalarBool(stickyVal)
+		// Swap only the value node in place; the key node (with its
+		// head-comment) keeps its position in mapping.Content.
+		*aaVal = *policyValueNode(enabled, sticky)
+		removeKey(mapping, "auto_approve_allow_sticky")
+		return true
+	case yaml.MappingNode:
+		if stickyVal == nil {
+			return false // already migrated, nothing stray to fold in
+		}
+		if findValue(aaVal, "allow_sticky") == nil {
+			aaVal.Content = append(aaVal.Content,
+				strNode("allow_sticky"), boolNode(scalarBool(stickyVal)))
+		}
+		removeKey(mapping, "auto_approve_allow_sticky")
+		return true
+	default:
+		return false
+	}
+}
+
+// policyValueNode builds the nested auto_approve value: {enabled, allow_sticky,
+// rules: {allow: [], deny: []}} with empty (but non-null) sequence nodes.
+func policyValueNode(enabled, sticky bool) *yaml.Node {
+	rules := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
+		strNode("allow"), seqNode(),
+		strNode("deny"), seqNode(),
+	}}
+	return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
+		strNode("enabled"), boolNode(enabled),
+		strNode("allow_sticky"), boolNode(sticky),
+		strNode("rules"), rules,
+	}}
+}
+
+// findValue returns the value node for key in a mapping node, or nil if absent.
+func findValue(mapping *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// removeKey drops the first key/value pair matching key from a mapping node.
+func removeKey(mapping *yaml.Node, key string) {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			mapping.Content = append(mapping.Content[:i], mapping.Content[i+2:]...)
+			return
+		}
+	}
+}
+
+// scalarBool decodes a scalar node as a bool (false on any decode error).
+func scalarBool(n *yaml.Node) bool {
+	var b bool
+	_ = n.Decode(&b)
+	return b
+}
+
+func strNode(v string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v}
+}
+
+func boolNode(b bool) *yaml.Node {
+	v := "false"
+	if b {
+		v = "true"
+	}
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: v}
+}
+
+func seqNode() *yaml.Node {
+	return &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
 }
 
 // renderFull builds a complete, commented config document from defaults().
@@ -379,7 +480,6 @@ func writeFile(path string, data []byte) error {
 // once at startup if any are still set.
 var legacyEnvNames = []string{
 	"ADDR", "DATA_DIR", "NOTIFY", "APPROVALS", "AUTO_APPROVE",
-	"AUTO_APPROVE_ALLOW_STICKY",
 	"DEFAULT_PERMISSION_MODE", "SPAWN_GATE", "SPAWN_GATE_MAX_AGENTS",
 	"METRICS", "ALLOW_NONLOOPBACK", "TOKEN_GUARD", "TOKEN_WARN_ALERT",
 	"TOKEN_AUTO_COMPACT", "TOKEN_WARN", "TOKEN_CRITICAL",

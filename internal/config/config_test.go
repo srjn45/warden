@@ -25,8 +25,8 @@ func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
 	d := defaults()
 	require.Equal(t, d.Addr, c.Addr)
 	require.True(t, c.ApprovalsEnabled)
-	require.False(t, c.AutoApproveEnabled)
-	require.False(t, c.AutoApproveAllowSticky)
+	require.False(t, c.AutoApprove.Enabled)
+	require.False(t, c.AutoApprove.AllowSticky)
 	require.Equal(t, "auto", c.DefaultPermissionMode)
 	require.Equal(t, 5, c.SpawnGateMaxAgents)
 	require.Equal(t, "claude-sonnet-4-6", c.ModelDefault)
@@ -46,7 +46,7 @@ auto_restart_reset: 10m
 	c := Load(path)
 	require.Equal(t, "127.0.0.1:9999", c.Addr)
 	require.False(t, c.ApprovalsEnabled)
-	require.True(t, c.AutoApproveEnabled)
+	require.True(t, c.AutoApprove.Enabled)
 	require.Equal(t, 8, c.SpawnGateMaxAgents)
 	require.Equal(t, "opus", c.ModelDefault)
 	require.Equal(t, 7, c.AutoRestartMax)
@@ -160,10 +160,50 @@ some_unknown_key: keep-me
 	require.Equal(t, "keep-me", m["some_unknown_key"])
 }
 
-func TestReconcileAddsAutoApproveAllowSticky(t *testing.T) {
-	// An existing file with auto_approve set but no allow_sticky key.
-	path := tmpConfig(t, `# my own note
+func TestLoadLegacyFlatAutoApprove(t *testing.T) {
+	// A flat `auto_approve: true` must still load (via the Policy UnmarshalYAML
+	// shim) without a parse-error fallback, with other keys intact.
+	path := tmpConfig(t, `addr: 127.0.0.1:9999
 auto_approve: true
+metrics: false
+`)
+	c := Load(path)
+	require.True(t, c.AutoApprove.Enabled)
+	require.False(t, c.AutoApprove.AllowSticky)
+	require.Equal(t, "127.0.0.1:9999", c.Addr) // not the parse-error default
+	require.False(t, c.MetricsEnabled)
+}
+
+func TestLoadNestedAutoApproveRoundTrips(t *testing.T) {
+	path := tmpConfig(t, `auto_approve:
+  enabled: true
+  allow_sticky: true
+  rules:
+    allow:
+      - tool: Edit
+        paths:
+          - src/**
+    deny:
+      - pattern: git push
+`)
+	c := Load(path)
+	require.True(t, c.AutoApprove.Enabled)
+	require.True(t, c.AutoApprove.AllowSticky)
+	require.Len(t, c.AutoApprove.Rules.Allow, 1)
+	require.Equal(t, "Edit", c.AutoApprove.Rules.Allow[0].Tool)
+	require.Equal(t, []string{"src/**"}, c.AutoApprove.Rules.Allow[0].Paths)
+	require.Len(t, c.AutoApprove.Rules.Deny, 1)
+	require.Equal(t, "git push", c.AutoApprove.Rules.Deny[0].Pattern)
+}
+
+func TestReconcileMigratesFlatAutoApprove(t *testing.T) {
+	// A Stage-A file: flat auto_approve + flat auto_approve_allow_sticky, with a
+	// surrounding key and a comment.
+	path := tmpConfig(t, `# my own note
+addr: 127.0.0.1:7777
+auto_approve: true
+auto_approve_allow_sticky: true
+metrics: false
 `)
 	require.NoError(t, Reconcile(path))
 
@@ -171,17 +211,46 @@ auto_approve: true
 	require.NoError(t, err)
 	text := string(data)
 
-	// The existing value and comment are preserved.
-	require.Contains(t, text, "auto_approve: true")
+	// The flat sticky key is gone; auto_approve is now a nested block.
+	require.NotContains(t, text, "auto_approve_allow_sticky")
 	require.Contains(t, text, "my own note")
-	// The missing key was appended with its hint and the default value.
-	require.Contains(t, text, "auto_approve_allow_sticky: false")
-	require.Contains(t, text, "(sticky) options")
+	require.Contains(t, text, "127.0.0.1:7777")
 
-	// It reloads as false and leaves auto_approve untouched.
+	// Reloads with the folded-in values and an empty (non-nil) rules block.
 	c := Load(path)
-	require.False(t, c.AutoApproveAllowSticky)
-	require.True(t, c.AutoApproveEnabled)
+	require.True(t, c.AutoApprove.Enabled)
+	require.True(t, c.AutoApprove.AllowSticky)
+	require.Empty(t, c.AutoApprove.Rules.Allow)
+	require.Empty(t, c.AutoApprove.Rules.Deny)
+	require.Equal(t, "127.0.0.1:7777", c.Addr)
+	require.False(t, c.MetricsEnabled)
+
+	// A second Reconcile is a no-op for the (now nested) auto_approve key.
+	before := text
+	require.NoError(t, Reconcile(path))
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, string(after))
+}
+
+func TestReconcileGeneratesNestedAutoApprove(t *testing.T) {
+	// A brand-new file gets the full nested block from defaults.
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+	require.Contains(t, text, "auto_approve:")
+	require.Contains(t, text, "enabled:")
+	require.Contains(t, text, "allow_sticky:")
+	require.Contains(t, text, "rules:")
+	require.NotContains(t, text, "auto_approve_allow_sticky")
+
+	c := Load(path)
+	require.False(t, c.AutoApprove.Enabled)
+	require.NotNil(t, c.AutoApprove.Rules.Allow)
+	require.NotNil(t, c.AutoApprove.Rules.Deny)
 }
 
 func TestReconcileIsIdempotent(t *testing.T) {
