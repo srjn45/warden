@@ -660,7 +660,7 @@ func TestClassify_RateLimited(t *testing.T) {
 		Status: store.StatusWorking,
 	}
 
-	pane := "Error: rate limit exceeded. Please try again later."
+	pane := sampleLimitBanner
 
 	got := classify(sess, pane, true, 0, 0)
 
@@ -670,13 +670,13 @@ func TestClassify_RateLimited(t *testing.T) {
 }
 
 func TestClassify_RateLimitPriority(t *testing.T) {
-	// Rate limit should take priority over prompt detection
+	// A real limit banner should take priority over prompt detection.
 	sess := &store.Session{
 		ID:     "test",
 		Status: store.StatusWorking,
 	}
 
-	pane := "Rate limit exceeded. Try again later.\n❯ Continue?"
+	pane := sampleLimitBanner + "\n❯ Continue?"
 
 	got := classify(sess, pane, true, 0, 0)
 
@@ -684,6 +684,20 @@ func TestClassify_RateLimitPriority(t *testing.T) {
 		t.Errorf("classify() = %v, want %v (rate limit should take priority)",
 			got, store.StatusRateLimited)
 	}
+}
+
+func TestClassify_WorkingVetoesStrayLimitKeyword(t *testing.T) {
+	s := &store.Session{ID: "t", Status: store.StatusWorking}
+	// Both a limit-ish line and the active-streaming marker present.
+	pane := "discussing rate limit handling...\nesc to interrupt"
+	got := classify(s, pane, true, 0, 0)
+	require.Equal(t, store.StatusWorking, got, "esc to interrupt must win")
+}
+
+func TestClassify_RealLimitWhenNotStreaming(t *testing.T) {
+	s := &store.Session{ID: "t", Status: store.StatusWorking}
+	got := classify(s, sampleLimitBanner, true, 0, 0)
+	require.Equal(t, store.StatusRateLimited, got)
 }
 
 func TestClassify_NoRateLimit(t *testing.T) {
