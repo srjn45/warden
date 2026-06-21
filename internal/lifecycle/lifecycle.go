@@ -33,17 +33,42 @@ func (l *Lifecycle) runClaudeP(ctx context.Context, arg string) (string, error) 
 	return l.run.Run(cctx, "", "claude", "-p", arg)
 }
 
+// PermissionModes is the canonical set of accepted claude permission modes.
+// It is the single source of truth for both the spawn-time validation gate and
+// the live PATCH /permission-mode handler.
+var PermissionModes = []string{"acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"}
+
+// ValidPermissionMode reports whether mode is one of PermissionModes. An empty
+// mode is valid: callers treat it as "use the configured default".
+func ValidPermissionMode(mode string) bool {
+	if mode == "" {
+		return true
+	}
+	for _, m := range PermissionModes {
+		if mode == m {
+			return true
+		}
+	}
+	return false
+}
+
 // permissionFlag selects the claude permission mode flag for a spawned agent.
-// mode is one of: acceptEdits, auto, bypassPermissions, default, dontAsk, plan.
+// mode is one of PermissionModes. The value is shell-quoted because claudeBase's
+// result is typed into a tmux pane and run by a shell — an unquoted mode that
+// slipped past validation must never be able to inject shell syntax.
 func permissionFlag(mode string) string {
-	return "--permission-mode " + mode
+	return "--permission-mode " + shellQuoteArg(mode)
 }
 
 // claudeBase is the claude command + model + permission flag every agent session starts from.
 // Uses the provided model, or the default (claude-sonnet-4-5) when model is empty.
+// modelID is shell-quoted: it may be an arbitrary caller-supplied full model ID
+// (ResolveModel passes unknown values through), and claudeBase's result is typed
+// into a tmux pane and executed by a shell, so an unquoted model would be a
+// command-injection vector.
 func (l *Lifecycle) claudeBase(model string, mode string) string {
 	modelID := l.modelOrDefault(model)
-	return "claude --model " + modelID + " " + permissionFlag(mode)
+	return "claude --model " + shellQuoteArg(modelID) + " " + permissionFlag(mode)
 }
 
 // claudeLaunch builds the claude invocation for a spawned agent: the base

@@ -324,6 +324,17 @@ func TestPostSpawnRejectsUnknownType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "unknown types are rejected, not collapsed to other")
 }
 
+func TestPostSpawnRejectsInvalidPermissionMode(t *testing.T) {
+	ts := lifeServer(t, newFakeStore(), &fakeLife{})
+	defer ts.Close()
+	// A permission_mode carrying shell syntax must be rejected at the boundary,
+	// not concatenated into the claude launch line typed into the tmux pane.
+	body, _ := json.Marshal(SpawnRequest{Type: "debug-ci", Repo: "/repo", PermissionMode: "auto; rm -rf ~"})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "an unknown permission mode is rejected")
+}
+
 func TestPostSpawnNoTicketIsAllowed(t *testing.T) {
 	fl := &fakeLife{}
 	ts := lifeServer(t, newFakeStore(), fl)

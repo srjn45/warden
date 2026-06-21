@@ -33,21 +33,21 @@ func pipelineHint() string                 { return defaultLC().pipelineHint() }
 
 func TestClaudeLaunchPermissionMode(t *testing.T) {
 	def := claudeLaunch("sid", "agent-1", "", "acceptEdits")
-	require.Contains(t, def, "--permission-mode acceptEdits")
+	require.Contains(t, def, "--permission-mode 'acceptEdits'")
 	require.NotContains(t, def, "--dangerously-skip-permissions")
 	sup := claudeLaunch("sid", "agent-1", "", "auto")
-	require.Contains(t, sup, "--permission-mode auto")
+	require.Contains(t, sup, "--permission-mode 'auto'")
 	require.NotContains(t, sup, "--dangerously-skip-permissions")
 }
 
 func TestClaudeResumePermissionMode(t *testing.T) {
-	require.Contains(t, claudeResume("sid", "agent-1", "", "acceptEdits"), "--permission-mode acceptEdits")
-	require.Contains(t, claudeResume("sid", "agent-1", "", "auto"), "--permission-mode auto")
+	require.Contains(t, claudeResume("sid", "agent-1", "", "acceptEdits"), "--permission-mode 'acceptEdits'")
+	require.Contains(t, claudeResume("sid", "agent-1", "", "auto"), "--permission-mode 'auto'")
 }
 
 func TestClaudeLaunchModel(t *testing.T) {
 	cmd := claudeLaunch("sid", "agent-1", "", "auto")
-	require.Contains(t, cmd, "--model claude-sonnet-4-5")
+	require.Contains(t, cmd, "--model 'claude-sonnet-4-5'")
 }
 
 func TestParseSummaryCapsByRune(t *testing.T) {
@@ -991,7 +991,7 @@ func TestSpawnWithPermissionModePromptUsesSpecifiedMode(t *testing.T) {
 	for _, argv := range fr.calledArgs() {
 		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "send-keys" {
 			joined := strings.Join(argv, " ")
-			require.Contains(t, joined, "--permission-mode acceptEdits",
+			require.Contains(t, joined, "--permission-mode 'acceptEdits'",
 				"spawn must use --permission-mode acceptEdits")
 			found = true
 		}
@@ -1028,7 +1028,7 @@ func TestSpawnWithPermissionModeTypedUsesSpecifiedMode(t *testing.T) {
 	for _, argv := range fr.calledArgs() {
 		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "send-keys" {
 			joined := strings.Join(argv, " ")
-			require.Contains(t, joined, "--permission-mode acceptEdits",
+			require.Contains(t, joined, "--permission-mode 'acceptEdits'",
 				"supervised typed-mode spawn must use --permission-mode acceptEdits")
 			require.NotContains(t, joined, "--dangerously-skip-permissions",
 				"supervised typed-mode spawn must not use bypass flag")
@@ -1256,12 +1256,12 @@ func TestPermissionFlag(t *testing.T) {
 		mode string
 		want string
 	}{
-		{"auto", "--permission-mode auto"},
-		{"acceptEdits", "--permission-mode acceptEdits"},
-		{"bypassPermissions", "--permission-mode bypassPermissions"},
-		{"default", "--permission-mode default"},
-		{"dontAsk", "--permission-mode dontAsk"},
-		{"plan", "--permission-mode plan"},
+		{"auto", "--permission-mode 'auto'"},
+		{"acceptEdits", "--permission-mode 'acceptEdits'"},
+		{"bypassPermissions", "--permission-mode 'bypassPermissions'"},
+		{"default", "--permission-mode 'default'"},
+		{"dontAsk", "--permission-mode 'dontAsk'"},
+		{"plan", "--permission-mode 'plan'"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {
@@ -1278,9 +1278,9 @@ func TestClaudeBase(t *testing.T) {
 		mode string
 		want string
 	}{
-		{"auto", "claude --model claude-sonnet-4-5 --permission-mode auto"},
-		{"acceptEdits", "claude --model claude-sonnet-4-5 --permission-mode acceptEdits"},
-		{"bypassPermissions", "claude --model claude-sonnet-4-5 --permission-mode bypassPermissions"},
+		{"auto", "claude --model 'claude-sonnet-4-5' --permission-mode 'auto'"},
+		{"acceptEdits", "claude --model 'claude-sonnet-4-5' --permission-mode 'acceptEdits'"},
+		{"bypassPermissions", "claude --model 'claude-sonnet-4-5' --permission-mode 'bypassPermissions'"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {
@@ -1289,5 +1289,32 @@ func TestClaudeBase(t *testing.T) {
 				t.Errorf("claudeBase(%q) = %q, want %q", tt.mode, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestClaudeBaseQuotesModel is a regression guard for the command-injection fix:
+// a model string carrying shell metacharacters must be single-quoted so it can
+// never break out of the launch line that Spawn types into a tmux pane.
+func TestClaudeBaseQuotesModel(t *testing.T) {
+	l := &Lifecycle{cfg: &FakeConfig{}}
+	got := l.claudeBase("sonnet; touch /tmp/pwned #", "auto")
+	want := `claude --model 'sonnet; touch /tmp/pwned #' --permission-mode 'auto'`
+	if got != want {
+		t.Errorf("claudeBase with injected model = %q, want %q", got, want)
+	}
+}
+
+func TestValidPermissionMode(t *testing.T) {
+	valid := []string{"", "acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"}
+	for _, m := range valid {
+		if !ValidPermissionMode(m) {
+			t.Errorf("ValidPermissionMode(%q) = false, want true", m)
+		}
+	}
+	invalid := []string{"yolo", "auto; rm -rf ~", "AcceptEdits", " auto"}
+	for _, m := range invalid {
+		if ValidPermissionMode(m) {
+			t.Errorf("ValidPermissionMode(%q) = true, want false", m)
+		}
 	}
 }

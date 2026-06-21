@@ -44,6 +44,16 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 			return http.StatusBadRequest, "invalid ticket id (no '/', '\\', ':', or '..')"
 		}
 	}
+	// Reject an unknown permission mode up front. req.PermissionMode is
+	// concatenated into the claude launch line that Spawn types into a tmux pane;
+	// validating here (empty = use the configured default) keeps an unexpected
+	// value from reaching the shell and gives a clean 400 instead of a cryptic
+	// claude error. The model field is allowed to be any full ID and is
+	// shell-quoted at the launch seam (lifecycle.claudeBase) instead.
+	if !lifecycle.ValidPermissionMode(req.PermissionMode) {
+		return http.StatusBadRequest, "invalid permission mode " + req.PermissionMode +
+			"; valid: acceptEdits, auto, bypassPermissions, default, dontAsk, plan"
+	}
 	// Validate the optional name field for format and uniqueness.
 	if req.Name != "" {
 		if err := store.ValidateName(req.Name); err != nil {
@@ -492,20 +502,10 @@ func (s *Server) handleSetPermissionMode(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Validate mode (empty string is allowed - it means use global default)
-	if req.PermissionMode != "" {
-		validModes := []string{"acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"}
-		valid := false
-		for _, m := range validModes {
-			if req.PermissionMode == m {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			writeErr(w, http.StatusBadRequest, "invalid permission mode")
-			return
-		}
+	// Validate mode (empty string is allowed - it means use global default).
+	if !lifecycle.ValidPermissionMode(req.PermissionMode) {
+		writeErr(w, http.StatusBadRequest, "invalid permission mode")
+		return
 	}
 
 	if err := s.store.UpdatePermissionMode(r.Context(), id, req.PermissionMode); err != nil {
