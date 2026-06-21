@@ -104,7 +104,7 @@ func newDaemonCmd() *cobra.Command {
 
 			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestartMax, cfg.AutoRestartResetDuration())
-			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimitAutoResume)
+			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimitAutoResume, cfg.RateLimitResumePrompt)
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)

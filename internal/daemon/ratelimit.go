@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,20 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
+// resumeKey is the raw keystroke sent to un-pause a rate-limited Claude pane
+// when no rate_limit_resume_prompt is configured. Unlike a textual nudge it
+// injects no user turn, so it never pollutes the transcript.
+//
+// TODO(open-question): confirm the correct un-pause keystroke against a LIVE
+// limit hit. This is intentionally fail-closed: a wrong key is a benign no-op
+// the next poll re-detects, not a transcript-corrupting action. Keep this in
+// sync with the poller's banner constants (claudeLimitBannerRe et al.).
+const resumeKey = "Enter"
+
+// resumePaneLines is how many trailing pane rows we capture to re-check the
+// banner before resuming; LimitBannerPresent only inspects the last few lines.
+const resumePaneLines = 20
+
 // RateLimitScheduler manages scheduled resume attempts for rate-limited agents.
 type RateLimitScheduler struct {
 	life  Lifecycle
@@ -19,15 +34,18 @@ type RateLimitScheduler struct {
 	retryInterval time.Duration
 	buffer        time.Duration
 	enabled       bool
+	resumePrompt  string // text to inject on resume; "" = bare keypress only
 
 	mu     sync.Mutex
 	timers map[string]*time.Timer
 }
 
-// NewRateLimitScheduler creates a new scheduler. The retry interval, buffer, and
-// auto-resume toggle are supplied by the caller from config
-// (rate_limit_retry_interval / rate_limit_buffer / rate_limit_auto_resume).
-func NewRateLimitScheduler(life Lifecycle, st store.Store, retryInterval, buffer time.Duration, autoResume bool) *RateLimitScheduler {
+// NewRateLimitScheduler creates a new scheduler. The retry interval, buffer,
+// auto-resume toggle, and resume prompt are supplied by the caller from config
+// (rate_limit_retry_interval / rate_limit_buffer / rate_limit_auto_resume /
+// rate_limit_resume_prompt). An empty resumePrompt means resume with a bare
+// keypress and no injected user turn.
+func NewRateLimitScheduler(life Lifecycle, st store.Store, retryInterval, buffer time.Duration, autoResume bool, resumePrompt string) *RateLimitScheduler {
 	return &RateLimitScheduler{
 		life:          life,
 		store:         st,
@@ -35,7 +53,18 @@ func NewRateLimitScheduler(life Lifecycle, st store.Store, retryInterval, buffer
 		retryInterval: retryInterval,
 		buffer:        buffer,
 		enabled:       autoResume,
+		resumePrompt:  resumePrompt,
 	}
+}
+
+// clearTimer stops and removes the timer for a session.
+func (r *RateLimitScheduler) clearTimer(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if t := r.timers[sessionID]; t != nil {
+		t.Stop()
+	}
+	delete(r.timers, sessionID)
 }
 
 // OnTransition is wired as a callback on the poller's status-transition hook.
@@ -111,39 +140,55 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	// Attempt resume
 	err = r.life.Restore(ctx, sess)
 
-	// If tmux session already exists, send a resume prompt to Claude
+	// If the tmux session already exists, Claude is paused showing the limit
+	// banner. Un-pause it in place rather than recreating the session.
 	if err == lifecycle.ErrAlreadyRunning {
-		// The tmux session exists - Claude is paused showing rate limit error
-		// Send a prompt to resume Claude and continue working
-		resumePrompt := "continue"
-		sendErr := r.life.Input(ctx, sess.TmuxSession, resumePrompt)
+		// Gate: only act if the limit banner is still the trailing pane state. If
+		// the agent already moved on, do nothing destructive — clear and exit so a
+		// stale schedule can't nudge an agent that has already resumed.
+		pane, _ := r.life.Output(ctx, sess.TmuxSession, resumePaneLines)
+		if !poller.LimitBannerPresent(pane) {
+			_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
+			_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
+				TS:     time.Now().UTC(),
+				Type:   "rate-limit-resumed",
+				Detail: "banner cleared before resume; no nudge sent",
+			})
+			r.clearTimer(sess.ID)
+			return
+		}
+
+		// Default: a bare un-pause keypress (no injected user turn). A non-empty
+		// resumePrompt opts into sending that text instead.
+		var sendErr error
+		detail := "sent bare resume keypress (tmux session exists)"
+		if r.resumePrompt == "" {
+			sendErr = r.life.SendKeys(ctx, sess.TmuxSession, resumeKey)
+		} else {
+			sendErr = r.life.Input(ctx, sess.TmuxSession, r.resumePrompt)
+			detail = "sent resume prompt " + strconv.Quote(r.resumePrompt)
+		}
 		if sendErr != nil {
-			// Input failed - treat as non-rate-limit error
+			// Send failed - treat as non-rate-limit error
 			_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusErrored)
 			_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
 				TS:     time.Now().UTC(),
 				Type:   "rate-limit-resume-failed",
-				Detail: "Input failed: " + sendErr.Error(),
+				Detail: "resume send failed: " + sendErr.Error(),
 			})
-
-			r.mu.Lock()
-			delete(r.timers, sess.ID)
-			r.mu.Unlock()
+			r.clearTimer(sess.ID)
 			return
 		}
 
-		// Input succeeded - transition to spawning and let poller verify
-		// If still rate-limited, poller will detect and call OnTransition again
+		// Send succeeded - transition to spawning and let poller verify. If still
+		// rate-limited, poller will detect and call OnTransition again.
 		_, _ = r.store.UpdateStatusIf(ctx, sess.ID, store.StatusRateLimited, store.StatusSpawning)
 		_ = r.store.AppendEvent(ctx, sess.ID, store.Event{
 			TS:     time.Now().UTC(),
 			Type:   "rate-limit-resumed",
-			Detail: "sent resume prompt (tmux session exists)",
+			Detail: detail,
 		})
-
-		r.mu.Lock()
-		delete(r.timers, sess.ID)
-		r.mu.Unlock()
+		r.clearTimer(sess.ID)
 		return
 	}
 
