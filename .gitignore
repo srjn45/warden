@@ -18,3 +18,7 @@ dist/
 
 # brainstorming visual companion
 .superpowers/
+
+warden.code-workspace
+
+dev.log
