@@ -36,6 +36,31 @@ func parked(st store.Status) bool {
 	return st == store.StatusIdle || st == store.StatusWaitingForInput
 }
 
+// reservedSenders are provenance ids only the daemon itself may stamp. A caller
+// (agent or human) that supplies one is rejected by sanitizeSender, so automated
+// daemon-originated provenance (e.g. a "daemon" conflict warning) can't be forged
+// — the validation half of warden's "from/updated_by is advisory, not an
+// authenticated identity" trust model. "human" is deliberately NOT reserved:
+// it's the default identity for human-originated writes.
+var reservedSenders = map[string]bool{"daemon": true, "system": true}
+
+// errReservedSender is returned when a caller supplies a reserved provenance id.
+var errReservedSender = errors.New("sender id is reserved for the daemon")
+
+// sanitizeSender is the single write gate behind every agent-reachable write
+// path (messages and context): it rejects reserved ids and applies the "human"
+// default for an empty id. Daemon-internal writes call the stores directly and
+// are trusted by construction, so they bypass this gate.
+func sanitizeSender(from string) (string, error) {
+	if reservedSenders[from] {
+		return "", errReservedSender
+	}
+	if from == "" {
+		from = "human"
+	}
+	return from, nil
+}
+
 // defaultRecentLimit caps GET /messages when the caller gives no (or a
 // non-positive) limit — enough to fill an inspector view without unbounded reads.
 const defaultRecentLimit = 50
@@ -87,12 +112,12 @@ func (s *Server) handleRecentMessages(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	sess, err := s.store.Get(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
+	// Existence check up front: reject a send to an unknown session before
+	// touching the inbox. Status is re-read later, just before the wake.
+	if _, err := s.store.Get(r.Context(), id); errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
-	}
-	if err != nil {
+	} else if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -105,9 +130,10 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "empty message body")
 		return
 	}
-	from := req.From
-	if from == "" {
-		from = "human"
+	from, err := sanitizeSender(req.From)
+	if errors.Is(err, errReservedSender) {
+		writeErr(w, http.StatusForbidden, "sender id is reserved for the daemon")
+		return
 	}
 	m, err := s.mbox.Append(mailbox.Message{To: id, From: from, Body: req.Body})
 	if errors.Is(err, mailbox.ErrBadRecipient) {
@@ -118,10 +144,16 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Waking is best-effort and the inbox above is the source of truth: the
+	// message is already durably appended regardless of what happens here. We
+	// re-Get status as close to the injection as possible to shrink the
+	// idle→working TOCTOU (the earlier Get above can be stale by now), and accept
+	// that Input may still race a transition. Do NOT turn this into a lock — that
+	// would serialize sends against the poller for a pure optimization.
 	woke := false
-	if parked(sess.Status) {
+	if fresh, gerr := s.store.Get(r.Context(), id); gerr == nil && parked(fresh.Status) {
 		notice := fmt.Sprintf("📨 New message from %s. Run `warden msg inbox` to read.", from)
-		if err := s.life.Input(r.Context(), sess.TmuxSession, notice); err == nil {
+		if err := s.life.Input(r.Context(), fresh.TmuxSession, notice); err == nil {
 			woke = true
 		}
 	}

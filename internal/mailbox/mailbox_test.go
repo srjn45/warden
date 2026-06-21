@@ -5,7 +5,62 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestNextIDUsesHighWaterMark(t *testing.T) {
+	// len+1 would collide after a drop; nextID must be max(existing ids)+1.
+	if got := nextID(nil); got != "1" {
+		t.Fatalf("empty inbox nextID want 1, got %s", got)
+	}
+	ms := []Message{{ID: "1"}, {ID: "5"}, {ID: "2"}} // 3 messages but high id is 5
+	if got := nextID(ms); got != "6" {
+		t.Fatalf("nextID want 6 (max+1, not len+1), got %s", got)
+	}
+}
+
+func TestCompactNeverDropsUnreadButDropsAgedRead(t *testing.T) {
+	old := time.Now().Add(-48 * time.Hour)
+	ms := []Message{
+		{ID: "1", Read: true, TS: old},        // aged read → dropped
+		{ID: "2", Read: false, TS: old},       // unread, even though old → kept
+		{ID: "3", Read: true, TS: time.Now()}, // recent read → kept
+	}
+	got := compact(ms, maxInboxMessages, readRetention)
+	if len(got) != 2 || got[0].ID != "2" || got[1].ID != "3" {
+		t.Fatalf("aged read dropped, unread+recent kept: got %+v", got)
+	}
+}
+
+func TestCompactCapShedsOldestReadFirstNeverUnread(t *testing.T) {
+	now := time.Now()
+	// 4 messages, all recent: 2 read (oldest), then unread, then read.
+	ms := []Message{
+		{ID: "1", Read: true, TS: now},
+		{ID: "2", Read: true, TS: now},
+		{ID: "3", Read: false, TS: now},
+		{ID: "4", Read: true, TS: now},
+	}
+	// Cap at 2: must shed the two oldest READ (ids 1,2), keep unread 3 and read 4.
+	got := compact(ms, 2, readRetention)
+	if len(got) != 2 || got[0].ID != "3" || got[1].ID != "4" {
+		t.Fatalf("cap must shed oldest read first, never unread: got %+v", got)
+	}
+}
+
+func TestCompactKeepsUnreadEvenPastCap(t *testing.T) {
+	now := time.Now()
+	ms := []Message{
+		{ID: "1", Read: false, TS: now},
+		{ID: "2", Read: false, TS: now},
+		{ID: "3", Read: false, TS: now},
+	}
+	// Cap of 1 but all unread: undelivered work is never dropped.
+	got := compact(ms, 1, readRetention)
+	if len(got) != 3 {
+		t.Fatalf("unread work must survive the cap, got %d", len(got))
+	}
+}
 
 func TestAppendAssignsIDAndTS(t *testing.T) {
 	s, err := New(t.TempDir())

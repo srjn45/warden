@@ -137,6 +137,29 @@ func TestContextAppend(t *testing.T) {
 	}
 }
 
+func TestContextReservedWriterForbidden(t *testing.T) {
+	ts := newCtxTestServer(t)
+	defer ts.Close()
+
+	// An agent must not be able to write to the blackboard as the daemon.
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/context/k",
+		bytes.NewBufferString(`{"value":"v","by":"daemon"}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("want 403 for reserved writer, got %d", resp.StatusCode)
+	}
+	// The rejected write must not have created the key.
+	get, _ := http.Get(ts.URL + "/context/k")
+	get.Body.Close()
+	if get.StatusCode != http.StatusNotFound {
+		t.Fatalf("rejected write must not create the key, got %d", get.StatusCode)
+	}
+}
+
 func TestContextListAndDelete(t *testing.T) {
 	ts := newCtxTestServer(t)
 	defer ts.Close()

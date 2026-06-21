@@ -5,6 +5,11 @@
 // data dir, rewritten atomically (temp file + rename) on each mutation — this is
 // a localhost session store, not a database; the last write surviving a crash is
 // not a requirement, but a reader never observes a torn file.
+//
+// The `updated_by` field is advisory provenance, not an authenticated identity:
+// warden assumes a single trusted local user, so callers must not make security
+// decisions on it. The daemon edge (daemon.sanitizeSender) reserves the
+// "daemon"/"system" ids so an agent can't forge daemon-originated writes.
 package ctxstore
 
 import (

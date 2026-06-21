@@ -94,6 +94,11 @@ type readInboxArgs struct {
 	Agent  string `json:"agent,omitempty" jsonschema:"whose inbox to read; defaults to this agent ($WARDEN_SESSION_ID)"`
 	Unread bool   `json:"unread,omitempty" jsonschema:"only return unread messages"`
 }
+type waitForMessageArgs struct {
+	Agent      string `json:"agent,omitempty" jsonschema:"whose inbox to wait on; defaults to this agent ($WARDEN_SESSION_ID)"`
+	From       string `json:"from,omitempty" jsonschema:"only wait for a message from this sender"`
+	TimeoutSec int    `json:"timeout_sec,omitempty" jsonschema:"seconds to wait before giving up (default 300; daemon caps at 600)"`
+}
 
 type approveArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id with the pending prompt"`
@@ -347,6 +352,32 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		res, err := jsonResult(msgs)
+		return res, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "wait_for_message",
+		Description: "Block until a directed message arrives in this agent's inbox (or timeout), then return it and mark it read. One call, no busy-polling across turns — prefer this over repeatedly calling read_inbox when awaiting a reply.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a waitForMessageArgs) (*mcpsdk.CallToolResult, any, error) {
+		who := a.Agent
+		if who == "" {
+			who = sessionID()
+		}
+		if who == "" {
+			return textResult("error: no agent id — set WARDEN_SESSION_ID or pass `agent`"), nil, nil
+		}
+		timeout := a.TimeoutSec
+		if timeout <= 0 {
+			timeout = 300
+		}
+		m, err := s.cl.MsgWait(ctx, who, a.From, timeout)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		if m == nil {
+			return textResult("(timed out — no message)"), nil, nil
+		}
+		res, err := jsonResult(m)
 		return res, nil, err
 	})
 

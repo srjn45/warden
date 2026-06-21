@@ -4133,4 +4133,9 @@ func init() {
 - H4 (low): no long-poll wait for MCP agents — add `wait_for_message` tool proxying the existing wait route
 - H5 (low): wake-on-send status TOCTOU — re-`Get` before tmux `Input`, document wake as best-effort
 - H6 (low): `mailbox.All()` aborts on one corrupt inbox — skip-and-log in the aggregate view only
-- Recommend landing H1/H2 before the collaboration layer routes automated warnings; H3–H6 incremental
+- Recommend landing H1/H2 before the collaboration layer routes automated warnings; H3–H6 incremental  
+**2026-06-21 (revision 7):** Implemented the remaining foundational-layer hardening findings (H2 + H6 landed earlier in this revision series):
+- H1: added the daemon write gate `sanitizeSender` — caller-supplied `from`/`updated_by` matching the reserved `daemon`/`system` ids are rejected with 403 across both message and context write routes; `""` still defaults to `human`. Documented the advisory-provenance trust model in the `mailbox` and `ctxstore` package docs.
+- H3: switched mailbox id assignment from `len+1` to a high-water mark (`nextID` = max existing id +1) and added `compact()` — Append now bounds each inbox (`maxInboxMessages` cap + `readRetention` window), shedding oldest *read* messages first and never dropping unread work.
+- H4: added the `wait_for_message` MCP tool, a thin proxy over the existing `GET /sessions/{id}/messages/wait` long-poll so MCP-only agents stop busy-polling `read_inbox` across turns.
+- H5: `handleSendMessage` now re-`Get`s session status immediately before the tmux `Input`, shrinking the idle→working wake TOCTOU; the inbox remains the source of truth and the wake is documented as best-effort (explicitly not a lock).
