@@ -11,13 +11,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// sampleLimitBanner mirrors the poller's best-known limit-banner fixture so the
+// resume gate's LimitBannerPresent check sees a banner it recognizes.
+const sampleLimitBanner = "Claude usage limit reached · resets 1:30pm (Europe/Madrid)"
+
 // fakeRateLimitLife embeds Lifecycle so unused methods stay nil.
 type fakeRateLimitLife struct {
 	Lifecycle
-	restoreCalls int
-	restoreErr   error
-	inputCalls   int
-	inputErr     error
+	restoreCalls  int
+	restoreErr    error
+	inputCalls    int
+	inputErr      error
+	lastInput     string
+	sendKeysCalls int
+	sendKeysErr   error
+	lastSendKey   string
+	output        string // pane text returned by Output
 }
 
 func (f *fakeRateLimitLife) Restore(_ context.Context, sess *store.Session) error {
@@ -27,7 +36,18 @@ func (f *fakeRateLimitLife) Restore(_ context.Context, sess *store.Session) erro
 
 func (f *fakeRateLimitLife) Input(_ context.Context, tmuxSession, text string) error {
 	f.inputCalls++
+	f.lastInput = text
 	return f.inputErr
+}
+
+func (f *fakeRateLimitLife) SendKeys(_ context.Context, tmuxSession, key string) error {
+	f.sendKeysCalls++
+	f.lastSendKey = key
+	return f.sendKeysErr
+}
+
+func (f *fakeRateLimitLife) Output(_ context.Context, tmuxSession string, lines int) (string, error) {
+	return f.output, nil
 }
 
 // rateLimitStore is a minimal store fake for RateLimitScheduler tests.
@@ -91,7 +111,7 @@ func TestRateLimitScheduler_OnTransition(t *testing.T) {
 		sessions: make(map[string]*store.Session),
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	sess := &store.Session{
 		ID:              "test-123",
@@ -119,7 +139,7 @@ func TestRateLimitScheduler_OnTransition_IgnoresOtherStatuses(t *testing.T) {
 		sessions: make(map[string]*store.Session),
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	sess := &store.Session{ID: "test-123"}
 
@@ -145,7 +165,7 @@ func TestRateLimitScheduler_AttemptResume_Success(t *testing.T) {
 		Status: store.StatusRateLimited,
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	sched.attemptResume("test-123")
 
@@ -171,7 +191,7 @@ func TestRateLimitScheduler_AttemptResume_SessionGone(t *testing.T) {
 		sessions: make(map[string]*store.Session),
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	// Session doesn't exist
 	sched.attemptResume("nonexistent")
@@ -192,7 +212,7 @@ func TestRateLimitScheduler_AttemptResume_StatusChanged(t *testing.T) {
 		Status: store.StatusWorking,
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	sched.attemptResume("test-123")
 
@@ -214,7 +234,7 @@ func TestRateLimitScheduler_AttemptResume_StillLimited(t *testing.T) {
 		RateLimitRetryCount: 0,
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	sched.attemptResume("test-123")
 
@@ -231,38 +251,79 @@ func TestRateLimitScheduler_AttemptResume_StillLimited(t *testing.T) {
 	require.True(t, exists, "timer should be rescheduled")
 }
 
-func TestRateLimitScheduler_AttemptResume_AlreadyRunning(t *testing.T) {
+func TestRateLimitScheduler_AttemptResume_DefaultUsesBareKeypressNotInput(t *testing.T) {
+	// rate_limit_resume_prompt == "", tmux session exists (ErrAlreadyRunning),
+	// banner still present in Output → resume with a bare keypress.
 	life := &fakeRateLimitLife{
 		restoreErr: lifecycle.ErrAlreadyRunning,
+		output:     sampleLimitBanner,
 	}
-	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
-	}
-
-	st.sessions["test-123"] = &store.Session{
-		ID:          "test-123",
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st.sessions["a"] = &store.Session{
+		ID:          "a",
 		Status:      store.StatusRateLimited,
-		TmuxSession: "test-123",
+		TmuxSession: "a",
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
+	sched.attemptResume("a")
 
-	sched.attemptResume("test-123")
+	require.Equal(t, 1, life.sendKeysCalls, "default resume is a bare keypress")
+	require.Equal(t, 0, life.inputCalls, "no injected user turn by default")
+	require.Equal(t, store.StatusSpawning, st.sessions["a"].Status)
 
-	// Should send resume prompt
-	require.Equal(t, 1, life.inputCalls, "should send resume prompt via Input()")
-
-	// Should be treated as success: status → spawning
-	require.Equal(t, 1, st.updateStatusIfCalls, "status should be updated")
-
-	// Should append event about sending prompt
-	require.Equal(t, 1, st.appendEventCalls, "should append rate-limit-resumed event")
-
-	// Timer should be removed
 	sched.mu.Lock()
 	defer sched.mu.Unlock()
-	_, exists := sched.timers["test-123"]
+	_, exists := sched.timers["a"]
 	require.False(t, exists, "timer should be removed")
+}
+
+func TestRateLimitScheduler_AttemptResume_ConfiguredPromptUsesInput(t *testing.T) {
+	life := &fakeRateLimitLife{
+		restoreErr: lifecycle.ErrAlreadyRunning,
+		output:     sampleLimitBanner,
+	}
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st.sessions["a"] = &store.Session{
+		ID:          "a",
+		Status:      store.StatusRateLimited,
+		TmuxSession: "a",
+	}
+
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "continue")
+	sched.attemptResume("a")
+
+	require.Equal(t, 1, life.inputCalls, "configured prompt is sent via Input()")
+	require.Equal(t, "continue", life.lastInput)
+	require.Equal(t, 0, life.sendKeysCalls, "no bare keypress when a prompt is configured")
+	require.Equal(t, store.StatusSpawning, st.sessions["a"].Status)
+}
+
+func TestRateLimitScheduler_AttemptResume_GateSkipsWhenBannerGone(t *testing.T) {
+	// Agent already moved on: Output no longer shows the banner.
+	life := &fakeRateLimitLife{
+		restoreErr: lifecycle.ErrAlreadyRunning,
+		output:     "normal work\nesc to interrupt",
+	}
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st.sessions["a"] = &store.Session{
+		ID:          "a",
+		Status:      store.StatusRateLimited,
+		TmuxSession: "a",
+	}
+
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "continue")
+	sched.attemptResume("a")
+
+	require.Equal(t, 0, life.inputCalls, "no nudge when the banner is gone")
+	require.Equal(t, 0, life.sendKeysCalls, "no keypress when the banner is gone")
+	// Gate clears the limit and stops the timer instead of nudging.
+	require.Equal(t, store.StatusSpawning, st.sessions["a"].Status)
+
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, exists := sched.timers["a"]
+	require.False(t, exists, "timer should be removed after the gate clears")
 }
 
 func TestRateLimitScheduler_AttemptResume_OtherError(t *testing.T) {
@@ -278,7 +339,7 @@ func TestRateLimitScheduler_AttemptResume_OtherError(t *testing.T) {
 		Status: store.StatusRateLimited,
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	sched.attemptResume("test-123")
 
@@ -313,7 +374,7 @@ func TestRateLimitScheduler_ReconstructTimers(t *testing.T) {
 		Status: store.StatusWorking,
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	err := sched.ReconstructTimers(context.Background())
 	require.NoError(t, err)
@@ -343,7 +404,7 @@ func TestRateLimitScheduler_ReconstructTimers_PastTime(t *testing.T) {
 		RateLimitRestoreAt: &pastTime,
 	}
 
-	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true, "")
 
 	err := sched.ReconstructTimers(context.Background())
 	require.NoError(t, err)
@@ -356,7 +417,7 @@ func TestRateLimitScheduler_ReconstructTimers_PastTime(t *testing.T) {
 }
 
 func TestRateLimitScheduler_CancelTimer(t *testing.T) {
-	sched := NewRateLimitScheduler(nil, nil, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(nil, nil, 30*time.Minute, time.Minute, true, "")
 
 	// Create a mock timer
 	sched.timers["test-123"] = time.AfterFunc(1*time.Hour, func() {})
@@ -371,7 +432,7 @@ func TestRateLimitScheduler_CancelTimer(t *testing.T) {
 }
 
 func TestRateLimitScheduler_CancelTimer_NotExists(t *testing.T) {
-	sched := NewRateLimitScheduler(nil, nil, 30*time.Minute, time.Minute, true)
+	sched := NewRateLimitScheduler(nil, nil, 30*time.Minute, time.Minute, true, "")
 
 	// Should not panic
 	sched.CancelTimer("nonexistent")

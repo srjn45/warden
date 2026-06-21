@@ -16,6 +16,21 @@ import (
 // guards keep behavior fail-closed. Keep this in sync with claudeLimitBannerRe.
 const sampleLimitBanner = "Claude usage limit reached · resets 1:30pm (Europe/Madrid)"
 
+func TestLimitBannerPresent_TracksDetectRateLimit(t *testing.T) {
+	// LimitBannerPresent is a thin wrapper; it must agree with detectRateLimit's
+	// boolean for both a real trailing banner and plain agent output.
+	present := "working...\n" + sampleLimitBanner
+	absent := "func detectRateLimit() {} // mentions rate limit\n❯ esc to interrupt"
+
+	wantPresent, _, _ := detectRateLimit(present)
+	require.True(t, wantPresent)
+	require.Equal(t, wantPresent, LimitBannerPresent(present))
+
+	wantAbsent, _, _ := detectRateLimit(absent)
+	require.False(t, wantAbsent)
+	require.Equal(t, wantAbsent, LimitBannerPresent(absent))
+}
+
 func TestDetectRateLimit_KeywordDetection(t *testing.T) {
 	tests := []struct {
 		name      string

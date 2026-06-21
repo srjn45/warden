@@ -45,6 +45,15 @@ func detectRateLimit(pane string) (bool, time.Time, bool) {
 	return true, restoreTime, ok
 }
 
+// LimitBannerPresent reports whether pane's trailing lines show Claude's limit
+// banner. It is exported for the daemon's resume gate so the gate reuses the
+// exact detectRateLimit logic (trailing window + banner anchor) instead of
+// duplicating the keyword list.
+func LimitBannerPresent(pane string) bool {
+	ok, _, _ := detectRateLimit(pane)
+	return ok
+}
+
 // ParseRestoreTime attempts to extract a restore timestamp from the error message.
 // Returns (time, true) if successful, (zero, false) otherwise.
 //
