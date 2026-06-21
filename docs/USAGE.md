@@ -218,8 +218,8 @@ Warden recognizes these short aliases:
 |---|---|---|
 | `opus` | `claude-opus-4-8` | Complex reasoning, large codebases, architectural decisions |
 | `sonnet` | `claude-sonnet-4-6` | Balanced performance (default) |
-| `haiku` | `claude-3-5-haiku-20241022` | Fast, lightweight tasks |
-| `fable` | `claude-3-7-fable` | Experimental tasks |
+| `haiku` | `claude-haiku-4-5` | Fast, lightweight tasks |
+| `fable` | `claude-fable-5` | Experimental tasks |
 
 You can also use any full model ID directly:
 ```sh
@@ -230,23 +230,23 @@ warden start "Task" --model claude-sonnet-4-6
 
 If you don't specify `--model`, warden uses:
 
-1. **`WARDEN_MODEL_DEFAULT` environment variable** (if set)
+1. The **`model_default`** setting in your config file (`~/.warden/config.yaml`), if set
 2. **`claude-sonnet-4-6`** (built-in fallback)
 
-Set your default model:
-```sh
-# In your shell profile (.bashrc, .zshrc, etc.)
-export WARDEN_MODEL_DEFAULT=opus
-
-# Or per-session
-WARDEN_MODEL_DEFAULT=haiku warden start "Quick task"
+Set your default model by editing the config file (run `warden config init`
+first if it doesn't exist yet), then restart the daemon:
+```yaml
+# ~/.warden/config.yaml
+model_default: opus
 ```
 
-The environment variable accepts either aliases or full model IDs:
-```sh
-export WARDEN_MODEL_DEFAULT=opus
-export WARDEN_MODEL_DEFAULT=claude-opus-4-8   # same effect
+`model_default` accepts either an alias or a full model ID:
+```yaml
+model_default: opus
+model_default: claude-opus-4-8   # same effect
 ```
+
+Run `warden config` to print the resolved configuration that is currently live.
 
 ### Viewing the model
 
@@ -282,7 +282,7 @@ spawn_agent({
 })
 ```
 
-The same default resolution applies: `WARDEN_MODEL_DEFAULT` → `claude-sonnet-4-6`.
+The same default resolution applies: the `model_default` config setting → `claude-sonnet-4-6`.
 
 ### Restored agents
 
@@ -293,7 +293,7 @@ When you `warden restore <id>` an orphaned agent, it resumes with the **original
 ## 6. Command reference
 
 All commands accept `--addr` to point at a non-default daemon (overrides
-`WARDEN_ADDR`). `<TICKET>` is the agent ID — a Jira key for managed agents,
+the `addr` config setting). `<TICKET>` is the agent ID — a Jira key for managed agents,
 or an `agent-xxxx` ID for prompt-spawned ones.
 
 ### `warden` / `warden tui`
@@ -310,7 +310,7 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--branch` | New branch (development) or checkout target (pr-review). |
 | `--pr` | PR number/URL (pr-review). |
 | `--worktree` | Create a scratch worktree for analysis/spike. |
-| `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: `WARDEN_MODEL_DEFAULT` env var, or `claude-sonnet-4-6`. |
+| `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: the `model_default` config setting, or `claude-sonnet-4-6`. |
 
 ### `warden ls`
 List all active sessions: `ID  TYPE  STATUS  AGE  DIR  SUBJECT`.
@@ -400,7 +400,7 @@ Summarize what an agent accomplished — files touched, branch, turn count, and 
 short narrative. Also a web **Digest** panel and the cockpit `d` key.
 
 ### `warden approvals` / `warden approve <TICKET> <option>`
-With the approvals inbox on (`WARDEN_APPROVALS`, default on), `approvals` lists
+With the approvals inbox on (the `approvals` setting, default on), `approvals` lists
 recognized tool-permission prompts waiting for an answer (each with its numbered
 options), and `approve` answers one by option number — without attaching. Also
 answerable from the web AttentionQueue or the cockpit (the **⏳ Approvals** row →
@@ -607,12 +607,14 @@ so it can manage agents via tool calls. Add to your MCP config (e.g.
   "mcpServers": {
     "warden": {
       "command": "warden",
-      "args": ["mcp"],
-      "env": { "WARDEN_ADDR": "127.0.0.1:8765" }
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+`warden mcp` connects to the daemon at the `addr` config setting (default
+`127.0.0.1:8765`); to point it elsewhere use `"args": ["mcp", "--addr", "host:port"]`.
 
 Tools exposed:
 
@@ -692,22 +694,35 @@ use `warden pipeline create -f`.)
 
 ## 11. Configuration
 
-Set via environment variables (or override the daemon address per-command with
-`--addr`):
+Warden reads all settings from a single YAML file (default `~/.warden/config.yaml`).
+Run `warden config init` to generate a fully-commented file, edit the values, then
+restart the daemon; `warden config` prints what's live. The `--config <path>` flag
+points any command at an alternate file, and `--addr <host:port>` overrides the
+daemon address for a single command.
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `WARDEN_ADDR` | `127.0.0.1:8765` | Daemon listen/connect address |
-| `WARDEN_DATA_DIR` | `~/.warden` | Directory for session JSON files (`sessions/`, `closed/`) and prompt files (`prompts/`) |
-| `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored — **not** where the agent runs (prompt agents run in the caller's cwd or `--dir`) |
-| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects |
-| `WARDEN_MODEL_DEFAULT` | `claude-sonnet-4-6` | Default model for new agents; can be a short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Overridden by `--model` flag |
-| `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
-| `WARDEN_TOKEN_GUARD` | `on` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web. Disable with `0`/`off`/`false` |
-| `WARDEN_TOKEN_WARN_ALERT` | `on` | Fire a desktop notification (when `WARDEN_NOTIFY` is on) once per upward crossing into warning/critical. Disable with `0`/`off`/`false` |
-| `WARDEN_TOKEN_AUTO_COMPACT` | `on` | Auto-send `/compact` when an agent is `critical` and idle/waiting (cooldown-guarded). Disable with `0`/`off`/`false` |
-| `WARDEN_TOKEN_WARN` | `200000` | Warning threshold in context tokens (inclusive). Both thresholds reset to defaults if critical ≤ warn |
-| `WARDEN_TOKEN_CRITICAL` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
+| `addr` | `127.0.0.1:8765` | Daemon listen/connect address (loopback only unless `allow_nonloopback` is true) |
+| `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
+| `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
+| `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
+| `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
+| `notify` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
+| `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers in the web/TUI/CLI |
+| `token_guard` | `true` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web |
+| `token_warn_alert` | `true` | Fire a desktop notification (when `notify` is on) once per upward crossing into warning/critical |
+| `token_auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting (cooldown-guarded) |
+| `token_warn` | `200000` | Warning threshold in context tokens (inclusive). Both thresholds reset to defaults if critical ≤ warn |
+| `token_critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
+
+`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`,
+`metrics`, `allow_nonloopback`, `auto_approve`, `pipeline_keep_done` / `pipeline_hint`,
+the `auto_restart_*` knobs, and the `rate_limit_*` knobs (§12.1).
+
+> The old `WARDEN_*` environment variables are no longer read — the daemon warns once
+> at startup if any are still set. The per-agent IPC vars warden injects into each
+> agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not
+> configuration and are unaffected.
 
 ---
 
@@ -765,17 +780,18 @@ rate limit:
 
 ### Configuration
 
-Environment variables for the daemon:
+Config settings for the daemon (in `~/.warden/config.yaml`; restart the daemon
+after editing):
 
-```bash
+```yaml
 # Disable auto-resume (manual intervention only)
-WARDEN_RATE_LIMIT_AUTO_RESUME=false warden daemon
+rate_limit_auto_resume: false
 
 # Change retry interval (default: 30m)
-WARDEN_RATE_LIMIT_RETRY_INTERVAL=15m warden daemon
+rate_limit_retry_interval: 15m
 
 # Change safety buffer after parsed time (default: 1m)
-WARDEN_RATE_LIMIT_BUFFER=2m warden daemon
+rate_limit_buffer: 2m
 ```
 
 ### Manual intervention
@@ -829,9 +845,9 @@ warden done prreview-...
 | Symptom | Likely cause / fix |
 |---|---|
 | Any command hangs or errors connecting | Daemon not running. `curl localhost:8765/healthz`; start it (§3). |
-| `healthz` fails / daemon won't start | Data dir not writable. Check `WARDEN_DATA_DIR` (default `~/.warden`) and `/tmp/warden.daemon.err`. |
+| `healthz` fails / daemon won't start | Data dir not writable. Check the `data_dir` config setting (default `~/.warden`) and `/tmp/warden.daemon.err`. |
 | New agent stuck at `classifying…` / type is `other` | `claude` not on the daemon's PATH. Type falls back to `other`; functionality is otherwise fine. |
-| `SUBJECT` stays empty | Poller hasn't refreshed yet (it's throttled and only runs when pane content changes), or `CLAUDE_PROJECTS_DIR` is wrong. |
+| `SUBJECT` stays empty | Poller hasn't refreshed yet (it's throttled and only runs when pane content changes), or the `claude_projects_dir` config setting is wrong. |
 | `pr-review needs --pr or --branch` | pr-review requires one of those flags. |
 | `remove-worktree` refuses | The agent is still running (terminate it first) or the worktree has uncommitted/unpushed work — the guard is protecting it. Commit/push, or use `--force`. (`done` no longer touches the worktree.) |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json` (§9). The poller still updates it, just less promptly. |

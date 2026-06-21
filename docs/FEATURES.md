@@ -22,7 +22,7 @@ on-disk state:
 | **Claude Code lifecycle hooks** | A hook script posts `SessionStart`/`Notification`/`Stop`/`SubagentStop`/`SessionEnd` to the daemon so status updates in real time without polling. Fails soft (never blocks the agent). |
 | **launchd auto-start (macOS)** | Installs as an auto-starting, crash-restarting background service. |
 | **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
-| **Security hardening** | `0700` data dir, slowloris/body/write timeouts (bypassed for SSE/WS/long-poll), refuses non-loopback bind unless `WARDEN_ALLOW_NONLOOPBACK=1`. |
+| **Security hardening** | `0700` data dir, slowloris/body/write timeouts (bypassed for SSE/WS/long-poll), refuses non-loopback bind unless the `allow_nonloopback` config setting is true. |
 | **`warden doctor`** | Preflight checks: required binaries (`tmux`, `git`, `claude`, `gh`), daemon reachability, data directory. |
 
 ---
@@ -36,8 +36,8 @@ on-disk state:
 | **Auto-generated subject** | Each agent gets a one-line ≤8-word summary of what it's doing, seeded from the prompt and refreshed by the poller from the transcript or tmux pane (throttled, change-gated). |
 | **Managed worktree spawn** | `--type` creates/adopts a git worktree where the type needs one. |
 | **Worktree adoption** | If a worktree for the ticket already exists, the spawn reattaches to it instead of erroring. |
-| **Configurable permission mode** | Per-agent and global control over Claude permission level. CLI flag: `--permission-mode <mode>` (values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`). Legacy alias: `--supervised` (equivalent to `--permission-mode acceptEdits`). Global default: `WARDEN_DEFAULT_PERMISSION_MODE` env var (defaults to `auto`). Runtime change: `warden set-permission-mode <id> <mode>`. Display: PERMISSION_MODE column in `warden ls`, permission_mode field in `warden status`. Stored in session: mode preserved on restore/resume. Empty mode means "use global default" and displays as `default`. |
-| **Model selection** | Per-agent model selection via `--model` flag (CLI and MCP). Short aliases for common models: `opus`, `sonnet`, `haiku`, `fable`. Environment variable default: `WARDEN_MODEL_DEFAULT`. Fallback: `claude-sonnet-4-6` if not specified. Display: MODEL column in `warden ls`, model field in `warden status`. Stored in session: model preserved on restore/resume. |
+| **Configurable permission mode** | Per-agent and global control over Claude permission level. CLI flag: `--permission-mode <mode>` (values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`). Legacy alias: `--supervised` (equivalent to `--permission-mode acceptEdits`). Global default: the `default_permission_mode` config setting (defaults to `auto`). Runtime change: `warden set-permission-mode <id> <mode>`. Display: PERMISSION_MODE column in `warden ls`, permission_mode field in `warden status`. Stored in session: mode preserved on restore/resume. Empty mode means "use global default" and displays as `default`. |
+| **Model selection** | Per-agent model selection via `--model` flag (CLI and MCP). Short aliases for common models: `opus`, `sonnet`, `haiku`, `fable`. Config default: the `model_default` setting. Fallback: `claude-sonnet-4-6` if not specified. Display: MODEL column in `warden ls`, model field in `warden status`. Stored in session: model preserved on restore/resume. |
 
 ### Task types (`--type`)
 
@@ -87,7 +87,7 @@ on-disk state:
 ## 5. Approvals inbox
 
 Answer routine Claude tool-permission prompts (from supervised agents) without
-attaching. Controlled by `WARDEN_APPROVALS` (on by default).
+attaching. Controlled by the `approvals` config setting (on by default).
 
 | Surface | How |
 |---|---|
@@ -99,8 +99,8 @@ attaching. Controlled by `WARDEN_APPROVALS` (on by default).
 ### Auto-Approve
 
 Automatically approve yes/no tool-permission prompts by always selecting option 1.
-Off by default (opt-in safety), enabled globally via `WARDEN_AUTO_APPROVE` or
-per-agent via `warden auto-approve <id> on|off`.
+Off by default (opt-in safety), enabled globally via the `auto_approve` config
+setting or per-agent via `warden auto-approve <id> on|off`.
 
 **Behavior:**
 - Only triggers for recognized yes/no prompts (parsed via `approval.Parse`)
@@ -110,12 +110,12 @@ per-agent via `warden auto-approve <id> on|off`.
 - Per-agent setting overrides global default
 
 **Configuration:**
+```yaml
+# Enable globally (all supervised agents): in ~/.warden/config.yaml, then restart the daemon
+auto_approve: true
+```
 ```bash
-# Enable globally (all supervised agents)
-export WARDEN_AUTO_APPROVE=on
-warden daemon
-
-# Toggle for specific agent
+# Toggle for a specific agent (overrides the global default)
 warden auto-approve abc123 on   # enable for agent abc123
 warden auto-approve abc123 off  # disable for agent abc123
 ```
@@ -226,28 +226,41 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 |---|---|
 | **Resource metrics** | `internal/metrics` collects per-agent process-tree RSS/CPU, system memory/swap/pressure, and daemon self-stats. Exposed via `/metrics` + `/metrics/history`. |
 | **`warden stats`** | CLI view of the resource metrics. |
-| **Metrics recorder** | Optional 15s JSONL recorder (`WARDEN_METRICS`). |
-| **macOS notifications** | `WARDEN_NOTIFY=on` posts a desktop notification when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
-| **Context-size guard** | `internal/ctxtokens` reads each live agent's context-window fill from its transcript and classifies it `ok`/`warning`/`critical`. The poller shows a state-colored token figure in `ls`/TUI/web, alerts once per upward crossing (`WARDEN_TOKEN_WARN_ALERT`), and auto-sends `/compact` at `critical` when the agent is idle (`WARDEN_TOKEN_AUTO_COMPACT`, cooldown-guarded). Master switch `WARDEN_TOKEN_GUARD`; thresholds `WARDEN_TOKEN_WARN`/`WARDEN_TOKEN_CRITICAL`. |
+| **Metrics recorder** | Optional 15s JSONL recorder (the `metrics` setting). |
+| **macOS notifications** | The `notify` setting posts a desktop notification when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
+| **Context-size guard** | `internal/ctxtokens` reads each live agent's context-window fill from its transcript and classifies it `ok`/`warning`/`critical`. The poller shows a state-colored token figure in `ls`/TUI/web, alerts once per upward crossing (`token_warn_alert`), and auto-sends `/compact` at `critical` when the agent is idle (`token_auto_compact`, cooldown-guarded). Master switch `token_guard`; thresholds `token_warn`/`token_critical`. |
 
 ---
 
-## 12. Configuration (environment variables)
+## 12. Configuration (YAML config file)
 
-| Variable | Default | Description |
+Settings live in a single YAML file (default `~/.warden/config.yaml`). Run
+`warden config init` to generate a fully-commented file, edit values, then restart
+the daemon; `warden config` prints what's live. `--config <path>` selects an
+alternate file; `--addr <host:port>` overrides the daemon address per-command.
+
+| Setting | Default | Description |
 |---|---|---|
-| `WARDEN_ADDR` | `127.0.0.1:8765` | Daemon listen address |
-| `WARDEN_DATA_DIR` | `~/.warden` | Session JSON store directory |
-| `WARDEN_WORKDIR` | `~/warden-agents` | Where per-agent prompt files are stored |
-| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript dirs (poller reads these) |
-| `WARDEN_DEFAULT_PERMISSION_MODE` | `auto` | Default permission mode for spawned agents (valid: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`) |
-| `WARDEN_NOTIFY` | `off` | macOS desktop notifications |
-| `WARDEN_APPROVALS` | `on` | The approvals inbox |
-| `WARDEN_TOKEN_GUARD` | `on` | Context-size guard master switch (gauge + alert + auto-compact) |
-| `WARDEN_TOKEN_WARN_ALERT` | `on` | Notify once per upward crossing into warning/critical (needs `WARDEN_NOTIFY`) |
-| `WARDEN_TOKEN_AUTO_COMPACT` | `on` | Auto-`/compact` at `critical` when the agent is idle (cooldown-guarded) |
-| `WARDEN_TOKEN_WARN` | `200000` | Warning threshold in context tokens (resets with critical if critical ≤ warn) |
-| `WARDEN_TOKEN_CRITICAL` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
-| `WARDEN_ALLOW_NONLOOPBACK` | unset | Allow binding a non-loopback address |
+| `addr` | `127.0.0.1:8765` | Daemon listen address (loopback only unless `allow_nonloopback`) |
+| `data_dir` | `~/.warden` | Warden state directory (sessions, prompts, inbox, pipelines, metrics) |
+| `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript dirs (poller reads these) |
+| `model_default` | `claude-sonnet-4-6` | Default model for spawned agents (id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
+| `default_permission_mode` | `auto` | Default permission mode (valid: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`) |
+| `notify` | `false` | Desktop notifications |
+| `approvals` | `true` | The approvals inbox |
+| `auto_approve` | `false` | Auto-answer recognized yes/no prompts (option 1) |
+| `token_guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
+| `token_warn_alert` | `true` | Notify once per upward crossing into warning/critical (needs `notify`) |
+| `token_auto_compact` | `true` | Auto-`/compact` at `critical` when the agent is idle (cooldown-guarded) |
+| `token_warn` | `200000` | Warning threshold in context tokens (resets with critical if critical ≤ warn) |
+| `token_critical` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
+| `allow_nonloopback` | `false` | Allow binding the auth-less daemon to a non-loopback address |
+| `spawn_gate` / `spawn_gate_max_agents` | `true` / `5` | Soft warning before spawning when many agents are live |
+| `metrics` | `true` | Record per-agent metrics to disk |
+| `pipeline_keep_done` / `pipeline_hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |
+| `auto_restart_max` / `auto_restart_reset` | `3` / `5m` | Auto-restart attempts for an errored opted-in agent / health window that resets the counter |
+| `rate_limit_auto_resume` | `true` | Auto-resume agents after a rate limit clears (`rate_limit_retry_interval`, `rate_limit_buffer` tune timing) |
 
-All can be overridden with `--addr` on any command.
+> The old `WARDEN_*` environment variables are no longer read — the daemon warns
+> once at startup if any are still set. The per-agent IPC vars warden injects
+> (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration.

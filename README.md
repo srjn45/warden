@@ -176,7 +176,7 @@ Logs:
 - stdout: `/tmp/warden.daemon.log`
 - stderr: `/tmp/warden.daemon.err`
 
-> **Notifications:** off by default. When enabled with `WARDEN_NOTIFY=on`, the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
+> **Notifications:** off by default. When enabled (set `notify: true` in the config file), the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
 
 ---
 
@@ -222,7 +222,7 @@ Logs:
 - stderr: `/tmp/warden.daemon.err`
 - or live: `journalctl --user -u warden -f`
 
-> **Notifications:** off by default. Set `WARDEN_NOTIFY=on` to enable. The
+> **Notifications:** off by default. Set `notify: true` in the config file to enable. The
 > daemon calls `notify-send` (libnotify) when it's on `PATH`; install it with
 > `apt install libnotify-bin` (Debian/Ubuntu) or `dnf install libnotify`
 > (Fedora). Degrades to log-only if `notify-send` is not found.
@@ -258,14 +258,14 @@ Warden supports per-agent model selection:
 
 - **Short aliases:** `opus`, `sonnet`, `haiku`, `fable`
 - **Full model IDs:** `claude-opus-4-8`, `claude-sonnet-4-6`, etc.
-- **Default:** `claude-sonnet-4-6` (or `WARDEN_MODEL_DEFAULT` env var)
+- **Default:** `claude-sonnet-4-6` (or the `model_default` config setting)
 
 ```bash
 # Explicit model
 warden start "Complex task" --model opus
 
-# Set user default
-export WARDEN_MODEL_DEFAULT=opus
+# Set the default model: edit ~/.warden/config.yaml (model_default: opus),
+# then restart the daemon. `warden config` shows what's live.
 
 # View model in agent list
 warden ls  # Shows MODEL column
@@ -273,24 +273,28 @@ warden ls  # Shows MODEL column
 
 ---
 
-## Environment variables
+## Configuration
 
-| Variable | Default | Description |
+Warden reads all settings from a single YAML file (default `~/.warden/config.yaml`). Run `warden config init` to generate a fully-commented file, edit the values, then restart the daemon; `warden config` prints what's currently live. The `--config <path>` flag points any command at an alternate file, and `--addr <host:port>` overrides the daemon address for a single command.
+
+| Setting | Default | Description |
 |---|---|---|
-| `WARDEN_ADDR` | `127.0.0.1:8765` | Daemon listen address |
-| `WARDEN_DATA_DIR` | `~/.warden` | Directory for session JSON files (`sessions/`, `closed/`) |
-| `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
-| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
-| `WARDEN_MODEL_DEFAULT` | `claude-sonnet-4-6` | Default model for new agents; can be a short alias (opus/sonnet/haiku/fable) or full model ID. Overridden by `--model` flag |
-| `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
-| `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approve`. Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
-| `WARDEN_TOKEN_GUARD` | `on` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch — disable with `0`/`off`/`false` to turn off the whole guard (gauge, alert, auto-compact) |
-| `WARDEN_TOKEN_WARN_ALERT` | `on` | Fire a desktop notification (when `WARDEN_NOTIFY` is on) once per upward crossing into the warning or critical band. Disable with `0`/`off`/`false` |
-| `WARDEN_TOKEN_AUTO_COMPACT` | `on` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded). Disable with `0`/`off`/`false` |
-| `WARDEN_TOKEN_WARN` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `WARDEN_TOKEN_CRITICAL` is not greater than this, both reset to the defaults |
-| `WARDEN_TOKEN_CRITICAL` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
+| `addr` | `127.0.0.1:8765` | Daemon listen address (loopback only unless `allow_nonloopback` is true) |
+| `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
+| `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript directories; the poller reads agent transcripts here to generate subjects and the context gauge |
+| `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
+| `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
+| `notify` | `false` | Desktop notifications when an agent needs attention |
+| `approvals` | `true` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approve`. Unrecognized prompts always fall back to attach |
+| `token_guard` | `true` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch for the whole guard (gauge, alert, auto-compact) |
+| `token_warn_alert` | `true` | Fire a desktop notification (when `notify` is on) once per upward crossing into the warning or critical band |
+| `token_auto_compact` | `true` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded) |
+| `token_warn` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `token_critical` is not greater than this, both reset to the defaults |
+| `token_critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
 
-All variables can also be overridden with `--addr` on any command.
+`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `metrics`, `allow_nonloopback`, `auto_approve`, `pipeline_keep_done` / `pipeline_hint`, the `auto_restart_*` knobs, and the `rate_limit_*` knobs.
+
+> **Legacy env vars:** the old `WARDEN_*` environment variables (e.g. `WARDEN_ADDR`, `WARDEN_NOTIFY`, `WARDEN_TOKEN_*`) are no longer read — the daemon warns once at startup if any are still set. The per-agent IPC vars warden injects into each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration and are unaffected.
 
 ---
 
@@ -309,7 +313,7 @@ In the web GUI, **+ New agent** opens a single prompt textarea — no type or re
 
 - **Runs in the caller's directory.** Prompt-spawned agents run `claude --dangerously-skip-permissions '<prompt>'` (or `--permission-mode acceptEdits` with `--supervised`) in the directory you invoked `start` from (or the `--dir` you pass) — no per-agent directory is created. Point it elsewhere with `--dir`, and include any extra repo context in the prompt itself.
 - **Type is auto-assigned.** Shortly after creation the daemon classifies the prompt with `claude -p` and updates the type label. It appears as "classifying…" until then. Requires `claude` on the daemon's `PATH`; falls back to `other` if unavailable.
-- **Subject is auto-generated.** Each agent has a one-line subject summarizing what it is currently working on. It is seeded from the first words of the prompt at spawn, then refreshed periodically by the poller: the poller reads the agent's Claude Code transcript (looked up by `CLAUDE_PROJECTS_DIR`) or, if no transcript is found, captures the tmux pane, then asks `claude -p` for an ≤8-word phrase. Refreshes are throttled and only run when the pane content has changed.
+- **Subject is auto-generated.** Each agent has a one-line subject summarizing what it is currently working on. It is seeded from the first words of the prompt at spawn, then refreshed periodically by the poller: the poller reads the agent's Claude Code transcript (looked up under the `claude_projects_dir` config setting) or, if no transcript is found, captures the tmux pane, then asks `claude -p` for an ≤8-word phrase. Refreshes are throttled and only run when the pane content has changed.
 - **Managed worktrees still available.** `warden start TICKET --type development --repo …` is unchanged — see the section below.
 
 To launch an agent in a directory other than your current one, pass `--dir`:
@@ -339,7 +343,7 @@ When you need a managed git worktree (e.g. a development branch tied to a Jira t
 
 By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously; the `Notification` hook still records them as events in the session doc.
 
-Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer from the web AttentionQueue (one-click buttons), the TUI (`⏳ Approvals` row → `i`/`1`-`9`), or the CLI (`warden approve`) when `WARDEN_APPROVALS` is on. A restored agent keeps its supervised setting.
+Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer from the web AttentionQueue (one-click buttons), the TUI (`⏳ Approvals` row → `i`/`1`-`9`), or the CLI (`warden approve`) when `approvals` is on. A restored agent keeps its supervised setting.
 
 If a worktree for the ticket already exists on disk, the spawn adopts it (reattaches claude to the existing branch) instead of erroring.
 
@@ -428,8 +432,8 @@ warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
 # Use acceptEdits mode for careful prompting on risky operations:
 warden start "refactor the auth module" --permission-mode acceptEdits
 
-# Set a global default for all new agents:
-export WARDEN_DEFAULT_PERMISSION_MODE=acceptEdits
+# Set a global default for all new agents: put default_permission_mode: acceptEdits
+# in ~/.warden/config.yaml, then restart the daemon.
 warden start "debug the API rate limit"  # uses acceptEdits mode
 
 # Override the global default for a specific agent:
@@ -445,8 +449,8 @@ Flags:
 - `--branch` — new branch name (development) or checkout target (pr-review)
 - `--pr` — PR number or URL (pr-review only)
 - `--worktree` — opt-in worktree for analysis/spike
-- `--permission-mode <mode>` — control Claude's permission level (valid modes: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`); defaults to `WARDEN_DEFAULT_PERMISSION_MODE` env var (default: `auto`)
-- `--supervised` — legacy alias for `--permission-mode acceptEdits`; risky tools prompt and the approvals inbox surfaces them (see `WARDEN_APPROVALS`)
+- `--permission-mode <mode>` — control Claude's permission level (valid modes: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`); defaults to the `default_permission_mode` config setting (default: `auto`)
+- `--supervised` — legacy alias for `--permission-mode acceptEdits`; risky tools prompt and the approvals inbox surfaces them (see the `approvals` setting)
 
 ### `warden ls`
 
@@ -574,7 +578,7 @@ warden digest PROJ-350 --json
 
 ### `warden approvals` / `warden approve <TICKET> <option>`
 
-The **approvals inbox** (on by default; see `WARDEN_APPROVALS`). When a `--supervised` agent hits a tool-permission prompt, the daemon recognizes it and surfaces the numbered options so you can answer without attaching.
+The **approvals inbox** (on by default; the `approvals` setting). When a `--supervised` agent hits a tool-permission prompt, the daemon recognizes it and surfaces the numbered options so you can answer without attaching.
 
 ```sh
 warden approvals                 # list pending permission prompts (with their options)
@@ -695,14 +699,13 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
   "mcpServers": {
     "warden": {
       "command": "warden",
-      "args": ["mcp"],
-      "env": {
-        "WARDEN_ADDR": "127.0.0.1:8765"
-      }
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+`warden mcp` connects to the daemon at the `addr` config setting (default `127.0.0.1:8765`); to point it elsewhere use `"args": ["mcp", "--addr", "host:port"]`.
 
 Once registered, the orchestrator session can call these tools directly:
 
