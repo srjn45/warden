@@ -30,8 +30,10 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.PersistentFlags().String("addr", "", "daemon address (overrides WARDEN_ADDR)")
+	root.PersistentFlags().String("addr", "", "daemon address (overrides the addr config setting)")
+	root.PersistentFlags().String("config", "", "config file path (default ~/.warden/config.yaml)")
 	root.AddCommand(newDaemonCmd())
+	root.AddCommand(newConfigCmd())
 	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd(), newStatsCmd())
 	root.AddCommand(newStartCmd(), newTerminateCmd(), newDeleteCmd(), newRemoveWorktreeCmd(), newDoneCmd(), newRestoreCmd(), newAttachCmd(), newAdoptCmd())
 	root.AddCommand(newSendCmd(), newTailCmd())

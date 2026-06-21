@@ -112,7 +112,7 @@ type Server struct {
 	// done is closed when the server begins shutting down. Long-lived handlers
 	// (the SSE stream) watch it so they return promptly and let Shutdown drain.
 	done chan struct{}
-	// approvals gates the approvals-inbox endpoints (WARDEN_APPROVALS).
+	// approvals gates the approvals-inbox endpoints (approvals config setting).
 	approvals bool
 	// cstore is the shared-context KV store (the inter-agent blackboard).
 	cstore *ctxstore.Store
@@ -126,13 +126,13 @@ type Server struct {
 	// background loop (sibling to the poller); read on the spawn hot path.
 	pressMu      sync.RWMutex
 	pressLevel   pressure.Level
-	spawnGate    bool // WARDEN_SPAWN_GATE
-	spawnGateMax int  // WARDEN_SPAWN_GATE_MAX_AGENTS
+	spawnGate    bool // spawn_gate config setting
+	spawnGateMax int  // spawn_gate_max_agents config setting
 	// metrics collection (resource observability). nil collector ⇒ /metrics
 	// returns an empty sample; nil recorder ⇒ no on-disk recording.
 	mcollector *metrics.Collector
 	mrecorder  *metrics.Recorder
-	metricsOn  bool // WARDEN_METRICS — gates the disk recorder goroutine
+	metricsOn  bool // metrics config setting — gates the disk recorder goroutine
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil

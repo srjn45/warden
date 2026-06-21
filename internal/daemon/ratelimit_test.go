@@ -91,7 +91,7 @@ func TestRateLimitScheduler_OnTransition(t *testing.T) {
 		sessions: make(map[string]*store.Session),
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	sess := &store.Session{
 		ID:              "test-123",
@@ -119,7 +119,7 @@ func TestRateLimitScheduler_OnTransition_IgnoresOtherStatuses(t *testing.T) {
 		sessions: make(map[string]*store.Session),
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	sess := &store.Session{ID: "test-123"}
 
@@ -145,7 +145,7 @@ func TestRateLimitScheduler_AttemptResume_Success(t *testing.T) {
 		Status: store.StatusRateLimited,
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	sched.attemptResume("test-123")
 
@@ -171,7 +171,7 @@ func TestRateLimitScheduler_AttemptResume_SessionGone(t *testing.T) {
 		sessions: make(map[string]*store.Session),
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	// Session doesn't exist
 	sched.attemptResume("nonexistent")
@@ -192,7 +192,7 @@ func TestRateLimitScheduler_AttemptResume_StatusChanged(t *testing.T) {
 		Status: store.StatusWorking,
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	sched.attemptResume("test-123")
 
@@ -214,7 +214,7 @@ func TestRateLimitScheduler_AttemptResume_StillLimited(t *testing.T) {
 		RateLimitRetryCount: 0,
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	sched.attemptResume("test-123")
 
@@ -245,7 +245,7 @@ func TestRateLimitScheduler_AttemptResume_AlreadyRunning(t *testing.T) {
 		TmuxSession: "test-123",
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	sched.attemptResume("test-123")
 
@@ -278,7 +278,7 @@ func TestRateLimitScheduler_AttemptResume_OtherError(t *testing.T) {
 		Status: store.StatusRateLimited,
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	sched.attemptResume("test-123")
 
@@ -313,7 +313,7 @@ func TestRateLimitScheduler_ReconstructTimers(t *testing.T) {
 		Status: store.StatusWorking,
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	err := sched.ReconstructTimers(context.Background())
 	require.NoError(t, err)
@@ -343,7 +343,7 @@ func TestRateLimitScheduler_ReconstructTimers_PastTime(t *testing.T) {
 		RateLimitRestoreAt: &pastTime,
 	}
 
-	sched := NewRateLimitScheduler(life, st)
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, time.Minute, true)
 
 	err := sched.ReconstructTimers(context.Background())
 	require.NoError(t, err)
@@ -356,7 +356,7 @@ func TestRateLimitScheduler_ReconstructTimers_PastTime(t *testing.T) {
 }
 
 func TestRateLimitScheduler_CancelTimer(t *testing.T) {
-	sched := NewRateLimitScheduler(nil, nil)
+	sched := NewRateLimitScheduler(nil, nil, 30*time.Minute, time.Minute, true)
 
 	// Create a mock timer
 	sched.timers["test-123"] = time.AfterFunc(1*time.Hour, func() {})
@@ -371,7 +371,7 @@ func TestRateLimitScheduler_CancelTimer(t *testing.T) {
 }
 
 func TestRateLimitScheduler_CancelTimer_NotExists(t *testing.T) {
-	sched := NewRateLimitScheduler(nil, nil)
+	sched := NewRateLimitScheduler(nil, nil, 30*time.Minute, time.Minute, true)
 
 	// Should not panic
 	sched.CancelTimer("nonexistent")

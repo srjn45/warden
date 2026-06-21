@@ -34,6 +34,11 @@ if [ ! -d "$HOME/.warden" ] && [ -d "$HOME/.agentctl" ]; then
   info "migrated data dir ~/.agentctl -> ~/.warden"
 fi
 
+# Create the config file on a fresh install, or migrate it in place on upgrade
+# (adds any missing keys, preserves existing values/comments). Runs before the
+# service starts so the daemon loads a fully-populated file.
+"$INSTALL_BIN" config init && info "config ready: ~/.warden/config.yaml"
+
 restart_service
 
 # Claude skill symlink (matches 'make install-skill')

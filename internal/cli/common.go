@@ -11,8 +11,17 @@ import (
 	"github.com/srjn45/warden/internal/config"
 )
 
+// configPathFor resolves the config file path for a command: the --config flag
+// when set, otherwise the default (~/.warden/config.yaml).
+func configPathFor(cmd *cobra.Command) string {
+	if p, _ := cmd.Flags().GetString("config"); p != "" {
+		return p
+	}
+	return config.DefaultPath()
+}
+
 func clientFor(cmd *cobra.Command) *client.Client {
-	cfg := config.Load()
+	cfg := config.Load(configPathFor(cmd))
 	if a, _ := cmd.Flags().GetString("addr"); a != "" {
 		cfg.Addr = a
 	}

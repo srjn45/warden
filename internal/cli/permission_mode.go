@@ -22,7 +22,7 @@ Valid permission modes:
 
 The permission mode controls how Claude handles tool permission prompts.
 Setting to "default" (or empty string) clears the agent-specific override
-and uses the global WARDEN_DEFAULT_PERMISSION_MODE config.
+and uses the global default_permission_mode config setting.
 
 Examples:
   warden set-permission-mode abc123 acceptEdits  # Enable supervised mode

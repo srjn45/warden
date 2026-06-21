@@ -52,7 +52,7 @@ type Executor struct {
 	notify func() // signals SSE subscribers that state changed (may be nil)
 
 	digestFn func(context.Context, *store.Session) digest.Digest // nil ⇒ skip snapshot
-	keepDone bool                                                // WARDEN_PIPELINE_KEEP_DONE — keep done agents alive
+	keepDone bool                                                // pipeline_keep_done config setting — keep done agents alive
 	snapWG   sync.WaitGroup                                      // tracks in-flight digest snapshots (test sync)
 }
 

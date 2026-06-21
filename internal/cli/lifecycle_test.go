@@ -66,16 +66,13 @@ func TestStartWithModelFlag(t *testing.T) {
 	// 4. Clean up
 }
 
-func TestStartWithEnvVarDefault(t *testing.T) {
+func TestStartWithConfigDefault(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
 
-	// Set env var
-	t.Setenv("WARDEN_MODEL_DEFAULT", "haiku")
-
-	// Test spawning without explicit model
-	// Should use haiku from env var
+	// With model_default: haiku in the config file, spawning without an explicit
+	// --model should use haiku.
 	// Real test would verify Model field = "claude-haiku-4-5"
 }
 
@@ -84,10 +81,7 @@ func TestStartWithHardcodedDefault(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 
-	// Ensure env var not set
-	t.Setenv("WARDEN_MODEL_DEFAULT", "")
-
-	// Test spawning without explicit model
-	// Should use claude-sonnet-4-5 default
+	// With model_default left at its default, spawning without an explicit
+	// --model should use claude-sonnet-4-5.
 	// Real test would verify Model field = "claude-sonnet-4-5"
 }

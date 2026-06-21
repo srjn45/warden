@@ -1,7 +1,5 @@
 package lifecycle
 
-import "os"
-
 // modelAliases maps short model names to full model IDs.
 // Updated when new Claude models are released.
 var modelAliases = map[string]string{
@@ -23,20 +21,21 @@ func ResolveModel(input string) string {
 	return input // assume it's already a full model ID
 }
 
-// resolveDefaultModel returns the model to use when none is explicitly provided.
-// Checks WARDEN_MODEL_DEFAULT env var, falls back to claude-sonnet-4-5.
-func resolveDefaultModel() string {
-	if envModel := os.Getenv("WARDEN_MODEL_DEFAULT"); envModel != "" {
-		return ResolveModel(envModel) // support aliases in env var too
+// resolveDefaultModel returns the model to use when none is explicitly provided:
+// the configured default model (aliases expanded), or claude-sonnet-4-5 when the
+// config leaves it empty.
+func (l *Lifecycle) resolveDefaultModel() string {
+	if m := l.cfg.GetModelDefault(); m != "" {
+		return ResolveModel(m) // support aliases in the configured default too
 	}
 	return "claude-sonnet-4-5"
 }
 
 // modelOrDefault returns the resolved model ID to use: the provided model
-// (with aliases expanded), or the default if model is empty.
-func modelOrDefault(model string) string {
+// (with aliases expanded), or the configured default if model is empty.
+func (l *Lifecycle) modelOrDefault(model string) string {
 	if model != "" {
 		return ResolveModel(model)
 	}
-	return resolveDefaultModel()
+	return l.resolveDefaultModel()
 }

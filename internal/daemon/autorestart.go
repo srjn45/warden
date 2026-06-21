@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/srjn45/warden/internal/store"
@@ -43,34 +41,16 @@ type Restarter struct {
 	reset time.Duration
 }
 
-// NewRestarter builds a Restarter. The cap and reset window are tunable via
-// WARDEN_AUTO_RESTART_MAX (default 3) and WARDEN_AUTO_RESTART_RESET (a Go
-// duration, default 5m); the feature itself is opt-in per agent (Session.AutoRestart).
-func NewRestarter(life Lifecycle, st store.Store) *Restarter {
+// NewRestarter builds a Restarter. The cap (max) and reset window are supplied
+// by the caller from config (auto_restart_max / auto_restart_reset); the feature
+// itself is opt-in per agent (Session.AutoRestart).
+func NewRestarter(life Lifecycle, st store.Store, max int, reset time.Duration) *Restarter {
 	return &Restarter{
 		life:  life,
 		store: st,
-		max:   envInt("WARDEN_AUTO_RESTART_MAX", 3),
-		reset: envDuration("WARDEN_AUTO_RESTART_RESET", 5*time.Minute),
+		max:   max,
+		reset: reset,
 	}
-}
-
-func envInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			return n
-		}
-	}
-	return def
-}
-
-func envDuration(key string, def time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return d
-		}
-	}
-	return def
 }
 
 // OnTransition is wired as a callback on the poller's status-transition hook.

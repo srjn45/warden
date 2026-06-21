@@ -1,9 +1,14 @@
 package lifecycle
 
 import (
-	"os"
 	"testing"
 )
+
+// lifecycleWithModel builds a Lifecycle whose config reports modelDefault as the
+// configured default model (empty → the hardcoded fallback applies).
+func lifecycleWithModel(modelDefault string) *Lifecycle {
+	return New(&FakeRunner{}, &FakeConfig{ModelDefault: modelDefault})
+}
 
 func TestResolveModel(t *testing.T) {
 	tests := []struct {
@@ -30,46 +35,36 @@ func TestResolveModel(t *testing.T) {
 }
 
 func TestModelOrDefault(t *testing.T) {
-	// Save and restore env var
-	origEnv := os.Getenv("WARDEN_MODEL_DEFAULT")
-	defer func() {
-		if origEnv != "" {
-			os.Setenv("WARDEN_MODEL_DEFAULT", origEnv)
-		} else {
-			os.Unsetenv("WARDEN_MODEL_DEFAULT")
-		}
-	}()
-
-	t.Run("explicit model overrides default", func(t *testing.T) {
-		os.Setenv("WARDEN_MODEL_DEFAULT", "haiku")
-		got := modelOrDefault("opus")
+	t.Run("explicit model overrides configured default", func(t *testing.T) {
+		l := lifecycleWithModel("haiku")
+		got := l.modelOrDefault("opus")
 		expected := "claude-opus-4-8"
 		if got != expected {
 			t.Errorf("modelOrDefault(%q) = %q, want %q", "opus", got, expected)
 		}
 	})
 
-	t.Run("env var default with alias", func(t *testing.T) {
-		os.Setenv("WARDEN_MODEL_DEFAULT", "haiku")
-		got := modelOrDefault("")
+	t.Run("configured default with alias", func(t *testing.T) {
+		l := lifecycleWithModel("haiku")
+		got := l.modelOrDefault("")
 		expected := "claude-haiku-4-5"
 		if got != expected {
 			t.Errorf("modelOrDefault(%q) = %q, want %q", "", got, expected)
 		}
 	})
 
-	t.Run("env var default with full ID", func(t *testing.T) {
-		os.Setenv("WARDEN_MODEL_DEFAULT", "claude-custom-1")
-		got := modelOrDefault("")
+	t.Run("configured default with full ID", func(t *testing.T) {
+		l := lifecycleWithModel("claude-custom-1")
+		got := l.modelOrDefault("")
 		expected := "claude-custom-1"
 		if got != expected {
 			t.Errorf("modelOrDefault(%q) = %q, want %q", "", got, expected)
 		}
 	})
 
-	t.Run("hardcoded default", func(t *testing.T) {
-		os.Unsetenv("WARDEN_MODEL_DEFAULT")
-		got := modelOrDefault("")
+	t.Run("hardcoded fallback when config empty", func(t *testing.T) {
+		l := lifecycleWithModel("")
+		got := l.modelOrDefault("")
 		expected := "claude-sonnet-4-5"
 		if got != expected {
 			t.Errorf("modelOrDefault(%q) = %q, want %q", "", got, expected)

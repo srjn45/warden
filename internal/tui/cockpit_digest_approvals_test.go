@@ -113,8 +113,8 @@ func TestKeyPStatusWhenDisabled(t *testing.T) {
 	if m.mode != modeNormal {
 		t.Fatalf("p should not open the overlay when disabled, got %v", m.mode)
 	}
-	if !strings.Contains(m.status, "WARDEN_APPROVALS") {
-		t.Fatalf("expected a 'set WARDEN_APPROVALS' status, got %q", m.status)
+	if !strings.Contains(m.status, "approvals disabled") {
+		t.Fatalf("expected an 'approvals disabled' status, got %q", m.status)
 	}
 }
 

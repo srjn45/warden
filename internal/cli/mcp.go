@@ -12,7 +12,7 @@ func newMCPCmd() *cobra.Command {
 		Use:   "mcp",
 		Short: "Run the MCP stdio server so an orchestrator Claude can manage agents",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := config.Load()
+			cfg := config.Load(configPathFor(cmd))
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
 				cfg.Addr = a
 			}

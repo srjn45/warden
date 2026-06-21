@@ -42,7 +42,7 @@ func validateApproval(views []approval.View, id string, option int) (approval.Vi
 // in a footer (they must be attached, not answered here).
 func formatApprovalsList(enabled bool, views []approval.View) string {
 	if !enabled {
-		return "approvals disabled (set WARDEN_APPROVALS=on)\n"
+		return "approvals disabled (enable with approvals: true in the config file)\n"
 	}
 	var b strings.Builder
 	recognized, unrecognized := 0, 0
@@ -108,7 +108,7 @@ func newApproveCmd() *cobra.Command {
 				return err
 			}
 			if !enabled {
-				return fmt.Errorf("approvals disabled (set WARDEN_APPROVALS=on)")
+				return fmt.Errorf("approvals disabled (enable with approvals: true in the config file)")
 			}
 			v, err := validateApproval(views, id, option)
 			if err != nil {

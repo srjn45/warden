@@ -91,6 +91,10 @@ type FakeCall struct {
 // FakeConfig is a test double for ConfigProvider.
 type FakeConfig struct {
 	PermissionMode string
+	ModelDefault   string
+	// PipelineHintOff disables the pipeline hint; the zero value leaves it on,
+	// matching the production default.
+	PipelineHintOff bool
 }
 
 func (f *FakeConfig) GetDefaultPermissionMode() string {
@@ -99,6 +103,10 @@ func (f *FakeConfig) GetDefaultPermissionMode() string {
 	}
 	return f.PermissionMode
 }
+
+func (f *FakeConfig) GetModelDefault() string { return f.ModelDefault }
+
+func (f *FakeConfig) GetPipelineHint() bool { return !f.PipelineHintOff }
 
 // FakeRunner matches on "name arg1 arg2 ..." joined by spaces.
 type FakeRunner struct {

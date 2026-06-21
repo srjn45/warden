@@ -25,6 +25,7 @@ fi
 
 deploy_binary
 render_plist          # keep plist in sync; harmless if unchanged
+"$INSTALL_BIN" config init && info "config migrated: ~/.warden/config.yaml"
 restart_service       # bootstraps if not yet loaded
 report_health
 info "reinstall complete"

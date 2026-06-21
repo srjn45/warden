@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,15 +24,17 @@ type RateLimitScheduler struct {
 	timers map[string]*time.Timer
 }
 
-// NewRateLimitScheduler creates a new scheduler with configuration from env vars.
-func NewRateLimitScheduler(life Lifecycle, st store.Store) *RateLimitScheduler {
+// NewRateLimitScheduler creates a new scheduler. The retry interval, buffer, and
+// auto-resume toggle are supplied by the caller from config
+// (rate_limit_retry_interval / rate_limit_buffer / rate_limit_auto_resume).
+func NewRateLimitScheduler(life Lifecycle, st store.Store, retryInterval, buffer time.Duration, autoResume bool) *RateLimitScheduler {
 	return &RateLimitScheduler{
 		life:          life,
 		store:         st,
 		timers:        make(map[string]*time.Timer),
-		retryInterval: envDuration("WARDEN_RATE_LIMIT_RETRY_INTERVAL", 30*time.Minute),
-		buffer:        envDuration("WARDEN_RATE_LIMIT_BUFFER", 1*time.Minute),
-		enabled:       envBool("WARDEN_RATE_LIMIT_AUTO_RESUME", true),
+		retryInterval: retryInterval,
+		buffer:        buffer,
+		enabled:       autoResume,
 	}
 }
 
@@ -235,14 +235,4 @@ func (r *RateLimitScheduler) CancelTimer(sessionID string) {
 		timer.Stop()
 		delete(r.timers, sessionID)
 	}
-}
-
-// envBool parses a boolean from an environment variable, falling back to def.
-func envBool(key string, def bool) bool {
-	if v := os.Getenv(key); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			return b
-		}
-	}
-	return def
 }

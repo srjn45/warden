@@ -13,7 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 )
 
-const approvalsDisabledMsg = "approvals disabled (set WARDEN_APPROVALS=on)"
+const approvalsDisabledMsg = "approvals disabled (enable with approvals: true in the config file)"
 
 // Server wraps an MCP server bound to a daemon client.
 type Server struct {
@@ -41,7 +41,7 @@ type spawnArgs struct {
 	PermissionMode string `json:"permission_mode,omitempty" jsonschema:"permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; defaults to config or 'auto'"`
 	Force          bool   `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
 	Name           string `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
-	Model          string `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to sonnet-4.5 or WARDEN_MODEL_DEFAULT"`
+	Model          string `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to sonnet-4.5 or the model_default config setting"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -314,7 +314,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_approvals",
-		Description: "List pending tool-permission prompts waiting for an answer (supervised agents). Recognized prompts include their numbered options + a stable fingerprint; answer one with the approve tool. Returns the disabled message when WARDEN_APPROVALS is off.",
+		Description: "List pending tool-permission prompts waiting for an answer (supervised agents). Recognized prompts include their numbered options + a stable fingerprint; answer one with the approve tool. Returns the disabled message when approvals are off.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		enabled, views, err := s.cl.Approvals(ctx)
 		if err != nil {
@@ -329,7 +329,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "approve",
-		Description: "Answer a pending tool-permission prompt by 1-based option number. Re-fetches the live queue, validates the option, and passes the prompt's fingerprint so the daemon can re-verify the menu hasn't changed (TOCTOU guard). Returns the disabled message when WARDEN_APPROVALS is off.",
+		Description: "Answer a pending tool-permission prompt by 1-based option number. Re-fetches the live queue, validates the option, and passes the prompt's fingerprint so the daemon can re-verify the menu hasn't changed (TOCTOU guard). Returns the disabled message when approvals are off.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a approveArgs) (*mcpsdk.CallToolResult, any, error) {
 		enabled, views, err := s.cl.Approvals(ctx)
 		if err != nil {

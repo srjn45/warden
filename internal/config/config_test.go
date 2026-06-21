@@ -1,191 +1,230 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
-func TestLoadDefaults(t *testing.T) {
-	t.Setenv("WARDEN_ADDR", "")
-	t.Setenv("AGENTCTL_ADDR", "")
-	c := Load()
-	require.Equal(t, "127.0.0.1:8765", c.Addr)
+// tmpConfig writes body to a config.yaml in a fresh temp dir and returns its path.
+func tmpConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+	return path
 }
 
-func TestLoadFromEnv(t *testing.T) {
-	t.Setenv("WARDEN_ADDR", "127.0.0.1:9000")
-	require.Equal(t, "127.0.0.1:9000", Load().Addr)
+func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "does-not-exist.yaml")
+	c := Load(path)
+	d := defaults()
+	require.Equal(t, d.Addr, c.Addr)
+	require.True(t, c.ApprovalsEnabled)
+	require.False(t, c.AutoApproveEnabled)
+	require.Equal(t, "auto", c.DefaultPermissionMode)
+	require.Equal(t, 5, c.SpawnGateMaxAgents)
+	require.Equal(t, "claude-sonnet-4-5", c.ModelDefault)
+	require.True(t, c.PipelineHint)
 }
 
-// TestConfigFallsBackToLegacyEnv confirms the legacy AGENTCTL_* env vars still
-// resolve when the canonical WARDEN_* is unset.
-func TestConfigFallsBackToLegacyEnv(t *testing.T) {
-	t.Setenv("WARDEN_ADDR", "")
-	t.Setenv("AGENTCTL_ADDR", "127.0.0.1:9100")
-	require.Equal(t, "127.0.0.1:9100", Load().Addr)
-
-	t.Setenv("WARDEN_DATA_DIR", "")
-	t.Setenv("AGENTCTL_DATA_DIR", "/tmp/legacy-data")
-	require.Equal(t, "/tmp/legacy-data", Load().DataDir)
-
-	t.Setenv("WARDEN_APPROVALS", "")
-	t.Setenv("AGENTCTL_APPROVALS", "off")
-	require.False(t, Load().ApprovalsEnabled, "legacy AGENTCTL_APPROVALS=off should disable")
+func TestLoadReadsFileValues(t *testing.T) {
+	path := tmpConfig(t, `
+addr: 127.0.0.1:9999
+approvals: false
+auto_approve: true
+spawn_gate_max_agents: 8
+model_default: opus
+auto_restart_max: 7
+auto_restart_reset: 10m
+`)
+	c := Load(path)
+	require.Equal(t, "127.0.0.1:9999", c.Addr)
+	require.False(t, c.ApprovalsEnabled)
+	require.True(t, c.AutoApproveEnabled)
+	require.Equal(t, 8, c.SpawnGateMaxAgents)
+	require.Equal(t, "opus", c.ModelDefault)
+	require.Equal(t, 7, c.AutoRestartMax)
+	require.Equal(t, "10m", c.AutoRestartReset)
+	// A key absent from the file keeps its default.
+	require.True(t, c.MetricsEnabled)
 }
 
-// TestConfigPrefersWardenOverLegacy confirms WARDEN_* wins when both are set.
-func TestConfigPrefersWardenOverLegacy(t *testing.T) {
-	t.Setenv("AGENTCTL_ADDR", "127.0.0.1:1111")
-	t.Setenv("WARDEN_ADDR", "127.0.0.1:2222")
-	require.Equal(t, "127.0.0.1:2222", Load().Addr)
+func TestLoadInvalidPermissionModeFallsBack(t *testing.T) {
+	path := tmpConfig(t, "default_permission_mode: nonsense\n")
+	require.Equal(t, "auto", Load(path).DefaultPermissionMode)
 }
 
-func TestDataDirDefault(t *testing.T) {
-	t.Setenv("WARDEN_DATA_DIR", "")
-	t.Setenv("AGENTCTL_DATA_DIR", "")
-	c := Load()
-	require.True(t, strings.HasSuffix(c.DataDir, ".warden"), "got %q", c.DataDir)
-}
-
-func TestDataDirFromEnv(t *testing.T) {
-	t.Setenv("WARDEN_DATA_DIR", "/tmp/warden-data")
-	require.Equal(t, "/tmp/warden-data", Load().DataDir)
-}
-
-func TestClaudeProjectsDirDefault(t *testing.T) {
-	t.Setenv("CLAUDE_PROJECTS_DIR", "")
-	c := Load()
-	require.True(t, strings.HasSuffix(c.ClaudeProjectsDir, ".claude/projects"), "got %q", c.ClaudeProjectsDir)
-}
-
-func TestClaudeProjectsDirFromEnv(t *testing.T) {
-	t.Setenv("CLAUDE_PROJECTS_DIR", "/tmp/projects")
-	require.Equal(t, "/tmp/projects", Load().ClaudeProjectsDir)
-}
-
-func TestNotifyDisabledByDefault(t *testing.T) {
-	t.Setenv("WARDEN_NOTIFY", "")
-	t.Setenv("AGENTCTL_NOTIFY", "")
-	require.False(t, Load().NotifyEnabled, "notifications off by default")
-}
-
-func TestNotifyEnabledFromEnv(t *testing.T) {
-	t.Setenv("AGENTCTL_NOTIFY", "")
-	for _, v := range []string{"1", "on", "true", "ON"} {
-		t.Setenv("WARDEN_NOTIFY", v)
-		require.True(t, Load().NotifyEnabled, "WARDEN_NOTIFY=%q enables", v)
+func TestLoadValidPermissionModes(t *testing.T) {
+	for _, mode := range []string{"acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"} {
+		path := tmpConfig(t, "default_permission_mode: "+mode+"\n")
+		require.Equal(t, mode, Load(path).DefaultPermissionMode)
 	}
 }
 
-func TestApprovalsEnabledByDefault(t *testing.T) {
-	t.Setenv("AGENTCTL_APPROVALS", "")
-	t.Setenv("WARDEN_APPROVALS", "")
-	require.True(t, Load().ApprovalsEnabled, "approvals on by default")
-
-	t.Setenv("WARDEN_APPROVALS", "on")
-	require.True(t, Load().ApprovalsEnabled)
+func TestLoadTokenThresholdsResetWhenInverted(t *testing.T) {
+	path := tmpConfig(t, "token_warn: 500000\ntoken_critical: 400000\n")
+	c := Load(path)
+	require.Equal(t, 200000, c.TokenWarn)
+	require.Equal(t, 400000, c.TokenCritical)
 }
 
-func TestApprovalsDisableFromEnv(t *testing.T) {
-	t.Setenv("AGENTCTL_APPROVALS", "")
-	for _, v := range []string{"0", "off", "false", "OFF"} {
-		t.Setenv("WARDEN_APPROVALS", v)
-		require.False(t, Load().ApprovalsEnabled, "WARDEN_APPROVALS=%q should disable approvals", v)
-	}
-	t.Setenv("WARDEN_APPROVALS", "1")
-	require.True(t, Load().ApprovalsEnabled, "WARDEN_APPROVALS=1 should enable approvals")
+func TestLoadBadDurationFallsBack(t *testing.T) {
+	path := tmpConfig(t, "auto_restart_reset: not-a-duration\nrate_limit_buffer: 0s\n")
+	c := Load(path)
+	require.Equal(t, "5m", c.AutoRestartReset)
+	require.Equal(t, "1m", c.RateLimitBuffer)
 }
 
-func TestSpawnGateDefaults(t *testing.T) {
-	t.Setenv("WARDEN_SPAWN_GATE", "")
-	t.Setenv("AGENTCTL_SPAWN_GATE", "")
-	t.Setenv("WARDEN_SPAWN_GATE_MAX_AGENTS", "")
-	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "")
-	c := Load()
-	if !c.SpawnGateEnabled {
-		t.Error("spawn gate must default ON")
-	}
-	if c.SpawnGateMaxAgents != 5 {
-		t.Errorf("max agents default = %d, want 5", c.SpawnGateMaxAgents)
-	}
+func TestLoadEmptyRequiredStringsFallBack(t *testing.T) {
+	path := tmpConfig(t, "addr:\nmodel_default:\n")
+	c := Load(path)
+	require.Equal(t, defaults().Addr, c.Addr)
+	require.Equal(t, "claude-sonnet-4-5", c.ModelDefault)
 }
 
-func TestSpawnGateDisable(t *testing.T) {
-	t.Setenv("AGENTCTL_SPAWN_GATE", "")
-	for _, v := range []string{"0", "off", "false", "OFF"} {
-		t.Setenv("WARDEN_SPAWN_GATE", v)
-		if Load().SpawnGateEnabled {
-			t.Errorf("WARDEN_SPAWN_GATE=%q should disable the gate", v)
+func TestLoadGarbledFileFallsBackToDefaults(t *testing.T) {
+	path := tmpConfig(t, "this: is: not: valid: yaml: [\n")
+	require.Equal(t, defaults().Addr, Load(path).Addr)
+}
+
+func TestReconcileCreatesFullFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	// Header comment present.
+	require.Contains(t, text, "warden configuration")
+	// Every schema key is written, each with its hint comment.
+	for _, s := range schema {
+		require.Contains(t, text, s.Key+":", "missing key %q", s.Key)
+	}
+	require.Contains(t, text, "Default permission mode for new agents")
+
+	// The generated file round-trips into a valid Config.
+	c := Load(path)
+	require.Equal(t, defaults().Addr, c.Addr)
+	require.Equal(t, "auto", c.DefaultPermissionMode)
+}
+
+func TestReconcileAddsOnlyMissingKeys(t *testing.T) {
+	// A minimal hand-written file with a custom value and an unknown key.
+	path := tmpConfig(t, `# my own note
+addr: 127.0.0.1:7777
+some_unknown_key: keep-me
+`)
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	// Existing value, comment, and unknown key all preserved.
+	require.Contains(t, text, "127.0.0.1:7777")
+	require.Contains(t, text, "my own note")
+	require.Contains(t, text, "some_unknown_key: keep-me")
+	// A previously-missing key was appended with its hint.
+	require.Contains(t, text, "default_permission_mode:")
+	require.Contains(t, text, "Default permission mode for new agents")
+
+	// The custom addr survives a reload (not clobbered by the default).
+	require.Equal(t, "127.0.0.1:7777", Load(path).Addr)
+
+	// Every schema key now exists exactly once.
+	var m map[string]any
+	require.NoError(t, yaml.Unmarshal(data, &m))
+	for _, s := range schema {
+		_, ok := m[s.Key]
+		require.True(t, ok, "key %q not added", s.Key)
+	}
+	require.Equal(t, "keep-me", m["some_unknown_key"])
+}
+
+func TestReconcileIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, Reconcile(path))
+	first, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	require.NoError(t, Reconcile(path))
+	second, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	require.Equal(t, string(first), string(second), "second reconcile must be a no-op")
+}
+
+func TestReconcileRegeneratesEmptyFile(t *testing.T) {
+	path := tmpConfig(t, "")
+	require.NoError(t, Reconcile(path))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "addr:")
+}
+
+// TestSchemaMatchesStructTags is the drift guard: the set of yaml tags on
+// Config must equal the set of keys in the schema table, both directions.
+func TestSchemaMatchesStructTags(t *testing.T) {
+	tags := map[string]bool{}
+	tp := reflect.TypeOf(Config{})
+	for i := 0; i < tp.NumField(); i++ {
+		tag := strings.Split(tp.Field(i).Tag.Get("yaml"), ",")[0]
+		if tag == "" || tag == "-" {
+			continue
 		}
+		tags[tag] = true
 	}
-	t.Setenv("WARDEN_SPAWN_GATE", "1")
-	if !Load().SpawnGateEnabled {
-		t.Error("WARDEN_SPAWN_GATE=1 should enable the gate")
+
+	keys := map[string]bool{}
+	for _, s := range schema {
+		require.False(t, keys[s.Key], "duplicate schema key %q", s.Key)
+		keys[s.Key] = true
+	}
+
+	for k := range tags {
+		require.True(t, keys[k], "yaml tag %q has no schema entry", k)
+	}
+	for k := range keys {
+		require.True(t, tags[k], "schema key %q has no struct field", k)
 	}
 }
 
-func TestSpawnGateMaxAgentsOverride(t *testing.T) {
-	t.Setenv("AGENTCTL_SPAWN_GATE_MAX_AGENTS", "")
-	t.Setenv("WARDEN_SPAWN_GATE_MAX_AGENTS", "8")
-	if Load().SpawnGateMaxAgents != 8 {
-		t.Error("max agents override not applied")
-	}
-	t.Setenv("WARDEN_SPAWN_GATE_MAX_AGENTS", "garbage")
-	if Load().SpawnGateMaxAgents != 5 {
-		t.Error("unparseable max agents should fall back to 5")
-	}
-}
-
-func TestMetricsEnabledDefaultsOn(t *testing.T) {
-	t.Setenv("WARDEN_METRICS", "")
-	t.Setenv("AGENTCTL_METRICS", "")
-	if !Load().MetricsEnabled {
-		t.Fatal("metrics should default ON")
+// TestDefaultsCoverEverySchemaKey ensures file generation can emit a value for
+// every documented key.
+func TestDefaultsCoverEverySchemaKey(t *testing.T) {
+	vals, err := defaultValueNodes()
+	require.NoError(t, err)
+	for _, s := range schema {
+		_, ok := vals[s.Key]
+		require.True(t, ok, "defaults() has no value for %q", s.Key)
 	}
 }
 
-func TestMetricsEnabledOff(t *testing.T) {
-	t.Setenv("WARDEN_METRICS", "off")
-	if Load().MetricsEnabled {
-		t.Fatal("WARDEN_METRICS=off should disable")
-	}
+func TestDurationAccessors(t *testing.T) {
+	path := tmpConfig(t, "auto_restart_reset: 90s\nrate_limit_retry_interval: 45m\nrate_limit_buffer: 2m\n")
+	c := Load(path)
+	require.Equal(t, "90s", c.AutoRestartReset) // valid strings are preserved verbatim
+	require.Equal(t, int64(90), int64(c.AutoRestartResetDuration().Seconds()))
+	require.Equal(t, 45.0, c.RateLimitRetryIntervalDuration().Minutes())
+	require.Equal(t, 2.0, c.RateLimitBufferDuration().Minutes())
 }
 
-func TestTokenGuardDefaults(t *testing.T) {
-	for _, k := range []string{"WARDEN_TOKEN_GUARD", "WARDEN_TOKEN_WARN_ALERT", "WARDEN_TOKEN_AUTO_COMPACT", "WARDEN_TOKEN_WARN", "WARDEN_TOKEN_CRITICAL", "AGENTCTL_TOKEN_GUARD"} {
-		t.Setenv(k, "")
-	}
-	c := Load()
-	if !c.TokenGuard || !c.TokenWarnAlert || !c.TokenAutoCompact {
-		t.Fatalf("guard=%v warnAlert=%v autoCompact=%v, want all true", c.TokenGuard, c.TokenWarnAlert, c.TokenAutoCompact)
-	}
-	if c.TokenWarn != 200000 || c.TokenCritical != 400000 {
-		t.Fatalf("warn=%d crit=%d, want 200000/400000", c.TokenWarn, c.TokenCritical)
-	}
+func TestConfigImplementsProviderAccessors(t *testing.T) {
+	c := defaults()
+	require.Equal(t, "auto", c.GetDefaultPermissionMode())
+	require.Equal(t, "claude-sonnet-4-5", c.GetModelDefault())
+	require.True(t, c.GetPipelineHint())
 }
 
-func TestTokenGuardOverrides(t *testing.T) {
-	t.Setenv("WARDEN_TOKEN_AUTO_COMPACT", "off")
-	t.Setenv("WARDEN_TOKEN_WARN", "100000")
-	t.Setenv("WARDEN_TOKEN_CRITICAL", "150000")
-	c := Load()
-	if c.TokenAutoCompact {
-		t.Fatal("auto-compact should be off")
-	}
-	if c.TokenWarn != 100000 || c.TokenCritical != 150000 {
-		t.Fatalf("warn=%d crit=%d", c.TokenWarn, c.TokenCritical)
-	}
-}
-
-func TestTokenThresholdsFallBackWhenInverted(t *testing.T) {
-	t.Setenv("WARDEN_TOKEN_WARN", "500000")
-	t.Setenv("WARDEN_TOKEN_CRITICAL", "400000") // crit <= warn → defaults
-	c := Load()
-	if c.TokenWarn != 200000 || c.TokenCritical != 400000 {
-		t.Fatalf("inverted config not reset: warn=%d crit=%d", c.TokenWarn, c.TokenCritical)
-	}
+func TestDefaultPath(t *testing.T) {
+	p := DefaultPath()
+	require.True(t, strings.HasSuffix(p, filepath.Join(".warden", "config.yaml")), "got %q", p)
 }
 
 func TestIsLoopbackHost(t *testing.T) {
@@ -203,109 +242,5 @@ func TestIsLoopbackHost(t *testing.T) {
 		if got := IsLoopbackHost(addr); got != want {
 			t.Fatalf("IsLoopbackHost(%q)=%v want %v", addr, got, want)
 		}
-	}
-}
-
-func TestAllowNonLoopbackFlag(t *testing.T) {
-	t.Setenv("WARDEN_ALLOW_NONLOOPBACK", "")
-	t.Setenv("AGENTCTL_ALLOW_NONLOOPBACK", "")
-	if Load().AllowNonLoopback {
-		t.Fatal("should default OFF")
-	}
-	t.Setenv("WARDEN_ALLOW_NONLOOPBACK", "1")
-	if !Load().AllowNonLoopback {
-		t.Fatal("WARDEN_ALLOW_NONLOOPBACK=1 should enable")
-	}
-}
-
-func TestAutoApproveEnabled(t *testing.T) {
-	tests := []struct {
-		name string
-		val  string
-		want bool
-	}{
-		{"empty", "", false},
-		{"0", "0", false},
-		{"off", "off", false},
-		{"OFF", "OFF", false},
-		{"false", "false", false},
-		{"FALSE", "FALSE", false},
-		{"1", "1", true},
-		{"on", "on", true},
-		{"ON", "ON", true},
-		{"true", "true", true},
-		{"TRUE", "TRUE", true},
-		{"junk", "junk", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("WARDEN_AUTO_APPROVE", tt.val)
-			cfg := Load()
-			if cfg.AutoApproveEnabled != tt.want {
-				t.Errorf("AutoApproveEnabled = %v, want %v", cfg.AutoApproveEnabled, tt.want)
-			}
-		})
-	}
-}
-
-func TestAutoApproveEnabledLegacy(t *testing.T) {
-	t.Setenv("AGENTCTL_AUTO_APPROVE", "1")
-	cfg := Load()
-	if !cfg.AutoApproveEnabled {
-		t.Error("legacy AGENTCTL_AUTO_APPROVE=1 should enable auto-approve")
-	}
-}
-
-func TestAutoApproveEnabledPreferNewVar(t *testing.T) {
-	t.Setenv("WARDEN_AUTO_APPROVE", "0")
-	t.Setenv("AGENTCTL_AUTO_APPROVE", "1")
-	cfg := Load()
-	if cfg.AutoApproveEnabled {
-		t.Error("WARDEN_AUTO_APPROVE should take precedence over AGENTCTL_AUTO_APPROVE")
-	}
-}
-
-func TestDefaultPermissionMode(t *testing.T) {
-	tests := []struct {
-		name     string
-		val      string
-		want     string
-		wantWarn bool
-	}{
-		{"empty", "", "auto", false},
-		{"acceptEdits", "acceptEdits", "acceptEdits", false},
-		{"auto", "auto", "auto", false},
-		{"bypassPermissions", "bypassPermissions", "bypassPermissions", false},
-		{"default", "default", "default", false},
-		{"dontAsk", "dontAsk", "dontAsk", false},
-		{"plan", "plan", "plan", false},
-		{"invalid", "invalid", "auto", true},
-		{"junk", "foobar", "auto", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("WARDEN_DEFAULT_PERMISSION_MODE", tt.val)
-			cfg := Load()
-			if cfg.DefaultPermissionMode != tt.want {
-				t.Errorf("DefaultPermissionMode = %q, want %q", cfg.DefaultPermissionMode, tt.want)
-			}
-		})
-	}
-}
-
-func TestDefaultPermissionModeLegacy(t *testing.T) {
-	t.Setenv("AGENTCTL_DEFAULT_PERMISSION_MODE", "bypassPermissions")
-	cfg := Load()
-	if cfg.DefaultPermissionMode != "bypassPermissions" {
-		t.Error("legacy AGENTCTL_DEFAULT_PERMISSION_MODE should work")
-	}
-}
-
-func TestDefaultPermissionModePreferNewVar(t *testing.T) {
-	t.Setenv("WARDEN_DEFAULT_PERMISSION_MODE", "auto")
-	t.Setenv("AGENTCTL_DEFAULT_PERMISSION_MODE", "bypassPermissions")
-	cfg := Load()
-	if cfg.DefaultPermissionMode != "auto" {
-		t.Error("WARDEN_DEFAULT_PERMISSION_MODE should take precedence")
 	}
 }

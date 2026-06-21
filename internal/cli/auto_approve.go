@@ -20,7 +20,7 @@ Examples:
   warden auto-approve abc123 on   # Enable auto-approve for agent abc123
   warden auto-approve abc123 off  # Disable auto-approve for agent abc123
 
-Global default is controlled by WARDEN_AUTO_APPROVE environment variable.
+Global default is controlled by the auto_approve config setting.
 Per-agent setting overrides the global default.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

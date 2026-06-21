@@ -31,12 +31,19 @@ func newDaemonCmd() *cobra.Command {
 		Use:   "daemon",
 		Short: "Run the warden hub (HTTP API + poller; the single writer to the file store)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := config.Load()
+			cfgPath := configPathFor(cmd)
+			// Create/migrate the config file before loading, covering installs
+			// (e.g. goreleaser tarballs) that never ran install.sh.
+			if err := config.Reconcile(cfgPath); err != nil {
+				log.Printf("daemon: config reconcile %s: %v", cfgPath, err)
+			}
+			config.WarnIfLegacyEnv(cfgPath)
+			cfg := config.Load(cfgPath)
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
 				cfg.Addr = a
 			}
 			if !config.IsLoopbackHost(cfg.Addr) && !cfg.AllowNonLoopback {
-				return fmt.Errorf("refusing to bind non-loopback address %q: the warden daemon has no authentication; set WARDEN_ALLOW_NONLOOPBACK=1 to override", cfg.Addr)
+				return fmt.Errorf("refusing to bind non-loopback address %q: the warden daemon has no authentication; set allow_nonloopback: true in %s to override", cfg.Addr, cfgPath)
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -93,11 +100,11 @@ func newDaemonCmd() *cobra.Command {
 			}
 			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled)
 			exec.SetDigestFn(srv.BuildDigest)
-			exec.SetKeepDoneAgents(os.Getenv("WARDEN_PIPELINE_KEEP_DONE") != "" || os.Getenv("AGENTCTL_PIPELINE_KEEP_DONE") != "")
+			exec.SetKeepDoneAgents(cfg.PipelineKeepDone)
 
 			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
-			restarter := daemon.NewRestarter(life, st)
-			rateLimitSched := daemon.NewRateLimitScheduler(life, st)
+			restarter := daemon.NewRestarter(life, st, cfg.AutoRestartMax, cfg.AutoRestartResetDuration())
+			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimitAutoResume)
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
@@ -119,7 +126,7 @@ func newDaemonCmd() *cobra.Command {
 			if err := srv.ListenAndServe(ctx, cfg.Addr); err != nil {
 				// Check for port already in use
 				if strings.Contains(err.Error(), "address already in use") {
-					return fmt.Errorf("%w\n\nPort %s already in use.\nCheck if daemon is running: ps aux | grep 'warden daemon'\nOr specify different port: export WARDEN_ADDR=localhost:8766", err, cfg.Addr)
+					return fmt.Errorf("%w\n\nPort %s already in use.\nCheck if daemon is running: ps aux | grep 'warden daemon'\nOr specify a different port: warden daemon --addr localhost:8766 (or set addr: in %s)", err, cfg.Addr, cfgPath)
 				}
 				return err
 			}

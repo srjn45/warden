@@ -129,7 +129,7 @@ func newDoctorCmd() *cobra.Command {
 		Short: "Run preflight checks (required binaries, daemon, data dir)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := config.Load()
+			cfg := config.Load(configPathFor(cmd))
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
 				cfg.Addr = a
 			}

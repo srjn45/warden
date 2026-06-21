@@ -51,7 +51,7 @@ type listPaneModel struct {
 	messages      []client.Message      // inspector: recent message traffic
 	vp            viewport.Model        // scroll viewport (modeInspector / modeDigest)
 	approvals     []approval.View       // pending tool-permission prompts
-	apprEnabled   bool                  // WARDEN_APPROVALS on
+	apprEnabled   bool                  // approvals config setting on
 	apprCursor    int                   // focused recognized approval (modeApprovals)
 	digest        *digest.Digest        // last fetched digest (modeDigest)
 	digestID      string                // agent id the digest is for
@@ -655,7 +655,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeApprovals
 			m.apprCursor = 0
 		} else if !m.apprEnabled {
-			m.status = "approvals disabled (set WARDEN_APPROVALS)"
+			m.status = "approvals disabled (enable approvals: true in config)"
 		} else {
 			m.status = "no approvals pending"
 		}

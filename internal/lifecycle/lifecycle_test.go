@@ -16,6 +16,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The claude-command builders (claudeLaunch/claudeResume/claudeBase/pipelineHint)
+// are methods on *Lifecycle now. These package-level test wrappers build the
+// expected strings using a default, production-like config (hint on, empty model
+// default → claude-sonnet-4-5) so existing expectations read unchanged.
+func defaultLC() *Lifecycle { return New(&FakeRunner{}, &FakeConfig{}) }
+
+func claudeLaunch(sessionID, name, model, mode string) string {
+	return defaultLC().claudeLaunch(sessionID, name, model, mode)
+}
+func claudeResume(sessionID, name, model, mode string) string {
+	return defaultLC().claudeResume(sessionID, name, model, mode)
+}
+func claudeBase(model, mode string) string { return defaultLC().claudeBase(model, mode) }
+func pipelineHint() string                 { return defaultLC().pipelineHint() }
+
 func TestClaudeLaunchPermissionMode(t *testing.T) {
 	def := claudeLaunch("sid", "agent-1", "", "acceptEdits")
 	require.Contains(t, def, "--permission-mode acceptEdits")
@@ -80,8 +95,6 @@ func TestClaudeProjectDir(t *testing.T) {
 const noOtherWorktrees = "worktree /repo\nHEAD abc\nbranch refs/heads/main\n"
 
 func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 	}}
@@ -211,8 +224,6 @@ func TestSpawnAdoptsExistingWorktree(t *testing.T) {
 }
 
 func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	lc := New(fr, &FakeConfig{})
 	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
@@ -471,8 +482,6 @@ func TestSpawnPromptModeNoWorktree(t *testing.T) {
 }
 
 func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	prompt := "fix the auth bug"
 	l := New(fr, &FakeConfig{})
@@ -523,8 +532,6 @@ func TestNewestTranscriptTailPicksNewestAndTails(t *testing.T) {
 }
 
 func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, so expected matches production
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	prompt := "line one\nline two with a ' quote\nline three"
 	l := New(fr, &FakeConfig{})
@@ -1097,8 +1104,6 @@ func TestSpawnJobNoneRunsInRepoRoot(t *testing.T) {
 }
 
 func TestSpawnInjectsPipelineHint(t *testing.T) {
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // force on
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
@@ -1112,10 +1117,8 @@ func TestSpawnInjectsPipelineHint(t *testing.T) {
 }
 
 func TestSpawnRespectsPipelineHintOptOut(t *testing.T) {
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "1")
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "1")
 	fr := &FakeRunner{}
-	l := New(fr, &FakeConfig{})
+	l := New(fr, &FakeConfig{PipelineHintOff: true}) // pipeline_hint disabled in config
 	l.PromptsDir = "/state/prompts"
 	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "fix the auth bug", Cwd: "/work/project"})
 	require.NoError(t, err)
@@ -1123,14 +1126,12 @@ func TestSpawnRespectsPipelineHintOptOut(t *testing.T) {
 
 	for _, argv := range fr.calledArgs() {
 		for _, a := range argv {
-			require.NotContains(t, a, "--append-system-prompt", "opt-out env must suppress the hint")
+			require.NotContains(t, a, "--append-system-prompt", "pipeline_hint=false must suppress the hint")
 		}
 	}
 }
 
 func TestSpawnJobOmitsPipelineHint(t *testing.T) {
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // even with the hint ON, pipeline jobs must not get it
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
@@ -1148,25 +1149,20 @@ func TestSpawnJobOmitsPipelineHint(t *testing.T) {
 
 func TestPipelineHint(t *testing.T) {
 	t.Run("on by default", func(t *testing.T) {
-		t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // empty == unset for our check
-		t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
-		got := pipelineHint()
+		got := New(&FakeRunner{}, &FakeConfig{}).pipelineHint()
 		require.Contains(t, got, "--append-system-prompt")
 		require.Contains(t, got, "warden pipeline")
 		require.True(t, strings.HasPrefix(got, " "), "leading space so it concatenates onto claudeLaunch output")
 		require.NotContains(t, got, "\n", "must stay a single typed line")
 		require.NotContains(t, pipelineHintGuidance, "'", "guidance must stay apostrophe-free (comment invariant; keeps the single-quoted shell form clean)")
 	})
-	t.Run("opt-out via env", func(t *testing.T) {
-		t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "1")
-		t.Setenv("WARDEN_NO_PIPELINE_HINT", "1")
-		require.Equal(t, "", pipelineHint())
+	t.Run("opt-out via config", func(t *testing.T) {
+		got := New(&FakeRunner{}, &FakeConfig{PipelineHintOff: true}).pipelineHint()
+		require.Equal(t, "", got)
 	})
 }
 
 func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "") // anchor: hint on, matches production
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "" // intentionally empty: the no-prompt path must not need it
@@ -1225,8 +1221,6 @@ func TestExitSuffixAndReadClear(t *testing.T) {
 }
 
 func TestSpawnAppendsExitSuffix(t *testing.T) {
-	t.Setenv("WARDEN_NO_PIPELINE_HINT", "") // anchor: hint on, matches production
-	t.Setenv("AGENTCTL_NO_PIPELINE_HINT", "")
 	fr := &FakeRunner{}
 	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
