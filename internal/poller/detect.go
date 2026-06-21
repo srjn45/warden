@@ -6,35 +6,42 @@ import (
 	"time"
 )
 
+// claudeLimitBannerRe matches Claude Code's limit banner. It requires a limit
+// phrase together with the reset clause ParseRestoreTime keys on, so an agent
+// merely printing "rate limit" (e.g. while writing or reviewing code) does not
+// match — only the banner's distinctive "<limit phrase> … resets …" shape does.
+//
+// TODO(open-question): confirm the exact banner wording against a LIVE limit
+// hit before relying on this in production. Until confirmed this errs toward
+// failing CLOSED (a too-strict pattern misses a real limit) rather than open
+// (misclassifying a working agent). All banner-dependent literals live here and
+// in sampleLimitBanner (test fixture) so a correction lands in one place.
+var claudeLimitBannerRe = regexp.MustCompile(
+	`(?i)(rate limit|usage limit|session limit|quota exceeded)[\s\S]{0,80}?resets\s`,
+)
+
+// limitBannerTailLines is how many trailing pane lines we inspect for the
+// banner. A real limit banner is the terminal state of the pane; anything that
+// scrolled above it is stale output, not a live limit.
+const limitBannerTailLines = 6
+
 // detectRateLimit checks if pane content indicates a rate limit hit.
 // Returns (isLimited, restoreTime, ok) where:
 //   - isLimited: true if rate limit detected
 //   - restoreTime: parsed restore timestamp (zero if not found)
 //   - ok: true if restoreTime was successfully parsed
+//
+// It anchors on the limit banner in only the trailing lines (reusing lastLines)
+// so neither stray "rate limit" text in agent output nor a banner that has
+// since scrolled away is misread as a live limit.
 func detectRateLimit(pane string) (bool, time.Time, bool) {
-	// Pattern 1: Look for common rate limit keywords
-	limitKeywords := []string{
-		"rate limit",
-		"usage limit",
-		"session limit",
-		"quota exceeded",
-	}
-
-	hasLimit := false
-	paneLower := strings.ToLower(pane)
-	for _, kw := range limitKeywords {
-		if strings.Contains(paneLower, kw) {
-			hasLimit = true
-			break
-		}
-	}
-
-	if !hasLimit {
+	tail := lastLines(pane, limitBannerTailLines)
+	if !claudeLimitBannerRe.MatchString(tail) {
 		return false, time.Time{}, false
 	}
-
-	// Pattern 2: Try to parse restore time
-	restoreTime, ok := ParseRestoreTime(pane)
+	// Parse the restore time from the banner region only, so the time-parse
+	// logic never keys on am/pm or clock-times elsewhere in the scrollback.
+	restoreTime, ok := ParseRestoreTime(tail)
 	return true, restoreTime, ok
 }
 
