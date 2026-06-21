@@ -26,22 +26,23 @@ import (
 // are stored as Go duration strings (e.g. "5m"); use the typed accessor methods
 // (AutoRestartResetDuration, etc.) to read them.
 type Config struct {
-	Addr                  string `yaml:"addr"`
-	DataDir               string `yaml:"data_dir"`
-	ClaudeProjectsDir     string `yaml:"claude_projects_dir"`
-	NotifyEnabled         bool   `yaml:"notify"`
-	ApprovalsEnabled      bool   `yaml:"approvals"`
-	AutoApproveEnabled    bool   `yaml:"auto_approve"`
-	DefaultPermissionMode string `yaml:"default_permission_mode"`
-	SpawnGateEnabled      bool   `yaml:"spawn_gate"`
-	SpawnGateMaxAgents    int    `yaml:"spawn_gate_max_agents"`
-	MetricsEnabled        bool   `yaml:"metrics"`
-	AllowNonLoopback      bool   `yaml:"allow_nonloopback"`
-	TokenGuard            bool   `yaml:"token_guard"`
-	TokenWarnAlert        bool   `yaml:"token_warn_alert"`
-	TokenAutoCompact      bool   `yaml:"token_auto_compact"`
-	TokenWarn             int    `yaml:"token_warn"`
-	TokenCritical         int    `yaml:"token_critical"`
+	Addr                   string `yaml:"addr"`
+	DataDir                string `yaml:"data_dir"`
+	ClaudeProjectsDir      string `yaml:"claude_projects_dir"`
+	NotifyEnabled          bool   `yaml:"notify"`
+	ApprovalsEnabled       bool   `yaml:"approvals"`
+	AutoApproveEnabled     bool   `yaml:"auto_approve"`
+	AutoApproveAllowSticky bool   `yaml:"auto_approve_allow_sticky"`
+	DefaultPermissionMode  string `yaml:"default_permission_mode"`
+	SpawnGateEnabled       bool   `yaml:"spawn_gate"`
+	SpawnGateMaxAgents     int    `yaml:"spawn_gate_max_agents"`
+	MetricsEnabled         bool   `yaml:"metrics"`
+	AllowNonLoopback       bool   `yaml:"allow_nonloopback"`
+	TokenGuard             bool   `yaml:"token_guard"`
+	TokenWarnAlert         bool   `yaml:"token_warn_alert"`
+	TokenAutoCompact       bool   `yaml:"token_auto_compact"`
+	TokenWarn              int    `yaml:"token_warn"`
+	TokenCritical          int    `yaml:"token_critical"`
 
 	// Migrated from previously-scattered os.Getenv reads.
 	PipelineKeepDone       bool   `yaml:"pipeline_keep_done"`
@@ -74,6 +75,7 @@ var schema = []setting{
 	{"notify", "Desktop notifications on agent status changes. Values: true | false"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
 	{"auto_approve", "Automatically answer recognized yes/no permission prompts. Values: true | false"},
+	{"auto_approve_allow_sticky", "When auto-approving, also accept \"yes, don't ask again\" (sticky) options. Values: true | false"},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"spawn_gate", "Warn (soft, never blocks) before spawning when many agents are live. Values: true | false"},
 	{"spawn_gate_max_agents", "Live-agent count that trips the spawn-gate warning. Values: integer"},
@@ -109,6 +111,7 @@ func defaults() Config {
 		NotifyEnabled:          false,
 		ApprovalsEnabled:       true,
 		AutoApproveEnabled:     false,
+		AutoApproveAllowSticky: false,
 		DefaultPermissionMode:  "auto",
 		SpawnGateEnabled:       true,
 		SpawnGateMaxAgents:     5,
@@ -376,6 +379,7 @@ func writeFile(path string, data []byte) error {
 // once at startup if any are still set.
 var legacyEnvNames = []string{
 	"ADDR", "DATA_DIR", "NOTIFY", "APPROVALS", "AUTO_APPROVE",
+	"AUTO_APPROVE_ALLOW_STICKY",
 	"DEFAULT_PERMISSION_MODE", "SPAWN_GATE", "SPAWN_GATE_MAX_AGENTS",
 	"METRICS", "ALLOW_NONLOOPBACK", "TOKEN_GUARD", "TOKEN_WARN_ALERT",
 	"TOKEN_AUTO_COMPACT", "TOKEN_WARN", "TOKEN_CRITICAL",

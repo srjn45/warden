@@ -26,6 +26,7 @@ func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
 	require.Equal(t, d.Addr, c.Addr)
 	require.True(t, c.ApprovalsEnabled)
 	require.False(t, c.AutoApproveEnabled)
+	require.False(t, c.AutoApproveAllowSticky)
 	require.Equal(t, "auto", c.DefaultPermissionMode)
 	require.Equal(t, 5, c.SpawnGateMaxAgents)
 	require.Equal(t, "claude-sonnet-4-6", c.ModelDefault)
@@ -157,6 +158,30 @@ some_unknown_key: keep-me
 		require.True(t, ok, "key %q not added", s.Key)
 	}
 	require.Equal(t, "keep-me", m["some_unknown_key"])
+}
+
+func TestReconcileAddsAutoApproveAllowSticky(t *testing.T) {
+	// An existing file with auto_approve set but no allow_sticky key.
+	path := tmpConfig(t, `# my own note
+auto_approve: true
+`)
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	// The existing value and comment are preserved.
+	require.Contains(t, text, "auto_approve: true")
+	require.Contains(t, text, "my own note")
+	// The missing key was appended with its hint and the default value.
+	require.Contains(t, text, "auto_approve_allow_sticky: false")
+	require.Contains(t, text, "(sticky) options")
+
+	// It reloads as false and leaves auto_approve untouched.
+	c := Load(path)
+	require.False(t, c.AutoApproveAllowSticky)
+	require.True(t, c.AutoApproveEnabled)
 }
 
 func TestReconcileIsIdempotent(t *testing.T) {
