@@ -69,6 +69,16 @@ type ctxSetArgs struct {
 	Key   string `json:"key" jsonschema:"the context key, e.g. global.findings or pipeline.<id>.<job>.output"`
 	Value string `json:"value" jsonschema:"the value to store"`
 }
+type ctxCASArgs struct {
+	Key      string `json:"key" jsonschema:"the context key, e.g. global.findings or pipeline.<id>.<job>.output"`
+	Expected string `json:"expected,omitempty" jsonschema:"only write if the current value equals this (empty = the key must be absent)"`
+	Value    string `json:"value" jsonschema:"the new value to store"`
+}
+type ctxAppendArgs struct {
+	Key   string `json:"key" jsonschema:"the context key to append to"`
+	Value string `json:"value" jsonschema:"the value to append"`
+	Sep   string `json:"sep,omitempty" jsonschema:"separator inserted before the value when the key already exists (default newline)"`
+}
 type ctxGetArgs struct {
 	Key string `json:"key" jsonschema:"the context key to read"`
 }
@@ -253,6 +263,34 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("set " + a.Key), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "ctx_cas",
+		Description: "Atomically write a shared-context key only if its current value equals `expected` (empty expected = key must be absent). Use this instead of ctx_set for read-modify-write coordination (e.g. claiming a task); on a conflict, re-read with ctx_get and retry.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ctxCASArgs) (*mcpsdk.CallToolResult, any, error) {
+		_, err := s.cl.CtxCAS(ctx, a.Key, a.Expected, a.Value, ctxWriter())
+		if errors.Is(err, client.ErrCASConflict) {
+			return textResult("conflict: " + a.Key + " changed (current value != expected); ctx_get and retry"), nil, nil
+		}
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("set " + a.Key), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "ctx_append",
+		Description: "Atomically append to a shared-context key's value (creating it if absent). Race-free way for multiple agents to accumulate into one key (e.g. global.findings).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ctxAppendArgs) (*mcpsdk.CallToolResult, any, error) {
+		sep := a.Sep
+		if sep == "" {
+			sep = "\n"
+		}
+		if _, err := s.cl.CtxAppend(ctx, a.Key, a.Value, sep, ctxWriter()); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("appended to " + a.Key), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

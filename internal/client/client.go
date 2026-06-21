@@ -354,6 +354,39 @@ func (c *Client) CtxSet(ctx context.Context, key, value, by string) (ContextEntr
 	return e, err
 }
 
+// ErrCASConflict is returned by CtxCAS when the daemon reports (HTTP 409) that
+// the current value did not match the expected value — re-read and retry.
+var ErrCASConflict = errors.New("context value conflict")
+
+// CtxCAS writes value at key only if the current value equals expected
+// (expected "" means "the key must be absent"), attributing the write to `by`.
+// Returns ErrCASConflict on mismatch.
+func (c *Client) CtxCAS(ctx context.Context, key, expected, value, by string) (ContextEntry, error) {
+	if err := ctxKeyValid(key); err != nil {
+		return ContextEntry{}, err
+	}
+	var e ContextEntry
+	body := map[string]string{"expected": expected, "value": value, "by": by}
+	err := c.do(ctx, http.MethodPost, "/context/"+url.PathEscape(key)+"/cas", body, &e)
+	var se *StatusError
+	if errors.As(err, &se) && se.Code == http.StatusConflict {
+		return ContextEntry{}, ErrCASConflict
+	}
+	return e, err
+}
+
+// CtxAppend atomically appends sep+value to key's current value, creating the
+// key (with no leading sep) when absent, attributing the write to `by`.
+func (c *Client) CtxAppend(ctx context.Context, key, value, sep, by string) (ContextEntry, error) {
+	if err := ctxKeyValid(key); err != nil {
+		return ContextEntry{}, err
+	}
+	var e ContextEntry
+	body := map[string]string{"value": value, "sep": sep, "by": by}
+	err := c.do(ctx, http.MethodPost, "/context/"+url.PathEscape(key)+"/append", body, &e)
+	return e, err
+}
+
 // CtxGet reads the entry at key (StatusError 404 if absent).
 func (c *Client) CtxGet(ctx context.Context, key string) (ContextEntry, error) {
 	if err := ctxKeyValid(key); err != nil {

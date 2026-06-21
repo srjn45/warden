@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/client"
 )
 
 // ctxWriter is the default writer identity: the agent's own session id when set
@@ -40,7 +41,73 @@ func newCtxCmd() *cobra.Command {
 		Use:   "ctx",
 		Short: "Read and write the shared context (a namespaced key/value store agents share)",
 	}
-	cmd.AddCommand(newCtxSetCmd(), newCtxGetCmd(), newCtxListCmd(), newCtxDelCmd())
+	cmd.AddCommand(newCtxSetCmd(), newCtxCASCmd(), newCtxAppendCmd(), newCtxGetCmd(), newCtxListCmd(), newCtxDelCmd())
+	return cmd
+}
+
+func newCtxCASCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "cas <key> [value]",
+		Short: "Set a key only if its current value matches --expected (atomic compare-and-set)",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fileFlag, _ := cmd.Flags().GetString("file")
+			useStdin, _ := cmd.Flags().GetBool("stdin")
+			value, err := resolveCtxValue(fileFlag, useStdin, cmd.InOrStdin(), args)
+			if err != nil {
+				return err
+			}
+			expected, _ := cmd.Flags().GetString("expected")
+			by, _ := cmd.Flags().GetString("as")
+			if by == "" {
+				by = ctxWriter()
+			}
+			_, err = clientFor(cmd).CtxCAS(cmd.Context(), args[0], expected, value, by)
+			if errors.Is(err, client.ErrCASConflict) {
+				return fmt.Errorf("conflict: %s changed (current value != --expected); re-read and retry", args[0])
+			}
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "set %s\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().String("expected", "", "only set if the current value equals this (empty = key must be absent)")
+	cmd.Flags().String("file", "", "read value from a file")
+	cmd.Flags().Bool("stdin", false, "read value from stdin")
+	cmd.Flags().String("as", "", "writer identity (defaults to $WARDEN_SESSION_ID or 'human')")
+	return cmd
+}
+
+func newCtxAppendCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "append <key> [value]",
+		Short: "Atomically append to a key's value (creates it if absent)",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fileFlag, _ := cmd.Flags().GetString("file")
+			useStdin, _ := cmd.Flags().GetBool("stdin")
+			value, err := resolveCtxValue(fileFlag, useStdin, cmd.InOrStdin(), args)
+			if err != nil {
+				return err
+			}
+			sep, _ := cmd.Flags().GetString("sep")
+			by, _ := cmd.Flags().GetString("as")
+			if by == "" {
+				by = ctxWriter()
+			}
+			if _, err := clientFor(cmd).CtxAppend(cmd.Context(), args[0], value, sep, by); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "appended to %s\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().String("sep", "\n", "separator inserted before the value when the key already exists")
+	cmd.Flags().String("file", "", "read value from a file")
+	cmd.Flags().Bool("stdin", false, "read value from stdin")
+	cmd.Flags().String("as", "", "writer identity (defaults to $WARDEN_SESSION_ID or 'human')")
 	return cmd
 }
 
