@@ -950,6 +950,58 @@ func TestNoEventOnPaneChangeWhenNotWaiting(t *testing.T) {
 	}
 }
 
+func TestTryAutoApproveAffirmativeSelection(t *testing.T) {
+	const stickyFirst = "Do you want to proceed?\n" +
+		" ❯ 1. Yes, and don't ask again for Bash commands\n" +
+		"   2. Yes\n" +
+		"   3. No"
+	const destructive = "Bash(rm -rf build)\n" +
+		"Do you want to proceed?\n" +
+		" ❯ 1. Yes\n" +
+		"   2. No"
+	const stickyOnly = "Do you want to proceed?\n" +
+		" ❯ 1. Yes, allow always\n" +
+		"   2. No, keep asking"
+	const noAffirmative = "Do you want to proceed?\n" +
+		" ❯ 1. No\n" +
+		"   2. Cancel"
+	const plainYesNo = "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
+
+	cases := []struct {
+		name        string
+		pane        string
+		global      bool
+		perSession  bool
+		allowSticky bool
+		wantSends   int
+		wantKey     string // checked only when wantSends > 0
+	}{
+		{name: "sticky-first picks least-privilege yes", pane: stickyFirst, global: true, wantSends: 1, wantKey: "2"},
+		{name: "destructive is blocked", pane: destructive, global: true, wantSends: 0},
+		{name: "sticky-only abstains when allow_sticky off", pane: stickyOnly, global: true, allowSticky: false, wantSends: 0},
+		{name: "sticky-only accepted when allow_sticky on", pane: stickyOnly, global: true, allowSticky: true, wantSends: 1, wantKey: "1"},
+		{name: "no affirmative abstains", pane: noAffirmative, global: true, wantSends: 0},
+		{name: "gate off sends nothing", pane: plainYesNo, global: false, perSession: false, wantSends: 0},
+		{name: "unrecognized prompt sends nothing", pane: "just some neutral text", global: true, wantSends: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &stubDeps{}
+			p := New(d, 30*time.Second)
+			p.AutoApproveGlobal = tc.global
+			p.AutoApproveAllowSticky = tc.allowSticky
+			s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1", AutoApprove: tc.perSession}
+
+			p.tryAutoApprove(context.Background(), s, tc.pane)
+
+			require.Equal(t, tc.wantSends, d.sendCount())
+			if tc.wantSends > 0 {
+				require.Equal(t, tc.wantKey, d.lastSentKey("tmux-1"))
+			}
+		})
+	}
+}
+
 func TestAutoApprovalEndToEnd(t *testing.T) {
 	// Scenario: Agent shows first prompt (status transition), gets auto-approved,
 	// then shows second prompt (pane change, no status transition), gets auto-approved.

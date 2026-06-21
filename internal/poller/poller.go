@@ -3,6 +3,7 @@ package poller
 import (
 	"context"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -115,6 +116,10 @@ type Poller struct {
 	// Per-session AutoApprove overrides this.
 	AutoApproveGlobal bool
 
+	// AutoApproveAllowSticky lets auto-approve press a sticky "don't ask again"
+	// affirmative. Off by default so unattended approval never grants standing perms.
+	AutoApproveAllowSticky bool
+
 	// ApprovalEvents is a buffered channel for approval opportunities.
 	// Published when: (1) status transitions to waiting_for_input, OR
 	// (2) pane changes while already in waiting_for_input.
@@ -163,10 +168,15 @@ func isTerminal(s store.Status) bool {
 	return false
 }
 
-// tryAutoApprove attempts to auto-approve a recognized yes/no prompt by sending
-// option 1 to the agent's tmux pane. Only attempts auto-approval if:
+// tryAutoApprove attempts to auto-approve a recognized prompt by pressing its
+// least-privilege affirmative ("yes") option. Only attempts auto-approval if:
 //   - AutoApproveGlobal OR session.AutoApprove is true
 //   - The pane content parses as a recognized prompt (approval.Parse ok=true)
+//
+// A recognized prompt naming a destructive/irreversible action is blocked
+// unconditionally (the destructive guard runs first and is not configurable).
+// Prompts with no affirmative option are skipped, as are sticky-only "don't ask
+// again" affirmatives unless AutoApproveAllowSticky is set.
 //
 // Idempotent and safe to call repeatedly on the same prompt: an unrecognized or
 // already-dismissed prompt is a logged no-op.
@@ -183,13 +193,27 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 		return
 	}
 
-	// Send option 1
-	if err := p.deps.SendKeys(ctx, s.TmuxSession, "1"); err != nil {
+	// Never auto-confirm a destructive/irreversible action — escalate to a human.
+	if bad, marker := approval.IsDestructive(a); bad {
+		log.Printf("auto-approve BLOCKED for %s: destructive (%q)", s.ID, marker)
+		return
+	}
+	if a.AffirmativeIdx == 0 {
+		log.Printf("auto-approve skipped for %s: no affirmative option", s.ID)
+		return
+	}
+	if a.AffirmativeSticky && !p.AutoApproveAllowSticky {
+		log.Printf("auto-approve skipped for %s: only a sticky affirmative (allow_sticky off)", s.ID)
+		return
+	}
+
+	key := strconv.Itoa(a.AffirmativeIdx)
+	if err := p.deps.SendKeys(ctx, s.TmuxSession, key); err != nil {
 		log.Printf("auto-approve failed for %s: %v", s.ID, err)
 		return
 	}
 
-	log.Printf("auto-approved %s -> option 1: %s", s.ID, a.Options[0])
+	log.Printf("auto-approved %s -> option %s: %s", s.ID, key, a.Options[a.AffirmativeIdx-1])
 	if p.OnChange != nil {
 		p.OnChange()
 	}
