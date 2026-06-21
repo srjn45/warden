@@ -22,14 +22,18 @@ func classify(s *store.Session, pane string, sessionAlive bool, sinceUpdate, stu
 		return store.StatusOrphaned
 	}
 
-	// Check for rate limit BEFORE other classifications
-	// (prevents misclassification as waiting_for_input when prompt is shown)
-	if isLimited, _, _ := detectRateLimit(pane); isLimited {
-		return store.StatusRateLimited
-	}
-
+	// An agent that is actively streaming ("esc to interrupt") is working; a real
+	// limit banner only appears once streaming has stopped, so working wins first
+	// and we never even evaluate rate-limit detection on a live agent. This makes
+	// a stray "rate limit" keyword in live output unable to misclassify it.
 	if strings.Contains(pane, "esc to interrupt") {
 		return store.StatusWorking
+	}
+
+	// Rate limit is checked before the waiting/idle heuristics so a banner is not
+	// misread as waiting_for_input when its trailing prompt box is shown.
+	if isLimited, _, _ := detectRateLimit(pane); isLimited {
+		return store.StatusRateLimited
 	}
 	// A visible prompt box ("❯ 1." / "Do you want") confirms waiting_for_input.
 	if strings.Contains(pane, "❯") || strings.Contains(pane, "Do you want") {
