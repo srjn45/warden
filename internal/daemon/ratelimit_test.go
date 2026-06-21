@@ -409,8 +409,18 @@ func TestRateLimitScheduler_ReconstructTimers_PastTime(t *testing.T) {
 	err := sched.ReconstructTimers(context.Background())
 	require.NoError(t, err)
 
-	// Give timer a moment to fire (it should fire immediately)
-	time.Sleep(50 * time.Millisecond)
+	// The past restore time makes the timer fire immediately on a background
+	// goroutine. Wait for that goroutine to finish rather than sleeping and
+	// hoping: its last act in the success path is to delete the session's timer
+	// under sched.mu. Observing that removal while holding the lock establishes a
+	// happens-before edge to the goroutine's earlier restoreCalls++ in Restore,
+	// so the unsynchronized read below is safe.
+	require.Eventually(t, func() bool {
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		_, exists := sched.timers["test-123"]
+		return !exists
+	}, time.Second, 5*time.Millisecond, "resume goroutine should fire and clear its timer")
 
 	// Verify Restore was called (timer fired immediately)
 	require.Equal(t, 1, life.restoreCalls)
