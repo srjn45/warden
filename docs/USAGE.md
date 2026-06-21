@@ -217,7 +217,7 @@ Warden recognizes these short aliases:
 | Alias | Full Model ID | Use Case |
 |---|---|---|
 | `opus` | `claude-opus-4-8` | Complex reasoning, large codebases, architectural decisions |
-| `sonnet` | `claude-sonnet-4-5` | Balanced performance (default) |
+| `sonnet` | `claude-sonnet-4-6` | Balanced performance (default) |
 | `haiku` | `claude-3-5-haiku-20241022` | Fast, lightweight tasks |
 | `fable` | `claude-3-7-fable` | Experimental tasks |
 
@@ -231,7 +231,7 @@ warden start "Task" --model claude-sonnet-4-6
 If you don't specify `--model`, warden uses:
 
 1. **`WARDEN_MODEL_DEFAULT` environment variable** (if set)
-2. **`claude-sonnet-4-5`** (built-in fallback)
+2. **`claude-sonnet-4-6`** (built-in fallback)
 
 Set your default model:
 ```sh
@@ -282,7 +282,7 @@ spawn_agent({
 })
 ```
 
-The same default resolution applies: `WARDEN_MODEL_DEFAULT` → `claude-sonnet-4-5`.
+The same default resolution applies: `WARDEN_MODEL_DEFAULT` → `claude-sonnet-4-6`.
 
 ### Restored agents
 
@@ -310,7 +310,7 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--branch` | New branch (development) or checkout target (pr-review). |
 | `--pr` | PR number/URL (pr-review). |
 | `--worktree` | Create a scratch worktree for analysis/spike. |
-| `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: `WARDEN_MODEL_DEFAULT` env var, or `claude-sonnet-4-5`. |
+| `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: `WARDEN_MODEL_DEFAULT` env var, or `claude-sonnet-4-6`. |
 
 ### `warden ls`
 List all active sessions: `ID  TYPE  STATUS  AGE  DIR  SUBJECT`.
@@ -701,7 +701,7 @@ Set via environment variables (or override the daemon address per-command with
 | `WARDEN_DATA_DIR` | `~/.warden` | Directory for session JSON files (`sessions/`, `closed/`) and prompt files (`prompts/`) |
 | `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored — **not** where the agent runs (prompt agents run in the caller's cwd or `--dir`) |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects |
-| `WARDEN_MODEL_DEFAULT` | `claude-sonnet-4-5` | Default model for new agents; can be a short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Overridden by `--model` flag |
+| `WARDEN_MODEL_DEFAULT` | `claude-sonnet-4-6` | Default model for new agents; can be a short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Overridden by `--model` flag |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
 | `WARDEN_TOKEN_GUARD` | `on` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web. Disable with `0`/`off`/`false` |
 | `WARDEN_TOKEN_WARN_ALERT` | `on` | Fire a desktop notification (when `WARDEN_NOTIFY` is on) once per upward crossing into warning/critical. Disable with `0`/`off`/`false` |

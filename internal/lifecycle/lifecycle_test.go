@@ -19,7 +19,7 @@ import (
 // The claude-command builders (claudeLaunch/claudeResume/claudeBase/pipelineHint)
 // are methods on *Lifecycle now. These package-level test wrappers build the
 // expected strings using a default, production-like config (hint on, empty model
-// default → claude-sonnet-4-5) so existing expectations read unchanged.
+// default → claude-sonnet-4-6) so existing expectations read unchanged.
 func defaultLC() *Lifecycle { return New(&FakeRunner{}, &FakeConfig{}) }
 
 func claudeLaunch(sessionID, name, model, mode string) string {
@@ -47,7 +47,7 @@ func TestClaudeResumePermissionMode(t *testing.T) {
 
 func TestClaudeLaunchModel(t *testing.T) {
 	cmd := claudeLaunch("sid", "agent-1", "", "auto")
-	require.Contains(t, cmd, "--model 'claude-sonnet-4-5'")
+	require.Contains(t, cmd, "--model 'claude-sonnet-4-6'")
 }
 
 func TestParseSummaryCapsByRune(t *testing.T) {
@@ -1278,9 +1278,9 @@ func TestClaudeBase(t *testing.T) {
 		mode string
 		want string
 	}{
-		{"auto", "claude --model 'claude-sonnet-4-5' --permission-mode 'auto'"},
-		{"acceptEdits", "claude --model 'claude-sonnet-4-5' --permission-mode 'acceptEdits'"},
-		{"bypassPermissions", "claude --model 'claude-sonnet-4-5' --permission-mode 'bypassPermissions'"},
+		{"auto", "claude --model 'claude-sonnet-4-6' --permission-mode 'auto'"},
+		{"acceptEdits", "claude --model 'claude-sonnet-4-6' --permission-mode 'acceptEdits'"},
+		{"bypassPermissions", "claude --model 'claude-sonnet-4-6' --permission-mode 'bypassPermissions'"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {

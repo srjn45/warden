@@ -61,7 +61,7 @@ func permissionFlag(mode string) string {
 }
 
 // claudeBase is the claude command + model + permission flag every agent session starts from.
-// Uses the provided model, or the default (claude-sonnet-4-5) when model is empty.
+// Uses the provided model, or the default (DefaultModel) when model is empty.
 // modelID is shell-quoted: it may be an arbitrary caller-supplied full model ID
 // (ResolveModel passes unknown values through), and claudeBase's result is typed
 // into a tmux pane and executed by a shell, so an unquoted model would be a

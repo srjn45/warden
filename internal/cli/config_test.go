@@ -42,7 +42,7 @@ func TestConfigShowMissingFileNotesDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent.yaml")
 	out := runConfig(t, path)
 	require.Contains(t, out, "file not found")
-	require.Contains(t, out, "claude-sonnet-4-5") // default model still shown
+	require.Contains(t, out, "claude-sonnet-4-6") // default model still shown
 }
 
 func TestConfigPath(t *testing.T) {

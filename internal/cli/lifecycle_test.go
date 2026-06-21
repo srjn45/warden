@@ -82,6 +82,6 @@ func TestStartWithHardcodedDefault(t *testing.T) {
 	}
 
 	// With model_default left at its default, spawning without an explicit
-	// --model should use claude-sonnet-4-5.
-	// Real test would verify Model field = "claude-sonnet-4-5"
+	// --model should use claude-sonnet-4-6.
+	// Real test would verify Model field = "claude-sonnet-4-6"
 }

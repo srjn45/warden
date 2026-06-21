@@ -258,7 +258,7 @@ Warden supports per-agent model selection:
 
 - **Short aliases:** `opus`, `sonnet`, `haiku`, `fable`
 - **Full model IDs:** `claude-opus-4-8`, `claude-sonnet-4-6`, etc.
-- **Default:** `claude-sonnet-4-5` (or `WARDEN_MODEL_DEFAULT` env var)
+- **Default:** `claude-sonnet-4-6` (or `WARDEN_MODEL_DEFAULT` env var)
 
 ```bash
 # Explicit model
@@ -281,7 +281,7 @@ warden ls  # Shows MODEL column
 | `WARDEN_DATA_DIR` | `~/.warden` | Directory for session JSON files (`sessions/`, `closed/`) |
 | `WARDEN_WORKDIR` | `~/warden-agents` | Where the per-agent prompt file is stored (keyed by agent id). It is **not** where the agent runs — prompt-spawned agents launch in the caller's current directory |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Root of Claude Code transcript directories; used by the poller to read agent transcripts when generating subjects |
-| `WARDEN_MODEL_DEFAULT` | `claude-sonnet-4-5` | Default model for new agents; can be a short alias (opus/sonnet/haiku/fable) or full model ID. Overridden by `--model` flag |
+| `WARDEN_MODEL_DEFAULT` | `claude-sonnet-4-6` | Default model for new agents; can be a short alias (opus/sonnet/haiku/fable) or full model ID. Overridden by `--model` flag |
 | `WARDEN_NOTIFY` | `off` | macOS desktop notifications when an agent needs attention (`on`/`1`/`true` to enable) |
 | `WARDEN_APPROVALS` | `on` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approve`. Unrecognized prompts always fall back to attach. On by default; disable with `0`/`off`/`false` |
 | `WARDEN_TOKEN_GUARD` | `on` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch — disable with `0`/`off`/`false` to turn off the whole guard (gauge, alert, auto-compact) |

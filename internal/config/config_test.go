@@ -28,7 +28,7 @@ func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
 	require.False(t, c.AutoApproveEnabled)
 	require.Equal(t, "auto", c.DefaultPermissionMode)
 	require.Equal(t, 5, c.SpawnGateMaxAgents)
-	require.Equal(t, "claude-sonnet-4-5", c.ModelDefault)
+	require.Equal(t, "claude-sonnet-4-6", c.ModelDefault)
 	require.True(t, c.PipelineHint)
 }
 
@@ -84,7 +84,7 @@ func TestLoadEmptyRequiredStringsFallBack(t *testing.T) {
 	path := tmpConfig(t, "addr:\nmodel_default:\n")
 	c := Load(path)
 	require.Equal(t, defaults().Addr, c.Addr)
-	require.Equal(t, "claude-sonnet-4-5", c.ModelDefault)
+	require.Equal(t, "claude-sonnet-4-6", c.ModelDefault)
 }
 
 func TestLoadGarbledFileFallsBackToDefaults(t *testing.T) {
@@ -218,7 +218,7 @@ func TestDurationAccessors(t *testing.T) {
 func TestConfigImplementsProviderAccessors(t *testing.T) {
 	c := defaults()
 	require.Equal(t, "auto", c.GetDefaultPermissionMode())
-	require.Equal(t, "claude-sonnet-4-5", c.GetModelDefault())
+	require.Equal(t, "claude-sonnet-4-6", c.GetModelDefault())
 	require.True(t, c.GetPipelineHint())
 }
 

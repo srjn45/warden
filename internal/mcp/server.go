@@ -41,7 +41,7 @@ type spawnArgs struct {
 	PermissionMode string `json:"permission_mode,omitempty" jsonschema:"permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; defaults to config or 'auto'"`
 	Force          bool   `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
 	Name           string `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
-	Model          string `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to sonnet-4.5 or the model_default config setting"`
+	Model          string `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to the model_default config setting (sonnet)"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -171,7 +171,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "spawn_agent",
-		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; code/docs/website/debug-ci/tests run in the repo; analysis/spike take an optional worktree). Launches claude-sonnet-4-5 (1M context) with --permission-mode acceptEdits (risky tools prompt → answerable in the approvals inbox). If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
+		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; code/docs/website/debug-ci/tests run in the repo; analysis/spike take an optional worktree). Launches the configured default model (sonnet) and permission mode (auto) unless `model`/`permission_mode` override them; risky tools prompt → answerable in the approvals inbox. If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a spawnArgs) (*mcpsdk.CallToolResult, any, error) {
 		cwd := a.Dir
 		if cwd == "" {

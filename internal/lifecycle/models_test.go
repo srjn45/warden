@@ -65,7 +65,7 @@ func TestModelOrDefault(t *testing.T) {
 	t.Run("hardcoded fallback when config empty", func(t *testing.T) {
 		l := lifecycleWithModel("")
 		got := l.modelOrDefault("")
-		expected := "claude-sonnet-4-5"
+		expected := "claude-sonnet-4-6"
 		if got != expected {
 			t.Errorf("modelOrDefault(%q) = %q, want %q", "", got, expected)
 		}

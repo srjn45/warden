@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -258,10 +259,10 @@ func modelCell(model string) string {
 }
 
 // modelOrDefault returns the model display value for status output.
-// Shows full model ID, or "claude-sonnet-4-5" for empty.
+// Shows the full model ID, or lifecycle.DefaultModel for empty.
 func modelOrDefault(model string) string {
 	if model == "" {
-		return "claude-sonnet-4-5" // default
+		return lifecycle.DefaultModel // default
 	}
 	return model
 }

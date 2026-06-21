@@ -118,7 +118,7 @@ func defaults() Config {
 		TokenWarn:              200000,
 		TokenCritical:          400000,
 		PipelineKeepDone:       false,
-		ModelDefault:           "claude-sonnet-4-5",
+		ModelDefault:           "claude-sonnet-4-6", // current "sonnet" alias; keep in sync with lifecycle.DefaultModel
 		PipelineHint:           true,
 		AutoRestartMax:         3,
 		AutoRestartReset:       "5m",

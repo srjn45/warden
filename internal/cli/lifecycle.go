@@ -132,7 +132,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().String("permission-mode", "", "permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')")
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
-	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: sonnet-4.5 or the model_default config setting)")
+	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)")
 	return cmd
 }
 
