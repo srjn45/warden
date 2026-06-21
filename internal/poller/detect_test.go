@@ -3,6 +3,7 @@ package poller
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -97,28 +98,42 @@ func TestDetectRateLimit_BannerScrolledAwayDoesNotMatch(t *testing.T) {
 	require.False(t, got, "banner outside the trailing window must not match")
 }
 
-func TestParseRestoreTime_Placeholder(t *testing.T) {
-	// NOTE: This is a placeholder test until exact message format is known
-	// Will be updated when user provides actual Claude Code error message
+func TestParseRestoreTime_NoTimeInMessage(t *testing.T) {
+	_, ok := ParseRestoreTime("Rate limit exceeded. Try again later.")
+	require.False(t, ok, "a message with no clock-time must not parse")
+}
 
-	tests := []struct {
-		name   string
-		pane   string
-		wantOK bool
-	}{
-		{
-			name:   "no time in message",
-			pane:   "Rate limit exceeded. Try again later.",
-			wantOK: false,
-		},
-	}
+func TestParseRestoreTime_RollsPastTimeToTomorrow(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Madrid")
+	now := time.Now().In(loc)
+	// Pick a clock-time one hour BEFORE now → must roll to tomorrow, not return now.
+	past := now.Add(-1 * time.Hour)
+	pane := "resets " + past.Format("15:04") + " (Europe/Madrid)"
+	got, ok := ParseRestoreTime(pane)
+	require.True(t, ok)
+	require.True(t, got.After(time.Now()), "past clock-time must roll forward, not return now")
+	require.WithinDuration(t, now.Add(23*time.Hour), got, 90*time.Minute)
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, gotOK := ParseRestoreTime(tt.pane)
-			if gotOK != tt.wantOK {
-				t.Errorf("ParseRestoreTime() ok = %v, want %v", gotOK, tt.wantOK)
-			}
-		})
-	}
+func TestParseRestoreTime_AmPmFromGroup(t *testing.T) {
+	// An unrelated 'pm'/'am' elsewhere in the pane must not flip the parse.
+	loc, _ := time.LoadLocation("Europe/Madrid")
+	pane := "the pm reviewed it; resets 1:30am (Europe/Madrid)"
+	got, ok := ParseRestoreTime(pane)
+	require.True(t, ok)
+	require.Equal(t, 1, got.In(loc).Hour())
+}
+
+func TestParseRestoreTime_24Hour(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Madrid")
+	pane := "resets 13:30 (Europe/Madrid)"
+	got, ok := ParseRestoreTime(pane)
+	require.True(t, ok)
+	require.Equal(t, 13, got.In(loc).Hour())
+}
+
+func TestParseRestoreTime_ZonelessNeverBeforeNow(t *testing.T) {
+	got, ok := ParseRestoreTime("try again at 00:01")
+	require.True(t, ok)
+	require.False(t, got.Before(time.Now()), "zone-less fallback must never return a past time")
 }
