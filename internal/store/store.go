@@ -27,6 +27,9 @@ type Store interface {
 	// Returns ErrNotFound if neither name nor ID match any active session.
 	GetByNameOrID(ctx context.Context, nameOrID string) (*Session, error)
 	List(ctx context.Context) ([]*Session, error)
+	// ListClosed returns all archived (closed) sessions. Archived records still
+	// legitimately own their worktree, so prune consults them before reclaiming.
+	ListClosed(ctx context.Context) ([]*Session, error)
 	UpdateStatus(ctx context.Context, id string, status Status) error
 	// UpdateStatusIf is a compare-and-swap: it sets status to next only if the
 	// stored status still equals expected, reporting whether the swap happened.

@@ -93,12 +93,14 @@ type Session struct {
 	TmuxSession     string     `json:"tmux_session"`
 	ClaudeSessionID string     `json:"claude_session_id"` // pinned claude --session-id (UUID); deterministic transcript + future --resume
 	Repo            string     `json:"repo"`
-	Worktree        string     `json:"worktree"` // optional (empty = no worktree)
-	Branch          string     `json:"branch"`   // optional
-	PR              string     `json:"pr"`       // optional (pr-review)
-	Prompt          string     `json:"prompt"`   // initial prompt (prompt-spawned agents)
-	Workdir         string     `json:"workdir"`  // absolute cwd of the tmux session
-	Subject         string     `json:"subject"`  // one-line auto summary of what it's doing
+	Worktree        string     `json:"worktree"`                   // optional (empty = no worktree)
+	Branch          string     `json:"branch"`                     // optional
+	WorktreeCreated bool       `json:"worktree_created,omitempty"` // warden ran `git worktree add` (vs adopted a pre-existing one)
+	BranchCreated   bool       `json:"branch_created,omitempty"`   // warden/gh created Branch (vs checked out a user branch)
+	PR              string     `json:"pr"`                         // optional (pr-review)
+	Prompt          string     `json:"prompt"`                     // initial prompt (prompt-spawned agents)
+	Workdir         string     `json:"workdir"`                    // absolute cwd of the tmux session
+	Subject         string     `json:"subject"`                    // one-line auto summary of what it's doing
 	Status          Status     `json:"status"`
 	PID             int        `json:"pid"`
 	ExitCode        *int       `json:"exit_code,omitempty"` // process exit status when recovered: nil=unknown (orphaned/pre-feature), 0=clean, non-zero=crash
