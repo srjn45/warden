@@ -85,6 +85,14 @@ type removeWorktreeRequest struct {
 	DeleteAdoptedBranch bool `json:"delete_adopted_branch"`
 }
 
+// pruneRequest is the body for POST /prune.
+type pruneRequest struct {
+	Repo            string `json:"repo"`
+	DryRun          bool   `json:"dry_run"`
+	Force           bool   `json:"force"`
+	IncludeArchived bool   `json:"include_archived"`
+}
+
 // InputRequest is the body for POST /sessions/{id}/input.
 type InputRequest struct {
 	Text string `json:"text"`
@@ -180,6 +188,12 @@ type Lifecycle interface {
 	Terminate(ctx context.Context, tmuxSession string) error
 	// RemoveWorktree removes the session's git worktree + branch (explicit).
 	RemoveWorktree(ctx context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error
+	// ListWorktrees is the read-only join behind `warden worktree ls`: git
+	// worktrees under repo/.worktrees labelled by their owning record + state.
+	ListWorktrees(ctx context.Context, repo string, active, archived []*store.Session) ([]lifecycle.WorktreeListing, error)
+	// PruneWorktrees reconciles git's worktree list against the supplied records
+	// and reclaims orphans under the dirty/unpushed guard.
+	PruneWorktrees(ctx context.Context, repo string, opts lifecycle.PruneOpts) ([]lifecycle.PruneResult, error)
 	// Teardown force-removes a session's tmux session (and worktree/branch, if
 	// any) using the already-known doc, without consulting the store. It is used
 	// to roll back Spawn's side effects when persisting the doc fails.

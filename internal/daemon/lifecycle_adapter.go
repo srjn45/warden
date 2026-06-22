@@ -64,6 +64,14 @@ func (a *lifecycleAdapter) RemoveWorktree(ctx context.Context, sess *store.Sessi
 	}, force, deleteAdoptedBranch)
 }
 
+func (a *lifecycleAdapter) ListWorktrees(ctx context.Context, repo string, active, archived []*store.Session) ([]lifecycle.WorktreeListing, error) {
+	return a.lc.ListWorktrees(ctx, repo, active, archived)
+}
+
+func (a *lifecycleAdapter) PruneWorktrees(ctx context.Context, repo string, opts lifecycle.PruneOpts) ([]lifecycle.PruneResult, error) {
+	return a.lc.PruneWorktrees(ctx, repo, opts)
+}
+
 // Teardown force-cleans the resources Spawn created (spawn rollback): kill tmux,
 // then force-remove the worktree if there is one.
 func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *store.Session) error {

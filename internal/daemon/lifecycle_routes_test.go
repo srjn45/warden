@@ -46,6 +46,15 @@ type fakeLife struct {
 	committedMsg   string
 	commitResult   bool
 	commitErr      error
+	lwRepo         string
+	lwActive       int
+	lwArchived     int
+	lwResult       []lifecycle.WorktreeListing
+	lwErr          error
+	pruneRepo      string
+	pruneOpts      lifecycle.PruneOpts
+	pruneResult    []lifecycle.PruneResult
+	pruneErr       error
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -94,6 +103,20 @@ func (f *fakeLife) Terminate(_ context.Context, tmux string) error {
 func (f *fakeLife) RemoveWorktree(_ context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error {
 	f.removedWT = sess.ID
 	return f.removeWTErr
+}
+func (f *fakeLife) ListWorktrees(_ context.Context, repo string, active, archived []*store.Session) ([]lifecycle.WorktreeListing, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lwRepo = repo
+	f.lwActive, f.lwArchived = len(active), len(archived)
+	return f.lwResult, f.lwErr
+}
+func (f *fakeLife) PruneWorktrees(_ context.Context, repo string, opts lifecycle.PruneOpts) ([]lifecycle.PruneResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pruneRepo = repo
+	f.pruneOpts = opts
+	return f.pruneResult, f.pruneErr
 }
 func (f *fakeLife) Teardown(_ context.Context, sess *store.Session) error {
 	f.mu.Lock()
@@ -304,6 +327,64 @@ func TestHandleRemoveWorktreeClearsRecord(t *testing.T) {
 	require.Equal(t, "A-1", fl.removedWT)
 	got, _ := fs.Get(context.Background(), "A-1")
 	require.Empty(t, got.Worktree, "record's worktree cleared after removal")
+}
+
+func TestHandlePruneMissingRepo(t *testing.T) {
+	srv := lifeServer(t, newFakeStore(), &fakeLife{})
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/prune", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "a missing repo is an HTTP error")
+}
+
+func TestHandlePruneReturnsSkipsNotErrors(t *testing.T) {
+	fl := &fakeLife{pruneResult: []lifecycle.PruneResult{
+		{Path: ".worktrees/a", Action: lifecycle.PruneSkip, State: "dirty", Reason: "dirty (use --force)"},
+		{Path: ".worktrees/b", Action: lifecycle.PruneRemove, BranchDeleted: true},
+	}}
+	srv := lifeServer(t, newFakeStore(), fl)
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/prune", "application/json", strings.NewReader(`{"repo":"/repo","force":true,"include_archived":true}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "dirty/unpushed skips are results, not HTTP errors")
+	var body struct {
+		Results []lifecycle.PruneResult `json:"results"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Len(t, body.Results, 2)
+	require.Equal(t, lifecycle.PruneSkip, body.Results[0].Action)
+	require.Equal(t, "/repo", fl.pruneRepo)
+	require.True(t, fl.pruneOpts.Force)
+	require.True(t, fl.pruneOpts.IncludeArchived)
+}
+
+func TestHandleListWorktrees(t *testing.T) {
+	fl := &fakeLife{lwResult: []lifecycle.WorktreeListing{
+		{Path: ".worktrees/a", Owner: "a", Lifecycle: "live", State: "clean"},
+	}}
+	srv := lifeServer(t, newFakeStore(), fl)
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/worktrees?repo=/repo")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body struct {
+		Worktrees []lifecycle.WorktreeListing `json:"worktrees"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Len(t, body.Worktrees, 1)
+	require.Equal(t, "/repo", fl.lwRepo)
+}
+
+func TestHandleListWorktreesMissingRepo(t *testing.T) {
+	srv := lifeServer(t, newFakeStore(), &fakeLife{})
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/worktrees")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestPostSpawnRequiresTypeAndRepo(t *testing.T) {

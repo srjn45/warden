@@ -16,6 +16,7 @@ import (
 
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/pressure"
@@ -229,6 +230,41 @@ func (c *Client) Delete(ctx context.Context, id string, hard bool) error {
 func (c *Client) RemoveWorktree(ctx context.Context, id string, force, deleteAdoptedBranch bool) error {
 	body := map[string]bool{"force": force, "delete_adopted_branch": deleteAdoptedBranch}
 	return c.doT(ctx, longTimeout, http.MethodPost, "/sessions/"+id+"/remove-worktree", body, nil)
+}
+
+// ListWorktrees returns the read-only join behind `warden worktree ls` for repo.
+func (c *Client) ListWorktrees(ctx context.Context, repo string) ([]lifecycle.WorktreeListing, error) {
+	var resp struct {
+		Worktrees []lifecycle.WorktreeListing `json:"worktrees"`
+	}
+	q := "/worktrees?repo=" + url.QueryEscape(repo)
+	if err := c.do(ctx, http.MethodGet, q, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Worktrees, nil
+}
+
+// PruneParams mirrors the daemon's /prune body.
+type PruneParams struct {
+	Repo            string
+	DryRun          bool
+	Force           bool
+	IncludeArchived bool
+}
+
+// Prune reconciles repo's .worktrees against warden's records and returns the
+// per-worktree results (a dirty/unpushed skip is a result entry, not an error).
+func (c *Client) Prune(ctx context.Context, p PruneParams) ([]lifecycle.PruneResult, error) {
+	body := map[string]any{
+		"repo": p.Repo, "dry_run": p.DryRun, "force": p.Force, "include_archived": p.IncludeArchived,
+	}
+	var resp struct {
+		Results []lifecycle.PruneResult `json:"results"`
+	}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/prune", body, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Results, nil
 }
 
 func (c *Client) Input(ctx context.Context, id, text string) error {
