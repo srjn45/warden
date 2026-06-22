@@ -1013,7 +1013,7 @@ func TestTryAutoApproveAffirmativeSelection(t *testing.T) {
 		{name: "empty allow approves nothing", pane: plainYesNo, policy: approval.Policy{Enabled: true}, wantSends: 0},
 		// Per-session opt-in: a disabled policy still supplies the allow rules.
 		{name: "per-session opt-in participates in global rules", pane: plainYesNo,
-			policy: approval.Policy{Enabled: false, Rules: approval.Rules{Allow: []approval.Rule{{}}}},
+			policy:     approval.Policy{Enabled: false, Rules: approval.Rules{Allow: []approval.Rule{{}}}},
 			perSession: true, wantSends: 1, wantKey: "1"},
 		{name: "sticky-only abstains when allow_sticky off", pane: stickyOnly, policy: withSticky(allowAllPolicy(), false), wantSends: 0},
 		{name: "sticky-only accepted when allow_sticky on", pane: stickyOnly, policy: withSticky(allowAllPolicy(), true), wantSends: 1, wantKey: "1"},
