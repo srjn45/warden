@@ -341,8 +341,35 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if req.Hard && s.mbox != nil {
 		_ = s.mbox.DeleteInbox(id)
 	}
+	// Retention policy (worktree_keep_done=false): after a successful archive of a
+	// session that owns a worktree, attempt a guarded removal. force=false keeps
+	// the dirty/unpushed/agent-alive guard, so a clean worktree is reclaimed while
+	// a dirty one is left in place. This is best-effort: it MUST NOT fail the
+	// archive (which already succeeded above), so a guard refusal is logged only.
+	// Only the archive path applies — a hard delete leaves a record-less orphan
+	// that `warden prune` reclaims instead.
+	if !req.Hard && s.removeDoneWorktree && sess.Worktree != "" {
+		s.removeDoneWorktreeBestEffort(sess)
+	}
 	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "warning": warn})
+}
+
+// removeDoneWorktreeBestEffort runs a guarded RemoveWorktree for a just-archived
+// worktree-owning session (worktree_keep_done=false). It uses a detached context
+// (the originating request is already responding) and force=false so the
+// dirty/unpushed/agent-alive guard still protects work-in-progress. A guard
+// refusal or any other error is logged and swallowed — the archive already
+// succeeded and must not be undone. BranchCreated provenance still gates branch
+// deletion (no deleteAdoptedBranch override here).
+func (s *Server) removeDoneWorktreeBestEffort(sess *store.Session) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.life.RemoveWorktree(ctx, sess, false, false); err != nil {
+		log.Printf("worktree_keep_done=false: kept %s worktree on archive: %v", sess.ID, err)
+		return
+	}
+	log.Printf("worktree_keep_done=false: removed %s worktree on archive", sess.ID)
 }
 
 func (s *Server) handleRemoveWorktree(w http.ResponseWriter, r *http.Request) {

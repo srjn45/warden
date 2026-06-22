@@ -54,6 +54,10 @@ type Config struct {
 	RateLimitBuffer        string `yaml:"rate_limit_buffer"`
 	RateLimitAutoResume    bool   `yaml:"rate_limit_auto_resume"`
 	RateLimitResumePrompt  string `yaml:"rate_limit_resume_prompt"`
+
+	// Worktree retention policy (see internal/lifecycle prune/RemoveWorktree).
+	WorktreeKeepDone  bool `yaml:"worktree_keep_done"`
+	WorktreeAutoPrune bool `yaml:"worktree_auto_prune"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -94,6 +98,8 @@ var schema = []setting{
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
 	{"rate_limit_resume_prompt", "Text to send when resuming a rate-limited agent. Empty = bare keypress (no injected user turn). Values: any string"},
+	{"worktree_keep_done", "Keep a worktree-owning agent's worktree after it is archived (done). When false, a clean worktree is removed on archive (dirty/unpushed are kept + logged); never blocks the archive. Values: true | false"},
+	{"worktree_auto_prune", "Let the daemon auto-reclaim clean, record-less orphan worktrees on a slow cadence + at startup (the unattended sweep never touches archived-owned worktrees). Values: true | false"},
 }
 
 // fileHeader is the comment written at the very top of a generated config file.
@@ -133,6 +139,8 @@ func defaults() Config {
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
 		RateLimitResumePrompt:  "",
+		WorktreeKeepDone:       true,
+		WorktreeAutoPrune:      false,
 	}
 }
 
