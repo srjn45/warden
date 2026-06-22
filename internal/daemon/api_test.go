@@ -18,11 +18,14 @@ import (
 type fakeStore struct {
 	mu         sync.Mutex
 	data       map[string]*store.Session
+	closed     map[string]*store.Session
 	insertErr  error // when set, Insert fails with it (no doc stored)
 	archiveErr error // when set, Archive fails with it (doc left in place)
 }
 
-func newFakeStore() *fakeStore { return &fakeStore{data: map[string]*store.Session{}} }
+func newFakeStore() *fakeStore {
+	return &fakeStore{data: map[string]*store.Session{}, closed: map[string]*store.Session{}}
+}
 
 func (f *fakeStore) Insert(_ context.Context, s *store.Session) error {
 	f.mu.Lock()
@@ -205,8 +208,21 @@ func (f *fakeStore) Archive(_ context.Context, id string) error {
 	if f.archiveErr != nil {
 		return f.archiveErr
 	}
+	if s, ok := f.data[id]; ok && f.closed != nil {
+		f.closed[id] = s
+	}
 	delete(f.data, id)
 	return nil
+}
+
+func (f *fakeStore) ListClosed(_ context.Context) ([]*store.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*store.Session, 0, len(f.closed))
+	for _, s := range f.closed {
+		out = append(out, s)
+	}
+	return out, nil
 }
 func (f *fakeStore) Delete(_ context.Context, id string) error {
 	f.mu.Lock()

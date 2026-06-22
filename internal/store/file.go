@@ -45,7 +45,61 @@ func NewFileStore(dir string) (*FileStore, error) {
 	if err := os.MkdirAll(fs.closed, 0o700); err != nil {
 		return nil, err
 	}
+	if err := fs.migrateProvenance(); err != nil {
+		return nil, err
+	}
 	return fs, nil
+}
+
+// provenanceMarker names the sentinel that records the one-shot provenance
+// backfill has run, so it never re-touches records written after the migration.
+const provenanceMarker = ".provenance-migrated"
+
+// backfillProvenance infers created/adopted provenance for a legacy record that
+// predates the WorktreeCreated/BranchCreated fields. A worktree on disk implies
+// warden created it (adopted worktrees did not exist before this feature), and a
+// recorded branch equal to the session id is warden's default branch name, so it
+// is treated as warden-created; a user-named branch (≠ id) is conservatively
+// left adopted.
+func backfillProvenance(s *Session) {
+	s.WorktreeCreated = s.Worktree != ""
+	s.BranchCreated = s.Branch != "" && s.Branch == s.ID
+}
+
+// migrateProvenance backfills the provenance flags onto every pre-existing
+// active and archived record exactly once (guarded by a sentinel file), then
+// rewrites them. Running before the daemon serves any request, it needs no lock.
+// Records written after the marker exists keep the explicit flags spawn records,
+// so a legitimately-adopted (WorktreeCreated=false) record is never clobbered.
+func (fs *FileStore) migrateProvenance() error {
+	marker := filepath.Join(fs.dir, provenanceMarker)
+	if _, err := os.Stat(marker); err == nil {
+		return nil // already migrated
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	for _, dir := range []string{fs.sessions, fs.closed} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			s, err := readSession(path)
+			if err != nil {
+				log.Printf("filestore: provenance migration skipping %s: %v", e.Name(), err)
+				continue
+			}
+			backfillProvenance(s)
+			if err := atomicWriteJSON(path, s); err != nil {
+				return err
+			}
+		}
+	}
+	return os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
 }
 
 func safeID(id string) error {
@@ -119,10 +173,10 @@ func readSession(path string) (*Session, error) {
 	return &s, nil
 }
 
-// listLocked reads all active sessions without acquiring a lock. The caller must
-// hold fs.mu (read or write).
-func (fs *FileStore) listLocked(ctx context.Context) ([]*Session, error) {
-	entries, err := os.ReadDir(fs.sessions)
+// listDir reads every session JSON in dir, newest-updated first. It is the
+// shared body of List (active) and ListClosed (archived).
+func listDir(dir string) ([]*Session, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +185,7 @@ func (fs *FileStore) listLocked(ctx context.Context) ([]*Session, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue // skips .tmp-* temp files too
 		}
-		s, err := readSession(filepath.Join(fs.sessions, e.Name()))
+		s, err := readSession(filepath.Join(dir, e.Name()))
 		if err != nil {
 			log.Printf("filestore: skipping %s: %v", e.Name(), err)
 			continue
@@ -140,6 +194,12 @@ func (fs *FileStore) listLocked(ctx context.Context) ([]*Session, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
+}
+
+// listLocked reads all active sessions without acquiring a lock. The caller must
+// hold fs.mu (read or write).
+func (fs *FileStore) listLocked(ctx context.Context) ([]*Session, error) {
+	return listDir(fs.sessions)
 }
 
 func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
@@ -221,6 +281,13 @@ func (fs *FileStore) List(ctx context.Context) ([]*Session, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 	return fs.listLocked(ctx)
+}
+
+// ListClosed returns all archived (closed) sessions, newest-updated first.
+func (fs *FileStore) ListClosed(ctx context.Context) ([]*Session, error) {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return listDir(fs.closed)
 }
 
 // mutate loads the active session, applies fn, bumps UpdatedAt, and writes it

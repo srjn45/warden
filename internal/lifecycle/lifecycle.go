@@ -327,23 +327,27 @@ func (l *Lifecycle) worktreeExists(ctx context.Context, repo, rel string) (bool,
 
 // ensureWorktree creates (or adopts) the worktree and returns the branch name
 // recorded on the doc (empty for a detached pr-review checkout) plus whether it
-// CREATED the worktree (vs. adopted a pre-existing one). The created flag lets a
-// failed spawn roll back only worktrees it made, never the user's existing ones.
-func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, rel string) (branch string, created bool, err error) {
+// CREATED the worktree and whether it CREATED the branch (vs. adopted a
+// pre-existing worktree / checked out a user-named branch). worktreeCreated lets
+// a failed spawn roll back only worktrees it made, never the user's existing
+// ones; branchCreated gates later branch deletion to branches warden owns.
+func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, rel string) (branch string, worktreeCreated, branchCreated bool, err error) {
 	exists, err := l.worktreeExists(ctx, req.Repo, rel)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
-	if exists { // adopt — we did not create it, so it is never ours to roll back
+	if exists { // adopt — we did not create the worktree or its branch
 		if req.Branch != "" {
-			return req.Branch, false, nil
+			return req.Branch, false, false, nil
 		}
-		return id, false, nil
+		return id, false, false, nil
 	}
 	if req.Type == store.TypePRReview && req.Branch == "" {
-		// Detached worktree, then let gh resolve + fetch the PR branch.
+		// Detached worktree, then let gh resolve + fetch the PR branch. The gh
+		// branch is captured (and its provenance set) by a later stage; here we
+		// leave branch empty / branchCreated false.
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", "--detach", rel); err != nil {
-			return "", false, wrapWorktreeError(fmt.Errorf("git worktree add --detach: %w", err), out, rel)
+			return "", false, false, wrapWorktreeError(fmt.Errorf("git worktree add --detach: %w", err), out, rel)
 		}
 		abs := filepath.Join(req.Repo, rel)
 		if out, err := l.run.Run(ctx, abs, "gh", "pr", "checkout", req.PR); err != nil {
@@ -351,17 +355,17 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 			if strings.Contains(strings.ToLower(out), "command not found") ||
 				strings.Contains(strings.ToLower(out), "not found") {
 				hint := commandInstallHint("gh")
-				return "", true, fmt.Errorf("gh pr checkout: %w: %s\n%s", err, out, hint)
+				return "", true, false, fmt.Errorf("gh pr checkout: %w: %s\n%s", err, out, hint)
 			}
-			return "", true, fmt.Errorf("gh pr checkout: %w: %s", err, out)
+			return "", true, false, fmt.Errorf("gh pr checkout: %w: %s", err, out)
 		}
-		return "", true, nil
+		return "", true, false, nil
 	}
-	if req.Type == store.TypePRReview { // checkout the given existing branch
+	if req.Type == store.TypePRReview { // checkout the given existing branch (adopted)
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, req.Branch); err != nil {
-			return "", false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
+			return "", false, false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 		}
-		return req.Branch, true, nil
+		return req.Branch, true, false, nil
 	}
 	// development / opt-in analysis|spike → new branch (branch = req.Branch or id).
 	branch = req.Branch
@@ -369,9 +373,9 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 		branch = id
 	}
 	if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, "-b", branch); err != nil {
-		return "", false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
+		return "", false, false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 	}
-	return branch, true, nil
+	return branch, true, true, nil
 }
 
 // Classify asks the same Claude (headless) to label a task prompt. On any error
@@ -686,12 +690,14 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	worktreeCreated := false
 	if wantWorktree(req) {
 		rel := worktreeRel(sess.ID)
-		branch, created, err := l.ensureWorktree(ctx, req, sess.ID, rel)
+		branch, created, branchCreated, err := l.ensureWorktree(ctx, req, sess.ID, rel)
 		if err != nil {
 			return nil, err
 		}
 		sess.Worktree = rel
 		sess.Branch = branch
+		sess.WorktreeCreated = created
+		sess.BranchCreated = branchCreated
 		worktreeCreated = created
 		workdir = filepath.Join(req.Repo, rel)
 	}
@@ -1171,6 +1177,8 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		}
 		sess.Worktree = rel
 		sess.Branch = id
+		sess.WorktreeCreated = true
+		sess.BranchCreated = true
 		worktreeCreated = true
 		workdir = filepath.Join(req.Repo, rel)
 	}
