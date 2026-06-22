@@ -122,7 +122,7 @@ func TestRemoveWorktreeConflictIsStatusError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"uncommitted changes"}`))
 	}))
 	defer ts.Close()
-	err := New(ts.URL).RemoveWorktree(t.Context(), "A-1", false)
+	err := New(ts.URL).RemoveWorktree(t.Context(), "A-1", false, false)
 	require.Error(t, err)
 	var se *StatusError
 	require.ErrorAs(t, err, &se)

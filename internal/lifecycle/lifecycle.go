@@ -343,9 +343,7 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 		return id, false, false, nil
 	}
 	if req.Type == store.TypePRReview && req.Branch == "" {
-		// Detached worktree, then let gh resolve + fetch the PR branch. The gh
-		// branch is captured (and its provenance set) by a later stage; here we
-		// leave branch empty / branchCreated false.
+		// Detached worktree, then let gh resolve + fetch the PR branch.
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", "--detach", rel); err != nil {
 			return "", false, false, wrapWorktreeError(fmt.Errorf("git worktree add --detach: %w", err), out, rel)
 		}
@@ -359,7 +357,15 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 			}
 			return "", true, false, fmt.Errorf("gh pr checkout: %w: %s", err, out)
 		}
-		return "", true, false, nil
+		// gh leaves HEAD on the local branch it created. Capture it so warden owns
+		// its deletion on cleanup (no leak). If rev-parse fails or returns HEAD
+		// (still detached), fall back to branch="" and let prune sweep it by name.
+		out, err := l.run.Run(ctx, abs, "git", "rev-parse", "--abbrev-ref", "HEAD")
+		ghBranch := strings.TrimSpace(out)
+		if err != nil || ghBranch == "" || ghBranch == "HEAD" {
+			return "", true, false, nil
+		}
+		return ghBranch, true, true, nil
 	}
 	if req.Type == store.TypePRReview { // checkout the given existing branch (adopted)
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, req.Branch); err != nil {
@@ -754,8 +760,9 @@ func (l *Lifecycle) killSession(id string) {
 func (l *Lifecycle) rollbackWorktree(sess *store.Session) {
 	if err := l.RemoveWorktree(context.Background(), CleanupTarget{
 		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
-		Branch: sess.Branch, TmuxSession: sess.TmuxSession,
-	}, true); err != nil {
+		Branch: sess.Branch, BranchCreated: sess.BranchCreated,
+		TmuxSession: sess.TmuxSession,
+	}, true, false); err != nil {
 		log.Printf("spawn cleanup: rollback worktree %s: %v", sess.Worktree, err)
 	}
 }
@@ -935,11 +942,12 @@ var (
 
 // CleanupTarget carries the fields Cleanup needs (filled from the store doc).
 type CleanupTarget struct {
-	ID          string
-	Repo        string
-	Worktree    string // relative, e.g. .worktrees/A-1
-	Branch      string
-	TmuxSession string
+	ID            string
+	Repo          string
+	Worktree      string // relative, e.g. .worktrees/A-1
+	Branch        string
+	BranchCreated bool // warden/gh created Branch; gates branch -D (vs. an adopted branch)
+	TmuxSession   string
 }
 
 func (l *Lifecycle) worktreeAbs(t CleanupTarget) string {
@@ -981,7 +989,13 @@ func (l *Lifecycle) Terminate(ctx context.Context, tmuxSession string) error {
 // explicit, separate step. Unless force is set, it refuses when the agent's tmux
 // session is still alive (terminate first) and when the worktree has uncommitted
 // or unpushed work (the guard). Sessions with no worktree return ErrNoWorktree.
-func (l *Lifecycle) RemoveWorktree(ctx context.Context, t CleanupTarget, force bool) error {
+//
+// The branch is git branch -D'd only when warden created it (t.BranchCreated) —
+// an adopted branch (a branch a human made and warden merely checked out) is
+// left untouched even under force, unless deleteAdoptedBranch explicitly opts in.
+// After a successful remove it best-effort runs git worktree prune to clear any
+// stale admin metadata; a prune failure is logged, not propagated.
+func (l *Lifecycle) RemoveWorktree(ctx context.Context, t CleanupTarget, force, deleteAdoptedBranch bool) error {
 	if t.Worktree == "" {
 		return ErrNoWorktree
 	}
@@ -1000,10 +1014,18 @@ func (l *Lifecycle) RemoveWorktree(ctx context.Context, t CleanupTarget, force b
 	if out, err := l.run.Run(ctx, "", "git", removeArgs...); err != nil {
 		return fmt.Errorf("git worktree remove: %w: %s", err, out)
 	}
-	if t.Branch != "" {
+	// Delete the branch only when warden owns it (created it) — never an adopted,
+	// human-made branch, unless the caller explicitly opts in. force governs the
+	// dirty/unpushed guard + worktree removal, NOT branch provenance.
+	if t.Branch != "" && (t.BranchCreated || deleteAdoptedBranch) {
 		if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "branch", "-D", t.Branch); err != nil {
 			return fmt.Errorf("git branch -D: %w: %s", err, out)
 		}
+	}
+	// Clear stale .git/worktrees admin metadata for anything removed here or
+	// out-of-band. Best-effort: a prune failure must not fail the removal.
+	if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "worktree", "prune"); err != nil {
+		log.Printf("remove-worktree %s: git worktree prune: %v: %s", t.ID, err, strings.TrimSpace(out))
 	}
 	return nil
 }

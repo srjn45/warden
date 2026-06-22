@@ -226,8 +226,9 @@ func (c *Client) Delete(ctx context.Context, id string, hard bool) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/delete", map[string]bool{"hard": hard}, nil)
 }
 
-func (c *Client) RemoveWorktree(ctx context.Context, id string, force bool) error {
-	return c.doT(ctx, longTimeout, http.MethodPost, "/sessions/"+id+"/remove-worktree", map[string]bool{"force": force}, nil)
+func (c *Client) RemoveWorktree(ctx context.Context, id string, force, deleteAdoptedBranch bool) error {
+	body := map[string]bool{"force": force, "delete_adopted_branch": deleteAdoptedBranch}
+	return c.doT(ctx, longTimeout, http.MethodPost, "/sessions/"+id+"/remove-worktree", body, nil)
 }
 
 func (c *Client) Input(ctx context.Context, id, text string) error {

@@ -441,7 +441,7 @@ func NewServer(daemonBase string) *Server {
 		Name:        "remove_worktree",
 		Description: "Remove an agent's git worktree + branch. DESTRUCTIVE and always requires explicit user confirmation first. Refuses if the agent is still running (terminate first) or has uncommitted/unpushed work, unless force=true.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a forceArgs) (*mcpsdk.CallToolResult, any, error) {
-		if err := s.cl.RemoveWorktree(ctx, a.Ticket, a.Force); err != nil {
+		if err := s.cl.RemoveWorktree(ctx, a.Ticket, a.Force, false); err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("removed worktree for " + a.Ticket), nil, nil
