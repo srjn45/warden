@@ -91,7 +91,7 @@ func (f *fakeLife) Terminate(_ context.Context, tmux string) error {
 	f.terminated = tmux
 	return nil
 }
-func (f *fakeLife) RemoveWorktree(_ context.Context, sess *store.Session, force bool) error {
+func (f *fakeLife) RemoveWorktree(_ context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error {
 	f.removedWT = sess.ID
 	return f.removeWTErr
 }

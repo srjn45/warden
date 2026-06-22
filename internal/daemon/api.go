@@ -80,6 +80,9 @@ type deleteRequest struct {
 }
 type removeWorktreeRequest struct {
 	Force bool `json:"force"`
+	// DeleteAdoptedBranch overrides the BranchCreated gate so an adopted
+	// (human-created) branch is git branch -D'd too. Off by default.
+	DeleteAdoptedBranch bool `json:"delete_adopted_branch"`
 }
 
 // InputRequest is the body for POST /sessions/{id}/input.
@@ -176,7 +179,7 @@ type Lifecycle interface {
 	// Terminate kills the agent's tmux session (keeps record + worktree).
 	Terminate(ctx context.Context, tmuxSession string) error
 	// RemoveWorktree removes the session's git worktree + branch (explicit).
-	RemoveWorktree(ctx context.Context, sess *store.Session, force bool) error
+	RemoveWorktree(ctx context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error
 	// Teardown force-removes a session's tmux session (and worktree/branch, if
 	// any) using the already-known doc, without consulting the store. It is used
 	// to roll back Spawn's side effects when persisting the doc fails.

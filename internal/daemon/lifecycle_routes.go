@@ -355,7 +355,7 @@ func (s *Server) handleRemoveWorktree(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.life.RemoveWorktree(r.Context(), sess, req.Force); err != nil {
+	if err := s.life.RemoveWorktree(r.Context(), sess, req.Force, req.DeleteAdoptedBranch); err != nil {
 		switch {
 		case errors.Is(err, lifecycle.ErrNoWorktree):
 			writeErr(w, http.StatusUnprocessableEntity, err.Error())

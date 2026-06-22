@@ -206,6 +206,7 @@ func newRemoveWorktreeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			yes, _ := cmd.Flags().GetBool("yes")
 			force, _ := cmd.Flags().GetBool("force")
+			deleteAdopted, _ := cmd.Flags().GetBool("delete-adopted-branch")
 			if !yes {
 				fmt.Fprintf(cmd.OutOrStdout(), "Remove the git worktree and branch for %s? This cannot be undone. [y/N]: ", args[0])
 				var ans string
@@ -215,7 +216,7 @@ func newRemoveWorktreeCmd() *cobra.Command {
 					return nil
 				}
 			}
-			if err := clientFor(cmd).RemoveWorktree(cmd.Context(), args[0], force); err != nil {
+			if err := clientFor(cmd).RemoveWorktree(cmd.Context(), args[0], force, deleteAdopted); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed worktree for %s\n", args[0])
@@ -223,6 +224,7 @@ func newRemoveWorktreeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("force", false, "override the alive/uncommitted/unpushed guards")
+	cmd.Flags().Bool("delete-adopted-branch", false, "also delete the branch even if warden did not create it (adopted branches are kept by default)")
 	cmd.Flags().Bool("yes", false, "skip the confirmation prompt")
 	return cmd
 }

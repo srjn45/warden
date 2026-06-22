@@ -56,11 +56,12 @@ func (a *lifecycleAdapter) Terminate(ctx context.Context, tmuxSession string) er
 	return a.lc.Terminate(ctx, tmuxSession)
 }
 
-func (a *lifecycleAdapter) RemoveWorktree(ctx context.Context, sess *store.Session, force bool) error {
+func (a *lifecycleAdapter) RemoveWorktree(ctx context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error {
 	return a.lc.RemoveWorktree(ctx, lifecycle.CleanupTarget{
 		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
-		Branch: sess.Branch, TmuxSession: sess.TmuxSession,
-	}, force)
+		Branch: sess.Branch, BranchCreated: sess.BranchCreated,
+		TmuxSession: sess.TmuxSession,
+	}, force, deleteAdoptedBranch)
 }
 
 // Teardown force-cleans the resources Spawn created (spawn rollback): kill tmux,
@@ -72,8 +73,9 @@ func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *store.Session) er
 	}
 	return a.lc.RemoveWorktree(ctx, lifecycle.CleanupTarget{
 		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
-		Branch: sess.Branch, TmuxSession: sess.TmuxSession,
-	}, true)
+		Branch: sess.Branch, BranchCreated: sess.BranchCreated,
+		TmuxSession: sess.TmuxSession,
+	}, true, false)
 }
 
 func (a *lifecycleAdapter) Restore(ctx context.Context, sess *store.Session) error {

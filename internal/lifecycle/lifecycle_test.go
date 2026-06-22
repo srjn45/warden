@@ -302,7 +302,7 @@ func (f *FakeRunner) callIndex(key string) int {
 }
 
 func cleanupInput(id string) CleanupTarget {
-	return CleanupTarget{ID: id, Repo: "/repo", Worktree: ".worktrees/" + id, Branch: id, TmuxSession: id}
+	return CleanupTarget{ID: id, Repo: "/repo", Worktree: ".worktrees/" + id, Branch: id, BranchCreated: true, TmuxSession: id}
 }
 
 func TestSpawnPRReviewWithExplicitBranch(t *testing.T) {
@@ -695,7 +695,7 @@ func TestTerminateKillsTmuxOnly(t *testing.T) {
 func TestRemoveWorktreeRefusesIfAlive(t *testing.T) {
 	// has-session succeeds (FakeRunner default) → agent alive → refuse.
 	fr := &FakeRunner{}
-	err := New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false)
+	err := New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false, false)
 	require.ErrorIs(t, err, ErrWorktreeAgentAlive)
 	for _, a := range fr.calledArgs() {
 		require.NotEqual(t, "git", a[0], "must not touch git while the agent is alive")
@@ -707,12 +707,12 @@ func TestRemoveWorktreeGuardsDirty(t *testing.T) {
 		"tmux has-session -t A-1":                        {Err: errStub("dead")},
 		"git -C /repo/.worktrees/A-1 status --porcelain": {Out: " M f.go\n"},
 	}}
-	require.ErrorIs(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false), ErrDirtyWorktree)
+	require.ErrorIs(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false, false), ErrDirtyWorktree)
 }
 
 func TestRemoveWorktreeForceProceeds(t *testing.T) {
 	fr := &FakeRunner{} // has-session would say alive, but force skips the checks
-	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), true))
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), true, false))
 	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/A-1"})
 	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "branch", "-D", "A-1"})
 }
@@ -723,13 +723,64 @@ func TestRemoveWorktreeCleanProceeds(t *testing.T) {
 		"git -C /repo/.worktrees/A-1 status --porcelain":   {Out: ""},
 		"git -C /repo/.worktrees/A-1 log @{u}.. --oneline": {Out: ""},
 	}}
-	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false))
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false, false))
 	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", ".worktrees/A-1"})
 }
 
 func TestRemoveWorktreeNoWorktreeErrors(t *testing.T) {
 	tgt := CleanupTarget{ID: "x", TmuxSession: "x"} // no Worktree
-	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).RemoveWorktree(context.Background(), tgt, false), ErrNoWorktree)
+	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).RemoveWorktree(context.Background(), tgt, false, false), ErrNoWorktree)
+}
+
+// adoptedInput is a cleanup target for an adopted worktree on a branch warden
+// did NOT create (BranchCreated=false), e.g. a pr-review of an existing branch.
+func adoptedInput(id string) CleanupTarget {
+	return CleanupTarget{ID: id, Repo: "/repo", Worktree: ".worktrees/" + id, Branch: "feature/login", BranchCreated: false, TmuxSession: id}
+}
+
+// A warden-created branch (BranchCreated=true) is git branch -D'd on removal.
+func TestRemoveWorktreeDeletesCreatedBranch(t *testing.T) {
+	fr := &FakeRunner{} // force skips the guards
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), true, false))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "branch", "-D", "A-1"})
+}
+
+// An adopted branch is left alone even under force — force governs only the
+// dirty/unpushed guard + worktree removal, not branch provenance.
+func TestRemoveWorktreeKeepsAdoptedBranchUnderForce(t *testing.T) {
+	fr := &FakeRunner{}
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), adoptedInput("A-1"), true, false))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/A-1"})
+	for _, a := range fr.calledArgs() {
+		require.NotEqual(t, []string{"git", "-C", "/repo", "branch", "-D", "feature/login"}, a,
+			"must not delete an adopted branch")
+	}
+}
+
+// The explicit --delete-adopted-branch override permits deleting an adopted branch.
+func TestRemoveWorktreeDeleteAdoptedBranchOverride(t *testing.T) {
+	fr := &FakeRunner{}
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), adoptedInput("A-1"), true, true))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "branch", "-D", "feature/login"})
+}
+
+// git worktree prune runs after a successful remove (clears stale admin metadata).
+func TestRemoveWorktreePrunesAfterRemove(t *testing.T) {
+	fr := &FakeRunner{}
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), true, false))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "prune"})
+	// prune runs after the worktree remove, not before.
+	require.Less(t, fr.callIndex("git -C /repo worktree remove --force .worktrees/A-1"),
+		fr.callIndex("git -C /repo worktree prune"))
+}
+
+// A git worktree prune failure is best-effort: it must NOT fail the removal.
+func TestRemoveWorktreePruneFailureIsNonFatal(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git -C /repo worktree prune": {Err: errStub("prune boom")},
+	}}
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), true, false))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "prune"})
 }
 
 func TestNewestClaudeSession(t *testing.T) {
