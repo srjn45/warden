@@ -34,6 +34,7 @@ type fakeLife struct {
 	restored       string
 	terminated     string
 	removedWT      string
+	removeWTForce  bool
 	removeWTErr    error
 	newestClaude   string
 	newestErr      error
@@ -101,7 +102,10 @@ func (f *fakeLife) Terminate(_ context.Context, tmux string) error {
 	return nil
 }
 func (f *fakeLife) RemoveWorktree(_ context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.removedWT = sess.ID
+	f.removeWTForce = force
 	return f.removeWTErr
 }
 func (f *fakeLife) ListWorktrees(_ context.Context, repo string, active, archived []*store.Session) ([]lifecycle.WorktreeListing, error) {

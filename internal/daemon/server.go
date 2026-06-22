@@ -58,6 +58,12 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 
 	if s.life != nil {
 		go s.runPressureSampler(runCtx)
+		// Unattended worktree GC (worktree_auto_prune): sweep at startup + on a
+		// slow ticker. Reclaims clean record-less orphans only; never touches
+		// archived-owned worktrees (see runWorktreePruneSweep).
+		if s.autoPruneWorktree {
+			go s.runWorktreePruneSweep(runCtx)
+		}
 	}
 	go s.runMetricsRecorder(runCtx)
 

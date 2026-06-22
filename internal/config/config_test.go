@@ -67,6 +67,18 @@ func TestLoad_RateLimitResumePrompt_Set(t *testing.T) {
 	require.Equal(t, "continue", c.RateLimitResumePrompt)
 }
 
+func TestLoad_WorktreeRetention_Defaults(t *testing.T) {
+	c := Load(tmpConfig(t, "")) // empty file → all defaults
+	require.True(t, c.WorktreeKeepDone, "worktree_keep_done defaults to true (today's keep behavior)")
+	require.False(t, c.WorktreeAutoPrune, "worktree_auto_prune defaults to false (opt-in)")
+}
+
+func TestLoad_WorktreeRetention_Set(t *testing.T) {
+	c := Load(tmpConfig(t, "worktree_keep_done: false\nworktree_auto_prune: true\n"))
+	require.False(t, c.WorktreeKeepDone)
+	require.True(t, c.WorktreeAutoPrune)
+}
+
 func TestLoadInvalidPermissionModeFallsBack(t *testing.T) {
 	path := tmpConfig(t, "default_permission_mode: nonsense\n")
 	require.Equal(t, "auto", Load(path).DefaultPermissionMode)

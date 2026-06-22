@@ -144,6 +144,23 @@ type Server struct {
 	mcollector *metrics.Collector
 	mrecorder  *metrics.Recorder
 	metricsOn  bool // metrics config setting — gates the disk recorder goroutine
+	// Worktree retention policy (worktree_keep_done / worktree_auto_prune).
+	// Both default to false (zero value) = today's keep-everything behavior, so a
+	// bare Server literal is non-breaking. removeDoneWorktree=true (config
+	// worktree_keep_done=false) removes a clean worktree when its owner is
+	// archived; autoPruneWorktree=true runs an unattended orphan sweep.
+	removeDoneWorktree bool
+	autoPruneWorktree  bool
+}
+
+// SetWorktreeRetention wires the worktree retention policy. keepDone mirrors
+// worktree_keep_done (true = leave archived worktrees in place, today's
+// behavior); autoPrune mirrors worktree_auto_prune (true = run the unattended
+// orphan sweep). The unattended sweep NEVER touches archived-owned worktrees —
+// that reclaim is manual (`warden prune --include-archived`) only.
+func (s *Server) SetWorktreeRetention(keepDone, autoPrune bool) {
+	s.removeDoneWorktree = !keepDone
+	s.autoPruneWorktree = autoPrune
 }
 
 // notify signals SSE subscribers that session state changed. Safe with a nil

@@ -93,6 +93,7 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
 			srv.SetSpawnGate(cfg.SpawnGateEnabled, cfg.SpawnGateMaxAgents)
+			srv.SetWorktreeRetention(cfg.WorktreeKeepDone, cfg.WorktreeAutoPrune)
 			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)
 			mrec, err := metrics.NewRecorder(filepath.Join(cfg.DataDir, "metrics"))
 			if err != nil {
