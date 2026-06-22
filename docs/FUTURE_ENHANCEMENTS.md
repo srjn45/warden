@@ -1,18 +1,71 @@
 # Warden Future Enhancements & Feature Roadmap
 
-**Last Updated:** 2026-06-13  
-**Current Version:** v3.13.0
+**Last Updated:** 2026-06-22
+**Current Version:** v4.0.0 (+ unreleased: worktree GC & lifecycle hardening)
 
-This document tracks potential improvements and new features for warden, organized by category and priority. Each item includes effort estimates and implementation notes.
+This document tracks potential improvements and new features for warden, organized
+by category and priority. Each item includes effort estimates and implementation
+notes.
+
+> **Maintenance note:** This file is verified against the codebase, not just
+> appended to. Before marking something "future," grep `internal/` first — several
+> items below were already shipped while the roadmap still listed them as pending.
+> When you finish a feature, move it to "Recently Completed" and delete its
+> forward-looking entry.
 
 ---
 
-## ✅ Recently Completed (v3.13.0)
+## ✅ Recently Completed (since v3.13.0)
 
-- Shell completion (bash/zsh/fish/powershell)
-- Agent names/aliases with `--name` flag
-- Improved error messages with actionable hints
-- 26 commits, 15 files changed, 200+ new test cases
+Verified present in `internal/` / `web/` as of 2026-06-22:
+
+**Autonomy & resilience** (the major theme of recent work)
+- **Auto-approve engine** — affirmative-option selection, destructive-action guard,
+  allow/deny policy block, sticky-approve config, poller integration
+  (`internal/approval`, `internal/poller`).
+- **Auto-restart on failure** — `AutoRestart`/`RestartCount` on the session,
+  capped resume (`internal/daemon/autorestart.go`, `internal/lifecycle`).
+- **Rate-limit auto-resume** — detects the rate-limit banner, rolls reset times
+  forward, resumes with a bare keypress / configurable prompt
+  (`internal/daemon/ratelimit.go`, `internal/poller/detect.go`).
+- **Context-token guard** — `token_guard` / `token_warn` / `token_critical` /
+  `token_auto_compact` with warn + auto-compact (`internal/ctxtokens`).
+- **Stuck / crash detection** — `stuckAfter` reclassification + crash-exit-code
+  recording and events (`internal/poller/poller.go`).
+
+**Lifecycle & storage**
+- **Worktree GC & lifecycle hardening** — provenance tracking, `RemoveWorktree`
+  provenance gating, `warden worktree ls`, `warden prune`, `worktree_keep_done` /
+  `worktree_auto_prune` retention policy (`internal/lifecycle`, `internal/store`).
+- **YAML config file** — migrated off env vars to a single config file with a
+  documented key set (`internal/config`).
+
+**Spawn & model**
+- **Model selection per agent** — `--model` (CLI + MCP), aliases
+  (`opus`/`sonnet`/`haiku`/`fable`), `model_default` config, MODEL column.
+- **Per-agent permission mode** — `--permission-mode`, `set-permission-mode`,
+  global `default_permission_mode`.
+- **Shell-injection hardening** at spawn for model / permission-mode values.
+
+**Observability**
+- **Metrics / stats system** — `warden stats`, `internal/metrics`,
+  `internal/pressure`, web Resources panel + Fleet stats
+  (`web/src/components/ResourcesPanel.tsx`, `FleetStats.tsx`).
+
+**Web UI**
+- **Pipeline DAG visualization** — `web/src/components/PipelineDag.tsx`.
+- **Timeline / activity view** — `EventTimeline.tsx`, `ActivityFeed.tsx`.
+- **Cockpit / quick-spawn / attention queue** tabs.
+
+**Inter-agent foundation** (the substrate for full collaboration, item #43)
+- **Shared context store** — `ctx_set` / `ctx_cas` / `ctx_append` / `ctx_get` /
+  `ctx_list` MCP tools with atomic CAS/append (`internal/ctxstore`).
+- **Mailbox messaging** — `send_message` / `read_inbox` / `wait_for_message` MCP
+  tools, corrupt-inbox resilience (`internal/mailbox`).
+- **Approvals over MCP** — `list_approvals` / `approve`.
+
+**From v3.13.0:** shell completion (bash/zsh/fish/powershell), agent
+names/aliases (`--name`), improved actionable error messages.
 
 ---
 
@@ -20,8 +73,8 @@ This document tracks potential improvements and new features for warden, organiz
 
 ### CLI & UX Improvements
 
-#### 1. `warden ls --watch` ⭐ HIGH IMPACT
-**Effort:** 1-2 hours  
+#### 1. `warden ls --watch` ⭐ HIGH IMPACT — *not started*
+**Effort:** 1-2 hours
 **Value:** Immediate UX improvement
 
 Live-updating agent list using the existing SSE endpoint (same one the web GUI uses).
@@ -38,11 +91,12 @@ warden ls --watch  # refreshes on every agent state change
 
 ---
 
-#### 2. `warden validate` for pipelines
-**Effort:** 1 hour  
+#### 2. `warden pipeline validate` — *not started*
+**Effort:** 1 hour
 **Value:** Better DX, fewer errors
 
-Validate pipeline YAML files before creating them.
+Validate pipeline YAML files before creating them. Today there is `create`, `list`,
+`show`, `start`, `cancel`, `delete`, `emit`, `edit-job`, `retry` — but no `validate`.
 
 ```bash
 warden pipeline validate -f pipeline.yaml
@@ -56,1158 +110,419 @@ warden pipeline validate -f pipeline.yaml
 
 ---
 
-#### 3. Pipeline templates
-**Effort:** 2 hours  
+#### 3. Pipeline templates — *not started*
+**Effort:** 2 hours
 **Value:** Faster pipeline authoring
 
-Ship 3-4 common pipeline templates in `~/.warden/templates/`.
+Ship 3-4 common pipeline templates.
 
 ```bash
 warden pipeline create --template analyze-implement-review
-warden pipeline create --template parallel-tasks
-warden pipeline create --template test-fix-verify
 warden pipeline list-templates
 ```
 
-**Templates:**
-- `analyze-implement-review.yaml` - Sequential refactoring flow
-- `parallel-tasks.yaml` - Fan-out independent work
-- `test-fix-verify.yaml` - TDD cycle
-- `research-synthesis.yaml` - Multiple research → one synthesis job
+**Templates:** `analyze-implement-review`, `parallel-tasks`, `test-fix-verify`,
+`research-synthesis`.
 
-**Implementation:**
-- Embed templates via `go:embed` in `internal/pipeline/`
-- `list-templates` shows available templates with descriptions
-- `--template` flag renders template with placeholder substitution
+**Implementation:** embed via `go:embed` in `internal/pipeline/`; `--template`
+renders with placeholder substitution.
 
 ---
 
-#### 4. `--version` enhancement
-**Effort:** 30 minutes  
+#### 4. `--version` build info — *not started*
+**Effort:** 30 minutes
 **Value:** Better debugging, support
 
-Show detailed build info instead of just version number.
+Today `version` defaults to `"dev"` (`internal/cli/root.go`) with no commit/date.
+Show detailed build info instead.
 
 ```bash
 warden --version
-# Output:
-# warden v3.13.0
-# Commit: e4bace6
-# Built: 2026-06-13T16:15:35Z
-# Go: go1.26.2
-# Platform: linux/amd64
+# warden v4.0.0
+# Commit: 3c57dca
+# Built: 2026-06-22T...Z
+# Go: go1.26.x  Platform: linux/amd64
 ```
 
-**Implementation:**
-- Add build-time ldflags in goreleaser: `-X ...buildDate={{ .Date }}`
-- Update `internal/cli/root.go` version display
-- Add `warden version --json` for machine parsing
+**Implementation:** add build-time ldflags in goreleaser; `warden version --json`.
 
 ---
 
-#### 5. Web dashboard keyboard shortcuts
-**Effort:** 2 hours  
+#### 5. Web dashboard keyboard shortcuts — *not started*
+**Effort:** 2 hours
 **Value:** Power-user productivity
 
-Add keyboard navigation to web UI with `?` help overlay.
-
-**Shortcuts:**
-- `?` - Show/hide help overlay
-- `n` - New agent
-- `/` - Focus search/filter
-- `r` - Refresh
-- `Esc` - Close modal/cancel
-- `1-9` - Quick-switch to tabs
-- `j/k` - Navigate agent list
-
-**Implementation:**
-- Global keyboard event listener in root Astro component
-- Modal component for help overlay
-- Respect input focus (disable shortcuts when typing)
+`?` help overlay, `n` new agent, `/` focus filter, `r` refresh, `Esc` close,
+`1-9` tab switch, `j/k` list nav. (Individual modals already handle local keydown;
+there is no global shortcut layer yet.)
 
 ---
 
-#### 6. Pre-commit hook auto-setup
-**Effort:** 30 minutes  
+#### 6. Pre-commit hook auto-setup — *partial*
+**Effort:** 30 minutes
 **Value:** Fewer CI failures
 
-Auto-wire `.githooks/` during installation.
-
-**Implementation:**
-- Add to `scripts/install.sh`:
-  ```bash
-  git config core.hooksPath .githooks
-  ```
-- Pre-push hook runs `make verify-fast` (gofmt, vet, web tests, build)
-- Document in README
+`.githooks/` exists; auto-wire `git config core.hooksPath .githooks` in
+`scripts/install.sh` and document it.
 
 ---
 
-#### 7. Export/Import sessions
-**Effort:** 2 hours  
+#### 7. Export/Import sessions — *not started*
+**Effort:** 2 hours
 **Value:** Backup, sharing, migration
 
-Export and import session metadata.
-
 ```bash
-warden export agent-123 > backup.json
 warden export --all > all-sessions.json
 warden import < backup.json
 ```
 
-**Implementation:**
-- Export: serialize Session struct to JSON
-- Import: validate, insert into store (skip duplicates)
-- **Does not** recreate worktrees (metadata only)
-- Useful for: backing up, moving to new machine, sharing with team
+Serialize/insert `Session` structs (metadata only; does not recreate worktrees).
 
 ---
 
-#### 8. Improve CLI test coverage to 50%+
-**Effort:** 3-4 hours  
-**Value:** Better reliability
+#### 8. Improve CLI test coverage to 50%+ — *ongoing*
+**Effort:** 3-4 hours
 
-Current: 26.1% (lowest in codebase). Target: 50%+.
-
-**Focus areas:**
-- Table-driven tests for flag parsing
-- Error path coverage
-- Output formatting tests
-- Mock daemon responses
+CLI remains the lowest-covered package. Table-driven flag parsing, error paths,
+output formatting, mocked daemon responses.
 
 ---
 
 ## 📊 Observability & Monitoring
 
-#### 9. Metrics/Stats System ⭐ HIGH VALUE
-**Effort:** 1-2 days  
-**Value:** Critical for debugging, freeze investigation
-
-**Design exists:** `docs/superpowers/specs/2026-06-09-warden-observability-design.md`
-
-Per-agent resource tracking: RSS, CPU%, process count, uptime. System memory pressure. Daemon self-stats.
-
-```bash
-warden stats                    # live snapshot
-warden stats --history          # recent history from JSONL log
-warden stats --agent <id>       # per-agent detail
-```
-
-**Web UI:**
-- Resources tab with live charts
-- Per-agent resource breakdown
-- Memory pressure indicator
-- Historical graphs
-
-**Endpoints:**
-- `GET /metrics` - Current snapshot (JSON)
-- `GET /metrics/history?limit=100` - Recent samples
-
-**Implementation:**
-- New `internal/metrics` package
-- Collector samples every 10s, writes to JSONL
-- Per-agent: aggregate process tree RSS/CPU via `ps`
-- System: `vm_stat`, `sysctl` on macOS; `/proc/meminfo` on Linux
-- Daemon: `runtime.NumGoroutine()`, own RSS
+#### 9. ~~Metrics/Stats system~~ — ✅ **DONE**
+Shipped: `warden stats`, `internal/metrics`, `internal/pressure`, web Resources +
+Fleet stats panels. See "Recently Completed."
 
 ---
 
-#### 10. Enhanced logging
-**Effort:** 2-3 hours  
+#### 10. Enhanced structured logging (`slog`) — *not started*
+**Effort:** 2-3 hours
 **Value:** Better debugging
 
-Replace scattered `log.Print` with structured `slog` (stdlib).
+No `log/slog` usage in `internal/` yet — still scattered `log.Print`.
 
 ```bash
-warden daemon --log-level debug
-warden daemon --log-format json
+warden daemon --log-level debug --log-format json
 ```
 
-**Implementation:**
-- Add `slog.Logger` to daemon
-- Replace 30+ `log.Print` calls
-- Levels: debug, info, warn, error
-- Structured fields: `slog.Info("spawned", "agent", id, "type", typ)`
+Add a `slog.Logger` to the daemon; replace `log.Print` calls; structured fields.
 
 ---
 
-#### 11. Agent performance history
-**Effort:** 4-6 hours  
-**Value:** Trend analysis
+#### 11. Agent performance history — *partial*
+**Effort:** 4-6 hours
 
-Track and visualize agent metrics over time.
-
-**Metrics:**
-- Runtime duration
-- Turn count
-- Files modified
-- Context token usage
-- Status transitions
-
-**Display:**
-- Web dashboard timeline
-- "This agent has been running 2 hours with 150 turns"
-- Warn on anomalies (stuck, runaway context)
+Live resource sampling exists via the metrics system; what's missing is persisted
+per-agent *history* (runtime, turn count, files modified, context trend) and an
+anomaly warning surface.
 
 ---
 
 ## 🌐 Remote Access & Multi-Device
 
-#### 12. Remote access support ⭐ GAME CHANGER
-**Effort:** 2-3 days  
-**Value:** Access from anywhere
+#### 12. Remote access support ⭐ GAME CHANGER — *not started*
+**Effort:** 2-3 days
+**Value:** Access from anywhere — the natural complement to the autonomy work
+(agents now run unattended; you can only watch them locally).
 
 **Design exists:** `docs/superpowers/specs/2026-06-10-warden-remote-access-design.md`
 
-Access warden web UI from phone, tablet, other machines.
-
-**Features:**
-- Bearer token authentication
-- Configurable bind address: `WARDEN_BIND_ADDR=0.0.0.0:7979`
-- Mobile-responsive web UI
-- Recommended setup: Tailscale or Cloudflare Tunnel
+Foundation present: `allow_nonloopback` config + non-loopback bind refusal. Missing:
+the auth layer itself. (Note: the existing `token_*` config keys are the *context*
+token guard, unrelated to auth.)
 
 **Implementation:**
-- Auth middleware: check `Authorization: Bearer <token>` header
-- WebSocket/SSE: accept token as query param (`?token=<t>`)
-- Exempt loopback connections (local CLI works unchanged)
-- `warden token generate` command
-- Mobile CSS breakpoints in web UI
-- Documentation for Tailscale/Cloudflare setup
-
-**Security:**
-- Daemon refuses non-loopback bind without `WARDEN_TOKEN` set
-- 32-byte cryptographically random token
-- Stateless validation (no token storage)
+- Bearer-token middleware (`Authorization: Bearer <token>`); exempt loopback so the
+  local CLI is unchanged
+- Accept token as query param for SSE/WS (`?token=<t>`)
+- 32-byte `crypto/rand` token; stateless validation
+- Mobile-responsive CSS breakpoints in the web UI
+- Docs for Tailscale / Cloudflare Tunnel setup
 
 ---
 
-#### 13. Token generation command
-**Effort:** 1 hour  
-**Value:** Part of remote access
+#### 13. `warden token generate` — *not started*
+**Effort:** 1 hour — ships with #12.
 
-```bash
-warden token generate
-# Output: a3f8e2b4... (32-byte hex)
-
-export WARDEN_TOKEN=$(warden token generate)
-```
-
-**Implementation:**
-- `crypto/rand` for secure random
-- Print to stdout, user exports manually
-- Document in README
+`crypto/rand` 32-byte hex to stdout; user exports manually.
 
 ---
 
-#### 14. Distributed warden - Multi-machine agent control ⭐ ENTERPRISE SCALE
-**Effort:** 1-2 weeks  
-**Value:** Scale across infrastructure, team-wide agent fleet
+#### 14. Distributed warden (multi-machine) ⭐ ENTERPRISE — *not started*
+**Effort:** 1-2 weeks
 
-Control agents across multiple machines from a single dashboard.
-
-**Features:**
-- Central control plane aggregates multiple warden daemons
-- Discover and register remote warden instances
-- Route commands to appropriate machine
-- Unified web dashboard showing all agents across all machines
-- Load balancing: spawn agents on least-loaded machine
-- Machine health monitoring
-
-**Architecture:**
-- Each machine runs local warden daemon (unchanged)
-- New "warden control" service aggregates multiple daemons
-- gRPC or HTTP for inter-daemon communication
-- Service discovery via mDNS, Consul, or static config
-
-**Commands:**
-```bash
-# Register a remote warden instance
-warden cluster add machine-2 https://192.168.1.10:7979 --token <token>
-warden cluster list
-
-# Spawn on specific machine
-warden start "..." --machine machine-2
-
-# Spawn with auto-placement (load balancing)
-warden start "..." --auto-place
-
-# Dashboard shows agents from all machines
-warden ls --all-machines
-```
-
-**Implementation:**
-- New `internal/cluster` package
-- Daemon registry in control plane
-- Proxy layer for routing commands
-- Aggregate SSE streams from all daemons
-- Web UI: machine filter dropdown
-
-**Use cases:**
-- Large teams sharing agent infrastructure
-- Dedicated high-memory machines for context-heavy agents
-- Geographic distribution (spawn close to repo/data)
-- Failover: if one machine goes down, spawn elsewhere
+Central control plane aggregating multiple daemons; route/spawn by machine;
+unified dashboard; load balancing. New `internal/cluster` package. Depends on #12.
 
 ---
 
 ## ⏰ Scheduling & Automation
 
-#### 15. Scheduled agents/tasks ⭐ AUTOMATION
-**Effort:** 1-2 days  
-**Value:** Unattended automation, recurring tasks
+#### 15. Scheduled agents/tasks ⭐ AUTOMATION — *not started*
+**Effort:** 1-2 days
+**Value:** Unattended, recurring runs
 
-Run agents on a schedule via cron-like syntax.
+**Decision doc:** `docs/superpowers/specs/2026-06-10-warden-scheduled-pipelines-decision.md`
 
-**Features:**
-- Cron expression support
-- One-time scheduled runs
-- Recurring scheduled runs
-- Schedule templates (daily, weekly, etc.)
-- Timezone support
-
-**Commands:**
 ```bash
-# Schedule a recurring agent (every day at 9am)
-warden schedule create "Review pending PRs" \
-  --cron "0 9 * * *" \
-  --type pr-review
-
-# One-time scheduled run
-warden schedule create "Deploy to prod" \
-  --at "2026-06-15 14:00" \
-  --type deployment
-
-# List scheduled tasks
-warden schedule list
-
-# Cancel a scheduled task
-warden schedule delete <id>
+warden schedule create "Review pending PRs" --cron "0 9 * * *" --type pr-review
+warden schedule create "Deploy" --at "2026-06-15 14:00"
+warden schedule list / delete <id>
 ```
 
-**Implementation:**
-- Store schedules in `~/.warden/schedules.json`
-- Daemon runs scheduler loop (check every minute)
-- Use cron parser library (`github.com/robfig/cron`)
-- Spawn agent when schedule matches
-- Track last run time, next run time
-- Web UI: schedules tab with calendar view
-
-**Use cases:**
-- Daily PR review sweeps
-- Nightly security scans
-- Weekly dependency updates
-- Monthly report generation
+Store in `~/.warden/schedules.json`; daemon scheduler loop (check each minute);
+`github.com/robfig/cron`. Note the existing "cron" hits in `internal/` are
+rate-limit reset-time parsing, not a scheduler.
 
 ---
 
 ## 🔄 Auto-Restart & Resilience
 
-#### 16. Auto-restart on failure
-**Effort:** 1 day  
-**Value:** Resilience, unattended operation
-
-**Design exists:** `docs/superpowers/specs/2026-06-10-warden-auto-restart-design.md`
-
-Automatically resume errored agents (with retry cap).
-
-```bash
-warden start "..." --auto-restart
-warden start "..." --auto-restart --max-restarts 5
-```
-
-**Implementation:**
-- Store `AutoRestart` and `RestartCount` in Session
-- Hook: on `SessionEnd` with non-zero exit → check cap → spawn resume
-- Exponential backoff between restarts
-- Hard cap (default 3, configurable)
-- Surface restart count in `ls`/web
+#### 16. ~~Auto-restart on failure~~ — ✅ **DONE**
+Shipped (`internal/daemon/autorestart.go`, capped resume). See "Recently Completed."
 
 ---
 
-#### 17. Crash detection improvements
-**Effort:** 4 hours  
-**Value:** Faster recovery
+#### 17. Crash detection improvements — *partial*
+**Effort:** 4 hours
 
-Better detection of hung/crashed agents, with recovery suggestions.
-
-**Enhancements:**
-- Detect infinite loops (pane unchanged for >30min while "working")
-- Detect OOM kills (exit code analysis)
-- Suggest `/compact` before crash
-- Auto-notify on detected crash
+Stuck-state reclassification (`stuckAfter`) and crash-exit-code recording exist.
+Remaining: OOM-kill heuristics, "suggest `/compact` before crash," explicit
+infinite-loop detection beyond the stuck timer.
 
 ---
 
 ## 🎨 Web UI Enhancements
 
-#### 16. Dark mode toggle
-**Effort:** 2 hours  
-**Value:** Accessibility, user preference
+#### 18. ~~Timeline view~~ — ✅ **DONE**
+`web/src/components/EventTimeline.tsx`, `ActivityFeed.tsx`.
 
-```javascript
-// Auto-detect system preference + manual toggle
-<ThemeToggle />
-```
+#### 19. Dark mode toggle — *not started*
+**Effort:** 2 hours. CSS custom properties + `prefers-color-scheme` + LocalStorage
+override + header toggle.
 
-**Implementation:**
-- CSS custom properties for colors
-- `prefers-color-scheme` media query
-- LocalStorage for manual override
-- Icon toggle in header
+#### 20. Agent grouping/filtering — *not started*
+**Effort:** 4 hours. Group by type/status/tag, collapsible groups, saved presets.
+(`AgentGrid.tsx` exists but renders a flat grid.)
 
----
-
-#### 17. Agent grouping/filtering
-**Effort:** 4 hours  
-**Value:** Fleet organization
-
-Group agents by type, status, or custom tags. Save filter presets.
-
-**UI:**
-- Dropdown: "Group by: Type / Status / Tag"
-- Collapsible groups
-- Search within groups
-- Save filter as preset
-
----
-
-#### 18. Timeline view
-**Effort:** 1 day  
-**Value:** Visual history
-
-Visual timeline of agent activity.
-
-**Features:**
-- Horizontal timeline with events
-- Click event to see details
-- Zoom in/out on time ranges
-- Filter by agent
-
----
-
-#### 19. Batch operations
-**Effort:** 3 hours  
-**Value:** Manage many agents
-
-Select multiple agents for bulk actions.
-
-**Operations:**
-- Bulk terminate
-- Bulk delete
-- Send same message to multiple agents
-- Checkbox selection UI
+#### 21. Batch operations — *not started*
+**Effort:** 3 hours. Multi-select + bulk terminate/delete/message.
 
 ---
 
 ## 🤖 Model Selection & Configuration
 
-#### 20. Model selection per agent
-**Effort:** 4-6 hours  
-**Value:** Flexibility, cost control
+#### 22. ~~Model selection per agent~~ — ✅ **DONE**
+`--model` (CLI + MCP), aliases, `model_default`, MODEL column.
 
-**Design exists:** `docs/superpowers/specs/2026-06-10-warden-model-selection-design.md`
-
-Override default model per agent.
-
+#### 23. Agent templates/presets — *not started*
+**Effort:** 3 hours
+Save common spawn configs (`~/.warden/presets.yaml`):
 ```bash
-warden start "..." --model opus-4.8
-warden start "..." --model haiku-4.5  # fast, cheap
-warden start "..." --model fable-5    # long-running work
-```
-
-**Implementation:**
-- Add `Model` field to Session
-- Pass `--model <name>` to `claude` command
-- Show model in `ls` output (new column)
-- Web UI: model dropdown in spawn form
-- Validate model name against known list
-
----
-
-#### 21. Agent templates/presets
-**Effort:** 3 hours  
-**Value:** Repeatability
-
-Save common spawn configurations as reusable presets.
-
-```bash
-warden preset save code-review \
-  --type pr-review --model opus-4.8 --supervised
-
+warden preset save code-review --type pr-review --model opus --supervised
 warden start --preset code-review --pr 1234
-warden preset list
 ```
-
-**Storage:** `~/.warden/presets.yaml`
 
 ---
 
 ## 📱 Pipeline Enhancements
 
-#### 22. Pipeline MCP tools
-**Effort:** 4-6 hours  
-**Value:** Orchestrator integration
+#### 24. ~~Pipeline visualization (DAG)~~ — ✅ **DONE**
+`web/src/components/PipelineDag.tsx`.
 
-Expose pipelines to MCP so orchestrator Claude can manage them.
+#### 25. Pipeline MCP tools — *not started*
+**Effort:** 4-6 hours
+Pipelines are still CLI-only. Add `create_pipeline` / `start_pipeline` /
+`show_pipeline` / `cancel_pipeline` to `internal/mcp/server.go` (which currently
+exposes agent, ctx, mailbox, and approval tools — no pipeline tools).
 
-**Tools:**
-- `create_pipeline` - Create from YAML spec
-- `start_pipeline` - Start a created pipeline
-- `show_pipeline` - Get status, job outputs
-- `cancel_pipeline` - Cancel running pipeline
+#### 26. Pipeline pause/resume — *not started*
+**Effort:** 4 hours. Add `paused` state; executor checks before spawning next job.
 
-**Implementation:**
-- Add tools to `internal/mcp/server.go`
-- Wrap existing daemon pipeline routes
-- Currently pipelines are CLI-only
-
----
-
-#### 23. Pipeline visualization
-**Effort:** 1-2 days  
-**Value:** Understand complex pipelines
-
-DAG graph in web UI showing job dependencies.
-
-**Features:**
-- Visual graph (D3.js or similar)
-- Real-time status colors
-- Click job → show details
-- Highlight critical path
-
----
-
-#### 24. Pipeline pause/resume
-**Effort:** 4 hours  
-**Value:** Control long pipelines
-
-Pause a running pipeline, resume later.
-
-```bash
-warden pipeline pause <id>
-warden pipeline resume <id>
-```
-
-**Implementation:**
-- Add `paused` state to pipeline
-- Executor checks before spawning next job
-- Can edit pending jobs while paused
-
----
-
-#### 25. Conditional pipeline steps
-**Effort:** 6 hours  
-**Value:** Advanced workflows
-
-Jobs that only run if upstream succeeds/fails.
-
-```yaml
-jobs:
-  - id: test
-    prompt: "Run the test suite"
-  - id: fix
-    depends_on: [test]
-    run_if: failure  # only if test fails
-    prompt: "Fix the failing tests"
-  - id: deploy
-    depends_on: [test]
-    run_if: success  # only if test passes
-    prompt: "Deploy to production"
-```
-
-**Implementation:**
-- Add `run_if: success|failure|always` to job spec
-- Executor checks upstream job exit codes
-- Default: `always`
+#### 27. Conditional pipeline steps — *not started*
+**Effort:** 6 hours. `run_if: success|failure|always`; executor checks upstream
+exit codes (default `always`).
 
 ---
 
 ## 🔍 Search & Discovery
 
-#### 26. Full-text search
-**Effort:** 6-8 hours  
-**Value:** Find agents quickly
+#### 28. Full-text search — *not started*
+**Effort:** 6-8 hours. In-memory search across subject/prompt/type/name/pane;
+`warden search`, web search bar.
 
-Search agent subjects, prompts, terminal output.
+#### 29. Agent history/archive viewer — *not started*
+**Effort:** 4 hours. Browse/search the `closed/` store. `warden history [--since]
+[--type]`; web Archive tab.
 
-```bash
-warden search "auth refactor"
-warden search --type development --status done "api"
-```
-
-**Web UI:** Search bar in header
-
-**Implementation:**
-- In-memory search (no external index)
-- Search across: subject, prompt, type, name, pane excerpt
-- Fuzzy matching (levenshtein distance)
-
----
-
-#### 27. Agent history/archive viewer
-**Effort:** 4 hours  
-**Value:** Browse completed work
-
-Browse and search archived (closed) sessions.
-
-```bash
-warden history
-warden history --since 2026-06-01
-warden history --type pr-review
-```
-
-**Web UI:** Archive tab with search/filter
-
----
-
-#### 28. Tag system
-**Effort:** 3-4 hours  
-**Value:** Organization
-
-Tag agents with custom labels.
-
-```bash
-warden start "..." --tags bug,urgent,auth
-warden ls --tag urgent
-warden search --tag bug
-```
-
-**Implementation:**
-- Add `Tags []string` to Session
-- CLI: `--tags` flag (comma-separated)
-- Web: tag input widget
-- Filter/search by tag
+#### 30. Tag system — *not started*
+**Effort:** 3-4 hours. `Tags []string` on `Session`; `--tags`; filter/search by tag.
 
 ---
 
 ## 🔐 Security & Permissions
 
-#### 29. Multi-user support
-**Effort:** 2-3 days (complex)  
-**Value:** Team collaboration
+#### 31. Multi-user support — *not started* (complex)
+**Effort:** 2-3 days. Per-user isolation, ACLs, shared pipelines (opt-in).
 
-Multiple users on same daemon with isolated sessions.
-
-**Features:**
-- Per-user session isolation
-- User-specific permissions
-- Shared pipelines (opt-in)
-
-**Complexity:** High - requires auth system, ACLs
-
----
-
-#### 30. Audit log
-**Effort:** 4 hours  
-**Value:** Compliance, debugging
-
-Track all warden operations.
-
-```bash
-warden audit log
-warden audit log --since 2026-06-01 --user srajan
-```
-
-**Log entries:**
-- Who spawned/terminated/deleted what
-- When
-- From where (IP, hostname)
-
-**Storage:** `~/.warden/audit.jsonl`
+#### 32. Audit log — *not started*
+**Effort:** 4 hours. `~/.warden/audit.jsonl`; who/what/when/where; `warden audit log`.
 
 ---
 
 ## 📦 Integrations
 
-#### 31. Jira integration
-**Effort:** 1 day  
-**Value:** Project management sync
+#### 33. Jira integration — *not started*
+**Effort:** 1 day. Auto-fetch ticket summary on spawn; post digest on completion.
 
-Auto-populate ticket info from Jira, update on completion.
+#### 34. Slack notifications — *not started*
+**Effort:** 3-4 hours. Today `internal/notify` is desktop-only (osascript /
+notify-send / log). Add a webhook channel that posts on attention-needed
+transitions (`waiting_for_input`, `errored`, `orphaned`).
 
+#### 35. GitHub PR auto-create on done — *not started*
+**Effort:** 6 hours
 ```bash
-warden start PROJ-350 --type development
-# Auto-fetches ticket summary, description from Jira API
-# On agent completion, posts comment with digest
+warden done agent-123 --create-pr   # gh pr create --fill --body "$(warden digest <id>)"
 ```
-
-**Configuration:**
-```yaml
-# ~/.warden/integrations.yaml
-jira:
-  url: https://company.atlassian.net
-  token: $JIRA_API_TOKEN
-```
-
----
-
-#### 32. Slack notifications
-**Effort:** 3-4 hours  
-**Value:** Team awareness
-
-Post to Slack when agents need attention.
-
-```bash
-# Notify on: waiting_for_input, errored, orphaned
-WARDEN_SLACK_WEBHOOK=https://...
-```
-
-**Implementation:**
-- Poller checks configured webhook
-- On status transition to attention-needed state → POST to webhook
-- Configurable per-state
-
----
-
-#### 33. GitHub integration enhancements
-**Effort:** 6 hours  
-**Value:** Streamlined PR workflow
-
-Auto-create PR from development agents, comment with digest.
-
-```bash
-warden done agent-123 --create-pr
-# Creates PR on GitHub, posts digest as first comment
-```
-
-**Implementation:**
-- Use `gh` CLI
-- Extract branch, repo from session
-- Run `gh pr create --fill --body "$(warden digest <id>)"`
+Closes the development→PR loop; pairs well with the existing digest feature.
 
 ---
 
 ## ⚡ Performance & Scalability
 
-#### 34. Goroutine-based concurrency for agent management
-**Effort:** 3-5 days  
-**Value:** Better performance, scalability for large fleets
-
-Refactor daemon to use goroutines for concurrent agent operations.
-
-**Current state:**
-- Some operations are synchronous
-- Potential bottlenecks with many agents
-- Sequential processing of certain operations
-
-**Improvements:**
-- Concurrent agent monitoring (one goroutine per agent)
-- Parallel status checks via goroutine pool
-- Non-blocking agent spawn/terminate
-- Concurrent pipeline job execution
-- Worker pool for resource-intensive operations
-
-**Implementation areas:**
-
-**1. Agent monitoring (HIGH PRIORITY)**
-```go
-// Current: sequential polling
-// Improved: one goroutine per agent
-for _, agent := range agents {
-    go func(a *Session) {
-        for {
-            checkAgentStatus(a)
-            time.Sleep(pollInterval)
-        }
-    }(agent)
-}
-```
-
-**2. Batch operations**
-```go
-// Parallel terminate, delete, status fetch
-var wg sync.WaitGroup
-for _, agentID := range ids {
-    wg.Add(1)
-    go func(id string) {
-        defer wg.Done()
-        terminateAgent(id)
-    }(agentID)
-}
-wg.Wait()
-```
-
-**3. SSE event broadcasting**
-```go
-// Non-blocking event fan-out to all web clients
-for _, client := range sseClients {
-    go func(c *Client) {
-        c.Send(event)
-    }(client)
-}
-```
-
-**4. Pipeline executor**
-```go
-// Parallel job execution for independent jobs
-for _, job := range readyJobs {
-    go executor.RunJob(job)
-}
-```
-
-**Architecture decisions:**
-- Worker pool size (bounded vs unbounded goroutines)
-- Channel-based communication vs mutex-protected state
-- Context cancellation for graceful shutdown
-- Error aggregation from parallel operations
-
-**Testing:**
-- Race detector (`go test -race`)
-- Load testing with 100+ concurrent agents
-- Benchmark suite for throughput improvements
-
-**Expected benefits:**
-- 2-5x faster `warden ls` with many agents
-- Sub-second response for batch operations
-- Better CPU utilization on multi-core systems
-- Foundation for distributed warden (item #14)
+#### 36. Goroutine-based concurrency — *partial*
+**Effort:** 3-5 days remaining
+The poller already runs background workers (approval worker, summarizer workers
+draining off the tick loop, `wg`-tracked shutdown). Remaining: parallel batch
+operations (bulk terminate/delete/status), worker-pool for resource-intensive ops,
+parallel independent-job execution in the pipeline executor, load testing with
+100+ agents.
 
 ---
 
 ## 🧪 Testing & Quality
 
-#### 35. Integration test suite
-**Effort:** 1-2 days  
-**Value:** Confidence in releases
+#### 37. Integration test suite — *not started*
+**Effort:** 1-2 days. End-to-end (spawn→work→terminate→cleanup, pipeline lifecycle,
+restore, approvals) with a real daemon + tmux. No `*integration_test.go` yet.
 
-End-to-end tests for common workflows.
+#### 38. Benchmarking suite — *not started*
+**Effort:** 4 hours. `Benchmark*` for spawn time, `ls` at scale, store I/O. None yet.
 
-**Workflows to test:**
-- Spawn → work → terminate → cleanup
-- Pipeline create → start → completion
-- Restore orphaned agent
-- Approvals inbox
-
-**Implementation:**
-- `internal/daemon/integration_test.go`
-- Start real daemon, real tmux sessions
-- Cleanup after each test
-
----
-
-#### 36. Benchmarking suite
-**Effort:** 4 hours  
-**Value:** Performance regression tracking
-
-Performance benchmarks for critical paths.
-
-**Benchmarks:**
-- Agent spawn time
-- `ls` query performance (100, 1000 agents)
-- Pipeline execution overhead
-- Store read/write speed
-
-**Implementation:**
-- Go benchmark tests (`Benchmark*`)
-- CI runs benchmarks, tracks trends
-
----
-
-#### 37. Fuzz testing
-**Effort:** 4 hours  
-**Value:** Security, robustness
-
-Fuzz critical parsers.
-
-**Targets:**
-- Pipeline YAML parser
-- Approvals prompt parser
-- Session JSON deserializer
-
-**Implementation:**
-- Go native fuzzing (`go test -fuzz`)
+#### 39. Fuzz testing — *not started*
+**Effort:** 4 hours. `go test -fuzz` for pipeline YAML, approvals prompt parser,
+session JSON. No `Fuzz*` yet.
 
 ---
 
 ## 🌍 Platform Support
 
-#### 38. Windows support
-**Effort:** 2-3 days  
-**Value:** Broader audience
+#### 40. Windows support — *not started*
+**Effort:** 2-3 days (WSL2 for tmux). Service install + path handling.
 
-Run warden on Windows (WSL2 required for tmux).
-
-**Requirements:**
-- WSL2 with tmux
-- Windows service installation
-- Path handling (Windows vs WSL paths)
-
-**Challenges:**
-- tmux not native on Windows
-- Service management (Task Scheduler vs systemd)
-
----
-
-#### 39. Docker/container support
-**Effort:** 2 days  
-**Value:** Portable, reproducible
-
-Run warden daemon in container.
-
-**Features:**
-- Dockerfile for daemon
-- Volume mounts for `~/.warden` persistence
-- docker-compose example
-- Agents in containers (nested tmux)
+#### 41. Docker/container support — *not started*
+**Effort:** 2 days. Daemon Dockerfile, `~/.warden` volume, compose example.
 
 ---
 
 ## 📚 Documentation & Onboarding
 
-#### 40. Interactive tutorial
-**Effort:** 1 day  
-**Value:** Better onboarding
+#### 42. Interactive tutorial — *not started*
+**Effort:** 1 day. First-run guided walkthrough (detect `~/.warden/tutorial-complete`).
 
-First-run tutorial in TUI/web.
-
-**Steps:**
-1. Welcome screen
-2. Spawn your first agent
-3. Attach and interact
-4. Check status with `ls`
-5. Terminate and clean up
-
-**Implementation:**
-- Detect first run (no `~/.warden/tutorial-complete`)
-- Interactive walkthrough with guided prompts
-- Skip option
-
----
-
-#### 41. Video demos/screencasts
-**Effort:** Varies  
-**Value:** Visual learning
-
-Record common workflows, embed in docs.
-
-**Videos:**
-- Quick start (5 min)
-- Pipelines deep-dive (10 min)
-- Web dashboard tour (5 min)
-- Advanced tips (10 min)
-
----
-
-#### 42. API documentation
-**Effort:** 4 hours  
-**Value:** Integration developers
-
-OpenAPI/Swagger for REST API.
-
-**Implementation:**
-- Generate `openapi.yaml` from code
-- Serve Swagger UI at `/api/docs`
-- Auto-generated from comments
+#### 43. API documentation (OpenAPI) — *not started*
+**Effort:** 4 hours. Generate `openapi.yaml`; serve Swagger UI at `/api/docs`.
 
 ---
 
 ## 🚀 Advanced Features
 
-#### 43. Intelligent inter-agent communication & collaboration ⭐ NEXT-GEN
-**Effort:** 1-2 weeks  
-**Value:** Prevent conflicts, enable true multi-agent collaboration
+#### 44. Intelligent inter-agent collaboration ⭐ NEXT-GEN — *foundation done*
+**Effort:** 1-2 weeks remaining
+**Design exists:** `docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md`
 
-Agents become aware of each other, detect overlapping work, and coordinate automatically.
+Foundation shipped: shared context store + mailbox messaging + MCP tools
+(`ctx_*`, `send_message`, `read_inbox`, `wait_for_message`). Remaining: file-conflict
+detection (overlapping line ranges via git diff), feature-overlap detection,
+auto-coordination / work-split negotiation, real-time "agent X is editing this file"
+hints, collaboration groups.
 
-**Features:**
-- **File conflict detection**: Agents detect when another agent is modifying the same files
-- **Feature overlap detection**: Agents analyze each other's work to detect related/overlapping features
-- **Auto-coordination**: Agents can negotiate who handles what, merge strategies
-- **Shared context**: Agents can query "what is agent X working on?" and adjust their approach
-- **Conflict resolution**: Agents propose merge strategies when edits overlap
-- **Mutual awareness**: Each agent knows what others are doing in real-time
+#### 45. Agent chaining/handoff — *not started*
+**Effort:** 1 day. `warden handoff <target-id> <message>` — spawn + seed context.
+(Pipelines + mailbox cover some of this today.)
 
-**Commands:**
-```bash
-# Enable collaboration mode for related agents
-warden collab create auth-feature --agents agent-123,agent-456
-warden collab list
+#### 46. Snapshot/checkpoint system — *not started*
+**Effort:** 2 days. Checkpoint worktree (git stash) + transcript; restore.
 
-# Agent queries from inside session
-warden collab status  # "agent-456 is editing auth.go:45-80"
-warden collab ask agent-456 "Are you handling the JWT validation?"
-```
+#### 47. Plugin system — *not started*
+**Effort:** 3-4 days. Custom task types + lifecycle hooks (Go plugin or WASM).
 
-**Implementation:**
-- New `internal/collab` package
-- Collaboration groups (explicit or auto-detected by git branch/files)
-- File watch system: track which agent has which files open
-- Git diff analysis: detect overlapping line ranges
-- MCP tools for agents:
-  - `list_collaborating_agents` - see other agents in same collaboration space
-  - `get_agent_status` - what files/features is another agent working on
-  - `send_coordination_message` - ask another agent a question
-  - `propose_work_split` - negotiate work division
-- Real-time file lock hints: "Warning: agent-456 is currently editing this file"
-- Smart merge suggestions when both agents commit
-
-**Use cases:**
-- Multiple agents refactoring same codebase component
-- Parallel feature development with shared files
-- Agent A implements, agent B reviews - coordinated handoff
-- Auto-detect when agents duplicate work and merge efforts
-
-**Challenges:**
-- Performance overhead of cross-agent awareness
-- Conflict resolution complexity
-- Determining when collaboration is needed vs overhead
-
----
-
-#### 44. Agent chaining/handoff
-**Effort:** 1 day  
-**Value:** Flexible workflows
-
-One agent explicitly hands off to another (more flexible than pipelines).
-
-```bash
-# Inside agent A:
-warden handoff agent-B "Context: I finished the auth refactor. Next: review the changes."
-# Agent B receives context, starts working
-```
-
-**Implementation:**
-- `warden handoff <target-id> <message>`
-- Creates new agent, sends message with context
-- Original agent can terminate or continue
-
----
-
-#### 45. Shared worktree pool
-**Effort:** 2-3 days (complex)  
-**Value:** Collaboration
-
-Multiple agents work in same worktree with conflict resolution.
-
-**Challenges:**
-- Git merge conflicts
-- File locking
-- Coordination overhead
-
-**Use case:** Multiple agents work on different files in same large refactor
-
----
-
-#### 46. Snapshot/checkpoint system
-**Effort:** 2 days  
-**Value:** Experimentation safety
-
-Checkpoint agent state, restore to checkpoint.
-
-```bash
-warden checkpoint create agent-123 "before-risky-change"
-# ... agent does risky work ...
-warden checkpoint restore agent-123 "before-risky-change"
-```
-
-**Implementation:**
-- Save: worktree state (git stash), conversation transcript
-- Restore: reset worktree, resume conversation from checkpoint
-
----
-
-#### 47. Plugin system
-**Effort:** 3-4 days  
-**Value:** Extensibility
-
-Load custom plugins for new task types, lifecycle hooks.
-
-**Plugin API:**
-- Register custom task types
-- Hook into lifecycle events (pre-spawn, post-terminate)
-- Custom commands
-
-**Implementation:**
-- Go plugin system or WASM
-- Plugin manifest in `~/.warden/plugins/`
-
----
-
-#### 48. AI-powered insights
-**Effort:** 2-3 days  
-**Value:** Optimization suggestions
-
-Analyze agent patterns, suggest optimizations.
-
-**Insights:**
-- "This pipeline could be 30% faster if jobs X and Y run in parallel"
-- "Agent A often gets stuck at the same step - consider adding a hint"
-- "Your agents average 200k tokens - consider using pipelines to keep contexts smaller"
-
-**Implementation:**
-- Analyze historical data
-- Pattern detection (common stuck points, bottlenecks)
-- `claude -p` to generate insights from patterns
+#### 48. AI-powered insights — *not started*
+**Effort:** 2-3 days. Analyze historical patterns; suggest parallelization / hints.
 
 ---
 
 ## 📊 Priority Matrix
 
 ### 🔥 Do First (High Impact, Low Effort)
-
-1. **`warden ls --watch`** - 1-2 hours
-2. **Pipeline templates** - 2 hours
-3. **`--version` enhancement** - 30 min
-4. **Pre-commit hook** - 30 min
-5. **Export/import** - 2 hours
+1. **`warden ls --watch`** — 1-2 h
+2. **`--version` build info** — 30 min
+3. **Pipeline `validate` + templates** — 3 h
+4. **GitHub PR auto-create on done** — pairs with existing digest
+5. **Export/import** — 2 h
 
 ### ⭐ Do Next (High Impact, Medium Effort)
-
-6. **Metrics/stats system** - 1-2 days
-7. **Remote access** - 2-3 days
-8. **Model selection** - 4-6 hours
-9. **Auto-restart** - 1 day
-10. **Pipeline visualization** - 1-2 days
-11. **Scheduled agents/tasks** - 1-2 days
+6. **Remote access + token generate** — 2-3 days (spec exists; foundation partly built)
+7. **Scheduled agents/tasks** — 1-2 days (decision doc exists)
+8. **Slack/webhook notifications** — 3-4 h
+9. **Pipeline MCP tools** — 4-6 h
+10. **Structured logging (slog)** — 2-3 h
 
 ### 🎯 Nice to Have (Medium Impact)
-
-12. **Tag system** - 3-4 hours
-13. **Agent grouping/filtering** - 4 hours
-14. **Timeline view** - 1 day
-15. **Dark mode** - 2 hours
-16. **Jira/Slack integrations** - 1-2 days
-17. **Goroutine-based concurrency** - 3-5 days
+11. Full-text search — 6-8 h
+12. Tag system — 3-4 h
+13. Agent history/archive viewer — 4 h
+14. Dark mode — 2 h
+15. Web keyboard shortcuts — 2 h
+16. Batch operations — 3 h
+17. Agent presets — 3 h
 
 ### 🔮 Future (High Effort or Complex)
-
-18. **Distributed warden (multi-machine)** - 1-2 weeks
-19. **Intelligent inter-agent communication** - 1-2 weeks
-20. **Multi-user support** - 2-3 days
-21. **Windows support** - 2-3 days
-22. **Plugin system** - 3-4 days
-23. **Shared worktree pool** - 2-3 days
-24. **AI-powered insights** - 2-3 days
+18. Finish inter-agent collaboration — 1-2 weeks (foundation done)
+19. Distributed warden — 1-2 weeks (after remote access)
+20. Multi-user support — 2-3 days
+21. Windows support — 2-3 days
+22. Plugin system — 3-4 days
+23. Snapshot/checkpoint — 2 days
+24. AI-powered insights — 2-3 days
 
 ---
 
 ## 🎬 Recommended Implementation Order
 
-1. **`warden ls --watch`** (1-2 hours) - Immediate UX win, builds on existing SSE
-2. **Metrics/stats system** (1-2 days) - Critical for observability, spec already exists
-3. **Remote access** (2-3 days) - Game-changing feature, spec exists
-4. **Scheduled agents/tasks** (1-2 days) - High value automation feature
-5. **Model selection** (4-6 hours) - High user demand, straightforward
-6. **Pipeline templates** (2 hours) - Makes pipelines more accessible
-7. **Auto-restart** (1 day) - Resilience improvement, spec exists
-8. **Goroutine-based concurrency** (3-5 days) - Performance foundation for scaling
-9. **Pipeline visualization** (1-2 days) - Better understand complex workflows
-10. **Full-text search** (6-8 hours) - Helps manage large fleets
-11. **Web keyboard shortcuts** (2 hours) - Power-user productivity
-12. **Dark mode** (2 hours) - Quick win, high user satisfaction
-13. **Distributed warden** (1-2 weeks) - Enterprise-scale multi-machine control
-14. **Intelligent inter-agent communication** (1-2 weeks) - Next-gen collaboration
+1. **`warden ls --watch`** (1-2 h) — immediate UX win on existing SSE
+2. **Remote access + token generate** (2-3 days) — the flagship; completes the
+   unattended-operation story (run agents → watch/steer from anywhere)
+3. **Scheduled agents/tasks** (1-2 days) — recurring automation
+4. **GitHub PR auto-create on done** (6 h) — closes the dev→PR loop
+5. **Slack/webhook notifications** (3-4 h) — remote awareness, pairs with #2
+6. **Pipeline `validate` + templates** (3 h) — lowers the barrier to pipelines
+7. **Pipeline MCP tools** (4-6 h) — orchestrator can drive pipelines
+8. **Structured logging / slog** (2-3 h) — debugging foundation
+9. **Full-text search + history viewer** (~1.5 days) — manage larger fleets
+10. **Finish inter-agent collaboration** (1-2 weeks) — next-gen, foundation already in
 
 ---
 
 ## 📝 Notes
 
-- **Design specs exist** for several features (marked above) in `docs/superpowers/specs/`
-- Effort estimates are approximate; actual time may vary based on complexity
-- Some features are interdependent (e.g., remote access requires token generation)
-- Platform-specific features (macOS/Linux) may require separate implementations
-- Integration features require external service credentials/setup
+- **Design specs** live in `docs/superpowers/specs/` — check for one before starting.
+- Effort estimates are approximate.
+- Some features are interdependent (remote access → token gen → distributed; metrics
+  → performance history).
+- Platform-specific work (macOS/Linux) may need separate implementations.
 
 ---
 
@@ -1215,11 +530,12 @@ Analyze agent patterns, suggest optimizations.
 
 When implementing features from this roadmap:
 
-1. Check if a design spec exists in `docs/superpowers/specs/`
+1. Check for a design spec in `docs/superpowers/specs/`
 2. Write tests first (TDD where possible)
-3. Update documentation (README, FEATURES.md, USAGE.md)
+3. Update docs (README, FEATURES.md, USAGE.md)
 4. Run `make verify` before committing
-5. Update this file with progress/learnings
+5. **Update this file:** move the finished item to "Recently Completed" and delete
+   its forward-looking entry, so the roadmap stays honest
 
 ---
 
