@@ -312,13 +312,13 @@ func wrapWorktreeError(err error, output, path string) error {
 
 // worktreeExists checks `git worktree list --porcelain` for an absolute path.
 func (l *Lifecycle) worktreeExists(ctx context.Context, repo, rel string) (bool, error) {
-	out, err := l.run.Run(ctx, repo, "git", "worktree", "list", "--porcelain")
+	entries, err := l.gitWorktrees(ctx, repo)
 	if err != nil {
-		return false, fmt.Errorf("git worktree list: %w", err)
+		return false, err
 	}
 	want := filepath.Join(repo, rel)
-	for _, line := range strings.Split(out, "\n") {
-		if line == "worktree "+want {
+	for _, e := range entries {
+		if e.Path == want {
 			return true, nil
 		}
 	}

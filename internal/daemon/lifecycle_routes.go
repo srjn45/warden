@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -26,6 +27,8 @@ func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Get("/sessions/{id}/attach", s.handleAttach)
 	r.Post("/sessions/{id}/restore", s.handleRestore)
 	r.Get("/pressure", s.handlePressure)
+	r.Get("/worktrees", s.handleListWorktrees)
+	r.Post("/prune", s.handlePrune)
 }
 
 // validateSpawnRequest applies the static + uniqueness preconditions for a
@@ -374,6 +377,79 @@ func (s *Server) handleRemoveWorktree(w http.ResponseWriter, r *http.Request) {
 	}
 	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "worktree removed"})
+}
+
+// handleListWorktrees serves GET /worktrees?repo=<path>: the read-only join of
+// git's .worktrees inventory against active + archived records.
+func (s *Server) handleListWorktrees(w http.ResponseWriter, r *http.Request) {
+	repo := r.URL.Query().Get("repo")
+	if repo == "" {
+		writeErr(w, http.StatusBadRequest, "repo is required")
+		return
+	}
+	active, err := s.store.List(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	archived, err := s.store.ListClosed(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := s.life.ListWorktrees(r.Context(), repo, active, archived)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if rows == nil {
+		rows = []lifecycle.WorktreeListing{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"worktrees": rows})
+}
+
+// handlePrune serves POST /prune. Dirty/unpushed worktrees come back as skipped
+// entries in the result, not HTTP errors; a missing repo or git failure is an
+// HTTP error. Records are read from the store here (the daemon owns the lock)
+// and passed into the guard-bearing lifecycle sweep.
+func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
+	var req pruneRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Repo == "" {
+		writeErr(w, http.StatusBadRequest, "repo is required")
+		return
+	}
+	active, err := s.store.List(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	archived, err := s.store.ListClosed(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	results, err := s.life.PruneWorktrees(r.Context(), req.Repo, lifecycle.PruneOpts{
+		DryRun:          req.DryRun,
+		Force:           req.Force,
+		IncludeArchived: req.IncludeArchived,
+		Active:          active,
+		Archived:        archived,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if results == nil {
+		results = []lifecycle.PruneResult{}
+	}
+	if !req.DryRun {
+		s.notify()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
 func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
