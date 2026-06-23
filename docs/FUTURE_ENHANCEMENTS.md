@@ -431,15 +431,18 @@ session JSON. No `Fuzz*` yet.
 
 ## 🚀 Advanced Features
 
-#### 44. Intelligent inter-agent collaboration ⭐ NEXT-GEN — *foundation done*
-**Effort:** 1-2 weeks remaining
-**Design exists:** `docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md`
+#### 44. Intelligent inter-agent collaboration ⭐ NEXT-GEN — *MVP done; advanced deferred*
+**Design:** `docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md`
 
-Foundation shipped: shared context store + mailbox messaging + MCP tools
-(`ctx_*`, `send_message`, `read_inbox`, `wait_for_message`). Remaining: file-conflict
-detection (overlapping line ranges via git diff), feature-overlap detection,
-auto-coordination / work-split negotiation, real-time "agent X is editing this file"
-hints, collaboration groups.
+Shipped: shared context store + mailbox messaging + MCP tools (`ctx_*`,
+`send_message`, `read_inbox`, `wait_for_message`); and the **file-conflict
+detection MVP** — `internal/collab` polls active worktrees with `git diff` and
+warns agents editing the same file via the mailbox, surfaced through
+`warden collab conflicts` / `who-is-editing`, `GET /collab/conflicts`, and the
+`get_collaboration_status` / `who_is_editing_file` MCP tools (`collab_enabled` /
+`collab_interval` config). Deferred behind real usage (see the spec's
+Appendix A): FSNotify real-time detection, work-overlap/dedup detection,
+GitHub branch/CI tracking, collaboration groups.
 
 #### 45. Agent chaining/handoff — *not started*
 **Effort:** 1 day. `warden handoff <target-id> <message>` — spawn + seed context.

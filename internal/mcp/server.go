@@ -105,6 +105,10 @@ type approveArgs struct {
 	Option int    `json:"option" jsonschema:"the 1-based option number to answer (as shown by list_approvals)"`
 }
 
+type whoIsEditingArgs struct {
+	File string `json:"file" jsonschema:"repo-relative file path (as reported by git diff)"`
+}
+
 // findApproval locates the view for id in the live queue and validates that the
 // option is answerable, mirroring the CLI/web guards. The daemon still re-verifies
 // the fingerprint on POST (TOCTOU 409 guard); this just surfaces friendly errors.
@@ -379,6 +383,35 @@ func NewServer(daemonBase string) *Server {
 		}
 		res, err := jsonResult(m)
 		return res, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "get_collaboration_status",
+		Description: "List files currently being edited by more than one agent (inter-agent file conflicts). Use to check whether another agent is touching the same code before you dig in.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		conflicts, err := s.cl.CollabConflicts(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		res, err := jsonResult(conflicts)
+		return res, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "who_is_editing_file",
+		Description: "Show which agents are currently editing a specific file. Returns the agents sharing that file, or a note that no other agent is.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a whoIsEditingArgs) (*mcpsdk.CallToolResult, any, error) {
+		conflicts, err := s.cl.CollabConflicts(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		for _, c := range conflicts {
+			if c.File == a.File {
+				res, err := jsonResult(c.Agents)
+				return res, nil, err
+			}
+		}
+		return textResult("no other agent is editing " + a.File), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

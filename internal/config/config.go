@@ -50,6 +50,8 @@ type Config struct {
 	PipelineHint           bool   `yaml:"pipeline_hint"`
 	AutoRestartMax         int    `yaml:"auto_restart_max"`
 	AutoRestartReset       string `yaml:"auto_restart_reset"`
+	CollabEnabled          bool   `yaml:"collab_enabled"`
+	CollabInterval         string `yaml:"collab_interval"`
 	RateLimitRetryInterval string `yaml:"rate_limit_retry_interval"`
 	RateLimitBuffer        string `yaml:"rate_limit_buffer"`
 	RateLimitAutoResume    bool   `yaml:"rate_limit_auto_resume"`
@@ -94,6 +96,8 @@ var schema = []setting{
 	{"pipeline_hint", "Append the pipeline-decomposition hint to standalone agents. Values: true | false"},
 	{"auto_restart_max", "Max auto-restart attempts for an errored opted-in agent. Values: integer >= 0"},
 	{"auto_restart_reset", "Sustained-health window that resets the restart counter. Values: Go duration (e.g. 5m, 1h)"},
+	{"collab_enabled", "Warn agents when another agent is editing the same file. Values: true | false"},
+	{"collab_interval", "File-conflict scan interval. Values: Go duration (e.g. 10s, 30s)"},
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
@@ -135,6 +139,8 @@ func defaults() Config {
 		PipelineHint:           true,
 		AutoRestartMax:         3,
 		AutoRestartReset:       "5m",
+		CollabEnabled:          true,
+		CollabInterval:         "10s",
 		RateLimitRetryInterval: "30m",
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
@@ -215,6 +221,7 @@ func validate(c *Config) {
 		c.AutoRestartMax = d.AutoRestartMax
 	}
 	c.AutoRestartReset = validDuration(c.AutoRestartReset, d.AutoRestartReset)
+	c.CollabInterval = validDuration(c.CollabInterval, d.CollabInterval)
 	c.RateLimitRetryInterval = validDuration(c.RateLimitRetryInterval, d.RateLimitRetryInterval)
 	c.RateLimitBuffer = validDuration(c.RateLimitBuffer, d.RateLimitBuffer)
 }
@@ -560,6 +567,11 @@ func (c Config) AutoRestartResetDuration() time.Duration {
 // rate-limited agent.
 func (c Config) RateLimitRetryIntervalDuration() time.Duration {
 	return durOr(c.RateLimitRetryInterval, 30*time.Minute)
+}
+
+// CollabIntervalDuration returns the file-conflict scan interval.
+func (c Config) CollabIntervalDuration() time.Duration {
+	return durOr(c.CollabInterval, 10*time.Second)
 }
 
 // RateLimitBufferDuration returns the buffer added to a parsed rate-limit reset.

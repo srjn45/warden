@@ -469,6 +469,29 @@ func (c *Client) CtxDel(ctx context.Context, key string) error {
 	return c.do(ctx, http.MethodDelete, "/context/"+url.PathEscape(key), nil, nil)
 }
 
+// ConflictAgent identifies an agent editing a file (collab conflict view).
+type ConflictAgent struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// Conflict is one file edited by two or more agents.
+type Conflict struct {
+	File   string          `json:"file"`
+	Agents []ConflictAgent `json:"agents"`
+}
+
+// CollabConflicts returns the current inter-agent file conflicts.
+func (c *Client) CollabConflicts(ctx context.Context) ([]Conflict, error) {
+	var resp struct {
+		Conflicts []Conflict `json:"conflicts"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/collab/conflicts", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Conflicts, nil
+}
+
 // Message mirrors the daemon's mailbox message (directed messages).
 type Message struct {
 	ID   string    `json:"id"`

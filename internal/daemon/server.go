@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/poller"
@@ -20,8 +21,13 @@ func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.D
 	return &Server{
 		store: st, life: life, poller: p, pollInterval: interval,
 		hub: h, done: make(chan struct{}), approvals: approvals, cstore: cstore, mbox: mbox, exec: exec,
+		collab: collab.NewMonitor(st, mbox), collabInterval: 10 * time.Second,
 	}
 }
+
+// SetCollabInterval sets the file-conflict poll interval. A non-positive value
+// disables the collaboration monitor.
+func (s *Server) SetCollabInterval(d time.Duration) { s.collabInterval = d }
 
 // shutdownGrace bounds how long Shutdown waits for in-flight requests to drain
 // before returning (after which the process exits and any stragglers are cut).
@@ -66,6 +72,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		}
 	}
 	go s.runMetricsRecorder(runCtx)
+	if s.collab != nil && s.collabInterval > 0 {
+		go s.collab.Run(runCtx, s.collabInterval)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              addr,

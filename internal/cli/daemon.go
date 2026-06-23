@@ -92,6 +92,11 @@ func newDaemonCmd() *cobra.Command {
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
 			srv.SetAuth(authToken)
+			if cfg.CollabEnabled {
+				srv.SetCollabInterval(cfg.CollabIntervalDuration())
+			} else {
+				srv.SetCollabInterval(0)
+			}
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
