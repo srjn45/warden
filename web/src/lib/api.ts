@@ -1,12 +1,25 @@
 import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message } from './types';
 import type { Verdict, PressureStatus } from './pressure';
 import type { MetricsSample } from './metrics';
+import { getToken, withToken, notifyAuthRequired } from './token';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+// apiFetch is the single seam every REST call goes through. It attaches the
+// stored bearer token (when set) and, on a 401, signals the UI to prompt for a
+// token before returning the response to the caller's normal error handling.
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(input, { ...init, headers });
+  if (res.status === 401) notifyAuthRequired();
+  return res;
 }
 
 export class ConfirmationRequiredError extends Error {
@@ -42,16 +55,16 @@ async function parse<T>(res: Response): Promise<T> {
 }
 
 export async function listSessions(): Promise<Session[]> {
-  const data = await parse<{ sessions: Session[] | null }>(await fetch('/sessions'));
+  const data = await parse<{ sessions: Session[] | null }>(await apiFetch('/sessions'));
   return data.sessions ?? [];
 }
 
 export async function getSession(id: string): Promise<Session> {
-  return parse<Session>(await fetch(`/sessions/${encodeURIComponent(id)}`));
+  return parse<Session>(await apiFetch(`/sessions/${encodeURIComponent(id)}`));
 }
 
 export async function spawn(p: SpawnParams): Promise<Session> {
-  const res = await fetch('/spawn', {
+  const res = await apiFetch('/spawn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -73,17 +86,17 @@ export interface DirListing { path: string; parent: string; entries: DirEntry[];
 
 export async function listDirs(path?: string): Promise<DirListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : '';
-  return parse<DirListing>(await fetch(`/fs/dirs${q}`));
+  return parse<DirListing>(await apiFetch(`/fs/dirs${q}`));
 }
 
 export async function terminate(id: string): Promise<void> {
-  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/terminate`, {
+  await parse<unknown>(await apiFetch(`/sessions/${encodeURIComponent(id)}/terminate`, {
     method: 'POST',
   }));
 }
 
 export async function removeWorktree(id: string, force: boolean): Promise<void> {
-  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/remove-worktree`, {
+  await parse<unknown>(await apiFetch(`/sessions/${encodeURIComponent(id)}/remove-worktree`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ force }),
@@ -91,7 +104,7 @@ export async function removeWorktree(id: string, force: boolean): Promise<void> 
 }
 
 export async function deleteSession(id: string, hard: boolean): Promise<void> {
-  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/delete`, {
+  await parse<unknown>(await apiFetch(`/sessions/${encodeURIComponent(id)}/delete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ hard }),
@@ -100,21 +113,21 @@ export async function deleteSession(id: string, hard: boolean): Promise<void> {
 
 export async function getOutput(id: string, lines = 200): Promise<string> {
   const data = await parse<{ output: string }>(
-    await fetch(`/sessions/${encodeURIComponent(id)}/output?lines=${lines}`),
+    await apiFetch(`/sessions/${encodeURIComponent(id)}/output?lines=${lines}`),
   );
   return data.output;
 }
 
 export async function getDigest(id: string): Promise<Digest> {
-  return parse<Digest>(await fetch(`/sessions/${encodeURIComponent(id)}/digest`));
+  return parse<Digest>(await apiFetch(`/sessions/${encodeURIComponent(id)}/digest`));
 }
 
 export async function getPressure(): Promise<PressureStatus> {
-  return parse<PressureStatus>(await fetch('/pressure'));
+  return parse<PressureStatus>(await apiFetch('/pressure'));
 }
 
 export async function getMetrics(): Promise<MetricsSample> {
-  return parse<MetricsSample>(await fetch('/metrics'));
+  return parse<MetricsSample>(await apiFetch('/metrics'));
 }
 
 export async function getMetricsHistory(sinceISO?: string, limit = 480): Promise<MetricsSample[]> {
@@ -123,18 +136,18 @@ export async function getMetricsHistory(sinceISO?: string, limit = 480): Promise
   if (limit) q.set('limit', String(limit));
   const qs = q.toString();
   const data = await parse<{ samples: MetricsSample[] | null }>(
-    await fetch(`/metrics/history${qs ? `?${qs}` : ''}`),
+    await apiFetch(`/metrics/history${qs ? `?${qs}` : ''}`),
   );
   return data.samples ?? [];
 }
 
 export async function listApprovals(): Promise<{ enabled: boolean; approvals: ApprovalView[] }> {
-  const data = await parse<{ enabled: boolean; approvals: ApprovalView[] | null }>(await fetch('/approvals'));
+  const data = await parse<{ enabled: boolean; approvals: ApprovalView[] | null }>(await apiFetch('/approvals'));
   return { enabled: data.enabled, approvals: data.approvals ?? [] };
 }
 
 export async function approve(id: string, option: number, fingerprint: string): Promise<void> {
-  await parse<unknown>(await fetch(`/sessions/${encodeURIComponent(id)}/approve`, {
+  await parse<unknown>(await apiFetch(`/sessions/${encodeURIComponent(id)}/approve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ option, fingerprint }),
@@ -143,7 +156,7 @@ export async function approve(id: string, option: number, fingerprint: string): 
 
 // listContext returns the daemon's shared-context entries (read-only inspector).
 export async function listContext(): Promise<ContextEntry[]> {
-  const data = await parse<{ entries: ContextEntry[] | null }>(await fetch('/context'));
+  const data = await parse<{ entries: ContextEntry[] | null }>(await apiFetch('/context'));
   return data.entries ?? [];
 }
 
@@ -152,13 +165,13 @@ export async function listContext(): Promise<ContextEntry[]> {
 // anything read.
 export async function listMessages(limit = 100): Promise<Message[]> {
   const data = await parse<{ messages: Message[] | null }>(
-    await fetch(`/messages?limit=${limit}`),
+    await apiFetch(`/messages?limit=${limit}`),
   );
   return data.messages ?? [];
 }
 
 export async function listPipelines(): Promise<Pipeline[]> {
-  const data = await parse<{ pipelines: Pipeline[] | null }>(await fetch('/pipelines'));
+  const data = await parse<{ pipelines: Pipeline[] | null }>(await apiFetch('/pipelines'));
   return data.pipelines ?? [];
 }
 
@@ -166,7 +179,7 @@ export async function listPipelines(): Promise<Pipeline[]> {
 // to the existing POST /pipelines. The daemon re-parses and re-validates it, so
 // a 400 surfaces the authoritative validation error as an ApiError.
 export async function createPipeline(spec: string): Promise<Pipeline> {
-  return parse<Pipeline>(await fetch('/pipelines', {
+  return parse<Pipeline>(await apiFetch('/pipelines', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ spec }),
@@ -176,21 +189,21 @@ export async function createPipeline(spec: string): Promise<Pipeline> {
 // startPipeline kicks off DAG reconciliation. The daemon refuses with 409 if the
 // pipeline already started — surfaced as an ApiError.
 export async function startPipeline(id: string): Promise<void> {
-  await parse<unknown>(await fetch(`/pipelines/${encodeURIComponent(id)}/start`, { method: 'POST' }));
+  await parse<unknown>(await apiFetch(`/pipelines/${encodeURIComponent(id)}/start`, { method: 'POST' }));
 }
 
 export async function cancelPipeline(id: string): Promise<void> {
-  await parse<unknown>(await fetch(`/pipelines/${encodeURIComponent(id)}/cancel`, { method: 'POST' }));
+  await parse<unknown>(await apiFetch(`/pipelines/${encodeURIComponent(id)}/cancel`, { method: 'POST' }));
 }
 
 // deletePipeline removes a pipeline's record. The daemon refuses with 409 while
 // any job is still live (running / needs_attention) — surfaced as an ApiError.
 export async function deletePipeline(id: string): Promise<void> {
-  await parse<unknown>(await fetch(`/pipelines/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+  await parse<unknown>(await apiFetch(`/pipelines/${encodeURIComponent(id)}`, { method: 'DELETE' }));
 }
 
 export async function retryJob(pid: string, job: string): Promise<void> {
-  await parse<unknown>(await fetch(
+  await parse<unknown>(await apiFetch(
     `/pipelines/${encodeURIComponent(pid)}/jobs/${encodeURIComponent(job)}/retry`,
     { method: 'POST' },
   ));
@@ -202,7 +215,7 @@ export function subscribeSessions(
   onError: () => void,
   onOpen: () => void,
 ): () => void {
-  const es = new EventSource('/events/stream');
+  const es = new EventSource(withToken('/events/stream'));
   es.onopen = () => onOpen();
   es.onmessage = (e) => {
     try {

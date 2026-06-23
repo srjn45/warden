@@ -1,5 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline } from './api';
+import { setToken, clearToken, onAuthRequired } from './token';
+
+function authHeader(call: unknown[]): string | null {
+  const init = call[1] as RequestInit | undefined;
+  return new Headers(init?.headers).get('Authorization');
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -14,7 +20,7 @@ describe('api', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ sessions: [{ id: 'A-1' }] }));
     vi.stubGlobal('fetch', fetchMock);
     const out = await listSessions();
-    expect(fetchMock).toHaveBeenCalledWith('/sessions');
+    expect(fetchMock.mock.calls[0][0]).toBe('/sessions');
     expect(out).toHaveLength(1);
     expect(out[0].id).toBe('A-1');
   });
@@ -79,7 +85,7 @@ describe('api', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(listing));
     vi.stubGlobal('fetch', fetchMock);
     const out = await listDirs('/work');
-    expect(fetchMock).toHaveBeenCalledWith('/fs/dirs?path=%2Fwork');
+    expect(fetchMock.mock.calls[0][0]).toBe('/fs/dirs?path=%2Fwork');
     expect(out.entries[0].path).toBe('/work/project');
   });
 
@@ -120,12 +126,51 @@ describe('api', () => {
   });
 });
 
+describe('auth', () => {
+  afterEach(() => clearToken());
+
+  it('attaches a Bearer header when a token is stored', async () => {
+    setToken('s3cret');
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ sessions: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await listSessions();
+    expect(authHeader(fetchMock.mock.calls[0])).toBe('Bearer s3cret');
+  });
+
+  it('sends no Authorization header when no token is stored', async () => {
+    clearToken();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ sessions: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await listSessions();
+    expect(authHeader(fetchMock.mock.calls[0])).toBeNull();
+  });
+
+  it('preserves the per-request Content-Type while adding auth', async () => {
+    setToken('tok');
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'A-1' }, 201));
+    vi.stubGlobal('fetch', fetchMock);
+    await spawn({ prompt: 'x' });
+    const h = new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers);
+    expect(h.get('Authorization')).toBe('Bearer tok');
+    expect(h.get('Content-Type')).toBe('application/json');
+  });
+
+  it('fires the auth-required signal on a 401 and still throws ApiError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: 'unauthorized' }, 401)));
+    let fired = false;
+    const off = onAuthRequired(() => { fired = true; });
+    await expect(listSessions()).rejects.toBeInstanceOf(ApiError);
+    expect(fired).toBe(true);
+    off();
+  });
+});
+
 describe('pipelines api', () => {
   it('listPipelines GETs /pipelines and unwraps the array', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ pipelines: [{ id: 'demo', jobs: [] }] }));
     vi.stubGlobal('fetch', fetchMock);
     const out = await listPipelines();
-    expect(fetchMock).toHaveBeenCalledWith('/pipelines');
+    expect(fetchMock.mock.calls[0][0]).toBe('/pipelines');
     expect(out).toHaveLength(1);
     expect(out[0].id).toBe('demo');
   });

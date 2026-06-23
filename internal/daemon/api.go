@@ -276,29 +276,38 @@ func recoverMiddleware(next http.Handler) http.Handler {
 func (s *Server) router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(recoverMiddleware)
-	r.Use(s.authMiddleware) // outermost gate: guards API, SSE, and static UI
 	r.Use(maxBytes(maxBodyBytes))
 	r.Use(writeTimeout(writeTimeoutDur))
+
+	// Unauthenticated: a liveness probe (for tunnels/proxies) and the static UI.
+	// The compiled SPA holds no secrets — serving its shell to anyone is what
+	// lets a remote browser load the app and prompt for a token. All data- and
+	// action-bearing routes live in the authenticated group below.
 	r.Get("/healthz", s.handleHealthz)
-	r.Get("/sessions", s.handleListSessions)
-	r.Get("/sessions/{id}", s.handleGetSession)
-	r.Post("/events", s.handleEvent)
-	r.Get("/events/stream", s.handleEventsStream)
-	// Lifecycle routes: POST /spawn, /sessions/{id}/{terminate,delete,
-	// remove-worktree,input,restore}, GET /sessions/{id}/{output,attach}.
-	s.registerLifecycleRoutes(r)
-	r.Get("/fs/dirs", s.handleListDirs)
-	r.Get("/approvals", s.handleApprovals)
-	r.Post("/sessions/{id}/approve", s.handleApprove)
-	r.Patch("/sessions/{id}/auto-approve", s.handleSetAutoApprove)
-	r.Patch("/sessions/{id}/permission-mode", s.handleSetPermissionMode)
-	r.Get("/sessions/{id}/digest", s.handleDigest)
-	r.Get("/metrics", s.handleMetrics)
-	r.Get("/metrics/history", s.handleMetricsHistory)
-	s.registerContextRoutes(r)
-	s.registerMessageRoutes(r)
-	s.registerPipelineRoutes(r)
-	s.registerStatic(r) // catch-all; must be last
+
+	r.Group(func(ar chi.Router) {
+		ar.Use(s.authMiddleware) // bearer-token gate for the API, SSE, and WS
+		ar.Get("/sessions", s.handleListSessions)
+		ar.Get("/sessions/{id}", s.handleGetSession)
+		ar.Post("/events", s.handleEvent)
+		ar.Get("/events/stream", s.handleEventsStream)
+		// Lifecycle routes: POST /spawn, /sessions/{id}/{terminate,delete,
+		// remove-worktree,input,restore}, GET /sessions/{id}/{output,attach}.
+		s.registerLifecycleRoutes(ar)
+		ar.Get("/fs/dirs", s.handleListDirs)
+		ar.Get("/approvals", s.handleApprovals)
+		ar.Post("/sessions/{id}/approve", s.handleApprove)
+		ar.Patch("/sessions/{id}/auto-approve", s.handleSetAutoApprove)
+		ar.Patch("/sessions/{id}/permission-mode", s.handleSetPermissionMode)
+		ar.Get("/sessions/{id}/digest", s.handleDigest)
+		ar.Get("/metrics", s.handleMetrics)
+		ar.Get("/metrics/history", s.handleMetricsHistory)
+		s.registerContextRoutes(ar)
+		s.registerMessageRoutes(ar)
+		s.registerPipelineRoutes(ar)
+	})
+
+	s.registerStatic(r) // unauthenticated catch-all; must be last
 	return r
 }
 

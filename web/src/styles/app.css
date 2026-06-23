@@ -60,7 +60,9 @@ body { margin: 0; }
 .tab-content { flex: 1; overflow: auto; padding: 1rem; }
 .attn-pill { background: var(--attention); color: #fff; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; }
 .notify-toggle { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; }
+.token-clear { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; margin-left: 0; }
 .topbar .new-btn { margin-left: 0; }
+.modal.token-modal { gap: .8rem; }
 
 /* ── Overview ── */
 .overview { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
