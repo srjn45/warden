@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline } from './api';
+import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, listConflicts } from './api';
 import { setToken, clearToken, onAuthRequired } from './token';
 
 function authHeader(call: unknown[]): string | null {
@@ -162,6 +162,25 @@ describe('auth', () => {
     await expect(listSessions()).rejects.toBeInstanceOf(ApiError);
     expect(fired).toBe(true);
     off();
+  });
+});
+
+describe('collab api', () => {
+  it('listConflicts GETs /collab/conflicts and unwraps the array', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      conflicts: [{ file: 'internal/auth.go', agents: [{ id: 'A-1', name: 'alpha' }, { id: 'B-2' }] }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await listConflicts();
+    expect(fetchMock.mock.calls[0][0]).toBe('/collab/conflicts');
+    expect(out).toHaveLength(1);
+    expect(out[0].file).toBe('internal/auth.go');
+    expect(out[0].agents).toHaveLength(2);
+  });
+
+  it('listConflicts returns [] when the body is null', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ conflicts: null })));
+    expect(await listConflicts()).toEqual([]);
   });
 });
 

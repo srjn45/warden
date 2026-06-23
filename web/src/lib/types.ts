@@ -77,6 +77,18 @@ export interface Message {
   read: boolean;
 }
 
+// ConflictAgent / Conflict mirror the daemon's GET /collab/conflicts body:
+// a file currently modified (vs HEAD) in two or more active agent worktrees.
+export interface ConflictAgent {
+  id: string;
+  name?: string;
+}
+
+export interface Conflict {
+  file: string;
+  agents: ConflictAgent[];
+}
+
 export type PipelineStatus = 'pending' | 'running' | 'done' | 'stalled' | 'canceled';
 export type PipelineJobStatus =
   | 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'needs_attention';
