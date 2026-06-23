@@ -605,6 +605,18 @@ func (c *Client) PipelineStart(ctx context.Context, id string) error {
 	return c.doT(ctx, longTimeout, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/start", nil, nil)
 }
 
+// PipelinePause halts DAG progress: in-flight jobs keep running but no new job
+// spawns until PipelineResume.
+func (c *Client) PipelinePause(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/pause", nil, nil)
+}
+
+// PipelineResume lifts a pause and reconciles.
+func (c *Client) PipelineResume(ctx context.Context, id string) error {
+	// longTimeout: resume reconciles synchronously and may spawn worktree jobs.
+	return c.doT(ctx, longTimeout, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/resume", nil, nil)
+}
+
 func (c *Client) PipelineCancel(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/cancel", nil, nil)
 }

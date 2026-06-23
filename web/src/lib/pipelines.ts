@@ -29,5 +29,5 @@ export function pipelineHasLiveJobs(p: Pipeline): boolean {
 export function pipelineIsCancelable(p: Pipeline): boolean {
   if (p.status === 'done' || p.status === 'canceled') return false;
   if (p.status === 'stalled') return pipelineHasLiveJobs(p);
-  return true; // pending | running
+  return true; // pending | running | paused
 }

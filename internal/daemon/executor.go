@@ -33,6 +33,10 @@ var (
 	ErrJobNotRunning   = errors.New("job is not running")
 	ErrJobNotPending   = errors.New("job is not pending")
 	ErrJobNotRetryable = errors.New("job is not in a retryable state")
+
+	// Pause/resume guards (mapped to HTTP 409 by the route handlers).
+	ErrNotPausable = errors.New("only a running pipeline can be paused")
+	ErrNotPaused   = errors.New("pipeline is not paused")
 )
 
 // Executor performs the side effects the pure pipeline.Plan decides: spawning
@@ -94,6 +98,12 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 		return err
 	}
 	if p.Status == pipeline.StatusCanceled || p.Status == pipeline.StatusDone {
+		return nil
+	}
+	// Paused: in-flight jobs keep running (and may still emit/fail), but no new
+	// job is spawned and no failed-branch skipping happens until Resume. Resume
+	// re-enters Reconcile and settles the DAG from wherever it was left.
+	if p.Status == pipeline.StatusPaused {
 		return nil
 	}
 	d := pipeline.Plan(p)
@@ -216,6 +226,54 @@ func (e *Executor) EditJob(pid, jobID string, prompt, handoff *string) error {
 		e.notify()
 	}
 	return nil
+}
+
+// Pause halts DAG progress: in-flight jobs keep running and may still emit or
+// fail, but Reconcile spawns no new jobs while paused. Only a running pipeline
+// can be paused. Held under e.mu so the status flip can't interleave with a
+// Reconcile that's mid read→plan→spawn — that reconcile finishes its current
+// batch, then the pause takes effect for the next one.
+func (e *Executor) Pause(pid string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var ferr error
+	if err := e.pstore.Update(pid, func(p *pipeline.Pipeline) {
+		if p.Status != pipeline.StatusRunning {
+			ferr = fmt.Errorf("%w (status %s)", ErrNotPausable, p.Status)
+			return
+		}
+		p.Status = pipeline.StatusPaused
+	}); err != nil {
+		return err
+	}
+	if ferr != nil {
+		return ferr
+	}
+	if e.notify != nil {
+		e.notify()
+	}
+	return nil
+}
+
+// Resume lifts a pause: flips paused→running and reconciles, spawning whatever
+// became ready while paused (and skipping branches under any job that failed
+// mid-pause). Only a paused pipeline can be resumed. Not held under e.mu across
+// the whole call because Reconcile takes the lock itself.
+func (e *Executor) Resume(ctx context.Context, pid string) error {
+	var ferr error
+	if err := e.pstore.Update(pid, func(p *pipeline.Pipeline) {
+		if p.Status != pipeline.StatusPaused {
+			ferr = fmt.Errorf("%w (status %s)", ErrNotPaused, p.Status)
+			return
+		}
+		p.Status = pipeline.StatusRunning
+	}); err != nil {
+		return err
+	}
+	if ferr != nil {
+		return ferr
+	}
+	return e.Reconcile(ctx, pid)
 }
 
 // OnTransition reconciles a job when its session changes state: errored/orphaned/

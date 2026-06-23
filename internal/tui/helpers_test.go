@@ -34,6 +34,8 @@ type fakeAPI struct {
 	approvedFP  string
 	pipelines   []*pipeline.Pipeline
 	retried     string // "<pid>/<job>" of the last PipelineRetry
+	paused      string // pid of the last PipelinePause
+	resumed     string // pid of the last PipelineResume
 	canceled    string // pid of the last PipelineCancel
 	deletedPipe string // pid of the last PipelineDelete
 	deletePErr  error  // error PipelineDelete returns (e.g. simulating a 409)
@@ -91,6 +93,14 @@ func (f *fakeAPI) PipelineGet(_ context.Context, id string) (*pipeline.Pipeline,
 }
 func (f *fakeAPI) PipelineRetry(_ context.Context, pid, job string) error {
 	f.retried = pid + "/" + job
+	return nil
+}
+func (f *fakeAPI) PipelinePause(_ context.Context, pid string) error {
+	f.paused = pid
+	return nil
+}
+func (f *fakeAPI) PipelineResume(_ context.Context, pid string) error {
+	f.resumed = pid
 	return nil
 }
 func (f *fakeAPI) PipelineCancel(_ context.Context, pid string) error {

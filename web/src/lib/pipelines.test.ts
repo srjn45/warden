@@ -38,9 +38,10 @@ describe('pipelines helpers', () => {
     expect(pipelineHasLiveJobs(pipe([]))).toBe(false);
   });
 
-  it('pipelineIsCancelable is true while pending or running', () => {
+  it('pipelineIsCancelable is true while pending, running, or paused', () => {
     expect(pipelineIsCancelable(pipe(['pending'], 'pending'))).toBe(true);
     expect(pipelineIsCancelable(pipe(['running'], 'running'))).toBe(true);
+    expect(pipelineIsCancelable(pipe(['running'], 'paused'))).toBe(true);
   });
 
   it('pipelineIsCancelable is false once finished (done/canceled)', () => {

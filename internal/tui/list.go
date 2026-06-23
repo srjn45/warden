@@ -430,6 +430,8 @@ func pipelineDisplayStatus(p *pipeline.Pipeline) (string, lipgloss.Style, string
 	switch p.Status {
 	case pipeline.StatusRunning:
 		return "running", stRunning, "◐" // cyan
+	case pipeline.StatusPaused:
+		return "paused", stAttention, "⏸" // amber
 	case pipeline.StatusDone:
 		return "done", stBusy, "●" // green
 	case pipeline.StatusStalled:

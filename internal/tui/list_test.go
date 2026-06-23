@@ -494,6 +494,35 @@ func TestKeyCancelPipeline(t *testing.T) {
 	}
 }
 
+func TestKeyPauseResumePipeline(t *testing.T) {
+	// running pipeline → p pauses it.
+	m := pipeModel()
+	m.cursor = 0 // the pipeline header row
+	updated, cmd := m.handleKey(key("p"))
+	if cmd == nil {
+		t.Fatalf("p on a running pipeline should return a pause cmd")
+	}
+	cmd()
+	fa := updated.(listPaneModel).api.(*fakeAPI)
+	if fa.paused != "demo" {
+		t.Fatalf("want paused=demo, got %q", fa.paused)
+	}
+
+	// paused pipeline → p resumes it.
+	m = pipeModel()
+	m.pipelines[0].Status = pipeline.StatusPaused
+	m.cursor = 0
+	updated, cmd = m.handleKey(key("p"))
+	if cmd == nil {
+		t.Fatalf("p on a paused pipeline should return a resume cmd")
+	}
+	cmd()
+	fa = updated.(listPaneModel).api.(*fakeAPI)
+	if fa.resumed != "demo" {
+		t.Fatalf("want resumed=demo, got %q", fa.resumed)
+	}
+}
+
 func TestKeyRetryFailedJob(t *testing.T) {
 	m := pipeModel()
 	m.cursor = 1 // job "a" (failed)
@@ -550,6 +579,7 @@ func TestPipelineDisplayStatus(t *testing.T) {
 	}{
 		{"pending", &pipeline.Pipeline{Status: pipeline.StatusPending}, "pending", "○", lipgloss.Color("8")},
 		{"running", &pipeline.Pipeline{Status: pipeline.StatusRunning}, "running", "◐", lipgloss.Color("6")},
+		{"paused", &pipeline.Pipeline{Status: pipeline.StatusPaused, Jobs: []pipeline.Job{job(pipeline.JobRunning)}}, "paused", "⏸", lipgloss.Color("3")},
 		{"done", &pipeline.Pipeline{Status: pipeline.StatusDone, Jobs: []pipeline.Job{job(pipeline.JobDone)}}, "done", "●", lipgloss.Color("2")},
 		{"stalled", &pipeline.Pipeline{Status: pipeline.StatusStalled, Jobs: []pipeline.Job{job(pipeline.JobDone), job(pipeline.JobSkipped)}}, "stalled", "⚠", lipgloss.Color("3")},
 		{"canceled", &pipeline.Pipeline{Status: pipeline.StatusCanceled, Jobs: []pipeline.Job{job(pipeline.JobDone)}}, "canceled", "⊘", lipgloss.Color("8")},

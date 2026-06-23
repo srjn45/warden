@@ -602,3 +602,73 @@ func TestEmitSkipsCommitForNoWorktreeJob(t *testing.T) {
 		t.Fatalf("a worktree:none job must NOT be auto-committed, got %d calls", fl.commitCalls)
 	}
 }
+
+func TestPauseStopsSpawningNextJob(t *testing.T) {
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(chain())
+	e.Reconcile(context.Background(), "p") // spawns a
+
+	if err := e.Pause("p"); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	got, _ := ps.Get("p")
+	if got.Status != pipeline.StatusPaused {
+		t.Fatalf("status %s, want paused", got.Status)
+	}
+
+	// a finishes while paused: it goes done, but b must NOT spawn until resume.
+	ps.Update("p", func(p *pipeline.Pipeline) {
+		j := p.Job("a")
+		j.Status = pipeline.JobDone
+		j.Output = "done with a"
+	})
+	if err := e.Reconcile(context.Background(), "p"); err != nil {
+		t.Fatalf("Reconcile while paused: %v", err)
+	}
+	got, _ = ps.Get("p")
+	if got.Job("b").Status != pipeline.JobPending {
+		t.Fatalf("b must stay pending while paused, got %s", got.Job("b").Status)
+	}
+	if got.Status != pipeline.StatusPaused {
+		t.Fatalf("status must stay paused, got %s", got.Status)
+	}
+
+	// resume spawns the now-ready b.
+	if err := e.Resume(context.Background(), "p"); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	got, _ = ps.Get("p")
+	if got.Job("b").Status != pipeline.JobRunning || got.Job("b").SessionID != "p-b" {
+		t.Fatalf("b should run after resume, got %+v", got.Job("b"))
+	}
+	if got.Status != pipeline.StatusRunning {
+		t.Fatalf("status %s, want running", got.Status)
+	}
+}
+
+func TestPauseOnlyFromRunning(t *testing.T) {
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(chain()) // status pending
+	if err := e.Pause("p"); !errors.Is(err, ErrNotPausable) {
+		t.Fatalf("pausing a pending pipeline should fail with ErrNotPausable, got %v", err)
+	}
+}
+
+func TestResumeOnlyFromPaused(t *testing.T) {
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(chain())
+	e.Reconcile(context.Background(), "p") // running
+	if err := e.Resume(context.Background(), "p"); !errors.Is(err, ErrNotPaused) {
+		t.Fatalf("resuming a running pipeline should fail with ErrNotPaused, got %v", err)
+	}
+}
+
+func TestPauseUnknownPipeline(t *testing.T) {
+	e, _, _ := newTestExecutor(t)
+	if err := e.Pause("ghost"); !errors.Is(err, pipeline.ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+	if err := e.Resume(context.Background(), "ghost"); !errors.Is(err, pipeline.ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}

@@ -347,8 +347,12 @@ Pipelines are still CLI-only. Add `create_pipeline` / `start_pipeline` /
 `show_pipeline` / `cancel_pipeline` to `internal/mcp/server.go` (which currently
 exposes agent, ctx, mailbox, and approval tools — no pipeline tools).
 
-#### 26. Pipeline pause/resume — *not started*
-**Effort:** 4 hours. Add `paused` state; executor checks before spawning next job.
+#### 26. ~~Pipeline pause/resume~~ — ✅ **DONE**
+`paused` pipeline state. `Executor.Reconcile` short-circuits while paused so no
+new job spawns; in-flight jobs keep running and may still emit/fail. `pause`
+(running→paused) and `resume` (paused→running, then reconcile) on the executor,
+HTTP routes, client, `warden pipeline pause|resume`, TUI `p` key, and web
+Pause/Resume buttons.
 
 #### 27. Conditional pipeline steps — *not started*
 **Effort:** 6 hours. `run_if: success|failure|always`; executor checks upstream

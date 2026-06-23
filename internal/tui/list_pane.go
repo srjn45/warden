@@ -651,6 +651,21 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.vp.GotoTop()
 		}
 	case "p":
+		// On a pipeline row, p pauses a running pipeline / resumes a paused one.
+		// Elsewhere it opens the pending-approvals view.
+		if it := itemAt(m.items(), m.cursor); it.pipeline != nil {
+			switch it.pipeline.Status {
+			case pipeline.StatusRunning:
+				m.status = "pausing " + it.pipeline.ID
+				return m, pausePipelineCmd(m.api, it.pipeline.ID)
+			case pipeline.StatusPaused:
+				m.status = "resuming " + it.pipeline.ID
+				return m, resumePipelineCmd(m.api, it.pipeline.ID)
+			default:
+				m.status = "can only pause a running pipeline"
+			}
+			return m, nil
+		}
 		if len(recognizedApprovals(m.approvals)) > 0 {
 			m.mode = modeApprovals
 			m.apprCursor = 0

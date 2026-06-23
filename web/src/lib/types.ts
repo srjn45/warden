@@ -89,7 +89,7 @@ export interface Conflict {
   agents: ConflictAgent[];
 }
 
-export type PipelineStatus = 'pending' | 'running' | 'done' | 'stalled' | 'canceled';
+export type PipelineStatus = 'pending' | 'running' | 'paused' | 'done' | 'stalled' | 'canceled';
 export type PipelineJobStatus =
   | 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'needs_attention';
 
