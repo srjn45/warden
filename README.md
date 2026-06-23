@@ -632,6 +632,8 @@ warden pipeline start <id>              # spawn jobs with no dependencies
 warden pipeline show <id>               # jobs, status, branches, and emitted output
 warden pipeline list
 warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
+warden pipeline pause <id>              # stop spawning new jobs (in-flight keep running)
+warden pipeline resume <id>             # resume a paused pipeline
 warden pipeline cancel <id>             # terminate running jobs
 warden pipeline delete <id>             # remove the record (cancel first if live)
 ```

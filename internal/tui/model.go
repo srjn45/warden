@@ -24,6 +24,8 @@ type api interface {
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
 	PipelineGet(ctx context.Context, id string) (*pipeline.Pipeline, error)
 	PipelineRetry(ctx context.Context, pid, job string) error
+	PipelinePause(ctx context.Context, pid string) error
+	PipelineResume(ctx context.Context, pid string) error
 	PipelineCancel(ctx context.Context, pid string) error
 	PipelineDelete(ctx context.Context, pid string) error
 	Digest(ctx context.Context, id string) (*digest.Digest, error)

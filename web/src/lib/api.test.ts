@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, listConflicts } from './api';
+import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts } from './api';
 import { setToken, clearToken, onAuthRequired } from './token';
 
 function authHeader(call: unknown[]): string | null {
@@ -206,6 +206,31 @@ describe('pipelines api', () => {
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe('/pipelines/demo/cancel');
     expect(opts.method).toBe('POST');
+  });
+
+  it('pausePipeline POSTs to the pause endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'paused' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await pausePipeline('demo');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('/pipelines/demo/pause');
+    expect(opts.method).toBe('POST');
+  });
+
+  it('resumePipeline POSTs to the resume endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'resumed' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await resumePipeline('demo');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('/pipelines/demo/resume');
+    expect(opts.method).toBe('POST');
+  });
+
+  it('pausePipeline surfaces a 409 (not running) as ApiError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      jsonResponse({ error: 'only a running pipeline can be paused (status pending)' }, 409),
+    ));
+    await expect(pausePipeline('demo')).rejects.toBeInstanceOf(ApiError);
   });
 
   it('deletePipeline DELETEs the pipeline endpoint', async () => {

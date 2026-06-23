@@ -134,6 +134,7 @@ body { margin: 0; }
 .pipe-item.on { border-color: #4a7; }
 .pipe-status { font-size: 11px; opacity: 0.8; }
 .pipe-status.st-running { color: #6cf; }
+.pipe-status.st-paused { color: #fc6; }
 .pipe-status.st-done { color: #4a7; }
 .pipe-status.st-stalled { color: #e84; }
 .pipe-status.st-canceled, .pipe-status.st-pending { color: #999; }

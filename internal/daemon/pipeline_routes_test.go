@@ -413,3 +413,69 @@ func TestPipelineDeleteRefusesLiveJob(t *testing.T) {
 		t.Fatalf("delete with a live job want 409, got %d", resp.StatusCode)
 	}
 }
+
+func TestPipelinePauseResumeRoute(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	http.Post(ts.URL+"/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
+
+	resp, err := http.Post(ts.URL+"/pipelines/demo/pause", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("pause status %d", resp.StatusCode)
+	}
+	got, _ := ps.Get("demo")
+	if got.Status != pipeline.StatusPaused {
+		t.Fatalf("status %s, want paused", got.Status)
+	}
+
+	resp2, err := http.Post(ts.URL+"/pipelines/demo/resume", "application/json", nil)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("resume status %d", resp2.StatusCode)
+	}
+	got, _ = ps.Get("demo")
+	// single root job already running; resume keeps it running.
+	if got.Status != pipeline.StatusRunning {
+		t.Fatalf("status %s, want running after resume", got.Status)
+	}
+}
+
+func TestPipelinePauseNotRunning409(t *testing.T) {
+	ts, _ := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck // pending
+	resp, err := http.Post(ts.URL+"/pipelines/demo/pause", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("pause pending want 409, got %d", resp.StatusCode)
+	}
+}
+
+func TestPipelineResumeNotPaused409(t *testing.T) {
+	ts, _ := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	http.Post(ts.URL+"/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
+	resp, err := http.Post(ts.URL+"/pipelines/demo/resume", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("resume running want 409, got %d", resp.StatusCode)
+	}
+}
+
+func TestPipelinePause404(t *testing.T) {
+	ts, _ := newPipeServer(t)
+	defer ts.Close()
+	resp, err := http.Post(ts.URL+"/pipelines/ghost/pause", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", resp.StatusCode)
+	}
+}

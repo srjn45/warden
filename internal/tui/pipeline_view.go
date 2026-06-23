@@ -60,7 +60,7 @@ func renderPipeline(p *pipeline.Pipeline, width, height int) string {
 			b.WriteString("    " + stMuted.Render(trunc(j.Output, max(0, width-4))) + "\n")
 		}
 	}
-	b.WriteString("\n" + stMuted.Render("x cancel pipeline · D delete (when stopped) · on a job: r retry · a attach"))
+	b.WriteString("\n" + stMuted.Render("p pause/resume · x cancel pipeline · D delete (when stopped) · on a job: r retry · a attach"))
 	return padTo(strings.TrimRight(b.String(), "\n"), height)
 }
 

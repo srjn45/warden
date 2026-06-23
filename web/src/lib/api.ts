@@ -199,6 +199,19 @@ export async function startPipeline(id: string): Promise<void> {
   await parse<unknown>(await apiFetch(`/pipelines/${encodeURIComponent(id)}/start`, { method: 'POST' }));
 }
 
+// pausePipeline halts DAG progress: in-flight jobs keep running but no new job
+// spawns until resumed. The daemon refuses with 409 if the pipeline is not
+// running — surfaced as an ApiError.
+export async function pausePipeline(id: string): Promise<void> {
+  await parse<unknown>(await apiFetch(`/pipelines/${encodeURIComponent(id)}/pause`, { method: 'POST' }));
+}
+
+// resumePipeline lifts a pause and reconciles. The daemon refuses with 409 if
+// the pipeline is not paused — surfaced as an ApiError.
+export async function resumePipeline(id: string): Promise<void> {
+  await parse<unknown>(await apiFetch(`/pipelines/${encodeURIComponent(id)}/resume`, { method: 'POST' }));
+}
+
 export async function cancelPipeline(id: string): Promise<void> {
   await parse<unknown>(await apiFetch(`/pipelines/${encodeURIComponent(id)}/cancel`, { method: 'POST' }));
 }

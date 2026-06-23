@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Pipeline, PipelineJob } from '../lib/types';
-import { listPipelines, cancelPipeline, deletePipeline, retryJob, startPipeline, ApiError } from '../lib/api';
+import { listPipelines, cancelPipeline, deletePipeline, retryJob, startPipeline, pausePipeline, resumePipeline, ApiError } from '../lib/api';
 import { jobStatusClass, isJobRetryable, pipelineHasLiveJobs, pipelineIsCancelable, jobDigestSummary } from '../lib/pipelines';
 import PipelineDag from './PipelineDag';
 import NewPipelineModal from './NewPipelineModal';
@@ -70,6 +70,12 @@ export default function PipelinesTab({ onSelect }: { onSelect: (id: string) => v
             <h2>{selected.id} <span className={`pipe-status st-${selected.status}`}>{selected.status}</span></h2>
             {selected.status === 'pending' && (
               <button className="btn" onClick={() => startPipeline(selected.id).catch(() => { /* ignore */ })}>Start</button>
+            )}
+            {selected.status === 'running' && (
+              <button className="btn" onClick={() => pausePipeline(selected.id).catch(() => { /* ignore */ })}>Pause</button>
+            )}
+            {selected.status === 'paused' && (
+              <button className="btn" onClick={() => resumePipeline(selected.id).catch(() => { /* ignore */ })}>Resume</button>
             )}
             <button
               className="btn"

@@ -17,6 +17,7 @@ type Status string
 const (
 	StatusPending  Status = "pending"
 	StatusRunning  Status = "running"
+	StatusPaused   Status = "paused"
 	StatusDone     Status = "done"
 	StatusStalled  Status = "stalled"
 	StatusCanceled Status = "canceled"
@@ -90,7 +91,7 @@ func (p *Pipeline) IsCancelable() bool {
 		return false
 	case StatusStalled:
 		return p.HasLiveJobs()
-	default: // pending | running
+	default: // pending | running | paused
 		return true
 	}
 }

@@ -38,7 +38,8 @@ func newPipelineCmd() *cobra.Command {
 		Short: "Define and run DAG pipelines of agent jobs",
 	}
 	cmd.AddCommand(newPipelineCreateCmd(), newPipelineListCmd(), newPipelineShowCmd(),
-		newPipelineStartCmd(), newPipelineCancelCmd(), newPipelineDeleteCmd(), newPipelineEmitCmd(),
+		newPipelineStartCmd(), newPipelinePauseCmd(), newPipelineResumeCmd(),
+		newPipelineCancelCmd(), newPipelineDeleteCmd(), newPipelineEmitCmd(),
 		newPipelineEditJobCmd(), newPipelineRetryCmd())
 	return cmd
 }
@@ -113,6 +114,36 @@ func newPipelineStartCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "started %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newPipelinePauseCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "pause <pipeline>",
+		Short: "Pause a running pipeline (in-flight jobs finish; no new jobs spawn)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := clientFor(cmd).PipelinePause(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "paused %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newPipelineResumeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "resume <pipeline>",
+		Short: "Resume a paused pipeline (spawns jobs that became ready while paused)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := clientFor(cmd).PipelineResume(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "resumed %s\n", args[0])
 			return nil
 		},
 	}

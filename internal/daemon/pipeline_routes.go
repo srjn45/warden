@@ -30,6 +30,8 @@ func (s *Server) registerPipelineRoutes(r chi.Router) {
 	r.Get("/pipelines/{pid}", s.handleShowPipeline)
 	r.Delete("/pipelines/{pid}", s.handleDeletePipeline)
 	r.Post("/pipelines/{pid}/start", s.handleStartPipeline)
+	r.Post("/pipelines/{pid}/pause", s.handlePausePipeline)
+	r.Post("/pipelines/{pid}/resume", s.handleResumePipeline)
 	r.Post("/pipelines/{pid}/cancel", s.handleCancelPipeline)
 	r.Post("/pipelines/{pid}/jobs/{job}/emit", s.handleEmit)
 	r.Post("/pipelines/{pid}/jobs/{job}/edit", s.handleEditJob)
@@ -151,6 +153,40 @@ func (s *Server) handleStartPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
+}
+
+// handlePausePipeline halts DAG progress without tearing down in-flight jobs:
+// they keep running and may still emit, but no new job spawns until resume.
+func (s *Server) handlePausePipeline(w http.ResponseWriter, r *http.Request) {
+	err := s.exec.Pause(chi.URLParam(r, "pid"))
+	switch {
+	case errors.Is(err, pipeline.ErrNotFound):
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+	case errors.Is(err, ErrNotPausable):
+		writeErr(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, err.Error())
+	default:
+		s.notify()
+		writeJSON(w, http.StatusOK, map[string]string{"status": "paused"})
+	}
+}
+
+// handleResumePipeline lifts a pause and reconciles, spawning jobs that became
+// ready while paused. Reconcile runs on a daemon-owned context: it may spawn
+// worktree jobs that outlast the request (mirrors start).
+func (s *Server) handleResumePipeline(w http.ResponseWriter, r *http.Request) {
+	err := s.exec.Resume(context.Background(), chi.URLParam(r, "pid"))
+	switch {
+	case errors.Is(err, pipeline.ErrNotFound):
+		writeErr(w, http.StatusNotFound, "pipeline not found")
+	case errors.Is(err, ErrNotPaused):
+		writeErr(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "resumed"})
+	}
 }
 
 func (s *Server) handleCancelPipeline(w http.ResponseWriter, r *http.Request) {

@@ -195,6 +195,18 @@ func cancelPipelineCmd(a api, pid string) tea.Cmd {
 	}
 }
 
+func pausePipelineCmd(a api, pid string) tea.Cmd {
+	return func() tea.Msg {
+		return pipelineActionMsg{err: a.PipelinePause(context.Background(), pid)}
+	}
+}
+
+func resumePipelineCmd(a api, pid string) tea.Cmd {
+	return func() tea.Msg {
+		return pipelineActionMsg{err: a.PipelineResume(context.Background(), pid)}
+	}
+}
+
 func deletePipelineCmd(a api, pid string) tea.Cmd {
 	return func() tea.Msg {
 		return pipelineActionMsg{err: a.PipelineDelete(context.Background(), pid)}
