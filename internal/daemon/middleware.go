@@ -1,10 +1,67 @@
 package daemon
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// authScope describes what an authenticated request is permitted to do. Today a
+// valid token grants full access; the scope return value is the seam for future
+// per-client / read-only tokens — callers branch on the scope, never on the raw
+// token — so adding scoped tokens later is an additive change to authorize, not
+// a rewrite of the middleware or routes.
+type authScope int
+
+const (
+	scopeNone authScope = iota // request is not authorized
+	scopeFull                  // full access
+)
+
+// authMiddleware rejects requests that authorize denies. It is wired as the
+// outermost middleware so it guards everything — the API, the SSE stream, and
+// the static web UI alike (an unauthenticated client must not even get the
+// dashboard shell).
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ok, _ := s.authorize(r); !ok {
+			writeErr(w, http.StatusUnauthorized, "unauthorized: missing or invalid bearer token")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// authorize is the single decision point for request authentication. When no
+// token is configured (the default loopback-only mode) auth is disabled and
+// every request is allowed — preserving today's behavior. When a token is set,
+// every request must present it, including loopback: the source address cannot
+// distinguish the local CLI from a same-host reverse proxy (e.g. Cloudflare
+// Tunnel) forwarding a remote client, so there is no loopback exemption.
+func (s *Server) authorize(r *http.Request) (bool, authScope) {
+	if s.authToken == "" {
+		return true, scopeFull
+	}
+	got := bearerToken(r)
+	if got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(s.authToken)) == 1 {
+		return true, scopeFull
+	}
+	return false, scopeNone
+}
+
+// bearerToken extracts the presented token from the Authorization header
+// ("Bearer <t>"), falling back to a ?token=<t> query param. The query-param
+// form exists for SSE (EventSource) and the WS upgrade, which cannot set custom
+// request headers.
+func bearerToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); h != "" {
+		if t, ok := strings.CutPrefix(h, "Bearer "); ok {
+			return strings.TrimSpace(t)
+		}
+	}
+	return strings.TrimSpace(r.URL.Query().Get("token"))
+}
 
 const (
 	// maxBodyBytes caps a request body (JSON POSTs); GETs and the WS upgrade

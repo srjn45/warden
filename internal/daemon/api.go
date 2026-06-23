@@ -151,6 +151,16 @@ type Server struct {
 	// archived; autoPruneWorktree=true runs an unattended orphan sweep.
 	removeDoneWorktree bool
 	autoPruneWorktree  bool
+	// authToken is the bearer token required on every request. Empty ⇒ auth is
+	// disabled (the default loopback-only mode). See authorize.
+	authToken string
+}
+
+// SetAuth configures the bearer token required for remote access. An empty
+// token disables authentication (the local-only default). When set, every
+// request — including loopback — must present the token; see authorize.
+func (s *Server) SetAuth(token string) {
+	s.authToken = token
 }
 
 // SetWorktreeRetention wires the worktree retention policy. keepDone mirrors
@@ -266,6 +276,7 @@ func recoverMiddleware(next http.Handler) http.Handler {
 func (s *Server) router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(recoverMiddleware)
+	r.Use(s.authMiddleware) // outermost gate: guards API, SSE, and static UI
 	r.Use(maxBytes(maxBodyBytes))
 	r.Use(writeTimeout(writeTimeoutDur))
 	r.Get("/healthz", s.handleHealthz)
