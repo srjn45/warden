@@ -24,8 +24,10 @@ else
 fi
 
 deploy_binary
+ensure_token          # provisions ~/.warden/token.env when ADDR is non-loopback
 render_plist          # keep plist in sync; harmless if unchanged
 "$INSTALL_BIN" config init && info "config migrated: ~/.warden/config.yaml"
 restart_service       # bootstraps if not yet loaded
 report_health
+auth_notice
 info "reinstall complete"
