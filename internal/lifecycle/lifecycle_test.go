@@ -30,6 +30,7 @@ func claudeResume(sessionID, name, model, mode string) string {
 }
 func claudeBase(model, mode string) string { return defaultLC().claudeBase(model, mode) }
 func pipelineHint() string                 { return defaultLC().pipelineHint() }
+func collabHint() string                   { return defaultLC().collabHint() }
 
 func TestClaudeLaunchPermissionMode(t *testing.T) {
 	def := claudeLaunch("sid", "agent-1", "", "acceptEdits")
@@ -115,7 +116,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "WARDEN_SESSION_ID=PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 	// Launch claude UNATTENDED, with a pinned session id and display name.
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", "", "auto") + pipelineHint(), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", "", "auto") + pipelineHint() + collabHint(), "Enter"})
 }
 
 func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
@@ -238,7 +239,7 @@ func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "WARDEN_SESSION_ID=" + s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/repo"})
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint(), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint(), "Enter"})
 }
 
 func TestSpawnPRReviewChecksOutPR(t *testing.T) {
@@ -497,7 +498,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-m", "700", "-p", "/state/prompts"})
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -545,7 +546,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 
 	// The launch line is a single physical line; the multi-line prompt is read
 	// back via $(cat …) so no embedded newline is ever typed into the pane.
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	require.NotContains(t, launch, "\n", "the typed launch command must never contain a raw newline")
 }
@@ -1162,7 +1163,7 @@ func TestSpawnInjectsPipelineHint(t *testing.T) {
 	require.NoError(t, err)
 
 	promptFile := "/state/prompts/" + s.ID
-	want := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	want := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
 	require.Contains(t, want, "--append-system-prompt")
 }
@@ -1175,14 +1176,17 @@ func TestSpawnRespectsPipelineHintOptOut(t *testing.T) {
 	require.NoError(t, err)
 	_ = s
 
+	// The pipeline guidance must be gone. The collab hint is a separate toggle
+	// (still on here), so assert on the pipeline-specific marker, not the shared
+	// --append-system-prompt flag.
 	for _, argv := range fr.calledArgs() {
 		for _, a := range argv {
-			require.NotContains(t, a, "--append-system-prompt", "pipeline_hint=false must suppress the hint")
+			require.NotContains(t, a, "warden pipeline", "pipeline_hint=false must suppress the pipeline hint")
 		}
 	}
 }
 
-func TestSpawnJobOmitsPipelineHint(t *testing.T) {
+func TestSpawnJobOmitsPipelineHintKeepsCollabHint(t *testing.T) {
 	fr := &FakeRunner{}
 	l := New(fr, &FakeConfig{})
 	l.PromptsDir = "/state/prompts"
@@ -1191,11 +1195,17 @@ func TestSpawnJobOmitsPipelineHint(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Pipeline jobs are already decomposed, so they skip the pipeline hint — but
+	// parallel jobs are the prime file-conflict case, so they DO carry the collab
+	// hint so they coordinate on shared files.
+	var launch string
 	for _, argv := range fr.calledArgs() {
-		for _, a := range argv {
-			require.NotContains(t, a, "--append-system-prompt", "pipeline jobs are already decomposed")
+		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "send-keys" {
+			launch = argv[len(argv)-2]
 		}
 	}
+	require.NotContains(t, launch, "warden pipeline", "pipeline jobs are already decomposed")
+	require.Contains(t, launch, "who_is_editing_file", "pipeline jobs still get the collab hint")
 }
 
 func TestPipelineHint(t *testing.T) {
@@ -1209,6 +1219,21 @@ func TestPipelineHint(t *testing.T) {
 	})
 	t.Run("opt-out via config", func(t *testing.T) {
 		got := New(&FakeRunner{}, &FakeConfig{PipelineHintOff: true}).pipelineHint()
+		require.Equal(t, "", got)
+	})
+}
+
+func TestCollabHint(t *testing.T) {
+	t.Run("on by default", func(t *testing.T) {
+		got := New(&FakeRunner{}, &FakeConfig{}).collabHint()
+		require.Contains(t, got, "--append-system-prompt")
+		require.Contains(t, got, "who_is_editing_file")
+		require.True(t, strings.HasPrefix(got, " "), "leading space so it concatenates onto claudeLaunch output")
+		require.NotContains(t, got, "\n", "must stay a single typed line")
+		require.NotContains(t, collabHintGuidance, "'", "guidance must stay apostrophe-free (comment invariant; keeps the single-quoted shell form clean)")
+	})
+	t.Run("opt-out via config", func(t *testing.T) {
+		got := New(&FakeRunner{}, &FakeConfig{CollabHintOff: true}).collabHint()
 		require.Equal(t, "", got)
 	})
 }
@@ -1233,8 +1258,8 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 		}
 	}
 
-	// The launch carries session-id, name, and the pipeline hint, but NO cat fragment.
-	expectedLaunch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint()
+	// The launch carries session-id, name, and the hints, but NO cat fragment.
+	expectedLaunch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, expectedLaunch, "Enter"})
 
 	// Subject reads cleanly in the agent list instead of being blank.
@@ -1281,7 +1306,7 @@ func TestSpawnAppendsExitSuffix(t *testing.T) {
 	require.NoError(t, err)
 
 	promptFile := "/state/prompts/" + s.ID
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() +
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() +
 		` "$(cat ` + shellQuoteArg(promptFile) + `)"` +
 		" ; printf '%s' \"$?\" > " + shellQuoteArg(filepath.Join(l.ExitsDir, s.ID))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
