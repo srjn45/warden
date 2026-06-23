@@ -11,6 +11,13 @@ LABEL="com.srajanpathak.warden"
 CODESIGN_IDENTITY="warden-codesign"
 # WARDEN_ADDR is canonical; AGENTCTL_ADDR is still honored as a fallback.
 ADDR="${WARDEN_ADDR:-${AGENTCTL_ADDR:-127.0.0.1:8765}}"
+# Bearer-token file for remote (non-loopback) installs. Off the YAML config and
+# out of the repo; populated by ensure_token only when ADDR is non-loopback.
+TOKEN_FILE="$HOME/.warden/token.env"
+# Set by ensure_token: 1 when the daemon binds a non-loopback addr (auth
+# required), 0 for loopback installs which stay auth-free exactly as before.
+AUTH_ENABLED=0
+WARDEN_TOKEN_VALUE=""
 INSTALL_BIN_DIR="$HOME/.local/bin"
 INSTALL_BIN="$INSTALL_BIN_DIR/warden"
 # Short alias symlink (wd -> warden) created alongside the binary.
@@ -93,6 +100,53 @@ codesign_binary() {
   info "signed + verified $INSTALL_BIN (identity: $CODESIGN_IDENTITY)"
 }
 
+# --- auth / token ---------------------------------------------------------
+# True when ADDR is a loopback/host-less bind that needs no authentication.
+is_loopback_addr() {
+  case "${ADDR%:*}" in
+    ""|"localhost"|"127.0.0.1"|"::1") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Provision a bearer token when binding a non-loopback address. The daemon
+# refuses to bind a non-loopback addr without WARDEN_TOKEN (fail-closed), so a
+# remote install must supply one. The token lives only in $TOKEN_FILE
+# (chmod 600) — never in the YAML config or the repo — and is generated once,
+# then reused on later installs so phones/clients keep working across upgrades.
+# Sets AUTH_ENABLED and WARDEN_TOKEN_VALUE, consumed by render_plist. Must run
+# after deploy_binary (it shells out to the installed binary to mint the token).
+ensure_token() {
+  if is_loopback_addr; then
+    AUTH_ENABLED=0
+    return 0
+  fi
+  AUTH_ENABLED=1
+  mkdir -p "$(dirname "$TOKEN_FILE")"
+  [ -f "$TOKEN_FILE" ] && WARDEN_TOKEN_VALUE="$(sed -n 's/^WARDEN_TOKEN=//p' "$TOKEN_FILE")"
+  if [ -n "$WARDEN_TOKEN_VALUE" ]; then
+    info "reusing existing remote token: $TOKEN_FILE"
+  else
+    WARDEN_TOKEN_VALUE="$("$INSTALL_BIN" token generate)" || die "failed to generate bearer token"
+    ( umask 077; printf 'WARDEN_TOKEN=%s\n' "$WARDEN_TOKEN_VALUE" > "$TOKEN_FILE" ) \
+      || die "failed to write token file: $TOKEN_FILE"
+    info "generated remote bearer token -> $TOKEN_FILE"
+  fi
+  chmod 600 "$TOKEN_FILE"
+}
+
+# Print the token + usage hint at the end of a remote install. No-op for
+# loopback installs.
+auth_notice() {
+  [ "${AUTH_ENABLED:-0}" -eq 1 ] || return 0
+  info "remote access enabled on ${_C_GRN}$ADDR${_C_RST} — clients authenticate with this bearer token:"
+  printf '    %s\n' "$WARDEN_TOKEN_VALUE"
+  printf '    stored in %s (chmod 600)\n' "$TOKEN_FILE"
+  printf '    • web/phone: open http://<this-host>:%s and paste the token\n' "${ADDR##*:}"
+  printf '    • CLI/TUI on this host: export WARDEN_TOKEN from that file, e.g. add to your shell rc:\n'
+  printf '        [ -r %s ] && export WARDEN_TOKEN="$(sed -n '"'"'s/^WARDEN_TOKEN=//p'"'"' %s)"\n' "$TOKEN_FILE" "$TOKEN_FILE"
+}
+
 # --- plist ----------------------------------------------------------------
 # Sets PLIST_CHANGED=1 when the on-disk plist was created or its contents
 # changed, 0 when it already matched. restart_service uses this to decide
@@ -105,9 +159,19 @@ render_plist() {
   [ -f "$TEMPLATE" ] || die "plist template not found: $TEMPLATE"
   mkdir -p "$(dirname "$PLIST")"
   local tmp="$PLIST.tmp.$$"
+  # launchd has no EnvironmentFile equivalent, so the token is inlined into the
+  # plist's EnvironmentVariables; the plist is chmod 600'd below to keep it
+  # readable only by the user. Loopback installs delete the placeholder line.
+  local token_sed
+  if [ "${AUTH_ENABLED:-0}" -eq 1 ]; then
+    token_sed="s|__TOKENENV__|<key>WARDEN_TOKEN</key><string>$WARDEN_TOKEN_VALUE</string>|"
+  else
+    token_sed="/__TOKENENV__/d"
+  fi
   sed -e "s|__BINARY__|$INSTALL_BIN|g" \
       -e "s|__ADDR__|$ADDR|g" \
       -e "s|__HOME__|$HOME|g" \
+      -e "$token_sed" \
       "$TEMPLATE" > "$tmp" || { rm -f "$tmp"; die "failed to render plist"; }
   if [ -f "$PLIST" ] && cmp -s "$tmp" "$PLIST"; then
     rm -f "$tmp"
@@ -118,6 +182,10 @@ render_plist() {
     PLIST_CHANGED=1
     info "wrote $PLIST"
   fi
+  # Restrict the plist when it carries an inlined token (it would otherwise be
+  # world-readable). Explicit if — a bare `[ ] && …` would return 1 on loopback
+  # and trip `set -e` in the caller.
+  if [ "${AUTH_ENABLED:-0}" -eq 1 ]; then chmod 600 "$PLIST"; fi
 }
 
 # --- launchctl ------------------------------------------------------------
@@ -232,9 +300,19 @@ if [ "$OS_PLATFORM" = "linux" ]; then
     [ -f "$TEMPLATE" ] || die "service template not found: $TEMPLATE"
     mkdir -p "$(dirname "$SERVICE_CONFIG")"
     local tmp="$SERVICE_CONFIG.tmp.$$"
+    # Non-loopback installs load the bearer token from $TOKEN_FILE via
+    # EnvironmentFile; loopback installs delete the placeholder line so the unit
+    # is byte-for-byte identical to the historical auth-free service.
+    local envfile_sed
+    if [ "${AUTH_ENABLED:-0}" -eq 1 ]; then
+      envfile_sed="s|__ENVFILE__|EnvironmentFile=$TOKEN_FILE|"
+    else
+      envfile_sed="/__ENVFILE__/d"
+    fi
     sed -e "s|__BINARY__|$INSTALL_BIN|g" \
         -e "s|__ADDR__|$ADDR|g" \
         -e "s|__HOME__|$HOME|g" \
+        -e "$envfile_sed" \
         "$TEMPLATE" > "$tmp" || { rm -f "$tmp"; die "failed to render service file"; }
     if [ -f "$SERVICE_CONFIG" ] && cmp -s "$tmp" "$SERVICE_CONFIG"; then
       rm -f "$tmp"

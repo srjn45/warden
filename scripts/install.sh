@@ -24,6 +24,7 @@ else
 fi
 
 deploy_binary
+ensure_token          # provisions ~/.warden/token.env when ADDR is non-loopback
 render_plist
 
 # Migrate the legacy data dir (~/.agentctl) to ~/.warden before the daemon
@@ -62,4 +63,5 @@ fi
 
 check_path
 report_health
+auth_notice
 info "install complete"

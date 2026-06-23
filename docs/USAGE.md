@@ -722,6 +722,25 @@ token; it's stored in `localStorage` and sent on every request. A **🔑 sign
 out** control in the top bar forgets it. The local CLI/TUI keep working
 transparently: they read `WARDEN_TOKEN` from the same environment.
 
+#### One-shot managed install (recommended)
+
+The install/reinstall scripts automate all of the above for the background
+service. Pass a non-loopback `WARDEN_ADDR` and they will mint a token, store it
+in `~/.warden/token.env` (`chmod 600`), and wire it into the service unit
+(systemd `EnvironmentFile=` / launchd inlined `EnvironmentVariables`, plist
+`chmod 600`):
+
+```sh
+WARDEN_ADDR=0.0.0.0:8765 ./scripts/reinstall.sh   # or install.sh
+```
+
+The token is **generated once and reused** on later installs, so phones/clients
+keep working across upgrades. The script prints the token and a shell-rc snippet
+so the local CLI/TUI pick up `WARDEN_TOKEN` too. Installing with a loopback
+address (the default) provisions **no** token and leaves the service auth-free,
+exactly as before. To rotate the token, edit `~/.warden/token.env` and restart
+the service (`systemctl --user restart warden`).
+
 #### How to reach it over the network
 
 | Path | Setup | Notes |
