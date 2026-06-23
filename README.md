@@ -22,6 +22,20 @@ alias agents=warden
 
 ---
 
+## What's new
+
+Latest highlights since **v4.0.0** (full notes on the [releases page](https://github.com/srjn45/warden/releases)):
+
+- **[v4.5.1](https://github.com/srjn45/warden/releases/tag/v4.5.1)** — TUI: the agent list is ordered by creation time so rows stay put instead of churning as agents work.
+- **[v4.5.0](https://github.com/srjn45/warden/releases/tag/v4.5.0)** — Worktree GC & lifecycle: new `warden worktree ls` and `warden prune` commands, plus `worktree_keep_done` / `worktree_auto_prune` config (conservative defaults — dirty/unpushed worktrees are always kept).
+- **[v4.4.0](https://github.com/srjn45/warden/releases/tag/v4.4.0)** — Auto-approve allow/deny policy engine: `auto_approve` is now a structured policy block (`enabled`, `allow_sticky`, `rules.allow`, `rules.deny`); legacy configs migrate in place. A built-in destructive deny-list always wins.
+- **[v4.3.0](https://github.com/srjn45/warden/releases/tag/v4.3.0)** — Auto-approve affirmative-option selection + `auto_approve_allow_sticky`, with a destructive-action guard.
+- **[v4.2.0](https://github.com/srjn45/warden/releases/tag/v4.2.0)** — Rate-limit auto-resume: the daemon resumes throttled agents; tune the injected turn with `rate_limit_resume_prompt`.
+- **[v4.1.0](https://github.com/srjn45/warden/releases/tag/v4.1.0)** — Inter-agent foundational hardening: new `wait_for_message` MCP tool, provenance write-gate, bounded/compacted inboxes, atomic ctxstore/mailbox writes.
+- **[v4.0.1](https://github.com/srjn45/warden/releases/tag/v4.0.1)** — Security: shell-injection guard at spawn; default model tracks the `sonnet` alias.
+
+---
+
 ## Prerequisites
 
 - **Go 1.26+** — to build the binary (only needed for `go install` or building from source)
