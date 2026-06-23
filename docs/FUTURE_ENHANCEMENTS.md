@@ -1,7 +1,7 @@
 # Warden Future Enhancements & Feature Roadmap
 
-**Last Updated:** 2026-06-22
-**Current Version:** v4.0.0 (+ unreleased: worktree GC & lifecycle hardening)
+**Last Updated:** 2026-06-23
+**Current Version:** v4.0.0 (+ unreleased: worktree GC & lifecycle hardening, inter-agent file-conflict detection MVP)
 
 This document tracks potential improvements and new features for warden, organized
 by category and priority. Each item includes effort estimates and implementation
@@ -434,15 +434,24 @@ session JSON. No `Fuzz*` yet.
 #### 44. Intelligent inter-agent collaboration ⭐ NEXT-GEN — *MVP done; advanced deferred*
 **Design:** `docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md`
 
-Shipped: shared context store + mailbox messaging + MCP tools (`ctx_*`,
-`send_message`, `read_inbox`, `wait_for_message`); and the **file-conflict
-detection MVP** — `internal/collab` polls active worktrees with `git diff` and
-warns agents editing the same file via the mailbox, surfaced through
-`warden collab conflicts` / `who-is-editing`, `GET /collab/conflicts`, and the
-`get_collaboration_status` / `who_is_editing_file` MCP tools (`collab_enabled` /
-`collab_interval` config). Deferred behind real usage (see the spec's
-Appendix A): FSNotify real-time detection, work-overlap/dedup detection,
-GitHub branch/CI tracking, collaboration groups.
+**Shipped (file-conflict detection MVP, PRs #20–23, 2026-06-23):**
+- Foundation: shared context store + mailbox messaging + MCP tools (`ctx_*`,
+  `send_message`, `read_inbox`, `wait_for_message`).
+- **Detection engine** — `internal/collab` polls active worktrees with `git diff`
+  and warns agents editing the same file via the mailbox, surfaced through
+  `warden collab conflicts` / `who-is-editing`, `GET /collab/conflicts`, and the
+  `get_collaboration_status` / `who_is_editing_file` MCP tools.
+- **Web dashboard** — "File conflicts" card on the Overview tab
+  (`web/src/components/ConflictsPanel.tsx`), polls every 5s with click-through to
+  the editing agent.
+- **Conflict-check prompt hint** — spawned agents get an `--append-system-prompt`
+  nudge to check `who_is_editing_file` / inbox before editing shared files
+  (`internal/lifecycle`), so the warnings actually get acted on.
+- **Config:** `collab_enabled` / `collab_interval` / `collab_hint`.
+
+**Deferred behind real usage** (see the spec's Appendix A): FSNotify real-time
+detection, work-overlap/dedup detection (OverlapDetector), GitHub branch/CI
+tracking (BranchTracker), collaboration groups, SSE replay + multi-cache layer.
 
 #### 45. Agent chaining/handoff — *not started*
 **Effort:** 1 day. `warden handoff <target-id> <message>` — spawn + seed context.

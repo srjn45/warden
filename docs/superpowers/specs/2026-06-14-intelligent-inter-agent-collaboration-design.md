@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-14 (rewritten 2026-06-23)
 **Feature:** Inter-agent awareness & file-conflict detection
-**Status:** Scope locked — **Hardened MVP** approved for implementation
+**Status:** ✅ **Hardened MVP shipped** (PRs #20–23, merged 2026-06-23) — advanced phases deferred behind real usage
 **Estimated Effort:** ~1 week (MVP); larger phases deferred behind real usage
 
 ---
@@ -209,11 +209,39 @@ No new dependency, one goroutine, passes the race detector.
 
 ---
 
+## Implementation status (shipped 2026-06-23)
+
+The Hardened MVP landed across four PRs, all merged to `main`:
+
+| PR | What shipped | Where |
+|----|--------------|-------|
+| #20 | **Detection engine** — `collab.Monitor` daemon goroutine, `git diff` per worktree, dedup window, `from:"daemon"` inbox warnings; `GET /collab/conflicts` behind `authMiddleware`; `warden collab conflicts` / `who-is-editing`; `get_collaboration_status` / `who_is_editing_file` MCP tools. | `internal/collab`, `internal/daemon/collab_routes.go`, `internal/cli`, `internal/mcp` |
+| #21 | **Dashboard panel** (beyond the documented MVP surface) — "File conflicts" card on the web Overview tab; polls `GET /collab/conflicts` every 5s, click-through to the editing agent. | `web/src/components/ConflictsPanel.tsx`, `OverviewTab.tsx` |
+| #22 | **Conflict-check prompt hint** (beyond the documented MVP surface) — spawned agents get an `--append-system-prompt` nudge to call `who_is_editing_file` / check inbox before editing shared files, gated by `collab_hint` (default on). Closes the "warnings land in an inbox nobody polls" gap. | `internal/lifecycle`, `internal/config` |
+| #23 | Docs reconciliation (FEATURES.md merge fixup). | `docs/FEATURES.md` |
+
+**Config keys actually shipped:** `collab_enabled` (bool), `collab_interval`
+(duration; `0` disables), `collab_hint` (bool). All three appear in
+`warden config` under a `collaboration` section.
+
+**Operational note:** the #22 prompt hint only applies to **newly spawned**
+agents — already-running agents are unaffected until restarted. Detection runs
+in the daemon-owned process; a rogue manual `warden daemon` shadowing the port
+will not run the monitor.
+
+**Still remaining** (unchanged from "Deferred" below): FSNotify real-time
+detection, OverlapDetector (work dedup), BranchTracker / GitHub CI monitoring,
+collaboration groups, SSE replay and the multi-cache/circuit-breaker layer.
+
+---
+
 ## Configuration
 
 ```yaml
-# warden config (internal/config)
+# warden config (internal/config) — as shipped
+collab_enabled: true   # master switch for the file-conflict monitor
 collab_interval: 10s   # file-conflict poll interval; 0 disables
+collab_hint: true      # append the conflict-check nudge to spawned agents
 ```
 
 No `GITHUB_TOKEN`, no FSNotify tunables — those belong to deferred phases.
@@ -339,3 +367,9 @@ hardening (H1–H6) on `mailbox`/`ctxstore`/hub.
 simplification debate into Appendix A as deferred rationale. Recorded
 interactions to reconcile before any deferred phase (remote auth, worktree GC,
 pipelines).
+**2026-06-23 (rev 9):** MVP **shipped** (PRs #20–23). Added the
+[Implementation status](#implementation-status-shipped-2026-06-23) section,
+including two surfaces added beyond the documented MVP — the web dashboard
+"File conflicts" card (#21) and the `collab_hint` conflict-check prompt nudge
+(#22) — and updated Configuration to the three shipped keys
+(`collab_enabled` / `collab_interval` / `collab_hint`).
