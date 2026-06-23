@@ -26,9 +26,11 @@ func TestBuildSuccessorParams(t *testing.T) {
 }
 
 func TestComposeSuccessorPrompt(t *testing.T) {
-	got := composeSuccessorPrompt("Finish the migration.", "/repo/.warden/rotate-handoff.md")
-	require.Contains(t, got, "/repo/.warden/rotate-handoff.md", "must point successor at the handoff file")
+	handoff := "/tmp/warden-rotate-handoff-agent-abc123.md"
+	got := composeSuccessorPrompt("Finish the migration.", handoff)
+	require.Contains(t, got, handoff, "must point successor at the handoff file")
 	require.Contains(t, got, "Finish the migration.", "must include the human-reviewed resume prompt")
+	require.Contains(t, got, "delete", "must tell the successor to clean up the temp handoff file once read")
 }
 
 func TestSelfSessionID(t *testing.T) {

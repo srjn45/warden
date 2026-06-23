@@ -17,6 +17,8 @@ import (
 func composeSuccessorPrompt(resumePrompt, handoffPath string) string {
 	return fmt.Sprintf("You are resuming work handed off from a previous agent that is being retired. "+
 		"First read the handoff notes at %s for full context, decisions already made, and next steps. "+
+		"Once you have read and internalized them, delete that handoff file — it is a temporary, per-agent "+
+		"file, and removing it keeps the workspace clean and prevents a stale handoff from being picked up later. "+
 		"Then continue the work:\n\n%s", handoffPath, resumePrompt)
 }
 
@@ -135,7 +137,7 @@ func newRotateCmd() *cobra.Command {
 			onSpawned := func(successor *store.Session) {
 				fmt.Fprintf(out, "rotated: successor %s spawned in %s\n", successor.ID, successor.Workdir)
 				fmt.Fprintf(out, "  handoff notes: %s\n", resumeFile)
-				fmt.Fprintf(out, "  old agent %s retiring; its transcript + the handoff file remain on disk for recovery\n", selfID)
+				fmt.Fprintf(out, "  old agent %s retiring; its transcript remains on disk for recovery (the temp handoff file is cleaned up by the successor)\n", selfID)
 				fmt.Fprintf(out, "  attach to the successor: warden attach %s\n", successor.ID)
 			}
 			successor, err := runRotate(cmd.Context(), clientFor(cmd), selfID, prompt, onSpawned)
@@ -151,7 +153,7 @@ func newRotateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("confirm", false, "actually spawn the successor and retire this agent (required)")
-	cmd.Flags().String("resume-file", "", "path to the handoff notes file the successor should read")
+	cmd.Flags().String("resume-file", "", "path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)")
 	cmd.Flags().String("resume-prompt", "", "the successor's initial task prompt")
 	return cmd
 }

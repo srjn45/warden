@@ -616,11 +616,11 @@ Run **inside an agent session** to retire a long-lived, context-heavy agent and 
 
 ```sh
 warden rotate --confirm \
-  --resume-file ./HANDOFF.md \
+  --resume-file "${TMPDIR:-/tmp}/warden-rotate-handoff-$WARDEN_SESSION_ID.md" \
   --resume-prompt "Continue the migration from where the notes leave off"
 ```
 
-Spawn-before-reap is fail-safe: if the successor fails to spawn, the current agent keeps running. Rotation reuses the worktree by cwd and never removes it.
+The handoff file lives at a unique, per-agent temp path so concurrent rotations never clobber each other; the successor deletes it once read (and `/tmp` self-clears). Spawn-before-reap is fail-safe: if the successor fails to spawn, the current agent keeps running. Rotation reuses the worktree by cwd and never removes it.
 
 ### Pipelines — `warden pipeline`
 
