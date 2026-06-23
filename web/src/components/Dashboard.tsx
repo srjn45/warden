@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import type { Session } from '../lib/types';
 import { listSessions, subscribeSessions } from '../lib/api';
+import { hasToken, clearToken, onAuthRequired } from '../lib/token';
 import { tabsReducer, initialTabs, isFixedTab, type TabsState } from '../lib/tabs';
 import { waitingTransitions } from '../lib/notify';
 import AttentionBar from './AttentionBar';
@@ -9,6 +10,7 @@ import OverviewTab from './OverviewTab';
 import CockpitTab from './CockpitTab';
 import AgentTab from './AgentTab';
 import NewAgentModal from './NewAgentModal';
+import TokenModal from './TokenModal';
 import PipelinesTab from './PipelinesTab';
 import ContextMessagesTab from './ContextMessagesTab';
 
@@ -28,14 +30,33 @@ export default function Dashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [tabs, dispatch] = useReducer(tabsReducer, undefined, loadTabs);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authNonce, setAuthNonce] = useState(0);
+  const [tokenSet, setTokenSet] = useState(() => hasToken());
   const prevSessions = useRef<Session[]>([]);
 
-  // Live session list over SSE.
+  // A 401 from any REST call surfaces the token-entry modal.
+  useEffect(() => onAuthRequired(() => setAuthRequired(true)), []);
+
+  // Live session list over SSE. Re-runs after a new token is saved (authNonce)
+  // so the stream and the initial load reconnect with the new credential.
   useEffect(() => {
     listSessions().then(setSessions).catch(() => { /* SSE will populate */ });
     const unsub = subscribeSessions(setSessions, () => setConnected(false), () => setConnected(true));
     return unsub;
-  }, []);
+  }, [authNonce]);
+
+  function onTokenSaved() {
+    setAuthRequired(false);
+    setTokenSet(true);
+    setAuthNonce((n) => n + 1); // reconnect REST + SSE with the new token
+  }
+
+  function onClearToken() {
+    clearToken();
+    setTokenSet(false);
+    setAuthRequired(true); // force re-entry
+  }
 
   // Persist tabs; prune pins for agents that ended.
   useEffect(() => { try { localStorage.setItem(TABS_KEY, JSON.stringify(tabs)); } catch { /* ignore */ } }, [tabs]);
@@ -83,6 +104,8 @@ export default function Dashboard() {
         onToggleNotify={toggleNotify}
         onNew={() => setShowCreate(true)}
         onJumpAttention={() => dispatch({ kind: 'activate', id: 'overview' })}
+        tokenSet={tokenSet}
+        onClearToken={onClearToken}
       />
       <TabBar
         state={tabs}
@@ -106,6 +129,7 @@ export default function Dashboard() {
           onCreated={(id) => { setShowCreate(false); dispatch({ kind: 'open', id }); }}
         />
       )}
+      {authRequired && <TokenModal onSaved={onTokenSaved} />}
     </div>
   );
 }

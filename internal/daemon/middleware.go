@@ -19,10 +19,11 @@ const (
 	scopeFull                  // full access
 )
 
-// authMiddleware rejects requests that authorize denies. It is wired as the
-// outermost middleware so it guards everything — the API, the SSE stream, and
-// the static web UI alike (an unauthenticated client must not even get the
-// dashboard shell).
+// authMiddleware rejects requests that authorize denies. It guards the
+// authenticated route group — the data/action API, the SSE stream, and the WS
+// attach. The static UI and /healthz are intentionally served outside this
+// group so a remote browser can load the app shell and then prompt for a token
+// (the compiled SPA carries no secrets; the data routes behind it do).
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ok, _ := s.authorize(r); !ok {
