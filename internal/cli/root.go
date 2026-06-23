@@ -39,6 +39,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newWorktreeCmd(), newPruneCmd())
 	root.AddCommand(newSendCmd(), newTailCmd())
 	root.AddCommand(newApprovalsCmd(), newApproveCmd(), newAutoApproveCmd(), newSetPermissionModeCmd(), newRotateCmd())
+	root.AddCommand(newTokenCmd())
 	root.AddCommand(newCtxCmd())
 	root.AddCommand(newMsgCmd())
 	root.AddCommand(newPipelineCmd())
