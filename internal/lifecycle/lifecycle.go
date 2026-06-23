@@ -105,6 +105,34 @@ func (l *Lifecycle) pipelineHint() string {
 	return " --append-system-prompt " + shellQuoteArg(pipelineHintGuidance)
 }
 
+// collabHintGuidance is appended to a freshly spawned agent's system prompt so
+// it cooperates with any agents running alongside it: check before editing a
+// file another agent already has open, and act on the daemon conflict warnings
+// that land in its inbox, instead of blindly overwriting concurrent work. The
+// daemon's collab monitor only ever warns; whether a warning changes behaviour
+// is up to the agent, and this hint is what makes it do so. Worded conditionally
+// so a solo agent (no concurrent peers) does nothing extra. No apostrophes —
+// keeps the single-quoted shell form (shellQuoteArg) clean.
+const collabHintGuidance = "warden may run other agents concurrently, each in its own git worktree. " +
+	"Before editing a file that peers are likely to touch, call who_is_editing_file " +
+	"(or get_collaboration_status) to see whether another agent is already changing it; " +
+	"if so, coordinate through send_message rather than overwriting their work. " +
+	"Check read_inbox for file-conflict warnings from the daemon and reconcile before you commit. " +
+	"This applies only when you share a repo with concurrent agents; for a solo task there is nothing to coordinate."
+
+// collabHint returns the claude flag fragment that injects collabHintGuidance as
+// a system-prompt addendum, or "" when the collab_hint config setting is
+// disabled. The leading space lets callers concatenate it directly onto a
+// claudeLaunch string. Applied to every spawn path that launches claude —
+// plain agents and pipeline jobs alike, since parallel jobs are the prime
+// file-conflict scenario.
+func (l *Lifecycle) collabHint() string {
+	if !l.cfg.GetCollabHint() {
+		return ""
+	}
+	return " --append-system-prompt " + shellQuoteArg(collabHintGuidance)
+}
+
 // claudeResume builds the invocation that resumes an existing agent conversation
 // by its pinned session id (continues the same transcript). --name re-applies the
 // display label so the resumed session still reads as the agent id.
@@ -226,6 +254,7 @@ type ConfigProvider interface {
 	GetDefaultPermissionMode() string
 	GetModelDefault() string
 	GetPipelineHint() bool
+	GetCollabHint() bool
 }
 
 func New(r Runner, cfg ConfigProvider) *Lifecycle { return &Lifecycle{run: r, cfg: cfg} }
@@ -679,7 +708,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + launchPrompt + l.exitSuffix(sess.ID)
+	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.collabHint() + launchPrompt + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
 		l.cleanupFailedSpawn(sess, true, false)
@@ -717,7 +746,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.exitSuffix(sess.ID)
+	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.collabHint() + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -1223,7 +1252,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.claudeLaunch(sess.ClaudeSessionID, id, req.Model, mode) + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
+	launch := l.claudeLaunch(sess.ClaudeSessionID, id, req.Model, mode) + l.collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)

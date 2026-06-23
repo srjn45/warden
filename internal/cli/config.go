@@ -103,6 +103,11 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"rate_limit_retry_interval", cfg.RateLimitRetryInterval},
 			{"rate_limit_buffer", cfg.RateLimitBuffer},
 		}},
+		{"collaboration", [][2]string{
+			{"collab_enabled", fmt.Sprintf("%t", cfg.CollabEnabled)},
+			{"collab_interval", cfg.CollabInterval},
+			{"collab_hint", fmt.Sprintf("%t", cfg.CollabHint)},
+		}},
 	}
 	for _, g := range groups {
 		fmt.Fprintf(out, "[%s]\n", g.title)
