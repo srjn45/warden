@@ -8,6 +8,8 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +70,40 @@ func tokenFromFile(path string) string {
 		}
 	}
 	return ""
+}
+
+// WriteTokenFile persists token to a token.env-style file (WARDEN_TOKEN=<hex>)
+// with 0600 permissions, creating the parent directory (0700) if needed. The
+// write is atomic — a sibling temp file is created, chmod'd, then renamed into
+// place — so a reader (the daemon's EnvironmentFile, a concurrent ResolveToken)
+// never observes a half-written or world-readable secret. This is the durable
+// half of `warden token rotate`.
+func WriteTokenFile(path, token string) error {
+	if path == "" {
+		return errors.New("empty token file path")
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".token-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once the rename succeeds
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := fmt.Fprintf(tmp, "%s=%s\n", TokenEnv, token); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // ResolveToken returns the bearer token a local CLI/TUI should present: the
