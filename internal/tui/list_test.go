@@ -113,13 +113,17 @@ func TestAbbrevHomeWith(t *testing.T) {
 	require.Equal(t, "/home/meother", abbrevHomeWith("/home/meother", "/home/me"), "no false prefix match")
 }
 
-func TestGroupSortOrdersGroupsByRecencyAndKeepsWithinOrder(t *testing.T) {
+// Ordering keys on CreatedAt (immutable), not UpdatedAt, so rows stay put as
+// agents work. Here UpdatedAt is deliberately scrambled relative to CreatedAt to
+// prove it has no effect on order: group /b is newest (b1 created last) so it
+// sorts first, and within each group the newest agent leads.
+func TestGroupSortOrdersGroupsByCreationAndIgnoresUpdatedAt(t *testing.T) {
 	now := time.Now()
 	in := []*store.Session{
-		{ID: "b1", Workdir: "/b", UpdatedAt: now.Add(-1 * time.Minute)},
-		{ID: "a1", Workdir: "/a", UpdatedAt: now.Add(-2 * time.Minute)},
-		{ID: "b2", Workdir: "/b", UpdatedAt: now.Add(-3 * time.Minute)},
-		{ID: "a2", Workdir: "/a", UpdatedAt: now.Add(-4 * time.Minute)},
+		{ID: "a2", Workdir: "/a", CreatedAt: now.Add(-4 * time.Minute), UpdatedAt: now},
+		{ID: "b2", Workdir: "/b", CreatedAt: now.Add(-3 * time.Minute), UpdatedAt: now.Add(-9 * time.Minute)},
+		{ID: "a1", Workdir: "/a", CreatedAt: now.Add(-2 * time.Minute), UpdatedAt: now.Add(-8 * time.Minute)},
+		{ID: "b1", Workdir: "/b", CreatedAt: now.Add(-1 * time.Minute), UpdatedAt: now.Add(-7 * time.Minute)},
 	}
 	out := groupSort(in)
 	got := []string{out[0].ID, out[1].ID, out[2].ID, out[3].ID}
@@ -153,9 +157,9 @@ func TestRenderListGroupsBySourceDir(t *testing.T) {
 func TestBuildItemsGroupsAgentsNoOpenedDirs(t *testing.T) {
 	now := time.Now()
 	ss := groupSort([]*store.Session{
-		{ID: "a1", Workdir: "/a", UpdatedAt: now},
-		{ID: "a2", Workdir: "/a", UpdatedAt: now.Add(-time.Minute)},
-		{ID: "b1", Workdir: "/b", UpdatedAt: now.Add(-2 * time.Minute)},
+		{ID: "a1", Workdir: "/a", CreatedAt: now},
+		{ID: "a2", Workdir: "/a", CreatedAt: now.Add(-time.Minute)},
+		{ID: "b1", Workdir: "/b", CreatedAt: now.Add(-2 * time.Minute)},
 	})
 	items := buildItems(ss, nil)
 	require.Len(t, items, 3)
@@ -167,7 +171,7 @@ func TestBuildItemsGroupsAgentsNoOpenedDirs(t *testing.T) {
 
 func TestBuildItemsEmptyOpenedDirGetsPlaceholderOnTop(t *testing.T) {
 	now := time.Now()
-	ss := []*store.Session{{ID: "a1", Workdir: "/a", UpdatedAt: now.Add(-time.Hour)}}
+	ss := []*store.Session{{ID: "a1", Workdir: "/a", CreatedAt: now.Add(-time.Hour)}}
 	opened := map[string]time.Time{"/freshly/opened": now} // newer than the agent
 	items := buildItems(ss, opened)
 	require.Len(t, items, 2, "one placeholder + one agent")

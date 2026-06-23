@@ -85,9 +85,11 @@ func abbrevHomeWith(path, home string) string {
 }
 
 // groupSort returns sessions re-ordered so agents sharing a sourceDir are
-// contiguous. Groups are ordered by their most-recently-active agent (desc);
-// within a group the input order is preserved (the daemon already sorts
-// UpdatedAt-desc). Pure: returns a new slice, leaves the input untouched.
+// contiguous. Groups are ordered by their newest agent's CreatedAt (desc); within
+// a group agents are ordered by CreatedAt (desc). The ordering keys on the
+// immutable CreatedAt rather than UpdatedAt so an agent's row is fixed at creation
+// and does not shuffle as it works (UpdatedAt bumps on every action, which made
+// the list churn constantly). Pure: returns a new slice, leaves the input untouched.
 func groupSort(sessions []*store.Session) []*store.Session {
 	if len(sessions) < 2 {
 		return sessions
@@ -103,12 +105,12 @@ func groupSort(sessions []*store.Session) []*store.Session {
 		k := sourceDir(s)
 		g := groups[k]
 		if g == nil {
-			groups[k] = &grp{max: s.UpdatedAt, seen: i}
+			groups[k] = &grp{max: s.CreatedAt, seen: i}
 			keys = append(keys, k)
 			continue
 		}
-		if s.UpdatedAt.After(g.max) {
-			g.max = s.UpdatedAt
+		if s.CreatedAt.After(g.max) {
+			g.max = s.CreatedAt
 		}
 	}
 	sort.SliceStable(keys, func(a, b int) bool {
@@ -124,7 +126,11 @@ func groupSort(sessions []*store.Session) []*store.Session {
 	out := make([]*store.Session, len(sessions))
 	copy(out, sessions)
 	sort.SliceStable(out, func(a, b int) bool {
-		return groups[sourceDir(out[a])].rank < groups[sourceDir(out[b])].rank
+		ra, rb := groups[sourceDir(out[a])].rank, groups[sourceDir(out[b])].rank
+		if ra != rb {
+			return ra < rb
+		}
+		return out[a].CreatedAt.After(out[b].CreatedAt) // newest agent first within its group
 	})
 	return out
 }
@@ -185,11 +191,12 @@ func itemKey(it item) string {
 }
 
 // buildItems flattens grouped sessions plus opened directories into the list the
-// cursor walks. Groups are ordered by most-recent activity (an agent group's key
-// is its newest UpdatedAt; an empty opened dir's key is when it was opened — so a
-// freshly-opened dir floats to the top). An opened dir that has agents emits its
-// agents and no placeholder; an opened dir with none emits a single placeholder.
-// Pure: returns a new slice, leaves inputs untouched.
+// cursor walks. Groups are ordered by creation (an agent group's key is its newest
+// agent's CreatedAt; an empty opened dir's key is when it was opened — so a
+// freshly-opened dir floats to the top). Keying on CreatedAt (not UpdatedAt) keeps
+// rows fixed once placed instead of churning as agents work. An opened dir that has
+// agents emits its agents and no placeholder; an opened dir with none emits a
+// single placeholder. Pure: returns a new slice, leaves inputs untouched.
 // Callers pass sessions already grouped by groupSort; within-group agent order is preserved from the input.
 func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 	type grp struct {
@@ -210,7 +217,7 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 		}
 	}
 	for _, s := range sessions {
-		note(sourceDir(s), s.UpdatedAt)
+		note(sourceDir(s), s.CreatedAt)
 	}
 	for dir, at := range opened {
 		note(dir, at)
