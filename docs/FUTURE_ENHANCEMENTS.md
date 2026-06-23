@@ -52,6 +52,19 @@ Verified present in `internal/` / `web/` as of 2026-06-22:
   `internal/pressure`, web Resources panel + Fleet stats
   (`web/src/components/ResourcesPanel.tsx`, `FleetStats.tsx`).
 
+**Remote access & multi-device** (the flagship — access from a phone/tablet/anywhere)
+- **Bearer-token auth** — `warden token generate` (256-bit `crypto/rand`),
+  `WARDEN_TOKEN` env (kept off disk), constant-time compare, `?token=` for
+  SSE/WS, non-loopback bind refused without a token, per-IP auth-failure
+  rate-limiting (`internal/auth`, `internal/daemon/middleware.go`,
+  `authlimit.go`).
+- **Web UI auth** — token-entry modal on `401`, `localStorage` persistence,
+  sign-out; the static SPA shell stays public so the modal can load
+  (`web/src/lib/token.ts`, `api.ts`, `TokenModal.tsx`).
+- **Mobile-responsive dashboard** — bottom nav, single-column grids, full-screen
+  modal sheets (`web/src/styles/app.css`).
+- **Setup docs** — LAN / Tailscale / Cloudflare Tunnel (`docs/USAGE.md`).
+
 **Web UI**
 - **Pipeline DAG visualization** — `web/src/components/PipelineDag.tsx`.
 - **Timeline / activity view** — `EventTimeline.tsx`, `ActivityFeed.tsx`.
@@ -221,31 +234,9 @@ anomaly warning surface.
 
 ## 🌐 Remote Access & Multi-Device
 
-#### 12. Remote access support ⭐ GAME CHANGER — *not started*
-**Effort:** 2-3 days
-**Value:** Access from anywhere — the natural complement to the autonomy work
-(agents now run unattended; you can only watch them locally).
-
-**Design exists:** `docs/superpowers/specs/2026-06-10-warden-remote-access-design.md`
-
-Foundation present: `allow_nonloopback` config + non-loopback bind refusal. Missing:
-the auth layer itself. (Note: the existing `token_*` config keys are the *context*
-token guard, unrelated to auth.)
-
-**Implementation:**
-- Bearer-token middleware (`Authorization: Bearer <token>`); exempt loopback so the
-  local CLI is unchanged
-- Accept token as query param for SSE/WS (`?token=<t>`)
-- 32-byte `crypto/rand` token; stateless validation
-- Mobile-responsive CSS breakpoints in the web UI
-- Docs for Tailscale / Cloudflare Tunnel setup
-
----
-
-#### 13. `warden token generate` — *not started*
-**Effort:** 1 hour — ships with #12.
-
-`crypto/rand` 32-byte hex to stdout; user exports manually.
+#### 12 & 13. Remote access + `warden token generate` — ✅ DONE
+Shipped: bearer-token auth, `warden token generate`, mobile-responsive UI, and
+Tailscale / Cloudflare Tunnel docs. See "Recently Completed."
 
 ---
 
@@ -253,7 +244,8 @@ token guard, unrelated to auth.)
 **Effort:** 1-2 weeks
 
 Central control plane aggregating multiple daemons; route/spawn by machine;
-unified dashboard; load balancing. New `internal/cluster` package. Depends on #12.
+unified dashboard; load balancing. New `internal/cluster` package. Builds on the
+now-shipped remote-access auth (#12).
 
 ---
 
@@ -474,7 +466,7 @@ hints, collaboration groups.
 5. **Export/import** — 2 h
 
 ### ⭐ Do Next (High Impact, Medium Effort)
-6. **Remote access + token generate** — 2-3 days (spec exists; foundation partly built)
+6. ~~**Remote access + token generate**~~ — ✅ DONE (see "Recently Completed")
 7. **Scheduled agents/tasks** — 1-2 days (decision doc exists)
 8. **Slack/webhook notifications** — 3-4 h
 9. **Pipeline MCP tools** — 4-6 h
@@ -503,11 +495,11 @@ hints, collaboration groups.
 ## 🎬 Recommended Implementation Order
 
 1. **`warden ls --watch`** (1-2 h) — immediate UX win on existing SSE
-2. **Remote access + token generate** (2-3 days) — the flagship; completes the
+2. ~~**Remote access + token generate**~~ ✅ DONE — the flagship; completed the
    unattended-operation story (run agents → watch/steer from anywhere)
 3. **Scheduled agents/tasks** (1-2 days) — recurring automation
 4. **GitHub PR auto-create on done** (6 h) — closes the dev→PR loop
-5. **Slack/webhook notifications** (3-4 h) — remote awareness, pairs with #2
+5. **Slack/webhook notifications** (3-4 h) — remote awareness, pairs with remote access
 6. **Pipeline `validate` + templates** (3 h) — lowers the barrier to pipelines
 7. **Pipeline MCP tools** (4-6 h) — orchestrator can drive pipelines
 8. **Structured logging / slog** (2-3 h) — debugging foundation
