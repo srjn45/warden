@@ -127,5 +127,5 @@ TLS is handled by Tailscale or Cloudflare Tunnel at the network layer. The daemo
 
 1. Should loopback connections be fully exempt from auth, or require the token everywhere for simplicity? (Exempt = better DX; everywhere = simpler code + no accidental loophole.)
 2. Multiple tokens? (E.g., read-only token for mobile viewing vs. full token for spawning.) Probably not v1.
-3. Token rotation: `warden token rotate` that updates the env var + restarts daemon? Or just document manual rotation.
+3. ~~Token rotation: `warden token rotate` that updates the env var + restarts daemon? Or just document manual rotation.~~ **Resolved:** `warden token rotate` mints a new token, persists it to `~/.warden/token.env` (chmod 600), and restarts the managed service (systemd restart re-reads the `EnvironmentFile`; macOS rewrites the inlined plist value before kickstart). `warden token show` prints the current token for retrieval. `--no-restart` stages without restarting.
 4. Should the web UI persist the token more securely (e.g., `sessionStorage` vs `localStorage`)? `localStorage` persists across tabs/restarts; `sessionStorage` doesn't.

@@ -738,8 +738,18 @@ The token is **generated once and reused** on later installs, so phones/clients
 keep working across upgrades. The script prints the token and a shell-rc snippet
 so the local CLI/TUI pick up `WARDEN_TOKEN` too. Installing with a loopback
 address (the default) provisions **no** token and leaves the service auth-free,
-exactly as before. To rotate the token, edit `~/.warden/token.env` and restart
-the service (`systemctl --user restart warden`).
+exactly as before.
+
+To retrieve the current token later (e.g. to paste into a new phone), run
+`warden token show` — it prints the token local clients resolve (`WARDEN_TOKEN`
+if exported, else `~/.warden/token.env`) to stdout, with its source on stderr.
+
+To rotate the token, run `warden token rotate`: it mints a fresh secret, writes
+it to `~/.warden/token.env` (`chmod 600`), and restarts the managed service so
+the new token is live immediately (on macOS it also rewrites the inlined plist
+value). Then re-paste the new token into remote clients and re-export
+`WARDEN_TOKEN` in any shell that held the old one. Pass `--no-restart` to stage
+the new token without restarting.
 
 #### How to reach it over the network
 

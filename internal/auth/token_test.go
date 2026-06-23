@@ -50,6 +50,28 @@ func TestTokenFromFile(t *testing.T) {
 	require.Equal(t, "file-secret", tokenFromFile(p))
 }
 
+func TestWriteTokenFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "token.env")
+
+	require.NoError(t, WriteTokenFile(path, "rotated-secret"))
+
+	// Parent dir created; file is chmod 600 and round-trips through the reader.
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "token file must not be group/world readable")
+	require.Equal(t, "rotated-secret", tokenFromFile(path))
+
+	// Overwriting replaces the value (atomic rename, no stale temp left behind).
+	require.NoError(t, WriteTokenFile(path, "newer-secret"))
+	require.Equal(t, "newer-secret", tokenFromFile(path))
+	entries, err := os.ReadDir(filepath.Dir(path))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "no leftover temp files")
+
+	require.Error(t, WriteTokenFile("", "x"), "empty path is rejected")
+}
+
 func TestResolveToken(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "token.env")
