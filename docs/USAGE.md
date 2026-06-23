@@ -690,6 +690,55 @@ use `warden pipeline create -f`.)
 > restart the daemon. For live UI iteration, run `warden daemon` and
 > `make ui-dev` in parallel and open `http://localhost:4321`.
 
+### Remote access (phone, tablet, another machine)
+
+By default the daemon binds `127.0.0.1:8765` — reachable only from the same
+machine, and with **no authentication** (safe on loopback). To reach the
+dashboard from another device you change two things: bind a non-loopback
+address, and set an access token. The daemon **refuses to start** on a
+non-loopback address unless a token is set, so you can't accidentally expose an
+unauthenticated daemon.
+
+**1. Generate a token and export it** (it's read from the environment, never
+written to the config file, so the secret stays off disk):
+
+```sh
+export WARDEN_TOKEN=$(warden token generate)   # 32-byte random hex
+```
+
+Put the same `export` in the daemon's service unit (launchd `EnvironmentVariables`
+/ systemd `Environment=`) so a background daemon picks it up. Treat the token
+like a password; the same value is shared by every client.
+
+**2. Bind a non-loopback address** — either for one run or in the config:
+
+```sh
+warden daemon --addr 0.0.0.0:8765      # all interfaces; or addr: 0.0.0.0:8765 in config
+```
+
+**3. Open the dashboard from the other device.** On first load (or any time a
+request returns `401`) the UI shows an **access-token prompt** — paste the
+token; it's stored in `localStorage` and sent on every request. A **🔑 sign
+out** control in the top bar forgets it. The local CLI/TUI keep working
+transparently: they read `WARDEN_TOKEN` from the same environment.
+
+#### How to reach it over the network
+
+| Path | Setup | Notes |
+|---|---|---|
+| **LAN** | `--addr 0.0.0.0:8765`, browse to `http://<host-ip>:8765` | Same WiFi/subnet only. Plain HTTP. |
+| **Tailscale** (recommended) | Install on host + device, then `http://<host>.ts.net:8765` | Works anywhere, end-to-end encrypted, stable name. Tailscale's HTTPS/Serve gives you TLS with no cert management. |
+| **Cloudflare Tunnel** | `cloudflared tunnel --url http://localhost:8765` | Public HTTPS URL, no port-forwarding. The tunnel runs on the host and forwards over loopback — which is exactly why there is **no loopback exemption**: the token is required on every request. |
+
+> **TLS:** the daemon serves plain HTTP — terminate TLS at the network layer
+> (Tailscale HTTPS or Cloudflare Tunnel). Don't expose plain HTTP to the public
+> internet; put it behind Tailscale or a tunnel.
+
+**Hardening built in:** the bearer-token check is constant-time, and repeated
+failed attempts from one source IP are rate-limited (HTTP `429`) — a valid token
+is never throttled. To bind a non-loopback address *without* auth anyway (not
+recommended), set `allow_nonloopback: true` in the config.
+
 ---
 
 ## 11. Configuration
@@ -702,7 +751,7 @@ daemon address for a single command.
 
 | Setting | Default | Description |
 |---|---|---|
-| `addr` | `127.0.0.1:8765` | Daemon listen/connect address (loopback only unless `allow_nonloopback` is true) |
+| `addr` | `127.0.0.1:8765` | Daemon listen/connect address. A non-loopback address requires `WARDEN_TOKEN` (bearer-token auth) — see [Remote access](#remote-access-phone-tablet-another-machine) — or `allow_nonloopback: true` to bind without auth |
 | `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
@@ -719,10 +768,12 @@ daemon address for a single command.
 `metrics`, `allow_nonloopback`, `auto_approve`, `pipeline_keep_done` / `pipeline_hint`,
 the `auto_restart_*` knobs, and the `rate_limit_*` knobs (§12.1).
 
-> The old `WARDEN_*` environment variables are no longer read — the daemon warns once
-> at startup if any are still set. The per-agent IPC vars warden injects into each
-> agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not
-> configuration and are unaffected.
+> The old `WARDEN_*` configuration environment variables are no longer read — the
+> daemon warns once at startup if any are still set. `WARDEN_TOKEN` (the remote-access
+> bearer token) is the deliberate exception: it stays an env var so the secret never
+> lands in the config file, and it does not trigger the legacy warning. The per-agent
+> IPC vars warden injects into each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`,
+> `WARDEN_JOB_ID`) are not configuration and are unaffected.
 
 ---
 

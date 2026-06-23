@@ -3,6 +3,7 @@ package daemon
 import (
 	"crypto/subtle"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -26,11 +27,26 @@ const (
 // (the compiled SPA carries no secrets; the data routes behind it do).
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if ok, _ := s.authorize(r); !ok {
-			writeErr(w, http.StatusUnauthorized, "unauthorized: missing or invalid bearer token")
+		// Authorize first: a valid token always passes, so a successful client
+		// is never throttled (and a fixed typo clears the IP's failure count).
+		if ok, _ := s.authorize(r); ok {
+			if s.authLimiter != nil {
+				s.authLimiter.clear(clientIP(r))
+			}
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+		// Failed auth: throttle repeated wrong-token attempts per source IP.
+		if s.authLimiter != nil {
+			ip, now := clientIP(r), time.Now()
+			if s.authLimiter.blocked(ip, now) {
+				w.Header().Set("Retry-After", strconv.Itoa(int(s.authLimiter.window.Seconds())))
+				writeErr(w, http.StatusTooManyRequests, "too many failed authentication attempts; slow down")
+				return
+			}
+			s.authLimiter.recordFailure(ip, now)
+		}
+		writeErr(w, http.StatusUnauthorized, "unauthorized: missing or invalid bearer token")
 	})
 }
 

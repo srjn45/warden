@@ -154,13 +154,20 @@ type Server struct {
 	// authToken is the bearer token required on every request. Empty ⇒ auth is
 	// disabled (the default loopback-only mode). See authorize.
 	authToken string
+	// authLimiter throttles repeated failed-auth attempts per source IP; nil
+	// when auth is disabled. See authlimit.go.
+	authLimiter *authLimiter
 }
 
 // SetAuth configures the bearer token required for remote access. An empty
 // token disables authentication (the local-only default). When set, every
-// request — including loopback — must present the token; see authorize.
+// request — including loopback — must present the token; see authorize. A
+// per-IP auth-failure throttle is enabled alongside the token.
 func (s *Server) SetAuth(token string) {
 	s.authToken = token
+	if token != "" {
+		s.authLimiter = newAuthLimiter(authFailMax, authFailWindow)
+	}
 }
 
 // SetWorktreeRetention wires the worktree retention policy. keepDone mirrors

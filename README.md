@@ -293,7 +293,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 
 | Setting | Default | Description |
 |---|---|---|
-| `addr` | `127.0.0.1:8765` | Daemon listen address (loopback only unless `allow_nonloopback` is true) |
+| `addr` | `127.0.0.1:8765` | Daemon listen address. Non-loopback requires `WARDEN_TOKEN` (bearer-token auth — see [Remote access](#remote-access)) or `allow_nonloopback: true` to bind without auth |
 | `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript directories; the poller reads agent transcripts here to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
@@ -833,6 +833,10 @@ The dashboard is a **tabbed mission-control shell**: two fixed tabs — **Overvi
 - **Create agent** — **+ New agent** opens a prompt box (with a directory picker and a **Supervised** checkbox). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. Tick **Supervised** to launch with `--permission-mode acceptEdits` instead of full bypass. For a managed worktree, use the CLI: `warden start TICKET --type development --repo …`.
 - **Terminate** — surfaces the git guard (409 → **Force** + optional **hard-delete**) when there's uncommitted/unpushed work.
 - **Browser notifications** — opt in to get a desktop notification when an agent enters `waiting_for_input` (gated so they only fire while the tab is hidden).
+
+### Remote access
+
+The dashboard is mobile-responsive and can be reached from your phone or another machine. Generate a token (`export WARDEN_TOKEN=$(warden token generate)`), bind a non-loopback address (`warden daemon --addr 0.0.0.0:8765`), and expose it over Tailscale (recommended) or a Cloudflare Tunnel. The daemon refuses to bind non-loopback without a token; the browser prompts for it on first load. See [docs/USAGE.md → Remote access](docs/USAGE.md#remote-access-phone-tablet-another-machine) for the full walkthrough.
 
 ### Dev workflow
 
