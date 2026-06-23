@@ -1,4 +1,4 @@
-import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message } from './types';
+import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message, Conflict } from './types';
 import type { Verdict, PressureStatus } from './pressure';
 import type { MetricsSample } from './metrics';
 import { getToken, withToken, notifyAuthRequired } from './token';
@@ -168,6 +168,13 @@ export async function listMessages(limit = 100): Promise<Message[]> {
     await apiFetch(`/messages?limit=${limit}`),
   );
   return data.messages ?? [];
+}
+
+// listConflicts returns files edited by two or more active agents right now.
+// Read-only; the daemon recomputes on each request and always returns an array.
+export async function listConflicts(): Promise<Conflict[]> {
+  const data = await parse<{ conflicts: Conflict[] | null }>(await apiFetch('/collab/conflicts'));
+  return data.conflicts ?? [];
 }
 
 export async function listPipelines(): Promise<Pipeline[]> {

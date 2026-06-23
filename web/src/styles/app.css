@@ -223,6 +223,15 @@ body { margin: 0; }
 .msg-arrow { color: var(--idle); }
 .msg-body { font-size: .82rem; white-space: pre-wrap; word-break: break-word; }
 
+/* File conflicts (overview card) */
+.conflict-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+.conflict { display: flex; flex-direction: column; gap: .15rem; padding: .4rem .5rem; border-left: 2px solid var(--attention); background: #b0880014; border-radius: 0 .3rem .3rem 0; }
+.conflict-file { font-family: ui-monospace, monospace; font-size: .82rem; word-break: break-all; }
+.conflict-agents { font-size: .78rem; color: var(--idle); }
+.conflict-agent { background: none; border: none; padding: 0; color: var(--busy); font: inherit; cursor: pointer; }
+.conflict-agent:hover { text-decoration: underline; }
+.conflict-sep { color: var(--idle); }
+
 /* ── Mobile (remote access from a phone) ──
    One breakpoint covers the layout shifts: tab strip drops to a bottom nav,
    every multi-column grid collapses to one column, the pipelines three-pane

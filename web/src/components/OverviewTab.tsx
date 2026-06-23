@@ -1,5 +1,6 @@
 import type { Session } from '../lib/types';
 import AttentionQueue from './AttentionQueue';
+import ConflictsPanel from './ConflictsPanel';
 import FleetStats from './FleetStats';
 import ResourcesPanel from './ResourcesPanel';
 import QuickSpawn from './QuickSpawn';
@@ -17,6 +18,10 @@ export default function OverviewTab({ sessions, onSelect }: {
       <section className="card">
         <h3>Needs you</h3>
         <AttentionQueue sessions={sessions} onSelect={onSelect} />
+      </section>
+      <section className="card">
+        <h3>File conflicts</h3>
+        <ConflictsPanel onSelect={onSelect} />
       </section>
       <section className="card">
         <h3>Fleet</h3>
