@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -131,6 +132,10 @@ type Server struct {
 	mbox *mailbox.Store
 	// exec drives pipeline execution (nil if pipelines are unused).
 	exec *Executor
+	// collab scans active worktrees for inter-agent file conflicts.
+	collab *collab.Monitor
+	// collabInterval is the file-conflict poll interval; <=0 disables the monitor.
+	collabInterval time.Duration
 	// narrator produces the digest's LLM summary (nil ⇒ degrade to LastMessage).
 	narrator digest.Narrator
 	// pressure caching for the spawn gate + GET /pressure. Sampled by a
@@ -311,6 +316,7 @@ func (s *Server) router() http.Handler {
 		ar.Get("/metrics/history", s.handleMetricsHistory)
 		s.registerContextRoutes(ar)
 		s.registerMessageRoutes(ar)
+		s.registerCollabRoutes(ar)
 		s.registerPipelineRoutes(ar)
 	})
 
