@@ -105,11 +105,13 @@ without losing the task. **Self only** — you rotate the agent you are running 
 Two phases, with a human review gate between them:
 
 1. **Prepare (you do this directly — you have your own context).**
-   - Write a **handoff file** in your working directory (e.g.
-     `./.warden/rotate-handoff.md`) capturing what a fresh agent needs to
-     *continue*: the goal, current working-tree state (branch, committed vs.
-     uncommitted), key decisions and approaches already ruled out, precise next
-     steps, and pointers to the relevant files.
+   - Write a **handoff file** to a unique, per-agent path so concurrent
+     rotations never overwrite each other — use the OS temp dir keyed on your
+     session id: `${TMPDIR:-/tmp}/warden-rotate-handoff-$WARDEN_SESSION_ID.md`.
+     (Temp keeps it self-cleaning; the session id keeps it yours.) Capture what
+     a fresh agent needs to *continue*: the goal, current working-tree state
+     (branch, committed vs. uncommitted), key decisions and approaches already
+     ruled out, precise next steps, and pointers to the relevant files.
    - Compose a one-paragraph **resume prompt** — the successor's initial task.
    - Show the user the handoff file path and the resume prompt, and **stop**. Let
      them edit the file and confirm before you go further.
@@ -117,14 +119,17 @@ Two phases, with a human review gate between them:
 2. **Commit (only after the user says go):**
 
    ```sh
+   HANDOFF="${TMPDIR:-/tmp}/warden-rotate-handoff-$WARDEN_SESSION_ID.md"
    warden rotate --confirm \
-     --resume-file ./.warden/rotate-handoff.md \
+     --resume-file "$HANDOFF" \
      --resume-prompt "<the resume prompt>"
    ```
 
    This spawns the successor in your exact working directory (same worktree, same
-   supervised mode), prints the new agent id, then retires you. Nothing
-   irreversible happens without `--confirm`.
+   supervised mode), prints the new agent id, then retires you. The successor
+   deletes the temp handoff file once it has read it (and the OS clears `/tmp`
+   regardless), so nothing is left behind. Nothing irreversible happens without
+   `--confirm`.
 
 Do **not** spawn the successor or terminate yourself by hand — `warden rotate`
 inherits your launch config and orders spawn-before-reap safely (a failed spawn

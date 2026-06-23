@@ -153,7 +153,7 @@ Usage:
 Flags:
       --confirm                actually spawn the successor and retire this agent (required)
   -h, --help                   help for rotate
-      --resume-file string     path to the handoff notes file the successor should read
+      --resume-file string     path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)
       --resume-prompt string   the successor's initial task prompt
 ```
 
