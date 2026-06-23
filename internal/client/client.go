@@ -69,12 +69,13 @@ func New(base string) *Client {
 	// No blanket http.Client.Timeout: per-call deadlines come from the context
 	// (see do/doT), so long operations are not capped to a read-sized timeout.
 	//
-	// The bearer token is read from the environment so the local CLI/TUI keep
-	// working transparently against an authenticated daemon: when WARDEN_TOKEN is
-	// exported (as it must be to run the daemon non-loopback), every request
-	// carries it. When unset (the loopback-only default) the daemon disables auth
-	// and ignores the empty header.
-	return &Client{base: base, http: &http.Client{}, token: auth.TokenFromEnv()}
+	// The bearer token lets the local CLI/TUI work transparently against an
+	// authenticated daemon. It resolves from WARDEN_TOKEN if exported, otherwise
+	// from the managed install's token file (~/.warden/token.env) — so a remote
+	// install authenticates local clients without every shell exporting the
+	// secret. When neither is present (the loopback-only default) the daemon
+	// disables auth and ignores the empty header.
+	return &Client{base: base, http: &http.Client{}, token: auth.ResolveToken()}
 }
 
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {

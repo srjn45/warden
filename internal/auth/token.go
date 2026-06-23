@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -37,4 +38,46 @@ func GenerateToken() (string, error) {
 // copy-paste/`$(...)` mishap) does not silently break authentication.
 func TokenFromEnv() string {
 	return strings.TrimSpace(os.Getenv(TokenEnv))
+}
+
+// DefaultTokenFile is where a managed remote install persists the bearer token
+// (chmod 600), in the same WARDEN_TOKEN=<hex> form an EnvironmentFile uses.
+// Returns "" if the home directory cannot be resolved.
+func DefaultTokenFile() string {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(h, ".warden", "token.env")
+}
+
+// tokenFromFile reads WARDEN_TOKEN=<value> from a token.env-style file, or
+// returns "" if the file is missing/unreadable or has no such line.
+func tokenFromFile(path string) string {
+	if path == "" {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, TokenEnv+"="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// ResolveToken returns the bearer token a local CLI/TUI should present: the
+// WARDEN_TOKEN env var if set, otherwise the token persisted by a managed
+// remote install in DefaultTokenFile(). This lets local clients authenticate
+// against an auth-enabled daemon without every shell exporting the secret — the
+// env var stays the override, the file is the fallback.
+func ResolveToken() string {
+	if t := TokenFromEnv(); t != "" {
+		return t
+	}
+	return tokenFromFile(DefaultTokenFile())
 }
