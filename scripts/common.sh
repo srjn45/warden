@@ -9,8 +9,19 @@ LABEL="com.srajanpathak.warden"
 # Signing the binary with a stable identity keeps macOS Full Disk Access grants
 # valid across rebuilds (see codesign-setup.sh for the full rationale).
 CODESIGN_IDENTITY="warden-codesign"
-# WARDEN_ADDR is canonical; AGENTCTL_ADDR is still honored as a fallback.
-ADDR="${WARDEN_ADDR:-${AGENTCTL_ADDR:-127.0.0.1:8765}}"
+# Persisted bind address from the last remote install, so reinstalls/upgrades
+# keep binding the same addr without re-passing WARDEN_ADDR every time. Written
+# by ensure_token; removed when an install explicitly chooses loopback.
+ADDR_FILE="$HOME/.warden/addr"
+# WARDEN_ADDR is canonical; AGENTCTL_ADDR is honored as a fallback; then the
+# persisted ADDR_FILE; finally loopback. This makes remote binding sticky: once
+# a host is set up for remote access, a bare ./scripts/reinstall.sh won't
+# silently revert it to 127.0.0.1.
+ADDR="${WARDEN_ADDR:-${AGENTCTL_ADDR:-}}"
+if [ -z "$ADDR" ] && [ -r "$ADDR_FILE" ]; then
+  ADDR="$(cat "$ADDR_FILE")"
+fi
+ADDR="${ADDR:-127.0.0.1:8765}"
 # Bearer-token file for remote (non-loopback) installs. Off the YAML config and
 # out of the repo; populated by ensure_token only when ADDR is non-loopback.
 TOKEN_FILE="$HOME/.warden/token.env"
@@ -119,10 +130,15 @@ is_loopback_addr() {
 ensure_token() {
   if is_loopback_addr; then
     AUTH_ENABLED=0
+    # Explicit loopback install clears any sticky remote addr so the next bare
+    # reinstall doesn't resurrect remote binding.
+    rm -f "$ADDR_FILE"
     return 0
   fi
   AUTH_ENABLED=1
   mkdir -p "$(dirname "$TOKEN_FILE")"
+  # Remember this addr so future installs stay remote without WARDEN_ADDR.
+  printf '%s\n' "$ADDR" > "$ADDR_FILE"
   [ -f "$TOKEN_FILE" ] && WARDEN_TOKEN_VALUE="$(sed -n 's/^WARDEN_TOKEN=//p' "$TOKEN_FILE")"
   if [ -n "$WARDEN_TOKEN_VALUE" ]; then
     info "reusing existing remote token: $TOKEN_FILE"
