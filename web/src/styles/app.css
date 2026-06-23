@@ -222,3 +222,50 @@ body { margin: 0; }
 .msg-to { color: var(--attention); }
 .msg-arrow { color: var(--idle); }
 .msg-body { font-size: .82rem; white-space: pre-wrap; word-break: break-word; }
+
+/* ── Mobile (remote access from a phone) ──
+   One breakpoint covers the layout shifts: tab strip drops to a bottom nav,
+   every multi-column grid collapses to one column, the pipelines three-pane
+   view stacks, and modals become full-screen sheets. */
+@media (max-width: 640px) {
+  /* Topbar: let the controls wrap instead of overflowing a narrow bar. The
+     desktop `margin-left: auto` on the first button is what pushes the cluster
+     right; drop it so they pack and wrap, keeping only "+ New" pinned right. */
+  .topbar { flex-wrap: wrap; gap: .5rem; padding: .5rem .7rem; }
+  .topbar h1.brand img { height: 22px; }
+  .topbar button { margin-left: 0; }
+  .topbar .new-btn { margin-left: auto; }
+
+  /* Tab strip → bottom nav: as the last flex child of the 100vh column it
+     sits below the (flex:1) content. Bigger tap targets; safe-area inset for
+     phones with a home indicator. */
+  .layout > .tab-content { order: 1; padding: .6rem; }
+  .layout > .tabbar {
+    order: 2; border-top: 1px solid #8884; border-bottom: none;
+    padding: 0 .5rem env(safe-area-inset-bottom, 0) .5rem; background: Canvas;
+  }
+  .tabbar .tab, .tabbar .tab-label { padding: .65rem .7rem; }
+
+  /* Collapse every multi-column grid to a single column. */
+  .overview { grid-template-columns: 1fr; }
+  .agent-grid { grid-template-columns: 1fr; }
+  .attn-queue { grid-template-columns: 1fr; }
+
+  /* Pipelines: stack list / detail / drawer vertically. */
+  .pipelines { flex-direction: column; height: auto; }
+  .pipe-list { width: auto; flex-direction: row; flex-wrap: wrap; }
+  .job-drawer {
+    width: auto; border-left: none; border-top: 1px solid #2a2a30;
+    padding-left: 0; padding-top: 12px;
+  }
+
+  /* Modals → full-screen sheets that scroll internally. */
+  .modal, .modal.pipe-modal {
+    width: 100vw; height: 100dvh; max-height: 100dvh;
+    border-radius: 0; overflow-y: auto;
+  }
+
+  /* Tame fixed heights that would dominate a phone screen. */
+  .xterm-host { height: 60vh; }
+  .pane { height: 200px; }
+}
