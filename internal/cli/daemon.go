@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/ctxtokens"
@@ -42,8 +43,9 @@ func newDaemonCmd() *cobra.Command {
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
 				cfg.Addr = a
 			}
-			if !config.IsLoopbackHost(cfg.Addr) && !cfg.AllowNonLoopback {
-				return fmt.Errorf("refusing to bind non-loopback address %q: the warden daemon has no authentication; set allow_nonloopback: true in %s to override", cfg.Addr, cfgPath)
+			authToken := auth.TokenFromEnv()
+			if !config.IsLoopbackHost(cfg.Addr) && authToken == "" && !cfg.AllowNonLoopback {
+				return fmt.Errorf("refusing to bind non-loopback address %q without authentication: set %s (run `warden token generate`) to require a bearer token, or set allow_nonloopback: true in %s to bind without auth (not recommended)", cfg.Addr, auth.TokenEnv, cfgPath)
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -89,6 +91,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
+			srv.SetAuth(authToken)
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})

@@ -73,7 +73,7 @@ type setting struct {
 // reflection-based drift-guard test asserts this key set equals the set of
 // yaml tags on Config.
 var schema = []setting{
-	{"addr", "Daemon listen address. Values: host:port (loopback only unless allow_nonloopback is true)"},
+	{"addr", "Daemon listen address. Values: host:port (non-loopback requires WARDEN_TOKEN for bearer-token auth, or allow_nonloopback: true to bind without auth)"},
 	{"data_dir", "Directory for warden state (sessions, inbox, pipelines, metrics). Values: absolute path"},
 	{"claude_projects_dir", "Claude Code transcript root. Values: absolute path"},
 	{"notify", "Desktop notifications on agent status changes. Values: true | false"},
@@ -83,7 +83,7 @@ var schema = []setting{
 	{"spawn_gate", "Warn (soft, never blocks) before spawning when many agents are live. Values: true | false"},
 	{"spawn_gate_max_agents", "Live-agent count that trips the spawn-gate warning. Values: integer"},
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
-	{"allow_nonloopback", "Allow binding the auth-less daemon to a non-loopback address. Values: true | false"},
+	{"allow_nonloopback", "Bind to a non-loopback address WITHOUT authentication (not recommended). Prefer setting WARDEN_TOKEN instead, which requires a bearer token. Values: true | false"},
 	{"token_guard", "Enable the context-token guard (warn / auto-compact). Values: true | false"},
 	{"token_warn_alert", "Notify when an agent crosses the token warning threshold. Values: true | false"},
 	{"token_auto_compact", "Auto-compact an agent that crosses the critical threshold. Values: true | false"},

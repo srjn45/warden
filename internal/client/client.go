@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/metrics"
@@ -59,14 +60,21 @@ var (
 )
 
 type Client struct {
-	base string
-	http *http.Client
+	base  string
+	http  *http.Client
+	token string
 }
 
 func New(base string) *Client {
 	// No blanket http.Client.Timeout: per-call deadlines come from the context
 	// (see do/doT), so long operations are not capped to a read-sized timeout.
-	return &Client{base: base, http: &http.Client{}}
+	//
+	// The bearer token is read from the environment so the local CLI/TUI keep
+	// working transparently against an authenticated daemon: when WARDEN_TOKEN is
+	// exported (as it must be to run the daemon non-loopback), every request
+	// carries it. When unset (the loopback-only default) the daemon disables auth
+	// and ignores the empty header.
+	return &Client{base: base, http: &http.Client{}, token: auth.TokenFromEnv()}
 }
 
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
@@ -97,6 +105,9 @@ func (c *Client) doT(ctx context.Context, timeout time.Duration, method, path st
 	}
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
