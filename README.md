@@ -4,6 +4,7 @@
 </p>
 
 [![CI](https://github.com/srjn45/warden/actions/workflows/ci.yml/badge.svg)](https://github.com/srjn45/warden/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-69%25-yellowgreen.svg)](#development)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/srjn45/warden.svg)](https://pkg.go.dev/github.com/srjn45/warden)
 [![Release](https://img.shields.io/github/v/release/srjn45/warden?sort=semver)](https://github.com/srjn45/warden/releases)
@@ -794,17 +795,28 @@ warden done PROJ-350
 ## Development
 
 ```sh
-make build          # go build -o bin/warden ./cmd/warden
-make test           # go test ./...
-make lint           # go vet ./...
-make run-daemon     # build + start daemon in the foreground (debugging only)
+make build            # go build -o bin/warden ./cmd/warden
+make test             # go test ./...  (includes fuzz seed corpora)
+make lint             # go vet ./...
+make run-daemon       # build + start daemon in the foreground (debugging only)
+make test-integration # build-tagged end-to-end suite (real daemon subprocess + CLI)
+make bench            # run the Benchmark* suite (store I/O, pipeline, approvals)
+make fuzz             # deeper fuzz sweep of the YAML/pane/session parsers
+make cover            # whole-repo statement coverage (prints the total%)
 ```
 
-All tests run without Docker or any external services:
+The README coverage badge is a static snapshot of `make cover`'s total — refresh
+it when coverage moves materially.
+
+All unit tests run without Docker or any external services:
 
 ```bash
 go test ./...
 ```
+
+The integration suite (`make test-integration`, build tag `integration`) boots a
+real `warden daemon` against an isolated `HOME`; its spawn-lifecycle test
+self-skips unless `tmux` and `claude` are installed, so it stays CI-safe.
 
 ---
 
