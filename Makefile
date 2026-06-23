@@ -1,10 +1,35 @@
-.PHONY: build test lint fmt fmt-check verify verify-fast run-daemon ui ui-dev web-test release install-skill install-hooks install uninstall reinstall
+.PHONY: build test test-integration bench fuzz cover lint fmt fmt-check verify verify-fast run-daemon ui ui-dev web-test release install-skill install-hooks install uninstall reinstall
 
 build:
 	go build -buildvcs=false -o bin/warden ./cmd/warden
 
 test:
 	go test ./...
+
+# End-to-end suite (build-tagged `integration`): boots a real warden daemon
+# subprocess against an isolated HOME and drives it through the real CLI. The
+# spawn lifecycle test self-skips unless tmux + claude are installed, so this is
+# safe to run in CI; locally it also covers the live spawn->terminate->cleanup.
+test-integration:
+	go test -tags integration -count=1 ./test/integration/...
+
+# Run every Benchmark* across the repo once (no timing assertions; for tracking
+# spawn/list/store-I/O cost over time). Use -benchtime to lengthen.
+bench:
+	go test -run '^$$' -bench . -benchmem ./...
+
+# Smoke each Fuzz* target for a few seconds to catch panics on malformed input.
+# CI runs the seed corpora as part of `make test`; this is the deeper sweep.
+fuzz:
+	go test -run '^$$' -fuzz FuzzParseSpec   -fuzztime 20s ./internal/pipeline/
+	go test -run '^$$' -fuzz FuzzParse       -fuzztime 20s ./internal/approval/
+	go test -run '^$$' -fuzz FuzzReadSession -fuzztime 20s ./internal/store/
+
+# Whole-repo statement coverage. Prints the total% on the last line — that's the
+# number behind the README coverage badge, so refresh the badge when this moves.
+cover:
+	go test ./... -coverprofile=coverage.out
+	@go tool cover -func=coverage.out | tail -1
 
 lint:
 	go vet ./...

@@ -1,7 +1,7 @@
 # Warden Future Enhancements & Feature Roadmap
 
 **Last Updated:** 2026-06-23
-**Current Version:** v4.0.0 (+ unreleased: worktree GC & lifecycle hardening, inter-agent file-conflict detection MVP)
+**Current Version:** v4.0.0 (+ unreleased: worktree GC & lifecycle hardening, inter-agent file-conflict detection MVP, testing & quality suite — integration/benchmarks/fuzzing)
 
 This document tracks potential improvements and new features for warden, organized
 by category and priority. Each item includes effort estimates and implementation
@@ -76,6 +76,24 @@ Verified present in `internal/` / `web/` as of 2026-06-22:
 - **Mailbox messaging** — `send_message` / `read_inbox` / `wait_for_message` MCP
   tools, corrupt-inbox resilience (`internal/mailbox`).
 - **Approvals over MCP** — `list_approvals` / `approve`.
+
+**Testing & quality** (roadmap #37–39)
+- **Integration suite** — build-tagged `//go:build integration`
+  (`test/integration/`) that boots a real `warden daemon` subprocess against an
+  isolated HOME + random port and drives it through the real CLI: health +
+  empty-fleet `ls`, config HOME-isolation, doctor, pipeline create→show→delete +
+  validation rejection, session-survives-restart recovery, and a tmux/claude-
+  gated spawn→terminate→cleanup that self-skips when those binaries are absent.
+  Run with `make test-integration`.
+- **Benchmarking suite** — `Benchmark*` for store `Insert`/`Get`/`List` at fleet
+  scale (`internal/store`), pipeline `ParseSpec`/`Validate` on large DAGs
+  (`internal/pipeline`), and the approval-prompt detector hot path
+  (`internal/approval`). Run with `make bench`.
+- **Fuzz testing** — `FuzzParseSpec` (pipeline YAML), `FuzzParse` (approval pane
+  parser), `FuzzReadSession` (session JSON): panic-freedom plus invariants
+  (parsed specs re-validate, reported option indices stay in range, decoded
+  sessions re-marshal). Seed corpora run under `make test`; deeper sweep via
+  `make fuzz`.
 
 **From v3.13.0:** shell completion (bash/zsh/fish/powershell), agent
 names/aliases (`--name`), improved actionable error messages.
@@ -396,16 +414,10 @@ parallel independent-job execution in the pipeline executor, load testing with
 
 ## 🧪 Testing & Quality
 
-#### 37. Integration test suite — *not started*
-**Effort:** 1-2 days. End-to-end (spawn→work→terminate→cleanup, pipeline lifecycle,
-restore, approvals) with a real daemon + tmux. No `*integration_test.go` yet.
-
-#### 38. Benchmarking suite — *not started*
-**Effort:** 4 hours. `Benchmark*` for spawn time, `ls` at scale, store I/O. None yet.
-
-#### 39. Fuzz testing — *not started*
-**Effort:** 4 hours. `go test -fuzz` for pipeline YAML, approvals prompt parser,
-session JSON. No `Fuzz*` yet.
+#### 37, 38, 39. Integration suite + benchmarks + fuzzing — ✅ **DONE**
+Shipped: build-tagged integration suite (`test/integration/`), `Benchmark*`
+across store / pipeline / approval, and `Fuzz*` for the pipeline-YAML,
+approval-pane, and session-JSON parsers. See "Recently Completed."
 
 ---
 

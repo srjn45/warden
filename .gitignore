@@ -22,3 +22,6 @@ dist/
 warden.code-workspace
 
 dev.log
+
+# coverage artifacts (make cover)
+coverage.out
