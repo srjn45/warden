@@ -291,6 +291,34 @@ marginal value given `rotate` + pipelines already cover the real need.
 
 ---
 
+## 🧠 Orchestration & Token Reduction
+
+#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *not started*
+**Effort:** Phase 0a ~1 day · 0b ~2 days · 0c ~1 day · Phase 1 ~3-4 days (incremental)
+**Value:** Cut Claude token spend; enforce worktree isolation; retire the operator's
+manual git lifecycle.
+
+Move deterministic responsibilities off Claude agents onto warden, and **enforce** the
+boundary with a PreToolUse hook (steer via system prompt → deny+redirect hook → restrict
+via `disallowedTools`). Most of the win needs **no LLM**; an optional local model (Ollama)
+handles the fuzzy-cheap middle (classification, log summarization, headless commit
+messages), proven first by swapping the existing headless-Claude `Classify` call.
+
+- **0a Isolation enforcement** — default-isolate write-agents (worktree unless `--in-repo`);
+  extend the spawn gate; deny Edit/Write in the shared repo root. Fixes the parallel-agent
+  collision pain. *No LLM.*
+- **0b Git lifecycle** — `wd commit` / `wd push` / `wd sync` as CLI + MCP tools on the
+  existing `lifecycle.go` machinery (rails, hook parsing, bookkeeping); add the
+  git-mutation redirect hooks. *No LLM.*
+- **0c `wd check`** — run configured tests/lint, return pass/fail + only failures; redirect
+  raw test Bash. Biggest raw token win. *No LLM (optional summarize).*
+- **Phase 1 Local provider** — opt-in Ollama provider; `Classify` → headless commit
+  messages → log summarization.
+
+**Design spec:** [`docs/superpowers/specs/2026-06-24-warden-orchestration-brain-design.md`](superpowers/specs/2026-06-24-warden-orchestration-brain-design.md).
+
+---
+
 ## 📊 Priority Matrix (reassessed 2026-06-24)
 
 Re-scored on **feasibility × necessity** for what warden actually is today: a
@@ -300,6 +328,11 @@ That shifts weight toward **unattended-operation and dev-loop closure** and away
 from **enterprise/multi-user** features whose necessity is low for a single user.
 
 ### 🔥 Tier 1 — Do First (high necessity, low/medium effort, all feasible now)
+0. **Orchestration brain — Phase 0a+0b** (#49, ~3 days) — isolation enforcement + git
+   lifecycle (`wd commit`/`push`/`sync`) gated by a PreToolUse deny-redirect hook. Directly
+   serves the token-reduction north star and retires the operator's manual worktree/git
+   workflow. Both enforcement levers (system prompt, hooks) and the git mechanics already
+   exist in the codebase. **F: medium · N: high.**
 1. **Slack/webhook notifications** (#34, 3-4 h) — `internal/notify` exists and is
    desktop-only; add a webhook channel. Highest necessity now that remote access
    ships: push alerts on attention transitions are what make "watch from your phone"
@@ -364,6 +397,7 @@ demand signal before they're worth the effort:
 
 Tier 1 first (each a self-contained win), then Tier 2 as fleet size grows:
 
+0. **Orchestration brain Phase 0a+0b** (~3 days) — isolation enforcement + git lifecycle behind a deny-redirect hook; token reduction + retires the manual git workflow
 1. **Slack/webhook notifications** (3-4 h) — remote awareness; pairs with the now-shipped remote access
 2. **Pipeline MCP tools** (4-6 h) — let orchestrator agents drive pipelines
 3. **GitHub PR auto-create on done** (6 h) — closes the dev→PR loop with `digest`
