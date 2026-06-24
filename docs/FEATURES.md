@@ -66,6 +66,8 @@ on-disk state:
 | `done` | Terminate **and** clear the record in one step (worktree kept). `--hard` purges instead of archiving. |
 | `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. |
 | `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. |
+| `worktree ls` | List warden-owned worktrees under `.worktrees`, joined to active/archived records (provenance-tracked). |
+| `prune` | Reclaim orphaned warden worktrees (always prompts; `--force` overrides guards, `--include-archived` widens scope). Retention is policy-driven via the `worktree_keep_done` / `worktree_auto_prune` config settings. |
 | `adopt` | Register an existing Claude session — resume newest-for-dir under tmux, or live-register a running tmux session. |
 | **Cascade cleanup** | Deleting a pipeline/agent cascades cleanup of its shared-context keys and (on hard-delete) its mailbox inbox. |
 
@@ -133,7 +135,8 @@ warden auto-approve abc123 off  # disable for agent abc123
 
 | Feature | Description |
 |---|---|
-| **Pipelines** (`warden pipeline`) | YAML-defined **DAG of dependent agent jobs**. The daemon runs them: dependency-free jobs start first, each job's `emit` publishes output and unblocks dependents — keeping the lead Claude off the critical path. Sub-commands: `create`, `start`, `show`, `list`, `retry`, `cancel`, `delete`. CLI-only (no MCP tools yet), with full TUI + web visibility. |
+| **Pipelines** (`warden pipeline`) | YAML-defined **DAG of dependent agent jobs**. The daemon runs them: dependency-free jobs start first, each job's `emit` publishes output and unblocks dependents — keeping the lead Claude off the critical path. Sub-commands: `validate` (client-side spec check, CI-friendly exit codes), `create`, `start`, `pause`/`resume` (halt new spawns while in-flight jobs finish), `show`, `list`, `edit-job`, `retry`, `cancel`, `delete`. CLI-only (no MCP tools yet), with full TUI + web visibility (DAG view). |
+| **Conditional steps** (`run_if`) | Per-job `run_if: success\|failure\|always` (default `success`). A job runs only when its dependencies settled the right way — `failure`/`always` handlers let a pipeline route around a failed upstream and still complete, and the handler's prompt is told which upstream failed. |
 | **Shared context** (`warden ctx`) | A namespaced key/value blackboard all agents can read/write: `ctx set`/`get`/`list`. |
 | **Directed messages** (`warden msg`) | Per-agent inbox: `msg send` (wakes a parked idle/waiting agent), `msg inbox`, `msg wait` (blocks in the daemon until a message arrives). |
 | **File-conflict detection** (`warden collab`) | The daemon polls each active agent's worktree with `git diff` and warns (via the inbox, deduplicated) when two agents are editing the same file. Inspect with `collab conflicts` / `collab who-is-editing <file>`, `GET /collab/conflicts`, the `get_collaboration_status` / `who_is_editing_file` MCP tools, or the **File conflicts** card on the dashboard Overview. Spawned agents also get a system-prompt hint to check `who_is_editing_file` and their inbox before editing shared files, so they coordinate rather than overwrite. Tunable via `collab_enabled` / `collab_interval` / `collab_hint`. |
@@ -190,6 +193,8 @@ separate server.
 | **Terminate with git guard** | Surfaces a 409 → **Force** + optional hard-delete when there's uncommitted/unpushed work. |
 | **Digest panel** | View an agent's completion digest in the browser. |
 | **Resources panel** | Live per-agent + system resource charts (uPlot). |
+| **Activity timeline** | Event timeline / activity feed of fleet state changes (`EventTimeline`, `ActivityFeed`). |
+| **Pipeline DAG view** | Pipelines rendered as their dependency graph (`PipelineDag`). |
 | **Browser notifications** | Opt-in desktop notification when an agent enters `waiting_for_input` (gated to hidden tabs). |
 
 ---
@@ -261,6 +266,7 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `5` | Soft warning before spawning when many agents are live |
 | `metrics` | `true` | Record per-agent metrics to disk |
 | `pipeline_keep_done` / `pipeline_hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |
+| `worktree_keep_done` / `worktree_auto_prune` | `false` / `false` | Keep a worktree after its agent is done / auto-reclaim orphaned worktrees |
 | `auto_restart_max` / `auto_restart_reset` | `3` / `5m` | Auto-restart attempts for an errored opted-in agent / health window that resets the counter |
 | `rate_limit_auto_resume` | `true` | Auto-resume agents after a rate limit clears (`rate_limit_retry_interval`, `rate_limit_buffer` tune timing) |
 | `log_level` / `log_format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
@@ -268,3 +274,19 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 > The old `WARDEN_*` environment variables are no longer read — the daemon warns
 > once at startup if any are still set. The per-agent IPC vars warden injects
 > (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration.
+
+---
+
+## 13. Remote access & authentication
+
+Reach the dashboard and API from a phone, tablet, or any other device — not just
+the local machine. Setup recipes (LAN / Tailscale / Cloudflare Tunnel) live in
+[USAGE.md](USAGE.md).
+
+| Feature | Description |
+|---|---|
+| **Bearer-token auth** | A 256-bit `crypto/rand` token gates every non-loopback request (constant-time compare). SSE/WS clients pass it as `?token=`. Binding the daemon to a non-loopback address is **refused unless a token is set**, so remote access can't be opened accidentally. |
+| **Token management** | `warden token generate` mints a token, `warden token show` prints the current one (to paste into a remote client), and `warden token rotate` regenerates it in place and restarts the daemon. Persisted to `~/.warden/token.env` (`WARDEN_TOKEN=<hex>`, `0600`); the `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk. |
+| **Brute-force protection** | Per-IP rate-limiting on auth failures. |
+| **Web UI auth** | A token-entry modal appears on `401`, with `localStorage` persistence and a sign-out control; the static SPA shell stays public so the modal can load. |
+| **Mobile-responsive dashboard** | Bottom nav, single-column grids, and full-screen modal sheets so the GUI is usable on a phone. |
