@@ -12,7 +12,16 @@ func ComposePrompt(p *Pipeline, job *Job) string {
 	var b strings.Builder
 	for _, dep := range job.DependsOn {
 		up := p.Job(dep)
-		if up == nil || up.Output == "" {
+		if up == nil {
+			continue
+		}
+		// A failure-handler (run_if: failure|always) needs to know an upstream
+		// failed; a failed job has no handoff output of its own to inject.
+		if up.Status == JobFailed {
+			fmt.Fprintf(&b, "### Upstream job `%s` FAILED.\n\n", dep)
+			continue
+		}
+		if up.Output == "" {
 			continue
 		}
 		fmt.Fprintf(&b, "### Upstream output — job `%s`:\n%s\n", dep, up.Output)

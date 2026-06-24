@@ -49,6 +49,25 @@ func TestParseSpecDefaultsWorktreeNone(t *testing.T) {
 	}
 }
 
+func TestParseSpecDefaultsRunIfSuccess(t *testing.T) {
+	p, err := ParseSpec([]byte("name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n  - id: b\n    prompt: y\n    depends_on: [a]\n    run_if: failure\n"))
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if got := p.Job("a").RunIf; got != "success" {
+		t.Fatalf("blank run_if should default to success, got %q", got)
+	}
+	if got := p.Job("b").RunIf; got != "failure" {
+		t.Fatalf("explicit run_if not parsed, got %q", got)
+	}
+}
+
+func TestParseSpecInvalidRunIfRejected(t *testing.T) {
+	if _, err := ParseSpec([]byte("name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n    run_if: maybe\n")); err == nil {
+		t.Fatalf("expected validation error for invalid run_if")
+	}
+}
+
 func TestParseSpecInvalidRejected(t *testing.T) {
 	if _, err := ParseSpec([]byte("name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n    depends_on: [ghost]\n")); err == nil {
 		t.Fatalf("expected validation error for unknown dep")

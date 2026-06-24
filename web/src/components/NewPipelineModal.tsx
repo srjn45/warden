@@ -116,6 +116,13 @@ export default function NewPipelineModal({ onClose, onCreated }: {
                     ))}
                   </select>
                 </label>
+                <label className="grow">Run if
+                  <select value={j.run_if} onChange={(e) => patchJob(i, { run_if: e.target.value as JobDraft['run_if'] })}>
+                    <option value="success">success (deps ok)</option>
+                    <option value="failure">failure (a dep failed)</option>
+                    <option value="always">always</option>
+                  </select>
+                </label>
               </div>
               <label className="supervised-toggle">
                 <input
