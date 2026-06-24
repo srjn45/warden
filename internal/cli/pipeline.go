@@ -37,10 +37,39 @@ func newPipelineCmd() *cobra.Command {
 		Use:   "pipeline",
 		Short: "Define and run DAG pipelines of agent jobs",
 	}
-	cmd.AddCommand(newPipelineCreateCmd(), newPipelineListCmd(), newPipelineShowCmd(),
+	cmd.AddCommand(newPipelineValidateCmd(), newPipelineCreateCmd(), newPipelineListCmd(), newPipelineShowCmd(),
 		newPipelineStartCmd(), newPipelinePauseCmd(), newPipelineResumeCmd(),
 		newPipelineCancelCmd(), newPipelineDeleteCmd(), newPipelineEmitCmd(),
 		newPipelineEditJobCmd(), newPipelineRetryCmd())
+	return cmd
+}
+
+func newPipelineValidateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "validate -f <spec.yaml>",
+		Short: "Validate a pipeline YAML spec without creating it",
+		Long: "Parse and validate a pipeline spec locally — checks required fields, " +
+			"job ids, dependency references, worktree/run_if values, and DAG cycles. " +
+			"Exits 0 if valid, 1 if not (suitable for CI). Does not contact the daemon.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			file, _ := cmd.Flags().GetString("file")
+			if file == "" {
+				return fmt.Errorf("provide a spec with -f <spec.yaml>")
+			}
+			data, err := os.ReadFile(file)
+			if err != nil {
+				return err
+			}
+			p, err := pipeline.ParseSpec(data)
+			if err != nil {
+				return fmt.Errorf("invalid pipeline %s: %w", file, err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is valid — pipeline %q, %d jobs\n", file, p.ID, len(p.Jobs))
+			return nil
+		},
+	}
+	cmd.Flags().StringP("file", "f", "", "path to the pipeline YAML spec")
 	return cmd
 }
 

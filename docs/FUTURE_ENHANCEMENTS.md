@@ -129,22 +129,22 @@ warden ls -w       # short flag
 
 ---
 
-#### 2. `warden pipeline validate` — *not started*
+#### 2. `warden pipeline validate` — *done*
 **Effort:** 1 hour
 **Value:** Better DX, fewer errors
 
-Validate pipeline YAML files before creating them. Today there is `create`, `list`,
-`show`, `start`, `cancel`, `delete`, `emit`, `edit-job`, `retry` — but no `validate`.
+Validate pipeline YAML files before creating them.
 
 ```bash
 warden pipeline validate -f pipeline.yaml
 # Checks: DAG cycles, missing dependencies, invalid job IDs, required fields
 ```
 
-**Implementation:**
-- Extract validation logic from `pipeline create`
-- Add new `validate` subcommand
-- Return exit code 0 (valid) or 1 (invalid) for CI usage
+**Implementation (shipped):**
+- `validate` runs `pipeline.ParseSpec` (the same parse + `Validate` the daemon
+  uses in `pipeline create`) entirely client-side — no daemon contact.
+- Prints `<file> is valid — pipeline "<id>", <n> jobs` on success.
+- Returns exit code 0 (valid) or 1 (invalid, with the validation error) for CI.
 
 ---
 

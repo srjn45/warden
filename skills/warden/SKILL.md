@@ -147,6 +147,7 @@ YAML spec for the user.
 ## Lifecycle
 
 ```sh
+warden pipeline validate -f spec.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline create -f spec.yaml   # validate (DAG/refs/cycles) + register
 warden pipeline start <name>          # spawn jobs with no deps; the daemon drives the rest
 warden pipeline show <name>           # per-job status + branch + emitted output

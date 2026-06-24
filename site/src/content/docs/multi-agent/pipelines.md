@@ -10,6 +10,7 @@ A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs 
 ## Lifecycle
 
 ```sh
+warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline create -f review.yaml   # validate + register (does NOT start)
 warden pipeline start <id>              # spawn jobs with no dependencies
 warden pipeline show <id>               # jobs, status, branches, emitted output
