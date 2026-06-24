@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log"
-	"os"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -762,9 +761,7 @@ func TestPublishApprovalEventDropsWhenFull(t *testing.T) {
 	}
 
 	// Capture log output to verify drop message
-	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	buf := captureSlog(t)
 
 	// Publish should drop (not block)
 	done := make(chan struct{})
@@ -776,7 +773,7 @@ func TestPublishApprovalEventDropsWhenFull(t *testing.T) {
 	select {
 	case <-done:
 		// Success - didn't block
-		require.Contains(t, buf.String(), "approval event dropped for agent-123")
+		require.Contains(t, buf.String(), "agent=agent-123")
 		require.Contains(t, buf.String(), "channel full")
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("publishApprovalEvent blocked when channel was full")
@@ -785,9 +782,7 @@ func TestPublishApprovalEventDropsWhenFull(t *testing.T) {
 
 func TestApprovalWorkerConsumesEvents(t *testing.T) {
 	// Capture log output to verify the approval was logged
-	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	buf := captureSlog(t)
 
 	d := &stubDeps{}
 	p := New(d, 30*time.Second)
@@ -819,7 +814,20 @@ func TestApprovalWorkerConsumesEvents(t *testing.T) {
 	// Verify the worker actually auto-approved by sending option 1 to the pane.
 	require.Equal(t, 1, d.sendCount(), "worker should send exactly one key")
 	require.Equal(t, "1", d.lastSentKey("tmux-123"), "worker should send option 1")
-	require.Contains(t, buf.String(), "auto-approved agent-123")
+	require.Contains(t, buf.String(), "auto-approved")
+	require.Contains(t, buf.String(), "agent=agent-123")
+}
+
+// captureSlog redirects the slog default logger to an in-memory buffer for the
+// duration of the test, restoring the previous default on cleanup. Replaces the
+// old log.SetOutput capture now that the poller logs through slog.
+func captureSlog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
 }
 
 func TestApprovalWorkerStopsOnContextCancel(t *testing.T) {

@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -118,16 +118,16 @@ func (s *Server) runMetricsRecorder(ctx context.Context) {
 func (s *Server) recordOnce(ctx context.Context) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.Printf("daemon: metrics recorder recovered panic: %v", rec)
+			slog.Error("daemon: metrics recorder recovered panic", "panic", rec)
 		}
 	}()
 	sample, err := s.mcollector.Sample(ctx)
 	if err != nil {
-		log.Printf("daemon: metrics sample failed: %v", err)
+		slog.Warn("daemon: metrics sample failed", "err", err)
 		return
 	}
 	if err := s.mrecorder.Record(sample); err != nil {
-		log.Printf("daemon: metrics record failed: %v", err)
+		slog.Warn("daemon: metrics record failed", "err", err)
 	}
 }
 

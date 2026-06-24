@@ -1,7 +1,7 @@
 # Warden Future Enhancements & Feature Roadmap
 
 **Last Updated:** 2026-06-24
-**Current Version:** v4.9.0 (pipeline pause/resume, conditional steps via `run_if`, `warden token rotate`/`show`; on top of v4.8.0 inter-agent file-conflict detection MVP and the integration/benchmarks/fuzzing suite)
+**Current Version:** v4.10.0 (structured `slog` logging — `--log-level`/`--log-format`, `log_level`/`log_format` config; on top of v4.9.0 pipeline pause/resume, conditional steps via `run_if`, `warden token rotate`/`show`, and v4.8.0 inter-agent file-conflict detection MVP + integration/benchmarks/fuzzing suite)
 
 This document tracks potential improvements and new features for warden, organized
 by category and priority. Each item includes effort estimates and implementation
@@ -51,6 +51,11 @@ Verified present in `internal/` / `web/` as of 2026-06-22:
 - **Metrics / stats system** — `warden stats`, `internal/metrics`,
   `internal/pressure`, web Resources panel + Fleet stats
   (`web/src/components/ResourcesPanel.tsx`, `FleetStats.tsx`).
+- **Structured logging (`slog`)** — `internal/logging` installs a level/format
+  configurable `log/slog` logger as the default (which also bridges the standard
+  `log` package); the daemon's `log.Print` call sites were converted to
+  structured `slog` calls. `warden daemon --log-level debug --log-format json`,
+  plus `log_level` / `log_format` config keys.
 
 **Remote access & multi-device** (the flagship — access from a phone/tablet/anywhere)
 - **Bearer-token auth** — `warden token generate` (256-bit `crypto/rand`),
@@ -234,17 +239,15 @@ Fleet stats panels. See "Recently Completed."
 
 ---
 
-#### 10. Enhanced structured logging (`slog`) — *not started*
-**Effort:** 2-3 hours
-**Value:** Better debugging
-
-No `log/slog` usage in `internal/` yet — still scattered `log.Print`.
-
-```bash
-warden daemon --log-level debug --log-format json
-```
-
-Add a `slog.Logger` to the daemon; replace `log.Print` calls; structured fields.
+#### 10. ~~Enhanced structured logging (`slog`)~~ — ✅ **DONE**
+Shipped: `internal/logging` builds a `log/slog` logger from a level
+(`debug|info|warn|error`) + format (`text|json`) and installs it as the slog
+default. Because slog's default also backs the standard `log` package, every
+call site is routed through the same handler (level filtering + JSON/text apply
+uniformly). The scattered `log.Print` calls across `internal/` were converted to
+structured `slog` calls with fields (agent id, err, etc.). New `warden daemon
+--log-level` / `--log-format` flags override the `log_level` / `log_format`
+config keys. See "Recently Completed."
 
 ---
 
@@ -511,7 +514,7 @@ tracking (BranchTracker), collaboration groups, SSE replay + multi-cache layer.
 7. **Scheduled agents/tasks** — 1-2 days (decision doc exists)
 8. **Slack/webhook notifications** — 3-4 h
 9. **Pipeline MCP tools** — 4-6 h
-10. **Structured logging (slog)** — 2-3 h
+10. ~~**Structured logging (slog)**~~ — ✅ DONE (see "Recently Completed")
 
 ### 🎯 Nice to Have (Medium Impact)
 11. Full-text search — 6-8 h
@@ -543,7 +546,7 @@ tracking (BranchTracker), collaboration groups, SSE replay + multi-cache layer.
 5. **Slack/webhook notifications** (3-4 h) — remote awareness, pairs with remote access
 6. **Pipeline `validate` + templates** (3 h) — lowers the barrier to pipelines
 7. **Pipeline MCP tools** (4-6 h) — orchestrator can drive pipelines
-8. **Structured logging / slog** (2-3 h) — debugging foundation
+8. ~~**Structured logging / slog**~~ ✅ DONE — debugging foundation
 9. **Full-text search + history viewer** (~1.5 days) — manage larger fleets
 10. **Finish inter-agent collaboration** (1-2 weeks) — next-gen, foundation already in
 

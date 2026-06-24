@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -49,9 +49,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	// first tick so those records never get re-classified.
 	if s.exec != nil {
 		if n, err := s.exec.SweepDoneJobSessions(runCtx); err != nil {
-			log.Printf("daemon: done-job session sweep: %v", err)
+			slog.Warn("daemon: done-job session sweep failed", "err", err)
 		} else if n > 0 {
-			log.Printf("daemon: swept %d completed pipeline-job session record(s)", n)
+			slog.Info("daemon: swept completed pipeline-job session records", "count", n)
 		}
 	}
 

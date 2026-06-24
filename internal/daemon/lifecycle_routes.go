@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -143,7 +143,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if terr := s.life.Teardown(tctx, sess); terr != nil {
-			log.Printf("spawn rollback %s: %v", sess.ID, terr)
+			slog.Warn("spawn rollback failed", "agent", sess.ID, "err", terr)
 		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -235,7 +235,7 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 			tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if terr := s.life.Teardown(tctx, sess); terr != nil {
-				log.Printf("adopt rollback %s: %v", sess.ID, terr)
+				slog.Warn("adopt rollback failed", "agent", sess.ID, "err", terr)
 			}
 		}
 		if errors.Is(err, store.ErrExists) {
@@ -265,7 +265,7 @@ func (s *Server) classifyAndUpdate(id, prompt string) {
 		t = store.TypeOther // never block: fall back to "other"
 	}
 	if err := s.store.UpdateType(ctx, id, t); err != nil {
-		log.Printf("classify update %s: %v", id, err)
+		slog.Warn("classify update failed", "agent", id, "err", err)
 		return
 	}
 	s.notify()
@@ -366,10 +366,10 @@ func (s *Server) removeDoneWorktreeBestEffort(sess *store.Session) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := s.life.RemoveWorktree(ctx, sess, false, false); err != nil {
-		log.Printf("worktree_keep_done=false: kept %s worktree on archive: %v", sess.ID, err)
+		slog.Warn("worktree_keep_done=false: kept worktree on archive", "agent", sess.ID, "err", err)
 		return
 	}
-	log.Printf("worktree_keep_done=false: removed %s worktree on archive", sess.ID)
+	slog.Info("worktree_keep_done=false: removed worktree on archive", "agent", sess.ID)
 }
 
 func (s *Server) handleRemoveWorktree(w http.ResponseWriter, r *http.Request) {

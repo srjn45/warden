@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/logging"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,6 +62,11 @@ type Config struct {
 	// Worktree retention policy (see internal/lifecycle prune/RemoveWorktree).
 	WorktreeKeepDone  bool `yaml:"worktree_keep_done"`
 	WorktreeAutoPrune bool `yaml:"worktree_auto_prune"`
+
+	// Structured logging (internal/logging). LogLevel filters by severity;
+	// LogFormat selects human-readable text or machine-readable JSON.
+	LogLevel  string `yaml:"log_level"`
+	LogFormat string `yaml:"log_format"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -106,6 +112,8 @@ var schema = []setting{
 	{"rate_limit_resume_prompt", "Text to send when resuming a rate-limited agent. Empty = bare keypress (no injected user turn). Values: any string"},
 	{"worktree_keep_done", "Keep a worktree-owning agent's worktree after it is archived (done). When false, a clean worktree is removed on archive (dirty/unpushed are kept + logged); never blocks the archive. Values: true | false"},
 	{"worktree_auto_prune", "Let the daemon auto-reclaim clean, record-less orphan worktrees on a slow cadence + at startup (the unattended sweep never touches archived-owned worktrees). Values: true | false"},
+	{"log_level", "Minimum severity the daemon logs. Values: debug | info | warn | error"},
+	{"log_format", "Daemon log output format. Values: text (human-readable) | json (structured)"},
 }
 
 // fileHeader is the comment written at the very top of a generated config file.
@@ -150,6 +158,8 @@ func defaults() Config {
 		RateLimitResumePrompt:  "",
 		WorktreeKeepDone:       true,
 		WorktreeAutoPrune:      false,
+		LogLevel:               logging.DefaultLevel,
+		LogFormat:              logging.DefaultFormat,
 	}
 }
 
@@ -192,7 +202,7 @@ func Load(path string) Config {
 	// Unmarshal overlays only the keys present in the file; absent keys keep
 	// their default value (c was pre-populated by defaults()).
 	if err := yaml.Unmarshal(data, &c); err != nil {
-		log.Printf("WARN: config %s: parse error (%v); using defaults", path, err)
+		slog.Warn("config: parse error, using defaults", "path", path, "err", err)
 		return defaults()
 	}
 	validate(&c)
@@ -223,6 +233,8 @@ func validate(c *Config) {
 	if c.AutoRestartMax < 0 {
 		c.AutoRestartMax = d.AutoRestartMax
 	}
+	c.LogLevel = validLogLevel(c.LogLevel, d.LogLevel)
+	c.LogFormat = validLogFormat(c.LogFormat, d.LogFormat)
 	c.AutoRestartReset = validDuration(c.AutoRestartReset, d.AutoRestartReset)
 	c.CollabInterval = validDuration(c.CollabInterval, d.CollabInterval)
 	c.RateLimitRetryInterval = validDuration(c.RateLimitRetryInterval, d.RateLimitRetryInterval)
@@ -235,9 +247,31 @@ func validPermissionMode(v string) string {
 		return v
 	}
 	if v != "" {
-		log.Printf("WARN: invalid default_permission_mode=%q, using 'auto'", v)
+		slog.Warn("config: invalid default_permission_mode, using auto", "value", v)
 	}
 	return "auto"
+}
+
+func validLogLevel(v, def string) string {
+	if strings.TrimSpace(v) == "" {
+		return def
+	}
+	if logging.ValidLevel(v) {
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	slog.Warn("config: invalid log_level, using default", "value", v, "default", def)
+	return def
+}
+
+func validLogFormat(v, def string) string {
+	if strings.TrimSpace(v) == "" {
+		return def
+	}
+	if logging.ValidFormat(v) {
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	slog.Warn("config: invalid log_format, using default", "value", v, "default", def)
+	return def
 }
 
 func validDuration(v, def string) string {
@@ -245,7 +279,7 @@ func validDuration(v, def string) string {
 		return v
 	}
 	if strings.TrimSpace(v) != "" {
-		log.Printf("WARN: invalid duration %q, using %q", v, def)
+		slog.Warn("config: invalid duration, using default", "value", v, "default", def)
 	}
 	return def
 }
@@ -524,7 +558,7 @@ func WarnIfLegacyEnv(path string) {
 		found = append(found, "CLAUDE_PROJECTS_DIR")
 	}
 	for _, k := range found {
-		log.Printf("WARN: %s is set but ignored — warden now reads configuration from %s (run `warden config`)", k, path)
+		slog.Warn("config: legacy env var is set but ignored — warden now reads configuration from a file (run `warden config`)", "var", k, "path", path)
 	}
 }
 

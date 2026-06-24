@@ -2,7 +2,7 @@ package poller
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -187,37 +187,37 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 	// Parse the approval
 	a, ok := approval.Parse(pane)
 	if !ok || len(a.Options) == 0 {
-		log.Printf("auto-approve skipped for %s: unrecognized prompt", s.ID)
+		slog.Debug("auto-approve skipped: unrecognized prompt", "agent", s.ID)
 		return
 	}
 
 	// Never auto-confirm a destructive/irreversible action — escalate to a human.
 	// This guard runs BEFORE Decide, so no allow rule can ever un-block it.
 	if bad, marker := approval.IsDestructive(a); bad {
-		log.Printf("auto-approve BLOCKED for %s: destructive (%q)", s.ID, marker)
+		slog.Warn("auto-approve BLOCKED: destructive action", "agent", s.ID, "marker", marker)
 		return
 	}
 	// Evaluate against the allow/deny policy (deny wins; empty allow approves nothing).
 	if d := p.AutoApprovePolicy.Decide(a); !d.Approve {
-		log.Printf("auto-approve skipped for %s: %s", s.ID, d.Reason)
+		slog.Debug("auto-approve skipped by policy", "agent", s.ID, "reason", d.Reason)
 		return
 	}
 	if a.AffirmativeIdx == 0 {
-		log.Printf("auto-approve skipped for %s: no affirmative option", s.ID)
+		slog.Debug("auto-approve skipped: no affirmative option", "agent", s.ID)
 		return
 	}
 	if a.AffirmativeSticky && !p.AutoApprovePolicy.AllowSticky {
-		log.Printf("auto-approve skipped for %s: only a sticky affirmative (allow_sticky off)", s.ID)
+		slog.Debug("auto-approve skipped: only a sticky affirmative (allow_sticky off)", "agent", s.ID)
 		return
 	}
 
 	key := strconv.Itoa(a.AffirmativeIdx)
 	if err := p.deps.SendKeys(ctx, s.TmuxSession, key); err != nil {
-		log.Printf("auto-approve failed for %s: %v", s.ID, err)
+		slog.Warn("auto-approve failed to send keys", "agent", s.ID, "err", err)
 		return
 	}
 
-	log.Printf("auto-approved %s -> option %s: %s", s.ID, key, a.Options[a.AffirmativeIdx-1])
+	slog.Info("auto-approved", "agent", s.ID, "option", key, "label", a.Options[a.AffirmativeIdx-1])
 	if p.OnChange != nil {
 		p.OnChange()
 	}
@@ -266,7 +266,7 @@ func (p *Poller) tick(ctx context.Context) error {
 			}
 			swapped, err := p.deps.FinalizeExit(ctx, s.ID, s.Status, next, code)
 			if err != nil {
-				log.Printf("poller: finalize %s: %v", s.ID, err)
+				slog.Warn("poller: finalize exit failed", "agent", s.ID, "err", err)
 				continue // leave the file; retry next tick
 			}
 			p.deps.ClearExit(ctx, s.ID) // consumed (clear even if CAS lost — the file is stale)
@@ -310,7 +310,7 @@ func (p *Poller) tick(ctx context.Context) error {
 				// CAS on the snapshot's status: if a hook changed it since List,
 				// the swap is skipped and the hook's newer status stands.
 				if ok, err := p.deps.UpdateStatusIf(ctx, s.ID, s.Status, next); err != nil {
-					log.Printf("poller: update %s: %v", s.ID, err)
+					slog.Warn("poller: status update failed", "agent", s.ID, "err", err)
 				} else if ok {
 					changed = true
 					if p.OnTransition != nil {
@@ -394,14 +394,14 @@ func (p *Poller) runSummary(ctx context.Context, s *store.Session) {
 	defer cancel()
 	subj, err := p.deps.Summarize(sctx, s)
 	if err != nil {
-		log.Printf("poller: summarize %s: %v", s.ID, err)
+		slog.Debug("poller: summarize failed", "agent", s.ID, "err", err)
 		return
 	}
 	if subj == "" || subj == s.Subject {
 		return
 	}
 	if err := p.deps.UpdateSubject(ctx, s.ID, subj); err != nil {
-		log.Printf("poller: subject %s: %v", s.ID, err)
+		slog.Warn("poller: subject update failed", "agent", s.ID, "err", err)
 		return
 	}
 	if p.OnChange != nil {
@@ -429,7 +429,7 @@ func (p *Poller) Run(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 			if err := p.tick(ctx); err != nil {
-				log.Printf("poller tick: %v", err)
+				slog.Warn("poller: tick failed", "err", err)
 			}
 		}
 	}
@@ -451,6 +451,6 @@ func (p *Poller) publishApprovalEvent(s *store.Session, pane string) {
 		// Event queued successfully
 	default:
 		// Channel full - drop event and log
-		log.Printf("poller: approval event dropped for %s (channel full)", s.ID)
+		slog.Warn("poller: approval event dropped (channel full)", "agent", s.ID)
 	}
 }

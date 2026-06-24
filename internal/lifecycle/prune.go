@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -261,7 +261,7 @@ func (l *Lifecycle) PruneWorktrees(ctx context.Context, repo string, opts PruneO
 		}
 		if deleteBranch {
 			if out, berr := l.run.Run(ctx, "", "git", "-C", repo, "branch", "-D", e.Branch); berr != nil {
-				log.Printf("prune %s: git branch -D %s: %v: %s", id, e.Branch, berr, strings.TrimSpace(out))
+				slog.Warn("prune: git branch -D failed", "agent", id, "branch", e.Branch, "err", berr, "out", strings.TrimSpace(out))
 				res.BranchDeleted = false
 			}
 		}
@@ -272,7 +272,7 @@ func (l *Lifecycle) PruneWorktrees(ctx context.Context, repo string, opts PruneO
 	// idempotent); never on --dry-run, which changes nothing. Best-effort.
 	if !opts.DryRun {
 		if out, perr := l.run.Run(ctx, "", "git", "-C", repo, "worktree", "prune"); perr != nil {
-			log.Printf("prune: git worktree prune: %v: %s", perr, strings.TrimSpace(out))
+			slog.Warn("prune: git worktree prune failed", "err", perr, "out", strings.TrimSpace(out))
 		}
 	}
 	return results, nil

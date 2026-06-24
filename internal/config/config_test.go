@@ -91,6 +91,33 @@ func TestLoadValidPermissionModes(t *testing.T) {
 	}
 }
 
+func TestLoadLogDefaults(t *testing.T) {
+	c := Load(filepath.Join(t.TempDir(), "absent.yaml"))
+	require.Equal(t, "info", c.LogLevel)
+	require.Equal(t, "text", c.LogFormat)
+}
+
+func TestLoadValidLogSettings(t *testing.T) {
+	path := tmpConfig(t, "log_level: debug\nlog_format: json\n")
+	c := Load(path)
+	require.Equal(t, "debug", c.LogLevel)
+	require.Equal(t, "json", c.LogFormat)
+}
+
+func TestLoadInvalidLogSettingsFallBack(t *testing.T) {
+	path := tmpConfig(t, "log_level: chatty\nlog_format: xml\n")
+	c := Load(path)
+	require.Equal(t, "info", c.LogLevel)
+	require.Equal(t, "text", c.LogFormat)
+}
+
+func TestLoadLogLevelNormalizesCase(t *testing.T) {
+	path := tmpConfig(t, "log_level: DEBUG\nlog_format: JSON\n")
+	c := Load(path)
+	require.Equal(t, "debug", c.LogLevel)
+	require.Equal(t, "json", c.LogFormat)
+}
+
 func TestLoadTokenThresholdsResetWhenInverted(t *testing.T) {
 	path := tmpConfig(t, "token_warn: 500000\ntoken_critical: 400000\n")
 	c := Load(path)

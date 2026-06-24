@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +19,7 @@ import (
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/logging"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
@@ -28,7 +29,7 @@ import (
 )
 
 func newDaemonCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Run the warden hub (HTTP API + poller; the single writer to the file store)",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -36,10 +37,31 @@ func newDaemonCmd() *cobra.Command {
 			// Create/migrate the config file before loading, covering installs
 			// (e.g. goreleaser tarballs) that never ran install.sh.
 			if err := config.Reconcile(cfgPath); err != nil {
-				log.Printf("daemon: config reconcile %s: %v", cfgPath, err)
+				slog.Warn("daemon: config reconcile failed", "path", cfgPath, "err", err)
 			}
 			config.WarnIfLegacyEnv(cfgPath)
 			cfg := config.Load(cfgPath)
+
+			// Install the structured logger before any further daemon work, so
+			// the chosen level/format applies to the rest of startup. Flags win
+			// over config; an invalid flag value is a hard error.
+			level, format := cfg.LogLevel, cfg.LogFormat
+			if v, _ := cmd.Flags().GetString("log-level"); v != "" {
+				if !logging.ValidLevel(v) {
+					return fmt.Errorf("invalid --log-level %q (want one of %s)", v, strings.Join(logging.Levels, ", "))
+				}
+				level = v
+			}
+			if v, _ := cmd.Flags().GetString("log-format"); v != "" {
+				if !logging.ValidFormat(v) {
+					return fmt.Errorf("invalid --log-format %q (want one of %s)", v, strings.Join(logging.Formats, ", "))
+				}
+				format = v
+			}
+			if _, err := logging.Setup(level, format); err != nil {
+				return err
+			}
+
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
 				cfg.Addr = a
 			}
@@ -128,10 +150,10 @@ func newDaemonCmd() *cobra.Command {
 
 			// Reconstruct rate limit timers from persisted state
 			if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
-				log.Printf("daemon: failed to reconstruct rate limit timers: %v", err)
+				slog.Warn("daemon: failed to reconstruct rate limit timers", "err", err)
 			}
 
-			log.Printf("warden daemon listening on %s", cfg.Addr)
+			slog.Info("warden daemon listening", "addr", cfg.Addr)
 			if err := srv.ListenAndServe(ctx, cfg.Addr); err != nil {
 				// Check for port already in use
 				if strings.Contains(err.Error(), "address already in use") {
@@ -142,4 +164,7 @@ func newDaemonCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().String("log-level", "", "log verbosity: debug | info | warn | error (overrides log_level config)")
+	cmd.Flags().String("log-format", "", "log output format: text | json (overrides log_format config)")
+	return cmd
 }

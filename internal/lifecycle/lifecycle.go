@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -778,7 +778,7 @@ func (l *Lifecycle) cleanupFailedSpawn(sess *store.Session, killTmux, worktreeCr
 // A failure is logged (not returned) so a leaked session is visible.
 func (l *Lifecycle) killSession(id string) {
 	if out, err := l.run.Run(context.Background(), "", "tmux", "kill-session", "-t", id); err != nil {
-		log.Printf("spawn cleanup: kill tmux session %s: %v: %s", id, err, strings.TrimSpace(out))
+		slog.Warn("spawn cleanup: kill tmux session failed", "agent", id, "err", err, "out", strings.TrimSpace(out))
 	}
 }
 
@@ -792,7 +792,7 @@ func (l *Lifecycle) rollbackWorktree(sess *store.Session) {
 		Branch: sess.Branch, BranchCreated: sess.BranchCreated,
 		TmuxSession: sess.TmuxSession,
 	}, true, false); err != nil {
-		log.Printf("spawn cleanup: rollback worktree %s: %v", sess.Worktree, err)
+		slog.Warn("spawn cleanup: rollback worktree failed", "worktree", sess.Worktree, "err", err)
 	}
 }
 
@@ -1054,7 +1054,7 @@ func (l *Lifecycle) RemoveWorktree(ctx context.Context, t CleanupTarget, force, 
 	// Clear stale .git/worktrees admin metadata for anything removed here or
 	// out-of-band. Best-effort: a prune failure must not fail the removal.
 	if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "worktree", "prune"); err != nil {
-		log.Printf("remove-worktree %s: git worktree prune: %v: %s", t.ID, err, strings.TrimSpace(out))
+		slog.Warn("remove-worktree: git worktree prune failed", "agent", t.ID, "err", err, "out", strings.TrimSpace(out))
 	}
 	return nil
 }
@@ -1145,7 +1145,7 @@ func (l *Lifecycle) exitSuffix(id string) string {
 		return ""
 	}
 	if err := os.MkdirAll(l.ExitsDir, 0o700); err != nil {
-		log.Printf("exit-capture: mkdir %s: %v", l.ExitsDir, err)
+		slog.Warn("exit-capture: mkdir failed", "dir", l.ExitsDir, "err", err)
 		return ""
 	}
 	path := filepath.Join(l.ExitsDir, id)

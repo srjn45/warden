@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -128,7 +128,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			BaseBranch: base, Type: store.NormalizeType(job.Type), PermissionMode: permissionMode,
 		}
 		if lvl, _ := e.life.MemoryPressure(ctx); lvl >= pressure.Warn {
-			log.Printf("pipeline %s job %s: spawning under memory pressure (%s)", req.PipelineID, jobID, lvl)
+			slog.Warn("pipeline: spawning job under memory pressure", "pipeline", req.PipelineID, "job", jobID, "pressure", lvl.String())
 		}
 		sess, serr := e.life.SpawnJob(ctx, req)
 		if serr != nil {
@@ -411,9 +411,9 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		cancel()
 		switch {
 		case cerr != nil:
-			log.Printf("pipeline %s/%s: auto-commit failed (work may be uncommitted in %s): %v", pid, jobID, sess.Workdir, cerr)
+			slog.Warn("pipeline: auto-commit failed (work may be uncommitted)", "pipeline", pid, "job", jobID, "workdir", sess.Workdir, "err", cerr)
 		case !committed:
-			log.Printf("pipeline %s/%s: produced no commits — downstream from:%s jobs will fork an empty base", pid, jobID, jobID)
+			slog.Info("pipeline: job produced no commits — downstream forks an empty base", "pipeline", pid, "job", jobID)
 		}
 	}
 	if e.cstore != nil {

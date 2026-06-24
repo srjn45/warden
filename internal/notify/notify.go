@@ -3,7 +3,7 @@ package notify
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -51,7 +51,7 @@ func (o osaNotifier) Notify(title, body string) {
 	// quotes and newlines (subjects are short plain text, so this is sufficient).
 	script := fmt.Sprintf("display notification %s with title %s", strconv.Quote(body), strconv.Quote(title))
 	if err := o.run("osascript", "-e", script); err != nil {
-		log.Printf("notify: osascript: %v", err)
+		slog.Warn("notify: osascript failed", "err", err)
 	}
 }
 
@@ -63,7 +63,7 @@ type notifySendNotifier struct {
 
 func (n notifySendNotifier) Notify(title, body string) {
 	if err := n.run("notify-send", title, body); err != nil {
-		log.Printf("notify: notify-send: %v", err)
+		slog.Warn("notify: notify-send failed", "err", err)
 	}
 }
 
@@ -71,4 +71,4 @@ func (n notifySendNotifier) Notify(title, body string) {
 // notifications aren't available or are disabled.
 type logNotifier struct{}
 
-func (logNotifier) Notify(title, body string) { log.Printf("notify: %s — %s", title, body) }
+func (logNotifier) Notify(title, body string) { slog.Info("notify", "title", title, "body", body) }

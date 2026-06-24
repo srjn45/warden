@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -43,12 +43,12 @@ func (s *Server) runWorktreePruneSweep(ctx context.Context) {
 func (s *Server) sweepWorktreesOnce(ctx context.Context) {
 	active, err := s.store.List(ctx)
 	if err != nil {
-		log.Printf("worktree auto-prune: list active: %v", err)
+		slog.Warn("worktree auto-prune: list active failed", "err", err)
 		return
 	}
 	archived, err := s.store.ListClosed(ctx)
 	if err != nil {
-		log.Printf("worktree auto-prune: list archived: %v", err)
+		slog.Warn("worktree auto-prune: list archived failed", "err", err)
 		return
 	}
 	for _, repo := range worktreeRepos(active, archived) {
@@ -60,7 +60,7 @@ func (s *Server) sweepWorktreesOnce(ctx context.Context) {
 			Archived:        archived,
 		})
 		if err != nil {
-			log.Printf("worktree auto-prune: %s: %v", repo, err)
+			slog.Warn("worktree auto-prune: prune failed", "repo", repo, "err", err)
 			continue
 		}
 		removed := 0
@@ -70,7 +70,7 @@ func (s *Server) sweepWorktreesOnce(ctx context.Context) {
 			}
 		}
 		if removed > 0 {
-			log.Printf("worktree auto-prune: %s: reclaimed %d orphan worktree(s)", repo, removed)
+			slog.Info("worktree auto-prune: reclaimed orphan worktrees", "repo", repo, "count", removed)
 		}
 	}
 }
