@@ -117,6 +117,7 @@ Now watch and interact:
 
 ```sh
 warden ls                         # see it in the list
+warden ls --watch                 # live table, redraws on every state change (Ctrl+C to exit)
 warden status agent-a1b2          # full detail + event history
 warden tail agent-a1b2            # recent terminal output
 warden send agent-a1b2 "also check the session cookie handling"

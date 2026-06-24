@@ -107,7 +107,7 @@ names/aliases (`--name`), improved actionable error messages.
 
 ### CLI & UX Improvements
 
-#### 1. `warden ls --watch` ⭐ HIGH IMPACT — *not started*
+#### 1. `warden ls --watch` ⭐ HIGH IMPACT — *done*
 **Effort:** 1-2 hours
 **Value:** Immediate UX improvement
 
@@ -115,13 +115,17 @@ Live-updating agent list using the existing SSE endpoint (same one the web GUI u
 
 ```bash
 warden ls --watch  # refreshes on every agent state change
+warden ls -w       # short flag
 ```
 
-**Implementation:**
-- CLI client opens SSE connection to `/events`
-- On each event, re-fetch `/sessions` and redraw the table
-- Handle Ctrl+C gracefully
-- Reuse existing SSE infrastructure from web GUI
+**Implementation (shipped):**
+- `client.Watch` opens an SSE connection to `/events/stream`, parses the
+  snapshot events the daemon already pushes (no separate `/sessions` re-fetch
+  needed — each event carries the full session list), and invokes a callback.
+- The CLI redraws the table on every snapshot, clearing the screen between
+  frames when stdout is a TTY; piped/`--json` output streams plainly.
+- `--watch --json` emits one JSON document per snapshot (scriptable).
+- Ctrl+C / SIGTERM cancels cleanly via `signal.NotifyContext`.
 
 ---
 

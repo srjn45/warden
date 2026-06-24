@@ -74,7 +74,7 @@ on-disk state:
 
 | Command / feature | Description |
 |---|---|
-| `ls` | List active agents (type, status, age, dir, subject). `--json` for machine output. |
+| `ls` | List active agents (type, status, age, dir, subject). `--json` for machine output. `--watch`/`-w` live-updates the table on every agent state change over the daemon's SSE stream (Ctrl+C to exit); combine with `--json` to stream one JSON snapshot per change. |
 | `status <id>` | Full detail for one agent — workdir, subject, worktree, branch, PR, events. `--json` available. |
 | `attach <id>` | Attach your terminal to the agent's tmux session interactively. |
 | `send <id> <msg>` | Type a message into the agent's claude session and press Enter. |

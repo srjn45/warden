@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -19,37 +24,86 @@ func newLsCmd() *cobra.Command {
 		Use:   "ls",
 		Short: "List all active agent sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			watch, _ := cmd.Flags().GetBool("watch")
+			out := cmd.OutOrStdout()
+			if watch {
+				return watchSessions(cmd, out, jsonOut)
+			}
 			sessions, err := clientFor(cmd).List(cmd.Context())
 			if err != nil {
 				return err
 			}
-			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+			if jsonOut {
 				if sessions == nil {
 					sessions = []*store.Session{}
 				}
-				return printJSON(cmd.OutOrStdout(), sessions)
+				return printJSON(out, sessions)
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-			color := isTTY(cmd.OutOrStdout())
-			fmt.Fprintln(tw, "NAME\tID\tTYPE\tMODEL\tPERMISSION_MODE\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
-			for _, s := range sessions {
-				name := s.Name
-				if name == "" {
-					name = "—"
-				}
-				permMode := s.PermissionMode
-				if permMode == "" {
-					permMode = "default"
-				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					name, s.ID, typeOrPending(s.Type), modelCell(s.Model), permMode, statusCell(s.Status, color), contextCell(s.ContextTokens, s.ContextState, color),
-					age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
-			}
-			return tw.Flush()
+			return renderSessions(out, sessions, isTTY(out))
 		},
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
+	cmd.Flags().BoolP("watch", "w", false, "live-update the list on every agent state change (Ctrl+C to exit)")
 	return cmd
+}
+
+// renderSessions writes the agent table to w. color enables ANSI tinting.
+func renderSessions(w io.Writer, sessions []*store.Session, color bool) error {
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tID\tTYPE\tMODEL\tPERMISSION_MODE\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
+	for _, s := range sessions {
+		name := s.Name
+		if name == "" {
+			name = "—"
+		}
+		permMode := s.PermissionMode
+		if permMode == "" {
+			permMode = "default"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			name, s.ID, typeOrPending(s.Type), modelCell(s.Model), permMode, statusCell(s.Status, color), contextCell(s.ContextTokens, s.ContextState, color),
+			age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
+	}
+	return tw.Flush()
+}
+
+// watchSessions streams live snapshots from the daemon's SSE endpoint, redrawing
+// the table (or emitting JSON) on every state change until the user hits Ctrl+C.
+func watchSessions(cmd *cobra.Command, out io.Writer, jsonOut bool) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	color := !jsonOut && isTTY(out)
+	clearable := color // only clear/redraw when stdout is a real terminal
+
+	render := func(sessions []*store.Session) error {
+		if jsonOut {
+			if sessions == nil {
+				sessions = []*store.Session{}
+			}
+			return printJSON(out, sessions)
+		}
+		var buf bytes.Buffer
+		if clearable {
+			// Home cursor + clear screen so each snapshot replaces the last.
+			buf.WriteString("\033[H\033[2J")
+			fmt.Fprintf(&buf, "watching %d agent(s) — updated %s — Ctrl+C to exit\n\n",
+				len(sessions), time.Now().Format("15:04:05"))
+		}
+		if err := renderSessions(&buf, sessions, color); err != nil {
+			return err
+		}
+		_, err := out.Write(buf.Bytes())
+		return err
+	}
+
+	err := clientFor(cmd).Watch(ctx, render)
+	// A user-initiated Ctrl+C is a clean exit, not an error.
+	if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+		return nil
+	}
+	return err
 }
 
 func newStatusCmd() *cobra.Command {

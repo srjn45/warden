@@ -38,6 +38,27 @@ func TestPrintJSON_SessionHasFields(t *testing.T) {
 	}
 }
 
+func TestRenderSessions(t *testing.T) {
+	var buf bytes.Buffer
+	sessions := []*store.Session{
+		{ID: "A-1", Name: "alpha", Type: store.Type("development"), Status: store.Status("working"), Subject: "do a thing"},
+		{ID: "B-2"}, // sparse session exercises the em-dash fallbacks
+	}
+	if err := renderSessions(&buf, sessions, false); err != nil {
+		t.Fatalf("renderSessions returned error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"NAME", "ID", "SUBJECT", "alpha", "A-1", "B-2", "do a thing"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	// The unnamed B-2 row falls back to "—" for name and "…" for a pending type.
+	if !strings.Contains(out, "—") || !strings.Contains(out, "…") {
+		t.Errorf("expected fallback glyphs for sparse row:\n%s", out)
+	}
+}
+
 func TestContextCell(t *testing.T) {
 	cases := []struct {
 		tokens int
