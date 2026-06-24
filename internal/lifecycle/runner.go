@@ -98,6 +98,9 @@ type FakeConfig struct {
 	// CollabHintOff disables the collab hint; the zero value leaves it on,
 	// matching the production default.
 	CollabHintOff bool
+	// IsolationGuardOff disables the PreToolUse isolation guard; the zero value
+	// leaves it on, matching the production default.
+	IsolationGuardOff bool
 }
 
 func (f *FakeConfig) GetDefaultPermissionMode() string {
@@ -112,6 +115,8 @@ func (f *FakeConfig) GetModelDefault() string { return f.ModelDefault }
 func (f *FakeConfig) GetPipelineHint() bool { return !f.PipelineHintOff }
 
 func (f *FakeConfig) GetCollabHint() bool { return !f.CollabHintOff }
+
+func (f *FakeConfig) GetIsolationGuard() bool { return !f.IsolationGuardOff }
 
 // FakeRunner matches on "name arg1 arg2 ..." joined by spaces.
 type FakeRunner struct {

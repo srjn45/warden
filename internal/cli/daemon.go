@@ -96,6 +96,13 @@ func newDaemonCmd() *cobra.Command {
 			// per-agent directory.
 			lc.PromptsDir = filepath.Join(cfg.DataDir, "prompts")
 			lc.ExitsDir = filepath.Join(cfg.DataDir, "exits")
+			lc.SettingsDir = filepath.Join(cfg.DataDir, "settings")
+			// The isolation-guard PreToolUse hook is the warden binary itself
+			// (`<warden> hook guard`); resolve its absolute path for the generated
+			// settings file. On failure the guard injection silently no-ops.
+			if exe, err := os.Executable(); err == nil {
+				lc.WardenBin = exe
+			}
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)

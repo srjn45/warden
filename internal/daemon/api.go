@@ -303,6 +303,7 @@ func (s *Server) router() http.Handler {
 		ar.Get("/sessions", s.handleListSessions)
 		ar.Get("/sessions/{id}", s.handleGetSession)
 		ar.Post("/events", s.handleEvent)
+		ar.Post("/hooks/guard", s.handleGuard)
 		ar.Get("/events/stream", s.handleEventsStream)
 		// Lifecycle routes: POST /spawn, /sessions/{id}/{terminate,delete,
 		// remove-worktree,input,restore}, GET /sessions/{id}/{output,attach}.

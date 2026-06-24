@@ -684,6 +684,25 @@ The hook **fails soft**: it never blocks or errors an agent, even if the daemon
 is down or the session is unknown. (It also no-ops outside tmux, since it uses
 the tmux session name as the agent ID.)
 
+### Isolation guard (auto-injected, no setup)
+
+Separately from the status hooks above, warden installs a **PreToolUse isolation
+guard** into every isolated agent automatically — no manual `settings.json`
+merge. At spawn it writes a per-agent `claude --settings` file (under
+`~/.warden/settings/<id>.json`) that registers a `PreToolUse` hook over the
+file-mutating tools (`Edit`/`Write`/`MultiEdit`/`NotebookEdit`). The hook is the
+warden binary itself (`warden hook guard`): before each edit it asks the daemon
+whether the target path is inside the agent's own worktree. An edit that escapes
+into the shared repo root (or a sibling agent's worktree) is **denied** with a
+redirect message Claude can act on; everything else passes.
+
+Because it is a per-agent `--settings` file (and `--settings` is *additive*), the
+guard applies only to warden-spawned agents — your own Claude sessions are
+untouched — and your global status hooks still fire. Like the status hook it
+**fails open**: a missing path, unknown session, or unreachable daemon allows the
+edit, so the backstop can never wedge an agent. Disable it with
+`warden config set isolation_guard false`.
+
 ---
 
 ## 10. The web dashboard

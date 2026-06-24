@@ -293,7 +293,7 @@ marginal value given `rotate` + pipelines already cover the real need.
 
 ## 🧠 Orchestration & Token Reduction
 
-#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (0a-1 shipped)*
+#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0a shipped)*
 **Effort:** Phase 0a ~1 day · 0b ~2 days · 0c ~1 day · Phase 1 ~3-4 days (incremental)
 **Value:** Cut Claude token spend; enforce worktree isolation; retire the operator's
 manual git lifecycle.
@@ -304,11 +304,12 @@ via `disallowedTools`). Most of the win needs **no LLM**; an optional local mode
 handles the fuzzy-cheap middle (classification, log summarization, headless commit
 messages), proven first by swapping the existing headless-Claude `Classify` call.
 
-- **0a Isolation enforcement** — ✅ **0a-1 shipped:** default-isolate every write-agent
-  (worktree unless `--in-repo`; pr-review exempt). Plumbed CLI/MCP/wire; docs + tests
-  updated. **0a-2 pending:** deny Edit/Write in the shared repo root — needs a net-new
-  per-agent `--settings` hook-delivery mechanism (warden does *not* inject hooks today, a
-  spec correction found during 0a). Fixes the parallel-agent collision pain. *No LLM.*
+- **0a Isolation enforcement** — ✅ **shipped.** **0a-1:** default-isolate every
+  write-agent (worktree unless `--in-repo`; pr-review exempt). **0a-2:** PreToolUse guard
+  that denies an isolated agent's Edit/Write escaping its worktree into the shared repo —
+  built on a net-new per-agent `claude --settings` hook-delivery mechanism (`warden hook
+  guard` → `POST /hooks/guard`), gated by `isolation_guard` (default on), fails open.
+  Fixes the parallel-agent collision pain. *No LLM.*
 - **0b Git lifecycle** — `wd commit` / `wd push` / `wd sync` as CLI + MCP tools on the
   existing `lifecycle.go` machinery (rails, hook parsing, bookkeeping); add the
   git-mutation redirect hooks. *No LLM.*
