@@ -627,6 +627,7 @@ The handoff file lives at a unique, per-agent temp path so concurrent rotations 
 Define a **DAG of agent jobs** in YAML and let the daemon run them: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents. The daemon owns the cheap "await + fire" so the lead Claude stays off the critical path.
 
 ```sh
+warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline create -f review.yaml   # validate + register (does not start)
 warden pipeline start <id>              # spawn jobs with no dependencies
 warden pipeline show <id>               # jobs, status, branches, and emitted output

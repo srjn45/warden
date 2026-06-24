@@ -442,7 +442,7 @@ warden msg inbox --as agent-9c1d
 warden msg wait --as agent-9c1d --timeout 120
 ```
 
-### `warden pipeline create|start|show|list|cancel|retry|edit-job|delete`
+### `warden pipeline validate|create|start|show|list|cancel|retry|edit-job|delete`
 Define and run a **DAG of agent jobs** from a YAML spec (CLI-only authoring). See
 §7.5 below for the full guide.
 
@@ -563,6 +563,7 @@ pipelines but don't author them.
 **Lifecycle:**
 
 ```sh
+warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline create -f review.yaml   # validate + register (does NOT start)
 warden pipeline start <id>              # spawn jobs with no dependencies
 warden pipeline show <id>               # jobs, status, branches, emitted output
