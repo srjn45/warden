@@ -38,6 +38,7 @@ type SpawnRequest struct {
 	Branch         string `json:"branch"`          // optional; development branch / pr-review checkout
 	PR             string `json:"pr"`              // optional; pr-review
 	Worktree       bool   `json:"worktree"`        // analysis/spike opt-in
+	InRepo         bool   `json:"in_repo"`         // write-agent opt-out: share the repo instead of isolating (ignored for pr-review)
 	Prompt         string `json:"prompt"`          // free-form: the agent's initial prompt; empty = interactive
 	Cwd            string `json:"cwd"`             // free-form: dir to launch claude from (caller cwd / web pick)
 	PermissionMode string `json:"permission_mode"` // explicit permission mode; empty = use global default

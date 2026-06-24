@@ -85,6 +85,7 @@ func newStartCmd() *cobra.Command {
 			branch, _ := cmd.Flags().GetString("branch")
 			pr, _ := cmd.Flags().GetString("pr")
 			worktree, _ := cmd.Flags().GetBool("worktree")
+			inRepo, _ := cmd.Flags().GetBool("in-repo")
 			supervised, _ := cmd.Flags().GetBool("supervised")
 			permissionMode, _ := cmd.Flags().GetString("permission-mode")
 			// --supervised is an alias for --permission-mode acceptEdits
@@ -102,7 +103,7 @@ func newStartCmd() *cobra.Command {
 			force, _ := cmd.Flags().GetBool("force")
 			model, _ := cmd.Flags().GetString("model")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model,
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model,
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -127,6 +128,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().String("branch", "", "new branch (development) or checkout target (pr-review)")
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
+	cmd.Flags().Bool("in-repo", false, "write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)")
 	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
 	cmd.Flags().Bool("supervised", false, "alias for --permission-mode acceptEdits (kept for backwards compatibility)")
 	cmd.Flags().String("permission-mode", "", "permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')")

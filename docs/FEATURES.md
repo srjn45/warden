@@ -48,11 +48,11 @@ on-disk state:
 | `pr-review` | yes (PR branch) | Detached worktree; runs `gh pr checkout <PR>`. Needs `--pr`/`--branch` |
 | `analysis` | opt-in (`--worktree`) | Runs in the repo by default |
 | `spike` | opt-in (`--worktree`) | Same as analysis |
-| `code` | no | Runs in the repo root |
-| `docs` | no | Runs in the repo root |
-| `website` | no | Runs in the repo root |
-| `debug-ci` | no | Runs in the repo root |
-| `tests` | no | Runs in the repo root |
+| `code` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `docs` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `website` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `debug-ci` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `tests` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
 | `other` | no | Catch-all / unrecognized type strings |
 
 ---

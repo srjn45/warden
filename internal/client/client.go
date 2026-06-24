@@ -253,6 +253,7 @@ type SpawnParams struct {
 	Branch         string
 	PR             string
 	Worktree       bool
+	InRepo         bool
 	Prompt         string
 	Cwd            string
 	PermissionMode string
@@ -265,7 +266,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 	var s store.Session
 	body := map[string]any{
 		"type": p.Type, "ticket": p.Ticket, "name": p.Name, "repo": p.Repo,
-		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree,
+		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree, "in_repo": p.InRepo,
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
 		"model": p.Model,

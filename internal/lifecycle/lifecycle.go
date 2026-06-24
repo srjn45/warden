@@ -268,6 +268,7 @@ type SpawnRequest struct {
 	Branch         string // optional; development branch / pr-review checkout target
 	PR             string // optional; pr-review
 	Worktree       bool   // analysis/spike opt-in
+	InRepo         bool   // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
 	Prompt         string // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
 	Cwd            string // free-form: dir to launch claude from (the caller's "master shell"); required
 	PermissionMode string // explicit mode override; empty = use global default
@@ -304,10 +305,18 @@ func resolveID(req SpawnRequest) (string, error) {
 	return slug + "-" + sid, nil
 }
 
-// wantWorktree applies the per-type policy (design §2).
+// wantWorktree applies the per-type isolation policy (Phase 0a). Every
+// write-agent (DefaultWorktree types) is isolated in its own worktree unless the
+// caller passes --in-repo (req.InRepo) to share the repo deliberately —
+// pr-review is exempt from that opt-out because it is structurally a separate
+// checkout (a PR laid over your tree). The investigation types (analysis/spike)
+// remain opt-in via --worktree; the free-form catch-all (other) never isolates.
 func wantWorktree(req SpawnRequest) bool {
-	if req.Type.DefaultWorktree() {
+	if req.Type == store.TypePRReview {
 		return true
+	}
+	if req.Type.DefaultWorktree() {
+		return !req.InRepo
 	}
 	return req.Worktree && (req.Type == store.TypeAnalysis || req.Type == store.TypeSpike)
 }
