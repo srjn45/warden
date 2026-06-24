@@ -1,4 +1,4 @@
-.PHONY: build test test-integration bench fuzz cover lint fmt fmt-check verify verify-fast run-daemon ui ui-dev web-test release install-skill install-hooks install uninstall reinstall
+.PHONY: build test test-integration bench fuzz cover lint fmt fmt-check verify verify-fast run-daemon ui ui-dev web-deps web-test release install-skill install-hooks install uninstall reinstall
 
 # Stamp commit/date into source builds so `warden version` is useful locally.
 # Release builds get these (plus the version tag) from goreleaser's ldflags.
@@ -73,13 +73,19 @@ verify-fast: fmt-check lint web-test release
 run-daemon: build
 	./bin/warden daemon
 
-ui:
-	cd web && npm ci && npm run build
+# Install web deps only when missing, so `make web-test`/`release`/`verify-fast`
+# work in a fresh clone or worktree that never ran `npm install`. npm ci wipes
+# and reinstalls (slow), so skip it when node_modules is already present.
+web-deps:
+	@[ -d web/node_modules ] || (cd web && npm ci)
 
-ui-dev:
+ui: web-deps
+	cd web && npm run build
+
+ui-dev: web-deps
 	cd web && npm run dev
 
-web-test:
+web-test: web-deps
 	cd web && npm test
 
 # Full release build: build the UI first so go:embed picks up real assets.
