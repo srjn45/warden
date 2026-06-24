@@ -3,7 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/srjn45/warden/internal/store"
@@ -75,7 +75,7 @@ func (r *Restarter) onTransitionAt(sess *store.Session, _ store.Status, to store
 		return
 	}
 	if err := r.store.SetRestart(ctx, sess.ID, next, now); err != nil {
-		log.Printf("auto-restart: set restart %s: %v", sess.ID, err)
+		slog.Warn("auto-restart: set restart failed", "agent", sess.ID, "err", err)
 		return
 	}
 	r.appendEvent(ctx, sess.ID, fmt.Sprintf("auto-restart: attempt %d/%d", next, r.max))
@@ -87,12 +87,12 @@ func (r *Restarter) onTransitionAt(sess *store.Session, _ store.Status, to store
 		return
 	}
 	if _, err := r.store.UpdateStatusIf(ctx, sess.ID, store.StatusErrored, store.StatusSpawning); err != nil {
-		log.Printf("auto-restart: status %s: %v", sess.ID, err)
+		slog.Warn("auto-restart: status update failed", "agent", sess.ID, "err", err)
 	}
 }
 
 func (r *Restarter) appendEvent(ctx context.Context, id, detail string) {
 	if err := r.store.AppendEvent(ctx, id, store.Event{Type: "auto-restart", Detail: detail}); err != nil {
-		log.Printf("auto-restart: event %s: %v", id, err)
+		slog.Warn("auto-restart: append event failed", "agent", id, "err", err)
 	}
 }

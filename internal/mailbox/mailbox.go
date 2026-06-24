@@ -12,7 +12,7 @@ package mailbox
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -212,7 +212,7 @@ func (s *Store) All() ([]Message, error) {
 		}
 		ms, err := s.load(filepath.Join(s.dir, ent.Name()))
 		if err != nil {
-			log.Printf("mailbox: skipping unreadable inbox %s: %v", ent.Name(), err)
+			slog.Warn("mailbox: skipping unreadable inbox", "file", ent.Name(), "err", err)
 			continue
 		}
 		out = append(out, ms...)

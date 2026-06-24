@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"sync"
@@ -278,7 +278,7 @@ func recoverMiddleware(next http.Handler) http.Handler {
 			if rec == http.ErrAbortHandler {
 				panic(rec)
 			}
-			log.Printf("daemon: recovered panic in %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+			slog.Error("daemon: recovered panic in handler", "method", r.Method, "path", r.URL.Path, "panic", rec, "stack", string(debug.Stack()))
 			writeErr(w, http.StatusInternalServerError, "internal error")
 		}()
 		next.ServeHTTP(w, r)

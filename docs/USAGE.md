@@ -390,8 +390,17 @@ warden remove-worktree PROJ-350
 warden remove-worktree PROJ-350 --force
 ```
 
-### `warden daemon [--addr ADDR]`
+### `warden daemon [--addr ADDR] [--log-level LEVEL] [--log-format FORMAT]`
 Run the hub (HTTP API + poller). Normally launchd's job; run by hand to debug.
+
+Logging is structured (`log/slog`). `--log-level` is one of `debug | info | warn
+| error` (default `info`); `--log-format` is `text` (human-readable, default) or
+`json` (one object per line, for log shippers). Both flags override the
+`log_level` / `log_format` config keys. Output goes to stderr.
+
+```bash
+warden daemon --log-level debug --log-format json
+```
 
 ### `warden mcp [--addr ADDR]`
 Run the MCP stdio server (see §8).
@@ -802,10 +811,13 @@ daemon address for a single command.
 | `token_auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting (cooldown-guarded) |
 | `token_warn` | `200000` | Warning threshold in context tokens (inclusive). Both thresholds reset to defaults if critical ≤ warn |
 | `token_critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
+| `log_level` | `info` | Minimum severity the daemon logs (`debug`/`info`/`warn`/`error`). Overridden by `warden daemon --log-level` |
+| `log_format` | `text` | Daemon log output format: `text` (human-readable) or `json` (structured, one object per line). Overridden by `warden daemon --log-format` |
 
 `warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`,
 `metrics`, `allow_nonloopback`, `auto_approve`, `pipeline_keep_done` / `pipeline_hint`,
-the `auto_restart_*` knobs, and the `rate_limit_*` knobs (§12.1).
+the `auto_restart_*` knobs, the `rate_limit_*` knobs (§12.1), and the
+`log_level` / `log_format` logging knobs.
 
 > The old `WARDEN_*` configuration environment variables are no longer read — the
 > daemon warns once at startup if any are still set. `WARDEN_TOKEN` (the remote-access

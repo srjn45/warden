@@ -10,7 +10,7 @@ package collab
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os/exec"
 	"sort"
 	"strings"
@@ -91,7 +91,7 @@ func (m *Monitor) Run(ctx context.Context, interval time.Duration) {
 func (m *Monitor) tick(ctx context.Context) {
 	conflicts, err := m.Conflicts(ctx)
 	if err != nil {
-		log.Printf("collab: conflict scan: %v", err)
+		slog.Warn("collab: conflict scan failed", "err", err)
 		return
 	}
 	m.pruneDedup()
@@ -102,7 +102,7 @@ func (m *Monitor) tick(ctx context.Context) {
 			}
 			body := formatWarning(c.File, a.ID, c.Agents)
 			if _, err := m.mbox.Append(mailbox.Message{To: a.ID, From: daemonSender, Body: body}); err != nil {
-				log.Printf("collab: warn %s: %v", a.ID, err)
+				slog.Warn("collab: deliver conflict warning failed", "agent", a.ID, "err", err)
 			}
 		}
 	}

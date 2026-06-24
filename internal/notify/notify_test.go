@@ -3,8 +3,7 @@ package notify
 import (
 	"bytes"
 	"fmt"
-	"log"
-	"os"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -46,8 +45,9 @@ func TestNotifySendNotifierBuildsArgs(t *testing.T) {
 
 func TestNotifySendNotifierLogsError(t *testing.T) {
 	var logBuf bytes.Buffer
-	log.SetOutput(&logBuf)
-	defer log.SetOutput(os.Stderr)
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	defer slog.SetDefault(prev)
 	n := notifySendNotifier{run: func(name string, args ...string) error {
 		return fmt.Errorf("mock failure")
 	}}

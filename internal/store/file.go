@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -90,7 +90,7 @@ func (fs *FileStore) migrateProvenance() error {
 			path := filepath.Join(dir, e.Name())
 			s, err := readSession(path)
 			if err != nil {
-				log.Printf("filestore: provenance migration skipping %s: %v", e.Name(), err)
+				slog.Warn("filestore: provenance migration skipping unreadable session", "file", e.Name(), "err", err)
 				continue
 			}
 			backfillProvenance(s)
@@ -187,7 +187,7 @@ func listDir(dir string) ([]*Session, error) {
 		}
 		s, err := readSession(filepath.Join(dir, e.Name()))
 		if err != nil {
-			log.Printf("filestore: skipping %s: %v", e.Name(), err)
+			slog.Warn("filestore: skipping unreadable session", "file", e.Name(), "err", err)
 			continue
 		}
 		out = append(out, s)
