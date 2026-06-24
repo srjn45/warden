@@ -1,7 +1,7 @@
 # Warden Future Enhancements & Feature Roadmap
 
-**Last Updated:** 2026-06-23
-**Current Version:** v4.0.0 (+ unreleased: worktree GC & lifecycle hardening, inter-agent file-conflict detection MVP, testing & quality suite — integration/benchmarks/fuzzing)
+**Last Updated:** 2026-06-24
+**Current Version:** v4.9.0 (pipeline pause/resume, conditional steps via `run_if`, `warden token rotate`/`show`; on top of v4.8.0 inter-agent file-conflict detection MVP and the integration/benchmarks/fuzzing suite)
 
 This document tracks potential improvements and new features for warden, organized
 by category and priority. Each item includes effort estimates and implementation
@@ -58,6 +58,9 @@ Verified present in `internal/` / `web/` as of 2026-06-22:
   SSE/WS, non-loopback bind refused without a token, per-IP auth-failure
   rate-limiting (`internal/auth`, `internal/daemon/middleware.go`,
   `authlimit.go`).
+- **Token lifecycle** — `warden token rotate` regenerates the bearer token in
+  place; `warden token show` prints the current one (`internal/cli/token.go`).
+  Rotation writes a per-agent temp handoff file to avoid concurrent clobber.
 - **Web UI auth** — token-entry modal on `401`, `localStorage` persistence,
   sign-out; the static SPA shell stays public so the modal can load
   (`web/src/lib/token.ts`, `api.ts`, `TokenModal.tsx`).
@@ -252,9 +255,10 @@ anomaly warning surface.
 
 ## 🌐 Remote Access & Multi-Device
 
-#### 12 & 13. Remote access + `warden token generate` — ✅ DONE
-Shipped: bearer-token auth, `warden token generate`, mobile-responsive UI, and
-Tailscale / Cloudflare Tunnel docs. See "Recently Completed."
+#### 12 & 13. Remote access + token management — ✅ DONE
+Shipped: bearer-token auth, `warden token generate` / `rotate` / `show`,
+mobile-responsive UI, and Tailscale / Cloudflare Tunnel docs. See "Recently
+Completed."
 
 ---
 
