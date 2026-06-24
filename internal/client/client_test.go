@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,6 +35,64 @@ func TestListSessions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	require.Equal(t, "A-1", out[0].ID)
+}
+
+func TestWatchDeliversSnapshots(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/events/stream", r.URL.Path)
+		fl := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Initial snapshot, a heartbeat comment (must be ignored), then a change.
+		_, _ = io.WriteString(w, "data: {\"sessions\":[{\"id\":\"A-1\",\"status\":\"working\"}]}\n\n")
+		fl.Flush()
+		_, _ = io.WriteString(w, ": ping\n\n")
+		fl.Flush()
+		_, _ = io.WriteString(w, "data: {\"sessions\":[{\"id\":\"A-1\"},{\"id\":\"B-2\"}]}\n\n")
+		fl.Flush()
+		<-r.Context().Done() // hold the stream open until the client cancels
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	var snaps [][]string
+	err := New(ts.URL).Watch(ctx, func(sessions []*store.Session) error {
+		ids := make([]string, len(sessions))
+		for i, s := range sessions {
+			ids[i] = s.ID
+		}
+		snaps = append(snaps, ids)
+		if len(snaps) == 2 {
+			cancel() // got both snapshots — stop watching
+		}
+		return nil
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, [][]string{{"A-1"}, {"A-1", "B-2"}}, snaps,
+		"heartbeat comment must not produce a snapshot")
+}
+
+func TestWatchPropagatesCallbackError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fl := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"sessions\":[]}\n\n")
+		fl.Flush()
+		<-r.Context().Done()
+	}))
+	defer ts.Close()
+
+	sentinel := errors.New("stop now")
+	err := New(ts.URL).Watch(t.Context(), func([]*store.Session) error {
+		return sentinel
+	})
+	require.ErrorIs(t, err, sentinel)
+}
+
+func TestWatchDaemonDownGivesFriendlyError(t *testing.T) {
+	err := New("http://127.0.0.1:1").Watch(t.Context(), func([]*store.Session) error { return nil })
+	require.ErrorIs(t, err, ErrDaemonDown)
 }
 
 func TestDaemonDownGivesFriendlyError(t *testing.T) {

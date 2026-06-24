@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -151,6 +152,87 @@ func (c *Client) List(ctx context.Context) ([]*store.Session, error) {
 		return nil, err
 	}
 	return resp.Sessions, nil
+}
+
+// Watch opens the daemon's SSE session stream (GET /events/stream) and invokes
+// onSnapshot once for the initial snapshot and again for every state change the
+// daemon pushes. It blocks until ctx is cancelled, the connection drops, or
+// onSnapshot returns an error (which it returns). A ctx cancellation surfaces as
+// ctx.Err(); callers that cancel deliberately (e.g. on Ctrl+C) should treat
+// context.Canceled as a clean stop.
+func (c *Client) Watch(ctx context.Context, onSnapshot func([]*store.Session) error) error {
+	// No per-call deadline: this is a long-lived stream, not a request/response.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/events/stream", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		if isConnRefused(err) {
+			return ErrDaemonDown
+		}
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(resp.Body)
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		msg := e.Error
+		if msg == "" {
+			msg = resp.Status
+		}
+		return &StatusError{Code: resp.StatusCode, Msg: msg, Body: raw}
+	}
+
+	// Parse the SSE stream: accumulate "data:" lines until a blank line ends the
+	// event, then decode the joined payload as a sessions snapshot. Comment lines
+	// (": ping" heartbeats) are ignored.
+	sc := bufio.NewScanner(resp.Body)
+	// Snapshots carry every session's full event log, so a default 64KB token can
+	// overflow with many busy agents — give the scanner room to grow.
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var data []byte
+	for sc.Scan() {
+		line := sc.Bytes()
+		switch {
+		case len(line) == 0:
+			if len(data) == 0 {
+				continue
+			}
+			var r struct {
+				Sessions []*store.Session `json:"sessions"`
+			}
+			if err := json.Unmarshal(data, &r); err == nil {
+				if err := onSnapshot(r.Sessions); err != nil {
+					return err
+				}
+			}
+			data = data[:0]
+		case bytes.HasPrefix(line, []byte("data:")):
+			v := bytes.TrimPrefix(line, []byte("data:"))
+			v = bytes.TrimPrefix(v, []byte(" "))
+			if len(data) > 0 {
+				data = append(data, '\n')
+			}
+			data = append(data, v...)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		// A deliberate cancellation reads back as a transport error; report the
+		// cancellation instead so callers can recognize the clean-stop path.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+	return ctx.Err()
 }
 
 func (c *Client) Get(ctx context.Context, id string) (*store.Session, error) {
