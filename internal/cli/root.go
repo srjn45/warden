@@ -6,14 +6,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version is the warden version string. It defaults to "dev" for source builds
-// and is overridden at release time via the linker:
-//
-//	-ldflags "-X github.com/srjn45/warden/internal/cli.version=<tag>"
-//
-// (goreleaser sets this automatically from the git tag.)
-var version = "dev"
-
 // banner is the ASCII wordmark shown at the top of `warden --help`.
 const banner = `                       _
 __      ____ _ _ __ __| | ___ _ __
@@ -30,6 +22,9 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	// `warden --version` prints the full build info (commit/date/go/platform),
+	// the same block as `warden version`.
+	root.SetVersionTemplate(currentBuildInfo().String() + "\n")
 	root.PersistentFlags().String("addr", "", "daemon address (overrides the addr config setting)")
 	root.PersistentFlags().String("config", "", "config file path (default ~/.warden/config.yaml)")
 	root.AddCommand(newDaemonCmd())
@@ -48,6 +43,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newTUICmd())
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newCompletionCmd())
+	root.AddCommand(newVersionCmd())
 	root.Args = cobra.NoArgs
 	root.RunE = func(cmd *cobra.Command, args []string) error {
 		return runCockpit(clientFor(cmd))

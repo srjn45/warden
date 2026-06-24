@@ -450,6 +450,12 @@ Define and run a **DAG of agent jobs** from a YAML spec (CLI-only authoring). Se
 Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon
 reachability, and the data directory.
 
+### `warden version [--json]` / `warden --version`
+Print the version plus build metadata — commit, build date, Go version, and
+platform. Release builds stamp the real tag/commit/date via ldflags; source
+builds report `dev` with the commit/date from `make build` (or the embedded VCS
+stamp). `--json` emits the same fields as a JSON object for scripting.
+
 ---
 
 ## 7. The terminal UI (TUI)
