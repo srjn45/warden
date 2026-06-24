@@ -31,6 +31,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		Branch:         req.Branch,
 		PR:             req.PR,
 		Worktree:       req.Worktree,
+		InRepo:         req.InRepo,
 		Prompt:         req.Prompt,
 		Cwd:            req.Cwd,
 		PermissionMode: req.PermissionMode,

@@ -43,13 +43,18 @@ This design is mostly *exposing and enforcing* machinery warden already has:
   `commit`/`push`/`sync` CLI command or MCP tool**; the git lifecycle is done by hand.
 - **System-prompt injection is already wired** — `lifecycle.go:105 pipelineHint`,
   `:133 collabHint` use `--append-system-prompt` on every spawn.
-- **Claude Code hooks are already wired** — the daemon receives hook events at
-  `POST /events` (`internal/daemon/api.go:25`, `statusForHook`). warden already installs
-  a hooks config into spawned sessions; today it is used for *status reporting*, not
-  *enforcement*.
+- **Claude Code hooks are already consumed** — the daemon receives hook events at
+  `POST /events` (`internal/daemon/api.go:25`, `statusForHook`). **Correction (verified
+  during 0a):** warden does **not** inject hooks into spawned sessions. The status hooks
+  live in `hooks/settings.snippet.json` + `hooks/warden-hook.sh` and are **merged by the
+  user, by hand, into their global `~/.claude/settings.json`** (USAGE §9). They are all
+  *status* events (SessionStart/Notification/Stop/SubagentStop/SessionEnd) that **fail
+  soft and never block**. There is no per-session settings file warden writes today.
 
-So both enforcement levers (system prompt + hooks) and the git mechanics already exist.
-This feature assembles and gates them.
+So the system-prompt lever and the git mechanics already exist, but the **enforcement
+hook lever does not** — a blocking PreToolUse hook is net-new and needs a delivery
+mechanism (see Phase 0a-2). This is a scope correction to the original assumption that the
+hook was "one more matcher in a file we already write."
 
 ---
 
@@ -274,10 +279,24 @@ with a sensible non-empty default.
 Each phase ships value independently. **Tools must exist before the hook can redirect to
 them**, so within Phase 0 the order is tools → hook → prompt line.
 
-- **Phase 0a — Isolation enforcement.** Default-isolate write-agents (worktree unless
-  `--in-repo`); extend the existing spawn gate (`internal/daemon/spawn_gate*.go`) to
-  refuse/warn on two write-agents sharing a repo path without worktrees; add the
-  Edit/Write-in-repo-root PreToolUse deny. *No LLM. Retires the isolation pain.*
+- **Phase 0a — Isolation enforcement.** Split in two once the code was inspected:
+  - **0a-1 — Default-isolate (✅ shipped, no new infra).** Every write-agent
+    (development/pr-review/code/docs/website/debug-ci/tests) now gets a worktree by
+    default; `--in-repo` (CLI `--in-repo`, MCP `in_repo`, wire `in_repo`) is the opt-out;
+    pr-review ignores it (structural checkout). Implemented by widening
+    `store.Type.DefaultWorktree()` + the `--in-repo` short-circuit in
+    `lifecycle.wantWorktree`, plumbed through client/daemon/CLI/MCP. Docs + tests updated.
+    *This is the bulk of the isolation relief.*
+  - **0a-2 — PreToolUse backstop (pending, needs new infra).** The Edit/Write-in-repo-root
+    deny. Requires the net-new hook-delivery mechanism (the original spec wrongly assumed
+    warden already injected hooks — it does not; see "already consumed" above). Plan:
+    a per-agent generated `--settings` file (scopes the blocking hook to warden agents
+    only, leaving the user's global `~/.claude/settings.json` untouched) + a Go policy
+    endpoint (`POST /hooks/guard`, table-tested) the thin shell hook calls. This mechanism
+    is the reusable foundation Phase 0b/0c redirects also ride on.
+  - The spawn-gate extension (warn on ≥2 `--in-repo` write-agents sharing a repo) is a
+    secondary safety net now that collisions are opt-in; folds into 0a-2 or a small
+    follow-up.
 - **Phase 0b — Git lifecycle.** `wd commit` / `wd push` / `wd sync` as CLI commands **and**
   MCP tools, built on the existing `lifecycle.go` machinery (rails, hook parsing,
   bookkeeping, structured results). Add the git-mutation PreToolUse redirect hooks and the
@@ -304,5 +323,10 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
 - Detection seed precedence when a repo has *both* a `Makefile` and a `package.json` (e.g.
   a Go service with a web UI subdir) — prefer top-level runner, or detect per-dir?
 - Should Layer 3 (`--disallowedTools`) be on by default for raw `git push`, or opt-in?
-- Hook config: per-session generated file vs. a warden-managed shared settings fragment —
-  whichever matches how the status hooks are injected today (confirm during 0a).
+- **Resolved (during 0a):** Hook config must be a **per-agent generated `--settings`
+  file**, not a shared fragment — the status hooks are merged by hand into the user's
+  *global* `~/.claude/settings.json` and fail soft, so a *blocking* PreToolUse deny put
+  there would fire in the user's own non-warden sessions. A per-agent settings file scopes
+  the deny to warden-spawned agents and carries per-agent context. (Open sub-question:
+  whether `claude --settings <path>` fully overrides or merges with the user's global
+  settings — confirm before 0a-2.)

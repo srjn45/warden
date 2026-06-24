@@ -69,11 +69,16 @@ func NormalizeType(s string) Type {
 	return TypeOther
 }
 
-// DefaultWorktree reports whether this type creates a git worktree by default.
-// analysis/spike are opt-in (via --worktree) so they return false here.
+// DefaultWorktree reports whether spawning this type creates a git worktree by
+// default. Phase 0a isolates every write-agent — development, pr-review, code,
+// docs, website, debug-ci, tests — so parallel write-agents never collide in the
+// shared repo; the caller opts a write-agent out with --in-repo (honored in
+// wantWorktree, except for pr-review which is structurally a separate checkout).
+// The investigation types (analysis/spike) and the free-form catch-all (other)
+// stay opt-in via --worktree and return false here.
 func (t Type) DefaultWorktree() bool {
 	switch t {
-	case TypeDevelopment, TypePRReview:
+	case TypeDevelopment, TypePRReview, TypeCode, TypeDocs, TypeWebsite, TypeDebugCI, TypeTests:
 		return true
 	}
 	return false

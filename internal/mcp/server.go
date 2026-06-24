@@ -36,6 +36,7 @@ type spawnArgs struct {
 	Branch         string `json:"branch,omitempty" jsonschema:"optional; new branch (development) or checkout target (pr-review)"`
 	PR             string `json:"pr,omitempty" jsonschema:"optional PR number/url for pr-review"`
 	Worktree       bool   `json:"worktree,omitempty" jsonschema:"create a scratch worktree for analysis/spike"`
+	InRepo         bool   `json:"in_repo,omitempty" jsonschema:"write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review). Default false — write-agents isolate."`
 	Prompt         string `json:"prompt,omitempty" jsonschema:"what the agent should do — prompt-mode: auto-typed, no repo needed"`
 	Dir            string `json:"dir,omitempty" jsonschema:"directory to launch the agent from; defaults to the orchestrator's current working directory"`
 	PermissionMode string `json:"permission_mode,omitempty" jsonschema:"permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; defaults to config or 'auto'"`
@@ -190,7 +191,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "spawn_agent",
-		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree (development/pr-review get a worktree; code/docs/website/debug-ci/tests run in the repo; analysis/spike take an optional worktree). Launches the configured default model (sonnet) and permission mode (auto) unless `model`/`permission_mode` override them; risky tools prompt → answerable in the approvals inbox. If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
+		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree. Every write-agent (development/pr-review/code/docs/website/debug-ci/tests) is isolated in its own worktree by default so parallel agents never collide; pass `in_repo=true` to deliberately share the repo (ignored for pr-review). analysis/spike take an optional worktree via `worktree=true`. Launches the configured default model (sonnet) and permission mode (auto) unless `model`/`permission_mode` override them; risky tools prompt → answerable in the approvals inbox. If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a spawnArgs) (*mcpsdk.CallToolResult, any, error) {
 		cwd := a.Dir
 		if cwd == "" {
@@ -202,7 +203,7 @@ func NewServer(daemonBase string) *Server {
 		}
 		sess, err := s.cl.Spawn(ctx, client.SpawnParams{
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
-			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree,
+			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree, InRepo: a.InRepo,
 			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
 			Name: a.Name, Model: a.Model,
 		})

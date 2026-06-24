@@ -224,22 +224,40 @@ func TestSpawnAdoptsExistingWorktree(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "WARDEN_SESSION_ID=PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 }
 
-func TestSpawnNoWorktreeTypeRunsInRepoWithAutoID(t *testing.T) {
+func TestSpawnInRepoOptOutRunsInRepoWithAutoID(t *testing.T) {
+	// --in-repo opts a write-agent out of isolation: it runs in the shared repo
+	// and makes no git calls, just like the legacy non-isolated default did.
 	fr := &FakeRunner{}
 	lc := New(fr, &FakeConfig{})
-	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo", InRepo: true})
 	require.NoError(t, err)
 	require.Empty(t, s.Worktree)
 	require.Empty(t, s.Branch)
 	require.Empty(t, s.Ticket)
 	require.True(t, strings.HasPrefix(s.ID, "debugci-"), "auto id for no-ticket session, got %q", s.ID)
-	// No git calls for a no-worktree type.
+	// No git calls when running in-repo.
 	for _, argv := range fr.calledArgs() {
-		require.NotEqual(t, "git", argv[0], "no-worktree type must not call git")
+		require.NotEqual(t, "git", argv[0], "in-repo agent must not call git")
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "WARDEN_SESSION_ID=" + s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/repo"})
 	require.NotEmpty(t, s.ClaudeSessionID)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint(), "Enter"})
+}
+
+func TestSpawnWriteTypeIsolatesByDefault(t *testing.T) {
+	// Phase 0a: a write-agent (debug-ci) with no --in-repo gets its own worktree
+	// + branch so parallel agents never collide in the shared repo.
+	fr := &FakeRunner{}
+	lc := New(fr, &FakeConfig{})
+	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	require.NoError(t, err)
+	rel := ".worktrees/" + s.ID
+	require.Equal(t, rel, s.Worktree, "write-agent isolates by default")
+	require.Equal(t, s.ID, s.Branch, "auto branch == session id")
+	require.True(t, s.WorktreeCreated)
+	require.True(t, s.BranchCreated)
+	require.Equal(t, "/repo/"+rel, s.Workdir)
+	require.Contains(t, fr.calledArgs(), []string{"git", "worktree", "add", rel, "-b", s.ID})
 }
 
 func TestSpawnPRReviewChecksOutPR(t *testing.T) {
@@ -448,11 +466,11 @@ func TestSpawnTypedModeRecordsWorkdir(t *testing.T) {
 	require.Equal(t, "/repo/.worktrees/A-1", s.Workdir, "typed worktree dir recorded")
 }
 
-func TestSpawnNoWorktreeTypeRecordsRepoWorkdir(t *testing.T) {
+func TestSpawnInRepoRecordsRepoWorkdir(t *testing.T) {
 	fr := &FakeRunner{}
-	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo", InRepo: true})
 	require.NoError(t, err)
-	require.Equal(t, "/repo", s.Workdir, "no-worktree type runs in repo")
+	require.Equal(t, "/repo", s.Workdir, "in-repo agent runs in repo")
 }
 
 func TestSpawnPromptModeNoWorktree(t *testing.T) {
@@ -970,7 +988,7 @@ func TestSpawnRaisesHistoryLimitBeforeNewSession(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux show-options -g -v history-limit": {Out: "2000"},
 	}}
-	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo", InRepo: true})
 	require.NoError(t, err)
 	setIdx := fr.callIndex("tmux set-option -g history-limit 50000")
 	newIdx := fr.callIndex("tmux new-session -d -s " + s.ID + " -e WARDEN_SESSION_ID=" + s.ID + " -e AGENTCTL_SESSION_ID=" + s.ID + " -c /repo")

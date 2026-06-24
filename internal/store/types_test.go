@@ -51,11 +51,17 @@ func TestTypeNormalizeAndWorktreePolicy(t *testing.T) {
 	require.Equal(t, TypeDevelopment, NormalizeType("development"))
 	require.Equal(t, TypeOther, NormalizeType("totally-made-up"))
 
-	// Default worktree policy per design §2.
+	// Default worktree policy (Phase 0a: every write-agent isolates by default).
 	require.True(t, TypeDevelopment.DefaultWorktree())
 	require.True(t, TypePRReview.DefaultWorktree())
-	require.False(t, TypeDebugCI.DefaultWorktree())
+	require.True(t, TypeDebugCI.DefaultWorktree())
+	require.True(t, TypeCode.DefaultWorktree())
+	require.True(t, TypeTests.DefaultWorktree())
+	require.True(t, TypeDocs.DefaultWorktree())
+	require.True(t, TypeWebsite.DefaultWorktree())
+	require.False(t, TypeOther.DefaultWorktree()) // free-form catch-all never isolates
 	require.False(t, TypeSpike.DefaultWorktree()) // opt-in via --worktree, not default
+	require.False(t, TypeAnalysis.DefaultWorktree())
 }
 
 func TestSessionExitCodeJSONRoundTrip(t *testing.T) {

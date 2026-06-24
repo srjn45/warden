@@ -162,8 +162,11 @@ warden start --type pr-review --pr 1234
 # Spike/analysis with an opt-in scratch worktree:
 warden start --type spike --worktree
 
-# Debug CI — no worktree, runs in the current repo:
+# Debug CI — isolated in its own worktree by default:
 warden start --type debug-ci
+
+# Opt a write-agent out of isolation to share the repo:
+warden start --type debug-ci --in-repo
 
 # Be explicit about repo and branch:
 warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
@@ -177,12 +180,18 @@ warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
 | `pr-review` | yes (PR branch) | Runs `gh pr checkout <PR>` inside it. **Requires `--pr` or `--branch`** |
 | `analysis` | opt-in `--worktree` | Runs in the repo by default |
 | `spike` | opt-in `--worktree` | Same as analysis |
-| `code` | no | Runs in the repo root |
-| `docs` | no | Runs in the repo root |
-| `website` | no | Runs in the repo root |
-| `debug-ci` | no | Runs in the repo root |
-| `tests` | no | Runs in the repo root |
+| `code` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `docs` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `website` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `debug-ci` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `tests` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
 | `other` | no | Catch-all; also where unrecognized type strings land |
+
+Every write-agent (development, pr-review, code, docs, website, debug-ci, tests)
+is isolated in its own git worktree by default so parallel agents never collide
+in the shared repo (Phase 0a). Pass `--in-repo` to deliberately run a write-agent
+in the shared repo; `pr-review` ignores `--in-repo` because it is structurally a
+separate checkout.
 
 Notes:
 - If a worktree for the ticket already exists on disk, the spawn **adopts** it
@@ -311,6 +320,7 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--branch` | New branch (development) or checkout target (pr-review). |
 | `--pr` | PR number/URL (pr-review). |
 | `--worktree` | Create a scratch worktree for analysis/spike. |
+| `--in-repo` | Write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review). |
 | `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: the `model_default` config setting, or `claude-sonnet-4-6`. |
 
 ### `warden ls`
