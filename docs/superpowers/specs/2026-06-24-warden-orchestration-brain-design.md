@@ -287,16 +287,28 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     `store.Type.DefaultWorktree()` + the `--in-repo` short-circuit in
     `lifecycle.wantWorktree`, plumbed through client/daemon/CLI/MCP. Docs + tests updated.
     *This is the bulk of the isolation relief.*
-  - **0a-2 — PreToolUse backstop (pending, needs new infra).** The Edit/Write-in-repo-root
-    deny. Requires the net-new hook-delivery mechanism (the original spec wrongly assumed
-    warden already injected hooks — it does not; see "already consumed" above). Plan:
-    a per-agent generated `--settings` file (scopes the blocking hook to warden agents
-    only, leaving the user's global `~/.claude/settings.json` untouched) + a Go policy
-    endpoint (`POST /hooks/guard`, table-tested) the thin shell hook calls. This mechanism
-    is the reusable foundation Phase 0b/0c redirects also ride on.
+  - **0a-2 — PreToolUse backstop (✅ shipped).** Blocks an isolated agent from
+    Edit/Write-ing a file inside the shared repo but outside its own worktree (an escape
+    into the shared tree or a sibling worktree); fails open everywhere else. Built the
+    net-new hook-delivery mechanism the original spec wrongly assumed existed:
+    - **Per-agent `--settings` file** generated at spawn (`lifecycle.guardSettingsFlag`,
+      written to `~/.warden/settings/<id>.json`) registering a `PreToolUse` hook over
+      `Edit|Write|MultiEdit|NotebookEdit`. Scopes the blocking hook to warden agents only;
+      `--settings` is **additive** (verified via `claude --help`), so the user's global
+      status hooks still fire and their own sessions are untouched.
+    - **The hook is the warden binary** (`warden hook guard`), resolved via `os.Executable`
+      — no separate shell script to ship/path-resolve, and it uses the authenticated client
+      (the plain-curl status hook only works when no daemon token is set).
+    - **Go policy endpoint** `POST /hooks/guard` → pure `guardDecision(sess, tool, path)`,
+      table-tested over inside/escape/sibling/outside-repo/relative/in-repo/nil cases.
+    - Gated by a new `isolation_guard` config (default on); fails open on missing path,
+      unknown session, or unreachable daemon so it can never wedge an agent.
+    - This per-agent `--settings` mechanism is the reusable foundation Phase 0b/0c
+      redirect hooks ride on.
   - The spawn-gate extension (warn on ≥2 `--in-repo` write-agents sharing a repo) is a
-    secondary safety net now that collisions are opt-in; folds into 0a-2 or a small
-    follow-up.
+    secondary safety net now that collisions are opt-in; deferred to a small follow-up.
+    Guard injection currently covers interactive/typed spawns (`spawnTyped`); extending it
+    to pipeline jobs (`SpawnJob`) is a noted follow-up.
 - **Phase 0b — Git lifecycle.** `wd commit` / `wd push` / `wd sync` as CLI commands **and**
   MCP tools, built on the existing `lifecycle.go` machinery (rails, hook parsing,
   bookkeeping, structured results). Add the git-mutation PreToolUse redirect hooks and the
@@ -327,6 +339,7 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
   file**, not a shared fragment — the status hooks are merged by hand into the user's
   *global* `~/.claude/settings.json` and fail soft, so a *blocking* PreToolUse deny put
   there would fire in the user's own non-warden sessions. A per-agent settings file scopes
-  the deny to warden-spawned agents and carries per-agent context. (Open sub-question:
-  whether `claude --settings <path>` fully overrides or merges with the user's global
-  settings — confirm before 0a-2.)
+  the deny to warden-spawned agents and carries per-agent context. **Confirmed (0a-2):**
+  `claude --settings <file>` loads *additional* settings (per `claude --help`) and hooks
+  union across sources, so the user's global status hooks still fire and the per-agent
+  guard merges on top — it does not override the user's config.

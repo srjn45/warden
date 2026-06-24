@@ -54,6 +54,7 @@ type Config struct {
 	CollabEnabled          bool   `yaml:"collab_enabled"`
 	CollabInterval         string `yaml:"collab_interval"`
 	CollabHint             bool   `yaml:"collab_hint"`
+	IsolationGuard         bool   `yaml:"isolation_guard"`
 	RateLimitRetryInterval string `yaml:"rate_limit_retry_interval"`
 	RateLimitBuffer        string `yaml:"rate_limit_buffer"`
 	RateLimitAutoResume    bool   `yaml:"rate_limit_auto_resume"`
@@ -106,6 +107,7 @@ var schema = []setting{
 	{"collab_enabled", "Warn agents when another agent is editing the same file. Values: true | false"},
 	{"collab_interval", "File-conflict scan interval. Values: Go duration (e.g. 10s, 30s)"},
 	{"collab_hint", "Append the conflict-check hint to spawned agents so they coordinate on shared files. Values: true | false"},
+	{"isolation_guard", "Install the PreToolUse hook that blocks an isolated agent from editing files outside its worktree (into the shared repo). Values: true | false"},
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
@@ -152,6 +154,7 @@ func defaults() Config {
 		CollabEnabled:          true,
 		CollabInterval:         "10s",
 		CollabHint:             true,
+		IsolationGuard:         true,
 		RateLimitRetryInterval: "30m",
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
@@ -593,6 +596,10 @@ func (c Config) GetModelDefault() string { return c.ModelDefault }
 // GetPipelineHint reports whether the pipeline-decomposition hint is appended
 // to standalone agents.
 func (c Config) GetPipelineHint() bool { return c.PipelineHint }
+
+// GetIsolationGuard reports whether the PreToolUse isolation-guard hook is
+// installed into spawned agents (blocks edits that escape the agent's worktree).
+func (c Config) GetIsolationGuard() bool { return c.IsolationGuard }
 
 // GetCollabHint reports whether the conflict-check hint is appended to spawned
 // agents so they coordinate on files other agents are editing.

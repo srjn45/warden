@@ -314,6 +314,24 @@ func (c *Client) Adopt(ctx context.Context, p AdoptParams) (*AdoptResult, error)
 	return &AdoptResult{Session: resp.Session, Warning: resp.Warning}, nil
 }
 
+// GuardVerdict is the daemon's isolation decision for one file-mutating tool call.
+type GuardVerdict struct {
+	Decision string `json:"decision"` // "allow" | "deny"
+	Reason   string `json:"reason"`
+}
+
+// Guard asks the daemon whether an agent may Edit/Write the given path. It is
+// called by `warden hook guard` from a PreToolUse hook, so the caller passes a
+// short-deadline context — a slow/absent daemon must not stall the agent's edit.
+func (c *Client) Guard(ctx context.Context, session, tool, path string) (GuardVerdict, error) {
+	var v GuardVerdict
+	body := map[string]string{"session": session, "tool": tool, "path": path}
+	if err := c.do(ctx, http.MethodPost, "/hooks/guard", body, &v); err != nil {
+		return GuardVerdict{}, err
+	}
+	return v, nil
+}
+
 func (c *Client) Terminate(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", nil, nil)
 }
