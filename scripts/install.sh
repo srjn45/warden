@@ -17,6 +17,9 @@ done
 
 info "installing warden service"
 
+# Wire git hooks early so even a --no-build run sets them up (cheap, idempotent).
+wire_git_hooks
+
 if [ "$NO_BUILD" -eq 0 ]; then
   build_release
 else

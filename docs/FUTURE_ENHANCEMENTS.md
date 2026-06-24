@@ -45,6 +45,12 @@ Verified present in `internal/` / `web/` as of 2026-06-22:
   version plus commit, build date, Go version, and platform; `warden version
   --json` for scripting. Stamped via ldflags (goreleaser + `make build`) with a
   VCS-stamp fallback for plain source builds (`internal/cli/version.go`).
+- **Pre-commit hook auto-setup** — tracked `.githooks/pre-commit`
+  (`make fmt-check lint`) next to the existing `.githooks/pre-push`
+  (`make verify-fast`). `scripts/install.sh` auto-wires `core.hooksPath .githooks`
+  (`wire_git_hooks` in `common.sh`); `make install-hooks` / `scripts/install-hooks.sh`
+  do it standalone. Relative hooksPath works across worktrees; documented in the
+  README "Development → Git hooks" section.
 
 **Spawn & model**
 - **Model selection per agent** — `--model` (CLI + MCP), aliases
@@ -191,12 +197,12 @@ there is no global shortcut layer yet.)
 
 ---
 
-#### 6. Pre-commit hook auto-setup — *partial*
-**Effort:** 30 minutes
-**Value:** Fewer CI failures
-
-`.githooks/` exists; auto-wire `git config core.hooksPath .githooks` in
-`scripts/install.sh` and document it.
+#### 6. ~~Pre-commit hook auto-setup~~ — ✅ **DONE**
+Shipped: tracked `.githooks/pre-commit` (`make fmt-check lint`) alongside the
+existing `.githooks/pre-push` (`make verify-fast`); `scripts/install.sh` auto-wires
+`core.hooksPath .githooks` (via `wire_git_hooks` in `common.sh`), and
+`scripts/install-hooks.sh` / `make install-hooks` do the same standalone.
+Documented in the README "Development → Git hooks" section. See "Recently Completed."
 
 ---
 

@@ -821,6 +821,27 @@ The integration suite (`make test-integration`, build tag `integration`) boots a
 real `warden daemon` against an isolated `HOME`; its spawn-lifecycle test
 self-skips unless `tmux` and `claude` are installed, so it stays CI-safe.
 
+### Git hooks
+
+The repo ships version-controlled hooks in `.githooks/`. Wire them once with:
+
+```sh
+make install-hooks          # git config core.hooksPath .githooks
+# or: ./scripts/install-hooks.sh
+```
+
+`scripts/install.sh` (the service installer) also does this automatically. Once
+wired:
+
+- **pre-commit** runs `make fmt-check lint` (gofmt + `go vet`) — fast, so a
+  formatting/vet slip is caught before the commit lands.
+- **pre-push** runs `make verify-fast` (gofmt/vet/web/release build) — the CI
+  subset that doesn't need an isolated machine.
+
+Bypass either in a pinch with `git commit --no-verify` / `git push --no-verify`.
+Because `core.hooksPath` is a relative path, the hooks work across git worktrees
+too.
+
 ---
 
 ## Web GUI
