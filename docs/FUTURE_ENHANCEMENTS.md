@@ -40,6 +40,12 @@ Verified present in `internal/` / `web/` as of 2026-06-22:
 - **YAML config file** — migrated off env vars to a single config file with a
   documented key set (`internal/config`).
 
+**CLI & UX**
+- **`--version` build info** — `warden version` / `warden --version` print the
+  version plus commit, build date, Go version, and platform; `warden version
+  --json` for scripting. Stamped via ldflags (goreleaser + `make build`) with a
+  VCS-stamp fallback for plain source builds (`internal/cli/version.go`).
+
 **Spawn & model**
 - **Model selection per agent** — `--model` (CLI + MCP), aliases
   (`opus`/`sonnet`/`haiku`/`fable`), `model_default` config, MODEL column.
@@ -167,22 +173,11 @@ renders with placeholder substitution.
 
 ---
 
-#### 4. `--version` build info — *not started*
-**Effort:** 30 minutes
-**Value:** Better debugging, support
-
-Today `version` defaults to `"dev"` (`internal/cli/root.go`) with no commit/date.
-Show detailed build info instead.
-
-```bash
-warden --version
-# warden v4.0.0
-# Commit: 3c57dca
-# Built: 2026-06-22T...Z
-# Go: go1.26.x  Platform: linux/amd64
-```
-
-**Implementation:** add build-time ldflags in goreleaser; `warden version --json`.
+#### 4. ~~`--version` build info~~ — ✅ **DONE**
+Shipped: `warden version` / `warden --version` print version + commit + build
+date + Go version + platform; `warden version --json` for scripting. ldflags via
+goreleaser and `make build`, with a VCS-stamp fallback (`internal/cli/version.go`).
+See "Recently Completed."
 
 ---
 
@@ -500,9 +495,9 @@ tracking (BranchTracker), collaboration groups, SSE replay + multi-cache layer.
 ## 📊 Priority Matrix
 
 ### 🔥 Do First (High Impact, Low Effort)
-1. **`warden ls --watch`** — 1-2 h
-2. **`--version` build info** — 30 min
-3. **Pipeline `validate` + templates** — 3 h
+1. ~~**`warden ls --watch`**~~ — ✅ DONE
+2. ~~**`--version` build info**~~ — ✅ DONE
+3. **Pipeline `validate` + templates** — 3 h (validate ✅ done; templates pending)
 4. **GitHub PR auto-create on done** — pairs with existing digest
 5. **Export/import** — 2 h
 
