@@ -349,6 +349,34 @@ you'd typed it at the prompt.
 warden send PROJ-350 "run the unit tests and fix any failures"
 ```
 
+### `warden commit -m <msg>` / `warden push` / `warden sync` (the git lifecycle)
+Run from inside an agent's worktree (also exposed as the MCP tools
+`mcp__warden__commit` / `push` / `sync`). Each replaces a flurry of raw `git`
+Bash with one rail-enforced call that returns a compact result instead of output
+the agent has to read:
+
+- **`warden commit -m "<message>"`** — stages and commits every change on the
+  current branch. Refuses protected branches (`main`/`master`), runs pre-commit
+  hooks and surfaces **only** a failure, and links the commit to the agent
+  record. Returns `{committed, sha, branch, files}`; a clean tree is a no-op.
+- **`warden push`** — pushes the current branch to `origin` (sets upstream).
+  Refuses to push `main`/`master` directly — push your agent branch and open a PR.
+- **`warden sync [--base main]`** — fetches `origin` and rebases the current
+  branch onto `origin/<base>`. Refuses a dirty tree (commit first). On a conflict
+  it leaves the rebase in progress and reports **only** the conflicting files for
+  you to resolve, then `git rebase --continue`.
+
+Pass `--json` to any of them for the raw struct. `git status` / `log` / `diff`
+stay yours to run directly — only mutations are routed through warden. Spawned
+write-agents get a system-prompt nudge toward these tools (the `git_conventions`
+config flag, on by default; `git status/log/diff` stay free).
+
+```sh
+warden commit -m "fix the auth redirect loop"
+warden push
+warden sync --base main
+```
+
 ### `warden adopt [--session-id <uuid>] [--dir <path>]`
 Register an existing Claude session into warden.
 
@@ -655,6 +683,9 @@ Tools exposed:
 | `adopt_agent` | Register an existing Claude session: resume newest-for-dir under tmux, or live-register a running tmux session |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Recent terminal output of a specific agent |
+| `commit` | Stage+commit the worktree on its branch — rails (no main/master), pre-commit hooks parsed to surface only failures, SHA linked to the agent. Returns `{committed, sha, branch, files}` |
+| `push` | Push the current branch to origin (refuses `main`/`master` directly) |
+| `sync` | Fetch + rebase onto `origin/<base>` (default `main`); on conflict returns only the conflicting files |
 | `terminate_agent` | Stop an agent (kill tmux + claude); keeps record + worktree. Reversible via `restore_agent` — the default "stop" action |
 | `restore_agent` | Recreate and resume a lost/orphaned agent (`claude --resume`) |
 | `delete_agent` | Clear an agent's record (archives by default; `hard` purges) |

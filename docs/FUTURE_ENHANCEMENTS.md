@@ -293,7 +293,7 @@ marginal value given `rotate` + pipelines already cover the real need.
 
 ## 🧠 Orchestration & Token Reduction
 
-#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0a shipped)*
+#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0a + 0b-1 shipped)*
 **Effort:** Phase 0a ~1 day · 0b ~2 days · 0c ~1 day · Phase 1 ~3-4 days (incremental)
 **Value:** Cut Claude token spend; enforce worktree isolation; retire the operator's
 manual git lifecycle.
@@ -310,9 +310,14 @@ messages), proven first by swapping the existing headless-Claude `Classify` call
   built on a net-new per-agent `claude --settings` hook-delivery mechanism (`warden hook
   guard` → `POST /hooks/guard`), gated by `isolation_guard` (default on), fails open.
   Fixes the parallel-agent collision pain. *No LLM.*
-- **0b Git lifecycle** — `wd commit` / `wd push` / `wd sync` as CLI + MCP tools on the
-  existing `lifecycle.go` machinery (rails, hook parsing, bookkeeping); add the
-  git-mutation redirect hooks. *No LLM.*
+- **0b Git lifecycle** — **0b-1:** ✅ **shipped** — `wd commit` / `wd push` / `wd sync` as
+  CLI + MCP tools (`mcp__warden__commit`/`push`/`sync`) on the existing `lifecycle.go`
+  runner, returning compact structs in place of git tool-spam. Rails (no main/master,
+  no dirty-tree sync, pre-commit-failure-as-result), per-agent workdir pinning + commit
+  bookkeeping, sync leaves conflicts in progress with only the conflicting files. Plus the
+  Layer-1 `git_conventions` prompt steer (default on). **0b-2:** the git-mutation PreToolUse
+  redirect hook (deny+redirect raw `git` mutations to the warden tools) on the 0a-2
+  `--settings` mechanism. *No LLM.*
 - **0c `wd check`** — run configured tests/lint, return pass/fail + only failures; redirect
   raw test Bash. Biggest raw token win. *No LLM (optional summarize).*
 - **Phase 1 Local provider** — opt-in Ollama provider; `Classify` → headless commit

@@ -332,6 +332,42 @@ func (c *Client) Guard(ctx context.Context, session, tool, path string) (GuardVe
 	return v, nil
 }
 
+// GitCommit stages+commits dir's changes via the daemon's rail-enforcing commit
+// (protected-branch refusal, pre-commit hook parsing, bookkeeping). session is
+// the calling agent's id ("" for a human run); when set the daemon pins the
+// action to that agent's own worktree.
+func (c *Client) GitCommit(ctx context.Context, session, dir, message string) (lifecycle.CommitResult, error) {
+	var res lifecycle.CommitResult
+	body := map[string]string{"session": session, "dir": dir, "message": message}
+	if err := c.do(ctx, http.MethodPost, "/git/commit", body, &res); err != nil {
+		return lifecycle.CommitResult{}, err
+	}
+	return res, nil
+}
+
+// GitPush pushes dir's current branch to origin (protected-branch refusal).
+// Uses longTimeout — push is a network round-trip.
+func (c *Client) GitPush(ctx context.Context, session, dir string) (lifecycle.PushResult, error) {
+	var res lifecycle.PushResult
+	body := map[string]string{"session": session, "dir": dir}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/git/push", body, &res); err != nil {
+		return lifecycle.PushResult{}, err
+	}
+	return res, nil
+}
+
+// GitSync fetches origin/base and rebases dir's branch onto it, returning the
+// conflicting paths when the rebase is left in progress. Uses longTimeout —
+// fetch is a network round-trip.
+func (c *Client) GitSync(ctx context.Context, session, dir, base string) (lifecycle.SyncResult, error) {
+	var res lifecycle.SyncResult
+	body := map[string]string{"session": session, "dir": dir, "base": base}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/git/sync", body, &res); err != nil {
+		return lifecycle.SyncResult{}, err
+	}
+	return res, nil
+}
+
 func (c *Client) Terminate(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", nil, nil)
 }

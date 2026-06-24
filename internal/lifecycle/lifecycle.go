@@ -134,6 +134,28 @@ func (l *Lifecycle) collabHint() string {
 	return " --append-system-prompt " + shellQuoteArg(collabHintGuidance)
 }
 
+// gitConventionsGuidance steers a spawned agent toward warden's git lifecycle
+// tools instead of raw git Bash: warden enforces the branch rail, runs hooks
+// deterministically, and links the SHA to this agent record. This is the soft
+// (Layer 1) nudge — the PreToolUse redirect hook is the hard enforcement; the
+// two reinforce each other. No apostrophes — keeps the single-quoted shell form
+// (shellQuoteArg) clean.
+const gitConventionsGuidance = "Prefer warden git tools over raw git Bash: wd commit (or mcp__warden__commit) " +
+	"to stage+commit, wd push (mcp__warden__push) to push your branch, wd sync (mcp__warden__sync) to rebase onto the base. " +
+	"warden enforces the branch rail (never commits to main), runs pre-commit hooks and returns only failures, " +
+	"and links the commit to this agent. git status/log/diff stay yours to run directly."
+
+// gitConventionsHint returns the claude flag fragment that injects
+// gitConventionsGuidance as a system-prompt addendum, or "" when the
+// git_conventions config setting is disabled. Applied to typed (worktree-backed)
+// agents — the ones that commit — alongside collabHint/guardSettingsFlag.
+func (l *Lifecycle) gitConventionsHint() string {
+	if !l.cfg.GetGitConventions() {
+		return ""
+	}
+	return " --append-system-prompt " + shellQuoteArg(gitConventionsGuidance)
+}
+
 // claudeResume builds the invocation that resumes an existing agent conversation
 // by its pinned session id (continues the same transcript). --name re-applies the
 // display label so the resumed session still reads as the agent id.
@@ -266,6 +288,7 @@ type ConfigProvider interface {
 	GetPipelineHint() bool
 	GetCollabHint() bool
 	GetIsolationGuard() bool
+	GetGitConventions() bool
 }
 
 func New(r Runner, cfg ConfigProvider) *Lifecycle { return &Lifecycle{run: r, cfg: cfg} }
@@ -766,7 +789,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.collabHint() + l.guardSettingsFlag(sess.ID) + l.exitSuffix(sess.ID)
+	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.collabHint() + l.gitConventionsHint() + l.guardSettingsFlag(sess.ID) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)

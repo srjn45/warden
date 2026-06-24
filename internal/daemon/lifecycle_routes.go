@@ -29,6 +29,9 @@ func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Get("/pressure", s.handlePressure)
 	r.Get("/worktrees", s.handleListWorktrees)
 	r.Post("/prune", s.handlePrune)
+	r.Post("/git/commit", s.handleGitCommit)
+	r.Post("/git/push", s.handleGitPush)
+	r.Post("/git/sync", s.handleGitSync)
 }
 
 // validateSpawnRequest applies the static + uniqueness preconditions for a
