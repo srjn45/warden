@@ -101,6 +101,9 @@ type FakeConfig struct {
 	// IsolationGuardOff disables the PreToolUse isolation guard; the zero value
 	// leaves it on, matching the production default.
 	IsolationGuardOff bool
+	// GitConventionsOff disables the git-conventions system-prompt hint; the zero
+	// value leaves it on, matching the production default.
+	GitConventionsOff bool
 }
 
 func (f *FakeConfig) GetDefaultPermissionMode() string {
@@ -117,6 +120,8 @@ func (f *FakeConfig) GetPipelineHint() bool { return !f.PipelineHintOff }
 func (f *FakeConfig) GetCollabHint() bool { return !f.CollabHintOff }
 
 func (f *FakeConfig) GetIsolationGuard() bool { return !f.IsolationGuardOff }
+
+func (f *FakeConfig) GetGitConventions() bool { return !f.GitConventionsOff }
 
 // FakeRunner matches on "name arg1 arg2 ..." joined by spaces.
 type FakeRunner struct {

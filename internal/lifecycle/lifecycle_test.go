@@ -31,6 +31,7 @@ func claudeResume(sessionID, name, model, mode string) string {
 func claudeBase(model, mode string) string { return defaultLC().claudeBase(model, mode) }
 func pipelineHint() string                 { return defaultLC().pipelineHint() }
 func collabHint() string                   { return defaultLC().collabHint() }
+func gitConventionsHint() string           { return defaultLC().gitConventionsHint() }
 
 func TestClaudeLaunchPermissionMode(t *testing.T) {
 	def := claudeLaunch("sid", "agent-1", "", "acceptEdits")
@@ -116,7 +117,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "WARDEN_SESSION_ID=PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 	// Launch claude UNATTENDED, with a pinned session id and display name.
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", "", "auto") + pipelineHint() + collabHint(), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
 }
 
 func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
@@ -241,7 +242,7 @@ func TestSpawnInRepoOptOutRunsInRepoWithAutoID(t *testing.T) {
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "WARDEN_SESSION_ID=" + s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/repo"})
 	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint(), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
 }
 
 func TestSpawnWriteTypeIsolatesByDefault(t *testing.T) {

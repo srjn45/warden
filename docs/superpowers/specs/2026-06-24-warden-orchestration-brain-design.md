@@ -309,10 +309,24 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     secondary safety net now that collisions are opt-in; deferred to a small follow-up.
     Guard injection currently covers interactive/typed spawns (`spawnTyped`); extending it
     to pipeline jobs (`SpawnJob`) is a noted follow-up.
-- **Phase 0b — Git lifecycle.** `wd commit` / `wd push` / `wd sync` as CLI commands **and**
-  MCP tools, built on the existing `lifecycle.go` machinery (rails, hook parsing,
-  bookkeeping, structured results). Add the git-mutation PreToolUse redirect hooks and the
-  `warden_conventions` system-prompt line. *No LLM.*
+- **Phase 0b — Git lifecycle.** Split, like 0a, into a tools half and an enforcement half:
+  - **0b-1 — Tools + Layer-1 steer (✅ shipped).** `wd commit` / `wd push` / `wd sync` as
+    CLI commands **and** MCP tools (`mcp__warden__commit`/`push`/`sync`), built on the
+    existing `lifecycle.go` runner. `lifecycle.Commit`/`Push`/`Sync` return compact structs
+    (`CommitResult{committed,sha,branch,files,hook_failed,hook_output}`, `PushResult`,
+    `SyncResult{...,conflicts}`) in place of git tool-spam. Rails: refuse protected branch
+    (main/master) on commit+push; refuse a dirty tree on sync; a pre-commit hook rejection
+    is a *structured result* (only the failure), not an error. The daemon pins each action
+    to the calling agent's own `Workdir` (an agent can't commit into a sibling worktree) and
+    records a bookkeeping event. On a sync conflict the rebase is **left in progress** with
+    only the conflicting files returned — the deterministic-detect half of "resolution stays
+    Claude." Plus the Layer-1 `gitConventionsHint` (`git_conventions` config, default on)
+    steering typed agents toward these tools. *No LLM.* Wire path: lifecycle → daemon
+    `/git/commit|push|sync` → client `GitCommit/GitPush/GitSync` → CLI + MCP.
+  - **0b-2 — Layer-2 redirect hooks (next).** PreToolUse hook that argv-parses each `Bash`
+    call and DENY-redirects `git commit|push|rebase|pull` mutations to the warden tool
+    (reads stay allowed), riding the per-agent `--settings` mechanism built in 0a-2. The
+    deny *message* names the exact replacement tool — that is the product.
 - **Phase 0c — `wd check`.** Run configured test/lint/build commands, return pass/fail +
   only failing cases; add the test-command redirect hook. Optional local summarize for
   oversized failure logs (deterministic truncate fallback). *Biggest raw token win.*

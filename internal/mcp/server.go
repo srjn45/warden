@@ -66,6 +66,18 @@ type deleteToolArgs struct {
 	Hard   bool   `json:"hard,omitempty" jsonschema:"permanently purge instead of archiving"`
 }
 
+type gitCommitArgs struct {
+	Message string `json:"message" jsonschema:"the commit message — you wrote the change, so you know the intent"`
+	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit; defaults to the current directory"`
+}
+type gitPushArgs struct {
+	Dir string `json:"dir,omitempty" jsonschema:"worktree to push; defaults to the current directory"`
+}
+type gitSyncArgs struct {
+	Base string `json:"base,omitempty" jsonschema:"base branch to rebase onto; defaults to main"`
+	Dir  string `json:"dir,omitempty" jsonschema:"worktree to sync; defaults to the current directory"`
+}
+
 type ctxSetArgs struct {
 	Key   string `json:"key" jsonschema:"the context key, e.g. global.findings or pipeline.<id>.<job>.output"`
 	Value string `json:"value" jsonschema:"the value to store"`
@@ -145,6 +157,22 @@ func ctxWriter() string {
 		return id
 	}
 	return "agent"
+}
+
+// mcpDir resolves the working dir for a git tool: the explicit arg (made
+// absolute) when given, else the process cwd. The agent calls these from its
+// worktree, so cwd is the right default.
+func mcpDir(arg string) string {
+	if arg != "" {
+		if abs, err := filepath.Abs(arg); err == nil {
+			return abs
+		}
+		return arg
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return ""
 }
 
 func textResult(s string) *mcpsdk.CallToolResult {
@@ -263,6 +291,42 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult(out), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "commit",
+		Description: "Stage and commit every change in the worktree on its branch — one call in place of git status/add/commit/rev-parse. warden refuses protected branches (main/master), runs pre-commit hooks and returns ONLY a failure, and links the commit to this agent. Pass `message` (you made the change, so you know the intent). Returns {committed, sha, branch, files} or a hook failure to fix.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitCommitArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.GitCommit(ctx, sessionID(), mcpDir(a.Dir), a.Message)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "push",
+		Description: "Push the current worktree branch to origin (sets upstream). warden refuses to push protected branches (main/master) directly — push your agent branch and open a PR. Returns {branch, remote, pushed}.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitPushArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.GitPush(ctx, sessionID(), mcpDir(a.Dir))
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "sync",
+		Description: "Fetch origin and rebase the current branch onto origin/<base> (default main). Refuses a dirty tree (commit first). On conflict warden leaves the rebase in progress and returns ONLY the conflicting files — resolve those, then `git rebase --continue`. Returns {branch, base, updated, conflicts}.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitSyncArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.GitSync(ctx, sessionID(), mcpDir(a.Dir), a.Base)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

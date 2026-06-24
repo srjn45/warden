@@ -255,6 +255,12 @@ type Lifecycle interface {
 	// CommitWorktree stages+commits any changes in dir; committed=false when clean.
 	// Used on job emit so a job's work lands on its branch before downstream forks.
 	CommitWorktree(ctx context.Context, dir, message string) (bool, error)
+	// Commit / Push / Sync back the wd commit/push/sync CLI + MCP tools: the
+	// rail-enforcing git lifecycle returning compact structs instead of git
+	// tool-spam Claude reads.
+	Commit(ctx context.Context, dir, message string) (lifecycle.CommitResult, error)
+	Push(ctx context.Context, dir string) (lifecycle.PushResult, error)
+	Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error)
 	// TranscriptPath resolves the agent's transcript file ("" when none).
 	TranscriptPath(sess *store.Session) string
 	// GitBranch / GitNumstat read git state in dir (best-effort, "" on error).

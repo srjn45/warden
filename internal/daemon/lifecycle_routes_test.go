@@ -21,41 +21,52 @@ import (
 
 // fakeLife implements daemon.Lifecycle for route tests.
 type fakeLife struct {
-	mu             sync.Mutex
-	spawned        *store.Session
-	lastInput      string
-	output         string
-	outputErr      error
-	classifyResult store.Type
-	classified     string
-	spawnedCwd     string
-	tornDown       string
-	restoreErr     error
-	restored       string
-	terminated     string
-	removedWT      string
-	removeWTForce  bool
-	removeWTErr    error
-	newestClaude   string
-	newestErr      error
-	adoptResult    *store.Session
-	adoptErr       error
-	adoptParams    AdoptParams
-	lastKey        string
-	commitCalls    int
-	committedDir   string
-	committedMsg   string
-	commitResult   bool
-	commitErr      error
-	lwRepo         string
-	lwActive       int
-	lwArchived     int
-	lwResult       []lifecycle.WorktreeListing
-	lwErr          error
-	pruneRepo      string
-	pruneOpts      lifecycle.PruneOpts
-	pruneResult    []lifecycle.PruneResult
-	pruneErr       error
+	mu              sync.Mutex
+	spawned         *store.Session
+	lastInput       string
+	output          string
+	outputErr       error
+	classifyResult  store.Type
+	classified      string
+	spawnedCwd      string
+	tornDown        string
+	restoreErr      error
+	restored        string
+	terminated      string
+	removedWT       string
+	removeWTForce   bool
+	removeWTErr     error
+	newestClaude    string
+	newestErr       error
+	adoptResult     *store.Session
+	adoptErr        error
+	adoptParams     AdoptParams
+	lastKey         string
+	commitCalls     int
+	committedDir    string
+	committedMsg    string
+	commitResult    bool
+	commitErr       error
+	lwRepo          string
+	lwActive        int
+	lwArchived      int
+	lwResult        []lifecycle.WorktreeListing
+	lwErr           error
+	pruneRepo       string
+	pruneOpts       lifecycle.PruneOpts
+	pruneResult     []lifecycle.PruneResult
+	pruneErr        error
+	gitCommitDir    string
+	gitCommitMsg    string
+	gitCommitResult lifecycle.CommitResult
+	gitCommitErr    error
+	gitPushDir      string
+	gitPushResult   lifecycle.PushResult
+	gitPushErr      error
+	gitSyncDir      string
+	gitSyncBase     string
+	gitSyncResult   lifecycle.SyncResult
+	gitSyncErr      error
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -191,6 +202,27 @@ func (f *fakeLife) CommitWorktree(_ context.Context, dir, message string) (bool,
 	f.commitCalls++
 	f.committedDir, f.committedMsg = dir, message
 	return f.commitResult, f.commitErr
+}
+
+func (f *fakeLife) Commit(_ context.Context, dir, message string) (lifecycle.CommitResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gitCommitDir, f.gitCommitMsg = dir, message
+	return f.gitCommitResult, f.gitCommitErr
+}
+
+func (f *fakeLife) Push(_ context.Context, dir string) (lifecycle.PushResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gitPushDir = dir
+	return f.gitPushResult, f.gitPushErr
+}
+
+func (f *fakeLife) Sync(_ context.Context, dir, base string) (lifecycle.SyncResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gitSyncDir, f.gitSyncBase = dir, base
+	return f.gitSyncResult, f.gitSyncErr
 }
 
 func lifeServer(t *testing.T, fs *fakeStore, fl *fakeLife) *httptest.Server {

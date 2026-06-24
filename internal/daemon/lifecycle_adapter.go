@@ -136,6 +136,18 @@ func (a *lifecycleAdapter) CommitWorktree(ctx context.Context, dir, message stri
 	return a.lc.CommitWorktree(ctx, dir, message)
 }
 
+func (a *lifecycleAdapter) Commit(ctx context.Context, dir, message string) (lifecycle.CommitResult, error) {
+	return a.lc.Commit(ctx, dir, message)
+}
+
+func (a *lifecycleAdapter) Push(ctx context.Context, dir string) (lifecycle.PushResult, error) {
+	return a.lc.Push(ctx, dir)
+}
+
+func (a *lifecycleAdapter) Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error) {
+	return a.lc.Sync(ctx, dir, base)
+}
+
 func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, error) {
 	return a.lc.MemoryPressure(ctx)
 }
