@@ -61,6 +61,22 @@ die()  { err "$*"; exit 1; }
 
 claude_available() { command -v claude >/dev/null 2>&1; }
 
+# --- git hooks ------------------------------------------------------------
+# Point git at the tracked .githooks/ dir so the pre-commit (gofmt/vet) and
+# pre-push (make verify-fast) gates run automatically. Idempotent; relative
+# path resolves per-worktree. No-op outside a git checkout (e.g. installs from
+# a release tarball) — purely a developer convenience.
+wire_git_hooks() {
+  command -v git >/dev/null 2>&1 || return 0
+  [ -d "$REPO_ROOT/.githooks" ] || return 0
+  git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  if git -C "$REPO_ROOT" config core.hooksPath .githooks; then
+    info "git hooks wired: core.hooksPath -> .githooks (bypass any time with --no-verify)"
+  else
+    warn "could not set core.hooksPath; run 'make install-hooks' manually"
+  fi
+}
+
 # --- build & binary -------------------------------------------------------
 build_release() {
   info "building release (make release)…"

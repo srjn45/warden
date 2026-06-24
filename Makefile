@@ -85,10 +85,11 @@ web-test:
 # Full release build: build the UI first so go:embed picks up real assets.
 release: ui build
 
-# Point git at the tracked hooks dir so pre-push runs `make verify` (CI parity).
+# Point git at the tracked hooks dir so the pre-commit (gofmt/vet) and pre-push
+# (make verify-fast) gates run automatically. scripts/install.sh does this too.
 install-hooks:
 	git config core.hooksPath .githooks
-	@echo "git hooks installed: core.hooksPath -> .githooks"
+	@echo "git hooks installed: core.hooksPath -> .githooks (pre-commit: fmt/vet, pre-push: verify-fast)"
 
 # Symlink the warden Claude Code skill into ~/.claude/skills (idempotent).
 install-skill:
