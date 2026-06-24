@@ -23,6 +23,9 @@ func ParseSpec(data []byte) (*Pipeline, error) {
 		if j.Type == "" {
 			j.Type = "development"
 		}
+		if j.RunIf == "" {
+			j.RunIf = "success"
+		}
 		j.Status = JobPending
 	}
 	if err := Validate(&p); err != nil {

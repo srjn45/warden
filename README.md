@@ -654,7 +654,7 @@ jobs:
     prompt: "Review the implementation branch for correctness and regressions."
 ```
 
-Pipelines have full TUI and web visibility (a ▸ Pipelines section / a Pipelines tab). See [docs/USAGE.md](docs/USAGE.md) for the full authoring guide.
+Jobs can be made conditional with `run_if: success` (default) `| failure | always` — e.g. a `run_if: failure` rollback/notify step that only runs when an upstream job fails. Pipelines have full TUI and web visibility (a ▸ Pipelines section / a Pipelines tab). See [docs/USAGE.md](docs/USAGE.md) for the full authoring guide.
 
 ### Shared context & messaging — `warden ctx` / `warden msg`
 

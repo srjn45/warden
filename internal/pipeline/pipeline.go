@@ -44,6 +44,7 @@ type Job struct {
 	Worktree   string   `json:"worktree" yaml:"worktree"` // none | fresh | from:<jobid>
 	Supervised bool     `json:"supervised,omitempty" yaml:"supervised,omitempty"`
 	Type       string   `json:"type,omitempty" yaml:"type,omitempty"`
+	RunIf      string   `json:"run_if,omitempty" yaml:"run_if,omitempty"` // success (default) | failure | always
 
 	SessionID string         `json:"session_id,omitempty" yaml:"-"`
 	Status    JobStatus      `json:"status,omitempty" yaml:"-"`
@@ -134,6 +135,11 @@ func Validate(p *Pipeline) error {
 		case "none", "fresh", "from":
 		default:
 			return fmt.Errorf("job %q: invalid worktree %q (want none|fresh|from:<job>)", j.ID, j.Worktree)
+		}
+		switch j.RunIf {
+		case "", "success", "failure", "always":
+		default:
+			return fmt.Errorf("job %q: invalid run_if %q (want success|failure|always)", j.ID, j.RunIf)
 		}
 	}
 	for i := range p.Jobs {

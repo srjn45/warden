@@ -101,6 +101,7 @@ export interface PipelineJob {
   worktree: string;
   supervised: boolean;
   type: string;
+  run_if?: 'success' | 'failure' | 'always';
   session_id: string;
   status: PipelineJobStatus;
   output: string;

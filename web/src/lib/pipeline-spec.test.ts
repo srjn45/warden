@@ -84,6 +84,20 @@ describe('validateDraft', () => {
     ];
     expect(validateDraft(draft({ jobs }))).toEqual([]);
   });
+
+  it('rejects an invalid run_if', () => {
+    const jobs = [{ ...emptyJob(), id: 'a', prompt: 'x', run_if: 'maybe' as any }];
+    expect(validateDraft(draft({ jobs }))).toContainEqual(expect.stringMatching(/run_if/i));
+  });
+
+  it('accepts failure and always run_if', () => {
+    const jobs = [
+      { ...emptyJob(), id: 'a', prompt: 'x' },
+      { ...emptyJob(), id: 'b', prompt: 'y', depends_on: ['a'], run_if: 'failure' as const },
+      { ...emptyJob(), id: 'c', prompt: 'z', depends_on: ['a'], run_if: 'always' as const },
+    ];
+    expect(validateDraft(draft({ jobs }))).toEqual([]);
+  });
 });
 
 describe('draftToSpec', () => {
@@ -100,15 +114,22 @@ describe('draftToSpec', () => {
     const d = draft({
       jobs: [{
         id: 'a', prompt: 'p', depends_on: ['x'], handoff: 'hand',
-        worktree: 'fresh', supervised: true, type: 'review',
+        worktree: 'fresh', supervised: true, type: 'review', run_if: 'success',
       }],
     });
     // depends_on must be sorted-stable and present; handoff/supervised/type included.
+    // run_if 'success' is the default and is omitted.
     const spec = draftToSpec(d) as any;
     expect(spec.jobs[0]).toEqual({
       id: 'a', prompt: 'p', depends_on: ['x'], handoff: 'hand',
       worktree: 'fresh', supervised: true, type: 'review',
     });
+  });
+
+  it('includes a non-default run_if', () => {
+    const d = draft({ jobs: [{ ...emptyJob(), id: 'a', prompt: 'p', run_if: 'failure' }] });
+    const spec = draftToSpec(d) as any;
+    expect(spec.jobs[0].run_if).toBe('failure');
   });
 
   it('drops empty depends_on entries', () => {

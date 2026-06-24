@@ -37,6 +37,19 @@ func TestComposePromptNoDepsNoUpstreamBlock(t *testing.T) {
 	}
 }
 
+func TestComposePromptNotesFailedUpstream(t *testing.T) {
+	// A failure-handler must be told its upstream failed; the failed job has no
+	// handoff output of its own to inject.
+	p := &Pipeline{ID: "p", Name: "p", Repo: "/r", Jobs: []Job{
+		{ID: "build", Prompt: "build", Worktree: "none", Status: JobFailed},
+		{ID: "notify", Prompt: "alert", DependsOn: []string{"build"}, Worktree: "none", RunIf: "failure"},
+	}}
+	out := ComposePrompt(p, p.Job("notify"))
+	if !strings.Contains(out, "job `build` FAILED") {
+		t.Fatalf("failure-handler should be told its upstream failed:\n%s", out)
+	}
+}
+
 func TestComposePromptInstructsCommitBeforeEmit(t *testing.T) {
 	p := &Pipeline{ID: "p", Name: "p", Jobs: []Job{{ID: "a", Prompt: "do x", Worktree: "fresh"}}}
 	out := ComposePrompt(p, p.Job("a"))

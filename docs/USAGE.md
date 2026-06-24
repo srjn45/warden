@@ -1035,11 +1035,40 @@ job `done`, and unblocks any dependents.
 A fan-in job (e.g. `review` above) does the `git merge` itself as part of its
 prompt work.
 
+**Conditional steps** (`run_if:` field) gate a job on its upstream outcomes:
+
+| Value | Job runs when… |
+|---|---|
+| `success` (default) | every dependency succeeded; skipped if any failed (today's behaviour) |
+| `failure` | at least one dependency **failed** — for cleanup/notify/rollback steps |
+| `always` | all dependencies have finished, regardless of success or failure |
+
+A job is decided only once all its dependencies have settled. A `failure`/`always`
+handler is told which upstream failed (the failed job has no handoff of its own),
+so it can react. When a failure has such a downstream handler the pipeline is not
+considered stalled — it keeps running, and completes `done` if the handler
+succeeds.
+
+```yaml
+jobs:
+  - id: deploy
+    prompt: "Deploy the release."
+  - id: rollback
+    depends_on: [deploy]
+    run_if: failure        # only runs if deploy failed
+    prompt: "Roll back the deploy."
+  - id: notify
+    depends_on: [deploy]
+    run_if: always         # runs either way
+    prompt: "Post the deploy outcome to the channel."
+```
+
 **Failure behaviour:** if a job's agent session enters `errored` or `orphaned`,
-the job is marked `failed`, its descendants are marked `skipped`, and the
-pipeline status becomes `stalled`. Jobs that were already running are not
-interrupted — only pending descendants are skipped. A `stalled` pipeline can be
-inspected with `pipeline show` and cleaned up with `pipeline cancel`.
+the job is marked `failed`. Its pending `success` descendants are marked
+`skipped`; any `failure`/`always` handler downstream instead runs. With no
+handler the pipeline status becomes `stalled`. Jobs that were already running are
+not interrupted. A `stalled` pipeline can be inspected with `pipeline show` and
+cleaned up with `pipeline cancel`.
 
 **Pipeline status values:**
 

@@ -6,6 +6,8 @@
 
 export type WorktreeMode = 'none' | 'fresh' | string; // string also covers `from:<jobId>`
 
+export type RunIf = 'success' | 'failure' | 'always';
+
 export interface JobDraft {
   id: string;
   prompt: string;
@@ -14,6 +16,7 @@ export interface JobDraft {
   worktree: WorktreeMode;
   supervised: boolean;
   type: string;
+  run_if: RunIf;
 }
 
 export interface PipelineDraft {
@@ -23,7 +26,7 @@ export interface PipelineDraft {
 }
 
 export function emptyJob(): JobDraft {
-  return { id: '', prompt: '', depends_on: [], handoff: '', worktree: 'none', supervised: false, type: '' };
+  return { id: '', prompt: '', depends_on: [], handoff: '', worktree: 'none', supervised: false, type: '', run_if: 'success' };
 }
 
 export function emptyDraft(): PipelineDraft {
@@ -70,6 +73,9 @@ export function validateDraft(d: PipelineDraft): string[] {
     const { mode } = parseWorktree(j.worktree);
     if (mode !== 'none' && mode !== 'fresh' && mode !== 'from') {
       errs.push(`job ${JSON.stringify(j.id)}: invalid worktree ${JSON.stringify(j.worktree)} (want none|fresh|from:<job>)`);
+    }
+    if (j.run_if !== 'success' && j.run_if !== 'failure' && j.run_if !== 'always') {
+      errs.push(`job ${JSON.stringify(j.id)}: invalid run_if ${JSON.stringify(j.run_if)} (want success|failure|always)`);
     }
   }
 
@@ -139,6 +145,7 @@ export function draftToSpec(d: PipelineDraft): Record<string, unknown> {
       if (j.handoff.trim() !== '') job.handoff = j.handoff;
       if (j.supervised) job.supervised = true;
       if (j.type.trim() !== '') job.type = j.type;
+      if (j.run_if && j.run_if !== 'success') job.run_if = j.run_if;
       return job;
     }),
   };

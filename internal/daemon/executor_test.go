@@ -663,6 +663,49 @@ func TestResumeOnlyFromPaused(t *testing.T) {
 	}
 }
 
+// recoveryChain: a → recover, where recover runs only on a's failure. Models a
+// cleanup/notify step gated with run_if: failure.
+func recoveryChain() *pipeline.Pipeline {
+	return &pipeline.Pipeline{ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{
+			{ID: "a", Prompt: "first", Worktree: "none", Status: pipeline.JobPending},
+			{ID: "recover", Prompt: "clean up", DependsOn: []string{"a"}, Worktree: "none",
+				RunIf: "failure", Status: pipeline.JobPending},
+		}}
+}
+
+func TestReconcileRunsFailureHandlerInsteadOfStalling(t *testing.T) {
+	e, ps, ss := newTestExecutor(t)
+	ps.Create(recoveryChain())
+	e.Reconcile(context.Background(), "p") // spawns a
+
+	// a's agent dies without emitting → a fails. The run_if:failure handler must
+	// spawn rather than be skipped, and the pipeline keeps running (not stalled).
+	sess, _ := ss.Get(context.Background(), "p-a")
+	e.OnTransition(sess, store.StatusWorking, store.StatusErrored)
+
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobFailed {
+		t.Fatalf("a should be failed, got %s", got.Job("a").Status)
+	}
+	if got.Job("recover").Status != pipeline.JobRunning || got.Job("recover").SessionID != "p-recover" {
+		t.Fatalf("recover should be running, got %+v", got.Job("recover"))
+	}
+	if got.Status != pipeline.StatusRunning {
+		t.Fatalf("handled failure should keep pipeline running, got %s", got.Status)
+	}
+
+	// recover emits → pipeline completes done, not stalled.
+	ps.Update("p", func(p *pipeline.Pipeline) { p.Job("recover").Status = pipeline.JobDone })
+	if err := e.Reconcile(context.Background(), "p"); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	got, _ = ps.Get("p")
+	if got.Status != pipeline.StatusDone {
+		t.Fatalf("handled+completed pipeline should be done, got %s", got.Status)
+	}
+}
+
 func TestPauseUnknownPipeline(t *testing.T) {
 	e, _, _ := newTestExecutor(t)
 	if err := e.Pause("ghost"); !errors.Is(err, pipeline.ErrNotFound) {

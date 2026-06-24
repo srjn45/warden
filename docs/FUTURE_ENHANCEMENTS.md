@@ -354,9 +354,14 @@ new job spawns; in-flight jobs keep running and may still emit/fail. `pause`
 HTTP routes, client, `warden pipeline pause|resume`, TUI `p` key, and web
 Pause/Resume buttons.
 
-#### 27. Conditional pipeline steps — *not started*
-**Effort:** 6 hours. `run_if: success|failure|always`; executor checks upstream
-exit codes (default `always`).
+#### 27. ~~Conditional pipeline steps~~ — ✅ **DONE**
+Per-job `run_if: success|failure|always` (default `success`, preserving the
+fail-fast skip behaviour). `pipeline.Plan` gates each job on its settled deps:
+`success` runs iff all deps succeeded, `failure` iff a dep failed, `always`
+regardless. A failure with a downstream `failure`/`always` handler no longer
+stalls the pipeline (it can complete `done`); the handler's prompt is told which
+upstream failed. Plumbed through YAML spec/validate, the web pipeline builder
+(`run_if` selector), and `docs/USAGE.md`.
 
 ---
 
