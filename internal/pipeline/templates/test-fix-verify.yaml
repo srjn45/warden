@@ -1,0 +1,33 @@
+# Reproduce a failing test, fix the cause, then verify the fix holds.
+name: {{NAME}}
+repo: {{REPO}}
+jobs:
+  - id: test
+    type: tests
+    worktree: fresh
+    prompt: |
+      Reproduce the problem below with a failing automated test (or identify
+      the existing failing test). Commit the test and emit a handoff describing
+      the failure and the suspected cause.
+
+      Problem: {{TASK}}
+
+  - id: fix
+    type: development
+    worktree: from:test
+    depends_on: [test]
+    prompt: |
+      Using the failing test and analysis from the test step (above), implement
+      the fix on this branch. Make the failing test pass without breaking
+      others, then commit.
+
+      Problem: {{TASK}}
+
+  - id: verify
+    type: tests
+    worktree: from:fix
+    depends_on: [fix]
+    prompt: |
+      Verify the fix on this branch: run the full test suite, confirm the
+      previously-failing test now passes and nothing regressed. Report the
+      result clearly.

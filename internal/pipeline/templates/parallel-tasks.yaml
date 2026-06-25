@@ -1,0 +1,30 @@
+# Run two independent tasks in parallel, then integrate their branches.
+name: {{NAME}}
+repo: {{REPO}}
+jobs:
+  - id: task-a
+    type: development
+    worktree: fresh
+    prompt: |
+      Implement the task below independently of any other in-flight work.
+      Commit your changes on your branch when done.
+
+      Task: {{TASK_A}}
+
+  - id: task-b
+    type: development
+    worktree: fresh
+    prompt: |
+      Implement the task below independently of any other in-flight work.
+      Commit your changes on your branch when done.
+
+      Task: {{TASK_B}}
+
+  - id: integrate
+    type: development
+    worktree: from:task-a
+    depends_on: [task-a, task-b]
+    prompt: |
+      Both parallel tasks are complete (their handoffs and branches are above).
+      Integrate task-b's branch into this one, resolve any conflicts, make the
+      combined result build and pass tests, and commit.

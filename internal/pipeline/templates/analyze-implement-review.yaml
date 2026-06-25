@@ -1,0 +1,33 @@
+# Analyze a task, implement it on a fresh branch, then review the result.
+name: {{NAME}}
+repo: {{REPO}}
+jobs:
+  - id: analyze
+    type: analysis
+    worktree: none
+    prompt: |
+      Analyze the task below and produce a concise implementation plan: the
+      files to touch, the approach, edge cases, and risks. Do NOT write code
+      yet — emit the plan as your handoff so the implement step can follow it.
+
+      Task: {{TASK}}
+
+  - id: implement
+    type: development
+    worktree: fresh
+    depends_on: [analyze]
+    prompt: |
+      Implement the task below, following the plan from the analyze step
+      (provided above as upstream output). Write tests where it makes sense and
+      commit your work on your branch.
+
+      Task: {{TASK}}
+
+  - id: review
+    type: pr-review
+    worktree: from:implement
+    depends_on: [implement]
+    prompt: |
+      Review the implementation on this branch (built by the implement step)
+      for correctness, test coverage, and style. Summarize your findings and
+      state clearly whether it is ready to merge or what must change first.

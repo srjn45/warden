@@ -1,0 +1,34 @@
+# Research a topic from two angles in parallel, then synthesize the findings.
+name: {{NAME}}
+repo: {{REPO}}
+jobs:
+  - id: research-breadth
+    type: analysis
+    worktree: none
+    prompt: |
+      Research the topic below for BREADTH: survey the available options,
+      prior art, and the general landscape. Emit a concise summary of what you
+      found as your handoff. Do not write code.
+
+      Topic: {{TOPIC}}
+
+  - id: research-depth
+    type: analysis
+    worktree: none
+    prompt: |
+      Research the topic below for DEPTH: dig into the most promising approach,
+      its trade-offs, failure modes, and concrete details. Emit a concise
+      summary as your handoff. Do not write code.
+
+      Topic: {{TOPIC}}
+
+  - id: synthesize
+    type: analysis
+    worktree: none
+    depends_on: [research-breadth, research-depth]
+    prompt: |
+      Synthesize the breadth and depth research (provided above) into a single
+      clear recommendation for the topic: the options considered, the chosen
+      direction, and why. Emit the synthesis as your handoff.
+
+      Topic: {{TOPIC}}

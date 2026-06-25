@@ -553,8 +553,8 @@ warden msg inbox --as agent-9c1d
 warden msg wait --as agent-9c1d --timeout 120
 ```
 
-### `warden pipeline validate|create|start|show|list|cancel|retry|edit-job|delete`
-Define and run a **DAG of agent jobs** from a YAML spec (CLI-only authoring). See
+### `warden pipeline validate|create|list-templates|start|show|list|cancel|retry|edit-job|delete`
+Define and run a **DAG of agent jobs** from a YAML spec or a built-in template. See
 §7.5 below for the full guide.
 
 ### `warden stats [--watch] [--history [--agent ID]] [--json]`
@@ -700,7 +700,9 @@ pipelines but don't author them.
 
 ```sh
 warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
+warden pipeline list-templates          # built-in starters + their placeholders
 warden pipeline create -f review.yaml   # validate + register (does NOT start)
+warden pipeline create --template analyze-implement-review --set TASK="…"  # from a template
 warden pipeline start <id>              # spawn jobs with no dependencies
 warden pipeline show <id>               # jobs, status, branches, emitted output
 warden pipeline list
@@ -733,6 +735,30 @@ jobs:
 Results are durable in the pipeline record (`warden pipeline show`), the shared
 context (`pipeline.<id>.<job>.output`), and each job's git branch — they are not
 tied to the (possibly reaped) live agent.
+
+**Templates** — skip hand-writing a spec for common shapes. `warden pipeline
+list-templates` shows the four bundled starters and the placeholders each needs:
+
+| Template | Shape | Placeholders |
+|---|---|---|
+| `analyze-implement-review` | analyze → implement → review | `TASK` |
+| `parallel-tasks` | two independent tasks → integrate | `TASK_A`, `TASK_B` |
+| `test-fix-verify` | reproduce → fix → verify | `TASK` |
+| `research-synthesis` | breadth + depth research → synthesize | `TOPIC` |
+
+`create --template <name>` renders the spec and registers it. `{{NAME}}` defaults
+to the template name (override with `--name`) and `{{REPO}}` to the current
+directory (override with `--repo`); fill every other placeholder with `--set
+KEY=VALUE` (repeatable):
+
+```sh
+warden pipeline create --template analyze-implement-review \
+  --name auth-refactor --repo ~/dev/app \
+  --set TASK="extract the session store behind an interface"
+warden pipeline start auth-refactor
+```
+
+A template with an unfilled placeholder fails fast, naming the missing key.
 
 ---
 
