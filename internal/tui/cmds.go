@@ -51,11 +51,11 @@ func listCmd(a api) tea.Cmd {
 	}
 }
 
-func spawnCmd(a api, prompt, cwd string, force bool) tea.Cmd {
+func spawnCmd(a api, prompt, name, cwd string, force bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Cwd: cwd, Force: force})
+		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Name: name, Cwd: cwd, Force: force})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired
 			if errors.As(err, &cre) {
@@ -64,6 +64,21 @@ func spawnCmd(a api, prompt, cwd string, force bool) tea.Cmd {
 			return spawnDoneMsg{err: err}
 		}
 		return spawnDoneMsg{id: s.ID}
+	}
+}
+
+// renameDoneMsg reports the outcome of a SetName call.
+type renameDoneMsg struct {
+	id  string
+	err error
+}
+
+// renameCmd renames an agent (blank name clears it) via the daemon.
+func renameCmd(a api, id, name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		return renameDoneMsg{id: id, err: a.SetName(ctx, id, name)}
 	}
 }
 

@@ -32,6 +32,7 @@ type listPaneModel struct {
 	ta            textarea.Model
 	ti            textinput.Model
 	tp            textinput.Model
+	tn            textinput.Model // agent name input (new-agent form + rename)
 	openedDirs    map[string]time.Time
 	dirCandidates []string
 	targetDir     string
@@ -44,7 +45,9 @@ type listPaneModel struct {
 	seen          map[string]bool // pipeline ids the default-collapse has been applied to
 	pressure      client.PressureStatus
 	pendingPrompt string
+	pendingName   string // name typed in the new-agent form, held across the pressure confirm
 	pendingDir    string
+	renameID      string                // agent id being renamed (modeRename)
 	spawnVerdict  string                // reason text for the confirm prompt; "" when not confirming
 	pendingDelete string                // pid awaiting delete confirmation; "" when not confirming
 	ctxEntries    []client.ContextEntry // inspector: shared-context snapshot
@@ -66,8 +69,11 @@ func newListPane(a api, detailPane string) listPaneModel {
 	ti.Placeholder = "message…"
 	tp := textinput.New()
 	tp.Placeholder = "~/path/to/dir"
+	tn := textinput.New()
+	tn.Placeholder = "agent-name (optional; blank = auto)"
+	tn.CharLimit = 32
 	return listPaneModel{
-		api: a, ta: ta, ti: ti, tp: tp, detailPane: detailPane,
+		api: a, ta: ta, ti: ti, tp: tp, tn: tn, detailPane: detailPane,
 		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{}, connected: true,
 		vp: viewport.New(0, 0),
 	}
@@ -281,6 +287,13 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "sent"
 		}
 		return m, nil
+	case renameDoneMsg:
+		if msg.err != nil {
+			m.status = "rename failed: " + msg.err.Error()
+		} else {
+			m.status = "renamed " + msg.id
+		}
+		return m, listCmd(m.api) // refresh so the new name shows immediately
 	case cleanupDoneMsg:
 		m.mode = modeNormal
 		m.status = "removed " + msg.id
@@ -342,17 +355,56 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.tp.Focus()
 			m.dirCandidates = nil
 			return m, nil
+		case tea.KeyCtrlN:
+			// Switch focus to the name field. Blank means "let warden auto-name it".
+			m.mode = modeNewAgentName
+			m.ta.Blur()
+			m.tn.CursorEnd()
+			m.tn.Focus()
+			return m, nil
 		case tea.KeyCtrlS:
 			// An empty prompt is intentional: it opens claude in the target dir
 			// and waits for the user to type instructions into Claude directly.
 			prompt := strings.TrimSpace(m.ta.Value())
+			name := strings.TrimSpace(m.tn.Value())
 			m.mode = modeNormal
 			m.ta.Blur()
-			m.pendingPrompt, m.pendingDir = prompt, m.targetDir
-			return m, spawnCmd(m.api, prompt, m.targetDir, false)
+			m.pendingPrompt, m.pendingName, m.pendingDir = prompt, name, m.targetDir
+			return m, spawnCmd(m.api, prompt, name, m.targetDir, false)
 		}
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
+		return m, cmd
+	case modeNewAgentName:
+		switch msg.Type {
+		case tea.KeyEsc, tea.KeyEnter:
+			m.mode = modeNewAgent
+			m.tn.Blur()
+			m.ta.Focus()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.tn, cmd = m.tn.Update(msg)
+		return m, cmd
+	case modeRename:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.mode = modeDetails
+			m.tn.Blur()
+			return m, nil
+		case tea.KeyEnter:
+			name := strings.TrimSpace(m.tn.Value())
+			id := m.renameID
+			m.mode = modeDetails
+			m.tn.Blur()
+			if id == "" {
+				return m, nil
+			}
+			m.status = "renaming " + id
+			return m, renameCmd(m.api, id, name)
+		}
+		var cmd tea.Cmd
+		m.tn, cmd = m.tn.Update(msg)
 		return m, cmd
 	case modeOpenDir:
 		switch msg.Type {
@@ -428,10 +480,10 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "f", "F":
 			m.mode = modeNormal
-			prompt, dir := m.pendingPrompt, m.pendingDir
+			prompt, name, dir := m.pendingPrompt, m.pendingName, m.pendingDir
 			m.spawnVerdict = ""
 			m.status = "spawning (forced)…"
-			return m, spawnCmd(m.api, prompt, dir, true)
+			return m, spawnCmd(m.api, prompt, name, dir, true)
 		case "esc", "n", "N":
 			m.mode = modeNormal
 			m.spawnVerdict = ""
@@ -496,6 +548,17 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
 		case "esc", "i":
 			m.mode = modeNormal
+			return m, nil
+		case "r":
+			// Rename the agent this detail view is for: seed the name field with
+			// its current name and focus it.
+			if s := m.selected(); s != nil {
+				m.mode = modeRename
+				m.renameID = s.ID
+				m.tn.SetValue(s.Name)
+				m.tn.CursorEnd()
+				m.tn.Focus()
+			}
 			return m, nil
 		case "g":
 			m.vp.GotoTop()
@@ -593,6 +656,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNewAgent
 		m.ta.Reset()
 		m.ta.Focus()
+		m.tn.Reset()
 	case "o":
 		m.mode = modeOpenDir
 		m.tp.Reset()
@@ -712,7 +776,12 @@ func (m listPaneModel) View() string {
 	}
 	if m.mode == modeDetails {
 		body := titleBox("Details — "+m.selectedID(), m.vp.View(), m.w, bodyH)
-		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · i/esc back · q quit")
+		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · r rename · i/esc back · q quit")
+	}
+	if m.mode == modeRename {
+		body := titleBox("Details — "+m.selectedID(), m.vp.View(), m.w, bodyH)
+		input := stPaneTitle.Render("Rename "+m.renameID+" (enter save · blank clears · esc cancel):") + " " + m.tn.View()
+		return header + "\n" + body + "\n" + input
 	}
 	if m.mode == modeApprovals {
 		body := titleBox("Approvals", approvalsBody(recognizedApprovals(m.approvals), m.apprCursor, m.w-2), m.w, bodyH)
@@ -729,7 +798,10 @@ func (m listPaneModel) View() string {
 	}
 	switch m.mode {
 	case modeNewAgent:
-		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: change dir · ctrl+s submit (blank = open Claude & wait) · esc cancel)") + "\n" + m.ta.View()
+		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: dir · ctrl+n: name · ctrl+s submit (blank = open Claude & wait) · esc cancel)") +
+			"\n" + m.ta.View() + "\n" + stMuted.Render("name: ") + newAgentNameLabel(m.tn.Value())
+	case modeNewAgentName:
+		footer = stPaneTitle.Render("Agent name (enter/esc back to prompt · blank = auto-name):") + " " + m.tn.View()
 	case modeNewAgentDir:
 		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenDir:
@@ -744,6 +816,15 @@ func (m listPaneModel) View() string {
 		footer = stError.Render("Delete pipeline " + m.pendingDelete + "? y / N")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
+}
+
+// newAgentNameLabel renders the name chosen in the new-agent form, or a muted
+// "(auto)" hint when it is blank (warden will derive one after spawn).
+func newAgentNameLabel(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return stMuted.Render("(auto)")
+	}
+	return name
 }
 
 // killCockpitCmd tears down the whole cockpit by killing the tmux session that

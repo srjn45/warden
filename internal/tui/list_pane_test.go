@@ -29,6 +29,58 @@ func TestListPaneGroupsBySourceDir(t *testing.T) {
 	require.Equal(t, []string{"b1", "b2", "a1"}, ids, "cockpit list pane stores grouped order")
 }
 
+func TestListPaneNewAgentNameFieldFlowsToSpawn(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+	m = lstep(m, key("n"))
+	require.Equal(t, modeNewAgent, m.mode)
+	// ctrl+n focuses the name field; type a name, then enter returns to the prompt.
+	m = lstep(m, tea.KeyMsg{Type: tea.KeyCtrlN})
+	require.Equal(t, modeNewAgentName, m.mode)
+	m = lstep(m, key("my-agent"))
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeNewAgent, m.mode)
+	// ctrl+s submits the spawn carrying the typed name.
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	require.NotNil(t, cmd)
+	cmd()
+	require.NotNil(t, f.spawned)
+	require.Equal(t, "my-agent", f.spawned.Name)
+}
+
+func TestListPaneRenameFromDetails(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Name: "old", Workdir: "/w"}}})
+	m = lstep(m, key("i")) // open details
+	require.Equal(t, modeDetails, m.mode)
+	m = lstep(m, key("r")) // start rename
+	require.Equal(t, modeRename, m.mode)
+	require.Equal(t, "old", m.tn.Value(), "rename seeds the current name")
+	require.Equal(t, "a1", m.renameID)
+	// Clear and type a new name, then enter to submit.
+	m.tn.SetValue("new-name")
+	nm, cmd := m.Update(key("enter"))
+	m = nm.(listPaneModel)
+	require.Equal(t, modeDetails, m.mode)
+	require.NotNil(t, cmd)
+	cmd()
+	require.Equal(t, "a1", f.renamedID)
+	require.Equal(t, "new-name", f.renamedName)
+}
+
+func TestListPaneRenameEscCancels(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Name: "old", Workdir: "/w"}}})
+	m = lstep(m, key("i"))
+	m = lstep(m, key("r"))
+	require.Equal(t, modeRename, m.mode)
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeDetails, m.mode)
+	require.Empty(t, f.renamedID, "esc cancels the rename without calling SetName")
+}
+
 func TestListPaneDeletePipelineConfirmsThenDeletes(t *testing.T) {
 	f := &fakeAPI{}
 	m := newListPane(f, "%9")

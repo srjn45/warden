@@ -844,3 +844,10 @@ func (c *Client) SetPermissionMode(ctx context.Context, id string, mode string) 
 	body := map[string]string{"permission_mode": mode}
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-mode", body, nil)
 }
+
+// SetName renames an agent (blank clears the name). The daemon validates the
+// format and rejects a name already used by another session.
+func (c *Client) SetName(ctx context.Context, id, name string) error {
+	body := map[string]string{"name": name}
+	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/name", body, nil)
+}

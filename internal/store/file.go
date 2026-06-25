@@ -409,6 +409,10 @@ func (fs *FileStore) UpdateSubject(ctx context.Context, id, subject string) erro
 	return fs.mutate(id, func(s *Session) { s.Subject = subject })
 }
 
+func (fs *FileStore) UpdateName(ctx context.Context, id, name string) error {
+	return fs.mutate(id, func(s *Session) { s.Name = name })
+}
+
 func (fs *FileStore) UpdatePane(ctx context.Context, id, excerpt string) error {
 	return fs.mutate(id, func(s *Session) { s.LastPaneExcerpt = excerpt })
 }

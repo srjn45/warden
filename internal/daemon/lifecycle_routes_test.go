@@ -28,6 +28,8 @@ type fakeLife struct {
 	outputErr       error
 	classifyResult  store.Type
 	classified      string
+	nameResult      string
+	namedPrompt     string
 	spawnedCwd      string
 	tornDown        string
 	restoreErr      error
@@ -89,7 +91,7 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 		typ = store.NormalizeType(req.Type)
 	}
 	f.spawned = &store.Session{
-		ID: id, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
+		ID: id, Name: req.Name, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning,
 		PermissionMode: req.PermissionMode,
 	}
@@ -109,6 +111,12 @@ func (f *fakeLife) getClassified() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.classified
+}
+func (f *fakeLife) GenerateName(_ context.Context, prompt string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.namedPrompt = prompt
+	return f.nameResult
 }
 func (f *fakeLife) Terminate(_ context.Context, tmux string) error {
 	f.mu.Lock()
@@ -284,6 +292,74 @@ func TestPostSpawnRollsBackWhenInsertFails(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	require.Equal(t, "A-1", fl.tornDown, "tmux/worktree must be torn down when the doc can't be persisted")
+}
+
+// patchJSON issues a PATCH with a JSON body against the test server.
+func patchJSON(t *testing.T, url, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func TestHandleSetName(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
+	srv := lifeServer(t, fs, &fakeLife{})
+	resp := patchJSON(t, srv.URL+"/sessions/A-1/name", `{"name":"order-api"}`)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Equal(t, "order-api", got.Name)
+}
+
+func TestHandleSetNameRejectsInvalid(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
+	srv := lifeServer(t, fs, &fakeLife{})
+	resp := patchJSON(t, srv.URL+"/sessions/A-1/name", `{"name":"bad name!"}`)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestHandleSetNameRejectsDuplicate(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "taken", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &store.Session{ID: "B-2", TmuxSession: "B-2", Status: store.StatusWorking})
+	srv := lifeServer(t, fs, &fakeLife{})
+	resp := patchJSON(t, srv.URL+"/sessions/B-2/name", `{"name":"taken"}`)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestHandleSetNameAllowsKeepingOwnName(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
+	srv := lifeServer(t, fs, &fakeLife{})
+	resp := patchJSON(t, srv.URL+"/sessions/A-1/name", `{"name":"mine"}`)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "renaming to the same name must not collide with itself")
+}
+
+func TestHandleSetNameClearsWhenBlank(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
+	srv := lifeServer(t, fs, &fakeLife{})
+	resp := patchJSON(t, srv.URL+"/sessions/A-1/name", `{"name":""}`)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Equal(t, "", got.Name)
+}
+
+func TestHandleSetNameUnknownSession(t *testing.T) {
+	srv := lifeServer(t, newFakeStore(), &fakeLife{})
+	resp := patchJSON(t, srv.URL+"/sessions/nope/name", `{"name":"x"}`)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func TestHandleTerminate(t *testing.T) {
@@ -610,6 +686,51 @@ func TestPostSpawnPromptThenClassifies(t *testing.T) {
 		return err == nil && s.Type == store.TypeAnalysis
 	}, 2*time.Second, 10*time.Millisecond)
 	require.Equal(t, "investigate flaky test", fl.getClassified())
+}
+
+func TestPostSpawnAutoNamesWhenUnnamed(t *testing.T) {
+	fs := newFakeStore()
+	fl := &fakeLife{nameResult: "flaky-test-hunt"}
+	srv := promptServer(t, fs, fl)
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	body, _ := json.Marshal(SpawnRequest{Prompt: "investigate flaky test", Cwd: t.TempDir()})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var created store.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	require.Empty(t, created.Name, "spawn responds before the background naming lands")
+
+	// Background naming assigns the generated handle shortly after.
+	require.Eventually(t, func() bool {
+		s, err := fs.Get(context.Background(), created.ID)
+		return err == nil && s.Name == "flaky-test-hunt"
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestPostSpawnKeepsExplicitName(t *testing.T) {
+	fs := newFakeStore()
+	fl := &fakeLife{nameResult: "auto-handle"}
+	srv := promptServer(t, fs, fl)
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	body, _ := json.Marshal(SpawnRequest{Prompt: "do the thing", Name: "my-name", Cwd: t.TempDir()})
+	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var created store.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	require.Equal(t, "my-name", created.Name)
+
+	// Give any (incorrect) background naming a chance to fire, then assert the
+	// operator's chosen name is never overwritten.
+	require.Never(t, func() bool {
+		s, err := fs.Get(context.Background(), created.ID)
+		return err == nil && s.Name == "auto-handle"
+	}, 200*time.Millisecond, 20*time.Millisecond)
 }
 
 func TestPostSpawnRejectsEmptyRequest(t *testing.T) {
