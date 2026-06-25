@@ -21,6 +21,14 @@ func newRootCmd() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// First-run nudge: a single, non-blocking hint toward `wd tutorial`,
+		// emitted to stderr before any command runs. maybeHintTutorial gates
+		// itself on a missing marker + interactive TTY + the `tutorial` config
+		// setting, and stays silent for machine/full-screen commands — so
+		// automation, pipes, and the daemon/MCP surfaces are never touched.
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			maybeHintTutorial(cmd)
+		},
 	}
 	// `warden --version` prints the full build info (commit/date/go/platform),
 	// the same block as `warden version`.
@@ -50,6 +58,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newTUICmd())
 	root.AddCommand(newOrchCmd())
 	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newTutorialCmd())
 	root.AddCommand(newCompletionCmd())
 	root.AddCommand(newVersionCmd())
 	root.Args = cobra.NoArgs

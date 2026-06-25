@@ -61,6 +61,7 @@ type Config struct {
 	GitRedirect            bool   `yaml:"git_redirect"`
 	CheckRedirect          bool   `yaml:"check_redirect"`
 	Snapshots              bool   `yaml:"snapshots"`
+	Tutorial               bool   `yaml:"tutorial"`
 	LocalLLM               bool   `yaml:"local_llm"`
 	LocalLLMURL            string `yaml:"local_llm_url"`
 	LocalLLMModel          string `yaml:"local_llm_model"`
@@ -127,6 +128,7 @@ var schema = []setting{
 	{"git_redirect", "Install the PreToolUse hook that denies raw git commit/push/pull/rebase in Bash and redirects to the warden tools (reads stay allowed). Values: true | false"},
 	{"check_redirect", "Install the PreToolUse hook that denies a raw test/lint/build command the project's .warden/check.yml registers and redirects it to wd check (returns only failures). No config means nothing is redirected. Values: true | false"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
+	{"tutorial", "Print a one-line first-run hint pointing at `wd tutorial` until the walkthrough is completed (it writes a tutorial-complete marker in data_dir). The hint is non-blocking and only shown on an interactive TTY; this gate disables it. Values: true | false"},
 	{"local_llm", "Route fuzzy-but-cheap tasks (task classification) to a local model instead of warden's own headless Claude. Off by default; every step falls back to Claude on any error. Values: true | false"},
 	{"local_llm_url", "Base URL of the local Ollama-compatible server used when local_llm is on. Values: http(s) URL (default http://localhost:11434)"},
 	{"local_llm_model", "Model name the local server should run for warden's tasks. Values: an Ollama model tag (e.g. qwen2.5-coder:7b)"},
@@ -187,6 +189,7 @@ func defaults() Config {
 		GitRedirect:            true,
 		CheckRedirect:          true,
 		Snapshots:              true,
+		Tutorial:               true,
 		LocalLLM:               false,
 		LocalLLMURL:            "http://localhost:11434",
 		LocalLLMModel:          "qwen2.5-coder:7b",
@@ -669,6 +672,10 @@ func (c Config) GetCheckRedirect() bool { return c.CheckRedirect }
 // GetSnapshots reports whether the snapshot/checkpoint system is enabled (the
 // daemon gates the wd snapshot create/list/restore endpoints on it).
 func (c Config) GetSnapshots() bool { return c.Snapshots }
+
+// GetTutorial reports whether the first-run tutorial hint is enabled (the CLI
+// gates the one-line `wd tutorial` nudge on it).
+func (c Config) GetTutorial() bool { return c.Tutorial }
 
 // GetLocalLLM reports whether warden routes its fuzzy-but-cheap tasks (task
 // classification) to a local model instead of headless Claude.

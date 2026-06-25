@@ -511,3 +511,30 @@ Checkpoint an agent at a known-good point — its **worktree state** *and* its
 Built as a self-contained `internal/snapshot` package (pure helpers + a runner
 over the shared `lifecycle.Runner` command seam), wired through the daemon →
 client → CLI/MCP like the other lifecycle verbs.
+
+## 24. First-run tutorial (`wd tutorial`)
+
+A friendly, idempotent walkthrough of warden's core loop for new operators —
+**spawn → watch → talk → tear down** — plus pointers to the cockpit TUI and the
+web GUI. It changes nothing: each step shows the exact command to try when you're
+ready (`wd start`, `wd ls`/`wd status`, `wd attach`/`wd send`, `wd done`, `wd tui`).
+
+- **`wd tutorial`** — prints the walkthrough, then writes a `tutorial-complete`
+  marker in `<data_dir>` so the first-run hint stops appearing.
+- **`wd tutorial --skip`** — writes the marker *without* running the steps
+  (silences the hint immediately).
+- **`wd tutorial --reset`** — deletes the marker so the tour (and the hint) run
+  fresh. (`--reset` and `--skip` are mutually exclusive.)
+
+**First-run hint.** On a normal invocation, if the marker is absent, warden prints
+a single non-blocking line to **stderr** nudging you toward `wd tutorial`. It is
+shown **only** when stdout is an interactive **TTY** *and* the marker is missing
+*and* the `tutorial` config setting is on (default on) — and never for piped /
+non-TTY output or the machine/full-screen surfaces (daemon, MCP, hooks,
+completion, the cockpit root, `wd tui`, the tutorial itself). The walkthrough is
+never auto-run and never blocks; automation and the daemon/MCP paths are
+untouched. Disable the hint entirely with `tutorial: false` in the config.
+
+Implemented as a thin CLI verb (`internal/cli/tutorial.go`) over pure,
+unit-tested helpers — marker read/write/reset, the step list, and the
+suppression predicate — with no daemon change.

@@ -81,6 +81,7 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"pipeline_keep_done", fmt.Sprintf("%t", cfg.PipelineKeepDone)},
 			{"spawn_gate", fmt.Sprintf("%t", cfg.SpawnGateEnabled)},
 			{"spawn_gate_max_agents", fmt.Sprintf("%d", cfg.SpawnGateMaxAgents)},
+			{"tutorial", fmt.Sprintf("%t", cfg.Tutorial)},
 		}},
 		{"notifications & metrics", [][2]string{
 			{"approvals", fmt.Sprintf("%t", cfg.ApprovalsEnabled)},
