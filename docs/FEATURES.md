@@ -155,6 +155,16 @@ the agent spawns its successor and reaps itself.
 - Rotation **reuses the worktree by cwd and never removes it** (a compile-time
   invariant: the rotator interface omits worktree removal).
 
+**Cross-agent handoff (`warden handoff`)** is the delegation counterpart: an
+agent (or the operator) hands a context package to a **different** agent and
+**keeps running**. Default mode spawns a fresh delegate in its **own isolated
+worktree**; `--to <id>` delivers the handoff into an existing agent's inbox
+(waking it). The handoff file's **content is inlined** into the recipient's
+prompt/message — the recipient runs in a different worktree and can't read the
+source's file by path. Phase 1 (writing the handoff + resume prompt) is
+skill-driven; the source agent is **never** terminated (a compile-time invariant:
+the handoff interface omits termination).
+
 ---
 
 ## 8. Terminal UI (cockpit)

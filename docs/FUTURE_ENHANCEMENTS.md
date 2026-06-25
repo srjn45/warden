@@ -269,13 +269,15 @@ work-overlap/dedup detection (OverlapDetector — its plan-file signal is dead
 under current naming and needs redesign), GitHub branch/CI tracking
 (BranchTracker), collaboration groups, SSE replay + multi-cache layer.
 
-#### 45. Agent chaining/handoff — *partial*
-**Effort:** ~4 h remaining
-Same-workspace succession already ships: `warden rotate` retires an agent and hands
-its work to a fresh successor in the same worktree (FEATURES.md §7). Pipelines +
-mailbox cover cross-agent context passing. Remaining: an explicit
-`warden handoff <target-id> <message>` that seeds a *different/new* agent — low
-marginal value given `rotate` + pipelines already cover the real need.
+#### 45. Agent chaining/handoff — *shipped*
+Same-workspace succession ships as `warden rotate` (retire + same-worktree successor,
+FEATURES.md §7). The cross-agent half now ships as **`warden handoff`**: an agent (or
+the operator) delegates a sub-task to a **different** agent and keeps running — default
+mode spawns a fresh delegate in its own isolated worktree, `--to <id>` delivers into an
+existing agent's inbox. Handoff content is inlined into the recipient's prompt/message
+(it runs in a different worktree). Thin CLI verb over existing client methods + a
+skill-driven review gate; no daemon change. See FEATURES.md §7 and
+`docs/superpowers/specs/2026-06-25-warden-handoff-design.md`.
 
 #### 46. Snapshot/checkpoint system — *not started*
 **Effort:** 2 days. Checkpoint worktree (git stash) + transcript; restore.
@@ -470,8 +472,6 @@ demand signal before they're worth the effort:
 - **Jira integration** (#33) — user's loop is GitHub, not Jira.
 - **Plugin system** (#47) & **AI-powered insights** (#48) — speculative; no driving use case.
 - **Interactive tutorial** (#42) — onboarding ROI is ~zero for a single-author tool.
-- **Agent chaining/handoff** remainder (#45) — `warden rotate` + pipelines already
-  cover the real need; a separate `handoff` command is redundant.
 - **Goroutine batch concurrency** (#36) — only matters past ~100 concurrent agents;
   not the current scale.
 
