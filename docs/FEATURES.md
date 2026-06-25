@@ -225,8 +225,13 @@ the fleet through tool calls. Tools exposed:
 | `ctx_set` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `send_message` / `read_inbox` | Directed messaging |
 | `list_approvals` / `approve` | List / answer pending tool-permission prompts |
+| `create_pipeline` / `list_pipelines` / `show_pipeline` | Create a DAG pipeline from a YAML spec / list / inspect (jobs, branches, handoffs) |
+| `start_pipeline` / `cancel_pipeline` | Start (spawn entry jobs) / cancel (terminate live jobs) a pipeline |
 
-> Pipelines are CLI-only — no MCP pipeline tools yet.
+> Pipeline MCP tools are thin wrappers over the same daemon routes the CLI uses,
+> so an orchestrator Claude session can drive a multi-stage workflow
+> (analyze→implement→review) without shelling out. Pause/resume/delete/edit-job/retry
+> remain CLI-only (`warden pipeline …`).
 
 ### `/warden` Claude skill
 
