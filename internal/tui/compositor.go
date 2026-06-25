@@ -41,7 +41,7 @@ func listPaneCmd(self, detailPane string) string {
 // opens an agent into it. `exec sleep` so the process is cleanly replaceable by
 // `respawn-pane`.
 func detailPlaceholderCmd() string {
-	return `sh -c 'printf "Select an agent and press Enter to open it here.\n"; exec sleep 2147483647'`
+	return `sh -c 'printf "Select an agent and press Enter to open it here.\n\nTip: the mouse drives tmux here — hold Shift while dragging to select\ntext the normal way, then Ctrl+Shift+C to copy.\n"; exec sleep 2147483647'`
 }
 
 // runPaneCreate runs a pane-creating tmux command (-P -F '#{pane_id}') and
@@ -103,6 +103,14 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	// 5. Mouse + prefix-less Alt+Arrow pane navigation.
 	if out, err := run.Run(ctx, "", "tmux", "set-option", "-t", o.session, "mouse", "on"); err != nil {
 		return fmt.Errorf("tmux set-option mouse: %w: %s", err, out)
+	}
+	// With mouse on, a plain drag drives tmux (copy-mode / app), not native text
+	// selection — easy to forget. Keep a permanent reminder on the status line so
+	// the Shift-to-select trick stays discoverable. Scoped to this session so it
+	// never touches the user's other tmux sessions.
+	if out, err := run.Run(ctx, "", "tmux", "set-option", "-t", o.session, "status-right",
+		"#[fg=yellow]shift+drag = select/copy#[default]  %H:%M "); err != nil {
+		return fmt.Errorf("tmux set-option status-right: %w: %s", err, out)
 	}
 	// Make a newline key work in the detail Claude pane: extended-keys passthrough
 	// (Shift+Enter on capable terminals) plus an Alt+Enter fallback for terminals
