@@ -290,48 +290,10 @@ messages), proven first by swapping the existing headless-Claude `Classify` call
   is impossible — mirroring the Classify/Summarize fallback pattern.
 
 **Phase 1 is now complete** (1a Classify · 1b Summarize + oversized check-failure
-condensation · 1c commit messages). Remaining LLM work moves to the orchestrator track (#50).
+condensation · 1c commit messages). Its remaining LLM work shipped as the orchestrator
+conductor (#50) — now complete; see [FEATURES.md §17](FEATURES.md#17-orchestrator-wd-orch).
 
 **Design spec:** [`docs/superpowers/specs/2026-06-24-warden-orchestration-brain-design.md`](superpowers/specs/2026-06-24-warden-orchestration-brain-design.md).
-
-#### 50. Orchestrator — local-LLM conductor (thin-translator) — *not started (designed; phased A→D)*
-**Effort:** Phase A ~2 days · Phase B ~3 days · Phase C ~1 day · Phase D ~2 days
-**Value:** Cut operator friction on multi-step orchestration without spending Claude tokens —
-a warden-aware local-LLM REPL that turns natural-language intent into **confirmed** warden
-tool calls (spawn/monitor/teardown agents, drive pipelines, run the git/check lifecycle).
-**It conducts; it never implements** — there is no edit/write/bash tool in its registry, so
-code work is always delegated by `spawn_agent`-ing a Claude agent.
-
-Builds directly on #49 (the `internal/llm` provider seam + the git/check tools it routes
-through). A second front-end onto the same daemon client the MCP server uses — no new
-business logic.
-
-- **Phase A** — additive `Chatter` (multi-turn, tool-calling) seam in `internal/llm`,
-  backed by Ollama `/api/chat`; reuses the `local_llm*` config. Same tiny-client discipline
-  (non-streaming, hard timeout, byte cap, error-so-caller-bails) plus a reliability floor for
-  imperfect 7B tool-calling (malformed args / unknown tool / prose-instead-of-JSON → bounded
-  retries, never a garbled execution). *Only net-new infrastructure.*
-- **Phase B** — `internal/orchestrator` package + `warden orchestrator` (`wd orch`) REPL:
-  the tool-calling loop, the registry split by side-effect (read-only auto-executes; mutating
-  calls hit a **mandatory, non-config-gated confirm gate**), and capability-tier routing
-  (pre-classify → plan locally / escalate one planning step to headless Claude / degrade to
-  the operator — execution stays token-free warden calls). First shippable, standalone-runnable
-  milestone.
-- **Phase C** — cockpit master pane hosts the orchestrator-over-shell: one `buildCockpit`
-  pane-command change (`self + " orchestrator"` instead of bare `$SHELL`); a `!`-prefixed line
-  passes through to a persistent embedded `$SHELL` (cwd/env persist, spawn-dir semantics
-  preserved), MVP non-interactive only; raw-`$SHELL` escape hatch one keypress away.
-- **Phase D** — monitoring verbs (fleet summarize / triage / cleanup) as read-only registry
-  calls + a local summarization pass reusing #49's `Summarize` routing.
-
-Cross-cutting: **hardware-aware model recommendation** (`wd doctor` detects VRAM/RAM and
-*recommends* — never silently swaps — a `local_llm_model`) and a model→capability-tier table
-so an under-capable model degrades instead of shipping a confident-wrong plan. New config
-(global policy only): `orchestrator` (default off — initial pane face), `local_llm_escalate`
-(default on), `local_llm_tier` (default auto).
-
-**Design spec:** [`docs/superpowers/specs/2026-06-25-warden-orchestrator-design.md`](superpowers/specs/2026-06-25-warden-orchestrator-design.md)
-· phase plans in [`docs/superpowers/plans/`](superpowers/plans/) (`2026-06-25-warden-orchestrator-phase-{a,b,c,d}.md`).
 
 ---
 
@@ -339,18 +301,14 @@ so an under-capable model degrades instead of shipping a confident-wrong plan. N
 
 Re-scored on **feasibility × necessity** for what warden actually is today: a
 solo-operator tool for orchestrating Claude Code agents, with remote access (the
-flagship), mature pipelines, structured logging, the collab MVP, and the **full
-orchestration brain (#49, Phase 0 + Phase 1)** all shipped. That shifts weight toward
-**spending the brain's groundwork on the operator surface (#50)** and **dev-loop
-closure**, and away from **enterprise/multi-user** features whose necessity is low for
-a single user.
+flagship), mature pipelines, structured logging, the collab MVP, the **full
+orchestration brain (#49)**, and the **local-LLM orchestrator (#50, `wd orch`)** all
+shipped. With the north-star orchestrator now landed, weight shifts toward **dev-loop
+closure** and fleet-management polish, and away from **enterprise/multi-user** features
+whose necessity is low for a single user.
 
 ### 🔥 Tier 1 — Do First (high necessity, low/medium effort, all feasible now)
-0. **Orchestrator — local-LLM conductor** (#50, Phase A→B ~5 days to first usable) — the
-   north-star follow-on now that #49 is complete: spend the `internal/llm` seam + git/check
-   tools on NL→confirmed-tool-call composition (`wd orch`), confirm-before-execute so a 7B
-   model is safe. Phase A (`Chatter` seam) is the only net-new infra; B ships standalone.
-   **F: medium · N: high.**
+_Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](FEATURES.md#17-orchestrator-wd-orch). The items below are the new front of the queue._
 
 ### ⭐ Tier 2 — Do Next (solid value, mostly fleet-management)
 7. **Scheduled agents/tasks** (#15, 1-2 days) — decision doc + `robfig/cron`.
@@ -391,9 +349,9 @@ demand signal before they're worth the effort:
 
 ## 🎬 Recommended Implementation Order
 
-Tier 1 first (each a self-contained win), then Tier 2 as fleet size grows:
+Now that the orchestrator (#50) has shipped, the queue leads with fleet-management
+and dev-loop items:
 
-0. **Orchestrator Phase A→B** (#50, ~5 days) — `Chatter` seam + `wd orch` REPL with the confirm gate; spends the now-complete brain groundwork on NL multi-agent composition
 7. **Scheduled agents/tasks** (1-2 days) — recurring automation (convenience-tier now)
 9. **Finish inter-agent collaboration** (1-2 weeks) — next-gen, foundation already in
 
