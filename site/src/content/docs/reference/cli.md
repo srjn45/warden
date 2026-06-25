@@ -3,9 +3,9 @@ title: CLI command reference
 description: Every warden command and its flags, generated from warden --help.
 ---
 
-> Generated from `warden --help` on 2026-06-10; regenerate when commands change.
+> Generated from `warden --help` on 2026-06-25; regenerate when commands change.
 
-All commands accept `--addr` to point at a non-default daemon (overrides `WARDEN_ADDR`). `<TICKET>` is the agent ID — a Jira key for managed agents, or an `agent-xxxx` ID for prompt-spawned ones.
+All commands accept `--addr` to point at a non-default daemon (overrides the `addr` config setting) and `--config` to point at a non-default config file (default `~/.warden/config.yaml`). `<TICKET>` is the agent ID — a Jira key for managed agents, or an `agent-xxxx` ID for prompt-spawned ones.
 
 ## warden
 
@@ -18,37 +18,56 @@ Usage:
   warden [command]
 
 Available Commands:
-  adopt           Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
-  approvals       List pending tool-permission prompts waiting for an answer
-  approve         Answer a pending tool-permission prompt by option number
-  attach          Attach to the agent's tmux session
-  completion      Generate the autocompletion script for the specified shell
-  ctx             Read and write the shared context (a namespaced key/value store agents share)
-  daemon          Run the warden hub (HTTP API + poller; the single writer to the file store)
-  delete          Clear an agent's stored record (archives by default; --hard to purge)
-  digest          Summarize what an agent accomplished (files, branch, turns, narrative)
-  doctor          Run preflight checks (required binaries, daemon, data dir)
-  done            Terminate an agent and clear its record (does NOT remove the worktree)
-  help            Help about any command
-  ls              List all active agent sessions
-  mcp             Run the MCP stdio server so an orchestrator Claude can manage agents
-  msg             Send and receive directed messages between agents
-  pipeline        Define and run DAG pipelines of agent jobs
-  remove-worktree Remove an agent's git worktree + branch (always asks; --force overrides guards)
-  restore         Recreate and resume a lost/orphaned agent (claude --resume)
-  rotate          Hand this agent's work to a fresh successor in the same workspace, then retire it
-  send            Type a message into an agent's claude session and press Enter
-  start           Spawn an agent — `start "<prompt>"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)
-  stats           Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
-  status          Show full status for one session
-  tail            Print the recent output of an agent's claude session
-  terminate       Stop an agent: kill its tmux+claude session (keeps the record and worktree)
-  tui             Live terminal cockpit for agents
+  adopt               Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+  approvals           List pending tool-permission prompts waiting for an answer
+  approve             Answer a pending tool-permission prompt by option number
+  attach              Attach to the agent's tmux session
+  audit               Inspect the append-only action audit trail
+  auto-approve        Enable or disable auto-approval for an agent's prompts
+  check               Run the project's configured checks and report only failures
+  collab              Inter-agent collaboration: see which agents are editing the same files
+  commit              Stage and commit the worktree (warden rails + hooks + bookkeeping)
+  completion          Generate shell completion scripts
+  config              Show the resolved configuration (and its file path)
+  ctx                 Read and write the shared context (a namespaced key/value store agents share)
+  daemon              Run the warden hub (HTTP API + poller; the single writer to the file store)
+  delete              Clear an agent's stored record (archives by default; --hard to purge)
+  digest              Summarize what an agent accomplished (files, branch, turns, narrative)
+  doctor              Run preflight checks (required binaries, daemon, data dir)
+  done                Terminate an agent and clear its record (does NOT remove the worktree)
+  export              Serialize agent session metadata to JSON on stdout
+  handoff             Delegate a sub-task to another agent — a brand-new one or an existing one (--to)
+  history             Browse archived (closed) agents, newest first
+  import              Insert agent session metadata from a JSON dump on stdin
+  ls                  List all active agent sessions
+  mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
+  msg                 Send and receive directed messages between agents
+  orch                Natural-language conductor for agents, pipelines, and the git/check lifecycle (local LLM)
+  pipeline            Define and run DAG pipelines of agent jobs
+  preset              Save and list named spawn configs (replay with `warden start --preset <name>`)
+  prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
+  push                Push the current branch to origin (warden rails + bookkeeping)
+  remove-worktree     Remove an agent's git worktree + branch (always asks; --force overrides guards)
+  restore             Recreate and resume a lost/orphaned agent (claude --resume)
+  rotate              Hand this agent's work to a fresh successor in the same workspace, then retire it
+  search              Full-text search agents by subject, prompt, type, name, branch, or pane text
+  send                Type a message into an agent's claude session and press Enter
+  set-permission-mode Set the permission mode for an agent
+  start               Spawn an agent — `start "<prompt>"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)
+  stats               Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
+  status              Show full status for one session
+  sync                Fetch and rebase the current branch onto its base (warden conflict detect)
+  tail                Print the recent output of an agent's claude session
+  terminate           Stop an agent: kill its tmux+claude session (keeps the record and worktree)
+  token               Manage the daemon's remote-access bearer token
+  tui                 Live terminal cockpit for agents
+  worktree            Inspect warden's git worktrees
 
 Flags:
-      --addr string   daemon address (overrides WARDEN_ADDR)
-  -h, --help          help for warden
-  -v, --version       version for warden
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+  -h, --help            help for warden
+  -v, --version         version for warden
 ```
 
 ## warden start
@@ -60,16 +79,22 @@ Usage:
   warden start [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [flags]
 
 Flags:
-      --auto-restart    auto-resume this agent if it crashes (errored), capped at a few attempts
-      --branch string   new branch (development) or checkout target (pr-review)
-      --dir string      directory to launch the agent from (default: current directory)
-      --force           spawn even when the memory-pressure gate warns
-  -h, --help            help for start
-      --pr string       PR number/url (pr-review)
-      --repo string     repo path (default: current directory)
-      --supervised      launch in acceptEdits mode (prompts for risky tools → answerable in the approvals inbox)
-      --type string     task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
-      --worktree        create a scratch worktree for analysis/spike
+      --auto-restart             auto-resume this agent if it crashes (errored), capped at a few attempts
+      --branch string            new branch (development) or checkout target (pr-review)
+      --dir string               directory to launch the agent from (default: current directory)
+      --force                    spawn even when the memory-pressure gate warns
+  -h, --help                     help for start
+      --in-repo                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
+      --model string             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting)
+      --name string              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
+      --permission-mode string   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --pr string                PR number/url (pr-review)
+      --preset string            load saved spawn defaults from a named preset (see `warden preset`); explicit flags override
+      --repo string              repo path (default: current directory)
+      --supervised               alias for --permission-mode acceptEdits (kept for backwards compatibility)
+      --tags strings             comma-separated labels for grouping/filtering (searchable; filter with `warden ls --tag`)
+      --type string              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
+      --worktree                 create a scratch worktree for analysis/spike
 ```
 
 ## warden ls
@@ -81,8 +106,10 @@ Usage:
   warden ls [flags]
 
 Flags:
-  -h, --help   help for ls
-      --json   output as JSON
+  -h, --help          help for ls
+      --json          output as JSON
+      --tag strings   only show agents carrying every given tag (repeatable or comma-separated)
+  -w, --watch         live-update the list on every agent state change (Ctrl+C to exit)
 ```
 
 ## warden status
@@ -207,15 +234,19 @@ Usage:
   warden pipeline [command]
 
 Available Commands:
-  cancel      Cancel a pipeline (terminates running jobs)
-  create      Create a pipeline from a YAML spec
-  delete      Delete a pipeline's record (must not have live jobs — cancel first)
-  edit-job    Edit a pending job's prompt and/or handoff
-  emit        Publish this job's handoff (run from inside a pipeline job)
-  list        List pipelines
-  retry       Re-run a failed or needs-attention job (reopens skipped descendants)
-  show        Show a pipeline's jobs and their status
-  start       Start a pipeline (spawns jobs with no dependencies)
+  cancel         Cancel a pipeline (terminates running jobs)
+  create         Create a pipeline from a YAML spec or a built-in template
+  delete         Delete a pipeline's record (must not have live jobs — cancel first)
+  edit-job       Edit a pending job's prompt and/or handoff
+  emit           Publish this job's handoff (run from inside a pipeline job)
+  list           List pipelines
+  list-templates List the built-in pipeline templates and their placeholders
+  pause          Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
+  resume         Resume a paused pipeline (spawns jobs that became ready while paused)
+  retry          Re-run a failed or needs-attention job (reopens skipped descendants)
+  show           Show a pipeline's jobs and their status
+  start          Start a pipeline (spawns jobs with no dependencies)
+  validate       Validate a pipeline YAML spec without creating it
 ```
 
 ## warden ctx
@@ -248,6 +279,175 @@ Available Commands:
 
 Flags:
       --as string   act as this agent id (defaults to $WARDEN_SESSION_ID)
+```
+
+## Git & check lifecycle
+
+First-class verbs that wrap the git/check round-trips an agent would otherwise run by hand, on **warden rails**: protected branches (`main`/`master`) are refused, hooks run, and each action is linked to the agent. All four take `--json`.
+
+```text
+warden commit [-m "<msg>"]   Stage + commit the whole worktree on its branch. Omit -m and warden
+                             writes the message (local model from the diff, else a conventional
+                             message from the changed paths).
+warden push                  Push the current branch to origin (sets upstream). Refuses main/master.
+warden sync [--base main]    Fetch + rebase the current branch onto origin/<base>. Refuses a dirty
+                             tree; on conflict, leaves the rebase in progress and reports only the
+                             conflicting files.
+warden check [name]          Run the checks declared in .warden/check.yml and return a pass/fail
+                             summary with output for FAILING checks only. No name = all; <name>
+                             runs one (test/lint/build/…). Exits non-zero on failure.
+```
+
+These are also MCP tools (`commit`, `push`, `sync`, `check`). See the [Lifecycle & rails](/warden/guides/lifecycle-and-rails/) guide for the boundary-enforcement hooks that steer agents onto them.
+
+## warden collab
+
+```text
+Inter-agent collaboration: see which agents are editing the same files
+
+Usage:
+  warden collab [command]
+
+Available Commands:
+  conflicts        List files currently being edited by more than one agent
+  who-is-editing   Show which agents are editing a specific file
+```
+
+## warden search
+
+```text
+Search across active agents' searchable text (name, id, ticket, type, subject, prompt, branch,
+last pane excerpt). Multiple terms are AND-ed. Pass --closed to also search archived agents.
+
+Usage:
+  warden search <QUERY...> [flags]
+
+Flags:
+      --closed   also search archived (closed) agents
+      --json     output as JSON
+```
+
+## warden history
+
+```text
+Browse archived (closed) agents, newest first.
+
+Usage:
+  warden history [flags]
+
+Flags:
+      --json           output as JSON
+      --limit int      cap the number of results (0 = no cap)
+      --since string   only agents updated since this window (24h, 7d, 2w) or date
+      --type string    filter by task type (development, pr-review, analysis, …)
+```
+
+## warden export / import
+
+```text
+warden export [--all] > backup.json   Dump active (and with --all, archived) records as a JSON
+                                      envelope on stdout. Metadata only — worktrees, branches, and
+                                      tmux sessions are NOT serialized.
+warden import [--merge] < backup.json Insert records from a `warden export` envelope. Idempotent by
+                                      id (existing ids skipped); --merge overwrites on collision.
+```
+
+## warden audit
+
+```text
+Read the daemon's append-only audit trail (~/.warden/audit.jsonl) — who did what, when, to which
+object. Read directly from disk, so it works even while the daemon is down.
+
+Usage:
+  warden audit log [flags]   Show recent audited actions, newest last
+```
+
+## warden preset
+
+```text
+Save and list named spawn configs (replay with `warden start --preset <name>`).
+
+Usage:
+  warden preset [command]
+
+Available Commands:
+  list   List saved presets and their defaults
+  save   Save the given spawn flags as a named preset
+```
+
+## warden token
+
+```text
+Manage the daemon's remote-access bearer token (for non-loopback access).
+
+Usage:
+  warden token [command]
+
+Available Commands:
+  generate   Generate a random bearer token for remote access
+  rotate     Generate a new token, persist it, and restart the daemon
+  show       Print the current token (for pasting into a remote client)
+```
+
+See the [Remote access](/warden/guides/remote-access/) guide.
+
+## warden handoff
+
+```text
+Hand a structured context package to a DIFFERENT agent so it can pick up a related task. Unlike
+`rotate`, the source agent keeps running. Default mode spawns a fresh delegate in its own worktree;
+--to <id> delivers into an already-running agent's inbox (waking it).
+
+Usage:
+  warden handoff [flags]
+
+Flags:
+      --to string              deliver to this existing agent id instead of spawning a new one
+      --resume-file string     path to the handoff notes file delivered to the recipient
+      --resume-prompt string   the recipient's task prompt
+      --type string            task type for a new delegate (default "development")
+      --branch / --name / --repo / --force   options for a new delegate (ignored with --to)
+```
+
+## warden orch
+
+```text
+Natural-language conductor for agents, pipelines, and the git/check lifecycle (local LLM).
+Requires the local_llm config setting. Aliases: orchestrator.
+
+Usage:
+  warden orch [flags]
+```
+
+## warden auto-approve / set-permission-mode
+
+```text
+warden auto-approve <agent-id> <on|off>      Toggle daemon auto-approval of recognized yes/no
+                                             prompts for one agent (global default: auto_approve config).
+warden set-permission-mode <agent-id> <mode> Set an agent's permission mode
+                                             (acceptEdits|auto|bypassPermissions|default|dontAsk|plan).
+```
+
+## warden worktree / prune
+
+```text
+warden worktree ls            List warden worktrees under .worktrees, joined to active/archived records
+warden prune [--force]        Reclaim orphaned warden worktrees under .worktrees (always asks)
+```
+
+## warden config
+
+```text
+Print the live, resolved configuration values warden is using, grouped by area, with the config
+file path at the top. Edit the file by hand to change settings.
+
+Usage:
+  warden config [flags]
+  warden config [command]
+
+Available Commands:
+  init   Create the config file (or migrate it, adding any missing keys)
+  path   Print the resolved config file path
 ```
 
 ## Other commands

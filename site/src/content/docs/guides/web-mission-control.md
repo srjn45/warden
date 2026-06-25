@@ -28,6 +28,12 @@ The dashboard is a **tabbed mission-control shell**: two fixed tabs — **Overvi
 | **Digest panel** | View an agent's completion digest in the browser. |
 | **Resources panel** | Live per-agent + system resource charts (uPlot). |
 | **Browser notifications** | Opt-in desktop notification when an agent enters `waiting_for_input` (gated to hidden tabs). |
+| **Group the fleet** | In the Cockpit, group agents by directory, task type, status, or tag to keep a large fleet legible. |
+| **Batch operations** | Select multiple agents and act on them at once (e.g. terminate / delete). |
+| **Search & archive** | Full-text search across the fleet; browse archived (closed) agents from the history view. |
+| **Timeline** | A merged activity feed of agent lifecycle events. |
+| **Theme toggle** | Light / dark / system theming. |
+| **Keyboard shortcuts** | Global shortcuts for navigation and actions, with a `?` help overlay listing them. |
 
 The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a selected pipeline's jobs as status-colored cards with dependency chips, and a per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) / **Retry** (job) control, and an **Open terminal** link to a running job's session. (Creating / editing pipelines in the browser is not yet available — use `warden pipeline create -f`.)
 

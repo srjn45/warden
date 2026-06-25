@@ -11,8 +11,11 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
 
 | Face | What it is | You run it… |
 |---|---|---|
-| **daemon** | The single long-running process. Owns the on-disk session store, serves a loopback REST API on `127.0.0.1:8765`, and runs a background poller that keeps each agent's status and subject fresh. | Once, in the background (usually via launchd). |
-| **CLI client** | `ls`, `status`, `start`, `done`, `attach`, `send`, `tail`, `tui` — thin HTTP clients that talk to the daemon. | Whenever you want to act on agents. |
+| **daemon** | The single long-running process. Owns the on-disk session store, serves a REST API (loopback by default; [token-gated remote access](/warden/guides/remote-access/) optional), and runs a background poller that keeps each agent's status and subject fresh. | Once, in the background (a service). |
+| **CLI client** | `ls`, `status`, `start`, `done`, `attach`, `send`, `tail`, the [git/check lifecycle verbs](/warden/guides/lifecycle-and-rails/) (`commit`/`push`/`sync`/`check`), and more — thin HTTP clients that talk to the daemon. | Whenever you want to act on agents. |
+| **TUI cockpit** | `warden tui` (or bare `warden`) — a live tmux-based terminal dashboard of the whole fleet. | When you want a terminal cockpit. |
+| **Web GUI** | A React dashboard the daemon embeds and serves alongside the API — tabbed mission control with live SSE, interactive terminals, and an attention queue. | Open the daemon's address in a browser. |
 | **MCP server** | `warden mcp` — a stdio bridge so an *orchestrator* Claude session can manage agents through tool calls. | Wired into a Claude session's MCP config. |
+| **Orchestrator** | `warden orch` — a [local-LLM conductor REPL](/warden/multi-agent/orchestrator-repl/) that turns plain-English intent into confirmed warden actions, spending no Claude tokens. | When you want NL control without an MCP Claude session. |
 
-Everything flows through the daemon, so **the daemon must be running** before any other command will work.
+Settings live in a config file (`~/.warden/config.yaml`; `warden config` prints the resolved values), overridable by environment variables. Everything flows through the daemon, so **the daemon must be running** before any other command will work.

@@ -3,7 +3,7 @@ title: Environment variables
 description: Every warden configuration variable, its default, and what it controls.
 ---
 
-Set via environment variables (or override the daemon address per-command with `--addr`).
+Most settings now live in a **config file** (`~/.warden/config.yaml`) — run `warden config` to print the resolved values and the file path, `warden config init` to create or migrate it. Environment variables still work and **override** the config file; `--addr`/`--config` flags override both. The table below lists the environment variables; each maps to a config key of the same lowercased name (e.g. `WARDEN_ADDR` ↔ `addr`, `WARDEN_TOKEN_WARN` ↔ `token_warn`).
 
 | Variable | Default | Description |
 |---|---|---|
@@ -16,8 +16,9 @@ Set via environment variables (or override the daemon address per-command with `
 | `WARDEN_TOKEN_GUARD` | `on` | The context-size guard master switch: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `ls`/TUI/web. Disable with `0`/`off`/`false` to turn off the whole guard (gauge, alert, auto-compact) |
 | `WARDEN_TOKEN_WARN_ALERT` | `on` | Fire a desktop notification (when `WARDEN_NOTIFY` is on) once per upward crossing into the warning or critical band. Disable with `0`/`off`/`false` |
 | `WARDEN_TOKEN_AUTO_COMPACT` | `on` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded). Disable with `0`/`off`/`false` |
-| `WARDEN_TOKEN_WARN` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `WARDEN_TOKEN_CRITICAL` is not greater than this, both reset to the defaults |
-| `WARDEN_TOKEN_CRITICAL` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
-| `WARDEN_ALLOW_NONLOOPBACK` | unset | Allow binding a non-loopback address |
+| `WARDEN_TOKEN_WARN` | `80000` | Warning threshold in context tokens (inclusive lower bound). If `WARDEN_TOKEN_CRITICAL` is not greater than this, both reset to the defaults |
+| `WARDEN_TOKEN_CRITICAL` | `150000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
+| `WARDEN_TOKEN` | unset | Bearer token for remote (non-loopback) access — clients send it, the daemon requires it when bound off-loopback. Manage with `warden token`. See [Remote access](/warden/guides/remote-access/) |
+| `WARDEN_ALLOW_NONLOOPBACK` | unset | Allow binding a non-loopback address (`allow_nonloopback` config) |
 
 All variables can also be overridden with `--addr` on any command.
