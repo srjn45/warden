@@ -35,6 +35,7 @@ export interface Digest {
 
 export interface Session {
   id: string;
+  name?: string;
   type: string;
   ticket: string;
   tmux_session: string;

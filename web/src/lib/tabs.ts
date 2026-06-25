@@ -4,7 +4,7 @@
 
 // FIXED_TABS are the non-closeable tabs that always exist. Pruning never drops
 // the active tab when it is one of these.
-export const FIXED_TABS = ['overview', 'cockpit', 'pipelines', 'context'] as const;
+export const FIXED_TABS = ['overview', 'cockpit', 'pipelines', 'context', 'archive'] as const;
 
 export function isFixedTab(id: string): boolean {
   return (FIXED_TABS as readonly string[]).includes(id);

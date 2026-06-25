@@ -13,6 +13,7 @@ import NewAgentModal from './NewAgentModal';
 import TokenModal from './TokenModal';
 import PipelinesTab from './PipelinesTab';
 import ContextMessagesTab from './ContextMessagesTab';
+import ArchiveTab from './ArchiveTab';
 
 const TABS_KEY = 'warden.tabs';
 
@@ -118,6 +119,7 @@ export default function Dashboard() {
         {tabs.active === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} onCreated={(id) => dispatch({ kind: 'open', id })} />}
         {tabs.active === 'pipelines' && <PipelinesTab onSelect={select} />}
         {tabs.active === 'context' && <ContextMessagesTab />}
+        {tabs.active === 'archive' && <ArchiveTab />}
         {activeSession && <AgentTab session={activeSession} onClosed={() => dispatch({ kind: 'close', id: activeSession.id })} />}
         {!isFixedTab(tabs.active) && !activeSession && (
           <div className="detail empty">That agent has ended.</div>

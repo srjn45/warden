@@ -11,11 +11,18 @@ import QuickAddButton from './QuickAddButton';
 // agent. `lines` controls tile height (Cockpit passes a larger value than the
 // Overview mini-grid). When `onCreated` is provided, each pane (except the
 // unknown-dir '—' group) shows a '+' that spawns a no-prompt agent in its dir.
-export default function AgentGrid({ sessions, onSelect, lines = 8, onCreated }: {
+//
+// When `selectable` is set, each tile gains a checkbox; `selected` is the set of
+// chosen ids and `onToggleSelect(id, shift)` toggles one (shift = range-select).
+// Selection drives the bulk action bar (#21 batch operations).
+export default function AgentGrid({ sessions, onSelect, lines = 8, onCreated, selectable, selected, onToggleSelect }: {
   sessions: Session[];
   onSelect: (id: string) => void;
   lines?: number;
   onCreated?: (id: string) => void;
+  selectable?: boolean;
+  selected?: Set<string>;
+  onToggleSelect?: (id: string, shift: boolean) => void;
 }) {
   if (sessions.length === 0) {
     return <p className="muted">No agents yet.</p>;
@@ -34,15 +41,30 @@ export default function AgentGrid({ sessions, onSelect, lines = 8, onCreated }: 
             )}
           </div>
           <div className="agent-grid">
-            {g.sessions.map((s) => (
-              <button key={s.id} className="grid-tile" onClick={() => onSelect(s.id)}>
-                <div className="tile-head">
-                  <b>{s.id}</b> <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
-                  <ContextBadge tokens={s.context_tokens} state={s.context_state} />
+            {g.sessions.map((s) => {
+              const isSel = selected?.has(s.id) ?? false;
+              return (
+                <div key={s.id} className={`grid-tile-wrap${isSel ? ' selected' : ''}`}>
+                  {selectable && (
+                    <input
+                      type="checkbox"
+                      className="tile-select"
+                      checked={isSel}
+                      aria-label={`Select ${s.id}`}
+                      onChange={() => { /* controlled via onClick */ }}
+                      onClick={(e) => onToggleSelect?.(s.id, e.shiftKey)}
+                    />
+                  )}
+                  <button className="grid-tile" onClick={() => onSelect(s.id)}>
+                    <div className="tile-head">
+                      <b>{s.id}</b> <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
+                      <ContextBadge tokens={s.context_tokens} state={s.context_state} />
+                    </div>
+                    <MiniTerminal id={s.id} lines={lines} />
+                  </button>
                 </div>
-                <MiniTerminal id={s.id} lines={lines} />
-              </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       ))}
