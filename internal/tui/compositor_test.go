@@ -92,6 +92,21 @@ func TestCleanStaleCockpits(t *testing.T) {
 	require.Equal(t, []string{dead}, killed, "only the dead-pid cockpit is killed; live cockpit and user sessions are left alone")
 }
 
+func TestShellToggleScript(t *testing.T) {
+	s := shellToggleScript("S", "%1", "/work")
+	// Tracks the shell pane in a session user-option so the toggle survives exit.
+	require.Contains(t, s, "@warden_shell_pane")
+	// Lazily creates the shell in a hidden holding window with the user's $SHELL.
+	require.Contains(t, s, "new-window -d -t S -n warden-shell -c '/work'")
+	require.Contains(t, s, `"${SHELL:-/bin/sh}"`)
+	// Exited shells are kept as [exited] then respawned, not orphaned.
+	require.Contains(t, s, "remain-on-exit on")
+	require.Contains(t, s, "respawn-pane")
+	// Swaps the shell with the master pane and focuses whatever lands in the slot.
+	require.Contains(t, s, `swap-pane -s "$sp" -t %1`)
+	require.Contains(t, s, "select-pane -t '{bottom-left}'")
+}
+
 func TestPaneCommandStrings(t *testing.T) {
 	require.Equal(t, "/bin/warden tui --pane=list --detail-pane=%0", listPaneCmd("/bin/warden", "%0"))
 	require.Contains(t, detailPlaceholderCmd(), "press Enter to open")
