@@ -965,11 +965,25 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		l.cleanupFailedSpawn(sess, false, worktreeCreated)
 		return nil, err
 	}
+	// Seed the task prompt as claude's positional argument, file-backed via
+	// "$(cat …)" so a multi-line prompt types as a single physical line (same
+	// mechanism as spawnFreeForm/SpawnJob). Empty prompt = an interactive managed
+	// agent (open claude and wait). Without this the worktree+session come up but
+	// the agent sits idle at an empty prompt.
+	promptArg := ""
+	if req.Prompt != "" {
+		promptFile, err := l.writePromptFile(ctx, sess.ID, req.Prompt)
+		if err != nil {
+			l.cleanupFailedSpawn(sess, true, worktreeCreated)
+			return nil, err
+		}
+		promptArg = ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	}
 	mode := req.PermissionMode
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.collabHint() + l.gitConventionsHint() + l.guardSettingsFlag(sess.ID) + l.exitSuffix(sess.ID)
+	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.collabHint() + l.gitConventionsHint() + l.guardSettingsFlag(sess.ID) + promptArg + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
