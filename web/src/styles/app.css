@@ -138,6 +138,12 @@ kbd {
 /* ── Agent grid / cockpit ── */
 .agent-grid-group { margin-bottom: 1rem; border: 1px solid #8884; border-radius: .5rem; overflow: hidden; }
 .grid-group-bar { display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem; background: #8881; border-bottom: 1px solid #8884; }
+.grid-group-toolbar { display: flex; align-items: center; gap: .4rem; margin-bottom: .6rem; flex-wrap: wrap; }
+.group-by-btn { border: 1px solid #8884; border-radius: .3rem; background: transparent; color: inherit; cursor: pointer; font-size: .8rem; padding: .15rem .55rem; }
+.group-by-btn:hover { border-color: #2f81f7; }
+.group-by-btn.active { border-color: #2f81f7; background: #2f81f733; }
+.grid-group-toggle { display: flex; align-items: center; gap: .5rem; flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; text-align: left; }
+.grid-group-caret { color: var(--idle); font-size: .75rem; width: .8rem; flex: none; }
 .grid-group-name { font-weight: 600; }
 .grid-group-path { color: var(--idle); font-size: .8rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid-group-count { color: var(--idle); font-size: .8rem; }

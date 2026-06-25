@@ -87,7 +87,7 @@ convenience rather than a blocker.
 
 ## 🎨 Web UI Enhancements
 
-#### 20. Agent grouping/filtering — *not started*
+#### 20. Agent grouping/filtering — *shipped*
 **Effort:** 4 hours. Group by type/status/tag, collapsible groups, saved presets.
 (`AgentGrid.tsx` exists but renders a flat grid.)
 
@@ -294,7 +294,7 @@ _Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](F
    **F: easy · N: medium (quality).**
 
 ### 🎯 Tier 3 — Nice to Have (cosmetic or niche; do opportunistically)
-10. Tag system (#30, 3-4 h) · Agent grouping/filtering (#20, 4 h) — pair well with search.
+10. Tag system (#30, 3-4 h) · Agent grouping/filtering (#20, shipped) — pair well with search.
 12. Export/import sessions (#7, 2 h) — necessity dropped: the store is already a
     single dir you can copy; real value is only selective/portable export.
 14. Docker/container support (#41, 2 days) — the one "platform" item with real pull,

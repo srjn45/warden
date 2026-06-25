@@ -200,6 +200,7 @@ separate server.
 | **Live fleet over SSE** | No manual refresh; coloured busy/idle badges (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) + each agent's subject. |
 | **Attention queue** | Surfaces agents in `waiting_for_input`/`errored`/`orphaned`, with one-click approval buttons. |
 | **Cockpit tab** | Multi-pane view for watching several agents at once. |
+| **Agent grouping** | The Cockpit grid buckets agents into collapsible panes by **Directory / Type / Status / Tag** (multi-tagged agents appear under each tag; untagged agents bucket together). The choice is saved to LocalStorage; the Overview mini-grid stays grouped by directory. |
 | **Interactive terminal** | Pin an agent to get a live `tmux attach` bridged to the browser over a WebSocket (xterm.js) — type into the agent and watch it respond. |
 | **Create agent** | **+ New agent** prompt box with a directory picker (live prefix autocomplete) and a **Supervised** checkbox. |
 | **Terminate with git guard** | Surfaces a 409 → **Force** + optional hard-delete when there's uncommitted/unpushed work. |
