@@ -148,6 +148,10 @@ func (a *lifecycleAdapter) Sync(ctx context.Context, dir, base string) (lifecycl
 	return a.lc.Sync(ctx, dir, base)
 }
 
+func (a *lifecycleAdapter) CreatePR(ctx context.Context, dir, title, body, base string) (lifecycle.PRResult, error) {
+	return a.lc.CreatePR(ctx, dir, title, body, base)
+}
+
 func (a *lifecycleAdapter) Check(ctx context.Context, dir, name string) (lifecycle.CheckResult, error) {
 	return a.lc.Check(ctx, dir, name)
 }

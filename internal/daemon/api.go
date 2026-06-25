@@ -261,6 +261,8 @@ type Lifecycle interface {
 	Commit(ctx context.Context, dir, message string) (lifecycle.CommitResult, error)
 	Push(ctx context.Context, dir string) (lifecycle.PushResult, error)
 	Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error)
+	// CreatePR opens a GitHub PR for dir's branch (backs `done --create-pr`).
+	CreatePR(ctx context.Context, dir, title, body, base string) (lifecycle.PRResult, error)
 	// Check runs the project's configured .warden/check.yml command(s) in dir and
 	// returns a pass/fail summary with output only for failures — backs wd check /
 	// mcp__warden__check.

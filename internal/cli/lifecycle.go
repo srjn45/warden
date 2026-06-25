@@ -238,7 +238,23 @@ func newDoneCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hard, _ := cmd.Flags().GetBool("hard")
+			createPR, _ := cmd.Flags().GetBool("create-pr")
+			base, _ := cmd.Flags().GetString("base")
 			c := clientFor(cmd)
+			// Open the PR first, while the agent is still intact: if anything fails
+			// (dirty push, protected branch, no gh) the agent is left running so the
+			// operator can fix it and retry, rather than losing the session.
+			if createPR {
+				res, err := c.CreatePR(cmd.Context(), args[0], base)
+				if err != nil {
+					return fmt.Errorf("create PR: %w\n(agent left running — fix the issue and retry, or run `warden done %s` without --create-pr)", err, args[0])
+				}
+				verb := "opened PR"
+				if !res.Created {
+					verb = "PR already exists"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, res.URL)
+			}
 			if err := c.Terminate(cmd.Context(), args[0]); err != nil {
 				return err
 			}
@@ -250,6 +266,8 @@ func newDoneCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("hard", false, "purge the record instead of archiving")
+	cmd.Flags().Bool("create-pr", false, "open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before finishing")
+	cmd.Flags().String("base", "", "base branch for the PR (default main); only meaningful with --create-pr")
 	return cmd
 }
 

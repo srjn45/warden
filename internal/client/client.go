@@ -468,6 +468,19 @@ func (c *Client) Digest(ctx context.Context, id string) (*digest.Digest, error) 
 	return &d, nil
 }
 
+// CreatePR opens a GitHub pull request for an agent's branch via the daemon
+// (push → digest → gh pr create). base selects the PR base ("" = main). Uses
+// longTimeout — it pushes and shells gh over the network. An already-existing PR
+// comes back as a successful result with Created=false.
+func (c *Client) CreatePR(ctx context.Context, id, base string) (lifecycle.PRResult, error) {
+	var res lifecycle.PRResult
+	body := map[string]string{"base": base}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/sessions/"+id+"/create-pr", body, &res); err != nil {
+		return lifecycle.PRResult{}, err
+	}
+	return res, nil
+}
+
 // PressureStatus mirrors GET /pressure.
 type PressureStatus struct {
 	Level       int    `json:"level"`

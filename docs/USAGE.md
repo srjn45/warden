@@ -427,14 +427,24 @@ warden adopt --dir /path/to/project   # target a different directory
 Hand your terminal to the agent's tmux session interactively. Detach with the
 tmux prefix-then-`d` (default `Ctrl-b d`) to leave the agent running.
 
-### `warden done <TICKET> [--hard]`
+### `warden done <TICKET> [--hard] [--create-pr [--base <branch>]]`
 Terminate the agent (kill its tmux + claude session) **and** clear its record in
 one step — equivalent to `terminate` then `delete`. It does **not** remove the
 git worktree; that's a separate, explicitly-confirmed step (`remove-worktree`).
 
+With `--create-pr`, warden first pushes the agent's branch and opens a GitHub PR
+(via `gh`) before finishing — the title comes from the agent's subject/task and
+the body is its completion digest (files changed + narrative). `--base` sets the
+PR target (default `main`). The PR is opened *before* the agent is torn down, so
+if it fails (dirty push, protected branch, `gh` missing) the agent is left
+running to fix and retry; an existing PR for the branch is reported, not
+re-created. Requires the [`gh` CLI](https://cli.github.com) authenticated.
+
 ```sh
-warden done PROJ-350          # terminate + clear record (worktree kept)
-warden done PROJ-350 --hard   # purge the record instead of archiving it
+warden done PROJ-350               # terminate + clear record (worktree kept)
+warden done PROJ-350 --hard        # purge the record instead of archiving it
+warden done PROJ-350 --create-pr   # push branch + open a GitHub PR, then finish
+warden done PROJ-350 --create-pr --base develop
 ```
 
 ### `warden terminate <TICKET>`
