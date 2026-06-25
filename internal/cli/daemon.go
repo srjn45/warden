@@ -159,6 +159,7 @@ func newDaemonCmd() *cobra.Command {
 					slog.Info("plugin system enabled", "plugins", len(reg.Plugins()))
 				}
 			}
+			srv.SetAPIDocs(cfg.ApiDocs)
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})

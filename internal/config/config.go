@@ -64,6 +64,7 @@ type Config struct {
 	Snapshots              bool          `yaml:"snapshots"`
 	Tutorial               bool          `yaml:"tutorial"`
 	Insights               bool          `yaml:"insights"`
+	ApiDocs                bool          `yaml:"api_docs"`
 	LocalLLM               bool          `yaml:"local_llm"`
 	LocalLLMURL            string        `yaml:"local_llm_url"`
 	LocalLLMModel          string        `yaml:"local_llm_model"`
@@ -134,6 +135,7 @@ var schema = []setting{
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
 	{"tutorial", "Print a one-line first-run hint pointing at `wd tutorial` until the walkthrough is completed (it writes a tutorial-complete marker in data_dir). The hint is non-blocking and only shown on an interactive TTY; this gate disables it. Values: true | false"},
 	{"insights", "Enable the AI-powered insights engine (wd insights + MCP insights): mine agent history for duration outliers, co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could run in parallel. Deterministic by default; narrated by the local model when local_llm is on. Values: true | false"},
+	{"api_docs", "Serve the OpenAPI spec + interactive Swagger UI at /api/docs (public, like the static UI shell; the spec describes the API shape but holds no secrets). Values: true | false"},
 	{"local_llm", "Route fuzzy-but-cheap tasks (task classification) to a local model instead of warden's own headless Claude. Off by default; every step falls back to Claude on any error. Values: true | false"},
 	{"local_llm_url", "Base URL of the local Ollama-compatible server used when local_llm is on. Values: http(s) URL (default http://localhost:11434)"},
 	{"local_llm_model", "Model name the local server should run for warden's tasks. Values: an Ollama model tag (e.g. qwen2.5-coder:7b)"},
@@ -198,6 +200,7 @@ func defaults() Config {
 		Snapshots:              true,
 		Tutorial:               true,
 		Insights:               true,
+		ApiDocs:                true,
 		LocalLLM:               false,
 		LocalLLMURL:            "http://localhost:11434",
 		LocalLLMModel:          "qwen2.5-coder:7b",
@@ -690,6 +693,10 @@ func (c Config) GetTutorial() bool { return c.Tutorial }
 // GetInsights reports whether the AI-powered insights engine is enabled (the
 // `wd insights` CLI and the MCP insights tool gate on it).
 func (c Config) GetInsights() bool { return c.Insights }
+
+// GetApiDocs reports whether the public OpenAPI docs surface (/api/docs + the
+// raw openapi.yaml) is served.
+func (c Config) GetApiDocs() bool { return c.ApiDocs }
 
 // GetLocalLLM reports whether warden routes its fuzzy-but-cheap tasks (task
 // classification) to a local model instead of headless Claude.

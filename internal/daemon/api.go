@@ -184,7 +184,15 @@ type Server struct {
 	// (#47). nil ⇒ the plugin system is off (the default); Dispatch is then a
 	// no-op. Dispatch is always fail-open, so it never alters request flow.
 	plugins *plugin.Dispatcher
+	// apiDocs gates the public OpenAPI docs surface (/api/docs + the raw spec).
+	// Default false on a bare Server literal; the daemon sets it from the
+	// `api_docs` config setting (default on). See apidocs_routes.go.
+	apiDocs bool
 }
+
+// SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
+// at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.
+func (s *Server) SetAPIDocs(enabled bool) { s.apiDocs = enabled }
 
 // SetAuth configures the bearer token required for remote access. An empty
 // token disables authentication (the local-only default). When set, every
@@ -363,7 +371,8 @@ func (s *Server) router() http.Handler {
 		s.registerSnapshotRoutes(ar)
 	})
 
-	s.registerStatic(r) // unauthenticated catch-all; must be last
+	s.registerAPIDocsRoutes(r) // public OpenAPI docs; explicit /api/docs* routes
+	s.registerStatic(r)        // unauthenticated catch-all; must be last
 	return r
 }
 

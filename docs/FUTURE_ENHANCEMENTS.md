@@ -163,9 +163,22 @@ change. See FEATURES.md §24 and
 _Originally framed "Necessity: low for a single-author tool" — shipped anyway as
 cheap, self-contained onboarding polish that stays out of the way._
 
-#### 43. API documentation (OpenAPI) — *not started*
-**Effort:** 4 hours. Generate `openapi.yaml`; serve Swagger UI at `/api/docs`.
-Revisit when the remote API gains outside consumers.
+#### 43. API documentation (OpenAPI) — *shipped*
+A machine-readable **OpenAPI 3.x** description of the daemon's REST API plus an
+interactive **Swagger UI at `/api/docs`** (raw spec at `/api/docs/openapi.yaml`;
+FEATURES.md §27). The spec is **derived from the real route table** — a drift-guard
+test (`apidocs_routes_test.go`) walks the live chi mux and asserts two-way equality
+between the registered routes and the spec's paths, so an undocumented endpoint (or
+a stale spec entry) fails CI. Schemas are modelled off the actual Go types
+(`store.Session`, the daemon request DTOs, `lifecycle.*Result`, `snapshot.Snapshot`,
+`pipeline.Pipeline`, …). Served from a self-contained `internal/daemon/apidocs`
+package that **embeds** the spec and a **pinned, vendored** `swagger-ui-dist@5.17.14`
+(no runtime CDN — works offline and in the container), reusing the daemon's
+`go:embed`+handler pattern. The docs surface is **public** (like `/healthz` and the
+static SPA shell — the spec holds no secrets), while still documenting the
+`bearerAuth` scheme that gates every data/action route. Gated by the `api_docs`
+config setting (default on). See
+`docs/superpowers/specs/2026-06-25-warden-openapi-api-docs-design.md`.
 
 ---
 
@@ -282,7 +295,7 @@ _Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](F
 15. Finish inter-agent collaboration (#44, 1-2 weeks) — correctly deferred behind
     real usage; MVP already covers file-conflict detection.
 16. ~~Snapshot/checkpoint (#46)~~ — **shipped** (`wd snapshot`, FEATURES.md §23). ·
-    OpenAPI docs (#43, 4 h) — revisit when the remote API gains outside consumers.
+    ~~OpenAPI docs (#43)~~ — **shipped** (`/api/docs` Swagger UI, FEATURES.md §27).
 
 ### 🧊 Tier 5 — Parked (necessity too low for a solo tool; don't build speculatively)
 Reassessed *downward* — keep on the list for completeness, but these need a concrete
