@@ -36,21 +36,6 @@ there is no global shortcut layer yet.)
 
 ---
 
-#### 7. Export/Import sessions — *not started*
-**Effort:** 2 hours
-**Value:** Backup, sharing, migration
-
-```bash
-warden export --all > all-sessions.json
-warden import < backup.json
-```
-
-Serialize/insert `Session` structs (metadata only; does not recreate worktrees).
-Necessity is modest — the store is already a single copyable directory — so the
-real value is *selective/portable* export, not whole-store backup.
-
----
-
 #### 8. Improve CLI test coverage to 50%+ — *ongoing*
 **Effort:** 3-4 hours
 

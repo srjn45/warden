@@ -343,6 +343,7 @@ func (s *Server) router() http.Handler {
 		s.registerPipelineRoutes(ar)
 		s.registerHistoryRoutes(ar)
 		s.registerSearchRoutes(ar)
+		s.registerImportRoutes(ar)
 	})
 
 	s.registerStatic(r) // unauthenticated catch-all; must be last

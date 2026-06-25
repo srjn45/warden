@@ -375,3 +375,18 @@ work is delegated by `spawn_agent`-ing a Claude agent.
 | **`!`-shell passthrough** | A `!`-prefixed line runs in a persistent embedded `$SHELL` (cwd/env persist) and tees output to the terminal. The orchestrator takes **no action** on that output — no auto-diagnose/fix/spawn; it reports verbatim and waits. The output is visible as context to the next natural-language turn. A shell that can't start (no PTY) is non-fatal. |
 | **Cockpit integration** | As the master pane it hosts `wd orch` over the operator's shell; **Alt+t** toggles the slot to a raw `$SHELL` and back without killing either side (see §8). |
 | **Hardware-aware model recommendation** | `wd doctor` best-effort detects accelerator/host memory (NVIDIA VRAM via `nvidia-smi`, Apple unified memory via `sysctl`, else system RAM) and **recommends** a `local_llm_model` from the Qwen2.5-Coder family sized to fit (≥20 GB → `32b` · ~10 → `14b` · ~6 → `7b` · ~4 → `3b` · ≤2 → `1.5b`). It only ever recommends — the operator sets the model; warden never silently swaps it. |
+
+---
+
+## 18. Export / import sessions
+
+Serialize session **metadata** to JSON for backup, sharing, or migration between
+machines, then read it back into another store. Worktrees, branches, and tmux
+sessions are **not** serialized as files and are **not** recreated on import — an
+imported record simply remembers where its (now absent) worktree used to live.
+
+| Feature | Description |
+|---|---|
+| **`warden export`** | Dumps active agent records as a versioned JSON envelope (`{version, exported_at, sessions}`) on stdout. `--all` folds in the archived (`closed/`) store too. Reuses the existing `/sessions` + `/history` reads — no new export endpoint. |
+| **`warden import`** | Reads an export envelope from stdin and inserts its records. **Idempotent by id**: a record whose id already exists is skipped, so re-importing the same dump is a no-op. `--merge` overwrites colliding records with the imported data instead; `--json` prints the per-id result. A new id whose name collides with a different record is imported with the alias dropped (reported under `renamed`). |
+| **`POST /import?merge=`** | Daemon endpoint (`internal/daemon/import_routes.go`); decodes the envelope and inserts each record keyed on id (`400` on a bad body, `422` on a store error). The `store.Export` / `store.ImportResult` envelope types live in `internal/store/portability.go`. |
