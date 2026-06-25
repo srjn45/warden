@@ -12,7 +12,9 @@ import (
 // the per-agent `claude --settings` file) so a raw git mutation run through Bash —
 // `git commit`, `git push`, `git pull`, `git rebase` — is denied with a message
 // naming the warden tool that replaces it. Read-only git (status/log/diff/show…)
-// and every non-git command pass through untouched.
+// and every non-git command pass through untouched. `git rebase --continue` (and
+// the other in-progress-rebase controls) is also allowed, so an agent that hits
+// a conflict during `wd sync` can finish the rebase the tool told it to.
 //
 // Unlike the isolation guard this needs no daemon round-trip: the redirect is a
 // static mapping, so it is decided entirely from the command string. It ALWAYS
@@ -89,11 +91,38 @@ func gitRedirectMsg(raw, tool, action string) string {
 // false positive) and inspects each for a `git <mutating-subcommand>` invocation.
 func detectGitRedirect(command string) string {
 	for _, words := range parseCommands(command) {
-		if msg, ok := gitRedirects[gitSubcommand(words)]; ok {
+		sub := gitSubcommand(words)
+		// `git rebase --continue|--abort|--skip|…` manages an in-progress rebase
+		// (one wd sync itself started and tells you to finish) rather than
+		// kicking off a new one, so it must pass through — otherwise the guard
+		// wedges the agent mid-rebase with no sanctioned way out.
+		if sub == "rebase" && isRebaseControl(words) {
+			continue
+		}
+		if msg, ok := gitRedirects[sub]; ok {
 			return msg
 		}
 	}
 	return ""
+}
+
+// rebaseControlFlags are the `git rebase` options that operate on an already
+// in-progress rebase instead of starting a fresh one.
+var rebaseControlFlags = map[string]bool{
+	"--continue": true, "--abort": true, "--skip": true,
+	"--quit": true, "--edit-todo": true, "--show-current-patch": true,
+}
+
+// isRebaseControl reports whether a `git rebase …` invocation carries a control
+// flag (--continue/--abort/…) that drives an in-progress rebase rather than
+// starting a new one.
+func isRebaseControl(words []string) bool {
+	for _, w := range words {
+		if rebaseControlFlags[w] {
+			return true
+		}
+	}
+	return false
 }
 
 // gitGlobalWithValue lists the git global options that consume the following
