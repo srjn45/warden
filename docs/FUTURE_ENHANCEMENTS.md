@@ -293,7 +293,7 @@ marginal value given `rotate` + pipelines already cover the real need.
 
 ## 🧠 Orchestration & Token Reduction
 
-#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0 complete; Phase 1a shipped)*
+#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0 complete; Phase 1 shipped)*
 **Effort:** Phase 0a ~1 day · 0b ~2 days · 0c ~1 day · Phase 1 ~3-4 days (incremental)
 **Value:** Cut Claude token spend; enforce worktree isolation; retire the operator's
 manual git lifecycle.
@@ -342,9 +342,16 @@ messages), proven first by swapping the existing headless-Claude `Classify` call
   optional `LLM` field (nil = off) and `Classify` routes through it first, falling back to
   headless Claude (then `TypeOther`) on any error. Gated by `local_llm` (default off) +
   `local_llm_url`/`_model`/`_timeout`; the daemon builds the provider only when enabled.
-  First LLM in the tree; degrades to today's behavior when off/unreachable. **1b:** route
-  headless commit messages, then log / oversized-check-failure summarization through the
-  same seam.
+  First LLM in the tree; degrades to today's behavior when off/unreachable. **1b:** ✅
+  **shipped** — `Summarize` (the ≤8-word agent-activity subject) routes through the same
+  seam first, falling back to headless Claude on any local error *or empty reply* (an empty
+  summary carries no signal, so unlike `Classify` it is not trusted); and `lifecycle.Check`
+  condenses an **oversized** failure log (output past `maxCheckOutputLines`) via the local
+  model into the distinct failures, with the deterministic tail-truncation as the fallback
+  (model error / empty reply / no model → the agent still gets the failure). Within-cap
+  failures skip the model entirely. (No diff→commit-message generator exists today — the
+  pipeline auto-commit message is the deterministic job subject — so there is nothing to
+  route there yet.)
 
 **Design spec:** [`docs/superpowers/specs/2026-06-24-warden-orchestration-brain-design.md`](superpowers/specs/2026-06-24-warden-orchestration-brain-design.md).
 

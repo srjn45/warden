@@ -124,3 +124,104 @@ func TestTruncateTailShortIsUnchanged(t *testing.T) {
 	require.Equal(t, "a\nb", truncateTail("a\nb\n", 10))
 	require.Equal(t, "", truncateTail("\n\n", 10))
 }
+
+// bigLog builds a failure log of n lines, well past maxCheckOutputLines.
+func bigLog(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		b.WriteString("noise noise noise\n")
+	}
+	b.WriteString("--- FAIL: TestZ\nFAIL")
+	return b.String()
+}
+
+func TestCheckSummarizesOversizedFailureWithLLM(t *testing.T) {
+	dir := writeCheckCfg(t, "check:\n  test: go test ./...\n")
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"sh -c go test ./...": {Out: bigLog(maxCheckOutputLines + 50), Err: errStub("exit 1")},
+	}}
+	fc := &fakeCompleter{out: "TestZ: assertion failed\n"}
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = fc
+
+	res, err := lc.Check(context.Background(), dir, "test")
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+	require.Equal(t, 1, fc.calls, "an oversized failure is condensed by the local model")
+	require.Contains(t, res.Checks[0].Output, checkSummaryMarker)
+	require.Contains(t, res.Checks[0].Output, "TestZ: assertion failed")
+}
+
+func TestCheckDoesNotSummarizeSmallFailure(t *testing.T) {
+	dir := writeCheckCfg(t, "check:\n  test: go test ./...\n")
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"sh -c go test ./...": {Out: "--- FAIL: TestX\nFAIL", Err: errStub("exit 1")},
+	}}
+	fc := &fakeCompleter{out: "should not be used"}
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = fc
+
+	res, err := lc.Check(context.Background(), dir, "test")
+	require.NoError(t, err)
+	require.Equal(t, 0, fc.calls, "a within-cap failure needs no model — the raw tail is small enough")
+	require.NotContains(t, res.Checks[0].Output, checkSummaryMarker)
+	require.Contains(t, res.Checks[0].Output, "--- FAIL: TestX")
+}
+
+func TestCheckFallsBackToTailWhenLLMErrors(t *testing.T) {
+	dir := writeCheckCfg(t, "check:\n  test: go test ./...\n")
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"sh -c go test ./...": {Out: bigLog(maxCheckOutputLines + 50), Err: errStub("exit 1")},
+	}}
+	fc := &fakeCompleter{err: errStub("connection refused")}
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = fc
+
+	res, err := lc.Check(context.Background(), dir, "test")
+	require.NoError(t, err)
+	require.Equal(t, 1, fc.calls)
+	require.NotContains(t, res.Checks[0].Output, checkSummaryMarker, "a model error degrades to the deterministic tail")
+	require.Contains(t, res.Checks[0].Output, "earlier lines truncated")
+	require.Contains(t, res.Checks[0].Output, "--- FAIL: TestZ")
+}
+
+func TestCheckFallsBackToTailWhenLLMEmpty(t *testing.T) {
+	dir := writeCheckCfg(t, "check:\n  test: go test ./...\n")
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"sh -c go test ./...": {Out: bigLog(maxCheckOutputLines + 50), Err: errStub("exit 1")},
+	}}
+	fc := &fakeCompleter{out: "   \n"} // empty reply → keep the tail
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = fc
+
+	res, err := lc.Check(context.Background(), dir, "test")
+	require.NoError(t, err)
+	require.Equal(t, 1, fc.calls)
+	require.NotContains(t, res.Checks[0].Output, checkSummaryMarker)
+	require.Contains(t, res.Checks[0].Output, "--- FAIL: TestZ")
+}
+
+func TestCheckNoLLMKeepsDeterministicTail(t *testing.T) {
+	dir := writeCheckCfg(t, "check:\n  test: go test ./...\n")
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"sh -c go test ./...": {Out: bigLog(maxCheckOutputLines + 50), Err: errStub("exit 1")},
+	}}
+	res, err := New(fr, &FakeConfig{}).Check(context.Background(), dir, "test") // LLM nil
+	require.NoError(t, err)
+	require.NotContains(t, res.Checks[0].Output, checkSummaryMarker)
+	require.Contains(t, res.Checks[0].Output, "earlier lines truncated")
+}
+
+func TestOversizedOutput(t *testing.T) {
+	require.False(t, oversizedOutput(""))
+	require.False(t, oversizedOutput("one line"))
+	require.False(t, oversizedOutput(strings.Repeat("x\n", maxCheckOutputLines)), "exactly at the cap is not oversized")
+	require.True(t, oversizedOutput(strings.Repeat("x\n", maxCheckOutputLines+1)))
+}
+
+func TestParseCheckSummaryCapsLines(t *testing.T) {
+	require.Equal(t, "", parseCheckSummary("   \n  "))
+	require.Equal(t, "a\nb", parseCheckSummary("  a\nb\n"))
+	capped := parseCheckSummary(strings.Repeat("f\n", maxCheckOutputLines+20))
+	require.Equal(t, maxCheckOutputLines, len(strings.Split(capped, "\n")), "a runaway model reply is capped to the line budget")
+}

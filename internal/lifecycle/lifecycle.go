@@ -489,7 +489,11 @@ func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, er
 }
 
 // Summarize produces a one-line subject for an agent: it reads recent activity
-// (transcript, else pane) and asks claude -p for an <=8-word phrase.
+// (transcript, else pane) and asks for an <=8-word phrase. When the local LLM is
+// enabled it tries that first (summarization is a fuzzy-but-cheap task, safe to
+// move off warden's own Claude spend), and falls back to headless Claude on any
+// local error or an empty reply — an empty summary carries no signal, so unlike
+// Classify it is not trusted as a final answer.
 func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string, error) {
 	text := l.recentActivity(ctx, sess)
 	if strings.TrimSpace(text) == "" {
@@ -498,11 +502,95 @@ func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string,
 	if strings.TrimSpace(text) == "" {
 		return "", nil
 	}
-	out, err := l.runClaudeP(ctx, summaryArg(text))
+	arg := summaryArg(text)
+	if l.LLM != nil {
+		if out, err := l.LLM.Complete(ctx, arg); err == nil {
+			if s := parseSummary(out); s != "" {
+				return s, nil
+			}
+		} else {
+			slog.Warn("summarize: local LLM failed, falling back to claude", "err", err)
+		}
+	}
+	out, err := l.runClaudeP(ctx, arg)
 	if err != nil {
 		return "", fmt.Errorf("claude -p: %w: %s", err, out)
 	}
 	return parseSummary(out), nil
+}
+
+// checkSummaryInstruction prompts the local model to distil oversized check
+// failure output into the distinct failures an agent must act on. It must preserve
+// error text verbatim and never speculate about fixes — warden condenses the log,
+// it does not interpret the failure.
+const checkSummaryInstruction = "The following is failing test, build, or lint output. List each distinct failure as a single line: the failing test or file:line followed by the exact error message, verbatim. Do not summarize away the error text and do not suggest fixes. Reply with ONLY the list.\n\nOutput:\n"
+
+// checkSummaryMarker prefixes a model-condensed failure so the agent knows it is
+// reading a distilled view rather than the raw runner output.
+const checkSummaryMarker = "⚠ failures condensed by local model (raw output exceeded the line cap):\n"
+
+// checkSummaryArg builds the prompt for condensing failure output, capping the
+// model's input to the tail (where runners print the decisive failure) so a huge
+// log can't blow up local inference. The tail may begin mid-rune after slicing;
+// drop the leading partial rune so the model gets valid UTF-8.
+func checkSummaryArg(out string) string {
+	const max = 16000
+	if len(out) > max {
+		out = out[len(out)-max:]
+		for len(out) > 0 && !utf8.RuneStart(out[0]) {
+			out = out[1:]
+		}
+	}
+	return checkSummaryInstruction + out
+}
+
+// parseCheckSummary cleans the model's condensed-failure reply and defensively
+// caps it at the same line budget as the deterministic truncation, so a runaway
+// model can never spill more than the tail it replaces.
+func parseCheckSummary(out string) string {
+	s := strings.TrimSpace(out)
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > maxCheckOutputLines {
+		lines = lines[:maxCheckOutputLines]
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+// summarizeCheckOutput renders a failed check's captured output for the agent. The
+// deterministic result is the tail-truncated log (truncateTail). When a local model
+// is configured AND the raw output is oversized, it asks the model to distil the
+// distinct failures and returns that instead — fewer transcript tokens spent reading
+// a failure the truncation would have clipped anyway. Any model error, an empty
+// reply, or no model at all falls back to the deterministic tail, so the agent never
+// loses the failure to a slow or absent model.
+func (l *Lifecycle) summarizeCheckOutput(ctx context.Context, name, out string) string {
+	truncated := truncateTail(out, maxCheckOutputLines)
+	if l.LLM == nil || !oversizedOutput(out) {
+		return truncated
+	}
+	summary, err := l.LLM.Complete(ctx, checkSummaryArg(out))
+	if err != nil {
+		slog.Warn("check: local LLM summarize failed, using truncated tail", "check", name, "err", err)
+		return truncated
+	}
+	if s := parseCheckSummary(summary); s != "" {
+		return checkSummaryMarker + s
+	}
+	return truncated
+}
+
+// oversizedOutput reports whether s holds more than maxCheckOutputLines lines —
+// the threshold at which truncateTail starts dropping lines and a condensed view
+// can earn its keep.
+func oversizedOutput(s string) bool {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return false
+	}
+	return strings.Count(s, "\n")+1 > maxCheckOutputLines
 }
 
 // transcriptPath resolves the agent's claude transcript file. With a pinned

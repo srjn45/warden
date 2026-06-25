@@ -821,15 +821,26 @@ warden config set local_llm_model qwen2.5-coder:7b
 warden config set local_llm_timeout 20s                # hard per-call cap
 ```
 
-With `local_llm` on, the daemon points `Classify` at the configured Ollama
-endpoint. **Every call has a deterministic fallback:** on any error, timeout, or
-unreachable server it falls back to headless Claude, which in turn falls back to
-the `other` label — so a stopped or slow Ollama never blocks a spawn, it just
-forgoes the saving. Local inference on CPU can be slower than calling Claude, hence
-the hard `local_llm_timeout`. warden works fully headless without any of this; the
-local model only earns its place on these cheap tasks and is never used to decide
-code changes. (Output/log summarization and headless commit messages are the next
-candidates to route here.)
+With `local_llm` on, the daemon routes three fuzzy-but-cheap responsibilities at
+the configured Ollama endpoint:
+
+- **Task classification** — labelling a prompt-spawned agent (`Classify`).
+- **Activity subjects** — the ≤8-word "currently working on" phrase warden shows
+  in `wd ls` and digests (`Summarize`).
+- **Oversized check failures** — when a `wd check` command fails and its captured
+  output exceeds the line cap, the local model condenses it to the distinct
+  failures (the failing test / `file:line` plus the verbatim error) instead of
+  spilling a truncated tail into the agent's transcript. The deterministic
+  tail-truncation is the fallback, so the agent never loses the failure.
+
+**Every call has a deterministic fallback:** on any error, timeout, or unreachable
+server, classification and summaries fall back to headless Claude (classification
+then falls back to the `other` label; a check summary falls back to the truncated
+tail) — so a stopped or slow Ollama never blocks an agent, it just forgoes the
+saving. Local inference on CPU can be slower than calling Claude, hence the hard
+`local_llm_timeout`. warden works fully headless without any of this; the local
+model only earns its place on these cheap tasks and is never used to decide code
+changes or rewrite the operator's intent.
 
 ---
 

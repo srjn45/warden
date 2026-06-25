@@ -340,8 +340,9 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     MCP tool (`mcp__warden__check`), backed by `lifecycle.Check`. Runs the per-project
     `.warden/check.yml` command(s) via `sh -c` and returns a compact
     `CheckResult{passed, checks:[{name,cmd,passed,exit_code,output}]}` — output captured for
-    the **failing** checks only, tail-truncated (the deterministic fallback; LLM summarize is
-    Phase 1). `wd check` runs all entries (stable alphabetical order); `wd check <name>` runs
+    the **failing** checks only, tail-truncated (the deterministic fallback; optional LLM
+    condensation of oversized logs shipped in Phase 1b). `wd check` runs all entries (stable
+    alphabetical order); `wd check <name>` runs
     one; an entry may scope to a sub-dir (`dir:`) for monorepos. Config is the single source
     of truth (shared with the 0c-2 hook so the gate and runner can't drift); a repo with no
     config returns `ErrNoCheckConfig` (run tests directly), an unknown name lists the
@@ -362,8 +363,9 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     (opt-in per repo); the hook reads the config from the agent's cwd (no daemon round-trip)
     and **fails open** on unreadable input or a malformed config. Gated by a new
     `check_redirect` config (default on); the settings writer emits whichever of the three
-    `PreToolUse` matchers are enabled, and nothing when all are off. *No LLM — local summarize
-    for oversized failure logs stays a Phase 1 follow-up. Biggest raw token win.*
+    `PreToolUse` matchers are enabled, and nothing when all are off. *No LLM in the gate
+    itself; optional local-model condensation of oversized failure logs shipped in Phase 1b.
+    Biggest raw token win.*
 - **Phase 1 — Local provider.** Ollama HTTP provider behind a config flag. Prove on
   `Classify` first → then headless commit messages → then log/transcript summarization.
   - **1a — Provider seam + Classify swap (✅ shipped).** A new `internal/llm` package
@@ -377,8 +379,19 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     `qwen2.5-coder:7b`), `local_llm_timeout` (default `20s`); the daemon constructs the
     provider only when `local_llm` is on. *First LLM in the codebase; everything degrades to
     today's behavior when off or unreachable.*
-  - **1b — next.** Route headless commit messages, then log/transcript + oversized
-    check-failure summarization (the 0c-2 follow-up) through the same seam.
+  - **1b — Summarize + oversized check-failure condensation (✅ shipped).**
+    `lifecycle.Summarize` (the ≤8-word agent-activity subject from transcript/pane)
+    routes through the `Completer` seam first, falling back to headless Claude on any
+    local error *or empty reply* — an empty summary carries no signal, so unlike
+    `Classify` a successful-but-empty local reply is not trusted. And `lifecycle.Check`
+    now condenses an **oversized** failure log (captured output past
+    `maxCheckOutputLines`) via the local model into the distinct failures (failing
+    test / `file:line` + verbatim error), with `truncateTail` as the deterministic
+    fallback on a model error, empty reply, or no model; within-cap failures skip the
+    model and keep the raw small tail. Both reuse `l.LLM != nil` as the on/off switch
+    (no new config). *No diff→commit-message generator exists today — the pipeline
+    auto-commit message is the deterministic job subject — so commit-message routing is
+    a no-op until such a generator is built.*
 
 ## Non-goals
 

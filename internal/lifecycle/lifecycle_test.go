@@ -649,6 +649,63 @@ func TestSummarizeFallsBackToPane(t *testing.T) {
 	require.Equal(t, "building a REST handler", got)
 }
 
+func TestSummarizeUsesLocalLLMWhenSet(t *testing.T) {
+	root := t.TempDir() // empty → fall through to pane
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux capture-pane -p -t agent-bb22 -S -40": {Out: "wiring the order service\n"},
+	}}
+	fc := &fakeCompleter{out: "wiring the order service\n"}
+	lc := New(fr, &FakeConfig{})
+	lc.ProjectsDir = root
+	lc.LLM = fc
+	sess := &store.Session{ID: "agent-bb22", TmuxSession: "agent-bb22", Workdir: "/Users/me/warden-agents/agent-bb22"}
+
+	got, err := lc.Summarize(context.Background(), sess)
+	require.NoError(t, err)
+	require.Equal(t, "wiring the order service", got)
+	require.Equal(t, 1, fc.calls)
+	require.NotContains(t, fr.calledArgs(), []string{"claude", "-p", summaryArg("wiring the order service\n")},
+		"a successful local summary must not also spend warden's Claude")
+}
+
+func TestSummarizeFallsBackToClaudeWhenLocalErrors(t *testing.T) {
+	root := t.TempDir()
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux capture-pane -p -t agent-cc33 -S -40":      {Out: "fixing the parser\n"},
+		"claude -p " + summaryArg("fixing the parser\n"): {Out: "fixing the parser"},
+	}}
+	fc := &fakeCompleter{err: errStub("connection refused")}
+	lc := New(fr, &FakeConfig{})
+	lc.ProjectsDir = root
+	lc.LLM = fc
+	sess := &store.Session{ID: "agent-cc33", TmuxSession: "agent-cc33", Workdir: "/Users/me/warden-agents/agent-cc33"}
+
+	got, err := lc.Summarize(context.Background(), sess)
+	require.NoError(t, err)
+	require.Equal(t, "fixing the parser", got)
+	require.Equal(t, 1, fc.calls)
+	require.Contains(t, fr.calledArgs(), []string{"claude", "-p", summaryArg("fixing the parser\n")},
+		"a local error falls back to headless Claude")
+}
+
+func TestSummarizeFallsBackToClaudeWhenLocalEmpty(t *testing.T) {
+	root := t.TempDir()
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux capture-pane -p -t agent-dd44 -S -40":          {Out: "running the migration\n"},
+		"claude -p " + summaryArg("running the migration\n"): {Out: "running the migration"},
+	}}
+	fc := &fakeCompleter{out: "   \n"} // whitespace-only → no signal, fall back
+	lc := New(fr, &FakeConfig{})
+	lc.ProjectsDir = root
+	lc.LLM = fc
+	sess := &store.Session{ID: "agent-dd44", TmuxSession: "agent-dd44", Workdir: "/Users/me/warden-agents/agent-dd44"}
+
+	got, err := lc.Summarize(context.Background(), sess)
+	require.NoError(t, err)
+	require.Equal(t, "running the migration", got)
+	require.Equal(t, 1, fc.calls)
+}
+
 func TestTranscriptPathBySessionIDBeatsNewest(t *testing.T) {
 	root := t.TempDir()
 	workdir := "/Users/me/warden-agents/agent-zz99"

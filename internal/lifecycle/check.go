@@ -21,8 +21,8 @@ var ErrNoCheckConfig = errors.New("no .warden/check.yml in this project — add 
 
 // maxCheckOutputLines caps captured failure output. Test runners and compilers
 // print the decisive summary last, so warden keeps the tail and notes the cut —
-// the agent reads the failure, not the whole log. (LLM summarization is a later
-// phase; this is the deterministic fallback.)
+// the agent reads the failure, not the whole log. This is also the deterministic
+// fallback for the optional local-model condensation (see summarizeCheckOutput).
 const maxCheckOutputLines = 120
 
 // CheckEntry is one configured check command. It unmarshals from either a bare
@@ -111,7 +111,7 @@ func (l *Lifecycle) runCheck(ctx context.Context, dir, name string, entry CheckE
 	outcome := CheckOutcome{Name: name, Cmd: entry.Cmd, Passed: err == nil}
 	if err != nil {
 		outcome.ExitCode = exitCode(err)
-		outcome.Output = truncateTail(out, maxCheckOutputLines)
+		outcome.Output = l.summarizeCheckOutput(ctx, name, out)
 	}
 	return outcome
 }
