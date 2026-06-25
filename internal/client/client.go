@@ -905,6 +905,29 @@ func (c *Client) GetMetricsHistory(ctx context.Context, since string, limit int)
 	return resp.Samples, nil
 }
 
+// GetAgentHistory fetches per-agent performance summaries with anomaly warnings
+// (GET /metrics/history?summary=true). since is an RFC3339 timestamp ("" lets
+// the daemon default to its look-back window); agent ("" ⇒ all) narrows to one
+// agent ID.
+func (c *Client) GetAgentHistory(ctx context.Context, since, agent string) ([]metrics.AgentSummary, error) {
+	q := url.Values{}
+	q.Set("summary", "true")
+	if since != "" {
+		q.Set("since", since)
+	}
+	if agent != "" {
+		q.Set("agent", agent)
+	}
+	p := "/metrics/history?" + q.Encode()
+	var resp struct {
+		Summaries []metrics.AgentSummary `json:"summaries"`
+	}
+	if err := c.do(ctx, http.MethodGet, p, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Summaries, nil
+}
+
 func (c *Client) SetAutoApprove(ctx context.Context, id string, enabled bool) error {
 	body := map[string]bool{"enabled": enabled}
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/auto-approve", body, nil)

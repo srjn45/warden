@@ -150,6 +150,11 @@ type Server struct {
 	mcollector *metrics.Collector
 	mrecorder  *metrics.Recorder
 	metricsOn  bool // metrics config setting — gates the disk recorder goroutine
+	// Context-token bands reused by the metrics-history anomaly detector so its
+	// "context climbing/critical" warnings line up with the poller's guard. 0 ⇒
+	// the corresponding check is disabled.
+	mTokenWarn int
+	mTokenCrit int
 	// Worktree retention policy (worktree_keep_done / worktree_auto_prune).
 	// Both default to false (zero value) = today's keep-everything behavior, so a
 	// bare Server literal is non-breaking. removeDoneWorktree=true (config

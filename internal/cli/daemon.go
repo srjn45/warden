@@ -144,7 +144,7 @@ func newDaemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled)
+			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled, cfg.TokenWarn, cfg.TokenCritical)
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(cfg.PipelineKeepDone)
 
