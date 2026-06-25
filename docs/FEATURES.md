@@ -538,3 +538,41 @@ untouched. Disable the hint entirely with `tutorial: false` in the config.
 Implemented as a thin CLI verb (`internal/cli/tutorial.go`) over pure,
 unit-tested helpers — marker read/write/reset, the step list, and the
 suppression predicate — with no daemon change.
+
+---
+
+## 25. AI-powered insights (`wd insights`)
+
+Mine warden's **own history** — completed and active agent sessions plus the
+resource metrics it already records — into actionable suggestions. Like the
+orchestrator and digest, it is a **deterministic statistics core that needs no
+LLM**, with an **optional local-LLM narration layer** that degrades gracefully to
+the deterministic text whenever the model is off, unreachable, errors, or returns
+an empty reply. Config-gated by `insights` (default on).
+
+- **`wd insights`** (CLI + MCP `insights`) — aggregates history into a report:
+  - **session duration by type** — count, median / p90 / max per agent type, with
+    individual runs flagged as **outliers** when they exceed 2× the type's median.
+  - **parallelization opportunities** — pairs of **finished, same-repo** sessions
+    whose run windows did **not** overlap and whose edited file sets are
+    **disjoint**, i.e. they could have run concurrently; each carries the wall-clock
+    time the shorter run could have saved.
+  - **frequently co-edited files** — file pairs touched together across multiple
+    sessions, a hint for module coupling.
+  - **error rate by type** — errored/orphaned over total per type.
+  - **busiest hours (UTC)** — when agent activity clusters.
+  - **live agent anomalies** — surfaced straight from the metrics summarizer.
+- **Flags** mirror the history/digest neighbors: `--since <24h|7d|2w|date>` to bound
+  the window, `--limit` to cap archived sessions mined, `--session <id|name>` to
+  scope the parallelization suggestions to one session, and `--json` for the raw
+  structured report.
+
+Built as a self-contained, fully unit-tested `internal/insights` package — pure
+aggregation (`Analyze`), the parallelization suggester (`SuggestParallelization`),
+and the narrator (`Narrate` over the `llm.Completer` seam, a nil completer meaning
+deterministic-only) — behind a shared `client.Insights` aggregator that both the CLI
+and MCP call. Duration / error-rate / busy-period analysis covers **all** sessions;
+the file-set-dependent co-edit and parallelization analysis is strongest on active or
+digestible sessions, since archived file sets are reconstructed best-effort from
+digests. See
+`docs/superpowers/specs/2026-06-25-warden-ai-powered-insights-design.md`.
