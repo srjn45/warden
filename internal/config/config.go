@@ -62,6 +62,9 @@ type Config struct {
 	LocalLLMURL            string `yaml:"local_llm_url"`
 	LocalLLMModel          string `yaml:"local_llm_model"`
 	LocalLLMTimeout        string `yaml:"local_llm_timeout"`
+	LocalLLMEscalate       bool   `yaml:"local_llm_escalate"`
+	LocalLLMTier           string `yaml:"local_llm_tier"`
+	Orchestrator           bool   `yaml:"orchestrator"`
 	RateLimitRetryInterval string `yaml:"rate_limit_retry_interval"`
 	RateLimitBuffer        string `yaml:"rate_limit_buffer"`
 	RateLimitAutoResume    bool   `yaml:"rate_limit_auto_resume"`
@@ -122,6 +125,9 @@ var schema = []setting{
 	{"local_llm_url", "Base URL of the local Ollama-compatible server used when local_llm is on. Values: http(s) URL (default http://localhost:11434)"},
 	{"local_llm_model", "Model name the local server should run for warden's tasks. Values: an Ollama model tag (e.g. qwen2.5-coder:7b)"},
 	{"local_llm_timeout", "Hard timeout for each local-model call before falling back to Claude. Values: Go duration (e.g. 20s, 1m)"},
+	{"local_llm_escalate", "Let the orchestrator escalate an over-tier planning step to headless Claude (one bounded `claude -p`); off ⇒ degrade honestly instead. Execution stays token-free warden calls either way. Values: true | false"},
+	{"local_llm_tier", "Explicit orchestrator planning-tier override for the local model. auto derives the tier from the model name. Values: auto | t0 | t1 | t2"},
+	{"orchestrator", "Start the cockpit master pane in orchestrator mode (the natural-language conductor) instead of a plain shell. Values: true | false"},
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
@@ -176,6 +182,9 @@ func defaults() Config {
 		LocalLLMURL:            "http://localhost:11434",
 		LocalLLMModel:          "qwen2.5-coder:7b",
 		LocalLLMTimeout:        "20s",
+		LocalLLMEscalate:       true,
+		LocalLLMTier:           "auto",
+		Orchestrator:           false,
 		RateLimitRetryInterval: "30m",
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
@@ -657,6 +666,18 @@ func (c Config) GetLocalLLM() bool { return c.LocalLLM }
 func (c Config) LocalLLMTimeoutDuration() time.Duration {
 	return durOr(c.LocalLLMTimeout, 20*time.Second)
 }
+
+// GetLocalLLMEscalate reports whether the orchestrator may escalate an over-tier
+// planning step to headless Claude (vs. degrading honestly).
+func (c Config) GetLocalLLMEscalate() bool { return c.LocalLLMEscalate }
+
+// GetLocalLLMTier returns the explicit orchestrator planning-tier override
+// ("auto"|"t0"|"t1"|"t2"); "auto" derives the tier from the model name.
+func (c Config) GetLocalLLMTier() string { return c.LocalLLMTier }
+
+// GetOrchestrator reports whether the cockpit master pane starts in orchestrator
+// mode instead of a plain shell.
+func (c Config) GetOrchestrator() bool { return c.Orchestrator }
 
 // AutoRestartResetDuration returns the sustained-health window that resets the
 // auto-restart counter.

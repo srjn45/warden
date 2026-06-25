@@ -43,6 +43,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newPipelineCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newTUICmd())
+	root.AddCommand(newOrchCmd())
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newCompletionCmd())
 	root.AddCommand(newVersionCmd())
