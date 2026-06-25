@@ -78,17 +78,6 @@ output formatting, mocked daemon responses.
 
 ---
 
-## 📊 Observability & Monitoring
-
-#### 11. Agent performance history — *partial*
-**Effort:** 4-6 hours
-
-Live resource sampling exists via the metrics system (see FEATURES.md §11); what's
-missing is persisted per-agent *history* (runtime, turn count, files modified,
-context trend) and an anomaly warning surface.
-
----
-
 ## 🌐 Remote Access & Multi-Device
 
 #### 14. Distributed warden (multi-machine) ⭐ ENTERPRISE — *not started*
@@ -120,17 +109,6 @@ Store in `~/.warden/schedules.json`; daemon scheduler loop (check each minute);
 rate-limit reset-time parsing, not a scheduler. **Necessity nudged down** — the
 Claude Code harness now offers external cron/scheduling, so in-daemon scheduling is
 convenience rather than a blocker.
-
----
-
-## 🔄 Auto-Restart & Resilience
-
-#### 17. Crash detection improvements — *partial*
-**Effort:** 4 hours
-
-Stuck-state reclassification (`stuckAfter`) and crash-exit-code recording exist.
-Remaining: OOM-kill heuristics, "suggest `/compact` before crash," explicit
-infinite-loop detection beyond the stuck timer.
 
 ---
 
@@ -418,9 +396,6 @@ a single user.
 7. **Scheduled agents/tasks** (#15, 1-2 days) — decision doc + `robfig/cron`.
    Necessity nudged *down*: the Claude Code harness now offers external cron/schedule,
    so in-daemon scheduling is convenience, not a blocker. **F: medium · N: medium.**
-8. **Finish crash detection + agent performance history** (#17 + #11, ~1.5 days)
-   — both already *partial*; complete OOM/loop heuristics and persisted per-agent
-   history. **F: medium · N: medium.**
 9. **Improve CLI test coverage to 50%+** (#8, ongoing) — lowest-covered package.
    **F: easy · N: medium (quality).**
 
@@ -463,7 +438,6 @@ Tier 1 first (each a self-contained win), then Tier 2 as fleet size grows:
 2. **Pipeline MCP tools** (4-6 h) — let orchestrator agents drive pipelines
 3. **Pipeline templates** (2 h) — lowers the barrier `validate` only half-fixed
 7. **Scheduled agents/tasks** (1-2 days) — recurring automation (convenience-tier now)
-8. **Finish crash detection + perf history** (~1.5 days) — complete the partials
 9. **Finish inter-agent collaboration** (1-2 weeks) — next-gen, foundation already in
 
 ---
