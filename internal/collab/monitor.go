@@ -1,10 +1,17 @@
-// Package collab provides inter-agent file-conflict detection: a single
-// daemon-side goroutine polls each active agent's worktree with `git diff` and
-// warns agents that are editing the same file as another agent.
+// Package collab provides inter-agent file-conflict detection: a daemon-side
+// monitor scans each active agent's worktree with `git diff` and warns agents
+// that are editing the same file as another agent.
+//
+// Detection runs on two cadences: an fsnotify watcher over each worktree gives
+// subsecond reaction to edits, and a slower poll loop reconciles the watch set
+// against the active-session view and acts as a safety net when events are
+// missed or watches can't be added. The watcher degrades cleanly to pure
+// polling when fsnotify is unavailable or the inotify budget is exhausted.
 //
 // Design: docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md
-// (Hardened MVP). Warnings are informational, delivered through the existing
-// mailbox, and never block an agent. State is in-memory and ephemeral.
+// (Hardened MVP + deferred FSNotify real-time detection). Warnings are
+// informational, delivered through the existing mailbox, and never block an
+// agent. State is in-memory and ephemeral.
 package collab
 
 import (
@@ -17,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -33,6 +41,9 @@ const (
 	// Agents are blocked from forging it by daemon.sanitizeSender; daemon-internal
 	// writes (like this one) are trusted by construction and call Append directly.
 	daemonSender = "daemon"
+	// watchDebounce coalesces a burst of filesystem events into a single rescan,
+	// so saving several files at once triggers at most one conflict scan.
+	watchDebounce = 300 * time.Millisecond
 )
 
 // Lister is the slice of the session store the monitor needs. store.Store
@@ -60,6 +71,10 @@ type Monitor struct {
 	// diff returns the modified files in a worktree; overridable in tests.
 	diff func(ctx context.Context, worktree string) []string
 
+	// watch is the real-time fsnotify layer; nil when fsnotify is unavailable,
+	// in which case detection runs on the poll loop alone.
+	watch *watcher
+
 	mu    sync.Mutex
 	dedup map[string]time.Time // "agentID\x00file" -> last warned
 }
@@ -69,12 +84,25 @@ func NewMonitor(st Lister, mbox *mailbox.Store) *Monitor {
 	return &Monitor{store: st, mbox: mbox, diff: gitDiffFiles, dedup: map[string]time.Time{}}
 }
 
-// Run scans on every interval until ctx is cancelled. A non-positive interval
-// disables the monitor (returns immediately).
+// Run scans until ctx is cancelled. A non-positive interval disables the
+// monitor (returns immediately). When fsnotify is available, a watcher reacts
+// to edits in subseconds; the interval poll reconciles the watch set against
+// the active-session view and serves as a safety net regardless.
 func (m *Monitor) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		return
 	}
+	// Real-time layer: best-effort. If fsnotify can't initialize (e.g. inotify
+	// instances exhausted), detection degrades to the poll loop below.
+	if w, err := newWatcher(); err != nil {
+		slog.Warn("collab: real-time watcher unavailable, polling only", "err", err)
+	} else {
+		m.watch = w
+		defer w.Close()
+		m.reconcileWatches(ctx)
+		go m.watchLoop(ctx)
+	}
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -82,6 +110,66 @@ func (m *Monitor) Run(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			m.reconcileWatches(ctx)
+			m.tick(ctx)
+		}
+	}
+}
+
+// reconcileWatches points the watcher at the current tracked-worktree set,
+// adding watches for new agents and dropping them for departed ones. It is a
+// no-op when the real-time layer is disabled.
+func (m *Monitor) reconcileWatches(ctx context.Context) {
+	if m.watch == nil {
+		return
+	}
+	sessions, err := m.store.List(ctx)
+	if err != nil {
+		slog.Warn("collab: reconcile watches: list sessions failed", "err", err)
+		return
+	}
+	var roots []string
+	for _, s := range sessions {
+		if tracked(s) {
+			roots = append(roots, s.Worktree)
+		}
+	}
+	m.watch.reconcile(roots)
+}
+
+// watchLoop debounces filesystem events into conflict rescans, so a burst of
+// edits triggers at most one scan. Newly created directories are added to the
+// watch set as they appear (inotify is not recursive). It returns when ctx is
+// cancelled or the watcher's channels close.
+func (m *Monitor) watchLoop(ctx context.Context) {
+	timer := time.NewTimer(watchDebounce)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
+	pending := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-m.watch.fsw.Events():
+			if !ok {
+				return
+			}
+			if ev.Op&fsnotify.Create == fsnotify.Create {
+				m.watch.noteCreate(ev.Name)
+			}
+			if !pending {
+				pending = true
+				timer.Reset(watchDebounce)
+			}
+		case err, ok := <-m.watch.fsw.Errors():
+			if !ok {
+				return
+			}
+			slog.Warn("collab: watcher error", "err", err)
+		case <-timer.C:
+			pending = false
 			m.tick(ctx)
 		}
 	}

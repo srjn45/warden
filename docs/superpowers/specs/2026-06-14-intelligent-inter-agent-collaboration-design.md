@@ -229,9 +229,22 @@ agents — already-running agents are unaffected until restarted. Detection runs
 in the daemon-owned process; a rogue manual `warden daemon` shadowing the port
 will not run the monitor.
 
-**Still remaining** (unchanged from "Deferred" below): FSNotify real-time
-detection, OverlapDetector (work dedup), BranchTracker / GitHub CI monitoring,
-collaboration groups, SSE replay and the multi-cache/circuit-breaker layer.
+**Update (2026-06-25): FSNotify real-time detection shipped.** The 10s git-diff
+poll is now augmented by an fsnotify watcher (`internal/collab/watcher.go`) that
+reacts to edits in subseconds. It watches each tracked worktree's directories
+(recursively, skipping `.git`), reconciles the watch set against the
+active-session view on every poll tick (warden has no termination event bus, so
+the poll loop drives cleanup), debounces an edit burst into a single scan, picks
+up newly created directories from their create events, and enforces an inotify
+watch budget (80% of `/proc/sys/fs/inotify/max_user_watches`, Linux). It
+degrades cleanly to pure polling when fsnotify can't initialize or the budget is
+exhausted, so the poll loop remains the safety net. Tested under `-race` with a
+fake `fsWatch` backend (reconcile/budget/debounce bookkeeping) plus one real-
+fsnotify end-to-end test.
+
+**Still remaining** (unchanged from "Deferred" below): OverlapDetector (work
+dedup), BranchTracker / GitHub CI monitoring, collaboration groups, SSE replay
+and the multi-cache/circuit-breaker layer.
 
 ---
 
@@ -264,7 +277,11 @@ No `GITHUB_TOKEN`, no FSNotify tunables — those belong to deferred phases.
 Not built in the MVP; promote only when real usage justifies it (see
 Appendix A for the full original design and the data to collect first):
 
-- **FSNotify real-time detection** + inotify watch-budget management.
+- ~~**FSNotify real-time detection** + inotify watch-budget management.~~
+  **Shipped 2026-06-25** — see the Implementation status update above and
+  `internal/collab/watcher.go`. The "future FSNotify phase must either build a
+  termination event bus or reconcile watchers against the active-session set on
+  each tick" caveat from Appendix A.1 was resolved with the per-tick reconcile.
 - **OverlapDetector** (work deduplication). Note: its plan-file signal matched
   files by agent/session id, but real specs are named `YYYY-MM-DD-feature.md`
   and contain no agent id — that signal is dead under current conventions and
@@ -373,3 +390,11 @@ including two surfaces added beyond the documented MVP — the web dashboard
 "File conflicts" card (#21) and the `collab_hint` conflict-check prompt nudge
 (#22) — and updated Configuration to the three shipped keys
 (`collab_enabled` / `collab_interval` / `collab_hint`).
+**2026-06-25 (rev 10):** First deferred phase — **FSNotify real-time
+detection** — shipped (`internal/collab/watcher.go`): subsecond fsnotify
+detection with per-tick watch-set reconciliation against the active-session
+view (resolving the missing termination-event-bus caveat), edit-burst debounce,
+dynamic directory pickup, and an inotify watch budget, all degrading to the
+existing poll loop. Updated Implementation status and Appendix A's deferred
+list. Remaining deferred work unchanged (OverlapDetector, BranchTracker,
+groups, SSE replay / multi-cache).

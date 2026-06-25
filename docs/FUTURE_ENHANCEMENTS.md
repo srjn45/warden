@@ -259,9 +259,15 @@ Revisit when the remote API gains outside consumers.
 The file-conflict-detection MVP (shared context, mailbox, detection engine, web
 card, conflict-check prompt hint) is **shipped — see FEATURES.md §6**.
 
-**Deferred behind real usage** (see the spec's Appendix A): FSNotify real-time
-detection, work-overlap/dedup detection (OverlapDetector), GitHub branch/CI
-tracking (BranchTracker), collaboration groups, SSE replay + multi-cache layer.
+FSNotify real-time detection is now **shipped** (see FEATURES.md §6): an
+fsnotify watcher gives subsecond reaction with watch-set reconciliation against
+the active-session view and an inotify watch budget, falling back to the poll
+loop when unavailable.
+
+**Still deferred behind real usage** (see the spec's Appendix A):
+work-overlap/dedup detection (OverlapDetector — its plan-file signal is dead
+under current naming and needs redesign), GitHub branch/CI tracking
+(BranchTracker), collaboration groups, SSE replay + multi-cache layer.
 
 #### 45. Agent chaining/handoff — *partial*
 **Effort:** ~4 h remaining
