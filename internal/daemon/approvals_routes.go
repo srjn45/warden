@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -66,6 +67,7 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notify()
+	s.recordAudit(r, audit.ActionApprove, id, map[string]string{"option": strconv.Itoa(req.Option)})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "answered"})
 }
 

@@ -375,3 +375,18 @@ work is delegated by `spawn_agent`-ing a Claude agent.
 | **`!`-shell passthrough** | A `!`-prefixed line runs in a persistent embedded `$SHELL` (cwd/env persist) and tees output to the terminal. The orchestrator takes **no action** on that output — no auto-diagnose/fix/spawn; it reports verbatim and waits. The output is visible as context to the next natural-language turn. A shell that can't start (no PTY) is non-fatal. |
 | **Cockpit integration** | As the master pane it hosts `wd orch` over the operator's shell; **Alt+t** toggles the slot to a raw `$SHELL` and back without killing either side (see §8). |
 | **Hardware-aware model recommendation** | `wd doctor` best-effort detects accelerator/host memory (NVIDIA VRAM via `nvidia-smi`, Apple unified memory via `sysctl`, else system RAM) and **recommends** a `local_llm_model` from the Qwen2.5-Coder family sized to fit (≥20 GB → `32b` · ~10 → `14b` · ~6 → `7b` · ~4 → `3b` · ≤2 → `1.5b`). It only ever recommends — the operator sets the model; warden never silently swaps it. |
+
+---
+
+## 18. Audit log (`warden audit log`)
+
+An append-only trail of the daemon's meaningful actions — who did what, when, to
+which object — for after-the-fact review. The daemon writes one JSON object per
+line to `~/.warden/audit.jsonl` (`internal/audit`), with a stable schema so old
+lines stay parseable as fields are added.
+
+| Feature | Description |
+|---|---|
+| **Recorded actions** | The daemon logs `spawn`, `terminate`, `delete`, `approve`, and pipeline `pipeline_start` / `pipeline_cancel` at the point each succeeds. Each record carries `time` (when), `action` (what), `actor` (who — the request origin), `target` (the agent/pipeline acted on), and an action-specific `detail` map (name, repo, type, option, hard, …). |
+| **Best-effort writes** | Recording is fire-and-best-effort: a write failure is logged and swallowed so it never blocks or fails the action being audited. Auditing is on whenever the daemon runs; a nil writer (tests) is a safe no-op. The file is created `0600` — owner-only — since it can name agents and prompts. |
+| **`warden audit log`** | Reads and renders the trail (newest last). `--tail N` keeps the most recent N (default 50, `0` = all), `--action` filters by action, `--target` by substring of the agent/pipeline ID, `--since`/`--until` by window (`24h`, `7d`, `2w`) or date, and `--json` prints raw records. It reads the file directly (not via the daemon), so it works even while the daemon is down; malformed/partial lines are skipped. |

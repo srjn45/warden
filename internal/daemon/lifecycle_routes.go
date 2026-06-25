@@ -13,9 +13,29 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// spawnAuditDetail captures the who/what context worth keeping for a spawn:
+// the agent's name, repo, and task type (omitting any that are empty).
+func spawnAuditDetail(sess *store.Session, req SpawnRequest) map[string]string {
+	d := map[string]string{}
+	if sess.Name != "" {
+		d["name"] = sess.Name
+	}
+	if req.Repo != "" {
+		d["repo"] = req.Repo
+	}
+	if req.Type != "" {
+		d["type"] = req.Type
+	}
+	if len(d) == 0 {
+		return nil
+	}
+	return d
+}
 
 func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Post("/spawn", s.handleSpawn)
@@ -155,6 +175,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notify()
+	s.recordAudit(r, audit.ActionSpawn, sess.ID, spawnAuditDetail(sess, req))
 	writeJSON(w, http.StatusCreated, sess)
 	if freeMode && req.Prompt != "" {
 		go s.classifyAndUpdate(sess.ID, req.Prompt)
@@ -376,6 +397,7 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 	// Terminate sets the session done directly (no poller swap, no event), so
 	// reconcile the owning pipeline job here too — otherwise it stays stuck running.
 	s.reconcileJobOnTerminal(sess, store.StatusDone)
+	s.recordAudit(r, audit.ActionTerminate, id, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "terminated"})
 }
 
@@ -424,6 +446,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		s.removeDoneWorktreeBestEffort(sess)
 	}
 	s.notify()
+	s.recordAudit(r, audit.ActionDelete, id, map[string]string{"hard": strconv.FormatBool(req.Hard)})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "warning": warn})
 }
 

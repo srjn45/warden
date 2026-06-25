@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/pipeline"
 )
 
@@ -152,6 +153,7 @@ func (s *Server) handleStartPipeline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.recordAudit(r, audit.ActionPipelineStart, pid, map[string]string{"name": p.Name})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
 }
 
@@ -228,6 +230,7 @@ func (s *Server) handleCancelPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notify()
+	s.recordAudit(r, audit.ActionPipelineCancel, pid, map[string]string{"name": p.Name})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "canceled"})
 }
 

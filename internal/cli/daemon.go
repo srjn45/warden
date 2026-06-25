@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
@@ -139,6 +140,7 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
 			srv.SetSpawnGate(cfg.SpawnGateEnabled, cfg.SpawnGateMaxAgents)
 			srv.SetWorktreeRetention(cfg.WorktreeKeepDone, cfg.WorktreeAutoPrune)
+			srv.SetAudit(audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl")))
 			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)
 			mrec, err := metrics.NewRecorder(filepath.Join(cfg.DataDir, "metrics"))
 			if err != nil {

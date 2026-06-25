@@ -132,8 +132,14 @@ Pairs with grouping (#20) and the shipped search (#28, see FEATURES.md §14).
 **Effort:** 2-3 days. Per-user isolation, ACLs, shared pipelines (opt-in).
 **Necessity: low for a solo tool — parked.**
 
-#### 32. Audit log — *not started*
-**Effort:** 4 hours. `~/.warden/audit.jsonl`; who/what/when/where; `warden audit log`.
+#### 32. Audit log — *shipped*
+The daemon appends an append-only action trail to `~/.warden/audit.jsonl` (one
+JSON object per line, stable schema: who/what/when + target/detail). It records
+the meaningful actions — spawn, terminate, delete, approve, pipeline start/cancel
+— best-effort, so a write failure never blocks or fails the action. Read and
+filter it with `warden audit log` (`--tail`, `--action`, `--target`,
+`--since`/`--until`, `--json`); the command reads the file directly, so it works
+even while the daemon is down.
 
 ---
 
@@ -325,7 +331,6 @@ _Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](F
 13. Finish dark-mode toggle (#19, ~1.5 h) · Web keyboard shortcuts (#5, 2 h) — polish.
 14. Docker/container support (#41, 2 days) — the one "platform" item with real pull,
     since remote access makes containerized deployment plausible. **N: low-medium.**
-15. Audit log (#32, 4 h) — `~/.warden/audit.jsonl`; useful once actions multiply.
 
 ### 🔮 Tier 4 — Future / large bets (foundation- or usage-gated)
 16. Finish inter-agent collaboration (#44, 1-2 weeks) — correctly deferred behind
