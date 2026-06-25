@@ -20,6 +20,7 @@ import (
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -173,6 +174,11 @@ type Server struct {
 	// audit is the append-only action trail (audit.jsonl). nil ⇒ auditing off;
 	// recordAudit is then a no-op. See audit_hook.go.
 	audit *audit.Writer
+	// snap captures/lists/restores worktree+transcript snapshots (#46). nil ⇒ the
+	// feature is unconfigured; snapshots additionally gates the endpoints (config
+	// `snapshots`). See snapshot_routes.go.
+	snap      *snapshot.Manager
+	snapshots bool
 }
 
 // SetAuth configures the bearer token required for remote access. An empty
@@ -349,6 +355,7 @@ func (s *Server) router() http.Handler {
 		s.registerHistoryRoutes(ar)
 		s.registerSearchRoutes(ar)
 		s.registerImportRoutes(ar)
+		s.registerSnapshotRoutes(ar)
 	})
 
 	s.registerStatic(r) // unauthenticated catch-all; must be last
