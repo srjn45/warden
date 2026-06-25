@@ -65,6 +65,52 @@ func formatStats(s *metrics.Sample) string {
 	return b.String()
 }
 
+// formatHistory renders per-agent performance summaries: one block per agent
+// with runtime, memory/CPU/context trends, changed files, and any anomaly
+// warnings. Sorted by agent ID (as the daemon returns them).
+func formatHistory(sums []metrics.AgentSummary) string {
+	if len(sums) == 0 {
+		return "(no recorded history)\n"
+	}
+	var b strings.Builder
+	for _, s := range sums {
+		fmt.Fprintf(&b, "%s [%s] · %d samples · runtime %s\n", s.ID, s.Status, s.Samples, humanDuration(s.RuntimeSec))
+		fmt.Fprintf(&b, "  mem:     %s now · %s peak · %s\n",
+			humanBytes(s.LatestRSSBytes), humanBytes(s.PeakRSSBytes), signedBytes(s.RSSTrendBytes))
+		fmt.Fprintf(&b, "  cpu:     %.1f%% avg · %.1f%% peak\n", s.AvgCPUPercent, s.PeakCPUPercent)
+		fmt.Fprintf(&b, "  context: %dk now · %dk peak · %s · %d files changed\n",
+			s.LatestContextTokens/1000, s.PeakContextTokens/1000, signedTokens(s.ContextTrendTokens), s.PeakFilesModified)
+		for _, a := range s.Anomalies {
+			fmt.Fprintf(&b, "  ⚠ %s\n", a)
+		}
+	}
+	return b.String()
+}
+
+// signedBytes renders a signed byte delta with an explicit +/- and "flat" at 0.
+func signedBytes(d int64) string {
+	switch {
+	case d > 0:
+		return "↑ " + humanBytes(uint64(d))
+	case d < 0:
+		return "↓ " + humanBytes(uint64(-d))
+	default:
+		return "flat"
+	}
+}
+
+// signedTokens renders a signed token delta in thousands.
+func signedTokens(d int) string {
+	switch {
+	case d > 0:
+		return fmt.Sprintf("↑ %dk", d/1000)
+	case d < 0:
+		return fmt.Sprintf("↓ %dk", -d/1000)
+	default:
+		return "flat"
+	}
+}
+
 func newStatsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stats",
@@ -72,6 +118,19 @@ func newStatsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			watch, _ := cmd.Flags().GetBool("watch")
+			history, _ := cmd.Flags().GetBool("history")
+			agent, _ := cmd.Flags().GetString("agent")
+			if history {
+				sums, err := clientFor(cmd).GetAgentHistory(cmd.Context(), "", agent)
+				if err != nil {
+					return err
+				}
+				if jsonOut {
+					return printJSON(cmd.OutOrStdout(), sums)
+				}
+				fmt.Fprint(cmd.OutOrStdout(), formatHistory(sums))
+				return nil
+			}
 			render := func() error {
 				s, err := clientFor(cmd).GetMetrics(cmd.Context())
 				if err != nil {
@@ -104,5 +163,7 @@ func newStatsCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
 	cmd.Flags().Bool("watch", false, "redraw every 3s until interrupted")
+	cmd.Flags().Bool("history", false, "show persisted per-agent performance history + anomaly warnings")
+	cmd.Flags().String("agent", "", "with --history, limit to one agent ID")
 	return cmd
 }

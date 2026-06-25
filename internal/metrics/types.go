@@ -30,14 +30,22 @@ type SystemStats struct {
 
 // AgentStat is one agent's resource usage. Paneable is false when the tmux/ps
 // lookup failed (dead pane, mid-teardown) — RSS/CPU are then zero.
+//
+// ContextTokens, RuntimeSec, and FilesModified carry the non-resource history
+// dimensions: the context-window fill (from the session record, no extra I/O),
+// wall-clock runtime since the agent was created, and the count of uncommitted
+// changed files in its worktree. They are best-effort and 0 when unavailable.
 type AgentStat struct {
-	ID         string  `json:"id"`
-	Status     string  `json:"status"`
-	Paneable   bool    `json:"paneable"`
-	RSSBytes   uint64  `json:"rss_bytes"`
-	CPUPercent float64 `json:"cpu_percent"`
-	ProcCount  int     `json:"proc_count"`
-	UptimeSec  int64   `json:"uptime_sec"`
+	ID            string  `json:"id"`
+	Status        string  `json:"status"`
+	Paneable      bool    `json:"paneable"`
+	RSSBytes      uint64  `json:"rss_bytes"`
+	CPUPercent    float64 `json:"cpu_percent"`
+	ProcCount     int     `json:"proc_count"`
+	UptimeSec     int64   `json:"uptime_sec"`
+	ContextTokens int     `json:"context_tokens,omitempty"`
+	RuntimeSec    int64   `json:"runtime_sec,omitempty"`
+	FilesModified int     `json:"files_modified,omitempty"`
 }
 
 // DaemonStat is the daemon's own footprint. OpenFDs is best-effort (0 if it
@@ -50,8 +58,13 @@ type DaemonStat struct {
 
 // Agent is the minimal session info the Collector needs from the store. The
 // daemon adapts store.Session → Agent so this package stays store-free.
+// ContextTokens/CreatedAt/Workdir feed the per-agent history dimensions
+// (context fill, runtime, changed-file count); all are optional.
 type Agent struct {
-	ID          string
-	TmuxSession string
-	Status      string
+	ID            string
+	TmuxSession   string
+	Status        string
+	ContextTokens int
+	CreatedAt     time.Time
+	Workdir       string
 }

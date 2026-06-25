@@ -25,10 +25,14 @@ const (
 
 // SetMetrics wires the collector + recorder after construction. recorder may be
 // nil (recording disabled); collector may be nil (live snapshot returns empty).
-func (s *Server) SetMetrics(c *metrics.Collector, r *metrics.Recorder, enabled bool) {
+// tokenWarn/tokenCrit are the context-token bands the history anomaly detector
+// reuses (0 disables the matching check).
+func (s *Server) SetMetrics(c *metrics.Collector, r *metrics.Recorder, enabled bool, tokenWarn, tokenCrit int) {
 	s.mcollector = c
 	s.mrecorder = r
 	s.metricsOn = enabled
+	s.mTokenWarn = tokenWarn
+	s.mTokenCrit = tokenCrit
 }
 
 // pressureName returns the cached pressure level name for the collector.
@@ -60,7 +64,8 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	type historyResponse struct {
-		Samples []metrics.Sample `json:"samples"`
+		Samples   []metrics.Sample       `json:"samples,omitempty"`
+		Summaries []metrics.AgentSummary `json:"summaries,omitempty"`
 	}
 	if s.mrecorder == nil {
 		writeJSON(w, http.StatusOK, historyResponse{Samples: []metrics.Sample{}})
@@ -85,6 +90,29 @@ func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	if samples == nil {
 		samples = []metrics.Sample{}
+	}
+	// summary=true rolls the raw samples into per-agent history + anomaly
+	// warnings; agent=<id> narrows it to one agent. Raw samples are the default
+	// so existing /metrics/history callers are unaffected.
+	if r.URL.Query().Get("summary") == "true" {
+		summaries := metrics.SummarizeAgents(samples, metrics.HistoryThresholds{
+			ContextWarn: s.mTokenWarn,
+			ContextCrit: s.mTokenCrit,
+		})
+		if want := r.URL.Query().Get("agent"); want != "" {
+			filtered := summaries[:0]
+			for _, sum := range summaries {
+				if sum.ID == want {
+					filtered = append(filtered, sum)
+				}
+			}
+			summaries = filtered
+		}
+		if summaries == nil {
+			summaries = []metrics.AgentSummary{}
+		}
+		writeJSON(w, http.StatusOK, historyResponse{Summaries: summaries})
+		return
 	}
 	writeJSON(w, http.StatusOK, historyResponse{Samples: samples})
 }
@@ -145,7 +173,14 @@ func (l storeAgentLister) LiveAgents(ctx context.Context) ([]metrics.Agent, erro
 		if !liveStatus(sess.Status) {
 			continue
 		}
-		out = append(out, metrics.Agent{ID: sess.ID, TmuxSession: sess.TmuxSession, Status: string(sess.Status)})
+		out = append(out, metrics.Agent{
+			ID:            sess.ID,
+			TmuxSession:   sess.TmuxSession,
+			Status:        string(sess.Status),
+			ContextTokens: sess.ContextTokens,
+			CreatedAt:     sess.CreatedAt,
+			Workdir:       sess.Workdir,
+		})
 	}
 	return out, nil
 }

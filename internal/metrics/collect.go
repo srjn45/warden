@@ -65,7 +65,7 @@ func (c *Collector) Sample(ctx context.Context) (Sample, error) {
 	out := Sample{TakenAt: c.clock()}
 	var attributed uint64
 	for _, ag := range agents {
-		st := AgentStat{ID: ag.ID, Status: ag.Status}
+		st := AgentStat{ID: ag.ID, Status: ag.Status, ContextTokens: ag.ContextTokens}
 		pids := c.panePIDs(ctx, ag.TmuxSession)
 		if len(pids) > 0 {
 			rss, cpu, procs, uptime := aggregateTree(tbl, pids)
@@ -73,6 +73,10 @@ func (c *Collector) Sample(ctx context.Context) (Sample, error) {
 			st.RSSBytes, st.CPUPercent, st.ProcCount, st.UptimeSec = rss, cpu, procs, uptime
 			attributed += rss
 		}
+		if !ag.CreatedAt.IsZero() {
+			st.RuntimeSec = int64(out.TakenAt.Sub(ag.CreatedAt).Seconds())
+		}
+		st.FilesModified = c.changedFiles(ctx, ag.Workdir)
 		out.Agents = append(out.Agents, st)
 	}
 
@@ -81,6 +85,26 @@ func (c *Collector) Sample(ctx context.Context) (Sample, error) {
 	out.System.AttributedRSSBytes = attributed
 	out.Daemon = c.daemonStats(ctx, tbl)
 	return out, nil
+}
+
+// changedFiles counts uncommitted changes in the agent's worktree via one cheap
+// `git status --porcelain`. Best-effort: 0 for an empty workdir or any git
+// failure (not a repo, git absent). Each non-empty porcelain line is one path.
+func (c *Collector) changedFiles(ctx context.Context, workdir string) int {
+	if workdir == "" {
+		return 0
+	}
+	out, err := c.Run(ctx, workdir, "git", "status", "--porcelain")
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // panePIDs resolves a tmux session's pane pids (one per pane). Empty on any
