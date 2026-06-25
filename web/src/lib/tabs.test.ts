@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tabsReducer, initialTabs, type TabsState } from './tabs';
+import { tabsReducer, initialTabs, orderedTabs, tabByIndex, navTab, type TabsState } from './tabs';
 
 describe('tabsReducer', () => {
   it('open pins an agent and activates it', () => {
@@ -54,5 +54,40 @@ describe('tabsReducer', () => {
     const s = { pinned: [], active: 'context' };
     const out = tabsReducer(s, { kind: 'prune', alive: [] });
     expect(out.active).toBe('context');
+  });
+
+  it('index activates the Nth tab (1-based) and ignores out-of-range', () => {
+    const s: TabsState = { pinned: ['A-1'], active: 'overview' };
+    expect(tabsReducer(s, { kind: 'index', index: 1 }).active).toBe('overview');
+    expect(tabsReducer(s, { kind: 'index', index: 6 }).active).toBe('A-1');
+    expect(tabsReducer(s, { kind: 'index', index: 9 })).toBe(s); // no-op
+  });
+
+  it('nav moves through the tab list and clamps at the ends', () => {
+    const s: TabsState = { pinned: ['A-1'], active: 'overview' };
+    expect(tabsReducer(s, { kind: 'nav', delta: 1 }).active).toBe('cockpit');
+    expect(tabsReducer(s, { kind: 'nav', delta: -1 }).active).toBe('overview'); // clamped
+    const last: TabsState = { pinned: ['A-1'], active: 'A-1' };
+    expect(tabsReducer(last, { kind: 'nav', delta: 1 }).active).toBe('A-1'); // clamped
+    expect(tabsReducer(last, { kind: 'nav', delta: -1 }).active).toBe('archive');
+  });
+});
+
+describe('tab list helpers', () => {
+  it('orderedTabs is fixed tabs followed by pins in open order', () => {
+    expect(orderedTabs({ pinned: ['A-1', 'B-2'], active: 'overview' })).toEqual([
+      'overview', 'cockpit', 'pipelines', 'context', 'archive', 'A-1', 'B-2',
+    ]);
+  });
+
+  it('tabByIndex is 1-based and undefined out of range', () => {
+    const s: TabsState = { pinned: ['A-1'], active: 'overview' };
+    expect(tabByIndex(s, 1)).toBe('overview');
+    expect(tabByIndex(s, 6)).toBe('A-1');
+    expect(tabByIndex(s, 7)).toBeUndefined();
+  });
+
+  it('navTab falls back to active when it is not in the list', () => {
+    expect(navTab({ pinned: [], active: 'ghost' }, 1)).toBe('ghost');
   });
 });

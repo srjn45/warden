@@ -5,7 +5,7 @@ import { THEME_ICON, THEME_LABEL, type Theme, type Resolved } from '../lib/theme
 // toggle, the theme (light/dark/system) toggle, and the New-agent action.
 export default function AttentionBar({
   connected, attentionCount, notifyEnabled, onToggleNotify, onNew, onJumpAttention,
-  tokenSet, onClearToken, theme, resolvedTheme, onCycleTheme,
+  tokenSet, onClearToken, theme, resolvedTheme, onCycleTheme, onShowHelp,
 }: {
   connected: boolean;
   attentionCount: number;
@@ -18,6 +18,7 @@ export default function AttentionBar({
   theme: Theme;
   resolvedTheme: Resolved;
   onCycleTheme: () => void;
+  onShowHelp: () => void;
 }) {
   // Pick the wordmark for the theme that actually renders, so an explicit
   // override (not just the OS) gets the matching asset.
@@ -44,6 +45,14 @@ export default function AttentionBar({
         aria-label={`Theme: ${THEME_LABEL[theme]}. Click to change.`}
       >
         {THEME_ICON[theme]} {THEME_LABEL[theme]}
+      </button>
+      <button
+        className="help-toggle"
+        onClick={onShowHelp}
+        title="Keyboard shortcuts (press ?)"
+        aria-label="Show keyboard shortcuts"
+      >
+        ?
       </button>
       <button className="notify-toggle" onClick={onToggleNotify} title="Browser notifications when an agent needs input">
         {notifyEnabled ? '🔔 on' : '🔕 off'}
