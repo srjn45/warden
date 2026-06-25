@@ -206,12 +206,6 @@ Pairs with grouping (#20) and search (#28).
 **Effort:** 1 day. Auto-fetch ticket summary on spawn; post digest on completion.
 **Necessity: low — the project's loop is GitHub, not Jira. Parked until needed.**
 
-#### 34. Slack notifications — *not started*
-**Effort:** 3-4 hours. Today `internal/notify` is desktop-only (osascript /
-notify-send / log). Add a webhook channel that posts on attention-needed
-transitions (`waiting_for_input`, `errored`, `orphaned`). **High value now that
-remote access ships** — this is what makes "watch from your phone" actually push.
-
 ---
 
 ## ⚡ Performance & Scalability
@@ -420,16 +414,13 @@ a single user.
    tools on NL→confirmed-tool-call composition (`wd orch`), confirm-before-execute so a 7B
    model is safe. Phase A (`Chatter` seam) is the only net-new infra; B ships standalone.
    **F: medium · N: high.**
-1. **Slack/webhook notifications** (#34, 3-4 h) — `internal/notify` exists and is
-   desktop-only; add a webhook channel. Highest necessity now that remote access
-   ships: push alerts on attention transitions are what make "watch from your phone"
-   real. **F: easy · N: high.**
-2. **Pipeline MCP tools** (#25, 4-6 h) — pipelines are mature but CLI-only, so an
+1. **Pipeline MCP tools** (#25, 4-6 h) — pipelines are mature but CLI-only, so an
    orchestrator agent can't drive them. `internal/mcp/server.go` already exposes
    agent/ctx/mailbox/approval tools — adding pipeline tools is mechanical. **F: medium · N: high.**
-3. **Pipeline templates** (#3, 2 h) — `go:embed` 3-4 starters; lowers the authoring
+2. **Pipeline templates** (#3, 2 h) — `go:embed` 3-4 starters; lowers the authoring
    barrier that `validate` only half-addresses. **F: easy · N: medium.**
 
+*(#34 Slack/webhook notifications — ✅ shipped, see FEATURES.md "Webhook / Slack notifications" + the `webhook_enabled`/`webhook_url` settings.)*
 *(#35 GitHub PR auto-create on done — ✅ shipped, see FEATURES.md `done --create-pr`.)*
 
 ### ⭐ Tier 2 — Do Next (solid value, mostly fleet-management)
