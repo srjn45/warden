@@ -34,6 +34,12 @@ type Session struct {
 // locally); gate is the confirm seam (a *Gate in the REPL, a scripted fake in
 // tests).
 func NewSession(chat llm.Chatter, d Daemon, reg *Registry, gate confirmer, router *Router) *Session {
+	// The supervision verbs (fleet_digest / clean_up / …) ride the same loop and
+	// gate. Their condenser reuses the local model when it is also a Completer
+	// (the *Ollama provider is both); otherwise the Monitor falls back to a
+	// deterministic table.
+	comp, _ := chat.(llm.Completer)
+	reg.AddMonitoring(NewMonitorWithGate(d, NewCondenser(comp), gate))
 	return &Session{chat: chat, daem: d, reg: reg, gate: gate, tier: router}
 }
 
