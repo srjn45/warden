@@ -148,11 +148,6 @@ parallel independent-job execution in the pipeline executor, load testing with
 **Effort:** 2-3 days (WSL2 for tmux). Service install + path handling.
 **Necessity: low (primary user on Linux; tmux makes this WSL-only anyway).**
 
-#### 41. Docker/container support — *not started*
-**Effort:** 2 days. Daemon Dockerfile, `~/.warden` volume, compose example.
-The one "platform" item with real pull, since remote access makes containerized
-deployment plausible.
-
 ---
 
 ## 📚 Documentation & Onboarding
@@ -308,14 +303,12 @@ _Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](F
 12. Export/import sessions (#7, 2 h) — necessity dropped: the store is already a
     single dir you can copy; real value is only selective/portable export.
 13. Finish dark-mode toggle (#19, ~1.5 h) · Web keyboard shortcuts (#5, 2 h) — polish.
-14. Docker/container support (#41, 2 days) — the one "platform" item with real pull,
-    since remote access makes containerized deployment plausible. **N: low-medium.**
-15. Audit log (#32, 4 h) — `~/.warden/audit.jsonl`; useful once actions multiply.
+14. Audit log (#32, 4 h) — `~/.warden/audit.jsonl`; useful once actions multiply.
 
 ### 🔮 Tier 4 — Future / large bets (foundation- or usage-gated)
-16. Finish inter-agent collaboration (#44, 1-2 weeks) — correctly deferred behind
+15. Finish inter-agent collaboration (#44, 1-2 weeks) — correctly deferred behind
     real usage; MVP already covers file-conflict detection.
-17. Snapshot/checkpoint (#46, 2 days) · OpenAPI docs (#43, 4 h) — revisit when the
+16. Snapshot/checkpoint (#46, 2 days) · OpenAPI docs (#43, 4 h) — revisit when the
     remote API gains outside consumers.
 
 ### 🧊 Tier 5 — Parked (necessity too low for a solo tool; don't build speculatively)

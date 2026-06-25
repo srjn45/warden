@@ -242,6 +242,48 @@ Logs:
 > `apt install libnotify-bin` (Debian/Ubuntu) or `dnf install libnotify`
 > (Fedora). Degrades to log-only if `notify-send` is not found.
 
+### Run the daemon in Docker
+
+The repo ships a multi-stage [`Dockerfile`](Dockerfile) and a
+[`docker-compose.yml`](docker-compose.yml). The image is a lean Alpine runtime
+(static `CGO_ENABLED=0` binary plus `tmux` + `git`) with the web dashboard baked
+in. State lives in a `~/.warden` volume so it survives container restarts, and
+the daemon binds `0.0.0.0:8765` for remote access.
+
+```sh
+# Build the image (run from the repo root).
+docker build -t warden:latest .
+
+# A non-loopback bind REQUIRES a bearer token — the daemon refuses to start
+# without one. Generate it locally (or use any secret) and run:
+export WARDEN_TOKEN=$(warden token generate)
+docker run -d --name warden \
+  -p 8765:8765 \
+  -e WARDEN_TOKEN \
+  -v warden-data:/home/warden/.warden \
+  warden:latest
+```
+
+Or with compose (reads `WARDEN_TOKEN` from your environment):
+
+```sh
+export WARDEN_TOKEN=$(warden token generate)
+docker compose up -d        # builds the image on first run
+```
+
+The dashboard/API is then reachable at `http://<host>:8765`; the browser prompts
+for the token on first load. Don't expose the port directly to the public
+internet — front it with Tailscale or a Cloudflare Tunnel (see
+[Remote access](#remote-access)).
+
+> **tmux is required.** warden runs every agent inside a tmux session, so the
+> image installs `tmux` (and `git`, for worktree-isolated agents) even though
+> the container's primary job is to host the daemon, REST API, and dashboard.
+> Spawning agents that actually call Claude additionally needs the `claude` CLI
+> and its credentials inside the container — the base image deliberately omits
+> these to stay lean; layer them on (and mount `~/.claude`) if you want the
+> container to drive live agents rather than just manage/observe sessions.
+
 ---
 
 ## Wire in the Claude Code hooks
