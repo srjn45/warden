@@ -406,3 +406,18 @@ imported record simply remembers where its (now absent) worktree used to live.
 | **`warden export`** | Dumps active agent records as a versioned JSON envelope (`{version, exported_at, sessions}`) on stdout. `--all` folds in the archived (`closed/`) store too. Reuses the existing `/sessions` + `/history` reads — no new export endpoint. |
 | **`warden import`** | Reads an export envelope from stdin and inserts its records. **Idempotent by id**: a record whose id already exists is skipped, so re-importing the same dump is a no-op. `--merge` overwrites colliding records with the imported data instead; `--json` prints the per-id result. A new id whose name collides with a different record is imported with the alias dropped (reported under `renamed`). |
 | **`POST /import?merge=`** | Daemon endpoint (`internal/daemon/import_routes.go`); decodes the envelope and inserts each record keyed on id (`400` on a bad body, `422` on a store error). The `store.Export` / `store.ImportResult` envelope types live in `internal/store/portability.go`. |
+
+---
+
+## 19. Docker / container deployment
+
+A multi-stage [`Dockerfile`](../Dockerfile) and [`docker-compose.yml`](../docker-compose.yml)
+package the daemon for containerized remote access. The remote-access auth model
+(non-loopback bind requires `WARDEN_TOKEN`) carries over unchanged.
+
+| Feature | Description |
+|---|---|
+| **Multi-stage, lean image** | Stage 1 (`node:22-alpine`) builds the web dashboard; stage 2 (`golang:1.26-alpine`) produces a static `CGO_ENABLED=0` binary with the dashboard `go:embed`-ed in; stage 3 is an `alpine:3.20` runtime carrying only the binary plus `tmux` + `git` + `ca-certificates`. Runs as an unprivileged `warden` user. |
+| **Persistent state volume** | `~/.warden` (the session store + config) is a named volume (`/home/warden/.warden`), so records survive container restarts. The import never touches disk worktrees, matching §18 semantics — imported records remember absent worktrees rather than recreating them. |
+| **Remote-access defaults** | The entrypoint binds `0.0.0.0:8765`; compose maps the port and threads `WARDEN_TOKEN` from the host environment (required — the daemon refuses a non-loopback bind without it). Front the port with Tailscale / a Cloudflare Tunnel rather than exposing it directly. |
+| **tmux/claude boundary** | The image ships `tmux` (hard runtime dependency — every agent runs inside a tmux session) and `git` (worktree-isolated agents). It deliberately omits the `claude` CLI to stay lean: the container hosts the daemon/API/dashboard out of the box; driving live agents additionally needs `claude` + credentials layered in. |

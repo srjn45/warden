@@ -1,0 +1,17 @@
+# Keep the build context lean and the image reproducible.
+.git
+.github
+.githooks
+bin/
+dist/
+# Built web assets are regenerated inside the image; never copy a stale dist.
+web/node_modules/
+web/dist/*
+web/.astro/
+# Local runtime state / worktrees from running agents in this checkout.
+.warden/
+.worktrees/
+.agentctl/
+coverage.out
+dev.log
+*.code-workspace

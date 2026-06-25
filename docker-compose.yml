@@ -1,0 +1,28 @@
+# Example docker-compose for the warden daemon.
+#
+#   export WARDEN_TOKEN=$(warden token generate)   # or any 256-bit secret
+#   docker compose up -d
+#
+# The dashboard/API is then reachable on http://<host>:8765 — the browser
+# prompts for the token on first load. Expose it over Tailscale or a Cloudflare
+# Tunnel rather than the public internet (see README → Remote access).
+
+services:
+  warden:
+    build: .
+    # Or pull a prebuilt image instead of building locally:
+    # image: warden:latest
+    container_name: warden
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      # Required: the daemon refuses to bind 0.0.0.0 without a bearer token.
+      # Fails fast at startup if unset — no insecure default.
+      WARDEN_TOKEN: ${WARDEN_TOKEN:?set WARDEN_TOKEN (run: warden token generate)}
+    volumes:
+      # Persist the on-disk session store and config across restarts.
+      - warden-data:/home/warden/.warden
+
+volumes:
+  warden-data:
