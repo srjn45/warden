@@ -53,6 +53,28 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[15].Argv)
 }
 
+func TestBuildCockpitOrchestratorMasterPane(t *testing.T) {
+	// The orchestrator flavor runs `wd orch` in the master pane instead of $SHELL.
+	orchCmd := "/bin/warden orch"
+	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
+	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+detailPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
+	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+orchCmd] = lifecycle.FakeResp{Out: "%1\n"}
+	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+listPaneCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
+
+	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", masterCwd: "/work", orchestrator: true}
+	require.NoError(t, buildCockpit(context.Background(), fr, o))
+	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", orchCmd}, fr.Calls[1].Argv)
+}
+
+func TestMasterPaneCmd(t *testing.T) {
+	require.Equal(t, "/bin/warden orch", masterPaneCmd("/bin/warden", true))
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	require.Equal(t, shell, masterPaneCmd("/bin/warden", false))
+}
+
 func TestCleanStaleCockpits(t *testing.T) {
 	alive := cockpitSession(os.Getpid()) // this process is alive — must survive
 	dead := cockpitSession(2147483646)   // not a live pid — must be killed

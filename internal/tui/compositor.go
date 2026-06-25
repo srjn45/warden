@@ -19,10 +19,26 @@ func cockpitSession(pid int) string {
 }
 
 type cockpitOpts struct {
-	session   string // tmux session name, e.g. "warden-tui-1234"
-	self      string // absolute path to the warden binary
-	homeDir   string // cwd for the list pane process
-	masterCwd string // cwd for the master shell pane (the launching shell's dir)
+	session      string // tmux session name, e.g. "warden-tui-1234"
+	self         string // absolute path to the warden binary
+	homeDir      string // cwd for the list pane process
+	masterCwd    string // cwd for the master shell pane (the launching shell's dir)
+	orchestrator bool   // master pane runs `wd orch` instead of a plain $SHELL
+}
+
+// masterPaneCmd is the command tmux runs in the bottom-left master pane. The
+// cockpit ships in two flavors: the default runs a plain shell ($SHELL,
+// defaulting to /bin/sh) for raw terminal access; the orchestrator flavor runs
+// the natural-language conductor (`wd orch`) in that same slot instead.
+func masterPaneCmd(self string, orchestrator bool) string {
+	if orchestrator {
+		return self + " orch"
+	}
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	return shell
 }
 
 // shquote single-quotes s so tmux's `sh -c <command>` preserves spaces.
@@ -64,8 +80,9 @@ func runPaneCreate(ctx context.Context, run lifecycle.Runner, args ...string) (s
 // Panes are created right-to-left so the list pane (created last) can be handed
 // the detail pane's stable id (--detail-pane) and drive it via respawn-pane. The
 // detail pane starts as a placeholder; the list pane opens an agent into it on
-// Enter. The master pane runs a shell ($SHELL) for terminal access. The caller
-// attaches afterwards.
+// Enter. The master pane runs a shell ($SHELL) for terminal access, or the
+// orchestrator REPL (`wd orch`) when o.orchestrator is set. The caller attaches
+// afterwards.
 func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) error {
 	// 1. Detail pane fills the window initially (placeholder); capture its id.
 	detailID, err := runPaneCreate(ctx, run,
@@ -74,15 +91,12 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	if err != nil {
 		return err
 	}
-	// 2. Master shell to the LEFT of detail (-b), 40% width, in the launch dir.
-	// Uses $SHELL (defaulting to /bin/sh) for a plain terminal pane.
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
+	// 2. Master pane to the LEFT of detail (-b), 40% width, in the launch dir.
+	// Runs a plain shell ($SHELL) by default, or `wd orch` when the orchestrator
+	// flavor is selected.
 	masterID, err := runPaneCreate(ctx, run,
 		"split-window", "-h", "-b", "-l", "40%", "-t", detailID, "-c", o.masterCwd,
-		"-P", "-F", "#{pane_id}", shell)
+		"-P", "-F", "#{pane_id}", masterPaneCmd(o.self, o.orchestrator))
 	if err != nil {
 		return err
 	}
@@ -176,8 +190,9 @@ func cleanStaleCockpits(run lifecycle.Runner) {
 
 // RunCockpit builds the tmux cockpit for this process and attaches to it,
 // blocking until the user detaches/quits. masterCwd is the launching shell's
-// directory (where the master shell pane runs).
-func RunCockpit(a api, self, masterCwd string) error {
+// directory (where the master pane runs). orchestrator selects the cockpit
+// flavor whose master pane runs `wd orch` instead of a plain shell.
+func RunCockpit(a api, self, masterCwd string, orchestrator bool) error {
 	_ = a // the panes hold their own clients; reserved for future inline checks
 	// Reap cockpits orphaned by a prior detach (their owning pid is gone).
 	cleanStaleCockpits(lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}})
@@ -187,10 +202,11 @@ func RunCockpit(a api, self, masterCwd string) error {
 		return fmt.Errorf("resolve home dir: %w", err)
 	}
 	o := cockpitOpts{
-		session:   cockpitSession(os.Getpid()),
-		self:      self,
-		homeDir:   home,
-		masterCwd: masterCwd,
+		session:      cockpitSession(os.Getpid()),
+		self:         self,
+		homeDir:      home,
+		masterCwd:    masterCwd,
+		orchestrator: orchestrator,
 	}
 	if err := buildCockpit(context.Background(), lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}, o); err != nil {
 		// Tear down a half-built session so we never leave an orphan.

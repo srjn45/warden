@@ -48,8 +48,10 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newCompletionCmd())
 	root.AddCommand(newVersionCmd())
 	root.Args = cobra.NoArgs
+	var rootOrch bool
+	root.Flags().BoolVar(&rootOrch, "orch", false, "run the orchestrator REPL (wd orch) in the cockpit master pane instead of a shell (default: orchestrator config setting)")
 	root.RunE = func(cmd *cobra.Command, args []string) error {
-		return runCockpit(clientFor(cmd))
+		return runCockpit(clientFor(cmd), cockpitUsesOrch(cmd, rootOrch))
 	}
 	return root
 }
