@@ -168,26 +168,67 @@ func assistantMsg(r llm.Reply) llm.Message {
 	return llm.Message{Role: llm.RoleAssistant, Content: r.Text, ToolCalls: r.ToolCalls}
 }
 
-// RunREPL is the read-line → Handle → print loop for `wd orch`. It shares one
-// input scanner with the confirm gate (when the gate is a *Gate) so the gate's
-// approve/edit/reject read doesn't race the REPL's line read on the same stdin.
-func RunREPL(ctx context.Context, s *Session, r io.Reader, w io.Writer) error {
+// ObserveShell records a `!` command and its (tail-bounded) output into the
+// history as plain context the model may later be asked about — WITHOUT invoking
+// the model. This is the passivity invariant in one place: `!` output is
+// observed and reported; the orchestrator initiates no action from it. The
+// command only enters the model's view on the next *bare* line the operator
+// types (e.g. "what went wrong?").
+func (s *Session) ObserveShell(line string, res RunResult) {
+	obs := fmt.Sprintf("[operator ran shell: %s] (exit %d)\n%s", line, res.ExitCode, res.Captured)
+	s.msgs = append(s.msgs, llm.Message{Role: llm.RoleUser, Content: obs})
+}
+
+// RunREPL is the read-line → (shell | Handle) → print loop for `wd orch`. It
+// shares one input scanner with the confirm gate (when the gate is a *Gate) so
+// the gate's approve/edit/reject read doesn't race the REPL's line read on the
+// same stdin. A `!`-prefixed line is a raw command run in the operator's own
+// shell (sh, the persistent ShellRunner); its output streams verbatim and is
+// only OBSERVED — never acted on, even on failure. A bare line goes to the
+// model via Handle.
+func RunREPL(ctx context.Context, s *Session, sh ShellRunner, r io.Reader, w io.Writer) error {
 	sc := bufio.NewScanner(r)
 	if g, ok := s.gate.(*Gate); ok {
 		g.in = sc // single source of truth for stdin
 	}
-	fmt.Fprintln(w, "warden orchestrator — natural-language conductor. Type a request, or 'exit'.")
+	fmt.Fprintln(w, "warden orchestrator — natural-language conductor. Type a request, '!cmd' to run a shell command, or 'exit'.")
 	fmt.Fprint(w, "warden› ")
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		switch line {
-		case "":
-		case "exit", "quit":
+		switch {
+		case line == "":
+		case line == "exit", line == "quit":
 			return nil
+		case strings.HasPrefix(line, "!"):
+			runBang(ctx, s, sh, strings.TrimPrefix(line, "!"), w)
 		default:
 			fmt.Fprintln(w, s.Handle(ctx, line))
 		}
 		fmt.Fprint(w, "warden› ")
 	}
 	return sc.Err()
+}
+
+// runBang executes a `!` command in the operator's shell and stays passive: the
+// shell streams its output verbatim to w; we surface a non-zero exit and record
+// the run as context. Crucially we never call the model from here — not even on
+// failure. The operator drives any follow-up.
+func runBang(ctx context.Context, s *Session, sh ShellRunner, cmd string, w io.Writer) {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return
+	}
+	if sh == nil {
+		fmt.Fprintln(w, "(no shell available)")
+		return
+	}
+	res, err := sh.Run(ctx, cmd)
+	if err != nil {
+		fmt.Fprintf(w, "(shell error: %v)\n", err)
+		return
+	}
+	if res.ExitCode != 0 {
+		fmt.Fprintf(w, "[exit %d]\n", res.ExitCode)
+	}
+	s.ObserveShell(cmd, res)
 }

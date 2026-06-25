@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"io"
 
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
@@ -166,6 +167,23 @@ func (s *scriptChatter) Chat(_ context.Context, msgs []llm.Message, _ []llm.Tool
 	}
 	s.calls++
 	return r, nil
+}
+
+// fakeShell is a scripted ShellRunner: it records the commands it was asked to
+// run and returns a canned RunResult, so REPL routing/passivity can be tested
+// without a real PTY.
+type fakeShell struct {
+	result RunResult
+	ran    []string
+	screen io.Writer // where the "shell" streams its output, like the real PTY tee
+}
+
+func (f *fakeShell) Run(_ context.Context, line string) (RunResult, error) {
+	f.ran = append(f.ran, line)
+	if f.screen != nil {
+		_, _ = io.WriteString(f.screen, f.result.Captured)
+	}
+	return f.result, nil
 }
 
 // errChatter always fails — models the local model being down.

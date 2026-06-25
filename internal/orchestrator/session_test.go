@@ -108,7 +108,7 @@ func TestRunREPL_HandlesLinesAndExits(t *testing.T) {
 	chat := &scriptChatter{replies: []llm.Reply{{Text: "hello there"}}}
 	s := newTestSession(chat, &fakeDaemon{}, alwaysReject())
 	var out bytes.Buffer
-	err := RunREPL(context.Background(), s, strings.NewReader("hi\nexit\n"), &out)
+	err := RunREPL(context.Background(), s, nil, strings.NewReader("hi\nexit\n"), &out)
 	require.NoError(t, err)
 	require.Contains(t, out.String(), "hello there")
 	require.Equal(t, 1, chat.calls, "exit stops the loop without another turn")
@@ -123,9 +123,62 @@ func TestRunREPL_SharesScannerWithGate(t *testing.T) {
 	fd := &fakeDaemon{}
 	s := NewSession(chat, fd, NewRegistry(), NewGate(strings.NewReader(""), io.Discard), nil)
 	var out bytes.Buffer
-	err := RunREPL(context.Background(), s, strings.NewReader("spawn a dev agent\na\nexit\n"), &out)
+	err := RunREPL(context.Background(), s, nil, strings.NewReader("spawn a dev agent\na\nexit\n"), &out)
 	require.NoError(t, err)
 	require.Equal(t, 1, fd.spawnCalls, "the gate read the approve key from the shared REPL scanner")
+}
+
+func TestRunREPL_BangRoutesToShellNotModel(t *testing.T) {
+	chat := &scriptChatter{replies: []llm.Reply{{Text: "should not be called"}}}
+	s := newTestSession(chat, &fakeDaemon{}, alwaysReject())
+	var out bytes.Buffer
+	sh := &fakeShell{result: RunResult{Captured: "hi\n", ExitCode: 0}, screen: &out}
+	err := RunREPL(context.Background(), s, sh, strings.NewReader("!echo hi\nexit\n"), &out)
+	require.NoError(t, err)
+	require.Equal(t, []string{"echo hi"}, sh.ran, "the !-line ran in the shell")
+	require.Zero(t, chat.calls, "a !-line never reaches the model")
+	require.Contains(t, out.String(), "hi", "the shell streamed its output verbatim")
+}
+
+func TestRunREPL_BareLineRoutesToModel(t *testing.T) {
+	chat := &scriptChatter{replies: []llm.Reply{{Text: "model answered"}}}
+	s := newTestSession(chat, &fakeDaemon{}, alwaysReject())
+	sh := &fakeShell{}
+	var out bytes.Buffer
+	err := RunREPL(context.Background(), s, sh, strings.NewReader("what's running?\nexit\n"), &out)
+	require.NoError(t, err)
+	require.Equal(t, 1, chat.calls, "a bare line goes to the model")
+	require.Nil(t, sh.ran, "a bare line never touches the shell")
+	require.Contains(t, out.String(), "model answered")
+}
+
+func TestRunREPL_BangErrorTakesNoAction(t *testing.T) {
+	chat := &scriptChatter{replies: []llm.Reply{{Text: "should not run"}}}
+	s := newTestSession(chat, &fakeDaemon{}, alwaysReject())
+	sh := &fakeShell{result: RunResult{Captured: "boom\n", ExitCode: 1}}
+	var out bytes.Buffer
+	err := RunREPL(context.Background(), s, sh, strings.NewReader("!make build\nexit\n"), &out)
+	require.NoError(t, err)
+	require.Zero(t, chat.calls, "on a failing !-command the orchestrator does nothing until asked")
+	require.Contains(t, out.String(), "[exit 1]", "the non-zero exit is surfaced")
+}
+
+func TestRunREPL_BangOutputEntersContextForNextBareLine(t *testing.T) {
+	chat := &scriptChatter{replies: []llm.Reply{{Text: "looks like a missing import"}}}
+	s := newTestSession(chat, &fakeDaemon{}, alwaysReject())
+	sh := &fakeShell{result: RunResult{Captured: "undefined: Foo\n", ExitCode: 2}}
+	var out bytes.Buffer
+	err := RunREPL(context.Background(), s, sh, strings.NewReader("!go build\nwhat went wrong?\nexit\n"), &out)
+	require.NoError(t, err)
+	require.Equal(t, 1, chat.calls, "only the bare follow-up reaches the model")
+	// The prior !-command and its output are visible to that follow-up turn.
+	msgs := chat.gotMsgs[len(chat.gotMsgs)-1]
+	var joined strings.Builder
+	for _, m := range msgs {
+		joined.WriteString(m.Content)
+	}
+	require.Contains(t, joined.String(), "go build")
+	require.Contains(t, joined.String(), "undefined: Foo")
 }
 
 func lastToolContent(msgs []llm.Message) string {

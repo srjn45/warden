@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
@@ -30,7 +31,18 @@ func newOrchCmd() *cobra.Command {
 				orchestrator.NewGate(cmd.InOrStdin(), cmd.OutOrStdout()),
 				orchestrator.NewRouterFromConfig(cfg),
 			)
-			return orchestrator.RunREPL(cmd.Context(), sess, cmd.InOrStdin(), cmd.OutOrStdout())
+			// The orchestrator runs on top of the operator's own shell: `!`-lines
+			// pass through to a persistent $SHELL started in the launch dir, teeing
+			// output to the same terminal. A shell that won't start (no PTY) is not
+			// fatal — `!` simply reports it's unavailable.
+			out := cmd.OutOrStdout()
+			cwd, _ := os.Getwd()
+			var sh orchestrator.ShellRunner
+			if s, err := orchestrator.NewShell(cwd, out); err == nil {
+				defer s.Close()
+				sh = s
+			}
+			return orchestrator.RunREPL(cmd.Context(), sess, sh, cmd.InOrStdin(), out)
 		},
 	}
 }
