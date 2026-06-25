@@ -29,7 +29,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 
 	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", masterCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
-	require.Len(t, fr.Calls, 16, "unexpected number of tmux calls")
+	require.Len(t, fr.Calls, 17, "unexpected number of tmux calls")
 
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", detailPlaceholderCmd()}, fr.Calls[0].Argv)
 	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", shell}, fr.Calls[1].Argv)
@@ -48,9 +48,11 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[11].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[12].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[13].Argv)
-	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[14].Argv)
+	// M-t toggles the bottom-left master pane between Claude and a shell.
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-t", "run-shell", "-b", shellToggleScript("S", "%1", "/work")}, fr.Calls[14].Argv)
+	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[15].Argv)
 	// Return-to-dashboard binding for the full-screen attach path (`a`).
-	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[15].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[16].Argv)
 }
 
 func TestBuildCockpitOrchestratorMasterPane(t *testing.T) {

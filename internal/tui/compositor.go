@@ -158,6 +158,12 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 			return fmt.Errorf("tmux bind-key %s: %w: %s", b[0], err, out)
 		}
 	}
+	// M-t toggles the bottom-left master pane between Claude and a shell, swapping
+	// them without killing either (see shellToggleScript). Best-effort parity with
+	// the M-Arrow bindings above.
+	if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", "M-t", "run-shell", "-b", shellToggleScript(o.session, masterID, o.masterCwd)); err != nil {
+		return fmt.Errorf("tmux bind-key M-t: %w: %s", err, out)
+	}
 	// 6. Focus the list pane.
 	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", listID); err != nil {
 		return fmt.Errorf("tmux select-pane: %w: %s", err, out)
