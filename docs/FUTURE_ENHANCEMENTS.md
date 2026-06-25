@@ -159,17 +159,6 @@ warden start --preset code-review --pr 1234
 
 ---
 
-## 📱 Pipeline Enhancements
-
-#### 25. Pipeline MCP tools — *not started*
-**Effort:** 4-6 hours
-Pipelines are still CLI-only. Add `create_pipeline` / `start_pipeline` /
-`show_pipeline` / `cancel_pipeline` to `internal/mcp/server.go` (which currently
-exposes agent, ctx, mailbox, and approval tools — no pipeline tools). Lets an
-orchestrator Claude session drive pipelines without shelling out.
-
----
-
 ## 🔍 Search & Discovery
 
 #### 30. Tag system — *not started*

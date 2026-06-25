@@ -410,3 +410,69 @@ func TestSendMessageClientPath(t *testing.T) {
 		t.Fatalf("got %s %s", gotMethod, gotPath)
 	}
 }
+
+func TestPipelineTools(t *testing.T) {
+	hits := map[string]string{} // path -> method
+	bodies := map[string]string{}
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		key := r.Method + " " + r.URL.Path
+		hits[r.URL.Path] = r.Method
+		bodies[key] = string(b)
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/pipelines":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"demo","name":"demo","status":"pending","jobs":[{"id":"a"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/pipelines":
+			_, _ = w.Write([]byte(`{"pipelines":[{"id":"demo","status":"pending","jobs":[]}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/pipelines/demo":
+			_, _ = w.Write([]byte(`{"id":"demo","status":"running","jobs":[{"id":"a","status":"done"}]}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		}
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, st) }()
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	// create_pipeline forwards the raw spec and returns the created pipeline.
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "create_pipeline",
+		Arguments: map[string]any{"spec": "name: demo\nrepo: /r\njobs: []\n"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, bodies["POST /pipelines"], "name: demo")
+	require.Contains(t, textOf(res), "demo")
+
+	res, err = session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "list_pipelines"})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), "demo")
+
+	res, err = session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name: "show_pipeline", Arguments: map[string]any{"pipeline": "demo"}})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), "running")
+
+	res, err = session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name: "start_pipeline", Arguments: map[string]any{"pipeline": "demo"}})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, http.MethodPost, hits["/pipelines/demo/start"])
+
+	res, err = session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name: "cancel_pipeline", Arguments: map[string]any{"pipeline": "demo"}})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, http.MethodPost, hits["/pipelines/demo/cancel"])
+}

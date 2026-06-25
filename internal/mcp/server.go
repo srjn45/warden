@@ -126,6 +126,13 @@ type whoIsEditingArgs struct {
 	File string `json:"file" jsonschema:"repo-relative file path (as reported by git diff)"`
 }
 
+type createPipelineArgs struct {
+	Spec string `json:"spec" jsonschema:"the pipeline definition as a YAML spec — top-level name, repo, and a jobs list (each job: id, prompt, optional depends_on, worktree none|fresh|from:<job>, type, run_if, supervised). Same schema as a 'warden pipeline create -f' file."`
+}
+type pipelineIDArgs struct {
+	Pipeline string `json:"pipeline" jsonschema:"the pipeline id (equals its name)"`
+}
+
 // findApproval locates the view for id in the live queue and validates that the
 // option is answerable, mirroring the CLI/web guards. The daemon still re-verifies
 // the fingerprint on POST (TOCTOU 409 guard); this just surfaces friendly errors.
@@ -569,6 +576,62 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("restoring " + a.Ticket), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "create_pipeline",
+		Description: "Create a DAG pipeline of agent jobs from a YAML spec (the daemon parses, validates, and stores it). Use this to drive a multi-stage / dependent agent workflow (e.g. analyze→implement→review) instead of spawning and wiring agents by hand. The pipeline starts in `pending` — call start_pipeline to spawn its entry jobs. Returns the created pipeline {id, status, jobs}.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPipelineArgs) (*mcpsdk.CallToolResult, any, error) {
+		p, err := s.cl.PipelineCreate(ctx, a.Spec)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(p)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_pipelines",
+		Description: "List all pipelines with their status and job count.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		ps, err := s.cl.PipelineList(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(ps)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "show_pipeline",
+		Description: "Show one pipeline's jobs and their status, including each job's branch and emitted handoff output — so a finished pipeline's results are readable here even after its agents are gone.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
+		p, err := s.cl.PipelineGet(ctx, a.Pipeline)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(p)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "start_pipeline",
+		Description: "Start a pending pipeline: spawns its jobs that have no dependencies; dependents spawn automatically as their upstreams emit. Returns an error if the pipeline was already started.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.PipelineStart(ctx, a.Pipeline); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("started " + a.Pipeline), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "cancel_pipeline",
+		Description: "Cancel a pipeline: terminates any live job sessions and marks remaining jobs skipped. A finished pipeline cannot be canceled (delete it via the CLI instead).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.PipelineCancel(ctx, a.Pipeline); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("canceled " + a.Pipeline), nil, nil
 	})
 
 	return s
