@@ -1,7 +1,7 @@
 # Warden Future Enhancements & Feature Roadmap
 
-**Last Updated:** 2026-06-24
-**Current Version:** v4.13.0
+**Last Updated:** 2026-06-25
+**Current Version:** v5.1.1
 
 This document tracks **pending** improvements and new features for warden, organized
 by category and priority. Each item includes effort estimates and implementation
@@ -292,7 +292,7 @@ marginal value given `rotate` + pipelines already cover the real need.
 
 ## 🧠 Orchestration & Token Reduction
 
-#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0 complete; Phase 1 shipped)*
+#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *Phase 0 + Phase 1 complete*
 **Effort:** Phase 0a ~1 day · 0b ~2 days · 0c ~1 day · Phase 1 ~3-4 days (incremental)
 **Value:** Cut Claude token spend; enforce worktree isolation; retire the operator's
 manual git lifecycle.
@@ -348,28 +348,76 @@ messages), proven first by swapping the existing headless-Claude `Classify` call
   condenses an **oversized** failure log (output past `maxCheckOutputLines`) via the local
   model into the distinct failures, with the deterministic tail-truncation as the fallback
   (model error / empty reply / no model → the agent still gets the failure). Within-cap
-  failures skip the model entirely. (No diff→commit-message generator exists today — the
-  pipeline auto-commit message is the deterministic job subject — so there is nothing to
-  route there yet.)
+  failures skip the model entirely. **1c:** ✅ **shipped** — `wd commit` / MCP `commit` no
+  longer require `-m`; `lifecycle.Commit` fills a missing message in after staging via the
+  same seam — (a) the author's `-m`, else (b) a Conventional-Commits subject distilled by the
+  local model from the staged diff (`git diff --cached`, capped to 16 KiB of valid UTF-8),
+  else (c) a deterministic conventional-commit floor derived from the changed paths. Every
+  degradation (no model / error / timeout / empty reply) falls to the floor, so a blank commit
+  is impossible — mirroring the Classify/Summarize fallback pattern.
+
+**Phase 1 is now complete** (1a Classify · 1b Summarize + oversized check-failure
+condensation · 1c commit messages). Remaining LLM work moves to the orchestrator track (#50).
 
 **Design spec:** [`docs/superpowers/specs/2026-06-24-warden-orchestration-brain-design.md`](superpowers/specs/2026-06-24-warden-orchestration-brain-design.md).
 
+#### 50. Orchestrator — local-LLM conductor (thin-translator) — *not started (designed; phased A→D)*
+**Effort:** Phase A ~2 days · Phase B ~3 days · Phase C ~1 day · Phase D ~2 days
+**Value:** Cut operator friction on multi-step orchestration without spending Claude tokens —
+a warden-aware local-LLM REPL that turns natural-language intent into **confirmed** warden
+tool calls (spawn/monitor/teardown agents, drive pipelines, run the git/check lifecycle).
+**It conducts; it never implements** — there is no edit/write/bash tool in its registry, so
+code work is always delegated by `spawn_agent`-ing a Claude agent.
+
+Builds directly on #49 (the `internal/llm` provider seam + the git/check tools it routes
+through). A second front-end onto the same daemon client the MCP server uses — no new
+business logic.
+
+- **Phase A** — additive `Chatter` (multi-turn, tool-calling) seam in `internal/llm`,
+  backed by Ollama `/api/chat`; reuses the `local_llm*` config. Same tiny-client discipline
+  (non-streaming, hard timeout, byte cap, error-so-caller-bails) plus a reliability floor for
+  imperfect 7B tool-calling (malformed args / unknown tool / prose-instead-of-JSON → bounded
+  retries, never a garbled execution). *Only net-new infrastructure.*
+- **Phase B** — `internal/orchestrator` package + `warden orchestrator` (`wd orch`) REPL:
+  the tool-calling loop, the registry split by side-effect (read-only auto-executes; mutating
+  calls hit a **mandatory, non-config-gated confirm gate**), and capability-tier routing
+  (pre-classify → plan locally / escalate one planning step to headless Claude / degrade to
+  the operator — execution stays token-free warden calls). First shippable, standalone-runnable
+  milestone.
+- **Phase C** — cockpit master pane hosts the orchestrator-over-shell: one `buildCockpit`
+  pane-command change (`self + " orchestrator"` instead of bare `$SHELL`); a `!`-prefixed line
+  passes through to a persistent embedded `$SHELL` (cwd/env persist, spawn-dir semantics
+  preserved), MVP non-interactive only; raw-`$SHELL` escape hatch one keypress away.
+- **Phase D** — monitoring verbs (fleet summarize / triage / cleanup) as read-only registry
+  calls + a local summarization pass reusing #49's `Summarize` routing.
+
+Cross-cutting: **hardware-aware model recommendation** (`wd doctor` detects VRAM/RAM and
+*recommends* — never silently swaps — a `local_llm_model`) and a model→capability-tier table
+so an under-capable model degrades instead of shipping a confident-wrong plan. New config
+(global policy only): `orchestrator` (default off — initial pane face), `local_llm_escalate`
+(default on), `local_llm_tier` (default auto).
+
+**Design spec:** [`docs/superpowers/specs/2026-06-25-warden-orchestrator-design.md`](superpowers/specs/2026-06-25-warden-orchestrator-design.md)
+· phase plans in [`docs/superpowers/plans/`](superpowers/plans/) (`2026-06-25-warden-orchestrator-phase-{a,b,c,d}.md`).
+
 ---
 
-## 📊 Priority Matrix (reassessed 2026-06-24)
+## 📊 Priority Matrix (reassessed 2026-06-25)
 
 Re-scored on **feasibility × necessity** for what warden actually is today: a
 solo-operator tool for orchestrating Claude Code agents, with remote access (the
-flagship), mature pipelines, structured logging, and the collab MVP all shipped.
-That shifts weight toward **unattended-operation and dev-loop closure** and away
-from **enterprise/multi-user** features whose necessity is low for a single user.
+flagship), mature pipelines, structured logging, the collab MVP, and the **full
+orchestration brain (#49, Phase 0 + Phase 1)** all shipped. That shifts weight toward
+**spending the brain's groundwork on the operator surface (#50)** and **dev-loop
+closure**, and away from **enterprise/multi-user** features whose necessity is low for
+a single user.
 
 ### 🔥 Tier 1 — Do First (high necessity, low/medium effort, all feasible now)
-0. **Orchestration brain — Phase 0a+0b** (#49, ~3 days) — isolation enforcement + git
-   lifecycle (`wd commit`/`push`/`sync`) gated by a PreToolUse deny-redirect hook. Directly
-   serves the token-reduction north star and retires the operator's manual worktree/git
-   workflow. Both enforcement levers (system prompt, hooks) and the git mechanics already
-   exist in the codebase. **F: medium · N: high.**
+0. **Orchestrator — local-LLM conductor** (#50, Phase A→B ~5 days to first usable) — the
+   north-star follow-on now that #49 is complete: spend the `internal/llm` seam + git/check
+   tools on NL→confirmed-tool-call composition (`wd orch`), confirm-before-execute so a 7B
+   model is safe. Phase A (`Chatter` seam) is the only net-new infra; B ships standalone.
+   **F: medium · N: high.**
 1. **Slack/webhook notifications** (#34, 3-4 h) — `internal/notify` exists and is
    desktop-only; add a webhook channel. Highest necessity now that remote access
    ships: push alerts on attention transitions are what make "watch from your phone"
@@ -433,7 +481,7 @@ demand signal before they're worth the effort:
 
 Tier 1 first (each a self-contained win), then Tier 2 as fleet size grows:
 
-0. **Orchestration brain Phase 0a+0b** (~3 days) — isolation enforcement + git lifecycle behind a deny-redirect hook; token reduction + retires the manual git workflow
+0. **Orchestrator Phase A→B** (#50, ~5 days) — `Chatter` seam + `wd orch` REPL with the confirm gate; spends the now-complete brain groundwork on NL multi-agent composition
 1. **Slack/webhook notifications** (3-4 h) — remote awareness; pairs with the now-shipped remote access
 2. **Pipeline MCP tools** (4-6 h) — let orchestrator agents drive pipelines
 3. **Pipeline templates** (2 h) — lowers the barrier `validate` only half-fixed
