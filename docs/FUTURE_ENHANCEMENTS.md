@@ -315,9 +315,12 @@ messages), proven first by swapping the existing headless-Claude `Classify` call
   runner, returning compact structs in place of git tool-spam. Rails (no main/master,
   no dirty-tree sync, pre-commit-failure-as-result), per-agent workdir pinning + commit
   bookkeeping, sync leaves conflicts in progress with only the conflicting files. Plus the
-  Layer-1 `git_conventions` prompt steer (default on). **0b-2:** the git-mutation PreToolUse
-  redirect hook (deny+redirect raw `git` mutations to the warden tools) on the 0a-2
-  `--settings` mechanism. *No LLM.*
+  Layer-1 `git_conventions` prompt steer (default on). **0b-2:** ✅ **shipped** — a second
+  `PreToolUse` hook over `Bash` (`warden hook git-guard`) in the same 0a-2 per-agent
+  `--settings` file that quote-aware argv-parses each command and deny-redirects raw `git
+  commit|push|pull|rebase` to the warden tools (reads stay allowed), the deny message naming
+  the exact replacement; static verdict (no daemon round-trip), fails open, gated by
+  `git_redirect` (default on). *No LLM.*
 - **0c `wd check`** — run configured tests/lint, return pass/fail + only failures; redirect
   raw test Bash. Biggest raw token win. *No LLM (optional summarize).*
 - **Phase 1 Local provider** — opt-in Ollama provider; `Classify` → headless commit

@@ -289,6 +289,7 @@ type ConfigProvider interface {
 	GetCollabHint() bool
 	GetIsolationGuard() bool
 	GetGitConventions() bool
+	GetGitRedirect() bool
 }
 
 func New(r Runner, cfg ConfigProvider) *Lifecycle { return &Lifecycle{run: r, cfg: cfg} }
@@ -1205,47 +1206,65 @@ func (l *Lifecycle) exitSuffix(id string) string {
 // is best-effort — a failure logs and returns "" so the spawn still proceeds
 // (the guard is a backstop, not a hard dependency).
 func (l *Lifecycle) guardSettingsFlag(id string) string {
-	if l.SettingsDir == "" || l.WardenBin == "" || !l.cfg.GetIsolationGuard() {
+	if l.SettingsDir == "" || l.WardenBin == "" {
 		return ""
 	}
+	doc := guardSettingsJSON(l.WardenBin, l.cfg.GetIsolationGuard(), l.cfg.GetGitRedirect())
+	if doc == "" {
+		return "" // every PreToolUse hook disabled — write nothing
+	}
 	if err := os.MkdirAll(l.SettingsDir, 0o700); err != nil {
-		slog.Warn("isolation-guard: mkdir settings dir failed", "dir", l.SettingsDir, "err", err)
+		slog.Warn("agent-guard: mkdir settings dir failed", "dir", l.SettingsDir, "err", err)
 		return ""
 	}
 	path := filepath.Join(l.SettingsDir, id+".json")
-	if err := os.WriteFile(path, []byte(guardSettingsJSON(l.WardenBin)), 0o600); err != nil {
-		slog.Warn("isolation-guard: write settings failed", "path", path, "err", err)
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		slog.Warn("agent-guard: write settings failed", "path", path, "err", err)
 		return ""
 	}
 	return " --settings " + shellQuoteArg(path)
 }
 
-// guardSettingsJSON builds the Claude Code settings document that registers the
-// isolation guard as a PreToolUse hook over the file-mutating tools. The hook
-// command is the warden binary itself (`<warden> hook guard`), which reads the
-// tool call on stdin, asks the daemon for an allow/deny verdict, and re-emits it.
+// guardSettingsJSON builds the Claude Code settings document that registers
+// warden's PreToolUse hooks for a spawned agent. Each enabled hook runs the
+// warden binary itself (`<warden> hook ...`), which reads the tool call on stdin
+// and emits an allow/deny verdict. Two hooks are wired independently:
+//   - isolation: blocks file edits that escape the agent's worktree (asks the
+//     daemon, since the verdict depends on session state);
+//   - gitRedirect: denies raw `git commit/push/pull/rebase` in Bash and points
+//     the agent at the warden tools (a pure, static redirect — no daemon round-trip).
+//
+// It returns "" when both hooks are disabled, so the caller writes no file.
 // wardenBin is shell-quoted because Claude runs the command string through a shell.
-func guardSettingsJSON(wardenBin string) string {
-	settings := map[string]any{
-		"hooks": map[string]any{
-			"PreToolUse": []any{
-				map[string]any{
-					"matcher": "Edit|Write|MultiEdit|NotebookEdit",
-					"hooks": []any{
-						map[string]any{
-							"type":    "command",
-							"command": shellQuoteArg(wardenBin) + " hook guard",
-						},
-					},
-				},
-			},
-		},
+func guardSettingsJSON(wardenBin string, isolation, gitRedirect bool) string {
+	bin := shellQuoteArg(wardenBin)
+	var pre []any
+	if isolation {
+		pre = append(pre, hookMatcher("Edit|Write|MultiEdit|NotebookEdit", bin+" hook guard"))
 	}
+	if gitRedirect {
+		pre = append(pre, hookMatcher("Bash", bin+" hook git-guard"))
+	}
+	if len(pre) == 0 {
+		return ""
+	}
+	settings := map[string]any{"hooks": map[string]any{"PreToolUse": pre}}
 	b, err := json.Marshal(settings)
 	if err != nil { // map of strings can't fail to marshal; defensive only
-		return "{}"
+		return ""
 	}
 	return string(b)
+}
+
+// hookMatcher builds one PreToolUse entry: a tool-name matcher plus a single
+// command hook that runs cmd.
+func hookMatcher(matcher, cmd string) any {
+	return map[string]any{
+		"matcher": matcher,
+		"hooks": []any{
+			map[string]any{"type": "command", "command": cmd},
+		},
+	}
 }
 
 // ReadExit returns the exit code recorded for id and whether one is present.

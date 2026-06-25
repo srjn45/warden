@@ -40,6 +40,7 @@ func newHookCmd() *cobra.Command {
 		Hidden: true,
 	}
 	cmd.AddCommand(newHookGuardCmd())
+	cmd.AddCommand(newHookGitGuardCmd())
 	return cmd
 }
 

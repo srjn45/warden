@@ -104,6 +104,9 @@ type FakeConfig struct {
 	// GitConventionsOff disables the git-conventions system-prompt hint; the zero
 	// value leaves it on, matching the production default.
 	GitConventionsOff bool
+	// GitRedirectOff disables the PreToolUse git-redirect hook; the zero value
+	// leaves it on, matching the production default.
+	GitRedirectOff bool
 }
 
 func (f *FakeConfig) GetDefaultPermissionMode() string {
@@ -122,6 +125,8 @@ func (f *FakeConfig) GetCollabHint() bool { return !f.CollabHintOff }
 func (f *FakeConfig) GetIsolationGuard() bool { return !f.IsolationGuardOff }
 
 func (f *FakeConfig) GetGitConventions() bool { return !f.GitConventionsOff }
+
+func (f *FakeConfig) GetGitRedirect() bool { return !f.GitRedirectOff }
 
 // FakeRunner matches on "name arg1 arg2 ..." joined by spaces.
 type FakeRunner struct {
