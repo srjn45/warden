@@ -97,11 +97,6 @@ convenience rather than a blocker.
 
 ## 🎨 Web UI Enhancements
 
-#### 19. Dark mode toggle — *partial (scaffold only)*
-**Effort:** ~1.5 h remaining. `app.css` already declares `color-scheme: light dark`
-and ships `prefers-color-scheme` brand assets, so the OS-driven path half-works.
-Remaining: CSS custom-property theming, a LocalStorage override, and a header toggle.
-
 #### 20. Agent grouping/filtering — *not started*
 **Effort:** 4 hours. Group by type/status/tag, collapsible groups, saved presets.
 (`AgentGrid.tsx` exists but renders a flat grid.)
@@ -312,7 +307,7 @@ _Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](F
 10. Tag system (#30, 3-4 h) · Agent grouping/filtering (#20, 4 h) — pair well with search.
 12. Export/import sessions (#7, 2 h) — necessity dropped: the store is already a
     single dir you can copy; real value is only selective/portable export.
-13. Finish dark-mode toggle (#19, ~1.5 h) · Web keyboard shortcuts (#5, 2 h) — polish.
+13. Web keyboard shortcuts (#5, 2 h) — polish.
 14. Docker/container support (#41, 2 days) — the one "platform" item with real pull,
     since remote access makes containerized deployment plausible. **N: low-medium.**
 

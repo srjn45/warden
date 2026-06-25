@@ -1,9 +1,11 @@
+import { THEME_ICON, THEME_LABEL, type Theme, type Resolved } from '../lib/theme';
+
 // AttentionBar is the always-visible top strip: connection state, a count of
 // agents that need the user (clicking jumps to Overview), the notifications
-// toggle, and the New-agent action.
+// toggle, the theme (light/dark/system) toggle, and the New-agent action.
 export default function AttentionBar({
   connected, attentionCount, notifyEnabled, onToggleNotify, onNew, onJumpAttention,
-  tokenSet, onClearToken,
+  tokenSet, onClearToken, theme, resolvedTheme, onCycleTheme,
 }: {
   connected: boolean;
   attentionCount: number;
@@ -13,14 +15,19 @@ export default function AttentionBar({
   onJumpAttention: () => void;
   tokenSet: boolean;
   onClearToken: () => void;
+  theme: Theme;
+  resolvedTheme: Resolved;
+  onCycleTheme: () => void;
 }) {
+  // Pick the wordmark for the theme that actually renders, so an explicit
+  // override (not just the OS) gets the matching asset.
+  const wordmark = resolvedTheme === 'dark'
+    ? '/brand/warden-wordmark-dark.svg'
+    : '/brand/warden-wordmark-light.svg';
   return (
     <header className="topbar">
       <h1 className="brand">
-        <picture>
-          <source srcSet="/brand/warden-wordmark-dark.svg" media="(prefers-color-scheme: dark)" />
-          <img src="/brand/warden-wordmark-light.svg" alt="warden" />
-        </picture>
+        <img src={wordmark} alt="warden" />
       </h1>
       <span className={connected ? 'conn ok' : 'conn down'}>
         {connected ? 'live' : 'reconnecting…'}
@@ -30,6 +37,14 @@ export default function AttentionBar({
           ⚠ {attentionCount} need{attentionCount === 1 ? 's' : ''} you
         </button>
       )}
+      <button
+        className="theme-toggle"
+        onClick={onCycleTheme}
+        title={`Theme: ${THEME_LABEL[theme]} (click to change)`}
+        aria-label={`Theme: ${THEME_LABEL[theme]}. Click to change.`}
+      >
+        {THEME_ICON[theme]} {THEME_LABEL[theme]}
+      </button>
       <button className="notify-toggle" onClick={onToggleNotify} title="Browser notifications when an agent needs input">
         {notifyEnabled ? '🔔 on' : '🔕 off'}
       </button>
