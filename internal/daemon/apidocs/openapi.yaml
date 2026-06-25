@@ -1,0 +1,1651 @@
+openapi: 3.0.3
+info:
+  title: warden daemon API
+  version: "1.0.0"
+  description: |
+    REST API for the **warden** daemon — the long-running process that spawns,
+    supervises, and coordinates Claude Code agent sessions.
+
+    ## Authentication
+
+    Every data- and action-bearing route is gated by a **bearer token**
+    (`Authorization: Bearer <token>`) whenever the daemon is configured for
+    non-loopback access (a token is set, or `WARDEN_TOKEN` is exported). In the
+    default loopback-only mode no token is set and authentication is disabled, so
+    the header is ignored. SSE/WebSocket clients that cannot set headers may pass
+    the token as a `?token=` query parameter instead.
+
+    The liveness probe (`/healthz`) and the documentation surface (`/api/docs`,
+    `/api/docs/openapi.yaml`) are **public** — like the static SPA shell — so a
+    proxy/tunnel health check and the docs UI load without a token.
+
+    ## Source of truth
+
+    This document is derived directly from the routes registered in
+    `internal/daemon` (`server.go` + the `register*Routes` helpers). A drift-guard
+    test (`apidocs_routes_test.go`) asserts every concrete route in the daemon's
+    chi mux has a matching path here, and vice versa.
+servers:
+  - url: http://127.0.0.1:8765
+    description: Default loopback bind (no auth)
+  - url: /
+    description: Same-origin (relative)
+tags:
+  - name: Documentation
+    description: OpenAPI spec + interactive docs (public)
+  - name: Health
+    description: Liveness
+  - name: Sessions
+    description: Agent session lifecycle and inspection
+  - name: Events
+    description: Hook events and the live SSE stream
+  - name: Git
+    description: Rail-enforcing git lifecycle (commit/push/sync/check) and worktrees
+  - name: Approvals
+    description: Permission-prompt inbox
+  - name: Context
+    description: Shared inter-agent key/value blackboard
+  - name: Messages
+    description: Directed inter-agent mailbox
+  - name: Collaboration
+    description: Inter-agent file-conflict view
+  - name: Pipelines
+    description: Multi-stage DAG pipelines of dependent jobs
+  - name: Snapshots
+    description: Worktree + transcript checkpoints
+  - name: Observability
+    description: Memory pressure, metrics, history, search
+  - name: Filesystem
+    description: Directory browsing for the spawn picker
+  - name: Import/Export
+    description: Session record import
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      description: Public. Pings the store; returns 503 if the store is unavailable.
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+        "503":
+          description: Store unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/docs:
+    get:
+      tags: [Documentation]
+      summary: Interactive API docs (Swagger UI)
+      description: |
+        Public. Serves an embedded, offline Swagger UI pointed at the embedded
+        spec. Gated by the `api_docs` config setting (default on); returns 404
+        when disabled.
+      security: []
+      responses:
+        "200":
+          description: Swagger UI HTML page
+          content:
+            text/html:
+              schema: { type: string }
+        "404":
+          description: Docs disabled (api_docs=false)
+
+  /api/docs/openapi.yaml:
+    get:
+      tags: [Documentation]
+      summary: Raw OpenAPI document
+      description: Public. Serves this specification. Gated by `api_docs` (404 when disabled).
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI 3.x document
+          content:
+            application/yaml:
+              schema: { type: string }
+        "404":
+          description: Docs disabled (api_docs=false)
+
+  /sessions:
+    get:
+      tags: [Sessions]
+      summary: List active sessions
+      responses:
+        "200":
+          description: All live sessions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionList" }
+
+  /sessions/{id}:
+    get:
+      tags: [Sessions]
+      summary: Get one session by id or name
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "200":
+          description: The session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /spawn:
+    post:
+      tags: [Sessions]
+      summary: Spawn a new agent
+      description: |
+        Launches a new Claude Code agent (typed or free-form). When the
+        memory-pressure spawn gate warns, returns 428 with a confirmation payload;
+        retry with `force: true` to proceed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpawnRequest" }
+      responses:
+        "200":
+          description: The spawned session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "428":
+          description: Spawn gate warning — re-submit with force=true
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfirmationResponse" }
+
+  /adopt:
+    post:
+      tags: [Sessions]
+      summary: Adopt an existing (un-spawned) session
+      description: Registers a resume- or live-mode session warden did not spawn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdoptRequest" }
+      responses:
+        "200":
+          description: The adopted session (plus an optional non-fatal warning)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdoptResponse" }
+
+  /sessions/{id}/terminate:
+    post:
+      tags: [Sessions]
+      summary: Terminate an agent
+      description: Kills the agent's tmux session; keeps the record and worktree.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/delete:
+    post:
+      tags: [Sessions]
+      summary: Delete a session record
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/remove-worktree:
+    post:
+      tags: [Sessions]
+      summary: Remove the session's git worktree + branch
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RemoveWorktreeRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/input:
+    post:
+      tags: [Sessions]
+      summary: Send text input to an agent's pane
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InputRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/output:
+    get:
+      tags: [Sessions]
+      summary: Read recent pane output
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - name: lines
+          in: query
+          description: Number of trailing lines to capture
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Captured output
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OutputResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/attach:
+    get:
+      tags: [Sessions]
+      summary: Attach to an agent's pane (WebSocket)
+      description: |
+        Upgrades to a WebSocket carrying the live tmux pane (terminal multiplexing).
+        Not a request/response endpoint; a successful handshake returns 101.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/restore:
+    post:
+      tags: [Sessions]
+      summary: Restore (re-create + resume) a lost session
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/create-pr:
+    post:
+      tags: [Sessions]
+      summary: Open a GitHub PR for the agent's branch
+      description: Push → digest → gh pr create. An existing PR returns Created=false.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base: { type: string, description: "PR base branch ('' = main)" }
+      responses:
+        "200":
+          description: PR result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PRResult" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/digest:
+    get:
+      tags: [Sessions]
+      summary: Completion digest for an agent
+      description: LLM narrative summary + changed files + branch/turns/status.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "200":
+          description: The digest
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Digest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/auto-approve:
+    patch:
+      tags: [Approvals]
+      summary: Toggle auto-approve for an agent
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/permission-mode:
+    patch:
+      tags: [Sessions]
+      summary: Set an agent's permission mode
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                permission_mode:
+                  type: string
+                  enum: [auto, default, acceptEdits, bypassPermissions, dontAsk, plan]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/name:
+    patch:
+      tags: [Sessions]
+      summary: Rename an agent
+      description: A blank name clears it. Rejects an invalid format or a duplicate name.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/approve:
+    post:
+      tags: [Approvals]
+      summary: Answer a recognized permission prompt
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                option: { type: integer, description: "1-based option to select" }
+                fingerprint: { type: string, description: "Options fingerprint the UI rendered" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /events:
+    post:
+      tags: [Events]
+      summary: Ingest a Claude hook event
+      description: Sent by warden's hooks; appends an event and applies any status transition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "204":
+          description: Unknown session (hooks fail soft)
+
+  /hooks/guard:
+    post:
+      tags: [Events]
+      summary: Isolation guard verdict for a file-mutating tool call
+      description: Backs the PreToolUse hook — decides whether an agent may Edit/Write a path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuardRequest" }
+      responses:
+        "200":
+          description: Allow/deny verdict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardVerdict" }
+
+  /events/stream:
+    get:
+      tags: [Events]
+      summary: Live session snapshot stream (SSE)
+      description: |
+        Server-Sent Events stream. Emits the full sessions snapshot once on
+        connect and again on every state change. Long-lived; not a
+        request/response endpoint.
+      responses:
+        "200":
+          description: text/event-stream of session snapshots
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /pressure:
+    get:
+      tags: [Observability]
+      summary: Memory-pressure + spawn-gate status
+      responses:
+        "200":
+          description: Pressure status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PressureStatus" }
+
+  /metrics:
+    get:
+      tags: [Observability]
+      summary: Live resource snapshot
+      responses:
+        "200":
+          description: A metrics sample
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetricsSample" }
+
+  /metrics/history:
+    get:
+      tags: [Observability]
+      summary: Recorded metrics samples or per-agent summaries
+      parameters:
+        - name: since
+          in: query
+          description: RFC3339 lower bound
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          schema: { type: integer }
+        - name: summary
+          in: query
+          description: When true, return per-agent summaries instead of raw samples
+          schema: { type: boolean }
+        - name: agent
+          in: query
+          description: Narrow summaries to one agent id (with summary=true)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Samples (default) or summaries (summary=true)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/MetricsHistoryResponse"
+                  - $ref: "#/components/schemas/AgentSummaryResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /worktrees:
+    get:
+      tags: [Git]
+      summary: List a repo's worktrees
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Worktree listings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  worktrees:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorktreeListing" }
+
+  /prune:
+    post:
+      tags: [Git]
+      summary: Reclaim orphan worktrees
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PruneRequest" }
+      responses:
+        "200":
+          description: Per-worktree prune results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/PruneResult" }
+
+  /git/commit:
+    post:
+      tags: [Git]
+      summary: Stage + commit a worktree (rail-enforcing)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GitCommitRequest" }
+      responses:
+        "200":
+          description: Commit result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommitResult" }
+
+  /git/push:
+    post:
+      tags: [Git]
+      summary: Push a worktree's branch to origin (protected-branch refusal)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GitDirRequest" }
+      responses:
+        "200":
+          description: Push result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushResult" }
+
+  /git/sync:
+    post:
+      tags: [Git]
+      summary: Rebase a worktree's branch onto origin/base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GitSyncRequest" }
+      responses:
+        "200":
+          description: Sync result (conflicts listed when rebase left in progress)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncResult" }
+
+  /check:
+    post:
+      tags: [Git]
+      summary: Run the project's .warden/check.yml command(s)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CheckRequest" }
+      responses:
+        "200":
+          description: Pass/fail summary (output only for failures)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckResult" }
+
+  /fs/dirs:
+    get:
+      tags: [Filesystem]
+      summary: List immediate subdirectories
+      parameters:
+        - name: path
+          in: query
+          description: Directory to list (empty = the user's home directory)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Directory listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DirListing" }
+
+  /approvals:
+    get:
+      tags: [Approvals]
+      summary: Live approval queue
+      responses:
+        "200":
+          description: Queue (enabled=false when the feature is off)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApprovalsResponse" }
+
+  /context:
+    get:
+      tags: [Context]
+      summary: List shared-context entries
+      parameters:
+        - name: prefix
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Entries under prefix
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/ContextEntry" }
+
+  /context/{key}:
+    get:
+      tags: [Context]
+      summary: Read a shared-context entry
+      parameters: [{ $ref: "#/components/parameters/CtxKey" }]
+      responses:
+        "200":
+          description: The entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContextEntry" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Context]
+      summary: Write a shared-context entry
+      parameters: [{ $ref: "#/components/parameters/CtxKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value: { type: string }
+                by: { type: string, description: "writer attribution" }
+      responses:
+        "200":
+          description: The stored entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContextEntry" }
+    delete:
+      tags: [Context]
+      summary: Delete a shared-context entry
+      parameters: [{ $ref: "#/components/parameters/CtxKey" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+
+  /context/{key}/cas:
+    post:
+      tags: [Context]
+      summary: Compare-and-swap a shared-context entry
+      parameters: [{ $ref: "#/components/parameters/CtxKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expected: { type: string, description: "'' = key must be absent" }
+                value: { type: string }
+                by: { type: string }
+      responses:
+        "200":
+          description: The stored entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContextEntry" }
+        "409":
+          description: Current value did not match expected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /context/{key}/append:
+    post:
+      tags: [Context]
+      summary: Atomically append to a shared-context entry
+      parameters: [{ $ref: "#/components/parameters/CtxKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value: { type: string }
+                sep: { type: string, description: "separator inserted before value (skipped when creating)" }
+                by: { type: string }
+      responses:
+        "200":
+          description: The stored entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContextEntry" }
+
+  /sessions/{id}/messages:
+    post:
+      tags: [Messages]
+      summary: Send a directed message to an agent
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from: { type: string }
+                body: { type: string }
+      responses:
+        "200":
+          description: Stored message + whether the recipient was woken
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: "#/components/schemas/Message" }
+                  woke: { type: boolean }
+    get:
+      tags: [Messages]
+      summary: Read an agent's inbox
+      description: Returned messages are marked read.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - name: unread
+          in: query
+          description: Filter to unread only
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: The inbox
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items: { $ref: "#/components/schemas/Message" }
+
+  /sessions/{id}/messages/wait:
+    get:
+      tags: [Messages]
+      summary: Long-poll for a message
+      description: Blocks (server long-poll) until a message arrives or timeout elapses.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - name: timeout
+          in: query
+          description: Long-poll window in seconds
+          schema: { type: integer }
+        - name: from
+          in: query
+          description: Only wait for messages from this sender
+          schema: { type: string }
+      responses:
+        "200":
+          description: found=false on timeout
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  found: { type: boolean }
+                  message: { $ref: "#/components/schemas/Message" }
+
+  /messages:
+    get:
+      tags: [Messages]
+      summary: Recent message traffic across all inboxes
+      description: Read-only global view; never marks anything read.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Recent messages, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items: { $ref: "#/components/schemas/Message" }
+
+  /collab/conflicts:
+    get:
+      tags: [Collaboration]
+      summary: Current inter-agent file conflicts
+      responses:
+        "200":
+          description: Files edited by two or more agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conflicts:
+                    type: array
+                    items: { $ref: "#/components/schemas/Conflict" }
+
+  /pipelines:
+    get:
+      tags: [Pipelines]
+      summary: List pipelines
+      responses:
+        "200":
+          description: All pipelines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pipelines:
+                    type: array
+                    items: { $ref: "#/components/schemas/Pipeline" }
+    post:
+      tags: [Pipelines]
+      summary: Create a pipeline from a YAML spec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                spec: { type: string, description: "pipeline YAML" }
+      responses:
+        "200":
+          description: The parsed + stored pipeline
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pipeline" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /pipelines/{pid}:
+    get:
+      tags: [Pipelines]
+      summary: Show one pipeline
+      parameters: [{ $ref: "#/components/parameters/PipelineId" }]
+      responses:
+        "200":
+          description: The pipeline
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pipeline" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Pipelines]
+      summary: Delete a pipeline
+      parameters: [{ $ref: "#/components/parameters/PipelineId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pipelines/{pid}/start:
+    post:
+      tags: [Pipelines]
+      summary: Start a pipeline (reconcile + spawn ready jobs)
+      parameters: [{ $ref: "#/components/parameters/PipelineId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pipelines/{pid}/pause:
+    post:
+      tags: [Pipelines]
+      summary: Pause a pipeline (halt new spawns)
+      parameters: [{ $ref: "#/components/parameters/PipelineId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pipelines/{pid}/resume:
+    post:
+      tags: [Pipelines]
+      summary: Resume a paused pipeline
+      parameters: [{ $ref: "#/components/parameters/PipelineId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pipelines/{pid}/cancel:
+    post:
+      tags: [Pipelines]
+      summary: Cancel a pipeline
+      parameters: [{ $ref: "#/components/parameters/PipelineId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pipelines/{pid}/jobs/{job}/emit:
+    post:
+      tags: [Pipelines]
+      summary: Emit a job's output (commit work + fan out downstream)
+      parameters:
+        - { $ref: "#/components/parameters/PipelineId" }
+        - { $ref: "#/components/parameters/JobId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pipelines/{pid}/jobs/{job}/edit:
+    post:
+      tags: [Pipelines]
+      summary: Edit a pending job's prompt and/or handoff
+      parameters:
+        - { $ref: "#/components/parameters/PipelineId" }
+        - { $ref: "#/components/parameters/JobId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt: { type: string }
+                handoff: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pipelines/{pid}/jobs/{job}/retry:
+    post:
+      tags: [Pipelines]
+      summary: Retry a failed / needs-attention job
+      parameters:
+        - { $ref: "#/components/parameters/PipelineId" }
+        - { $ref: "#/components/parameters/JobId" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /history:
+    get:
+      tags: [Observability]
+      summary: Browse the archived (closed) session store
+      parameters:
+        - name: since
+          in: query
+          description: RFC3339 lower bound
+          schema: { type: string, format: date-time }
+        - name: type
+          in: query
+          description: Filter by normalized task type
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Archived sessions, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionList" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /search:
+    get:
+      tags: [Observability]
+      summary: Full-text search across sessions
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Whitespace-separated terms (ANDed)
+          schema: { type: string }
+        - name: closed
+          in: query
+          description: Also search the archived store
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Matching sessions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionList" }
+        "400":
+          description: Blank query
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /import:
+    post:
+      tags: [Import/Export]
+      summary: Import session records from an export envelope
+      description: Inserts records into the active store (metadata only; worktrees are not recreated).
+      parameters:
+        - name: merge
+          in: query
+          description: Overwrite on id collision instead of skipping
+          schema: { type: boolean }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Export" }
+      responses:
+        "200":
+          description: Per-bucket import result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportResult" }
+
+  /snapshots:
+    post:
+      tags: [Snapshots]
+      summary: Capture a worktree + transcript snapshot
+      description: Gated by the `snapshots` config setting; returns 403 when disabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SnapshotCreateRequest" }
+      responses:
+        "200":
+          description: The created snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Snapshot" }
+        "403":
+          description: Snapshots disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [Snapshots]
+      summary: List snapshots
+      parameters:
+        - name: session
+          in: query
+          description: Filter to one session
+          schema: { type: string }
+      responses:
+        "200":
+          description: Snapshots, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  snapshots:
+                    type: array
+                    items: { $ref: "#/components/schemas/Snapshot" }
+        "403":
+          description: Snapshots disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /snapshots/{id}/restore:
+    post:
+      tags: [Snapshots]
+      summary: Restore a snapshot onto its recorded worktree
+      description: Refuses a dirty tree unless force=true; never restores onto main/master.
+      parameters: [{ $ref: "#/components/parameters/SnapshotId" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force: { type: boolean }
+      responses:
+        "200":
+          description: Restore result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RestoreResult" }
+        "403":
+          description: Snapshots disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Bearer token. Required on every request (including loopback) when the
+        daemon is configured with a token / for non-loopback access. SSE and
+        WebSocket clients may pass it as a `?token=` query parameter.
+
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      description: Session id or name
+      schema: { type: string }
+    CtxKey:
+      name: key
+      in: path
+      required: true
+      description: Dot-namespaced context key (no '/' or '\\')
+      schema: { type: string }
+    PipelineId:
+      name: pid
+      in: path
+      required: true
+      schema: { type: string }
+    JobId:
+      name: job
+      in: path
+      required: true
+      schema: { type: string }
+    SnapshotId:
+      name: id
+      in: path
+      required: true
+      description: Snapshot id (snap-<8hex>)
+      schema: { type: string }
+
+  responses:
+    OK:
+      description: Success
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string, example: ok }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+      required: [error]
+
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+
+    Status:
+      type: string
+      description: Agent lifecycle status
+      enum: [spawning, working, waiting_for_input, idle, done, errored, orphaned, rate_limited]
+
+    TaskType:
+      type: string
+      description: Normalized task type
+      enum: [development, analysis, spike, pr-review, code, docs, website, debug-ci, tests, other]
+
+    Event:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        type: { type: string }
+        detail: { type: string }
+
+    Session:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { $ref: "#/components/schemas/TaskType" }
+        ticket: { type: string }
+        tmux_session: { type: string }
+        claude_session_id: { type: string }
+        repo: { type: string }
+        worktree: { type: string }
+        branch: { type: string }
+        worktree_created: { type: boolean }
+        branch_created: { type: boolean }
+        pr: { type: string }
+        prompt: { type: string }
+        workdir: { type: string }
+        subject: { type: string }
+        tags: { type: array, items: { type: string } }
+        status: { $ref: "#/components/schemas/Status" }
+        pid: { type: integer }
+        exit_code: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        events: { type: array, items: { $ref: "#/components/schemas/Event" } }
+        last_pane_excerpt: { type: string }
+        auto_restart: { type: boolean }
+        restart_count: { type: integer }
+        permission_mode: { type: string }
+        auto_approve: { type: boolean }
+        pipeline_id: { type: string }
+        job_id: { type: string }
+        model: { type: string }
+        context_tokens: { type: integer }
+        context_state: { type: string, enum: ["", ok, warning, critical] }
+      required: [id, type, status, created_at, updated_at]
+
+    SessionList:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items: { $ref: "#/components/schemas/Session" }
+
+    SpawnRequest:
+      type: object
+      properties:
+        type: { type: string, description: "task type (typed mode); empty = free-form" }
+        ticket: { type: string }
+        name: { type: string }
+        repo: { type: string, description: "required in typed mode" }
+        branch: { type: string }
+        pr: { type: string }
+        worktree: { type: boolean }
+        in_repo: { type: boolean }
+        prompt: { type: string }
+        cwd: { type: string }
+        permission_mode: { type: string }
+        auto_restart: { type: boolean }
+        force: { type: boolean, description: "bypass the memory-pressure spawn gate" }
+        model: { type: string }
+        tags: { type: array, items: { type: string } }
+
+    Verdict:
+      type: object
+      properties:
+        elevated: { type: boolean }
+        level: { type: integer }
+        agent_count: { type: integer }
+        max_agents: { type: integer }
+        reason: { type: string }
+
+    ConfirmationResponse:
+      type: object
+      properties:
+        confirmation_required: { type: boolean }
+        verdict: { $ref: "#/components/schemas/Verdict" }
+
+    AdoptRequest:
+      type: object
+      properties:
+        cwd: { type: string, description: "required; dir whose claude session to adopt" }
+        session_id: { type: string }
+        tmux_session: { type: string, description: "non-empty => live-register an existing tmux session" }
+
+    AdoptResponse:
+      type: object
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+        warning: { type: string }
+
+    DeleteRequest:
+      type: object
+      properties:
+        hard: { type: boolean }
+
+    RemoveWorktreeRequest:
+      type: object
+      properties:
+        force: { type: boolean }
+        delete_adopted_branch: { type: boolean }
+
+    InputRequest:
+      type: object
+      properties:
+        text: { type: string }
+      required: [text]
+
+    OutputResponse:
+      type: object
+      properties:
+        output: { type: string }
+
+    EventRequest:
+      type: object
+      properties:
+        session: { type: string, description: "tmux session name == session id" }
+        type: { type: string }
+        detail: { type: string }
+
+    GuardRequest:
+      type: object
+      properties:
+        session: { type: string }
+        tool: { type: string }
+        path: { type: string }
+
+    GuardVerdict:
+      type: object
+      properties:
+        decision: { type: string, enum: [allow, deny] }
+        reason: { type: string }
+
+    PressureStatus:
+      type: object
+      properties:
+        level: { type: integer }
+        level_name: { type: string }
+        agent_count: { type: integer }
+        max_agents: { type: integer }
+        elevated: { type: boolean }
+        gate_enabled: { type: boolean }
+
+    MetricsSample:
+      type: object
+      description: A resource snapshot (system + per-agent + daemon stats).
+      properties:
+        taken_at: { type: string, format: date-time }
+        system: { type: object }
+        agents: { type: array, items: { type: object } }
+        daemon: { type: object }
+
+    MetricsHistoryResponse:
+      type: object
+      properties:
+        samples:
+          type: array
+          items: { $ref: "#/components/schemas/MetricsSample" }
+
+    AgentSummaryResponse:
+      type: object
+      properties:
+        summaries:
+          type: array
+          items: { type: object, description: "per-agent performance summary with anomaly warnings" }
+
+    DirEntry:
+      type: object
+      properties:
+        name: { type: string }
+        path: { type: string }
+
+    DirListing:
+      type: object
+      properties:
+        path: { type: string }
+        parent: { type: string, description: "empty at the filesystem root" }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/DirEntry" }
+
+    ApprovalView:
+      type: object
+      properties:
+        id: { type: string }
+        action: { type: string }
+        question: { type: string }
+        options: { type: array, items: { type: string } }
+        fingerprint: { type: string }
+        recognized: { type: boolean }
+
+    ApprovalsResponse:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        approvals:
+          type: array
+          items: { $ref: "#/components/schemas/ApprovalView" }
+
+    ContextEntry:
+      type: object
+      properties:
+        key: { type: string }
+        value: { type: string }
+        updated_by: { type: string }
+        updated_at: { type: string, format: date-time }
+
+    Message:
+      type: object
+      properties:
+        id: { type: string }
+        from: { type: string }
+        to: { type: string }
+        body: { type: string }
+        ts: { type: string, format: date-time }
+        read: { type: boolean }
+
+    ConflictAgent:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+
+    Conflict:
+      type: object
+      properties:
+        file: { type: string }
+        agents:
+          type: array
+          items: { $ref: "#/components/schemas/ConflictAgent" }
+
+    PipelineJob:
+      type: object
+      properties:
+        id: { type: string }
+        prompt: { type: string }
+        depends_on: { type: array, items: { type: string } }
+        handoff: { type: string }
+        worktree: { type: string, description: "none | fresh | from:<jobid>" }
+        supervised: { type: boolean }
+        type: { type: string }
+        run_if: { type: string, enum: [success, failure, always] }
+        session_id: { type: string }
+        status: { type: string }
+        output: { type: string }
+        branch: { type: string }
+        digest: { $ref: "#/components/schemas/Digest" }
+
+    Pipeline:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        repo: { type: string }
+        status: { type: string }
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/PipelineJob" }
+
+    GitDirRequest:
+      type: object
+      properties:
+        session: { type: string, description: "calling agent id ('' = human run); pins to the agent's worktree" }
+        dir: { type: string, description: "worktree directory (human fallback)" }
+
+    GitCommitRequest:
+      allOf:
+        - $ref: "#/components/schemas/GitDirRequest"
+        - type: object
+          properties:
+            message: { type: string }
+
+    GitSyncRequest:
+      allOf:
+        - $ref: "#/components/schemas/GitDirRequest"
+        - type: object
+          properties:
+            base: { type: string }
+
+    CheckRequest:
+      allOf:
+        - $ref: "#/components/schemas/GitDirRequest"
+        - type: object
+          properties:
+            name: { type: string, description: "configured check entry ('' = all)" }
+
+    CommitResult:
+      type: object
+      properties:
+        committed: { type: boolean }
+        sha: { type: string }
+        branch: { type: string }
+        files: { type: array, items: { type: string } }
+        hook_failed: { type: boolean }
+        hook_output: { type: string }
+
+    PushResult:
+      type: object
+      properties:
+        branch: { type: string }
+        remote: { type: string }
+        pushed: { type: boolean }
+        output: { type: string }
+
+    SyncResult:
+      type: object
+      properties:
+        branch: { type: string }
+        base: { type: string }
+        updated: { type: boolean }
+        conflicts: { type: array, items: { type: string } }
+        output: { type: string }
+
+    CheckOutcome:
+      type: object
+      properties:
+        name: { type: string }
+        cmd: { type: string }
+        passed: { type: boolean }
+        exit_code: { type: integer }
+        output: { type: string }
+
+    CheckResult:
+      type: object
+      properties:
+        passed: { type: boolean }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/CheckOutcome" }
+
+    PRResult:
+      type: object
+      properties:
+        branch: { type: string }
+        base: { type: string }
+        url: { type: string }
+        created: { type: boolean }
+        output: { type: string }
+
+    WorktreeListing:
+      type: object
+      properties:
+        path: { type: string }
+        branch: { type: string }
+        detached: { type: boolean }
+        locked: { type: boolean }
+        owner: { type: string }
+        lifecycle: { type: string, enum: [live, archived, ""] }
+        state: { type: string, enum: [clean, dirty, unpushed] }
+
+    PruneRequest:
+      type: object
+      properties:
+        repo: { type: string }
+        dry_run: { type: boolean }
+        force: { type: boolean }
+        include_archived: { type: boolean }
+
+    PruneResult:
+      type: object
+      properties:
+        path: { type: string }
+        branch: { type: string }
+        owner: { type: string }
+        lifecycle: { type: string }
+        action: { type: string }
+        branch_deleted: { type: boolean }
+        state: { type: string }
+        reason: { type: string }
+
+    FileChange:
+      type: object
+      properties:
+        path: { type: string }
+        added: { type: integer }
+        removed: { type: integer }
+
+    Digest:
+      type: object
+      properties:
+        summary: { type: string }
+        files: { type: array, items: { $ref: "#/components/schemas/FileChange" } }
+        branch: { type: string }
+        turns: { type: integer }
+        status: { type: string }
+        task: { type: string }
+
+    Export:
+      type: object
+      properties:
+        version: { type: integer }
+        exported_at: { type: string, format: date-time }
+        sessions:
+          type: array
+          items: { $ref: "#/components/schemas/Session" }
+
+    ImportResult:
+      type: object
+      properties:
+        imported: { type: array, items: { type: string } }
+        skipped: { type: array, items: { type: string } }
+        merged: { type: array, items: { type: string } }
+        renamed: { type: array, items: { type: string } }
+
+    SnapshotCreateRequest:
+      type: object
+      properties:
+        session: { type: string, description: "agent id; pins capture to its worktree" }
+        dir: { type: string, description: "human fallback worktree dir" }
+        message: { type: string }
+
+    Snapshot:
+      type: object
+      properties:
+        id: { type: string }
+        session_id: { type: string }
+        message: { type: string }
+        created_at: { type: string, format: date-time }
+        workdir: { type: string }
+        branch: { type: string }
+        head_sha: { type: string }
+        stash_sha: { type: string }
+        dirty_files: { type: array, items: { type: string } }
+        transcript_path: { type: string }
+        transcript_lines: { type: integer }
+
+    RestoreResult:
+      type: object
+      properties:
+        snapshot_id: { type: string }
+        session_id: { type: string }
+        workdir: { type: string }
+        branch: { type: string }
+        snapshot_head: { type: string }
+        current_head: { type: string }
+        head_match: { type: boolean }
+        applied: { type: boolean }
+        conflicts: { type: array, items: { type: string } }
+        transcript_path: { type: string }
+        message: { type: string }

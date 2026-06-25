@@ -325,6 +325,7 @@ the local machine. Setup recipes (LAN / Tailscale / Cloudflare Tunnel) live in
 | **Brute-force protection** | Per-IP rate-limiting on auth failures. |
 | **Web UI auth** | A token-entry modal appears on `401`, with `localStorage` persistence and a sign-out control; the static SPA shell stays public so the modal can load. |
 | **Mobile-responsive dashboard** | Bottom nav, single-column grids, and full-screen modal sheets so the GUI is usable on a phone. |
+| **API reference** | Interactive OpenAPI docs at `/api/docs` (raw spec at `/api/docs/openapi.yaml`) document every daemon route and the `bearerAuth` scheme for remote/API consumers — see §27. |
 
 ---
 
@@ -608,3 +609,23 @@ task_types) in `~/.warden/config.yaml`. Self-contained, fully unit-tested
 `internal/plugin` package (`protocol` / `registry` / `dispatcher`). A worked
 example lives under `examples/plugins/` (a post-commit notifier). See
 `docs/superpowers/specs/2026-06-25-warden-plugin-system-design.md`.
+
+---
+
+## 27. API docs / OpenAPI (`/api/docs`)
+
+A machine-readable **OpenAPI 3.x** description of the daemon's REST API, plus an
+interactive **Swagger UI**, so remote/API consumers have a real reference instead
+of reading `internal/daemon`. Config-gated by `api_docs` (default on).
+
+| Feature | Description |
+|---|---|
+| **`GET /api/docs`** | Interactive Swagger UI page. Served from a **pinned, vendored** copy of `swagger-ui-dist@5.17.14` embedded in the binary — **no runtime CDN**, so it works offline and inside the container image. |
+| **`GET /api/docs/openapi.yaml`** | The raw OpenAPI document (`application/yaml`). |
+| **Spec derived from real routes** | The spec describes the routes that actually exist — every operation maps to a registered handler in `server.go` / the `register*Routes` helpers, with schemas modelled off the real Go types (`store.Session`, the daemon request DTOs, `lifecycle.*Result`, `snapshot.Snapshot`, `pipeline.Pipeline`, …). |
+| **Drift guard** | `TestSpecMatchesRoutes` walks the live chi mux and asserts two-way equality between the concrete routes and the spec's paths — an undocumented endpoint (or a stale spec entry) fails CI. |
+| **Public surface** | Like `/healthz` and the static SPA shell, the docs are unauthenticated — the spec holds no secrets — while still documenting the `bearerAuth` scheme that gates every data/action route. |
+
+Self-contained `internal/daemon/apidocs` package (`//go:embed` of the spec +
+Swagger UI assets), reusing the daemon's existing embed+handler pattern. See
+`docs/superpowers/specs/2026-06-25-warden-openapi-api-docs-design.md`.
