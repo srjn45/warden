@@ -351,14 +351,8 @@ a single user.
    tools on NL→confirmed-tool-call composition (`wd orch`), confirm-before-execute so a 7B
    model is safe. Phase A (`Chatter` seam) is the only net-new infra; B ships standalone.
    **F: medium · N: high.**
-*(#34 Slack/webhook notifications — ✅ shipped, see FEATURES.md "Webhook / Slack notifications" + the `webhook_enabled`/`webhook_url` settings.)*
-*(#25 Pipeline MCP tools — ✅ shipped: create/list/show/start/cancel_pipeline in `internal/mcp/server.go`.)*
-*(#3 Pipeline templates — ✅ shipped: `pipeline create --template` + `list-templates`, see FEATURES.md.)*
-*(#35 GitHub PR auto-create on done — ✅ shipped, see FEATURES.md `done --create-pr`.)*
 
 ### ⭐ Tier 2 — Do Next (solid value, mostly fleet-management)
-*(#21 Batch operations and #28+#29 Full-text search + history/archive viewer —
-✅ shipped, see FEATURES.md §14/§15/§16.)*
 7. **Scheduled agents/tasks** (#15, 1-2 days) — decision doc + `robfig/cron`.
    Necessity nudged *down*: the Claude Code harness now offers external cron/schedule,
    so in-daemon scheduling is convenience, not a blocker. **F: medium · N: medium.**
@@ -400,9 +394,6 @@ demand signal before they're worth the effort:
 Tier 1 first (each a self-contained win), then Tier 2 as fleet size grows:
 
 0. **Orchestrator Phase A→B** (#50, ~5 days) — `Chatter` seam + `wd orch` REPL with the confirm gate; spends the now-complete brain groundwork on NL multi-agent composition
-1. **Slack/webhook notifications** (3-4 h) — remote awareness; pairs with the now-shipped remote access
-2. ~~**Pipeline MCP tools**~~ — ✅ shipped (create/list/show/start/cancel_pipeline)
-3. ~~**Pipeline templates**~~ — ✅ shipped (`create --template`, `list-templates`)
 7. **Scheduled agents/tasks** (1-2 days) — recurring automation (convenience-tier now)
 9. **Finish inter-agent collaboration** (1-2 weeks) — next-gen, foundation already in
 
