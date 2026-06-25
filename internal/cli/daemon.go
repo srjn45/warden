@@ -148,7 +148,11 @@ func newDaemonCmd() *cobra.Command {
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(cfg.PipelineKeepDone)
 
-			notifyHook := daemon.NotifyOnTransition(notify.New(cfg.NotifyEnabled))
+			transitionNotifier := notify.New(cfg.NotifyEnabled)
+			if cfg.WebhookEnabled && cfg.WebhookURL != "" {
+				transitionNotifier = notify.Multi(transitionNotifier, notify.NewWebhook(cfg.WebhookURL))
+			}
+			notifyHook := daemon.NotifyOnTransition(transitionNotifier)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestartMax, cfg.AutoRestartResetDuration())
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimitAutoResume, cfg.RateLimitResumePrompt)
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
