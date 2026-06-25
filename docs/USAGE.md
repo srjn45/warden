@@ -557,6 +557,25 @@ warden msg wait --as agent-9c1d --timeout 120
 Define and run a **DAG of agent jobs** from a YAML spec (CLI-only authoring). See
 §7.5 below for the full guide.
 
+### `warden stats [--watch] [--history [--agent ID]] [--json]`
+Warden's resource footprint. Bare, it prints a live snapshot: a system line
+(memory/swap/pressure), the daemon's own stats, and per-agent RSS/CPU/procs/
+uptime (the memory hog on top). `--watch` redraws every 3s.
+
+`--history` switches to **persisted per-agent performance history** rolled up
+from the metrics recorder (requires the `metrics` setting on): runtime, latest/
+peak/trend RSS, avg/peak CPU, context-token trend, and changed-file count, with
+any anomaly warnings (climbing memory, climbing/critical context, pinned CPU).
+`--agent ID` narrows to one agent. `--json` emits the raw structure for either
+mode.
+
+```sh
+warden stats                      # live snapshot
+warden stats --watch              # live, auto-refreshing
+warden stats --history            # per-agent history + anomaly warnings
+warden stats --history --agent agent-4f2a
+```
+
 ### `warden doctor`
 Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon
 reachability, and the data directory.
