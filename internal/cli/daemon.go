@@ -19,6 +19,7 @@ import (
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/logging"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
@@ -102,6 +103,13 @@ func newDaemonCmd() *cobra.Command {
 			// settings file. On failure the guard injection silently no-ops.
 			if exe, err := os.Executable(); err == nil {
 				lc.WardenBin = exe
+			}
+			// Optional local-model provider (Phase 1): only constructed when the
+			// operator opts in, so the default build never reaches out to Ollama.
+			// Classify routes through it first and falls back to Claude on any error.
+			if cfg.LocalLLM {
+				lc.LLM = llm.NewOllama(cfg.LocalLLMURL, cfg.LocalLLMModel, cfg.LocalLLMTimeoutDuration())
+				slog.Info("local LLM enabled", "url", cfg.LocalLLMURL, "model", cfg.LocalLLMModel)
 			}
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)

@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -280,6 +281,10 @@ type Lifecycle struct {
 	// os.Executable). It is the command the generated settings file invokes as the
 	// PreToolUse hook (`<WardenBin> hook guard`). Empty disables guard injection.
 	WardenBin string
+	// LLM is the optional local-model provider (Ollama). nil — the default — means
+	// the local LLM is off, so every LLM-backed method uses its headless-Claude or
+	// deterministic fallback. The daemon sets it only when config enables it.
+	LLM llm.Completer
 }
 
 // ConfigProvider is the subset of config.Config that lifecycle needs.
@@ -460,10 +465,23 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 	return branch, true, true, nil
 }
 
-// Classify asks the same Claude (headless) to label a task prompt. On any error
-// it returns TypeOther alongside the error so callers can fall back gracefully.
+// Classify labels a task prompt into a store.Type. When the local LLM is enabled
+// it tries that first (the cheapest responsibility to move off warden's own
+// Claude spend — pure classification with a safe fallback), and on any local
+// error falls back to headless Claude. On a Claude error it returns TypeOther
+// alongside the error so callers degrade gracefully. A successful local call is
+// trusted as-is: the fallback exists for unavailability, not to second-guess the
+// model's label.
 func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, error) {
-	out, err := l.runClaudeP(ctx, classifyArg(prompt))
+	arg := classifyArg(prompt)
+	if l.LLM != nil {
+		if out, err := l.LLM.Complete(ctx, arg); err == nil {
+			return parseType(out), nil
+		} else {
+			slog.Warn("classify: local LLM failed, falling back to claude", "err", err)
+		}
+	}
+	out, err := l.runClaudeP(ctx, arg)
 	if err != nil {
 		return store.TypeOther, fmt.Errorf("claude -p: %w: %s", err, out)
 	}
