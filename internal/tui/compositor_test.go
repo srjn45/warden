@@ -29,24 +29,26 @@ func TestBuildCockpitSequence(t *testing.T) {
 
 	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", masterCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
-	require.Len(t, fr.Calls, 14, "unexpected number of tmux calls")
+	require.Len(t, fr.Calls, 15, "unexpected number of tmux calls")
 
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", detailPlaceholderCmd()}, fr.Calls[0].Argv)
 	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", shell}, fr.Calls[1].Argv)
 	require.Equal(t, []string{"tmux", "split-window", "-v", "-b", "-l", "50%", "-t", "%1", "-c", "/work", "-P", "-F", "#{pane_id}", "/bin/warden tui --pane=list --detail-pane=%0"}, fr.Calls[2].Argv)
 	require.Equal(t, []string{"tmux", "set-option", "-p", "-t", "%0", "remain-on-exit", "on"}, fr.Calls[3].Argv)
 	require.Equal(t, []string{"tmux", "set-option", "-t", "S", "mouse", "on"}, fr.Calls[4].Argv)
-	// Extended-keys passthrough so Shift+Enter reaches Claude as a newline.
-	require.Equal(t, []string{"tmux", "set-option", "-s", "extended-keys", "on"}, fr.Calls[5].Argv)
-	require.Equal(t, []string{"tmux", "show-options", "-s", "-v", "terminal-features"}, fr.Calls[6].Argv)
-	require.Equal(t, []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"}, fr.Calls[7].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Left", "select-pane", "-L"}, fr.Calls[8].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[9].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[10].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[11].Argv)
-	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[12].Argv)
+	// Alt+Enter fallback newline key (for terminals that can't report Shift+Enter)…
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Enter", "send-keys", "C-j"}, fr.Calls[5].Argv)
+	// …plus extended-keys passthrough so Shift+Enter reaches Claude as a newline.
+	require.Equal(t, []string{"tmux", "set-option", "-s", "extended-keys", "on"}, fr.Calls[6].Argv)
+	require.Equal(t, []string{"tmux", "show-options", "-s", "-v", "terminal-features"}, fr.Calls[7].Argv)
+	require.Equal(t, []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"}, fr.Calls[8].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Left", "select-pane", "-L"}, fr.Calls[9].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[10].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[11].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[12].Argv)
+	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[13].Argv)
 	// Return-to-dashboard binding for the full-screen attach path (`a`).
-	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[13].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[14].Argv)
 }
 
 func TestCleanStaleCockpits(t *testing.T) {
