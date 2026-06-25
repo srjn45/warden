@@ -391,3 +391,18 @@ lines stay parseable as fields are added.
 | **Recorded actions** | The daemon logs `spawn`, `terminate`, `delete`, `approve`, and pipeline `pipeline_start` / `pipeline_cancel` at the point each succeeds. Each record carries `time` (when), `action` (what), `actor` (who — the request origin), `target` (the agent/pipeline acted on), and an action-specific `detail` map (name, repo, type, option, hard, …). |
 | **Best-effort writes** | Recording is fire-and-best-effort: a write failure is logged and swallowed so it never blocks or fails the action being audited. Auditing is on whenever the daemon runs; a nil writer (tests) is a safe no-op. The file is created `0600` — owner-only — since it can name agents and prompts. |
 | **`warden audit log`** | Reads and renders the trail (newest last). `--tail N` keeps the most recent N (default 50, `0` = all), `--action` filters by action, `--target` by substring of the agent/pipeline ID, `--since`/`--until` by window (`24h`, `7d`, `2w`) or date, and `--json` prints raw records. It reads the file directly (not via the daemon), so it works even while the daemon is down; malformed/partial lines are skipped. |
+
+---
+
+## 19. Export / import sessions
+
+Serialize session **metadata** to JSON for backup, sharing, or migration between
+machines, then read it back into another store. Worktrees, branches, and tmux
+sessions are **not** serialized as files and are **not** recreated on import — an
+imported record simply remembers where its (now absent) worktree used to live.
+
+| Feature | Description |
+|---|---|
+| **`warden export`** | Dumps active agent records as a versioned JSON envelope (`{version, exported_at, sessions}`) on stdout. `--all` folds in the archived (`closed/`) store too. Reuses the existing `/sessions` + `/history` reads — no new export endpoint. |
+| **`warden import`** | Reads an export envelope from stdin and inserts its records. **Idempotent by id**: a record whose id already exists is skipped, so re-importing the same dump is a no-op. `--merge` overwrites colliding records with the imported data instead; `--json` prints the per-id result. A new id whose name collides with a different record is imported with the alias dropped (reported under `renamed`). |
+| **`POST /import?merge=`** | Daemon endpoint (`internal/daemon/import_routes.go`); decodes the envelope and inserts each record keyed on id (`400` on a bad body, `422` on a store error). The `store.Export` / `store.ImportResult` envelope types live in `internal/store/portability.go`. |
