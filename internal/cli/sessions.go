@@ -26,6 +26,7 @@ func newLsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			watch, _ := cmd.Flags().GetBool("watch")
+			tags, _ := cmd.Flags().GetStringSlice("tag")
 			out := cmd.OutOrStdout()
 			if watch {
 				return watchSessions(cmd, out, jsonOut)
@@ -34,6 +35,7 @@ func newLsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			sessions = filterByTags(sessions, tags)
 			if jsonOut {
 				if sessions == nil {
 					sessions = []*store.Session{}
@@ -45,7 +47,32 @@ func newLsCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
 	cmd.Flags().BoolP("watch", "w", false, "live-update the list on every agent state change (Ctrl+C to exit)")
+	cmd.Flags().StringSlice("tag", nil, "only show agents carrying every given tag (repeatable or comma-separated, e.g. --tag backend --tag urgent)")
 	return cmd
+}
+
+// filterByTags returns the sessions that carry every tag in want (AND
+// semantics, mirroring search's multi-term matching). An empty want is a no-op
+// that returns the input unchanged, so untagged fleets are unaffected.
+func filterByTags(sessions []*store.Session, want []string) []*store.Session {
+	want = store.NormalizeTags(want)
+	if len(want) == 0 {
+		return sessions
+	}
+	out := make([]*store.Session, 0, len(sessions))
+	for _, s := range sessions {
+		match := true
+		for _, t := range want {
+			if !s.HasTag(t) {
+				match = false
+				break
+			}
+		}
+		if match {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // renderSessions writes the agent table to w. color enables ANSI tinting.

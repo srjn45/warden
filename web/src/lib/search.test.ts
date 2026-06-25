@@ -39,4 +39,15 @@ describe('filterSessions', () => {
   it('returns nothing when no session matches', () => {
     expect(filterSessions(sessions, 'nonsense')).toEqual([]);
   });
+
+  it('matches tags like any other label', () => {
+    const tagged = [
+      sess({ id: 'x', subject: 'fix login', tags: ['backend', 'urgent'] }),
+      sess({ id: 'y', subject: 'tweak css', tags: ['frontend'] }),
+      sess({ id: 'z', subject: 'no tags here' }),
+    ];
+    expect(filterSessions(tagged, 'backend').map((s) => s.id)).toEqual(['x']);
+    // A subject word AND a tag.
+    expect(filterSessions(tagged, 'css frontend').map((s) => s.id)).toEqual(['y']);
+  });
 });

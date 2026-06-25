@@ -41,6 +41,48 @@ func TestSessionJSONRoundTrip(t *testing.T) {
 	require.Equal(t, "11111111-1111-4111-8111-111111111111", got.ClaudeSessionID)
 }
 
+func TestNormalizeTags(t *testing.T) {
+	// Trim, lowercase, drop blanks, dedup, preserve first-seen order.
+	got := NormalizeTags([]string{"  Backend ", "urgent", "backend", "", "  ", "URGENT"})
+	require.Equal(t, []string{"backend", "urgent"}, got)
+
+	// All-empty input collapses to nil so untagged sessions stay JSON-omitted.
+	require.Nil(t, NormalizeTags([]string{"", "   "}))
+	require.Nil(t, NormalizeTags(nil))
+}
+
+func TestSessionHasTag(t *testing.T) {
+	s := Session{Tags: NormalizeTags([]string{"Backend", "Urgent"})}
+	require.True(t, s.HasTag("backend"))
+	require.True(t, s.HasTag(" URGENT "), "match is case- and whitespace-insensitive")
+	require.False(t, s.HasTag("frontend"))
+	require.False(t, s.HasTag(""), "blank tag never matches")
+
+	var untagged Session
+	require.False(t, untagged.HasTag("anything"), "nil Tags is safe")
+}
+
+func TestSessionTagsJSONOmitemptyBackwardCompat(t *testing.T) {
+	// A session with no tags must not emit a "tags" key, so records that
+	// predate the field round-trip identically.
+	raw, err := json.Marshal(Session{ID: "x"})
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "\"tags\"")
+
+	// Legacy JSON without tags unmarshals to a nil slice.
+	var got Session
+	require.NoError(t, json.Unmarshal([]byte(`{"id":"x"}`), &got))
+	require.Nil(t, got.Tags)
+
+	// A tagged session round-trips its labels.
+	tagged := Session{ID: "y", Tags: []string{"backend", "urgent"}}
+	raw, err = json.Marshal(tagged)
+	require.NoError(t, err)
+	var back Session
+	require.NoError(t, json.Unmarshal(raw, &back))
+	require.Equal(t, []string{"backend", "urgent"}, back.Tags)
+}
+
 func TestStatusValid(t *testing.T) {
 	require.True(t, StatusWorking.Valid())
 	require.False(t, Status("bogus").Valid())

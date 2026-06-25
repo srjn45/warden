@@ -110,7 +110,7 @@ Remaining: CSS custom-property theming, a LocalStorage override, and a header to
 
 ## 🔍 Search & Discovery
 
-#### 30. Tag system — *not started*
+#### 30. Tag system — *shipped*
 **Effort:** 3-4 hours. `Tags []string` on `Session`; `--tags`; filter/search by tag.
 Pairs with grouping (#20) and the shipped search (#28, see FEATURES.md §14).
 

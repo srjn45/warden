@@ -298,3 +298,40 @@ func TestStatusCmd(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterByTags(t *testing.T) {
+	sessions := []*store.Session{
+		{ID: "a", Tags: []string{"backend", "urgent"}},
+		{ID: "b", Tags: []string{"frontend"}},
+		{ID: "c"}, // untagged
+	}
+
+	// Empty filter is a no-op: every session passes (untagged fleets unaffected).
+	if got := filterByTags(sessions, nil); len(got) != 3 {
+		t.Fatalf("empty filter: want 3, got %d", len(got))
+	}
+
+	// Single tag selects the carriers.
+	got := filterByTags(sessions, []string{"backend"})
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("backend: got %+v", got)
+	}
+
+	// Multiple tags AND together; case-insensitive.
+	got = filterByTags(sessions, []string{"BACKEND", "urgent"})
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("AND backend+urgent: got %+v", got)
+	}
+
+	// A tag no session carries yields nothing (never errors).
+	if got = filterByTags(sessions, []string{"infra"}); len(got) != 0 {
+		t.Fatalf("infra: want 0, got %+v", got)
+	}
+}
+
+func TestLsTagFlagRegistered(t *testing.T) {
+	cmd := newLsCmd()
+	if f := cmd.Flags().Lookup("tag"); f == nil {
+		t.Fatal("--tag flag must be registered on ls")
+	}
+}

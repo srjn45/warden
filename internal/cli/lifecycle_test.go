@@ -85,3 +85,17 @@ func TestStartWithHardcodedDefault(t *testing.T) {
 	// --model should use claude-sonnet-4-6.
 	// Real test would verify Model field = "claude-sonnet-4-6"
 }
+
+func TestParseTags(t *testing.T) {
+	require.Nil(t, parseTags(""), "empty flag yields no tags")
+	require.Equal(t, []string{"backend", "urgent"}, parseTags("backend,urgent"))
+	// Trims whitespace and drops blank segments; daemon does lowercase+dedup.
+	require.Equal(t, []string{"Backend", "urgent"}, parseTags(" Backend , urgent , , "))
+}
+
+func TestStartTagsFlagRegistered(t *testing.T) {
+	cmd := newStartCmd()
+	f := cmd.Flags().Lookup("tags")
+	require.NotNil(t, f, "--tags flag must be registered on start")
+	require.Equal(t, "", f.DefValue, "--tags must default to empty")
+}

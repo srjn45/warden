@@ -32,20 +32,21 @@ type EventRequest struct {
 
 // SpawnRequest is the body for POST /spawn.
 type SpawnRequest struct {
-	Type           string `json:"type"`            // typed mode: task type (normalized); empty = free-form
-	Ticket         string `json:"ticket"`          // optional; becomes the id when present
-	Name           string `json:"name"`            // optional; human-readable name for the agent
-	Repo           string `json:"repo"`            // required in typed mode
-	Branch         string `json:"branch"`          // optional; development branch / pr-review checkout
-	PR             string `json:"pr"`              // optional; pr-review
-	Worktree       bool   `json:"worktree"`        // analysis/spike opt-in
-	InRepo         bool   `json:"in_repo"`         // write-agent opt-out: share the repo instead of isolating (ignored for pr-review)
-	Prompt         string `json:"prompt"`          // free-form: the agent's initial prompt; empty = interactive
-	Cwd            string `json:"cwd"`             // free-form: dir to launch claude from (caller cwd / web pick)
-	PermissionMode string `json:"permission_mode"` // explicit permission mode; empty = use global default
-	AutoRestart    bool   `json:"auto_restart"`    // opt-in: auto-resume on error (capped)
-	Force          bool   `json:"force"`           // bypass the memory-pressure spawn gate
-	Model          string `json:"model"`           // claude model (opus/sonnet/haiku or full ID); empty = default
+	Type           string   `json:"type"`            // typed mode: task type (normalized); empty = free-form
+	Ticket         string   `json:"ticket"`          // optional; becomes the id when present
+	Name           string   `json:"name"`            // optional; human-readable name for the agent
+	Repo           string   `json:"repo"`            // required in typed mode
+	Branch         string   `json:"branch"`          // optional; development branch / pr-review checkout
+	PR             string   `json:"pr"`              // optional; pr-review
+	Worktree       bool     `json:"worktree"`        // analysis/spike opt-in
+	InRepo         bool     `json:"in_repo"`         // write-agent opt-out: share the repo instead of isolating (ignored for pr-review)
+	Prompt         string   `json:"prompt"`          // free-form: the agent's initial prompt; empty = interactive
+	Cwd            string   `json:"cwd"`             // free-form: dir to launch claude from (caller cwd / web pick)
+	PermissionMode string   `json:"permission_mode"` // explicit permission mode; empty = use global default
+	AutoRestart    bool     `json:"auto_restart"`    // opt-in: auto-resume on error (capped)
+	Force          bool     `json:"force"`           // bypass the memory-pressure spawn gate
+	Model          string   `json:"model"`           // claude model (opus/sonnet/haiku or full ID); empty = default
+	Tags           []string `json:"tags"`            // optional free-form labels for grouping/filtering (#30)
 }
 
 // confirmationResponse is the 428 body when the spawn gate warns. The client
