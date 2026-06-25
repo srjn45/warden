@@ -230,6 +230,8 @@ the fleet through tool calls. Tools exposed:
 | `ctx_set` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `send_message` / `read_inbox` | Directed messaging |
 | `list_approvals` / `approve` | List / answer pending tool-permission prompts |
+| `commit` / `push` / `sync` | Git lifecycle on the agent's pinned worktree — staged commit (auto-message when omitted), push, rebase-sync — returning compact structs instead of raw git output (see §22) |
+| `check` | Run the project's `.warden/check.yml` checks, returning pass/fail with output for only the failing ones (see §22) |
 | `create_pipeline` / `list_pipelines` / `show_pipeline` | Create a DAG pipeline from a YAML spec / list / inspect (jobs, branches, handoffs) |
 | `start_pipeline` / `cancel_pipeline` | Start (spawn entry jobs) / cancel (terminate live jobs) a pipeline |
 
@@ -295,6 +297,14 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `auto_restart_max` / `auto_restart_reset` | `3` / `5m` | Auto-restart attempts for an errored opted-in agent / health window that resets the counter |
 | `rate_limit_auto_resume` | `true` | Auto-resume agents after a rate limit clears (`rate_limit_retry_interval`, `rate_limit_buffer` tune timing) |
 | `log_level` / `log_format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
+| `isolation_guard` | `true` | PreToolUse hook blocking an isolated agent from editing files outside its worktree (§22) |
+| `git_conventions` | `true` | Append the prompt steer toward `wd commit`/`push`/`sync` over raw git Bash (§22) |
+| `git_redirect` | `true` | PreToolUse hook denying raw `git commit`/`push`/`pull`/`rebase`, redirecting to the warden tools (reads stay allowed) (§22) |
+| `check_redirect` | `true` | PreToolUse hook redirecting a raw test/lint/build command registered in `.warden/check.yml` to `wd check` (§22) |
+| `local_llm` | `false` | Route fuzzy-cheap tasks (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error (§21) |
+| `local_llm_url` / `local_llm_model` / `local_llm_timeout` | `http://localhost:11434` / `qwen2.5-coder:7b` / `20s` | Local Ollama server URL, model tag, and per-call hard timeout (§21) |
+| `local_llm_tier` / `local_llm_escalate` | `auto` / `true` | Orchestrator planning-tier override (`auto`/`t0`/`t1`/`t2`) / allow one over-tier planning step to escalate to headless Claude (§17) |
+| `orchestrator` | `false` | Start the cockpit master pane in `wd orch` mode instead of a plain shell (§17) |
 
 > The old `WARDEN_*` environment variables are no longer read — the daemon warns
 > once at startup if any are still set. The per-agent IPC vars warden injects
@@ -419,7 +429,7 @@ imported record simply remembers where its (now absent) worktree used to live.
 
 ---
 
-## 19. Docker / container deployment
+## 20. Docker / container deployment
 
 A multi-stage [`Dockerfile`](../Dockerfile) and [`docker-compose.yml`](../docker-compose.yml)
 package the daemon for containerized remote access. The remote-access auth model
@@ -428,6 +438,48 @@ package the daemon for containerized remote access. The remote-access auth model
 | Feature | Description |
 |---|---|
 | **Multi-stage, lean image** | Stage 1 (`node:22-alpine`) builds the web dashboard; stage 2 (`golang:1.26-alpine`) produces a static `CGO_ENABLED=0` binary with the dashboard `go:embed`-ed in; stage 3 is an `alpine:3.20` runtime carrying only the binary plus `tmux` + `git` + `ca-certificates`. Runs as an unprivileged `warden` user. |
-| **Persistent state volume** | `~/.warden` (the session store + config) is a named volume (`/home/warden/.warden`), so records survive container restarts. The import never touches disk worktrees, matching §18 semantics — imported records remember absent worktrees rather than recreating them. |
+| **Persistent state volume** | `~/.warden` (the session store + config) is a named volume (`/home/warden/.warden`), so records survive container restarts. The import never touches disk worktrees, matching §19 semantics — imported records remember absent worktrees rather than recreating them. |
 | **Remote-access defaults** | The entrypoint binds `0.0.0.0:8765`; compose maps the port and threads `WARDEN_TOKEN` from the host environment (required — the daemon refuses a non-loopback bind without it). Front the port with Tailscale / a Cloudflare Tunnel rather than exposing it directly. |
 | **tmux/claude boundary** | The image ships `tmux` (hard runtime dependency — every agent runs inside a tmux session) and `git` (worktree-isolated agents). It deliberately omits the `claude` CLI to stay lean: the container hosts the daemon/API/dashboard out of the box; driving live agents additionally needs `claude` + credentials layered in. |
+
+---
+
+## 21. Local-LLM provider (`internal/llm`)
+
+An opt-in, Ollama-compatible local model that handles warden's "fuzzy but cheap"
+work without spending Claude tokens. Off by default (`local_llm`); every call has a
+hard timeout and a deterministic fallback, so warden behaves exactly as before when
+the model is off, unreachable, or wrong. The orchestrator (§17) is the one surface
+that *requires* it; everything below degrades silently to prior behavior.
+
+| Feature | Description |
+|---|---|
+| **Provider seam** | `internal/llm` exposes one-method `Completer` / `Chatter` interfaces over a small non-streaming Ollama client (`/api/generate`, `/api/chat`) with a hard timeout, response byte cap, and an error-so-the-caller-falls-back contract. The daemon builds the provider only when `local_llm` is on. |
+| **Task classification** | `lifecycle.Classify` routes a prompt-spawned agent's type guess through the local model first, falling back to headless Claude, then `other`, on any error. |
+| **Activity summaries** | The ≤8-word agent subject (`Summarize`) routes through the same seam, falling back to headless Claude on any error *or empty reply* (an empty summary carries no signal, so unlike `Classify` it is not trusted). |
+| **Check-failure condensation** | An **oversized** check-failure log (output past the line cap) is condensed by the local model into its distinct failures; deterministic tail-truncation is the fallback. Within-cap failures skip the model entirely. |
+| **Headless commit messages** | `wd commit` / MCP `commit` no longer require `-m`: a missing message is distilled by the local model from the staged diff (`git diff --cached`, capped to 16 KiB) into a Conventional-Commits subject, with a path-derived conventional-commit floor as the guaranteed fallback — a blank commit is impossible. |
+
+Gated by `local_llm` (+ `local_llm_url` / `_model` / `_timeout`); the orchestrator's
+tier knobs (`local_llm_tier` / `_escalate`) live in §17.
+
+---
+
+## 22. Lifecycle commands & boundary enforcement
+
+warden moves deterministic responsibilities off Claude agents — git and checks —
+onto first-class commands, and **enforces** the worktree boundary with PreToolUse
+hooks: steer via the system prompt → deny-and-redirect the raw escapes. The hooks
+are delivered through a per-agent `claude --settings` file; each **fails open** (a
+hook error never blocks the agent) and is individually config-gated (default on).
+Most of this needs no LLM.
+
+| Feature | Description |
+|---|---|
+| **`wd commit` / `push` / `sync` (CLI + MCP)** | Git lifecycle on the agent's pinned worktree via the `lifecycle` runner, returning compact structs in place of git tool-spam. Rails: no commit/push on main/master, no dirty-tree sync, pre-commit-hook failure surfaced as a result; `sync` leaves conflicts in progress carrying only the conflicting files. Commit message is auto-filled when `-m` is omitted (§21). |
+| **`wd check [name]` (CLI + MCP)** | Runs the per-project `.warden/check.yml` command(s) and returns pass/fail with output for only the **failing** checks (tail-truncated, oversized logs condensed per §21). Per-entry `dir:` for monorepos; config is the single source of truth; no-config / unknown-name return friendly errors. The biggest raw-token win. |
+| **Default-isolated write agents** | Every write-type agent (`code`/`docs`/`website`/`debug-ci`/`tests`) gets its own worktree unless `--in-repo`; `pr-review` is exempt (see §2). This is what makes the isolation guard meaningful and fixes parallel-agent collisions. |
+| **Isolation guard** (`isolation_guard`) | A PreToolUse hook denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (`warden hook guard` → `POST /hooks/guard`). |
+| **Git-guard** (`git_redirect`) | A PreToolUse Bash hook quote-aware argv-parses each command and deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed), the deny message naming the exact replacement. Static verdict, no daemon round-trip. |
+| **Check-guard** (`check_redirect`) | A PreToolUse Bash hook deny-redirects a raw test/lint/build command the project's `.warden/check.yml` registers to `wd check`, matching on leading-token prefix (broad runs redirect; focused `-run` runs pass through). No-config repos redirect nothing. |
+| **Prompt steer** (`git_conventions`) | A Layer-1 system-prompt hint steering agents toward `wd commit`/`push`/`sync` (and `wd check`) over raw git/test Bash — the gentle first layer before the deny hooks. |
