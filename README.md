@@ -25,15 +25,15 @@ alias agents=warden
 
 ## What's new
 
-Latest highlights since **v4.0.0** (full notes on the [releases page](https://github.com/srjn45/warden/releases)):
+Capability highlights from the **v5.x** line (full notes on the [releases page](https://github.com/srjn45/warden/releases); the complete catalog lives in [docs/FEATURES.md](docs/FEATURES.md)):
 
-- **[v4.5.1](https://github.com/srjn45/warden/releases/tag/v4.5.1)** — TUI: the agent list is ordered by creation time so rows stay put instead of churning as agents work.
-- **[v4.5.0](https://github.com/srjn45/warden/releases/tag/v4.5.0)** — Worktree GC & lifecycle: new `warden worktree ls` and `warden prune` commands, plus `worktree_keep_done` / `worktree_auto_prune` config (conservative defaults — dirty/unpushed worktrees are always kept).
-- **[v4.4.0](https://github.com/srjn45/warden/releases/tag/v4.4.0)** — Auto-approve allow/deny policy engine: `auto_approve` is now a structured policy block (`enabled`, `allow_sticky`, `rules.allow`, `rules.deny`); legacy configs migrate in place. A built-in destructive deny-list always wins.
-- **[v4.3.0](https://github.com/srjn45/warden/releases/tag/v4.3.0)** — Auto-approve affirmative-option selection + `auto_approve_allow_sticky`, with a destructive-action guard.
-- **[v4.2.0](https://github.com/srjn45/warden/releases/tag/v4.2.0)** — Rate-limit auto-resume: the daemon resumes throttled agents; tune the injected turn with `rate_limit_resume_prompt`.
-- **[v4.1.0](https://github.com/srjn45/warden/releases/tag/v4.1.0)** — Inter-agent foundational hardening: new `wait_for_message` MCP tool, provenance write-gate, bounded/compacted inboxes, atomic ctxstore/mailbox writes.
-- **[v4.0.1](https://github.com/srjn45/warden/releases/tag/v4.0.1)** — Security: shell-injection guard at spawn; default model tracks the `sonnet` alias.
+- **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
+- **Orchestrator (`warden orch`)** — a local-LLM conductor REPL that turns operator intent into confirmed warden tool calls without spending Claude tokens; optionally hosts the cockpit master pane.
+- **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
+- **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s, and web batch operations.
+- **Observability** — per-agent metrics & performance history (`warden stats`), crash/anomaly detection, the context-size guard, and webhook/Slack notifications.
+- **Web** — dark-mode theming, global keyboard shortcuts, Cockpit agent grouping, live resource charts, and an Archive tab.
+- **Remote access** — bearer-token auth (`warden token …`) and a Docker/compose deployment.
 
 ---
 
@@ -43,7 +43,8 @@ Latest highlights since **v4.0.0** (full notes on the [releases page](https://gi
 - **tmux** — every agent session runs in a detached tmux window
 - **git** — worktree creation and guarded cleanup
 - **Claude Code** (`claude` on PATH) — the agent runtime launched in each session
-- **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch
+- **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch, and for `warden done --create-pr`
+- **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden orch` orchestrator; warden falls back to Claude when it's off or unreachable
 
 ---
 
@@ -348,8 +349,15 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `token_auto_compact` | `true` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded) |
 | `token_warn` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `token_critical` is not greater than this, both reset to the defaults |
 | `token_critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
+| `auto_approve` | `false` | Auto-answer recognized yes/no permission prompts (option 1); per-agent override via `warden auto-approve` |
+| `webhook_enabled` / `webhook_url` | `false` / _(empty)_ | POST a JSON payload to `webhook_url` on attention + context-size alerts (a Slack incoming-webhook URL works out of the box); runs alongside `notify` |
+| `collab_enabled` / `collab_interval` / `collab_hint` | `true` / … / `true` | File-conflict detection across worktrees, scan interval, and the spawn-time coordination hint |
+| `isolation_guard` / `git_redirect` / `check_redirect` / `git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
+| `log_level` / `log_format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
+| `local_llm` (+ `local_llm_url`/`_model`/`_timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Required by `warden orch` |
+| `orchestrator` | `false` | Start the cockpit master pane in `warden orch` mode instead of a plain shell |
 
-`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `metrics`, `allow_nonloopback`, `auto_approve`, `pipeline_keep_done` / `pipeline_hint`, the `auto_restart_*` knobs, and the `rate_limit_*` knobs.
+`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree_keep_done` / `worktree_auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the orchestrator tier knobs (`local_llm_tier` / `local_llm_escalate`).
 
 > **Legacy env vars:** the old `WARDEN_*` environment variables (e.g. `WARDEN_ADDR`, `WARDEN_NOTIFY`, `WARDEN_TOKEN_*`) are no longer read — the daemon warns once at startup if any are still set. The per-agent IPC vars warden injects into each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration and are unaffected.
 
@@ -388,15 +396,17 @@ When you need a managed git worktree (e.g. a development branch tied to a Jira t
 | Type | Worktree | Notes |
 |---|---|---|
 | `development` | yes (new branch) | Creates `.worktrees/<ticket>` on a new branch named after the ticket |
-| `pr-review` | yes (PR branch) | Detached worktree; runs `gh pr checkout <PR>` inside it. Requires `--pr` or `--branch` |
+| `pr-review` | yes (PR branch) | Detached worktree; runs `gh pr checkout <PR>` inside it. Requires `--pr` or `--branch`. Exempt from the write-type isolation default |
 | `analysis` | opt-in (`--worktree`) | Runs in the repo by default; pass `--worktree` to get a scratch branch |
 | `spike` | opt-in (`--worktree`) | Same as analysis |
-| `code` | no | Runs directly in the repo root |
-| `docs` | no | Runs directly in the repo root |
-| `website` | no | Runs directly in the repo root |
-| `debug-ci` | no | Runs directly in the repo root |
-| `tests` | no | Runs directly in the repo root |
+| `code` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `docs` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `website` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `debug-ci` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
+| `tests` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo |
 | `other` | no | Catch-all; also used for unrecognized type strings |
+
+Every **write-type** agent (`code`/`docs`/`website`/`debug-ci`/`tests`) gets its own isolated worktree by default so parallel agents don't collide on the shared tree; pass `--in-repo` to opt back into the repo root. `pr-review` is exempt (it already checks out the PR branch). This isolation is what makes the boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) meaningful.
 
 By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously; the `Notification` hook still records them as events in the session doc.
 
@@ -506,7 +516,13 @@ Flags:
 - `--repo` — repo path (default: current directory; managed worktree mode only)
 - `--branch` — new branch name (development) or checkout target (pr-review)
 - `--pr` — PR number or URL (pr-review only)
+- `--dir <path>` — directory to run a prompt-spawned agent in (default: current directory)
 - `--worktree` — opt-in worktree for analysis/spike
+- `--in-repo` — write-type opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
+- `--model <model>` — per-agent model (id or alias `opus`/`sonnet`/`haiku`/`fable`); defaults to the `model_default` config setting
+- `--tags <a,b>` — attach tags (lowercased, deduped); searchable and filterable with `warden ls --tag`
+- `--preset <name>` — seed spawn defaults from a saved preset (`warden preset save`); explicit flags still override
+- `--auto-restart` — opt this agent into daemon auto-restart on error (tuned by `auto_restart_*` config)
 - `--permission-mode <mode>` — control Claude's permission level (valid modes: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`); defaults to the `default_permission_mode` config setting (default: `auto`)
 - `--supervised` — legacy alias for `--permission-mode acceptEdits`; risky tools prompt and the approvals inbox surfaces them (see the `approvals` setting)
 
@@ -529,6 +545,10 @@ Use `--json` for machine-readable output (a JSON array of full session objects; 
 ```sh
 warden ls --json
 ```
+
+Other flags:
+- `--watch` / `-w` — live-update the table on every agent state change over the daemon's SSE stream (Ctrl+C to exit); combine with `--json` to stream one JSON snapshot per change.
+- `--tag <tag>` — filter to agents carrying *every* given tag (AND semantics; repeatable or comma-separated). Tags are set at spawn with `warden start --tags backend,urgent` and are part of the search haystack.
 
 ### `warden status <TICKET>`
 
@@ -572,7 +592,10 @@ Terminate the agent (kill its tmux + claude session) **and** clear its stored re
 ```sh
 warden done PROJ-350          # terminate + clear record (worktree kept)
 warden done PROJ-350 --hard   # purge the record instead of archiving it
+warden done PROJ-350 --create-pr --base main   # push the branch + open a GitHub PR first
 ```
+
+`--create-pr` pushes the agent's branch and opens a GitHub PR (via `gh`) — titled from the agent, bodied from its digest, targeting `--base` (default `main`) — *before* terminating, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created.
 
 ### `warden terminate <TICKET>`
 
@@ -672,15 +695,20 @@ Define a **DAG of agent jobs** in YAML and let the daemon run them: jobs with no
 ```sh
 warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline create -f review.yaml   # validate + register (does not start)
+warden pipeline list-templates          # list the built-in starter templates + their placeholders
+warden pipeline create --template analyze-implement-review --set REPO=. # render from a template
 warden pipeline start <id>              # spawn jobs with no dependencies
 warden pipeline show <id>               # jobs, status, branches, and emitted output
 warden pipeline list
+warden pipeline edit-job <id> <job> ... # edit a not-yet-started job's fields
 warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
 warden pipeline pause <id>              # stop spawning new jobs (in-flight keep running)
 warden pipeline resume <id>             # resume a paused pipeline
 warden pipeline cancel <id>             # terminate running jobs
 warden pipeline delete <id>             # remove the record (cancel first if live)
 ```
+
+Four `go:embed`-bundled templates ship in the binary — `analyze-implement-review`, `parallel-tasks`, `test-fix-verify`, `research-synthesis`. Render one with `warden pipeline create --template <name>`, substituting placeholders via `{{NAME}}`/`{{REPO}}` (auto-filled) and `--set KEY=VALUE`.
 
 A minimal `analyze → implement → review` spec (job prompts must **not** mention `emit` — the daemon auto-appends it and auto-injects upstream outputs):
 
@@ -716,6 +744,132 @@ warden msg inbox --as agent-9c1d
 warden msg wait --as agent-9c1d --timeout 120   # block in the daemon until a message arrives
 ```
 
+### File-conflict detection — `warden collab`
+
+The daemon watches each active agent's worktree (fsnotify, with a `git diff` poll as a safety net) and warns — via the inbox, deduplicated — when two agents edit the same file. Spawned agents also get a system-prompt hint to check before editing shared files, so they coordinate rather than overwrite.
+
+```sh
+warden collab conflicts                 # current cross-agent file conflicts
+warden collab who-is-editing <file>     # which agents (if any) are touching a file
+```
+
+Tunable via the `collab_enabled` / `collab_interval` / `collab_hint` config settings; also exposed as the `get_collaboration_status` / `who_is_editing_file` MCP tools and a **File conflicts** card on the dashboard.
+
+### Git & check lifecycle — `warden commit` / `push` / `sync` / `check`
+
+First-class, deterministic commands that move git and test/lint/build work off the agent and return compact results instead of raw tool-spam. PreToolUse hooks (config-gated, fail-open) steer agents toward these and deny-redirect the raw escapes — see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
+
+```sh
+warden commit            # stage + commit the agent's worktree (message auto-filled if omitted)
+warden commit -m "fix: …"
+warden push              # push the worktree's branch
+warden sync              # rebase-sync against the upstream (refuses on a dirty tree)
+warden check [name]      # run the project's .warden/check.yml checks; reports only failures
+```
+
+Rails: no commit/push on `main`/`master`, no dirty-tree sync, pre-commit-hook failures surfaced as a result. All four are also MCP tools.
+
+### `warden search <query…>` / `warden history`
+
+```sh
+warden search auth backend          # AND every term across active sessions; --closed folds in the archive
+warden history --since 7d --type development --limit 20   # browse the archived (closed) store
+```
+
+`search` matches case-insensitively over id/name/ticket/type/subject/prompt/branch/tags/last-pane; `--json` on either prints raw records. The web Overview carries a live search box and a 🗄 Archive tab mirrors `history`.
+
+### `warden export` / `warden import`
+
+Serialize session **metadata** (not worktrees/branches/tmux) to JSON for backup or moving between machines.
+
+```sh
+warden export > fleet.json           # active records; --all also dumps the archive
+warden import < fleet.json           # idempotent by id; --merge overwrites colliding records
+```
+
+### `warden audit log`
+
+An append-only trail of the daemon's meaningful actions (`spawn`, `terminate`, `delete`, `approve`, `pipeline_start`/`pipeline_cancel`) written to `~/.warden/audit.jsonl` (`0600`). Read directly from the file, so it works even while the daemon is down.
+
+```sh
+warden audit log                                  # newest last (default tail 50)
+warden audit log --action spawn --since 24h --json
+warden audit log --target PROJ-350 --tail 0       # 0 = all
+```
+
+### `warden preset save|list`
+
+Save reusable spawn defaults under a name and replay them with `warden start --preset <name>`.
+
+```sh
+warden preset save fast --model haiku --permission-mode acceptEdits --auto-restart
+warden preset list
+warden start "quick fix" --preset fast            # explicit flags still override the preset
+```
+
+`--type`/`--model`/`--permission-mode`/`--auto-restart`/`--worktree`/`--in-repo` are persisted to `~/.warden/presets.yaml`; per-invocation inputs (ticket, branch, PR, dir) are not.
+
+### `warden stats`
+
+CLI view of the resource metrics (per-agent process-tree RSS/CPU, system memory/pressure, daemon self-stats).
+
+```sh
+warden stats                          # live snapshot
+warden stats --history                # per-agent performance history + anomaly warnings
+warden stats --history --agent PROJ-350
+```
+
+### `warden auto-approve <id> on|off`
+
+Per-agent override of the `auto_approve` config setting — auto-answer recognized yes/no permission prompts by selecting option 1 (multi-select / text-entry / unrecognized prompts always fall back to manual).
+
+```sh
+warden auto-approve agent-abc123 on
+warden auto-approve agent-abc123 off
+```
+
+### `warden set-permission-mode <id> <mode>`
+
+Change a running agent's permission mode (`acceptEdits`/`auto`/`bypassPermissions`/`default`/`dontAsk`/`plan`); preserved on restore.
+
+```sh
+warden set-permission-mode agent-abc123 dontAsk
+```
+
+### `warden worktree ls` / `warden prune`
+
+```sh
+warden worktree ls                    # list warden-owned worktrees under .worktrees, joined to records
+warden prune                          # reclaim orphaned worktrees (prompts; --force overrides guards)
+warden prune --include-archived       # widen scope to archived records
+```
+
+Retention is policy-driven via the `worktree_keep_done` / `worktree_auto_prune` config settings; dirty/unpushed worktrees are always kept.
+
+### `warden handoff`
+
+The cross-agent delegation counterpart to `rotate`: an agent (or operator) hands a context package to a **different** agent and **keeps running**. Default mode spawns a fresh delegate in its own isolated worktree; `--to <id>` delivers the handoff into an existing agent's inbox (waking it). The handoff content is inlined into the recipient's prompt. Phase 1 (writing the handoff) is `/warden`-skill-driven; the source agent is never terminated.
+
+### `warden token generate|show|rotate`
+
+Manage the bearer token that gates non-loopback (remote) access — see [Remote access](#remote-access).
+
+```sh
+warden token generate                 # mint a 256-bit token (persisted to ~/.warden/token.env, 0600)
+warden token show                     # print the current token (paste into a remote client)
+warden token rotate                   # regenerate in place + restart the daemon
+```
+
+The `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk.
+
+### `warden orch`
+
+A warden-aware, **local-LLM** conductor REPL that turns natural-language operator intent into **confirmed** warden tool calls (spawn/monitor/teardown, pipelines, git/check lifecycle) without spending Claude tokens. It conducts; it never implements — all code work is delegated by spawning a Claude agent. Requires `local_llm: true`; every mutating action passes a mandatory confirm gate. Run standalone, or as the cockpit master pane via the `orchestrator` config / `--orch` flag (Alt+t toggles it with a raw shell). See [docs/FEATURES.md §17](docs/FEATURES.md).
+
+```sh
+warden orch                           # alias: warden orchestrator
+```
+
 ### `warden.daemon`
 
 Run the daemon (HTTP API + background poller). Normally managed by launchd; run manually for debugging.
@@ -734,7 +888,7 @@ warden mcp
 warden mcp --addr 127.0.0.1:8765
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `send_message`, `read_inbox`, `list_approvals`, `approve`.
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`.
 
 ### `warden completion <shell>`
 
@@ -782,11 +936,18 @@ Once registered, the orchestrator session can call these tools directly:
 | `restore_agent` | Recreate and resume a lost/orphaned agent's session (`claude --resume`) |
 | `delete_agent` | Clear an agent's stored record (archives by default; `hard` purges). Does not touch tmux or the worktree |
 | `remove_worktree` | Remove an agent's git worktree + branch — **destructive**; refuses while the agent runs or has uncommitted/unpushed work unless `force` |
-| `ctx_set` / `ctx_get` / `ctx_list` | Read/write the shared-context key/value blackboard agents collaborate through |
-| `send_message` / `read_inbox` | Send a directed message to an agent (wakes it if parked) / read this agent's inbox |
+| `ctx_set` / `ctx_get` / `ctx_list` / `ctx_cas` / `ctx_append` | Read/write the shared-context key/value blackboard agents collaborate through (with compare-and-swap and append) |
+| `send_message` / `read_inbox` / `wait_for_message` | Send a directed message to an agent (wakes it if parked) / read this agent's inbox / block until a message arrives |
 | `list_approvals` / `approve` | List recognized pending tool-permission prompts / answer one by option number |
+| `commit` / `push` / `sync` | Git lifecycle on the agent's pinned worktree (staged commit with auto-message, push, rebase-sync) returning compact structs instead of raw git output |
+| `check` | Run the project's `.warden/check.yml` checks, returning pass/fail with output for only the failing ones |
+| `get_collaboration_status` / `who_is_editing_file` | File-conflict view across the fleet / who (if anyone) is editing a given file |
+| `create_pipeline` / `start_pipeline` / `show_pipeline` / `list_pipelines` / `cancel_pipeline` | Drive a DAG pipeline — create from a YAML spec, start entry jobs, inspect, list, cancel |
 
-> Pipelines are CLI-only for now (no MCP pipeline tools) — author them with `warden pipeline create -f` and the `/warden` skill.
+> Pipeline MCP tools are thin wrappers over the same daemon routes the CLI uses,
+> so an orchestrator session can run a multi-stage workflow (analyze→implement→review)
+> without shelling out. `pause`/`resume`/`delete`/`edit-job`/`retry` remain CLI-only
+> (`warden pipeline …`).
 
 Example orchestrator prompts:
 
@@ -812,6 +973,21 @@ Claude session: *"list my agents"*, *"spin up an agent to research X"*,
 *"what is agent-4f2a doing?"*, *"tell agent-4f2a to run the tests"*, *"kill the
 idle ones"* — it drives the MCP tools (falling back to the `warden` CLI if the
 MCP server isn't registered). The daemon must be running.
+
+---
+
+## Lifecycle commands & boundary enforcement
+
+warden moves deterministic responsibilities off Claude agents — git and checks — onto the first-class `warden commit`/`push`/`sync`/`check` commands (CLI + MCP), and **enforces** the worktree boundary with PreToolUse hooks delivered through a per-agent `claude --settings` file. Each hook fails open (a hook error never blocks the agent) and is individually config-gated (default on):
+
+| Layer | Setting | What it does |
+|---|---|---|
+| **Prompt steer** | `git_conventions` | A system-prompt hint steering agents toward `wd commit`/`push`/`sync`/`check` over raw git/test Bash — the gentle first layer |
+| **Isolation guard** | `isolation_guard` | Denies an isolated agent's Edit/Write that escapes its worktree into the shared repo |
+| **Git-guard** | `git_redirect` | Deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed) |
+| **Check-guard** | `check_redirect` | Deny-redirects a raw test/lint/build command registered in `.warden/check.yml` to `wd check` (focused `-run` invocations pass through) |
+
+The default write-type isolation (each `code`/`docs`/`website`/`debug-ci`/`tests` agent gets its own worktree unless `--in-repo`) is what makes the isolation guard meaningful and fixes parallel-agent collisions. See [docs/FEATURES.md §22](docs/FEATURES.md) for the full model.
 
 ---
 
@@ -911,6 +1087,12 @@ The dashboard is a **tabbed mission-control shell**: two fixed tabs — **Overvi
 - **Agent tabs** — pin any agent to its own tab to get a **live, interactive terminal** (`AttachTerminal`) — a real `tmux attach` bridged to the browser over a WebSocket, so you can type into the agent and watch it respond in real time. (The old read-only polled snapshot + separate send box were removed.)
 - **Create agent** — **+ New agent** opens a prompt box (with a directory picker and a **Supervised** checkbox). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. Tick **Supervised** to launch with `--permission-mode acceptEdits` instead of full bypass. For a managed worktree, use the CLI: `warden start TICKET --type development --repo …`.
 - **Terminate** — surfaces the git guard (409 → **Force** + optional **hard-delete**) when there's uncommitted/unpushed work.
+- **Agent grouping** — the Cockpit grid buckets agents into collapsible panes by **Directory / Type / Status / Tag** (choice saved to LocalStorage).
+- **Batch operations** — per-tile checkboxes (Shift-click range select) raise a bulk action bar offering **Message…**, **Terminate**, and **Delete** across the selection.
+- **Search & Archive** — a live search box on Overview filters the fleet client-side; a 🗄 **Archive** tab browses ended sessions with since/type filters.
+- **Resources & timeline** — live per-agent and system resource charts (uPlot), an event/activity timeline, and a pipeline DAG view.
+- **Theme toggle** — header control cycles **System → Light → Dark** (defaults to System; persisted, applied before first paint).
+- **Keyboard shortcuts** — a global layer: `?` help overlay, `n` new agent, `/` focus filter, `r` refresh, `1`–`9` jump to a tab, `j`/`k` next/previous tab, `Esc` close/blur.
 - **Browser notifications** — opt in to get a desktop notification when an agent enters `waiting_for_input` (gated so they only fire while the tab is hidden).
 
 ### Remote access
