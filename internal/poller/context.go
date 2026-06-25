@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/srjn45/warden/internal/ctxtokens"
@@ -12,6 +13,7 @@ import (
 type ctxDecision struct {
 	Alert   bool // fire the threshold-crossing notification
 	Compact bool // send /compact now
+	Suggest bool // surface a "compact before crash" anomaly (critical + can't auto-compact)
 }
 
 // decideContext is the pure policy for the context-size guard.
@@ -24,12 +26,21 @@ type ctxDecision struct {
 //     was deferred while the agent was "working" fire on a later tick once it
 //     goes idle, while the cooldown prevents re-sending before a just-issued
 //     compaction shows up in the transcript.
+//   - Suggest fires when the agent is critical but NOT idle/waiting — exactly the
+//     case the auto-compact path can't act on (warden won't interrupt a working
+//     agent to /compact). Its context only grows from here, so the caller surfaces
+//     a "compact before it crashes" anomaly (once per critical episode). It is
+//     independent of autoCompact: when auto-compact is off, the human nudge matters
+//     even more.
 func decideContext(prev, cur ctxtokens.State, status store.Status, sinceCompact, cooldown time.Duration, warnAlert, autoCompact bool) ctxDecision {
 	var d ctxDecision
 	if warnAlert && cur != prev && (cur == ctxtokens.StateWarning || cur == ctxtokens.StateCritical) {
 		d.Alert = true
 	}
 	idle := status == store.StatusIdle || status == store.StatusWaitingForInput
+	if cur == ctxtokens.StateCritical && !idle {
+		d.Suggest = true
+	}
 	if autoCompact && cur == ctxtokens.StateCritical && idle && sinceCompact >= cooldown {
 		d.Compact = true
 	}
@@ -60,6 +71,19 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 
 	if d.Alert && p.OnContextAlert != nil {
 		p.OnContextAlert(s, cur, tokens)
+	}
+	// Pre-crash surface: a critical, still-working agent can't be auto-compacted,
+	// so its context will only grow toward a crash. Raise the anomaly once per
+	// critical episode (cleared when the agent drops out of critical), so the
+	// operator gets a single actionable nudge rather than a per-tick stream.
+	if cur != ctxtokens.StateCritical {
+		delete(p.preCrashFlagged, s.ID)
+	} else if d.Suggest && !p.preCrashFlagged[s.ID] {
+		p.preCrashFlagged[s.ID] = true
+		p.raiseAnomaly(ctx, s, Anomaly{
+			Kind:   anomalyPreCrash,
+			Detail: fmt.Sprintf("context critical (%dk) while still working — warden can't auto-/compact a busy agent; /compact it now to avoid a crash", tokens/1000),
+		})
 	}
 	if d.Compact {
 		if err := p.deps.Compact(ctx, s); err == nil {
