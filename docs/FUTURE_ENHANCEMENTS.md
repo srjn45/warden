@@ -108,18 +108,6 @@ Remaining: CSS custom-property theming, a LocalStorage override, and a header to
 
 ---
 
-## 🤖 Model Selection & Configuration
-
-#### 23. Agent templates/presets — *not started*
-**Effort:** 3 hours
-Save common spawn configs (`~/.warden/presets.yaml`):
-```bash
-warden preset save code-review --type pr-review --model opus --supervised
-warden start --preset code-review --pr 1234
-```
-
----
-
 ## 🔍 Search & Discovery
 
 #### 30. Tag system — *not started*
@@ -321,7 +309,6 @@ _Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](F
 
 ### 🎯 Tier 3 — Nice to Have (cosmetic or niche; do opportunistically)
 10. Tag system (#30, 3-4 h) · Agent grouping/filtering (#20, 4 h) — pair well with search.
-11. Agent presets (#23, 3 h) — quality-of-life for repeated spawn configs.
 12. Export/import sessions (#7, 2 h) — necessity dropped: the store is already a
     single dir you can copy; real value is only selective/portable export.
 13. Finish dark-mode toggle (#19, ~1.5 h) · Web keyboard shortcuts (#5, 2 h) — polish.

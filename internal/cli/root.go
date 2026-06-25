@@ -29,6 +29,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().String("config", "", "config file path (default ~/.warden/config.yaml)")
 	root.AddCommand(newDaemonCmd())
 	root.AddCommand(newConfigCmd())
+	root.AddCommand(newPresetCmd())
 	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd(), newStatsCmd())
 	root.AddCommand(newSearchCmd(), newHistoryCmd())
 	root.AddCommand(newStartCmd(), newTerminateCmd(), newDeleteCmd(), newRemoveWorktreeCmd(), newDoneCmd(), newRestoreCmd(), newAttachCmd(), newAdoptCmd())
