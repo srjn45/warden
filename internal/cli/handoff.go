@@ -57,14 +57,16 @@ func composeHandoffMessage(resumePrompt, handoffContent, fromID string) string {
 
 // buildDelegateParams clones nothing from the source: a delegate is a managed
 // spawn (Type set, Worktree/InRepo false) so a write-agent type lands in its own
-// isolated worktree by default — never sharing the source's working tree.
-func buildDelegateParams(repo, typ, name, branch, prompt string) client.SpawnParams {
+// isolated worktree by default — never sharing the source's working tree. force
+// passes through to spawn past the memory-pressure gate (mirrors `start --force`).
+func buildDelegateParams(repo, typ, name, branch, prompt string, force bool) client.SpawnParams {
 	return client.SpawnParams{
 		Type:   typ,
 		Repo:   repo,
 		Name:   name,
 		Branch: branch,
 		Prompt: prompt,
+		Force:  force,
 	}
 }
 
@@ -171,8 +173,9 @@ func newHandoffCmd() *cobra.Command {
 			typ, _ := cmd.Flags().GetString("type")
 			name, _ := cmd.Flags().GetString("name")
 			branch, _ := cmd.Flags().GetString("branch")
+			force, _ := cmd.Flags().GetBool("force")
 			prompt := composeDelegatePrompt(resumePrompt, content)
-			delegate, err := runHandoffNew(cmd.Context(), c, buildDelegateParams(repo, typ, name, branch, prompt))
+			delegate, err := runHandoffNew(cmd.Context(), c, buildDelegateParams(repo, typ, name, branch, prompt, force))
 			if err != nil {
 				return err
 			}
@@ -193,5 +196,6 @@ func newHandoffCmd() *cobra.Command {
 	cmd.Flags().String("repo", "", "repo for a new delegate (default: source agent's repo, else cwd; ignored with --to)")
 	cmd.Flags().String("name", "", "optional human-friendly name for a new delegate (ignored with --to)")
 	cmd.Flags().String("branch", "", "optional branch for a new delegate (ignored with --to)")
+	cmd.Flags().Bool("force", false, "spawn the new delegate even when the memory-pressure gate warns (ignored with --to)")
 	return cmd
 }

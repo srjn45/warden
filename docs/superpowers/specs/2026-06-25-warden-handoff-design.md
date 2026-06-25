@@ -58,8 +58,9 @@ Pure, unit-tested helpers + thin orchestration over a minimal client interface:
 - `composeDelegatePrompt(resumePrompt, content)` — new delegate's initial prompt.
 - `composeHandoffMessage(resumePrompt, content, fromID)` — `--to` message body (with sender
   provenance).
-- `buildDelegateParams(repo, type, name, branch, prompt)` — a **managed** spawn (Type set,
-  `Worktree`/`InRepo` false) so a write-agent type lands in its own isolated worktree.
+- `buildDelegateParams(repo, type, name, branch, prompt, force)` — a **managed** spawn (Type set,
+  `Worktree`/`InRepo` false) so a write-agent type lands in its own isolated worktree; `force`
+  passes through to spawn past the memory-pressure gate (`--force`, mirrors `start`).
 - `resolveHandoffRepo(repoFlag, self)` — `--repo` > source session repo > cwd (mirrors `start`).
 - `handoffClient { Get; Spawn; MsgSend }` — **omits Terminate** so "source is never reaped" is
   a compile-time guarantee (the same trick rotate uses to omit `RemoveWorktree`).
@@ -82,6 +83,9 @@ Pure, unit-tested helpers + thin orchestration over a minimal client interface:
 - Missing `--resume-file`/`--resume-prompt` → error before any action.
 - Missing/empty handoff file → error before any action (via `validateHandoff`).
 - `--to` target not found → error before sending.
+- New-mode spawn blocked by the memory-pressure gate (too many live agents) →
+  surfaced as the daemon's gate error; re-run with `--force` to spawn anyway
+  (threads `SpawnParams.Force`, same as `warden start --force`; ignored with `--to`).
 - `Spawn`/`MsgSend` failure → surfaced; source untouched in all cases.
 
 ## Testing

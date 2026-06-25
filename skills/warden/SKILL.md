@@ -175,7 +175,9 @@ Same two-phase, human-reviewed shape as rotate:
 
    New mode prints the delegate's id (`warden attach <id>` to watch it); `--to`
    mode confirms delivery and whether the recipient was woken. **You are never
-   retired** — this is delegation, not succession.
+   retired** — this is delegation, not succession. If new-mode spawn is blocked
+   by the memory-pressure gate (too many live agents), add `--force` to spawn
+   anyway — same semantics as `warden start --force`.
 
 ---
 
