@@ -93,6 +93,7 @@ The per-agent tools take a `ticket` argument — the agent's **id** as shown by
 | adopt an existing session | `warden adopt [--session-id <uuid>] [--dir <path>]` |
 | attach interactively | `warden attach <id>` |
 | rotate yourself into a fresh agent (free your context) | `/warden rotate` — see "Rotating a long-running agent" below (self only) |
+| delegate a sub-task to another agent (you keep running) | `/warden handoff` — see "Delegating a sub-task" below (new or existing agent) |
 
 ## Rotating a long-running agent into a fresh one (self-rotation)
 
@@ -134,6 +135,47 @@ Two phases, with a human review gate between them:
 Do **not** spawn the successor or terminate yourself by hand — `warden rotate`
 inherits your launch config and orders spawn-before-reap safely (a failed spawn
 leaves you running, so no work is stranded).
+
+## Delegating a sub-task to another agent (handoff)
+
+`handoff` is the **cross-agent** counterpart to `rotate`. Where `rotate` retires
+**you** in favour of a same-worktree successor, `handoff` hands a slice of work to
+a **different** agent and **you keep running**. Use it to fork off an independent
+sub-task (e.g. you're mid-feature and want a fresh agent to take a self-contained
+piece) or to brief an already-running agent.
+
+Two modes:
+- **New delegate (default):** spawns a fresh agent that gets **its own isolated
+  worktree** off the repo. Best for a sub-task that can proceed in parallel.
+- **Existing agent (`--to <id>`):** delivers the handoff into a running agent's
+  inbox (waking it if idle). Best for briefing an agent that's already on a
+  related task.
+
+Same two-phase, human-reviewed shape as rotate:
+
+1. **Prepare (you do this directly).**
+   - Write a **handoff file** to a unique, per-agent temp path
+     (`${TMPDIR:-/tmp}/warden-handoff-$WARDEN_SESSION_ID.md`). Capture what the
+     recipient needs to take on the sub-task: its goal, relevant context and
+     decisions, precise next steps, and pointers to files. (The recipient runs in
+     a *different* worktree, so write self-contained context — its content is
+     inlined into the recipient's prompt/message, not read by path.)
+   - Compose a one-paragraph **resume prompt** — the recipient's task.
+   - Show the user the handoff file and resume prompt, and **stop** for review.
+
+2. **Deliver (after the user says go):**
+
+   ```sh
+   HANDOFF="${TMPDIR:-/tmp}/warden-handoff-$WARDEN_SESSION_ID.md"
+   # New delegate (its own worktree off your repo):
+   warden handoff --resume-file "$HANDOFF" --resume-prompt "<task>"
+   # …or hand to an existing agent:
+   warden handoff --to <agent-id> --resume-file "$HANDOFF" --resume-prompt "<task>"
+   ```
+
+   New mode prints the delegate's id (`warden attach <id>` to watch it); `--to`
+   mode confirms delivery and whether the recipient was woken. **You are never
+   retired** — this is delegation, not succession.
 
 ---
 
