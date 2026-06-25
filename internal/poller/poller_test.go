@@ -113,10 +113,12 @@ type stubDeps struct {
 	finalizeErr error                   // when set, FinalizeExit returns this error
 
 	// SendKeys recording (guarded — the approval worker calls SendKeys from its
-	// own goroutine while the test reads these after draining).
+	// own goroutine while the test reads these after draining). The same mutex
+	// guards events, which raiseAnomaly may write.
 	sendMu    sync.Mutex
-	sentKeys  map[string]string // tmuxSession -> last keys sent
-	sendKeysN int               // total SendKeys calls
+	sentKeys  map[string]string        // tmuxSession -> last keys sent
+	sendKeysN int                      // total SendKeys calls
+	events    map[string][]store.Event // id -> recorded anomaly events
 }
 
 func (d *stubDeps) SendKeys(_ context.Context, tmuxSession, keys string) error {
@@ -245,6 +247,20 @@ func (d *stubDeps) ClearExit(_ context.Context, id string) {
 		d.cleared = map[string]bool{}
 	}
 	d.cleared[id] = true
+}
+func (d *stubDeps) RecordEvent(_ context.Context, id string, ev store.Event) error {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	if d.events == nil {
+		d.events = map[string][]store.Event{}
+	}
+	d.events[id] = append(d.events[id], ev)
+	return nil
+}
+func (d *stubDeps) recordedEvents(id string) []store.Event {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	return append([]store.Event(nil), d.events[id]...)
 }
 func (d *stubDeps) ContextTokens(_ context.Context, _ *store.Session) (int, bool)    { return 0, false }
 func (d *stubDeps) UpdateContext(_ context.Context, _ string, _ int, _ string) error { return nil }

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/srjn45/warden/internal/ctxtokens"
@@ -83,4 +84,14 @@ func (d *pollerDeps) StampCompact(ctx context.Context, id string) error {
 
 func (d *pollerDeps) SendKeys(ctx context.Context, tmuxSession, keys string) error {
 	return d.lc.SendKeys(ctx, tmuxSession, keys)
+}
+
+// RecordEvent appends a poller-raised health anomaly to the agent's record. A
+// missing session is a soft no-op (the agent may have been deleted mid-tick).
+func (d *pollerDeps) RecordEvent(ctx context.Context, id string, ev store.Event) error {
+	err := d.store.AppendEvent(ctx, id, ev)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	return err
 }
