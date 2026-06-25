@@ -350,12 +350,20 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     `check` bookkeeping event. Plus the Layer-1 steer (the `git_conventions` hint now also
     points at `wd check`). warden stays language-agnostic — it runs only what the project
     registered. Wire path: lifecycle → daemon `/check` → client `Check` → CLI + MCP. *No LLM.*
-  - **0c-2 — Layer-2 test-redirect hook (next).** Extend the `Bash` PreToolUse hook to
-    DENY-redirect a raw test command (`go test …`, `npm test`, `make verify`, …) to
+  - **0c-2 — Layer-2 test-redirect hook (✅ shipped).** A third `PreToolUse` hook over
+    `Bash` (`warden hook check-guard`, on the same per-agent `--settings` file) DENY-redirects
+    a raw test/lint/build command (`go test …`, `npm test`, `make verify`, …) to
     `wd check`/`mcp__warden__check` — but **only** commands the project's `.warden/check.yml`
-    registers, since test vocab is open-ended and the hook must not guess. Matchers are
-    generated from the same config that drives the runner. Optional local summarize for
-    oversized failure logs. *Biggest raw token win.*
+    registers, since test vocab is open-ended and the hook must not guess. The hook reuses the
+    exact parser that drives the runner (`lifecycle.CheckCommands`, the single source so the
+    gate and the runner can't drift) and matches a command when a registered command's leading
+    tokens are a prefix of it (so `go test ./...` and `go test ./... -count=1` redirect, but a
+    narrower `go test -run X ./pkg` runs directly). A repo with no config redirects nothing
+    (opt-in per repo); the hook reads the config from the agent's cwd (no daemon round-trip)
+    and **fails open** on unreadable input or a malformed config. Gated by a new
+    `check_redirect` config (default on); the settings writer emits whichever of the three
+    `PreToolUse` matchers are enabled, and nothing when all are off. *No LLM — local summarize
+    for oversized failure logs stays a Phase 1 follow-up. Biggest raw token win.*
 - **Phase 1 — Local provider.** Ollama HTTP provider behind a config flag. Prove on
   `Classify` first → then headless commit messages → then log/transcript summarization.
 

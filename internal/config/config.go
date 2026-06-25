@@ -57,6 +57,7 @@ type Config struct {
 	IsolationGuard         bool   `yaml:"isolation_guard"`
 	GitConventions         bool   `yaml:"git_conventions"`
 	GitRedirect            bool   `yaml:"git_redirect"`
+	CheckRedirect          bool   `yaml:"check_redirect"`
 	RateLimitRetryInterval string `yaml:"rate_limit_retry_interval"`
 	RateLimitBuffer        string `yaml:"rate_limit_buffer"`
 	RateLimitAutoResume    bool   `yaml:"rate_limit_auto_resume"`
@@ -112,6 +113,7 @@ var schema = []setting{
 	{"isolation_guard", "Install the PreToolUse hook that blocks an isolated agent from editing files outside its worktree (into the shared repo). Values: true | false"},
 	{"git_conventions", "Append the git-conventions hint steering agents toward wd commit/push/sync over raw git Bash. Values: true | false"},
 	{"git_redirect", "Install the PreToolUse hook that denies raw git commit/push/pull/rebase in Bash and redirects to the warden tools (reads stay allowed). Values: true | false"},
+	{"check_redirect", "Install the PreToolUse hook that denies a raw test/lint/build command the project's .warden/check.yml registers and redirects it to wd check (returns only failures). No config means nothing is redirected. Values: true | false"},
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
@@ -161,6 +163,7 @@ func defaults() Config {
 		IsolationGuard:         true,
 		GitConventions:         true,
 		GitRedirect:            true,
+		CheckRedirect:          true,
 		RateLimitRetryInterval: "30m",
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
@@ -619,6 +622,12 @@ func (c Config) GetGitConventions() bool { return c.GitConventions }
 // into spawned agents (denies raw git commit/push/pull/rebase in Bash and points
 // the agent at the warden tools instead).
 func (c Config) GetGitRedirect() bool { return c.GitRedirect }
+
+// GetCheckRedirect reports whether the PreToolUse check-redirect hook is installed
+// into spawned agents (denies a raw test/lint/build command the project's
+// .warden/check.yml registers and points the agent at wd check instead). With no
+// project config nothing is redirected, so this is effectively opt-in per repo.
+func (c Config) GetCheckRedirect() bool { return c.CheckRedirect }
 
 // AutoRestartResetDuration returns the sustained-health window that resets the
 // auto-restart counter.

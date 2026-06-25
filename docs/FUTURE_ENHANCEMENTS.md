@@ -293,7 +293,7 @@ marginal value given `rotate` + pipelines already cover the real need.
 
 ## 🧠 Orchestration & Token Reduction
 
-#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0a + 0b-1 shipped)*
+#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0 complete; Phase 1 next)*
 **Effort:** Phase 0a ~1 day · 0b ~2 days · 0c ~1 day · Phase 1 ~3-4 days (incremental)
 **Value:** Cut Claude token spend; enforce worktree isolation; retire the operator's
 manual git lifecycle.
@@ -326,9 +326,15 @@ messages), proven first by swapping the existing headless-Claude `Classify` call
   `.warden/check.yml` command(s) and returning pass/fail with output for only the failing
   checks (tail-truncated). Per-entry `dir:` for monorepos; config is the single source of
   truth; no-config / unknown-name return friendly errors; daemon pins to the agent's worktree
-  (shared `pinnedWorkdir`) + records a `check` event; Layer-1 steer extended. **0c-2:** the
-  Bash hook extended to redirect raw test commands the config registers to `wd check`.
-  Biggest raw token win. *No LLM (optional summarize).*
+  (shared `pinnedWorkdir`) + records a `check` event; Layer-1 steer extended. **0c-2:** ✅
+  **shipped** — a third `PreToolUse` Bash hook (`warden hook check-guard`) on the same
+  per-agent `--settings` file deny-redirects a raw test/lint/build command the project's
+  `.warden/check.yml` registers to `wd check`, reusing the runner's own config parser
+  (`lifecycle.CheckCommands` — single source, no drift) and matching on leading-token prefix
+  (broad runs redirect, focused `-run` runs pass through); no-config repos redirect nothing,
+  reads config from the agent cwd (no daemon round-trip), fails open, gated by
+  `check_redirect` (default on). Biggest raw token win. *No LLM (optional summarize is a
+  Phase 1 follow-up).*
 - **Phase 1 Local provider** — opt-in Ollama provider; `Classify` → headless commit
   messages → log summarization.
 
