@@ -126,6 +126,16 @@ func (f *fakeStore) UpdateSubject(_ context.Context, id, subject string) error {
 	s.Subject = subject
 	return nil
 }
+func (f *fakeStore) UpdateName(_ context.Context, id, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	s.Name = name
+	return nil
+}
 func (f *fakeStore) AppendEvent(_ context.Context, id string, ev store.Event) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -18,6 +18,7 @@ type api interface {
 	Terminate(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string, hard bool) error
 	Input(ctx context.Context, id, text string) error
+	SetName(ctx context.Context, id, name string) error
 	ListDirs(ctx context.Context, path string) (client.DirListing, error)
 	Approvals(ctx context.Context) (bool, []approval.View, error)
 	Approve(ctx context.Context, id string, option int, fingerprint string) error
@@ -44,6 +45,8 @@ const (
 	modeHelp
 	modeOpenDir               // path input for `o`
 	modeNewAgentDir           // dir-override sub-state of modeNewAgent
+	modeNewAgentName          // name-input sub-state of modeNewAgent
+	modeRename                // edit the selected agent's name (from the details view)
 	modeConfirmSpawn          // memory-pressure confirm before spawning
 	modeConfirmDeletePipeline // y/N confirm before deleting a stopped pipeline
 	modeInspector             // read-only shared-context + message-traffic view

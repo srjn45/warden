@@ -53,6 +53,10 @@ func (a *lifecycleAdapter) Classify(ctx context.Context, prompt string) (store.T
 	return a.lc.Classify(ctx, prompt)
 }
 
+func (a *lifecycleAdapter) GenerateName(ctx context.Context, prompt string) string {
+	return a.lc.GenerateName(ctx, prompt)
+}
+
 func (a *lifecycleAdapter) Terminate(ctx context.Context, tmuxSession string) error {
 	return a.lc.Terminate(ctx, tmuxSession)
 }

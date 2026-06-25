@@ -224,6 +224,9 @@ func (s *Server) SetSpawnGate(enabled bool, maxAgents int) {
 type Lifecycle interface {
 	Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error)
 	Classify(ctx context.Context, prompt string) (store.Type, error)
+	// GenerateName derives a short human-friendly handle from a task prompt (local
+	// LLM when available, else a deterministic slug). "" means no usable name.
+	GenerateName(ctx context.Context, prompt string) string
 	// Terminate kills the agent's tmux session (keeps record + worktree).
 	Terminate(ctx context.Context, tmuxSession string) error
 	// RemoveWorktree removes the session's git worktree + branch (explicit).
@@ -323,6 +326,7 @@ func (s *Server) router() http.Handler {
 		ar.Post("/sessions/{id}/approve", s.handleApprove)
 		ar.Patch("/sessions/{id}/auto-approve", s.handleSetAutoApprove)
 		ar.Patch("/sessions/{id}/permission-mode", s.handleSetPermissionMode)
+		ar.Patch("/sessions/{id}/name", s.handleSetName)
 		ar.Get("/sessions/{id}/digest", s.handleDigest)
 		ar.Get("/metrics", s.handleMetrics)
 		ar.Get("/metrics/history", s.handleMetricsHistory)

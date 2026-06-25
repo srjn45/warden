@@ -480,6 +480,54 @@ func TestClassifyFallsBackToClaudeWhenLocalErrors(t *testing.T) {
 		"a local error falls back to headless Claude")
 }
 
+func TestParseNameSanitizesToHandle(t *testing.T) {
+	cases := map[string]string{
+		"order-api-builder":       "order-api-builder",
+		"Order API Builder\n":     "order-api-builder",
+		"  Fix the Login Bug!!  ": "fix-the-login-bug",
+		"`payments_service`":      "payments-service",
+		"first line\nsecond line": "first-line",
+		"@@@":                     "",
+		"--weird__name--":         "weird-name",
+		"a really really long handle that exceeds the thirty two character cap": "a-really-really-long-handle-that",
+	}
+	for in, want := range cases {
+		require.Equal(t, want, parseName(in), "parseName(%q)", in)
+	}
+	// Every non-empty result must satisfy the stored-name format.
+	for in := range cases {
+		if n := parseName(in); n != "" {
+			require.NoError(t, store.ValidateName(n), "parseName(%q)=%q must be a valid name", in, n)
+		}
+	}
+}
+
+func TestGenerateNameUsesLocalLLM(t *testing.T) {
+	fc := &fakeCompleter{out: "Order API Builder\n"}
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	lc.LLM = fc
+	require.Equal(t, "order-api-builder", lc.GenerateName(context.Background(), "build the orders REST API"))
+	require.Equal(t, 1, fc.calls)
+}
+
+func TestGenerateNameFallsBackToSlugWithoutLLM(t *testing.T) {
+	lc := New(&FakeRunner{}, &FakeConfig{}) // no local LLM, and naming must never call claude -p
+	got := lc.GenerateName(context.Background(), "Refactor the billing module")
+	require.Equal(t, "refactor-the-billing-module", got)
+}
+
+func TestGenerateNameFallsBackWhenLocalErrors(t *testing.T) {
+	fc := &fakeCompleter{err: errStub("connection refused")}
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	lc.LLM = fc
+	require.Equal(t, "fix-the-parser", lc.GenerateName(context.Background(), "fix the parser"))
+	require.Equal(t, 1, fc.calls)
+}
+
+func TestGenerateNameEmptyPrompt(t *testing.T) {
+	require.Equal(t, "", New(&FakeRunner{}, &FakeConfig{}).GenerateName(context.Background(), "   "))
+}
+
 func TestSpawnPromptModeRequiresCwd(t *testing.T) {
 	fr := &FakeRunner{}
 	l := New(fr, &FakeConfig{})

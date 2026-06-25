@@ -24,6 +24,9 @@ type fakeAPI struct {
 	deleteErr   error
 	sentTo      string
 	sentText    string
+	renamedID   string // id of the last SetName
+	renamedName string // name of the last SetName
+	renameErr   error  // error SetName returns
 	dirListing  client.DirListing
 	dirListErr  error
 	approvals   []approval.View
@@ -69,6 +72,10 @@ func (f *fakeAPI) Delete(_ context.Context, id string, _ bool) error {
 func (f *fakeAPI) Input(_ context.Context, id, text string) error {
 	f.sentTo, f.sentText = id, text
 	return nil
+}
+func (f *fakeAPI) SetName(_ context.Context, id, name string) error {
+	f.renamedID, f.renamedName = id, name
+	return f.renameErr
 }
 func (f *fakeAPI) ListDirs(_ context.Context, _ string) (client.DirListing, error) {
 	return f.dirListing, f.dirListErr

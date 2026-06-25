@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -157,6 +158,12 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if freeMode && req.Prompt != "" {
 		go s.classifyAndUpdate(sess.ID, req.Prompt)
 	}
+	// Auto-name an agent the caller left unnamed, deriving a handle from its
+	// prompt (local LLM when available, else a deterministic slug). Background +
+	// best-effort: a missing name never blocks or fails the spawn.
+	if req.Name == "" && req.Prompt != "" {
+		go s.nameAndUpdate(sess.ID, req.Prompt)
+	}
 }
 
 // handleAdopt registers a Claude session warden did not spawn. It resolves the
@@ -273,6 +280,66 @@ func (s *Server) classifyAndUpdate(id, prompt string) {
 		return
 	}
 	s.notify()
+}
+
+// nameAndUpdate runs in the background after a spawn that had no explicit name:
+// it derives a human-friendly handle (local LLM when available, else a
+// deterministic slug) and assigns it, skipping if no usable handle comes back or
+// every candidate collides with an existing agent. Detached context (the request
+// is already answered) and best-effort — a missing name never blocks the spawn.
+func (s *Server) nameAndUpdate(id, prompt string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	name := s.life.GenerateName(ctx, prompt)
+	if name == "" {
+		return
+	}
+	name = s.uniqueName(ctx, name, id)
+	if name == "" {
+		return // could not find a free variant; leave the agent unnamed
+	}
+	if err := s.store.UpdateName(ctx, id, name); err != nil {
+		slog.Warn("name update failed", "agent", id, "err", err)
+		return
+	}
+	s.notify()
+}
+
+// uniqueName returns name — or a numeric-suffixed variant — that no session other
+// than selfID currently uses, or "" when no free variant is found. The store
+// rejects duplicate names; this keeps an auto-generated handle from colliding with
+// one an operator already chose.
+func (s *Server) uniqueName(ctx context.Context, name, selfID string) string {
+	sessions, err := s.store.List(ctx)
+	if err != nil {
+		return name // best-effort: skip the collision check rather than drop the name
+	}
+	taken := map[string]bool{}
+	for _, sess := range sessions {
+		if sess.ID != selfID && sess.Name != "" {
+			taken[sess.Name] = true
+		}
+	}
+	if !taken[name] {
+		return name
+	}
+	for i := 2; i <= 9; i++ {
+		if cand := suffixName(name, i); !taken[cand] {
+			return cand
+		}
+	}
+	return ""
+}
+
+// suffixName appends "-n" to a generated handle, trimming the base first so the
+// result still fits the 32-char stored-name limit. name is ASCII (kebab-case),
+// so byte length equals rune length here.
+func suffixName(name string, n int) string {
+	suffix := "-" + strconv.Itoa(n)
+	if len(name)+len(suffix) > 32 {
+		name = strings.TrimRight(name[:32-len(suffix)], "-")
+	}
+	return name + suffix
 }
 
 // liveStatus reports whether the stored status implies the agent may still be
@@ -626,4 +693,59 @@ func (s *Server) handleSetPermissionMode(w http.ResponseWriter, r *http.Request)
 
 	s.notify()
 	writeJSON(w, http.StatusOK, map[string]string{"permission_mode": req.PermissionMode})
+}
+
+// SetNameRequest is the body for PATCH /sessions/{id}/name.
+type SetNameRequest struct {
+	Name string `json:"name"`
+}
+
+// handleSetName renames an agent (or clears its name when blank). It validates
+// the format and rejects a name already used by another session, mirroring the
+// checks the spawn path applies.
+func (s *Server) handleSetName(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req SetNameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if err := store.ValidateName(req.Name); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Confirm the session exists up front so a rename of an unknown id is a clean
+	// 404 rather than a silent no-op buried in the uniqueness scan.
+	if _, err := s.store.Get(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if req.Name != "" {
+		sessions, err := s.store.List(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to check name uniqueness: "+err.Error())
+			return
+		}
+		for _, sess := range sessions {
+			if sess.ID != id && sess.Name == req.Name {
+				writeErr(w, http.StatusConflict, "name already in use: "+req.Name)
+				return
+			}
+		}
+	}
+	if err := s.store.UpdateName(r.Context(), id, req.Name); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.notify()
+	writeJSON(w, http.StatusOK, map[string]string{"name": req.Name})
 }

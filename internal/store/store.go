@@ -43,6 +43,9 @@ type Store interface {
 	FinalizeExit(ctx context.Context, id string, expected, next Status, code int) (bool, error)
 	UpdateType(ctx context.Context, id string, t Type) error
 	UpdateSubject(ctx context.Context, id, subject string) error
+	// UpdateName sets (or, when blank, clears) the human-friendly agent name.
+	// Format and uniqueness are the caller's responsibility (see ValidateName).
+	UpdateName(ctx context.Context, id, name string) error
 	AppendEvent(ctx context.Context, id string, ev Event) error
 	// AppendEventStatus appends ev and, when status is non-empty, sets status —
 	// in a single atomic update. The hooks endpoint uses it so an event and its

@@ -174,6 +174,53 @@ func classifyArg(prompt string) string { return classifyInstruction + prompt }
 
 const summaryInstruction = "In 8 words or fewer, summarize what this agent is currently working on. Reply with ONLY the phrase — no quotes, no preamble.\n\nRecent activity:\n"
 
+// nameInstruction asks the local model for a short, memorable handle for an
+// agent derived from its task. The reply is sanitized by parseName, so the model
+// only needs to get close to the kebab-case format.
+const nameInstruction = "Generate a short, memorable handle (2-3 words) for an agent doing the task below. Use lowercase kebab-case, letters/digits/hyphens only, max 24 characters. Reply with ONLY the handle — no quotes, no preamble.\n\nTask: "
+
+// nameArg builds the single argument passed to the local model for naming,
+// capping the prompt so a huge task description can't blow up local inference.
+func nameArg(prompt string) string {
+	const max = 2000
+	if len(prompt) > max {
+		prompt = prompt[:max]
+	}
+	return nameInstruction + prompt
+}
+
+// parseName normalizes a free-form model reply (or a prompt fragment) into a
+// stored-name handle: the first line, lowercased, with runs of spaces/underscores/
+// hyphens collapsed to single hyphens, every other character dropped, trimmed of
+// edge hyphens, and capped at 32 runes. The result is always a valid name per
+// store.ValidateName (1-32 of [a-z0-9-]) or "" when nothing usable remains.
+func parseName(out string) string {
+	line := strings.TrimSpace(out)
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = line[:i]
+	}
+	line = strings.ToLower(line)
+	var b strings.Builder
+	prevHyphen := false
+	for _, r := range line {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevHyphen = false
+		case r == '-' || r == '_' || r == ' ' || r == '\t':
+			if b.Len() > 0 && !prevHyphen {
+				b.WriteByte('-')
+				prevHyphen = true
+			}
+		}
+	}
+	name := strings.Trim(b.String(), "-")
+	if len(name) > 32 { // name is ASCII here, so bytes == runes
+		name = strings.Trim(name[:32], "-")
+	}
+	return name
+}
+
 // spawnSubject is the short list-view label for a spawned agent: the first
 // words of its prompt, or "interactive" when there is no prompt (the agent was
 // opened to wait for instructions typed into Claude directly).
@@ -517,6 +564,29 @@ func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string,
 		return "", fmt.Errorf("claude -p: %w: %s", err, out)
 	}
 	return parseSummary(out), nil
+}
+
+// GenerateName derives a short human-friendly handle for an agent from its task
+// prompt. When the local LLM is enabled it asks for a kebab-case handle; on any
+// local error, an empty/unusable reply, or when no local model is configured it
+// falls back to a deterministic slug of the prompt's first words. Naming is purely
+// cosmetic, so — unlike Classify/Summarize — it never spends warden's own Claude
+// budget. The returned name is sanitized to the stored-name format; "" means no
+// usable name (e.g. an empty prompt). Uniqueness is the caller's concern.
+func (l *Lifecycle) GenerateName(ctx context.Context, prompt string) string {
+	if strings.TrimSpace(prompt) == "" {
+		return ""
+	}
+	if l.LLM != nil {
+		if out, err := l.LLM.Complete(ctx, nameArg(prompt)); err == nil {
+			if n := parseName(out); n != "" {
+				return n
+			}
+		} else {
+			slog.Warn("generate name: local LLM failed, using deterministic fallback", "err", err)
+		}
+	}
+	return parseName(firstWords(prompt, 4))
 }
 
 // checkSummaryInstruction prompts the local model to distil oversized check
