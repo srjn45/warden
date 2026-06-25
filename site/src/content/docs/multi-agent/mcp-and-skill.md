@@ -34,10 +34,15 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `terminate_agent` / `restore_agent` | Stop (reversible) / resume an agent |
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `ctx_set` / `ctx_get` / `ctx_list` | Shared-context blackboard |
-| `send_message` / `read_inbox` | Directed messaging |
+| `ctx_cas` / `ctx_append` | Compare-and-set / append-to-list context writes (lock-free coordination) |
+| `send_message` / `read_inbox` / `wait_for_message` | Directed messaging, incl. a blocking long-poll wait |
 | `list_approvals` / `approve` | List / answer pending tool-permission prompts |
+| `commit` / `push` / `sync` / `check` | The git + check lifecycle on an agent's branch (warden rails) |
+| `get_collaboration_status` / `who_is_editing_file` | See which agents are editing the same files |
+| `create_pipeline` / `start_pipeline` | Author (from YAML or a built-in template) and launch a DAG pipeline |
+| `show_pipeline` / `list_pipelines` / `cancel_pipeline` | Inspect / list / cancel pipelines |
 
-> Pipelines are CLI-only — no MCP pipeline tools yet. Author them with `warden pipeline create -f` and the `/warden` skill.
+> Pipelines **can** be driven over MCP: `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, and `cancel_pipeline` are all tools. The finer-grained controls — `pause`/`resume`/`delete`/`edit-job`/`retry` — remain CLI-only (`warden pipeline …`).
 
 Example orchestrator prompts:
 
@@ -47,6 +52,10 @@ Example orchestrator prompts:
 - *"Spin up an agent to research SSE reconnection"* → `spawn_agent` with a `prompt` (auto-typed)
 - *"Spawn a debug-ci agent in /path/to/repo"* → `spawn_agent` with `type`+`repo`
 - *"Stop PROJ-350"* → `terminate_agent` (reversible); "clear its record too" → `delete_agent`
+- *"Kick off the analyze-implement-review pipeline on /path/to/repo"* → `create_pipeline` (template) + `start_pipeline`
+- *"Commit and push agent-4f2a's branch"* → `commit` then `push`; *"is anyone else editing auth.go?"* → `who_is_editing_file`
+
+> Prefer natural language over tool calls? `warden orch` is a local-LLM conductor REPL that drives these same operations from plain English without an orchestrator Claude session — see [Orchestrator REPL](/warden/multi-agent/orchestrator-repl/).
 
 ## The `/warden` Claude skill
 

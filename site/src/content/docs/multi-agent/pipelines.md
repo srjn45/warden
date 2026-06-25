@@ -3,22 +3,42 @@ title: Pipelines (DAG)
 description: Define a DAG of dependent agent jobs in YAML and let the daemon run them — outputs flow downstream automatically.
 ---
 
-A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents — so a "lead" Claude stays off the critical path. Authoring is CLI-only (`warden pipeline create -f`); the TUI and web show + control pipelines but don't author them.
+A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents — so a "lead" Claude stays off the critical path. Author from a YAML spec (`warden pipeline create -f`), from a built-in template (`warden pipeline create --template …`), or over MCP (`create_pipeline`/`start_pipeline`). The TUI and web show + control pipelines but don't author them.
 
 ![A pipeline DAG: an analyze job fans out to parallel implement jobs, which converge on a review job; each job's output flows downstream automatically.](/warden/media/pipeline-dag.svg)
 
 ## Lifecycle
 
 ```sh
+warden pipeline list-templates          # show the built-in templates + placeholders
 warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline create -f review.yaml   # validate + register (does NOT start)
 warden pipeline start <id>              # spawn jobs with no dependencies
 warden pipeline show <id>               # jobs, status, branches, emitted output
 warden pipeline list
+warden pipeline pause <id>              # let in-flight jobs finish; spawn no new ones
+warden pipeline resume <id>             # spawn jobs that became ready while paused
 warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
 warden pipeline edit-job <id> <job> --prompt "…"   # edit a still-pending job
 warden pipeline cancel <id>             # terminate running jobs
 warden pipeline delete <id>             # remove the record (cancel first if live)
+```
+
+## Built-in templates
+
+Skip writing YAML for common shapes — `warden pipeline create --template <name> --set KEY=value` renders a built-in template (embedded in the binary) and registers it. `warden pipeline list-templates` prints each template and its placeholders.
+
+| Template | Shape | Placeholders |
+|---|---|---|
+| `analyze-implement-review` | Analyze a task, implement on a fresh branch, then review the result | `NAME`, `REPO`, `TASK` |
+| `parallel-tasks` | Run two independent tasks in parallel, then integrate their branches | `NAME`, `REPO`, `TASK_A`, `TASK_B` |
+| `test-fix-verify` | Reproduce a failing test, fix the cause, then verify the fix holds | `NAME`, `REPO`, `TASK` |
+| `research-synthesis` | Research a topic from two angles in parallel, then synthesize | `NAME`, `REPO`, `TOPIC` |
+
+```sh
+warden pipeline create --template analyze-implement-review \
+  --set NAME=refactor-auth --set REPO=/path/to/app \
+  --set TASK="extract the token-refresh logic into its own module"
 ```
 
 ## Spec

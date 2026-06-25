@@ -39,12 +39,16 @@ export default defineConfig({
           { label: 'The TUI cockpit', slug: 'guides/tui-cockpit' },
           { label: 'Web mission control', slug: 'guides/web-mission-control' },
           { label: 'Approvals & supervised mode', slug: 'guides/approvals-supervised' },
+          { label: 'Lifecycle commands & rails', slug: 'guides/lifecycle-and-rails' },
+          { label: 'Fleet operations', slug: 'guides/fleet-operations' },
           { label: 'Self-rotation & digests', slug: 'guides/rotation-digests' },
+          { label: 'Remote access', slug: 'guides/remote-access' },
         ]},
         { label: 'Multi-agent', items: [
           { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },
           { label: 'Shared context & messages', slug: 'multi-agent/shared-context-messages' },
           { label: 'Orchestration: MCP & skill', slug: 'multi-agent/mcp-and-skill' },
+          { label: 'Orchestrator REPL (local LLM)', slug: 'multi-agent/orchestrator-repl' },
         ]},
         { label: 'Reference', items: [
           { label: 'CLI command reference', slug: 'reference/cli' },
