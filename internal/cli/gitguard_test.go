@@ -45,6 +45,13 @@ func TestDetectGitRedirectAllowsReadsAndNonGit(t *testing.T) {
 		"git branch -a",
 		"git fetch origin",
 		"git add -A",
+		"git rebase --continue", // finishing an in-progress rebase, not starting one
+		"git rebase --abort",
+		"git rebase --skip",
+		"git rebase --quit",
+		"git rebase --edit-todo",
+		"GIT_EDITOR=true git rebase --continue",
+		"git -C /repo rebase --continue",
 		"ls -la",
 		"make test",
 		`echo "git push"`, // mutation only inside a quoted string
