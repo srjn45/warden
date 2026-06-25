@@ -42,5 +42,11 @@ func helpText() string {
 		"  enter        submit the prompt\n" +
 		"  alt+enter    insert a newline (works on every terminal)\n" +
 		"  shift+enter  insert a newline (only on terminals that report it;\n" +
-		"               VTE/GNOME terminals can't — use alt+enter there)\n"
+		"               VTE/GNOME terminals can't — use alt+enter there)\n" +
+		"\n" +
+		stPaneTitle.Render("Selecting & copying text") + "\n" +
+		"  shift+drag   select text natively in any pane (even the Claude pane)\n" +
+		"  ctrl+shift+c copy the selection · ctrl+shift+v paste\n" +
+		"  why          the mouse drives tmux (scroll/click-focus); holding shift\n" +
+		"               bypasses it so the terminal selects text the normal way\n"
 }
