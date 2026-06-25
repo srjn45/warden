@@ -120,6 +120,29 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
 }
 
+// A typed (managed-worktree) spawn must seed the task prompt into claude, just
+// like prompt-mode and pipeline jobs — otherwise the agent comes up idle at an
+// empty prompt and the operator has to re-send it by hand. Regression guard.
+func TestSpawnTypedSeedsPromptArg(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.PromptsDir = "/state/prompts"
+	prompt := "raise cli coverage above 50%"
+	s, err := lc.Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "PROJ-351", Repo: "/repo", Prompt: prompt,
+	})
+	require.NoError(t, err)
+
+	// The prompt is file-backed in the shared state dir, keyed by agent id…
+	promptFile := "/state/prompts/" + s.ID
+	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
+	// …and passed to claude as the positional "$(cat …)" argument on launch.
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+}
+
 func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
 	// new-session fails AFTER we created the worktree → the worktree we created
 	// must be force-removed so a failed spawn doesn't leak it.
