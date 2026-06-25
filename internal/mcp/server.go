@@ -77,6 +77,10 @@ type gitSyncArgs struct {
 	Base string `json:"base,omitempty" jsonschema:"base branch to rebase onto; defaults to main"`
 	Dir  string `json:"dir,omitempty" jsonschema:"worktree to sync; defaults to the current directory"`
 }
+type checkArgs struct {
+	Name string `json:"name,omitempty" jsonschema:"the configured check to run (e.g. test, lint, build); omit to run them all"`
+	Dir  string `json:"dir,omitempty" jsonschema:"worktree to check; defaults to the current directory"`
+}
 
 type ctxSetArgs struct {
 	Key   string `json:"key" jsonschema:"the context key, e.g. global.findings or pipeline.<id>.<job>.output"`
@@ -322,6 +326,18 @@ func NewServer(daemonBase string) *Server {
 		Description: "Fetch origin and rebase the current branch onto origin/<base> (default main). Refuses a dirty tree (commit first). On conflict warden leaves the rebase in progress and returns ONLY the conflicting files — resolve those, then `git rebase --continue`. Returns {branch, base, updated, conflicts}.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitSyncArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.GitSync(ctx, sessionID(), mcpDir(a.Dir), a.Base)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "check",
+		Description: "Run the project's configured checks (from .warden/check.yml) and get back a compact pass/fail summary with output for ONLY the failing checks — in place of running tests/lint/build in Bash and reading hundreds of lines. Pass `name` for one check (e.g. test, lint, build) or omit to run them all. Use this instead of raw `go test` / `npm test` / `make verify`. Returns {passed, checks:[{name,cmd,passed,exit_code,output}]}.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a checkArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.Check(ctx, sessionID(), mcpDir(a.Dir), a.Name)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

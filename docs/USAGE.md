@@ -377,6 +377,38 @@ warden push
 warden sync --base main
 ```
 
+### `warden check [name]` (configured project checks)
+
+`warden check` runs the test/lint/build commands a project declares in its
+in-repo **`.warden/check.yml`** and returns a compact pass/fail summary — with
+captured output for the **failing** checks only, in place of the hundreds of
+lines a raw test run spills into the agent transcript. `warden check` runs every
+configured check; `warden check <name>` runs one (e.g. `test`, `lint`, `build`).
+It exits non-zero when any check fails, and `--json` emits the raw
+`{passed, checks:[{name,cmd,passed,exit_code,output}]}`.
+
+The commands come entirely from the project, so warden stays language-agnostic —
+a repo with no `.warden/check.yml` has nothing to run (run your tests directly).
+The config is the single source of truth shared with the test-redirect hook, so
+the gate and the runner can never drift. A check can scope to a sub-directory for
+monorepos:
+
+```yaml
+# .warden/check.yml
+check:
+  test:  go test ./...
+  lint:  golangci-lint run
+  build: go build ./...
+  api:                     # monorepo: scoped task
+    cmd: go test ./...
+    dir: services/api
+```
+
+```sh
+warden check          # run every configured check
+warden check test     # run just the "test" entry
+```
+
 ### `warden adopt [--session-id <uuid>] [--dir <path>]`
 Register an existing Claude session into warden.
 
@@ -686,6 +718,7 @@ Tools exposed:
 | `commit` | Stage+commit the worktree on its branch — rails (no main/master), pre-commit hooks parsed to surface only failures, SHA linked to the agent. Returns `{committed, sha, branch, files}` |
 | `push` | Push the current branch to origin (refuses `main`/`master` directly) |
 | `sync` | Fetch + rebase onto `origin/<base>` (default `main`); on conflict returns only the conflicting files |
+| `check` | Run the project's configured `.warden/check.yml` checks (tests/lint/build); returns pass/fail with output for only the failing checks. `name` runs one, omit to run all |
 | `terminate_agent` | Stop an agent (kill tmux + claude); keeps record + worktree. Reversible via `restore_agent` — the default "stop" action |
 | `restore_agent` | Recreate and resume a lost/orphaned agent (`claude --resume`) |
 | `delete_agent` | Clear an agent's record (archives by default; `hard` purges) |

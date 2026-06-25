@@ -67,6 +67,10 @@ type fakeLife struct {
 	gitSyncBase     string
 	gitSyncResult   lifecycle.SyncResult
 	gitSyncErr      error
+	checkDir        string
+	checkName       string
+	checkResult     lifecycle.CheckResult
+	checkErr        error
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -223,6 +227,13 @@ func (f *fakeLife) Sync(_ context.Context, dir, base string) (lifecycle.SyncResu
 	defer f.mu.Unlock()
 	f.gitSyncDir, f.gitSyncBase = dir, base
 	return f.gitSyncResult, f.gitSyncErr
+}
+
+func (f *fakeLife) Check(_ context.Context, dir, name string) (lifecycle.CheckResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.checkDir, f.checkName = dir, name
+	return f.checkResult, f.checkErr
 }
 
 func lifeServer(t *testing.T, fs *fakeStore, fl *fakeLife) *httptest.Server {

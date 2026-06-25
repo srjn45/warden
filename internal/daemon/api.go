@@ -261,6 +261,10 @@ type Lifecycle interface {
 	Commit(ctx context.Context, dir, message string) (lifecycle.CommitResult, error)
 	Push(ctx context.Context, dir string) (lifecycle.PushResult, error)
 	Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error)
+	// Check runs the project's configured .warden/check.yml command(s) in dir and
+	// returns a pass/fail summary with output only for failures — backs wd check /
+	// mcp__warden__check.
+	Check(ctx context.Context, dir, name string) (lifecycle.CheckResult, error)
 	// TranscriptPath resolves the agent's transcript file ("" when none).
 	TranscriptPath(sess *store.Session) string
 	// GitBranch / GitNumstat read git state in dir (best-effort, "" on error).

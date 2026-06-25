@@ -148,6 +148,10 @@ func (a *lifecycleAdapter) Sync(ctx context.Context, dir, base string) (lifecycl
 	return a.lc.Sync(ctx, dir, base)
 }
 
+func (a *lifecycleAdapter) Check(ctx context.Context, dir, name string) (lifecycle.CheckResult, error) {
+	return a.lc.Check(ctx, dir, name)
+}
+
 func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, error) {
 	return a.lc.MemoryPressure(ctx)
 }

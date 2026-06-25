@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/lifecycle"
 )
 
 // gitTarget resolves the working dir and owning session for a wd git command:
@@ -123,4 +124,56 @@ func newSyncCmd() *cobra.Command {
 	cmd.Flags().StringVar(&base, "base", "", "base branch to rebase onto (default main)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
 	return cmd
+}
+
+func newCheckCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "check [name]",
+		Short: "Run the project's configured checks and report only failures",
+		Long: "Run the check command(s) declared in this project's .warden/check.yml and\n" +
+			"return a pass/fail summary — with captured output for the FAILING checks only,\n" +
+			"in place of the hundreds of lines a raw test run spills into the transcript.\n\n" +
+			"`wd check` runs every configured check; `wd check <name>` runs one (e.g. test,\n" +
+			"lint, build). Commands come from the project, so warden stays language-agnostic;\n" +
+			"a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) == 1 {
+				name = args[0]
+			}
+			dir, session := gitTarget()
+			res, err := clientFor(cmd).Check(context.Background(), session, dir, name)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return emitJSON(cmd, res)
+			}
+			return printCheckResult(cmd, res)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
+	return cmd
+}
+
+// printCheckResult renders the per-check pass/fail lines (with failing output)
+// and returns a concise error when any check failed, so `wd check` exits non-zero
+// for scripts and CI without re-printing the already-shown detail.
+func printCheckResult(cmd *cobra.Command, res lifecycle.CheckResult) error {
+	out := cmd.OutOrStdout()
+	failed := 0
+	for _, c := range res.Checks {
+		if c.Passed {
+			fmt.Fprintf(out, "✓ %s (%s)\n", c.Name, c.Cmd)
+			continue
+		}
+		failed++
+		fmt.Fprintf(out, "✗ %s (%s) — exit %d\n%s\n", c.Name, c.Cmd, c.ExitCode, c.Output)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d check(s) failed", failed, len(res.Checks))
+	}
+	return nil
 }

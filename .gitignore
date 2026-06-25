@@ -10,7 +10,11 @@ dist/
 
 # warden runtime state / worktrees (created when running agents from this checkout)
 .agentctl/
-.warden/
+# Ignore warden runtime state under .warden/, but keep the per-project check
+# config tracked — it is meant to be committed so it is present in every worktree
+# for `wd check` and the test-redirect hook.
+.warden/*
+!.warden/check.yml
 .worktrees/
 
 # stray subagent typo dir
