@@ -148,11 +148,14 @@ func newDaemonCmd() *cobra.Command {
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(cfg.PipelineKeepDone)
 
-			transitionNotifier := notify.New(cfg.NotifyEnabled)
+			// One notifier seam drives every alert channel: the platform
+			// (desktop) notifier, plus the webhook when configured. Both the
+			// status-transition hook and the context-size alert deliver through it.
+			notifier := notify.New(cfg.NotifyEnabled)
 			if cfg.WebhookEnabled && cfg.WebhookURL != "" {
-				transitionNotifier = notify.Multi(transitionNotifier, notify.NewWebhook(cfg.WebhookURL))
+				notifier = notify.Multi(notifier, notify.NewWebhook(cfg.WebhookURL))
 			}
-			notifyHook := daemon.NotifyOnTransition(transitionNotifier)
+			notifyHook := daemon.NotifyOnTransition(notifier)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestartMax, cfg.AutoRestartResetDuration())
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimitAutoResume, cfg.RateLimitResumePrompt)
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
@@ -161,10 +164,9 @@ func newDaemonCmd() *cobra.Command {
 				restarter.OnTransition(sess, from, to)
 				rateLimitSched.OnTransition(sess, from, to)
 			}
-			ctxNotifier := notify.New(cfg.NotifyEnabled)
 			pl.OnContextAlert = func(sess *store.Session, state ctxtokens.State, tokens int) {
 				title, body := daemon.ContextAlertMessage(sess, state, tokens)
-				go ctxNotifier.Notify(title, body)
+				go notifier.Notify(title, body)
 			}
 
 			// Reconstruct rate limit timers from persisted state
