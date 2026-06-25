@@ -37,7 +37,8 @@ func newPipelineCmd() *cobra.Command {
 		Use:   "pipeline",
 		Short: "Define and run DAG pipelines of agent jobs",
 	}
-	cmd.AddCommand(newPipelineValidateCmd(), newPipelineCreateCmd(), newPipelineListCmd(), newPipelineShowCmd(),
+	cmd.AddCommand(newPipelineValidateCmd(), newPipelineCreateCmd(), newPipelineListTemplatesCmd(),
+		newPipelineListCmd(), newPipelineShowCmd(),
 		newPipelineStartCmd(), newPipelinePauseCmd(), newPipelineResumeCmd(),
 		newPipelineCancelCmd(), newPipelineDeleteCmd(), newPipelineEmitCmd(),
 		newPipelineEditJobCmd(), newPipelineRetryCmd())
@@ -75,19 +76,37 @@ func newPipelineValidateCmd() *cobra.Command {
 
 func newPipelineCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create -f <spec.yaml>",
-		Short: "Create a pipeline from a YAML spec",
-		Args:  cobra.NoArgs,
+		Use:   "create (-f <spec.yaml> | --template <name>)",
+		Short: "Create a pipeline from a YAML spec or a built-in template",
+		Long: "Create a pipeline either from a YAML spec file (-f) or from a built-in\n" +
+			"template (--template). Templates render with placeholder substitution: --name\n" +
+			"fills {{NAME}} (default the template name), --repo fills {{REPO}} (default the\n" +
+			"current directory), and each remaining {{KEY}} is filled with --set KEY=VALUE.\n" +
+			"Run `warden pipeline list-templates` to see templates and their placeholders.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
-			if file == "" {
-				return fmt.Errorf("provide a spec with -f <spec.yaml>")
+			tmpl, _ := cmd.Flags().GetString("template")
+			if (file == "") == (tmpl == "") {
+				return fmt.Errorf("provide exactly one of -f <spec.yaml> or --template <name>")
 			}
-			data, err := os.ReadFile(file)
-			if err != nil {
-				return err
+
+			var spec string
+			if file != "" {
+				data, err := os.ReadFile(file)
+				if err != nil {
+					return err
+				}
+				spec = string(data)
+			} else {
+				rendered, err := renderTemplateFromFlags(cmd, tmpl)
+				if err != nil {
+					return err
+				}
+				spec = rendered
 			}
-			p, err := clientFor(cmd).PipelineCreate(cmd.Context(), string(data))
+
+			p, err := clientFor(cmd).PipelineCreate(cmd.Context(), spec)
 			if err != nil {
 				return err
 			}
@@ -96,7 +115,56 @@ func newPipelineCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringP("file", "f", "", "path to the pipeline YAML spec")
+	cmd.Flags().String("template", "", "built-in template to render (see `pipeline list-templates`)")
+	cmd.Flags().String("name", "", "pipeline name — fills {{NAME}} (default: the template name)")
+	cmd.Flags().String("repo", "", "repo path — fills {{REPO}} (default: the current directory)")
+	cmd.Flags().StringArray("set", nil, "fill a template placeholder, KEY=VALUE (repeatable)")
 	return cmd
+}
+
+// renderTemplateFromFlags builds the substitution map for a --template create
+// from the --name/--repo/--set flags and renders the named template. NAME
+// defaults to the template name and REPO to the current directory; any other
+// placeholder must be supplied via --set.
+func renderTemplateFromFlags(cmd *cobra.Command, tmpl string) (string, error) {
+	name, _ := cmd.Flags().GetString("name")
+	repo, _ := cmd.Flags().GetString("repo")
+	sets, _ := cmd.Flags().GetStringArray("set")
+
+	if name == "" {
+		name = tmpl
+	}
+	if repo == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		repo = wd
+	}
+	vars := map[string]string{"NAME": name, "REPO": repo}
+	for _, kv := range sets {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" {
+			return "", fmt.Errorf("invalid --set %q (want KEY=VALUE)", kv)
+		}
+		vars[k] = v
+	}
+	return pipeline.RenderTemplate(tmpl, vars)
+}
+
+func newPipelineListTemplatesCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list-templates",
+		Short: "List the built-in pipeline templates and their placeholders",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			for _, t := range pipeline.ListTemplates() {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\n    %s\n    placeholders: %s\n",
+					t.Name, t.Description, strings.Join(t.Placeholders, ", "))
+			}
+			return nil
+		},
+	}
 }
 
 func newPipelineListCmd() *cobra.Command {

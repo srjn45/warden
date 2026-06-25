@@ -26,25 +26,6 @@ notes.
 
 ### CLI & UX Improvements
 
-#### 3. Pipeline templates — *not started*
-**Effort:** 2 hours
-**Value:** Faster pipeline authoring
-
-Ship 3-4 common pipeline templates.
-
-```bash
-warden pipeline create --template analyze-implement-review
-warden pipeline list-templates
-```
-
-**Templates:** `analyze-implement-review`, `parallel-tasks`, `test-fix-verify`,
-`research-synthesis`.
-
-**Implementation:** embed via `go:embed` in `internal/pipeline/`; `--template`
-renders with placeholder substitution. (Pairs with the shipped `pipeline validate`.)
-
----
-
 #### 5. Web dashboard keyboard shortcuts — *not started*
 **Effort:** 2 hours
 **Value:** Power-user productivity
@@ -392,13 +373,9 @@ a single user.
    tools on NL→confirmed-tool-call composition (`wd orch`), confirm-before-execute so a 7B
    model is safe. Phase A (`Chatter` seam) is the only net-new infra; B ships standalone.
    **F: medium · N: high.**
-1. **Pipeline MCP tools** (#25, 4-6 h) — pipelines are mature but CLI-only, so an
-   orchestrator agent can't drive them. `internal/mcp/server.go` already exposes
-   agent/ctx/mailbox/approval tools — adding pipeline tools is mechanical. **F: medium · N: high.**
-2. **Pipeline templates** (#3, 2 h) — `go:embed` 3-4 starters; lowers the authoring
-   barrier that `validate` only half-addresses. **F: easy · N: medium.**
-
 *(#34 Slack/webhook notifications — ✅ shipped, see FEATURES.md "Webhook / Slack notifications" + the `webhook_enabled`/`webhook_url` settings.)*
+*(#25 Pipeline MCP tools — ✅ shipped: create/list/show/start/cancel_pipeline in `internal/mcp/server.go`.)*
+*(#3 Pipeline templates — ✅ shipped: `pipeline create --template` + `list-templates`, see FEATURES.md.)*
 *(#35 GitHub PR auto-create on done — ✅ shipped, see FEATURES.md `done --create-pr`.)*
 
 ### ⭐ Tier 2 — Do Next (solid value, mostly fleet-management)
@@ -449,8 +426,8 @@ Tier 1 first (each a self-contained win), then Tier 2 as fleet size grows:
 
 0. **Orchestrator Phase A→B** (#50, ~5 days) — `Chatter` seam + `wd orch` REPL with the confirm gate; spends the now-complete brain groundwork on NL multi-agent composition
 1. **Slack/webhook notifications** (3-4 h) — remote awareness; pairs with the now-shipped remote access
-2. **Pipeline MCP tools** (4-6 h) — let orchestrator agents drive pipelines
-3. **Pipeline templates** (2 h) — lowers the barrier `validate` only half-fixed
+2. ~~**Pipeline MCP tools**~~ — ✅ shipped (create/list/show/start/cancel_pipeline)
+3. ~~**Pipeline templates**~~ — ✅ shipped (`create --template`, `list-templates`)
 7. **Scheduled agents/tasks** (1-2 days) — recurring automation (convenience-tier now)
 8. **Finish crash detection + perf history** (~1.5 days) — complete the partials
 9. **Finish inter-agent collaboration** (1-2 weeks) — next-gen, foundation already in
