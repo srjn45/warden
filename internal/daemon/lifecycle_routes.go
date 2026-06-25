@@ -27,6 +27,7 @@ func (s *Server) registerLifecycleRoutes(r chi.Router) {
 	r.Get("/sessions/{id}/output", s.handleOutput)
 	r.Get("/sessions/{id}/attach", s.handleAttach)
 	r.Post("/sessions/{id}/restore", s.handleRestore)
+	r.Post("/sessions/{id}/create-pr", s.handleCreatePR)
 	r.Get("/pressure", s.handlePressure)
 	r.Get("/worktrees", s.handleListWorktrees)
 	r.Post("/prune", s.handlePrune)

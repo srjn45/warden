@@ -73,6 +73,12 @@ type fakeLife struct {
 	checkName       string
 	checkResult     lifecycle.CheckResult
 	checkErr        error
+	prDir           string
+	prTitle         string
+	prBody          string
+	prBase          string
+	prResult        lifecycle.PRResult
+	prErr           error
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -235,6 +241,13 @@ func (f *fakeLife) Sync(_ context.Context, dir, base string) (lifecycle.SyncResu
 	defer f.mu.Unlock()
 	f.gitSyncDir, f.gitSyncBase = dir, base
 	return f.gitSyncResult, f.gitSyncErr
+}
+
+func (f *fakeLife) CreatePR(_ context.Context, dir, title, body, base string) (lifecycle.PRResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prDir, f.prTitle, f.prBody, f.prBase = dir, title, body, base
+	return f.prResult, f.prErr
 }
 
 func (f *fakeLife) Check(_ context.Context, dir, name string) (lifecycle.CheckResult, error) {

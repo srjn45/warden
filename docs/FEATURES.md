@@ -63,7 +63,7 @@ on-disk state:
 |---|---|
 | `terminate` | Stop an agent (kill tmux + claude); **keeps** the record and worktree. The safe, reversible "stop" default. |
 | `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). |
-| `done` | Terminate **and** clear the record in one step (worktree kept). `--hard` purges instead of archiving. |
+| `done` | Terminate **and** clear the record in one step (worktree kept). `--hard` purges instead of archiving. `--create-pr` first pushes the agent's branch and opens a GitHub PR (`gh`) titled from the agent and bodied from its digest (`--base` sets the target, default main) — the PR is opened *before* termination, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created. |
 | `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. |
 | `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. |
 | `worktree ls` | List warden-owned worktrees under `.worktrees`, joined to active/archived records (provenance-tracked). |

@@ -212,13 +212,6 @@ notify-send / log). Add a webhook channel that posts on attention-needed
 transitions (`waiting_for_input`, `errored`, `orphaned`). **High value now that
 remote access ships** — this is what makes "watch from your phone" actually push.
 
-#### 35. GitHub PR auto-create on done — *not started*
-**Effort:** 6 hours
-```bash
-warden done agent-123 --create-pr   # gh pr create --fill --body "$(warden digest <id>)"
-```
-Closes the development→PR loop; pairs well with the existing digest feature.
-
 ---
 
 ## ⚡ Performance & Scalability
@@ -378,11 +371,10 @@ from **enterprise/multi-user** features whose necessity is low for a single user
 2. **Pipeline MCP tools** (#25, 4-6 h) — pipelines are mature but CLI-only, so an
    orchestrator agent can't drive them. `internal/mcp/server.go` already exposes
    agent/ctx/mailbox/approval tools — adding pipeline tools is mechanical. **F: medium · N: high.**
-3. **GitHub PR auto-create on done** (#35, 6 h) — `warden done <id> --create-pr`
-   on top of the existing `digest`; closes the dev→PR loop. User ships via GitHub.
-   **F: medium · N: high.**
-4. **Pipeline templates** (#3, 2 h) — `go:embed` 3-4 starters; lowers the authoring
+3. **Pipeline templates** (#3, 2 h) — `go:embed` 3-4 starters; lowers the authoring
    barrier that `validate` only half-addresses. **F: easy · N: medium.**
+
+*(#35 GitHub PR auto-create on done — ✅ shipped, see FEATURES.md `done --create-pr`.)*
 
 ### ⭐ Tier 2 — Do Next (solid value, mostly fleet-management)
 5. **Batch operations** (#21, 3 h) — multi-select bulk terminate/delete/message;
@@ -438,8 +430,7 @@ Tier 1 first (each a self-contained win), then Tier 2 as fleet size grows:
 0. **Orchestration brain Phase 0a+0b** (~3 days) — isolation enforcement + git lifecycle behind a deny-redirect hook; token reduction + retires the manual git workflow
 1. **Slack/webhook notifications** (3-4 h) — remote awareness; pairs with the now-shipped remote access
 2. **Pipeline MCP tools** (4-6 h) — let orchestrator agents drive pipelines
-3. **GitHub PR auto-create on done** (6 h) — closes the dev→PR loop with `digest`
-4. **Pipeline templates** (2 h) — lowers the barrier `validate` only half-fixed
+3. **Pipeline templates** (2 h) — lowers the barrier `validate` only half-fixed
 5. **Batch operations** (3 h) — first real pain point as the fleet grows
 6. **Full-text search + history viewer** (~1.5 days) — manage larger/older fleets
 7. **Scheduled agents/tasks** (1-2 days) — recurring automation (convenience-tier now)
