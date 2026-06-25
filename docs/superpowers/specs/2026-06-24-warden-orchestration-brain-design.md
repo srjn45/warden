@@ -335,9 +335,27 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     *static* mapping — no daemon round-trip — and it **fails open** on unreadable input. Gated
     by a new `git_redirect` config (default on); the settings writer now emits whichever of
     the two `PreToolUse` matchers are enabled, and nothing when both are off. *No LLM.*
-- **Phase 0c — `wd check`.** Run configured test/lint/build commands, return pass/fail +
-  only failing cases; add the test-command redirect hook. Optional local summarize for
-  oversized failure logs (deterministic truncate fallback). *Biggest raw token win.*
+- **Phase 0c — `wd check`.** Split, like 0a/0b, into a tool half and an enforcement half:
+  - **0c-1 — Tool + Layer-1 steer (✅ shipped).** `wd check [name]` as a CLI command **and**
+    MCP tool (`mcp__warden__check`), backed by `lifecycle.Check`. Runs the per-project
+    `.warden/check.yml` command(s) via `sh -c` and returns a compact
+    `CheckResult{passed, checks:[{name,cmd,passed,exit_code,output}]}` — output captured for
+    the **failing** checks only, tail-truncated (the deterministic fallback; LLM summarize is
+    Phase 1). `wd check` runs all entries (stable alphabetical order); `wd check <name>` runs
+    one; an entry may scope to a sub-dir (`dir:`) for monorepos. Config is the single source
+    of truth (shared with the 0c-2 hook so the gate and runner can't drift); a repo with no
+    config returns `ErrNoCheckConfig` (run tests directly), an unknown name lists the
+    configured ones. The daemon pins each run to the calling agent's own `Workdir` (the same
+    boundary as the git routes, now factored into a shared `pinnedWorkdir`) and records a
+    `check` bookkeeping event. Plus the Layer-1 steer (the `git_conventions` hint now also
+    points at `wd check`). warden stays language-agnostic — it runs only what the project
+    registered. Wire path: lifecycle → daemon `/check` → client `Check` → CLI + MCP. *No LLM.*
+  - **0c-2 — Layer-2 test-redirect hook (next).** Extend the `Bash` PreToolUse hook to
+    DENY-redirect a raw test command (`go test …`, `npm test`, `make verify`, …) to
+    `wd check`/`mcp__warden__check` — but **only** commands the project's `.warden/check.yml`
+    registers, since test vocab is open-ended and the hook must not guess. Matchers are
+    generated from the same config that drives the runner. Optional local summarize for
+    oversized failure logs. *Biggest raw token win.*
 - **Phase 1 — Local provider.** Ollama HTTP provider behind a config flag. Prove on
   `Classify` first → then headless commit messages → then log/transcript summarization.
 

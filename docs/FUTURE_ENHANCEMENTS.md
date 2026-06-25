@@ -321,8 +321,14 @@ messages), proven first by swapping the existing headless-Claude `Classify` call
   commit|push|pull|rebase` to the warden tools (reads stay allowed), the deny message naming
   the exact replacement; static verdict (no daemon round-trip), fails open, gated by
   `git_redirect` (default on). *No LLM.*
-- **0c `wd check`** — run configured tests/lint, return pass/fail + only failures; redirect
-  raw test Bash. Biggest raw token win. *No LLM (optional summarize).*
+- **0c `wd check`** — **0c-1:** ✅ **shipped** — `wd check [name]` as CLI + MCP tool
+  (`mcp__warden__check`) backed by `lifecycle.Check`, running the per-project
+  `.warden/check.yml` command(s) and returning pass/fail with output for only the failing
+  checks (tail-truncated). Per-entry `dir:` for monorepos; config is the single source of
+  truth; no-config / unknown-name return friendly errors; daemon pins to the agent's worktree
+  (shared `pinnedWorkdir`) + records a `check` event; Layer-1 steer extended. **0c-2:** the
+  Bash hook extended to redirect raw test commands the config registers to `wd check`.
+  Biggest raw token win. *No LLM (optional summarize).*
 - **Phase 1 Local provider** — opt-in Ollama provider; `Classify` → headless commit
   messages → log summarization.
 

@@ -30,28 +30,40 @@ func (s *Server) resolveGitTarget(w http.ResponseWriter, r *http.Request) (dir s
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return "", nil, req, false
 	}
-	dir = req.Dir
-	if req.Session != "" {
-		got, err := s.store.Get(r.Context(), req.Session)
+	dir, sess, status, msg := s.pinnedWorkdir(r.Context(), req.Session, req.Dir)
+	if status != 0 {
+		writeErr(w, status, msg)
+		return "", nil, req, false
+	}
+	return dir, sess, req, true
+}
+
+// pinnedWorkdir resolves the authoritative working dir for an agent action.
+// When session resolves to a known agent, that agent's own Workdir wins over any
+// client-supplied dir — the security boundary that stops an agent acting on a
+// sibling worktree by passing a different path. An unknown session falls back to
+// the supplied dir (a human may pass a stale id). status==0 means success;
+// otherwise (status, msg) is the HTTP error the caller should write.
+func (s *Server) pinnedWorkdir(ctx context.Context, session, dir string) (resolved string, sess *store.Session, status int, msg string) {
+	resolved = dir
+	if session != "" {
+		got, err := s.store.Get(ctx, session)
 		switch {
 		case err == nil:
 			sess = got
 			if sess.Workdir != "" {
-				dir = sess.Workdir // authoritative: pin the action to the agent's own worktree
+				resolved = sess.Workdir // authoritative: pin to the agent's own worktree
 			}
 		case errors.Is(err, store.ErrNotFound):
-			// Unknown session: fall back to the provided dir (a human may pass a
-			// stale id); only fail if there is nothing to act on.
+			// Unknown session: fall back to the provided dir.
 		default:
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return "", nil, req, false
+			return "", nil, http.StatusInternalServerError, err.Error()
 		}
 	}
-	if dir == "" {
-		writeErr(w, http.StatusBadRequest, "no working directory: provide dir or a known session")
-		return "", nil, req, false
+	if resolved == "" {
+		return "", nil, http.StatusBadRequest, "no working directory: provide dir or a known session"
 	}
-	return dir, sess, req, true
+	return resolved, sess, 0, ""
 }
 
 func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {

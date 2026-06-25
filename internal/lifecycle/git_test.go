@@ -147,6 +147,7 @@ func TestGitConventionsHint(t *testing.T) {
 		got := New(&FakeRunner{}, &FakeConfig{}).gitConventionsHint()
 		require.Contains(t, got, "--append-system-prompt")
 		require.Contains(t, got, "wd commit")
+		require.Contains(t, got, "wd check")
 		require.True(t, len(got) > 0 && got[0] == ' ', "leading space so it concatenates onto claudeLaunch output")
 		require.NotContains(t, got, "\n", "must stay a single typed line")
 		require.NotContains(t, gitConventionsGuidance, "'", "guidance must stay apostrophe-free (keeps the single-quoted shell form clean)")

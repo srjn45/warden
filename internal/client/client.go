@@ -368,6 +368,20 @@ func (c *Client) GitSync(ctx context.Context, session, dir, base string) (lifecy
 	return res, nil
 }
 
+// Check runs the project's configured check command(s) in dir via the daemon and
+// returns a pass/fail summary with output only for the failures. name selects a
+// configured entry ("" runs all). Uses longTimeout — a check runs a test/build
+// command that can take minutes. When set, session pins the run to the agent's
+// own worktree.
+func (c *Client) Check(ctx context.Context, session, dir, name string) (lifecycle.CheckResult, error) {
+	var res lifecycle.CheckResult
+	body := map[string]string{"session": session, "dir": dir, "name": name}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/check", body, &res); err != nil {
+		return lifecycle.CheckResult{}, err
+	}
+	return res, nil
+}
+
 func (c *Client) Terminate(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", nil, nil)
 }

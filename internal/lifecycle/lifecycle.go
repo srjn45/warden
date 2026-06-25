@@ -143,7 +143,9 @@ func (l *Lifecycle) collabHint() string {
 const gitConventionsGuidance = "Prefer warden git tools over raw git Bash: wd commit (or mcp__warden__commit) " +
 	"to stage+commit, wd push (mcp__warden__push) to push your branch, wd sync (mcp__warden__sync) to rebase onto the base. " +
 	"warden enforces the branch rail (never commits to main), runs pre-commit hooks and returns only failures, " +
-	"and links the commit to this agent. git status/log/diff stay yours to run directly."
+	"and links the commit to this agent. git status/log/diff stay yours to run directly. " +
+	"Run the project tests/lint/build with wd check (or mcp__warden__check) when the repo defines them in .warden/check.yml — " +
+	"warden runs the configured commands and returns only the failures, not the full log."
 
 // gitConventionsHint returns the claude flag fragment that injects
 // gitConventionsGuidance as a system-prompt addendum, or "" when the
