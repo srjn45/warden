@@ -4,7 +4,9 @@
 // nil Completer or any error simply means "use the fallback". The local model
 // only earns its place on fuzzy-but-cheap tasks (task classification, log /
 // transcript summarization), never on deciding code changes or rewriting the
-// operator's intent.
+// operator's intent. Alongside the single-shot Completer it also exposes a
+// multi-turn, tool-calling Chatter seam (chat.go) for the orchestrator's
+// NL-to-tool-call loop; the same provider satisfies both.
 package llm
 
 import "context"
