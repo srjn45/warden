@@ -211,6 +211,22 @@ func (c *Client) History(ctx context.Context, p HistoryParams) ([]*store.Session
 	return resp.Sessions, nil
 }
 
+// Import POSTs an export envelope to the daemon, which inserts its Session
+// records into the active store (metadata only — worktrees are not recreated).
+// With merge=true an existing record is overwritten on id collision; otherwise
+// it is skipped. The returned result lists the ids in each bucket.
+func (c *Client) Import(ctx context.Context, env *store.Export, merge bool) (*store.ImportResult, error) {
+	path := "/import"
+	if merge {
+		path += "?merge=true"
+	}
+	var res store.ImportResult
+	if err := c.do(ctx, http.MethodPost, path, env, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // Watch opens the daemon's SSE session stream (GET /events/stream) and invokes
 // onSnapshot once for the initial snapshot and again for every state change the
 // daemon pushes. It blocks until ctx is cancelled, the connection drops, or

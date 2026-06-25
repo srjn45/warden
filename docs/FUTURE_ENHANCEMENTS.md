@@ -36,7 +36,7 @@ there is no global shortcut layer yet.)
 
 ---
 
-#### 7. Export/Import sessions — *not started*
+#### 7. Export/Import sessions — *shipped*
 **Effort:** 2 hours
 **Value:** Backup, sharing, migration
 
