@@ -51,11 +51,13 @@ real value is *selective/portable* export, not whole-store backup.
 
 ---
 
-#### 8. Improve CLI test coverage to 50%+ — *ongoing*
+#### 8. Improve CLI test coverage to 50%+ — *done (60.1%)*
 **Effort:** 3-4 hours
 
-CLI remains the lowest-covered package. Table-driven flag parsing, error paths,
-output formatting, mocked daemon responses.
+Goal met: `internal/cli` rose from 48.1% to 60.1% via table-driven tests for flag
+parsing, error paths, output formatting, and httptest-stubbed daemon responses
+(sessions, stats, worktree/prune, collab). Further coverage is welcome but no
+longer a roadmap blocker.
 
 ---
 
@@ -356,7 +358,7 @@ a single user.
 7. **Scheduled agents/tasks** (#15, 1-2 days) — decision doc + `robfig/cron`.
    Necessity nudged *down*: the Claude Code harness now offers external cron/schedule,
    so in-daemon scheduling is convenience, not a blocker. **F: medium · N: medium.**
-9. **Improve CLI test coverage to 50%+** (#8, ongoing) — lowest-covered package.
+9. **Improve CLI test coverage to 50%+** (#8, done — 60.1%) — was the lowest-covered package.
    **F: easy · N: medium (quality).**
 
 ### 🎯 Tier 3 — Nice to Have (cosmetic or niche; do opportunistically)
