@@ -145,9 +145,6 @@ Remaining: CSS custom-property theming, a LocalStorage override, and a header to
 **Effort:** 4 hours. Group by type/status/tag, collapsible groups, saved presets.
 (`AgentGrid.tsx` exists but renders a flat grid.)
 
-#### 21. Batch operations — *not started*
-**Effort:** 3 hours. Multi-select + bulk terminate/delete/message.
-
 ---
 
 ## 🤖 Model Selection & Configuration
@@ -175,17 +172,9 @@ orchestrator Claude session drive pipelines without shelling out.
 
 ## 🔍 Search & Discovery
 
-#### 28. Full-text search — *not started*
-**Effort:** 6-8 hours. In-memory search across subject/prompt/type/name/pane;
-`warden search`, web search bar.
-
-#### 29. Agent history/archive viewer — *not started*
-**Effort:** 4 hours. Browse/search the `closed/` store (which already persists
-archived records). `warden history [--since] [--type]`; web Archive tab.
-
 #### 30. Tag system — *not started*
 **Effort:** 3-4 hours. `Tags []string` on `Session`; `--tags`; filter/search by tag.
-Pairs with grouping (#20) and search (#28).
+Pairs with grouping (#20) and the shipped search (#28, see FEATURES.md §14).
 
 ---
 
@@ -383,11 +372,8 @@ from **enterprise/multi-user** features whose necessity is low for a single user
 *(#35 GitHub PR auto-create on done — ✅ shipped, see FEATURES.md `done --create-pr`.)*
 
 ### ⭐ Tier 2 — Do Next (solid value, mostly fleet-management)
-5. **Batch operations** (#21, 3 h) — multi-select bulk terminate/delete/message;
-   the most-felt gap once a fleet grows. **F: medium · N: medium.**
-6. **Full-text search + history/archive viewer** (#28 + #29, ~1.5 days) — the
-   `closed/` store already persists records; add `warden search` / `warden history`
-   and a web Archive tab. **F: medium · N: medium.**
+*(#21 Batch operations and #28+#29 Full-text search + history/archive viewer —
+✅ shipped, see FEATURES.md §14/§15/§16.)*
 7. **Scheduled agents/tasks** (#15, 1-2 days) — decision doc + `robfig/cron`.
    Necessity nudged *down*: the Claude Code harness now offers external cron/schedule,
    so in-daemon scheduling is convenience, not a blocker. **F: medium · N: medium.**
@@ -437,8 +423,6 @@ Tier 1 first (each a self-contained win), then Tier 2 as fleet size grows:
 1. **Slack/webhook notifications** (3-4 h) — remote awareness; pairs with the now-shipped remote access
 2. **Pipeline MCP tools** (4-6 h) — let orchestrator agents drive pipelines
 3. **Pipeline templates** (2 h) — lowers the barrier `validate` only half-fixed
-5. **Batch operations** (3 h) — first real pain point as the fleet grows
-6. **Full-text search + history viewer** (~1.5 days) — manage larger/older fleets
 7. **Scheduled agents/tasks** (1-2 days) — recurring automation (convenience-tier now)
 8. **Finish crash detection + perf history** (~1.5 days) — complete the partials
 9. **Finish inter-agent collaboration** (1-2 weeks) — next-gen, foundation already in

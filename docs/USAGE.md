@@ -329,6 +329,28 @@ List all active sessions: `ID  TYPE  STATUS  AGE  DIR  SUBJECT`.
 first poller refresh; `TYPE` shows `…` while a prompt agent is still being
 classified.
 
+### `warden search <QUERY...>`
+Full-text search across your agents. Every whitespace-separated word is ANDed
+against each session's id, name, ticket, type, subject, prompt, branch, and
+last-pane excerpt (case-insensitive). Renders the same table as `warden ls`.
+
+```sh
+warden search auth refactor        # agents matching BOTH "auth" and "refactor"
+warden search PROJ-350 --closed    # include archived sessions in the search
+warden search payments --json      # raw records for scripting
+```
+
+### `warden history [--since <when>] [--type <type>] [--limit N]`
+Browse agents that have ended (the persisted `closed/` archive, newest-first).
+`--since` accepts a duration (`24h`, `90m`, `7d`, `2w`), a date (`2026-06-01`),
+or an RFC3339 timestamp; `--type` filters by task type; `--limit` caps the count;
+`--json` prints raw records.
+
+```sh
+warden history --since 7d                 # ended in the last week
+warden history --type pr-review --limit 20
+```
+
 ### `warden status <TICKET>`
 Full detail for one session: id, type, ticket, status, repo, workdir,
 worktree, branch, pr, subject, last-updated, and the full event timeline.
@@ -881,6 +903,21 @@ per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) /
 **Retry** (job) control, and an **Open terminal** link to a running job's
 session. (Creating / editing pipelines in the browser is not yet available —
 use `warden pipeline create -f`.)
+
+**Search the fleet:** the Overview tab has a search box that filters the
+all-agents grid live as you type (matching id/name/type/subject/branch and
+more), so you can pin down one agent in a crowded grid without scrolling.
+
+**Batch operations (Cockpit):** each tile in the Cockpit grid has a checkbox;
+click to select, Shift-click to select a range. While anything is selected a
+floating action bar lets you **Message…**, **Terminate**, or **Delete** the whole
+selection at once (the destructive actions ask for a second click to confirm).
+Agents are processed one at a time and the bar reports partial success, keeping
+any failures selected so you can retry them.
+
+**Archive tab:** the 🗄 **Archive** tab browses ended agents from the persisted
+`closed/` store. Filter by age (all / 24h / 7d / 30d) and type, plus a free-text
+box, to find a past run by ID, name, branch, or subject.
 
 > The UI is baked into the binary at build time. After changing anything under
 > `web/`, rebuild (`make release`, or `make ui` for the frontend only) and
