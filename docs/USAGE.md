@@ -805,6 +805,32 @@ repo with **no config redirects nothing**, so the feature is effectively opt-in
 per repo, and the hook **fails open** on unreadable input or a malformed config.
 Disable it with `warden config set check_redirect false`.
 
+### Local model (optional, off by default)
+
+The guards above move deterministic work onto warden with **no LLM at all**. A few
+remaining responsibilities are fuzzy-but-cheap — the first is **task
+classification** (labelling a prompt-spawned agent as `development` / `tests` /
+`docs` / …), which warden does today by calling its *own* headless Claude on every
+spawn. You can route that to a **local model** instead, so it never touches your
+Claude budget:
+
+```sh
+warden config set local_llm true                       # off by default
+warden config set local_llm_url   http://localhost:11434   # an Ollama-compatible server
+warden config set local_llm_model qwen2.5-coder:7b
+warden config set local_llm_timeout 20s                # hard per-call cap
+```
+
+With `local_llm` on, the daemon points `Classify` at the configured Ollama
+endpoint. **Every call has a deterministic fallback:** on any error, timeout, or
+unreachable server it falls back to headless Claude, which in turn falls back to
+the `other` label — so a stopped or slow Ollama never blocks a spawn, it just
+forgoes the saving. Local inference on CPU can be slower than calling Claude, hence
+the hard `local_llm_timeout`. warden works fully headless without any of this; the
+local model only earns its place on these cheap tasks and is never used to decide
+code changes. (Output/log summarization and headless commit messages are the next
+candidates to route here.)
+
 ---
 
 ## 10. The web dashboard

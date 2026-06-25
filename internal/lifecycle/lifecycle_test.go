@@ -436,6 +436,50 @@ func TestClassifyDefaultsToOtherOnError(t *testing.T) {
 	require.Equal(t, store.TypeOther, got)
 }
 
+// fakeCompleter is a test double for the local-LLM provider (llm.Completer).
+type fakeCompleter struct {
+	out   string
+	err   error
+	calls int
+}
+
+func (f *fakeCompleter) Complete(_ context.Context, _ string) (string, error) {
+	f.calls++
+	return f.out, f.err
+}
+
+func TestClassifyUsesLocalLLMWhenSet(t *testing.T) {
+	prompt := "write unit tests for the parser"
+	fc := &fakeCompleter{out: "tests\n"}
+	fr := &FakeRunner{} // claude -p must NOT be called when the local model answers
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = fc
+
+	got, err := lc.Classify(context.Background(), prompt)
+	require.NoError(t, err)
+	require.Equal(t, store.TypeTests, got)
+	require.Equal(t, 1, fc.calls)
+	require.NotContains(t, fr.calledArgs(), []string{"claude", "-p", classifyArg(prompt)},
+		"a successful local classify must not also spend warden's Claude")
+}
+
+func TestClassifyFallsBackToClaudeWhenLocalErrors(t *testing.T) {
+	prompt := "build a REST API for orders"
+	fc := &fakeCompleter{err: errStub("connection refused")}
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"claude -p " + classifyArg(prompt): {Out: "development\n"},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = fc
+
+	got, err := lc.Classify(context.Background(), prompt)
+	require.NoError(t, err)
+	require.Equal(t, store.TypeDevelopment, got)
+	require.Equal(t, 1, fc.calls)
+	require.Contains(t, fr.calledArgs(), []string{"claude", "-p", classifyArg(prompt)},
+		"a local error falls back to headless Claude")
+}
+
 func TestSpawnPromptModeRequiresCwd(t *testing.T) {
 	fr := &FakeRunner{}
 	l := New(fr, &FakeConfig{})

@@ -293,7 +293,7 @@ marginal value given `rotate` + pipelines already cover the real need.
 
 ## 🧠 Orchestration & Token Reduction
 
-#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0 complete; Phase 1 next)*
+#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *in progress (Phase 0 complete; Phase 1a shipped)*
 **Effort:** Phase 0a ~1 day · 0b ~2 days · 0c ~1 day · Phase 1 ~3-4 days (incremental)
 **Value:** Cut Claude token spend; enforce worktree isolation; retire the operator's
 manual git lifecycle.
@@ -336,7 +336,15 @@ messages), proven first by swapping the existing headless-Claude `Classify` call
   `check_redirect` (default on). Biggest raw token win. *No LLM (optional summarize is a
   Phase 1 follow-up).*
 - **Phase 1 Local provider** — opt-in Ollama provider; `Classify` → headless commit
-  messages → log summarization.
+  messages → log summarization. **1a:** ✅ **shipped** — new `internal/llm` package (a
+  one-method `Completer` seam + a tiny non-streaming Ollama `/api/generate` client with a
+  hard timeout, byte cap, and error-so-caller-falls-back contract); `lifecycle` gains an
+  optional `LLM` field (nil = off) and `Classify` routes through it first, falling back to
+  headless Claude (then `TypeOther`) on any error. Gated by `local_llm` (default off) +
+  `local_llm_url`/`_model`/`_timeout`; the daemon builds the provider only when enabled.
+  First LLM in the tree; degrades to today's behavior when off/unreachable. **1b:** route
+  headless commit messages, then log / oversized-check-failure summarization through the
+  same seam.
 
 **Design spec:** [`docs/superpowers/specs/2026-06-24-warden-orchestration-brain-design.md`](superpowers/specs/2026-06-24-warden-orchestration-brain-design.md).
 

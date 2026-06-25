@@ -366,6 +366,19 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     for oversized failure logs stays a Phase 1 follow-up. Biggest raw token win.*
 - **Phase 1 — Local provider.** Ollama HTTP provider behind a config flag. Prove on
   `Classify` first → then headless commit messages → then log/transcript summarization.
+  - **1a — Provider seam + Classify swap (✅ shipped).** A new `internal/llm` package
+    defines a one-method `Completer` seam and a tiny non-streaming Ollama client
+    (`/api/generate`, JSON in/out, hard timeout + byte cap, errors so the caller falls
+    back). `lifecycle.Lifecycle` gains an optional `LLM llm.Completer` field (nil = off);
+    `Classify` tries it first and falls back to headless Claude on any error, which still
+    falls back to `TypeOther` — the cheapest, lowest-risk swap (pure classification, run on
+    every prompt-spawn, already fault-tolerant). Gated by new config: `local_llm` (default
+    off), `local_llm_url` (default `http://localhost:11434`), `local_llm_model` (default
+    `qwen2.5-coder:7b`), `local_llm_timeout` (default `20s`); the daemon constructs the
+    provider only when `local_llm` is on. *First LLM in the codebase; everything degrades to
+    today's behavior when off or unreachable.*
+  - **1b — next.** Route headless commit messages, then log/transcript + oversized
+    check-failure summarization (the 0c-2 follow-up) through the same seam.
 
 ## Non-goals
 

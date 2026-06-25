@@ -58,6 +58,10 @@ type Config struct {
 	GitConventions         bool   `yaml:"git_conventions"`
 	GitRedirect            bool   `yaml:"git_redirect"`
 	CheckRedirect          bool   `yaml:"check_redirect"`
+	LocalLLM               bool   `yaml:"local_llm"`
+	LocalLLMURL            string `yaml:"local_llm_url"`
+	LocalLLMModel          string `yaml:"local_llm_model"`
+	LocalLLMTimeout        string `yaml:"local_llm_timeout"`
 	RateLimitRetryInterval string `yaml:"rate_limit_retry_interval"`
 	RateLimitBuffer        string `yaml:"rate_limit_buffer"`
 	RateLimitAutoResume    bool   `yaml:"rate_limit_auto_resume"`
@@ -114,6 +118,10 @@ var schema = []setting{
 	{"git_conventions", "Append the git-conventions hint steering agents toward wd commit/push/sync over raw git Bash. Values: true | false"},
 	{"git_redirect", "Install the PreToolUse hook that denies raw git commit/push/pull/rebase in Bash and redirects to the warden tools (reads stay allowed). Values: true | false"},
 	{"check_redirect", "Install the PreToolUse hook that denies a raw test/lint/build command the project's .warden/check.yml registers and redirects it to wd check (returns only failures). No config means nothing is redirected. Values: true | false"},
+	{"local_llm", "Route fuzzy-but-cheap tasks (task classification) to a local model instead of warden's own headless Claude. Off by default; every step falls back to Claude on any error. Values: true | false"},
+	{"local_llm_url", "Base URL of the local Ollama-compatible server used when local_llm is on. Values: http(s) URL (default http://localhost:11434)"},
+	{"local_llm_model", "Model name the local server should run for warden's tasks. Values: an Ollama model tag (e.g. qwen2.5-coder:7b)"},
+	{"local_llm_timeout", "Hard timeout for each local-model call before falling back to Claude. Values: Go duration (e.g. 20s, 1m)"},
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
@@ -164,6 +172,10 @@ func defaults() Config {
 		GitConventions:         true,
 		GitRedirect:            true,
 		CheckRedirect:          true,
+		LocalLLM:               false,
+		LocalLLMURL:            "http://localhost:11434",
+		LocalLLMModel:          "qwen2.5-coder:7b",
+		LocalLLMTimeout:        "20s",
 		RateLimitRetryInterval: "30m",
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
@@ -251,6 +263,13 @@ func validate(c *Config) {
 	c.CollabInterval = validDuration(c.CollabInterval, d.CollabInterval)
 	c.RateLimitRetryInterval = validDuration(c.RateLimitRetryInterval, d.RateLimitRetryInterval)
 	c.RateLimitBuffer = validDuration(c.RateLimitBuffer, d.RateLimitBuffer)
+	if strings.TrimSpace(c.LocalLLMURL) == "" {
+		c.LocalLLMURL = d.LocalLLMURL
+	}
+	if strings.TrimSpace(c.LocalLLMModel) == "" {
+		c.LocalLLMModel = d.LocalLLMModel
+	}
+	c.LocalLLMTimeout = validDuration(c.LocalLLMTimeout, d.LocalLLMTimeout)
 }
 
 func validPermissionMode(v string) string {
@@ -628,6 +647,16 @@ func (c Config) GetGitRedirect() bool { return c.GitRedirect }
 // .warden/check.yml registers and points the agent at wd check instead). With no
 // project config nothing is redirected, so this is effectively opt-in per repo.
 func (c Config) GetCheckRedirect() bool { return c.CheckRedirect }
+
+// GetLocalLLM reports whether warden routes its fuzzy-but-cheap tasks (task
+// classification) to a local model instead of headless Claude.
+func (c Config) GetLocalLLM() bool { return c.LocalLLM }
+
+// LocalLLMTimeoutDuration returns the hard per-call timeout for the local model
+// before warden falls back to Claude.
+func (c Config) LocalLLMTimeoutDuration() time.Duration {
+	return durOr(c.LocalLLMTimeout, 20*time.Second)
+}
 
 // AutoRestartResetDuration returns the sustained-health window that resets the
 // auto-restart counter.
