@@ -60,6 +60,7 @@ type Config struct {
 	GitConventions         bool   `yaml:"git_conventions"`
 	GitRedirect            bool   `yaml:"git_redirect"`
 	CheckRedirect          bool   `yaml:"check_redirect"`
+	Snapshots              bool   `yaml:"snapshots"`
 	LocalLLM               bool   `yaml:"local_llm"`
 	LocalLLMURL            string `yaml:"local_llm_url"`
 	LocalLLMModel          string `yaml:"local_llm_model"`
@@ -125,6 +126,7 @@ var schema = []setting{
 	{"git_conventions", "Append the git-conventions hint steering agents toward wd commit/push/sync over raw git Bash. Values: true | false"},
 	{"git_redirect", "Install the PreToolUse hook that denies raw git commit/push/pull/rebase in Bash and redirects to the warden tools (reads stay allowed). Values: true | false"},
 	{"check_redirect", "Install the PreToolUse hook that denies a raw test/lint/build command the project's .warden/check.yml registers and redirects it to wd check (returns only failures). No config means nothing is redirected. Values: true | false"},
+	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
 	{"local_llm", "Route fuzzy-but-cheap tasks (task classification) to a local model instead of warden's own headless Claude. Off by default; every step falls back to Claude on any error. Values: true | false"},
 	{"local_llm_url", "Base URL of the local Ollama-compatible server used when local_llm is on. Values: http(s) URL (default http://localhost:11434)"},
 	{"local_llm_model", "Model name the local server should run for warden's tasks. Values: an Ollama model tag (e.g. qwen2.5-coder:7b)"},
@@ -184,6 +186,7 @@ func defaults() Config {
 		GitConventions:         true,
 		GitRedirect:            true,
 		CheckRedirect:          true,
+		Snapshots:              true,
 		LocalLLM:               false,
 		LocalLLMURL:            "http://localhost:11434",
 		LocalLLMModel:          "qwen2.5-coder:7b",
@@ -662,6 +665,10 @@ func (c Config) GetGitRedirect() bool { return c.GitRedirect }
 // .warden/check.yml registers and points the agent at wd check instead). With no
 // project config nothing is redirected, so this is effectively opt-in per repo.
 func (c Config) GetCheckRedirect() bool { return c.CheckRedirect }
+
+// GetSnapshots reports whether the snapshot/checkpoint system is enabled (the
+// daemon gates the wd snapshot create/list/restore endpoints on it).
+func (c Config) GetSnapshots() bool { return c.Snapshots }
 
 // GetLocalLLM reports whether warden routes its fuzzy-but-cheap tasks (task
 // classification) to a local model instead of headless Claude.

@@ -186,8 +186,19 @@ existing agent's inbox. Handoff content is inlined into the recipient's prompt/m
 skill-driven review gate; no daemon change. See FEATURES.md §7 and
 `docs/superpowers/specs/2026-06-25-warden-handoff-design.md`.
 
-#### 46. Snapshot/checkpoint system — *not started*
-**Effort:** 2 days. Checkpoint worktree (git stash) + transcript; restore.
+#### 46. Snapshot/checkpoint system — *shipped*
+Checkpoint an agent's **worktree state + session transcript** at a known-good point
+and roll back to it, shipped as **`wd snapshot create/list/restore`** (CLI + MCP
+`snapshot_create`/`snapshot_list`/`snapshot_restore`; FEATURES.md §23). Capture is
+**non-destructive** — `git stash create` builds a commit object recording the
+working tree without touching it — and records HEAD/branch/dirty-files plus the
+tmux-pane transcript to a JSON store under `<data_dir>/snapshots/`. Restore
+re-applies the stash onto the recorded worktree with the lifecycle rails (refuses a
+dirty tree unless `--force`, never `main`/`master`) and is reversible-safe (stash
+*apply* keeps the snapshot usable; conflicts are handed back like `wd sync`).
+Self-contained `internal/snapshot` package (pure helpers + a runner over the shared
+`lifecycle.Runner` seam), gated by the `snapshots` config setting (default on). See
+`docs/superpowers/specs/2026-06-25-warden-snapshot-checkpoint-design.md`.
 
 #### 47. Plugin system — *not started*
 **Effort:** 3-4 days. Custom task types + lifecycle hooks (Go plugin or WASM).
@@ -230,8 +241,8 @@ _Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](F
 ### 🔮 Tier 4 — Future / large bets (foundation- or usage-gated)
 15. Finish inter-agent collaboration (#44, 1-2 weeks) — correctly deferred behind
     real usage; MVP already covers file-conflict detection.
-16. Snapshot/checkpoint (#46, 2 days) · OpenAPI docs (#43, 4 h) — revisit when the
-    remote API gains outside consumers.
+16. ~~Snapshot/checkpoint (#46)~~ — **shipped** (`wd snapshot`, FEATURES.md §23). ·
+    OpenAPI docs (#43, 4 h) — revisit when the remote API gains outside consumers.
 
 ### 🧊 Tier 5 — Parked (necessity too low for a solo tool; don't build speculatively)
 Reassessed *downward* — keep on the list for completeness, but these need a concrete

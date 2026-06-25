@@ -483,3 +483,31 @@ Most of this needs no LLM.
 | **Git-guard** (`git_redirect`) | A PreToolUse Bash hook quote-aware argv-parses each command and deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed), the deny message naming the exact replacement. Static verdict, no daemon round-trip. |
 | **Check-guard** (`check_redirect`) | A PreToolUse Bash hook deny-redirects a raw test/lint/build command the project's `.warden/check.yml` registers to `wd check`, matching on leading-token prefix (broad runs redirect; focused `-run` runs pass through). No-config repos redirect nothing. |
 | **Prompt steer** (`git_conventions`) | A Layer-1 system-prompt hint steering agents toward `wd commit`/`push`/`sync` (and `wd check`) over raw git/test Bash — the gentle first layer before the deny hooks. |
+
+---
+
+## 23. Snapshots / checkpoints (`wd snapshot`)
+
+Checkpoint an agent at a known-good point — its **worktree state** *and* its
+**session transcript** — and roll back to it later. Config-gated by `snapshots`
+(default on); the daemon owns a JSON snapshot store under `<data_dir>/snapshots/`.
+
+- **`wd snapshot create [name] [-m msg]`** (CLI + MCP `snapshot_create`) — captures
+  the worktree **non-destructively** via `git stash create` (it builds a commit
+  object recording the working tree *without* touching it — no stash entry pushed,
+  no index change), recording the HEAD/branch/dirty-file list plus the tmux pane
+  scrollback as the transcript. `[name]` defaults to the current agent
+  (`WARDEN_SESSION_ID`); the daemon pins capture to that agent's own worktree.
+- **`wd snapshot list [name] [--all]`** (CLI + MCP `snapshot_list`) — snapshots
+  for an agent (or every session), newest first.
+- **`wd snapshot restore <id> [--force]`** (CLI + MCP `snapshot_restore`) —
+  re-applies the snapshot's stash onto its recorded worktree. **Rails:** refuses a
+  dirty tree unless `--force`, and never restores onto `main`/`master` (same guards
+  as `wd sync`/`remove-worktree`). **Reversible-safe** — stash *apply* neither
+  resets HEAD nor drops the snapshot, so the snapshot stays usable; a partial apply
+  leaves conflicting paths in the tree for resolution (the `wd sync` handoff). The
+  saved transcript path is surfaced for the operator regardless.
+
+Built as a self-contained `internal/snapshot` package (pure helpers + a runner
+over the shared `lifecycle.Runner` command seam), wired through the daemon →
+client → CLI/MCP like the other lifecycle verbs.

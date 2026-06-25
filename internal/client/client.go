@@ -22,6 +22,7 @@ import (
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -510,6 +511,45 @@ func (c *Client) Input(ctx context.Context, id, text string) error {
 
 func (c *Client) Restore(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/restore", nil, nil)
+}
+
+// SnapshotCreate captures the worktree state + transcript of an agent at a
+// known-good point (#46). session pins the daemon to the agent's own worktree
+// (and supplies the tmux pane for the transcript); dir is the human fallback.
+// Uses longTimeout — capture shells out to git + tmux.
+func (c *Client) SnapshotCreate(ctx context.Context, session, dir, message string) (*snapshot.Snapshot, error) {
+	var snap snapshot.Snapshot
+	body := map[string]string{"session": session, "dir": dir, "message": message}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/snapshots", body, &snap); err != nil {
+		return nil, err
+	}
+	return &snap, nil
+}
+
+// SnapshotList returns snapshots newest-first, optionally filtered to one session.
+func (c *Client) SnapshotList(ctx context.Context, session string) ([]*snapshot.Snapshot, error) {
+	var resp struct {
+		Snapshots []*snapshot.Snapshot `json:"snapshots"`
+	}
+	q := "/snapshots"
+	if session != "" {
+		q += "?session=" + url.QueryEscape(session)
+	}
+	if err := c.do(ctx, http.MethodGet, q, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Snapshots, nil
+}
+
+// SnapshotRestore re-applies a snapshot onto its recorded worktree, refusing a
+// dirty tree unless force is set. Uses longTimeout — restore shells out to git.
+func (c *Client) SnapshotRestore(ctx context.Context, id string, force bool) (*snapshot.RestoreResult, error) {
+	var res snapshot.RestoreResult
+	body := map[string]bool{"force": force}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/snapshots/"+id+"/restore", body, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 // Approvals fetches the live approval queue. Returns (enabled, views, err);

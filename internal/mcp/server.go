@@ -134,6 +134,19 @@ type pipelineIDArgs struct {
 	Pipeline string `json:"pipeline" jsonschema:"the pipeline id (equals its name)"`
 }
 
+type snapshotCreateArgs struct {
+	Message string `json:"message,omitempty" jsonschema:"optional label for the snapshot"`
+	Dir     string `json:"dir,omitempty" jsonschema:"worktree to snapshot; defaults to the current directory (pinned to this agent's own worktree)"`
+}
+type snapshotListArgs struct {
+	Session string `json:"session,omitempty" jsonschema:"filter to one agent's snapshots; defaults to this agent ($WARDEN_SESSION_ID); empty with all=true lists every session"`
+	All     bool   `json:"all,omitempty" jsonschema:"list snapshots across all sessions instead of just this agent's"`
+}
+type snapshotRestoreArgs struct {
+	ID    string `json:"id" jsonschema:"the snapshot id to restore (as shown by snapshot_list)"`
+	Force bool   `json:"force,omitempty" jsonschema:"restore even when the worktree has uncommitted changes (default false)"`
+}
+
 // findApproval locates the view for id in the live queue and validates that the
 // option is answerable, mirroring the CLI/web guards. The daemon still re-verifies
 // the fingerprint on POST (TOCTOU 409 guard); this just surfaces friendly errors.
@@ -633,6 +646,49 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("canceled " + a.Pipeline), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "snapshot_create",
+		Description: "Checkpoint this agent's worktree + session transcript at a known-good point (#46). Captures the worktree non-destructively (git stash create — the working tree is untouched) plus the recorded HEAD/branch/dirty-file list, and saves the transcript. Returns the snapshot {id, branch, head_sha, stash_sha, dirty_files, transcript_path}. Roll back later with snapshot_restore.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a snapshotCreateArgs) (*mcpsdk.CallToolResult, any, error) {
+		snap, err := s.cl.SnapshotCreate(ctx, sessionID(), mcpDir(a.Dir), a.Message)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(snap)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "snapshot_list",
+		Description: "List this agent's snapshots newest-first (or all sessions with all=true). Returns the saved checkpoints {id, created_at, branch, head_sha, dirty_files, message} to pick one to restore.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a snapshotListArgs) (*mcpsdk.CallToolResult, any, error) {
+		session := a.Session
+		if session == "" {
+			session = sessionID()
+		}
+		if a.All {
+			session = ""
+		}
+		snaps, err := s.cl.SnapshotList(ctx, session)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(snaps)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "snapshot_restore",
+		Description: "Re-apply a snapshot onto its recorded worktree (#46). Refuses a dirty tree unless force=true and never restores onto main/master. Reversible-safe — re-applies the stash without resetting HEAD or dropping the snapshot. Returns {applied, head_match, conflicts, transcript_path}; resolve any conflicts as with a rebase.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a snapshotRestoreArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.SnapshotRestore(ctx, a.ID, a.Force)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
 	})
 
 	return s

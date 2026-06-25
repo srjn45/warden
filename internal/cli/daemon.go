@@ -27,6 +27,7 @@ import (
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -135,6 +136,11 @@ func newDaemonCmd() *cobra.Command {
 			} else {
 				srv.SetCollabInterval(0)
 			}
+			snapStore, err := snapshot.NewStore(filepath.Join(cfg.DataDir, "snapshots"))
+			if err != nil {
+				return err
+			}
+			srv.SetSnapshots(cfg.Snapshots, snapshot.New(runner, snapStore))
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})

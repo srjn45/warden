@@ -10,6 +10,7 @@ import (
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -28,6 +29,10 @@ func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.D
 // SetCollabInterval sets the file-conflict poll interval. A non-positive value
 // disables the collaboration monitor.
 func (s *Server) SetCollabInterval(d time.Duration) { s.collabInterval = d }
+
+// SetSnapshots wires the snapshot manager (#46) and the config gate. enabled=false
+// (or a nil manager) makes the snapshot endpoints return 403.
+func (s *Server) SetSnapshots(enabled bool, m *snapshot.Manager) { s.snapshots = enabled; s.snap = m }
 
 // shutdownGrace bounds how long Shutdown waits for in-flight requests to drain
 // before returning (after which the process exits and any stragglers are cut).
