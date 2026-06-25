@@ -68,6 +68,7 @@ export default function CockpitTab({ sessions, onSelect, onCreated }: {
         selectable
         selected={selected}
         onToggleSelect={toggle}
+        groupControl
       />
       {selected.size > 0 && (
         <BulkActionBar selected={[...selected]} onClear={() => setSelected(new Set())} />

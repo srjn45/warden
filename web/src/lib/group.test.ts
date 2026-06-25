@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupSessions, sourceDir, baseName } from './group';
+import { groupSessions, groupSessionsBy, sourceDir, baseName, UNTYPED, UNTAGGED } from './group';
 import type { Session } from './types';
 
 function sess(p: Partial<Session>): Session {
@@ -40,6 +40,49 @@ describe('groupSessions', () => {
     expect(out).toHaveLength(1);
     expect(out[0].dir).toBe('/w');
     expect(out[0].sessions).toHaveLength(2);
+  });
+});
+
+describe('groupSessionsBy', () => {
+  it('groups by type and falls back to the untyped sentinel', () => {
+    const out = groupSessionsBy([
+      sess({ id: 'a', type: 'feature', updated_at: '2026-06-03T10:00:00Z' }),
+      sess({ id: 'b', type: '', updated_at: '2026-06-03T09:00:00Z' }),
+      sess({ id: 'c', type: 'feature', updated_at: '2026-06-03T08:00:00Z' }),
+    ], 'type');
+    expect(out.map((g) => g.key)).toEqual(['feature', UNTYPED]);
+    expect(out[0].label).toBe('feature');
+    expect(out[0].sessions.map((s) => s.id)).toEqual(['a', 'c']);
+    expect(out[1].sessions.map((s) => s.id)).toEqual(['b']);
+  });
+
+  it('groups by status and humanizes the label', () => {
+    const out = groupSessionsBy([
+      sess({ id: 'a', status: 'working', updated_at: '2026-06-03T10:00:00Z' }),
+      sess({ id: 'b', status: 'waiting_for_input', updated_at: '2026-06-03T11:00:00Z' }),
+    ], 'status');
+    expect(out.map((g) => g.key)).toEqual(['waiting_for_input', 'working']);
+    expect(out[0].label).toBe('waiting for input');
+  });
+
+  it('groups by tag, places a multi-tagged agent in every group, and buckets untagged', () => {
+    const out = groupSessionsBy([
+      sess({ id: 'a', tags: ['backend', 'urgent'], updated_at: '2026-06-03T10:00:00Z' }),
+      sess({ id: 'b', tags: ['backend'], updated_at: '2026-06-03T09:00:00Z' }),
+      sess({ id: 'c', tags: [], updated_at: '2026-06-03T08:00:00Z' }),
+      sess({ id: 'd', updated_at: '2026-06-03T07:00:00Z' }),
+    ], 'tag');
+    const byKey = Object.fromEntries(out.map((g) => [g.key, g.sessions.map((s) => s.id)]));
+    expect(byKey['backend']).toEqual(['a', 'b']);
+    expect(byKey['urgent']).toEqual(['a']);
+    expect(byKey[UNTAGGED]).toEqual(['c', 'd']);
+  });
+
+  it('decorates dir groups with label/sub/dir for the quick-add button', () => {
+    const out = groupSessionsBy([
+      sess({ id: 'a', repo: '/Users/x/warden', updated_at: '2026-06-03T10:00:00Z' }),
+    ], 'dir');
+    expect(out[0]).toMatchObject({ key: '/Users/x/warden', label: 'warden', sub: '/Users/x/warden', dir: '/Users/x/warden' });
   });
 });
 
