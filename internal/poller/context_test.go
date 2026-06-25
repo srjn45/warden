@@ -101,6 +101,65 @@ func TestCheckContextCriticalIdleCompactsAndPersists(t *testing.T) {
 	}
 }
 
+func TestDecideContextSuggestsCompactWhenCriticalAndWorking(t *testing.T) {
+	const cool = 2 * time.Minute
+	// Critical + working: auto-compact can't act (not idle), so Suggest fires and
+	// Compact does not.
+	d := decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusWorking, time.Hour, cool, true, true)
+	if !d.Suggest || d.Compact {
+		t.Fatalf("critical+working: suggest=%v compact=%v, want suggest=true compact=false", d.Suggest, d.Compact)
+	}
+	// Critical + idle: the auto-compact path handles it, no pre-crash suggestion.
+	d = decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusIdle, time.Hour, cool, true, true)
+	if d.Suggest {
+		t.Fatal("critical+idle must not suggest (auto-compact handles it)")
+	}
+	// Suggest is independent of auto-compact being on.
+	d = decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusWorking, time.Hour, cool, true, false)
+	if !d.Suggest {
+		t.Fatal("critical+working must suggest even with auto-compact off")
+	}
+	// Below critical never suggests.
+	d = decideContext(ctxtokens.StateWarning, ctxtokens.StateWarning, store.StatusWorking, time.Hour, cool, true, true)
+	if d.Suggest {
+		t.Fatal("non-critical context must not suggest")
+	}
+}
+
+func TestCheckContextPreCrashAnomalyOncePerEpisode(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 420000, tokensOK: true}
+	p := New(fd, time.Minute)
+	p.TokenWarn, p.TokenCrit = 200000, 400000
+	p.WarnAlert, p.AutoCompact, p.TokenGuard = true, true, true
+	var anomalies int
+	p.OnAnomaly = func(_ *store.Session, a Anomaly) {
+		if a.Kind == anomalyPreCrash {
+			anomalies++
+		}
+	}
+
+	s := &store.Session{ID: "a1", Status: store.StatusWorking, ContextState: ""}
+	// Several ticks of critical+working must raise exactly one pre-crash anomaly.
+	for i := 0; i < 3; i++ {
+		p.checkContext(context.Background(), s, time.Now())
+	}
+	if anomalies != 1 {
+		t.Fatalf("anomalies=%d, want 1 (once per critical episode)", anomalies)
+	}
+	if fd.compacted != 0 {
+		t.Fatal("a working agent must not be auto-compacted")
+	}
+
+	// Drop out of critical and back in → a new episode re-fires.
+	fd.tokens = 100000
+	p.checkContext(context.Background(), s, time.Now())
+	fd.tokens = 420000
+	p.checkContext(context.Background(), s, time.Now())
+	if anomalies != 2 {
+		t.Fatalf("anomalies=%d, want 2 (re-fires on a new critical episode)", anomalies)
+	}
+}
+
 func TestCheckContextNoUsageIsNoop(t *testing.T) {
 	fd := &ctxFakeDeps{tokensOK: false}
 	p := New(fd, time.Minute)

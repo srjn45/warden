@@ -127,6 +127,10 @@ type Poller struct {
 	// whether a loop anomaly was already raised so it fires once per loop episode.
 	paneHistory map[string][]string
 	loopFlagged map[string]bool
+	// preCrashFlagged remembers whether a "compact before crash" anomaly was
+	// already raised for a session's current critical-context episode (tick
+	// goroutine only), so the nudge fires once per episode, not per tick.
+	preCrashFlagged map[string]bool
 
 	// AutoApprovePolicy is the global allow/deny policy (from config). Per-session
 	// Session.AutoApprove opts an agent into evaluation against this policy.
@@ -162,6 +166,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		lastCtxCheck:    map[string]time.Time{},
 		paneHistory:     map[string][]string{},
 		loopFlagged:     map[string]bool{},
+		preCrashFlagged: map[string]bool{},
 		CheckEvery:      20 * time.Second,
 		CompactCooldown: 2 * time.Minute,
 		ApprovalEvents:  make(chan ApprovalEvent, 100),
@@ -372,7 +377,8 @@ func (p *Poller) tick(ctx context.Context) error {
 // long-running daemon. Called only from the tick goroutine, which owns the map.
 func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 &&
-		len(p.paneHistory) == 0 && len(p.loopFlagged) == 0 {
+		len(p.paneHistory) == 0 && len(p.loopFlagged) == 0 &&
+		len(p.preCrashFlagged) == 0 {
 		return
 	}
 	live := make(map[string]struct{}, len(sessions))
@@ -397,6 +403,11 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	for id := range p.loopFlagged {
 		if _, ok := live[id]; !ok {
 			delete(p.loopFlagged, id)
+		}
+	}
+	for id := range p.preCrashFlagged {
+		if _, ok := live[id]; !ok {
+			delete(p.preCrashFlagged, id)
 		}
 	}
 }
