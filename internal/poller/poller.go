@@ -80,6 +80,10 @@ type Deps interface {
 	StampCompact(ctx context.Context, id string) error
 	// SendKeys sends a single key (e.g. numbered menu option) to the agent's tmux pane.
 	SendKeys(ctx context.Context, tmuxSession, keys string) error
+	// RecordEvent appends a durable event to the agent's record (used for health
+	// anomalies the poller raises — OOM-suspected crashes, infinite loops,
+	// pre-crash context warnings). A missing session is a soft no-op.
+	RecordEvent(ctx context.Context, id string, ev store.Event) error
 }
 
 type Poller struct {
@@ -96,6 +100,12 @@ type Poller struct {
 	// session and its old/new status (edge-triggered — once per transition, not
 	// per tick). The daemon wires this to fire user notifications.
 	OnTransition func(sess *store.Session, from, to store.Status)
+
+	// OnAnomaly, if set, is called once per raised health anomaly (OOM-suspected
+	// crash, infinite loop, pre-crash context). It is the notification seam — the
+	// poller already records a durable event for every anomaly, so this is purely
+	// best-effort user-facing alerting. The daemon wires it to its notifier.
+	OnAnomaly func(sess *store.Session, a Anomaly)
 
 	// Context-size guard config + hooks (set by the daemon after New). When
 	// TokenGuard is false the whole check is skipped. CompactCooldown bounds how
@@ -272,6 +282,13 @@ func (p *Poller) tick(ctx context.Context) error {
 			p.deps.ClearExit(ctx, s.ID) // consumed (clear even if CAS lost — the file is stale)
 			if swapped {
 				changed = true
+				// A crash carrying the OOM-kill signature gets an enrichment event
+				// + notification beyond the generic exit event FinalizeExit wrote.
+				if next == store.StatusErrored {
+					if a, ok := crashAnomaly(code); ok {
+						p.raiseAnomaly(ctx, s, a)
+					}
+				}
 				if p.OnTransition != nil {
 					p.OnTransition(s, s.Status, next)
 				}
@@ -441,6 +458,18 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// raiseAnomaly records a durable "anomaly" event for the agent and fires the
+// optional OnAnomaly notification hook. The event is the authoritative surface
+// (visible in `show`/TUI even with no notifier); OnAnomaly is best-effort alerting.
+func (p *Poller) raiseAnomaly(ctx context.Context, s *store.Session, a Anomaly) {
+	if err := p.deps.RecordEvent(ctx, s.ID, store.Event{Type: "anomaly", Detail: a.Detail}); err != nil {
+		slog.Warn("poller: record anomaly event failed", "agent", s.ID, "kind", a.Kind, "err", err)
+	}
+	if p.OnAnomaly != nil {
+		p.OnAnomaly(s, a)
+	}
 }
 
 // publishApprovalEvent sends an event to the approval worker.

@@ -47,6 +47,7 @@ type ctxFakeDeps struct {
 	updated   []string // "tokens:state"
 	compacted int
 	stamped   int
+	events    []store.Event
 }
 
 func (f *ctxFakeDeps) List(context.Context) ([]*store.Session, error) { return nil, nil }
@@ -73,6 +74,10 @@ func (f *ctxFakeDeps) UpdateContext(_ context.Context, _ string, tokens int, sta
 func (f *ctxFakeDeps) Compact(context.Context, *store.Session) error  { f.compacted++; return nil }
 func (f *ctxFakeDeps) StampCompact(context.Context, string) error     { f.stamped++; return nil }
 func (f *ctxFakeDeps) SendKeys(context.Context, string, string) error { return nil }
+func (f *ctxFakeDeps) RecordEvent(_ context.Context, _ string, ev store.Event) error {
+	f.events = append(f.events, ev)
+	return nil
+}
 
 func TestCheckContextCriticalIdleCompactsAndPersists(t *testing.T) {
 	fd := &ctxFakeDeps{tokens: 420000, tokensOK: true}

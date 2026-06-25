@@ -168,6 +168,7 @@ func newDaemonCmd() *cobra.Command {
 				title, body := daemon.ContextAlertMessage(sess, state, tokens)
 				go notifier.Notify(title, body)
 			}
+			pl.OnAnomaly = daemon.NotifyOnAnomaly(notify.New(cfg.NotifyEnabled))
 
 			// Reconstruct rate limit timers from persisted state
 			if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
