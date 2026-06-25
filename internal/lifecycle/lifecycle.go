@@ -1063,14 +1063,29 @@ func (l *Lifecycle) ensureScrollback(ctx context.Context) {
 	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-g", "history-limit", strconv.Itoa(agentHistoryLimit))
 }
 
-// EnsureExtendedKeys turns on tmux's extended-keys passthrough (a server option)
-// so Claude running inside an agent's tmux session receives Shift+Enter as a
-// distinct CSI-u key — which Claude treats as a newline — instead of the bare CR
-// that tmux collapses Shift+Enter into when extended-keys is off (which Claude
-// treats as submit). terminal-features is appended only when extkeys is absent so
-// repeated spawns don't accumulate duplicate entries. Best-effort: a
-// keyboard-protocol quirk must never block a spawn or cockpit launch.
+// EnsureExtendedKeys configures tmux so the user can insert a newline (rather
+// than submit) while typing into Claude. It installs two layers, both
+// best-effort — a keyboard-protocol quirk must never block a spawn or cockpit
+// launch:
+//
+//  1. Extended-keys passthrough (a server option). On terminals that speak the
+//     CSI-u / modifyOtherKeys protocol, this lets Claude receive Shift+Enter as a
+//     distinct key it treats as a newline, instead of the bare CR that tmux would
+//     otherwise collapse it into (which Claude treats as submit). terminal-features
+//     is appended only when extkeys is absent so repeated spawns don't accumulate
+//     duplicate entries.
+//
+//  2. An Alt+Enter fallback (a root-table key binding). Many Linux terminals —
+//     notably VTE/GNOME (Ptyxis, GNOME Terminal) — never report the Shift modifier
+//     on Enter at all: they emit a bare CR for Shift+Enter, so layer 1 cannot
+//     recover it. Alt+Enter, however, arrives distinctly (ESC+CR, which tmux reads
+//     as M-Enter) even on those terminals, so we bind it to send a literal LF (C-j)
+//     into the active pane — which Claude inserts as a newline. The binding is in
+//     the root table so it works in the cockpit and in attached agent sessions
+//     alike (same tmux server).
 func EnsureExtendedKeys(ctx context.Context, run Runner) {
+	// Terminal-independent newline key for terminals that can't report Shift+Enter.
+	_, _ = run.Run(ctx, "", "tmux", "bind-key", "-n", "M-Enter", "send-keys", "C-j")
 	_, _ = run.Run(ctx, "", "tmux", "set-option", "-s", "extended-keys", "on")
 	if out, err := run.Run(ctx, "", "tmux", "show-options", "-s", "-v", "terminal-features"); err == nil && strings.Contains(out, "extkeys") {
 		return // outer terminal already advertised; don't append a duplicate

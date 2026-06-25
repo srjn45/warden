@@ -36,5 +36,11 @@ func helpText() string {
 		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +
 		"  ?            toggle this help\n" +
-		"  q            quit\n"
+		"  q            quit\n" +
+		"\n" +
+		stPaneTitle.Render("Typing in the Claude pane") + "\n" +
+		"  enter        submit the prompt\n" +
+		"  alt+enter    insert a newline (works on every terminal)\n" +
+		"  shift+enter  insert a newline (only on terminals that report it;\n" +
+		"               VTE/GNOME terminals can't — use alt+enter there)\n"
 }

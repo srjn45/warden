@@ -1114,6 +1114,8 @@ func TestSpawnEnablesExtendedKeys(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-s", "extended-keys", "on"})
 	// terminal-features extkeys appended because show-options reported none.
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"})
+	// Alt+Enter fallback newline for terminals (e.g. VTE) that can't report Shift+Enter.
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "bind-key", "-n", "M-Enter", "send-keys", "C-j"})
 }
 
 func TestSpawnDoesNotDuplicateExtkeysWhenPresent(t *testing.T) {
