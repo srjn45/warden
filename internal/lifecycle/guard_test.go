@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
-// settingsMatchers unmarshals a generated settings doc into (matcher → command).
-func settingsMatchers(t *testing.T, raw string) map[string]string {
+// settingsMatchers unmarshals a generated settings doc into matcher → commands.
+// A matcher (e.g. "Bash") may carry more than one hook, so commands are a slice.
+func settingsMatchers(t *testing.T, raw string) map[string][]string {
 	t.Helper()
 	var doc struct {
 		Hooks struct {
@@ -26,33 +28,54 @@ func settingsMatchers(t *testing.T, raw string) map[string]string {
 		} `json:"hooks"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(raw), &doc))
-	out := map[string]string{}
+	out := map[string][]string{}
 	for _, m := range doc.Hooks.PreToolUse {
 		require.Len(t, m.Hooks, 1)
 		require.Equal(t, "command", m.Hooks[0].Type)
-		out[m.Matcher] = m.Hooks[0].Command
+		out[m.Matcher] = append(out[m.Matcher], m.Hooks[0].Command)
 	}
 	return out
 }
 
+// hasHook reports whether any command in cmds contains substr.
+func hasHook(cmds []string, substr string) bool {
+	for _, c := range cmds {
+		if strings.Contains(c, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestGuardSettingsJSON(t *testing.T) {
-	// Both hooks on → both matchers present, each pointing at its warden subcommand.
-	m := settingsMatchers(t, guardSettingsJSON("/usr/local/bin/warden", true, true))
-	require.Len(t, m, 2)
-	require.Contains(t, m["Edit|Write|MultiEdit|NotebookEdit"], "hook guard")
-	require.Contains(t, m["Bash"], "hook git-guard")
-	require.Contains(t, m["Bash"], "warden")
+	// Every hook on → the Edit matcher plus both Bash hooks, each pointing at its
+	// warden subcommand.
+	m := settingsMatchers(t, guardSettingsJSON("/usr/local/bin/warden", true, true, true))
+	require.Len(t, m, 2, "two matcher keys: Edit-family and Bash")
+	require.True(t, hasHook(m["Edit|Write|MultiEdit|NotebookEdit"], "hook guard"))
+	require.True(t, hasHook(m["Bash"], "hook git-guard"))
+	require.True(t, hasHook(m["Bash"], "hook check-guard"))
+	require.True(t, hasHook(m["Bash"], "warden"))
 }
 
 func TestGuardSettingsJSONOnlyGitRedirect(t *testing.T) {
-	// Isolation off, git redirect on → just the Bash matcher.
-	m := settingsMatchers(t, guardSettingsJSON("/usr/local/bin/warden", false, true))
+	// Isolation + check off, git redirect on → just the Bash git-guard hook.
+	m := settingsMatchers(t, guardSettingsJSON("/usr/local/bin/warden", false, true, false))
 	require.Len(t, m, 1)
-	require.Contains(t, m["Bash"], "hook git-guard")
+	require.True(t, hasHook(m["Bash"], "hook git-guard"))
+	require.False(t, hasHook(m["Bash"], "hook check-guard"))
 }
 
-func TestGuardSettingsJSONBothOffIsEmpty(t *testing.T) {
-	require.Empty(t, guardSettingsJSON("/usr/local/bin/warden", false, false))
+func TestGuardSettingsJSONOnlyCheckRedirect(t *testing.T) {
+	// Only the check redirect on → just the Bash check-guard hook.
+	m := settingsMatchers(t, guardSettingsJSON("/usr/local/bin/warden", false, false, true))
+	require.Len(t, m, 1)
+	require.True(t, hasHook(m["Bash"], "hook check-guard"))
+	require.False(t, hasHook(m["Bash"], "hook git-guard"))
+}
+
+func TestGuardSettingsJSONAllOffIsEmpty(t *testing.T) {
+	require.Empty(t, guardSettingsJSON("/usr/local/bin/warden", false, false, false))
 }
 
 func TestGuardSettingsFlagDisabledOrUnconfigured(t *testing.T) {
@@ -61,7 +84,7 @@ func TestGuardSettingsFlagDisabledOrUnconfigured(t *testing.T) {
 
 	// Configured but every PreToolUse hook disabled in config → no flag, no file.
 	dir := t.TempDir()
-	lc := New(&FakeRunner{}, &FakeConfig{IsolationGuardOff: true, GitRedirectOff: true})
+	lc := New(&FakeRunner{}, &FakeConfig{IsolationGuardOff: true, GitRedirectOff: true, CheckRedirectOff: true})
 	lc.SettingsDir, lc.WardenBin = dir, "/usr/bin/warden"
 	require.Empty(t, lc.guardSettingsFlag("a"))
 	_, err := os.Stat(filepath.Join(dir, "a.json"))
@@ -109,7 +132,7 @@ func TestSpawnIsolatedAgentGetsSettingsFlag(t *testing.T) {
 
 func TestSpawnAgentSkipsSettingsFlagWhenAllHooksOff(t *testing.T) {
 	fr := &FakeRunner{}
-	lc := New(fr, &FakeConfig{IsolationGuardOff: true, GitRedirectOff: true})
+	lc := New(fr, &FakeConfig{IsolationGuardOff: true, GitRedirectOff: true, CheckRedirectOff: true})
 	lc.SettingsDir, lc.WardenBin = t.TempDir(), "/usr/bin/warden"
 	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo", InRepo: true})
 	require.NoError(t, err)

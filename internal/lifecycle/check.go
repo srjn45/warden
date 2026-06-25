@@ -116,6 +116,25 @@ func (l *Lifecycle) runCheck(ctx context.Context, dir, name string, entry CheckE
 	return outcome
 }
 
+// CheckCommands returns the project's registered checks as name→command, loaded
+// from <dir>/.warden/check.yml. It is the single source the Layer-2 check-redirect
+// hook shares with the runner (Check), so the enforcement gate and the runner can
+// never drift — both derive from the same parsed config. A missing config yields
+// an empty map and no error: the hook then redirects nothing (unknown commands
+// pass through), making the feature opt-in per repo by virtue of config existing.
+// A malformed config is a hard error the caller can choose to fail open on.
+func CheckCommands(dir string) (map[string]string, error) {
+	cfg, err := loadCheckConfig(dir)
+	if err != nil {
+		return nil, err
+	}
+	cmds := make(map[string]string, len(cfg.Check))
+	for name, entry := range cfg.Check {
+		cmds[name] = entry.Cmd
+	}
+	return cmds, nil
+}
+
 // loadCheckConfig reads <dir>/.warden/check.yml (or .yaml). A missing file yields
 // an empty config (the caller maps that to ErrNoCheckConfig); a present but
 // malformed file is a hard error so the operator fixes it rather than silently

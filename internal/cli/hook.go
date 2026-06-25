@@ -15,10 +15,13 @@ import (
 const guardTimeout = 3 * time.Second
 
 // preToolUseInput is the subset of Claude Code's PreToolUse hook stdin we read.
-// tool_input is left raw so we can pull whichever path key the tool uses.
+// tool_input is left raw so we can pull whichever path key the tool uses; cwd is
+// the agent's working dir, used by the check guard to locate the project's
+// .warden/check.yml.
 type preToolUseInput struct {
 	ToolName  string          `json:"tool_name"`
 	ToolInput json.RawMessage `json:"tool_input"`
+	Cwd       string          `json:"cwd"`
 }
 
 // preToolUseDecision is the hook's stdout contract for blocking a tool call.
@@ -41,6 +44,7 @@ func newHookCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newHookGuardCmd())
 	cmd.AddCommand(newHookGitGuardCmd())
+	cmd.AddCommand(newHookCheckGuardCmd())
 	return cmd
 }
 

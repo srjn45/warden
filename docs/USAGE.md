@@ -785,6 +785,26 @@ guard this needs no daemon round-trip (the redirect is a static mapping) and it
 also **fails open** on unreadable input. Disable it with
 `warden config set git_redirect false`.
 
+### Check-redirect guard (auto-injected, config-driven)
+
+A second **PreToolUse hook over `Bash`** (`warden hook check-guard`) does for the
+test/lint/build loop what the git guard does for git: before a Bash call runs it
+checks whether the command is one the project **registered in `.warden/check.yml`**
+— `go test ./...`, `make verify`, `npm test`, … — and if so **denies** it with a
+message pointing at `mcp__warden__check` (or `wd check <name>`), which runs the
+configured command and returns only the failures instead of the full log (see
+[`warden check`](#warden-check-name-configured-project-checks)).
+
+Because test vocabulary is open-ended, the hook **never guesses** — it reads the
+same `.warden/check.yml` that drives `wd check` (one config, so the gate and the
+runner can't drift) and redirects **only** the commands that file registers. A
+command matches when the registered command's leading words are a prefix of it, so
+`go test ./...` and `go test ./... -count=1` are redirected but a focused
+`go test -run TestX ./pkg` (which `wd check` can't reproduce) is run directly. A
+repo with **no config redirects nothing**, so the feature is effectively opt-in
+per repo, and the hook **fails open** on unreadable input or a malformed config.
+Disable it with `warden config set check_redirect false`.
+
 ---
 
 ## 10. The web dashboard
