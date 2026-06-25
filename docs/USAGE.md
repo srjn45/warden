@@ -655,6 +655,11 @@ where you launched the cockpit. Use this for running `warden` CLI commands, chec
 git status, or any other terminal work while monitoring your agents. Unlike the old
 embedded Claude pane, this gives you direct command-line access.
 
+Press **Alt+t** to toggle this slot between the master session and a shell. The
+shell is created on first use and both keep running across toggles — switching
+back and forth never loses the conversation or the shell's scrollback. Exit the
+shell (`exit` / Ctrl-D) and the next **Alt+t** starts a fresh one.
+
 **Right (full height) — live agent detail pane.** When you press `Enter` on an
 agent in the list, a live, interactive terminal of that agent's `claude` session
 opens here. You can type directly into the agent, read its output, and watch it
