@@ -96,8 +96,20 @@ body { margin: 0; }
 .notify-toggle, .theme-toggle { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; }
 .theme-toggle { font: inherit; }
 .token-clear { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; margin-left: 0; }
+.help-toggle { background: #8882; border: none; border-radius: 1rem; width: 1.6rem; height: 1.6rem; padding: 0; cursor: pointer; color: inherit; font-weight: 700; margin-left: 0; }
 .topbar .new-btn { margin-left: 0; }
 .modal.token-modal { gap: .8rem; }
+
+/* ── Keyboard shortcuts help (?) ── */
+.modal.shortcuts-help { width: min(380px, 92vw); }
+.shortcuts-table { border-collapse: collapse; width: 100%; }
+.shortcuts-table td { padding: .25rem .4rem; vertical-align: top; }
+.shortcuts-table td:first-child { white-space: nowrap; width: 1%; }
+kbd {
+  display: inline-block; min-width: 1.1rem; text-align: center;
+  padding: .05rem .4rem; border: 1px solid #8886; border-bottom-width: 2px;
+  border-radius: .3rem; background: #8881; font: inherit; font-size: .85em;
+}
 
 /* ── Overview ── */
 .overview { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }

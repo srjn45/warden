@@ -5,12 +5,14 @@ import { hasToken, clearToken, onAuthRequired } from '../lib/token';
 import { tabsReducer, initialTabs, isFixedTab, type TabsState } from '../lib/tabs';
 import { waitingTransitions } from '../lib/notify';
 import { loadTheme, saveTheme, applyTheme, nextTheme, resolveTheme, type Theme } from '../lib/theme';
+import { resolveShortcut } from '../lib/shortcuts';
 import AttentionBar from './AttentionBar';
 import TabBar from './TabBar';
 import OverviewTab from './OverviewTab';
 import CockpitTab from './CockpitTab';
 import AgentTab from './AgentTab';
 import NewAgentModal from './NewAgentModal';
+import ShortcutsHelp from './ShortcutsHelp';
 import TokenModal from './TokenModal';
 import PipelinesTab from './PipelinesTab';
 import ContextMessagesTab from './ContextMessagesTab';
@@ -30,6 +32,8 @@ export default function Dashboard() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [connected, setConnected] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [filterSignal, setFilterSignal] = useState(0);
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [tabs, dispatch] = useReducer(tabsReducer, undefined, loadTabs);
   const [authRequired, setAuthRequired] = useState(false);
@@ -59,6 +63,38 @@ export default function Dashboard() {
   }, [theme]);
 
   const cycleTheme = () => setTheme((t) => nextTheme(t));
+
+  // Manual refetch of the fleet (the `r` shortcut); SSE keeps it live otherwise.
+  const refresh = () => { listSessions().then(setSessions).catch(() => { /* SSE will populate */ }); };
+
+  // Global keyboard layer. resolveShortcut keeps the key→action mapping pure and
+  // dormant while typing; here we just perform the action. Re-attaches when the
+  // overlay/modal flags change so Esc closes the right thing.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const sc = resolveShortcut(e);
+      if (!sc) return;
+      switch (sc.kind) {
+        case 'help': e.preventDefault(); setShowHelp((v) => !v); break;
+        case 'new': e.preventDefault(); setShowCreate(true); break;
+        case 'filter':
+          e.preventDefault();
+          dispatch({ kind: 'activate', id: 'overview' });
+          setFilterSignal((n) => n + 1);
+          break;
+        case 'refresh': e.preventDefault(); refresh(); break;
+        case 'nav': e.preventDefault(); dispatch({ kind: 'nav', delta: sc.delta }); break;
+        case 'tab': e.preventDefault(); dispatch({ kind: 'index', index: sc.index }); break;
+        case 'close':
+          if (showHelp) setShowHelp(false);
+          else if (showCreate) setShowCreate(false);
+          else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+          break;
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showHelp, showCreate]);
 
   // A 401 from any REST call surfaces the token-entry modal.
   useEffect(() => onAuthRequired(() => setAuthRequired(true)), []);
@@ -134,6 +170,7 @@ export default function Dashboard() {
         theme={theme}
         resolvedTheme={resolved}
         onCycleTheme={cycleTheme}
+        onShowHelp={() => setShowHelp(true)}
       />
       <TabBar
         state={tabs}
@@ -142,7 +179,7 @@ export default function Dashboard() {
         onClose={(id) => dispatch({ kind: 'close', id })}
       />
       <main className="tab-content">
-        {tabs.active === 'overview' && <OverviewTab sessions={sessions} onSelect={select} />}
+        {tabs.active === 'overview' && <OverviewTab sessions={sessions} onSelect={select} focusSignal={filterSignal} />}
         {tabs.active === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} onCreated={(id) => dispatch({ kind: 'open', id })} />}
         {tabs.active === 'pipelines' && <PipelinesTab onSelect={select} />}
         {tabs.active === 'context' && <ContextMessagesTab />}
@@ -158,6 +195,7 @@ export default function Dashboard() {
           onCreated={(id) => { setShowCreate(false); dispatch({ kind: 'open', id }); }}
         />
       )}
+      {showHelp && <ShortcutsHelp onClose={() => setShowHelp(false)} />}
       {authRequired && <TokenModal onSaved={onTokenSaved} />}
     </div>
   );

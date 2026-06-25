@@ -26,16 +26,6 @@ notes.
 
 ### CLI & UX Improvements
 
-#### 5. Web dashboard keyboard shortcuts — *not started*
-**Effort:** 2 hours
-**Value:** Power-user productivity
-
-`?` help overlay, `n` new agent, `/` focus filter, `r` refresh, `Esc` close,
-`1-9` tab switch, `j/k` list nav. (Individual modals already handle local keydown;
-there is no global shortcut layer yet.)
-
----
-
 #### 7. Export/Import sessions — *shipped*
 **Effort:** 2 hours
 **Value:** Backup, sharing, migration
@@ -307,7 +297,6 @@ _Cleared — the orchestrator (#50, `wd orch`) shipped; see [FEATURES.md §17](F
 10. Tag system (#30, 3-4 h) · Agent grouping/filtering (#20, 4 h) — pair well with search.
 12. Export/import sessions (#7, 2 h) — necessity dropped: the store is already a
     single dir you can copy; real value is only selective/portable export.
-13. Web keyboard shortcuts (#5, 2 h) — polish.
 14. Docker/container support (#41, 2 days) — the one "platform" item with real pull,
     since remote access makes containerized deployment plausible. **N: low-medium.**
 
