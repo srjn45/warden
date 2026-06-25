@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/digest"
@@ -168,6 +169,9 @@ type Server struct {
 	// authLimiter throttles repeated failed-auth attempts per source IP; nil
 	// when auth is disabled. See authlimit.go.
 	authLimiter *authLimiter
+	// audit is the append-only action trail (audit.jsonl). nil ⇒ auditing off;
+	// recordAudit is then a no-op. See audit_hook.go.
+	audit *audit.Writer
 }
 
 // SetAuth configures the bearer token required for remote access. An empty
