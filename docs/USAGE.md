@@ -983,6 +983,8 @@ daemon address for a single command.
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
 | `notify` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
+| `webhook_enabled` | `false` | POST a notification to `webhook_url` on attention-needed transitions (`waiting_for_input`, `errored`, `orphaned`). Runs alongside `notify`; best-effort and non-blocking |
+| `webhook_url` | _(empty)_ | Webhook endpoint POSTed when `webhook_enabled` is on. A Slack incoming-webhook URL works out of the box (the JSON `text` field is what Slack renders); any endpoint accepting `{text, title, body}` works. `warden config` shows this as `(set)`/`(unset)` since a Slack URL embeds a secret token |
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers in the web/TUI/CLI |
 | `token_guard` | `true` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web |
 | `token_warn_alert` | `true` | Fire a desktop notification (when `notify` is on) once per upward crossing into warning/critical |

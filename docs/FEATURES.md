@@ -244,7 +244,8 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 | **Resource metrics** | `internal/metrics` collects per-agent process-tree RSS/CPU, system memory/swap/pressure, and daemon self-stats. Exposed via `/metrics` + `/metrics/history`. |
 | **`warden stats`** | CLI view of the resource metrics. |
 | **Metrics recorder** | Optional 15s JSONL recorder (the `metrics` setting). |
-| **macOS notifications** | The `notify` setting posts a desktop notification when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
+| **Desktop notifications** | The `notify` setting posts a desktop notification (macOS `osascript` / Linux `notify-send`, log fallback) when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
+| **Webhook / Slack notifications** | When `webhook_enabled` is on, warden also POSTs a JSON payload to `webhook_url` on attention-needed transitions (`waiting_for_input`, `errored`, `orphaned`). A **Slack incoming-webhook URL works out of the box** (the payload's `text` field is what Slack renders); generic consumers get `{text, title, body}`. Best-effort and non-blocking: a short timeout bounds each POST and failures are logged, never propagated. Runs alongside (not instead of) desktop notifications via the same notifier seam — this is what makes "watch from your phone" push real. |
 | **Context-size guard** | `internal/ctxtokens` reads each live agent's context-window fill from its transcript and classifies it `ok`/`warning`/`critical`. The poller shows a state-colored token figure in `ls`/TUI/web, alerts once per upward crossing (`token_warn_alert`), and auto-sends `/compact` at `critical` when the agent is idle (`token_auto_compact`, cooldown-guarded). Master switch `token_guard`; thresholds `token_warn`/`token_critical`. |
 | **Structured logging** | `internal/logging` installs a `log/slog` logger (also bridging the standard `log` package) so daemon logs carry structured fields. Level (`log_level`: `debug`/`info`/`warn`/`error`) and format (`log_format`: `text`/`json`) are configurable; `warden daemon --log-level`/`--log-format` override them. |
 
@@ -265,6 +266,8 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `model_default` | `claude-sonnet-4-6` | Default model for spawned agents (id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
 | `default_permission_mode` | `auto` | Default permission mode (valid: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`) |
 | `notify` | `false` | Desktop notifications |
+| `webhook_enabled` | `false` | POST notifications to `webhook_url` on attention transitions (runs alongside `notify`) |
+| `webhook_url` | _(empty)_ | Webhook endpoint; a Slack incoming-webhook URL works out of the box |
 | `approvals` | `true` | The approvals inbox |
 | `auto_approve` | `false` | Auto-answer recognized yes/no prompts (option 1) |
 | `token_guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
