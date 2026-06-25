@@ -17,6 +17,10 @@ func TestGuardDecision(t *testing.T) {
 		Worktree: ".worktrees/code-1", Workdir: "/repo/.worktrees/code-1",
 	}
 	inRepo := &store.Session{ID: "code-2", Repo: "/repo", Workdir: "/repo"} // no worktree
+	// Workdir unset but Worktree (relative) present: the guard derives the
+	// boundary from Repo+Worktree, so isolation is still enforced — it does not
+	// depend on spawn having also populated Workdir.
+	noWorkdir := &store.Session{ID: "code-3", Repo: "/repo", Worktree: ".worktrees/code-3"}
 
 	cases := []struct {
 		name     string
@@ -39,6 +43,9 @@ func TestGuardDecision(t *testing.T) {
 		{"nil session allows", nil, "Edit", "/repo/main.go", false},
 		// Prefix-collision guard: /repo-other must NOT count as under /repo.
 		{"sibling-prefixed repo not matched", isolated, "Edit", "/repo-other/main.go", false},
+		// Boundary derived from Worktree, not Workdir (Workdir unset here).
+		{"escape enforced without workdir", noWorkdir, "Edit", "/repo/main.go", true},
+		{"own-worktree edit allowed without workdir", noWorkdir, "Edit", "/repo/.worktrees/code-3/x.go", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

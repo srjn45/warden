@@ -76,19 +76,28 @@ func guardDecision(sess *store.Session, tool, path string) (bool, string) {
 		return false, "" // unresolvable here; fail open
 	}
 	repo := filepath.Clean(sess.Repo)
-	workdir := filepath.Clean(sess.Workdir)
-	clean := filepath.Clean(path)
-	if repo == "" || workdir == "" {
+	if repo == "" {
 		return false, ""
 	}
-	if isUnder(clean, workdir) {
+	// Resolve the isolation boundary from the same field the gate keys on
+	// (Worktree), rather than the separately-stored Workdir. Worktree is recorded
+	// relative to the repo, so join it onto repo (tolerating an already-absolute
+	// value) and Clean. This keeps the gate and the containment check derived from
+	// one field instead of relying on spawn keeping Workdir == repo/worktree.
+	worktree := sess.Worktree
+	if !filepath.IsAbs(worktree) {
+		worktree = filepath.Join(repo, worktree)
+	}
+	worktree = filepath.Clean(worktree)
+	clean := filepath.Clean(path)
+	if isUnder(clean, worktree) {
 		return false, "" // inside the agent's own worktree
 	}
 	if isUnder(clean, repo) {
-		return true, "This agent is isolated in its worktree at " + sess.Workdir +
+		return true, "This agent is isolated in its worktree at " + worktree +
 			". The target " + path + " is inside the shared repo (" + sess.Repo +
 			") but outside your worktree — another agent may own it. Re-run the edit " +
-			"against the matching path under " + sess.Workdir + " instead."
+			"against the matching path under " + worktree + " instead."
 	}
 	return false, "" // outside the repo entirely
 }
