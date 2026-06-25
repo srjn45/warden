@@ -1,6 +1,6 @@
 ---
 title: Install & setup
-description: Prerequisites, installing the binary, running the daemon as a launchd service, and wiring in the Claude Code hooks.
+description: Prerequisites, installing the binary, running the daemon as a service (launchd on macOS, systemd on Linux), and wiring in the Claude Code hooks.
 ---
 
 ## Prerequisites
@@ -45,17 +45,38 @@ make build           # CLI/daemon/TUI only → bin/warden
 make release         # builds the web UI first, then embeds it → full GUI
 ```
 
-## Install the daemon as a launchd service (auto-start)
+## Install the daemon as a service (auto-start)
 
-Install with the script — it builds the release, installs the binary to `~/.local/bin/warden`, renders and loads the launchd plist, links the Claude skill, and registers the MCP server:
+One installer covers both platforms — it **auto-detects your OS** and wires up the native service manager (launchd on macOS, systemd on Linux). It builds the release, installs the binary to `~/.local/bin/warden`, renders and loads the service unit, links the Claude skill, and registers the MCP server:
 
 ```sh
 ./scripts/install.sh        # or: make install
 ```
 
-The daemon then starts automatically at login and restarts on crash (`KeepAlive = true`), listening on `127.0.0.1:8765` by default.
+The daemon then starts automatically, restarts on crash, and listens on `127.0.0.1:8765` by default. The same script powers `./scripts/reinstall.sh` (redeploy after a code change) and `./scripts/uninstall.sh` (covered below) on both platforms.
 
 > `~/.local/bin` must be on your `PATH` to run `warden` from the shell — the installer warns if it isn't.
+
+### Linux (systemd user service)
+
+On Linux the installer requires a **systemd user session** (`systemctl` on `PATH`) and installs warden as a **per-user** unit — no `sudo`, nothing system-wide. It renders `deploy/warden.service.template` to `~/.config/systemd/user/warden.service`, then:
+
+```sh
+loginctl enable-linger "$USER"        # keep the daemon alive after logout (≈ launchd RunAtLoad)
+systemctl --user daemon-reload
+systemctl --user enable --now warden  # start now + on every login
+```
+
+`enable-linger` is what lets the daemon survive between SSH/terminal sessions. The installer runs all of this for you; you only need the commands below to manage it afterward:
+
+```sh
+systemctl --user status warden     # is it running?
+systemctl --user restart warden    # apply a rebuilt binary or config change
+systemctl --user stop warden       # stop without disabling
+journalctl --user -u warden -f     # follow the unit's own journal
+```
+
+The unit also writes stdout/stderr to the same log files used on macOS (see [Logs](#logs) below). When you enable [remote access](/warden/guides/remote-access/), the unit gains an `EnvironmentFile=` line pointing at your token file so the daemon picks up `WARDEN_TOKEN` on start; `warden token rotate` issues `systemctl --user restart warden` to apply a new token.
 
 ### Stop macOS "warden would like to access…" prompts (optional, macOS)
 
@@ -85,10 +106,12 @@ Then grant access once: **System Settings → Privacy & Security → Full Disk A
 ./scripts/uninstall.sh --keep-binary   # leave ~/.local/bin/warden in place
 ```
 
-Logs:
+### Logs
 
 - stdout: `/tmp/warden.daemon.log`
 - stderr: `/tmp/warden.daemon.err`
+
+On Linux these are also visible via `journalctl --user -u warden`.
 
 > **Notifications:** off by default. When enabled with `WARDEN_NOTIFY=on`, the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
 
