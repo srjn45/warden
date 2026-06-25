@@ -105,6 +105,32 @@ body { margin: 0; }
 .tile-head { display: flex; align-items: center; gap: .4rem; padding: .35rem .5rem; font-size: .85rem; background: #8881; }
 .mini-term { margin: 0; background: #0b0b0b; color: #8fd98f; padding: .4rem; font-size: .72rem; line-height: 1.25; white-space: pre-wrap; overflow: hidden; }
 
+/* ── Multi-select (batch ops, #21) ── */
+.grid-tile-wrap { position: relative; display: flex; }
+.grid-tile-wrap > .grid-tile { flex: 1; min-width: 0; }
+.grid-tile-wrap.selected > .grid-tile { border-color: #2f81f7; box-shadow: 0 0 0 2px #2f81f7 inset; }
+.tile-select { position: absolute; top: .45rem; right: .45rem; z-index: 2; width: 1.05rem; height: 1.05rem; cursor: pointer; }
+
+/* Floating bulk action bar, shown while agents are selected in the Cockpit. */
+.bulk-bar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .6rem; padding: .5rem .7rem; border: 1px solid #8884; border-radius: .5rem; background: var(--bg, #1a1a1a); box-shadow: 0 -2px 8px #0006; }
+.bulk-count { font-weight: 600; }
+.bulk-compose { display: inline-flex; gap: .4rem; align-items: center; }
+.bulk-status { color: var(--idle); font-size: .85rem; }
+
+/* ── Search bar (#28) ── */
+.grid-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
+.grid-head h3 { margin: 0; }
+.agent-search, .archive-filters input[type="search"] { flex: 1; max-width: 22rem; padding: .3rem .5rem; border: 1px solid #8884; border-radius: .3rem; background: transparent; color: inherit; font: inherit; }
+
+/* ── Archive tab (#29) ── */
+.archive { display: flex; flex-direction: column; gap: .8rem; }
+.archive-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.archive-filters h3 { margin: 0; }
+.archive-filters select { padding: .3rem .4rem; border: 1px solid #8884; border-radius: .3rem; background: transparent; color: inherit; font: inherit; }
+.archive-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.archive-table th, .archive-table td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid #8883; vertical-align: top; }
+.archive-table th { color: var(--idle); font-weight: 600; }
+
 /* ── Agent tab ── */
 .agent-tab { display: flex; flex-direction: column; gap: .8rem; height: 100%; }
 .agent-tab-head { display: flex; flex-direction: column; gap: .4rem; }

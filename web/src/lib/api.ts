@@ -111,6 +111,44 @@ export async function deleteSession(id: string, hard: boolean): Promise<void> {
   }));
 }
 
+// searchSessions runs the daemon's in-memory full-text search (GET /search).
+// closed=true also searches archived agents. The daemon rejects a blank query
+// with a 400, surfaced as an ApiError.
+export async function searchSessions(q: string, closed = false): Promise<Session[]> {
+  const params = new URLSearchParams({ q });
+  if (closed) params.set('closed', 'true');
+  const data = await parse<{ sessions: Session[] | null }>(
+    await apiFetch(`/search?${params.toString()}`),
+  );
+  return data.sessions ?? [];
+}
+
+// getHistory browses the archived (closed/) store (GET /history), newest-first,
+// narrowed by the optional sinceISO/type/limit filters.
+export async function getHistory(
+  opts: { sinceISO?: string; type?: string; limit?: number } = {},
+): Promise<Session[]> {
+  const q = new URLSearchParams();
+  if (opts.sinceISO) q.set('since', opts.sinceISO);
+  if (opts.type) q.set('type', opts.type);
+  if (opts.limit) q.set('limit', String(opts.limit));
+  const qs = q.toString();
+  const data = await parse<{ sessions: Session[] | null }>(
+    await apiFetch(`/history${qs ? `?${qs}` : ''}`),
+  );
+  return data.sessions ?? [];
+}
+
+// sendMessage delivers a directed message to an agent's inbox (POST
+// /sessions/{id}/messages). Used by the bulk message action.
+export async function sendMessage(id: string, body: string): Promise<void> {
+  await parse<unknown>(await apiFetch(`/sessions/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  }));
+}
+
 export async function getOutput(id: string, lines = 200): Promise<string> {
   const data = await parse<{ output: string }>(
     await apiFetch(`/sessions/${encodeURIComponent(id)}/output?lines=${lines}`),

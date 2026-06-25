@@ -1,4 +1,6 @@
+import { useMemo, useState } from 'react';
 import type { Session } from '../lib/types';
+import { filterSessions } from '../lib/search';
 import AttentionQueue from './AttentionQueue';
 import ConflictsPanel from './ConflictsPanel';
 import FleetStats from './FleetStats';
@@ -9,10 +11,14 @@ import ActivityFeed from './ActivityFeed';
 
 // OverviewTab composes the home-screen sections: attention queue, fleet stats,
 // quick spawn paired with the recent activity feed, and the all-agents mini-grid.
+// The mini-grid carries a full-text search box (#28) that filters the live fleet
+// client-side across name/id/type/subject/prompt/branch/pane text.
 export default function OverviewTab({ sessions, onSelect }: {
   sessions: Session[];
   onSelect: (id: string) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const shown = useMemo(() => filterSessions(sessions, query), [sessions, query]);
   return (
     <div className="overview">
       <section className="card">
@@ -40,8 +46,19 @@ export default function OverviewTab({ sessions, onSelect }: {
         <ActivityFeed sessions={sessions} />
       </section>
       <section className="card overview-grid">
-        <h3>All agents</h3>
-        <AgentGrid sessions={sessions} onSelect={onSelect} lines={6} />
+        <div className="grid-head">
+          <h3>All agents</h3>
+          <input
+            type="search"
+            className="agent-search"
+            placeholder="search agents…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search agents"
+          />
+          {query && <span className="muted">{shown.length} / {sessions.length}</span>}
+        </div>
+        <AgentGrid sessions={shown} onSelect={onSelect} lines={6} />
       </section>
     </div>
   );
