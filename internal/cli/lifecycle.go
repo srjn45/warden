@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/preset"
 )
 
 // promptFromArgs returns the prompt for a free-form (no --type) spawn: the
@@ -28,7 +29,13 @@ func newStartCmd() *cobra.Command {
 		Short: "Spawn an agent — `start \"<prompt>\"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			typ, _ := cmd.Flags().GetString("type")
+			// Load the named preset first (if any) so its saved defaults seed the
+			// flags below; an explicit CLI flag always overrides the preset.
+			pre, err := loadStartPreset(cmd)
+			if err != nil {
+				return err
+			}
+			typ := stringFlagOr(cmd, "type", pre.Type)
 
 			// Free-form mode: `warden start "<prompt>" [--dir]` (autonomous) or
 			// `warden start --dir <path>` with no prompt (interactive: opens
@@ -42,14 +49,14 @@ func newStartCmd() *cobra.Command {
 				}
 				name, _ := cmd.Flags().GetString("name")
 				supervised, _ := cmd.Flags().GetBool("supervised")
-				permissionMode, _ := cmd.Flags().GetString("permission-mode")
+				permissionMode := stringFlagOr(cmd, "permission-mode", pre.PermissionMode)
 				// --supervised is an alias for --permission-mode acceptEdits
 				if supervised && permissionMode == "" {
 					permissionMode = "acceptEdits"
 				}
-				autoRestart, _ := cmd.Flags().GetBool("auto-restart")
+				autoRestart := boolFlagOr(cmd, "auto-restart", pre.AutoRestart)
 				force, _ := cmd.Flags().GetBool("force")
-				model, _ := cmd.Flags().GetString("model")
+				model := stringFlagOr(cmd, "model", pre.Model)
 				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
@@ -84,15 +91,15 @@ func newStartCmd() *cobra.Command {
 			name, _ := cmd.Flags().GetString("name")
 			branch, _ := cmd.Flags().GetString("branch")
 			pr, _ := cmd.Flags().GetString("pr")
-			worktree, _ := cmd.Flags().GetBool("worktree")
-			inRepo, _ := cmd.Flags().GetBool("in-repo")
+			worktree := boolFlagOr(cmd, "worktree", pre.Worktree)
+			inRepo := boolFlagOr(cmd, "in-repo", pre.InRepo)
 			supervised, _ := cmd.Flags().GetBool("supervised")
-			permissionMode, _ := cmd.Flags().GetString("permission-mode")
+			permissionMode := stringFlagOr(cmd, "permission-mode", pre.PermissionMode)
 			// --supervised is an alias for --permission-mode acceptEdits
 			if supervised && permissionMode == "" {
 				permissionMode = "acceptEdits"
 			}
-			autoRestart, _ := cmd.Flags().GetBool("auto-restart")
+			autoRestart := boolFlagOr(cmd, "auto-restart", pre.AutoRestart)
 			if typ == "pr-review" && pr == "" && branch == "" {
 				return fmt.Errorf("pr-review needs --pr or --branch")
 			}
@@ -101,7 +108,7 @@ func newStartCmd() *cobra.Command {
 				ticket = args[0]
 			}
 			force, _ := cmd.Flags().GetBool("force")
-			model, _ := cmd.Flags().GetString("model")
+			model := stringFlagOr(cmd, "model", pre.Model)
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
 				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model,
 			})
@@ -135,7 +142,27 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)")
+	cmd.Flags().String("preset", "", "load saved spawn defaults from a named preset (see `warden preset`); explicit flags override")
 	return cmd
+}
+
+// loadStartPreset resolves the --preset flag to its saved spawn defaults. An
+// empty flag yields a zero Preset (no defaults). A named-but-missing preset is
+// an error, so a typo doesn't silently fall through to bare defaults.
+func loadStartPreset(cmd *cobra.Command) (preset.Preset, error) {
+	name, _ := cmd.Flags().GetString("preset")
+	if name == "" {
+		return preset.Preset{}, nil
+	}
+	store, err := preset.Load(presetPathFor(cmd))
+	if err != nil {
+		return preset.Preset{}, err
+	}
+	p, ok := store.Get(name)
+	if !ok {
+		return preset.Preset{}, fmt.Errorf("preset %q not found — list saved presets with `warden preset list`", name)
+	}
+	return p, nil
 }
 
 // resolveDir returns the explicit --dir flag value (resolved to an absolute
