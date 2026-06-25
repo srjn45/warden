@@ -46,6 +46,7 @@ export interface Session {
   prompt: string;
   workdir: string;
   subject: string;
+  tags?: string[];
   status: Status;
   pid: number;
   created_at: string;

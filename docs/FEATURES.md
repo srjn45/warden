@@ -320,13 +320,20 @@ the local machine. Setup recipes (LAN / Tailscale / Cloudflare Tunnel) live in
 Find agents across a growing fleet without scrolling the grid. The matcher is
 in-memory and case-insensitive, AND-ing every whitespace-separated term against a
 haystack built from each session's id, name, ticket, type, subject, prompt,
-branch, and last-pane excerpt.
+branch, tags, and last-pane excerpt.
 
 | Feature | Description |
 |---|---|
 | **`warden search <query…>`** | CLI search over active sessions; multiple words are ANDed. `--closed` folds in the archived (`closed/`) store too, `--json` prints raw records. Renders with the same table as `warden ls`. |
 | **`GET /search?q=&closed=`** | Daemon endpoint (`internal/daemon/search_routes.go`); a blank `q` is a `400`. Returns the standard `{sessions:[…]}` shape. |
 | **Web search bar** | The Overview tab carries a search box that filters the All-agents grid live, client-side, mirroring the backend matcher (`web/src/lib/search.ts`) for instant feedback. |
+
+**Tags.** Sessions carry an optional `Tags []string` (`warden start --tags backend,urgent`),
+normalized to lowercase and deduped. Tags are part of the search haystack — a bare
+`warden search backend` finds every agent labelled `backend`. `warden ls --tag backend
+--tag urgent` filters the list to agents carrying *every* given tag (AND semantics, repeatable
+or comma-separated). Untagged sessions stay nil and JSON-omit the field, so the change is
+backward-compatible with records that predate tags.
 
 ---
 

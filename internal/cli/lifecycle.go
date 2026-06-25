@@ -23,6 +23,22 @@ func promptFromArgs(args []string) string {
 	return ""
 }
 
+// parseTags splits the comma-separated --tags flag into individual labels. Each
+// is trimmed and blanks are dropped; the daemon normalizes (lowercase + dedup)
+// before persisting, so `--tags "Backend, backend,"` yields one tag "backend".
+func parseTags(flag string) []string {
+	if flag == "" {
+		return nil
+	}
+	var tags []string
+	for _, t := range strings.Split(flag, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	return tags
+}
+
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>]",
@@ -57,7 +73,8 @@ func newStartCmd() *cobra.Command {
 				autoRestart := boolFlagOr(cmd, "auto-restart", pre.AutoRestart)
 				force, _ := cmd.Flags().GetBool("force")
 				model := stringFlagOr(cmd, "model", pre.Model)
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model})
+				tagsFlag, _ := cmd.Flags().GetString("tags")
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Tags: parseTags(tagsFlag)})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -109,8 +126,9 @@ func newStartCmd() *cobra.Command {
 			}
 			force, _ := cmd.Flags().GetBool("force")
 			model := stringFlagOr(cmd, "model", pre.Model)
+			tagsFlag, _ := cmd.Flags().GetString("tags")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model,
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Tags: parseTags(tagsFlag),
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -143,6 +161,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)")
 	cmd.Flags().String("preset", "", "load saved spawn defaults from a named preset (see `warden preset`); explicit flags override")
+	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
 	return cmd
 }
 

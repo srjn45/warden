@@ -355,15 +355,16 @@ type SpawnRequest struct {
 	Ticket         string // optional; becomes the id when present
 	Name           string // optional; human-readable name for the agent
 	Repo           string
-	Branch         string // optional; development branch / pr-review checkout target
-	PR             string // optional; pr-review
-	Worktree       bool   // analysis/spike opt-in
-	InRepo         bool   // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
-	Prompt         string // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
-	Cwd            string // free-form: dir to launch claude from (the caller's "master shell"); required
-	PermissionMode string // explicit mode override; empty = use global default
-	AutoRestart    bool   // opt-in: auto-resume this agent when it errors (capped)
-	Model          string // claude model (opus/sonnet/haiku or full ID); empty = default
+	Branch         string   // optional; development branch / pr-review checkout target
+	PR             string   // optional; pr-review
+	Worktree       bool     // analysis/spike opt-in
+	InRepo         bool     // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
+	Prompt         string   // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
+	Cwd            string   // free-form: dir to launch claude from (the caller's "master shell"); required
+	PermissionMode string   // explicit mode override; empty = use global default
+	AutoRestart    bool     // opt-in: auto-resume this agent when it errors (capped)
+	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
+	Tags           []string // optional free-form labels for grouping/filtering (#30)
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -873,6 +874,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		PR:             req.PR,
 		Prompt:         req.Prompt,
 		Subject:        spawnSubject(req.Prompt),
+		Tags:           store.NormalizeTags(req.Tags),
 		Status:         store.StatusSpawning,
 		PermissionMode: req.PermissionMode,
 		AutoRestart:    req.AutoRestart,

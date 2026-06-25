@@ -61,6 +61,31 @@ func TestSearchSessionsFields(t *testing.T) {
 	}
 }
 
+func TestSearchSessionsMatchesTags(t *testing.T) {
+	sessions := []*store.Session{
+		{ID: "a", Subject: "fix login", Tags: []string{"backend", "urgent"}},
+		{ID: "b", Subject: "tweak css", Tags: []string{"frontend"}},
+		{ID: "c", Subject: "no tags here"},
+	}
+
+	// A bare tag term matches the tagged session.
+	got := searchSessions(sessions, "backend")
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("backend tag: got %+v", got)
+	}
+
+	// AND across a subject word and a tag.
+	got = searchSessions(sessions, "css frontend")
+	if len(got) != 1 || got[0].ID != "b" {
+		t.Fatalf("subject+tag AND: got %+v", got)
+	}
+
+	// Untagged sessions are unaffected (no spurious matches).
+	if got = searchSessions(sessions, "urgent"); len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("urgent tag: got %+v", got)
+	}
+}
+
 func TestHandleSearch(t *testing.T) {
 	fs := newFakeStore()
 	ctx := context.Background()

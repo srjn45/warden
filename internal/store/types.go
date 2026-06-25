@@ -1,6 +1,46 @@
 package store
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// NormalizeTags cleans a set of tag labels (#30) into the canonical form stored
+// on a Session: each tag is trimmed, lowercased, blanks are dropped, and
+// duplicates are collapsed while preserving first-seen order. Returns nil for an
+// all-empty input so untagged sessions stay nil (and JSON-omitted), keeping the
+// field backward-compatible with records that predate tags.
+func NormalizeTags(tags []string) []string {
+	var out []string
+	seen := make(map[string]struct{}, len(tags))
+	for _, t := range tags {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if t == "" {
+			continue
+		}
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
+}
+
+// HasTag reports whether the session carries tag (matched after normalization,
+// so it is case- and whitespace-insensitive).
+func (s *Session) HasTag(tag string) bool {
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if tag == "" {
+		return false
+	}
+	for _, t := range s.Tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
 
 type Status string
 
@@ -106,6 +146,7 @@ type Session struct {
 	Prompt          string     `json:"prompt"`                     // initial prompt (prompt-spawned agents)
 	Workdir         string     `json:"workdir"`                    // absolute cwd of the tmux session
 	Subject         string     `json:"subject"`                    // one-line auto summary of what it's doing
+	Tags            []string   `json:"tags,omitempty"`             // optional free-form labels for grouping/filtering (#30); nil/empty for untagged sessions
 	Status          Status     `json:"status"`
 	PID             int        `json:"pid"`
 	ExitCode        *int       `json:"exit_code,omitempty"` // process exit status when recovered: nil=unknown (orphaned/pre-feature), 0=clean, non-zero=crash

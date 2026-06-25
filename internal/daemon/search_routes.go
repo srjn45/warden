@@ -13,15 +13,17 @@ func (s *Server) registerSearchRoutes(r chi.Router) {
 }
 
 // sessionHaystack concatenates the searchable text of a session — name, id,
-// ticket, type, subject, prompt, branch, and the last pane excerpt — lowercased
-// for case-insensitive matching. These are the fields a human scans to find an
-// agent again.
+// ticket, type, subject, tags, prompt, branch, and the last pane excerpt —
+// lowercased for case-insensitive matching. These are the fields a human scans
+// to find an agent again.
 func sessionHaystack(s *store.Session) string {
 	var b strings.Builder
-	for _, f := range []string{
+	fields := []string{
 		s.Name, s.ID, s.Ticket, string(s.Type), s.Subject,
 		s.Prompt, s.Branch, s.LastPaneExcerpt,
-	} {
+	}
+	fields = append(fields, s.Tags...) // tags are searchable like any other label
+	for _, f := range fields {
 		b.WriteString(f)
 		b.WriteByte('\n')
 	}
