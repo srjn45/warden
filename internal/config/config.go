@@ -20,6 +20,7 @@ import (
 
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/logging"
+	"github.com/srjn45/warden/internal/plugin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -48,32 +49,34 @@ type Config struct {
 	TokenCritical         int             `yaml:"token_critical"`
 
 	// Migrated from previously-scattered os.Getenv reads.
-	PipelineKeepDone       bool   `yaml:"pipeline_keep_done"`
-	ModelDefault           string `yaml:"model_default"`
-	PipelineHint           bool   `yaml:"pipeline_hint"`
-	AutoRestartMax         int    `yaml:"auto_restart_max"`
-	AutoRestartReset       string `yaml:"auto_restart_reset"`
-	CollabEnabled          bool   `yaml:"collab_enabled"`
-	CollabInterval         string `yaml:"collab_interval"`
-	CollabHint             bool   `yaml:"collab_hint"`
-	IsolationGuard         bool   `yaml:"isolation_guard"`
-	GitConventions         bool   `yaml:"git_conventions"`
-	GitRedirect            bool   `yaml:"git_redirect"`
-	CheckRedirect          bool   `yaml:"check_redirect"`
-	Snapshots              bool   `yaml:"snapshots"`
-	Tutorial               bool   `yaml:"tutorial"`
-	Insights               bool   `yaml:"insights"`
-	LocalLLM               bool   `yaml:"local_llm"`
-	LocalLLMURL            string `yaml:"local_llm_url"`
-	LocalLLMModel          string `yaml:"local_llm_model"`
-	LocalLLMTimeout        string `yaml:"local_llm_timeout"`
-	LocalLLMEscalate       bool   `yaml:"local_llm_escalate"`
-	LocalLLMTier           string `yaml:"local_llm_tier"`
-	Orchestrator           bool   `yaml:"orchestrator"`
-	RateLimitRetryInterval string `yaml:"rate_limit_retry_interval"`
-	RateLimitBuffer        string `yaml:"rate_limit_buffer"`
-	RateLimitAutoResume    bool   `yaml:"rate_limit_auto_resume"`
-	RateLimitResumePrompt  string `yaml:"rate_limit_resume_prompt"`
+	PipelineKeepDone       bool          `yaml:"pipeline_keep_done"`
+	ModelDefault           string        `yaml:"model_default"`
+	PipelineHint           bool          `yaml:"pipeline_hint"`
+	AutoRestartMax         int           `yaml:"auto_restart_max"`
+	AutoRestartReset       string        `yaml:"auto_restart_reset"`
+	CollabEnabled          bool          `yaml:"collab_enabled"`
+	CollabInterval         string        `yaml:"collab_interval"`
+	CollabHint             bool          `yaml:"collab_hint"`
+	IsolationGuard         bool          `yaml:"isolation_guard"`
+	GitConventions         bool          `yaml:"git_conventions"`
+	GitRedirect            bool          `yaml:"git_redirect"`
+	CheckRedirect          bool          `yaml:"check_redirect"`
+	Snapshots              bool          `yaml:"snapshots"`
+	Tutorial               bool          `yaml:"tutorial"`
+	Insights               bool          `yaml:"insights"`
+	LocalLLM               bool          `yaml:"local_llm"`
+	LocalLLMURL            string        `yaml:"local_llm_url"`
+	LocalLLMModel          string        `yaml:"local_llm_model"`
+	LocalLLMTimeout        string        `yaml:"local_llm_timeout"`
+	LocalLLMEscalate       bool          `yaml:"local_llm_escalate"`
+	LocalLLMTier           string        `yaml:"local_llm_tier"`
+	Orchestrator           bool          `yaml:"orchestrator"`
+	PluginsEnabled         bool          `yaml:"plugins"`
+	Plugins                []plugin.Spec `yaml:"plugin_registry"`
+	RateLimitRetryInterval string        `yaml:"rate_limit_retry_interval"`
+	RateLimitBuffer        string        `yaml:"rate_limit_buffer"`
+	RateLimitAutoResume    bool          `yaml:"rate_limit_auto_resume"`
+	RateLimitResumePrompt  string        `yaml:"rate_limit_resume_prompt"`
 
 	// Worktree retention policy (see internal/lifecycle prune/RemoveWorktree).
 	WorktreeKeepDone  bool `yaml:"worktree_keep_done"`
@@ -138,6 +141,8 @@ var schema = []setting{
 	{"local_llm_escalate", "Let the orchestrator escalate an over-tier planning step to headless Claude (one bounded `claude -p`); off ⇒ degrade honestly instead. Execution stays token-free warden calls either way. Values: true | false"},
 	{"local_llm_tier", "Explicit orchestrator planning-tier override for the local model. auto derives the tier from the model name. Values: auto | t0 | t1 | t2"},
 	{"orchestrator", "Start the cockpit master pane in orchestrator mode (the natural-language conductor) instead of a plain shell. Values: true | false"},
+	{"plugins", "Enable the plugin system (#47): load the external plugin executables in plugin_registry, register their custom agent task types, and invoke their subscribed lifecycle hooks over a JSON-over-stdio protocol. OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Values: true | false"},
+	{"plugin_registry", "Plugins loaded when `plugins` is true. A list of entries, each with: name, path (the plugin executable), events (subscribed lifecycle hooks; any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree}). Empty by default. Values: list"},
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
@@ -200,6 +205,8 @@ func defaults() Config {
 		LocalLLMEscalate:       true,
 		LocalLLMTier:           "auto",
 		Orchestrator:           false,
+		PluginsEnabled:         false,
+		Plugins:                []plugin.Spec{},
 		RateLimitRetryInterval: "30m",
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
@@ -705,6 +712,15 @@ func (c Config) GetLocalLLMTier() string { return c.LocalLLMTier }
 // GetOrchestrator reports whether the cockpit master pane starts in orchestrator
 // mode instead of a plain shell.
 func (c Config) GetOrchestrator() bool { return c.Orchestrator }
+
+// GetPluginsEnabled reports whether the plugin system (#47) is enabled (the
+// daemon loads plugin_registry, registers custom task types, and wires the
+// lifecycle-hook dispatcher only when this is true).
+func (c Config) GetPluginsEnabled() bool { return c.PluginsEnabled }
+
+// GetPlugins returns the registered plugin specs (config key plugin_registry).
+// They are only loaded when GetPluginsEnabled is true.
+func (c Config) GetPlugins() []plugin.Spec { return c.Plugins }
 
 // AutoRestartResetDuration returns the sustained-health window that resets the
 // auto-restart counter.

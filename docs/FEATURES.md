@@ -576,3 +576,35 @@ the file-set-dependent co-edit and parallelization analysis is strongest on acti
 digestible sessions, since archived file sets are reconstructed best-effort from
 digests. See
 `docs/superpowers/specs/2026-06-25-warden-ai-powered-insights-design.md`.
+
+## 26. Plugin system (`wd plugin`)
+
+Extend warden with **custom agent task types** and **lifecycle hooks** without
+forking — a thin, default-off, fail-open extension seam. A plugin is an **external
+executable** registered in config and invoked over a documented, versioned
+**JSON-over-stdio protocol** (request on stdin, response on stdout, hard timeout),
+deliberately mirroring warden's existing PreToolUse guard hooks rather than the
+fragile Go `plugin` package or a heavy WASM runtime. Config-gated by `plugins`
+(**default off**, since plugins run external code).
+
+- **Lifecycle hooks** — a plugin subscribes to events (`pre-spawn`, `post-spawn`,
+  `pre-commit`, `post-commit`, `pre-check`, `post-check`, plus a reserved
+  `pre-teardown`); warden invokes it at the spawn/commit/check points with the
+  agent's session metadata + event payload. Hooks are **advisory and fail-open**:
+  a missing, slow, non-zero-exit, or malformed plugin is logged and skipped, and a
+  failing plugin never aborts the others — it can never block, error, or crash an
+  agent. A `pre-` hook cannot veto the action (observers, not gates).
+- **Custom task types** — a plugin declares new `--type` names, each with its own
+  worktree isolation policy. These slot into warden's closed `store.Type` enum via
+  a function-var seam so validation/worktree logic recognizes them **without
+  changing any built-in type's behavior**; names that collide with a built-in or
+  another plugin are rejected at config load.
+- **`wd plugin list`** — show registered plugins, their executable paths, declared
+  custom task types (with isolation policy), and subscribed hook events; it also
+  surfaces any config errors the daemon would reject.
+
+Configure with the `plugins` gate + a `plugin_registry` list (name, path, events,
+task_types) in `~/.warden/config.yaml`. Self-contained, fully unit-tested
+`internal/plugin` package (`protocol` / `registry` / `dispatcher`). A worked
+example lives under `examples/plugins/` (a post-commit notifier). See
+`docs/superpowers/specs/2026-06-25-warden-plugin-system-design.md`.

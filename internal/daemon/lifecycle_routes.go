@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -142,6 +143,9 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	freeMode := req.Type == ""
+	// pre-spawn hook (#47): advisory, fail-open. The session does not exist yet,
+	// so plugins get the requested type/repo only.
+	s.plugins.Dispatch(r.Context(), plugin.EventPreSpawn, plugin.SessionMeta{Type: req.Type, Repo: req.Repo}, nil)
 	// Memory-pressure soft gate: when enabled and the caller hasn't forced,
 	// warn (HTTP 428) instead of spawning onto a strained machine. The client
 	// re-spawns with force=true to confirm. Pipelines bypass this (they spawn
@@ -176,6 +180,8 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	s.notify()
 	s.recordAudit(r, audit.ActionSpawn, sess.ID, spawnAuditDetail(sess, req))
+	// post-spawn hook (#47): advisory, fail-open. The agent is live and tracked.
+	s.plugins.Dispatch(r.Context(), plugin.EventPostSpawn, plugin.MetaFromSession(sess), nil)
 	writeJSON(w, http.StatusCreated, sess)
 	if freeMode && req.Prompt != "" {
 		go s.classifyAndUpdate(sess.ID, req.Prompt)

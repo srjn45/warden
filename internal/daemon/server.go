@@ -9,6 +9,7 @@ import (
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
@@ -33,6 +34,11 @@ func (s *Server) SetCollabInterval(d time.Duration) { s.collabInterval = d }
 // SetSnapshots wires the snapshot manager (#46) and the config gate. enabled=false
 // (or a nil manager) makes the snapshot endpoints return 403.
 func (s *Server) SetSnapshots(enabled bool, m *snapshot.Manager) { s.snapshots = enabled; s.snap = m }
+
+// SetPlugins wires the lifecycle-hook dispatcher (#47). A nil dispatcher (plugins
+// off, the default) makes every dispatch call a no-op, so the server runs exactly
+// as before. Dispatch is fail-open, so this never changes request control flow.
+func (s *Server) SetPlugins(d *plugin.Dispatcher) { s.plugins = d }
 
 // shutdownGrace bounds how long Shutdown waits for in-flight requests to drain
 // before returning (after which the process exits and any stragglers are cut).

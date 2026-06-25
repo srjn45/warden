@@ -81,14 +81,15 @@ const (
 	TypeOther       Type = "other"
 )
 
-// Valid reports whether t is one of the known task types.
+// Valid reports whether t is a known task type: a built-in, or a custom type a
+// plugin registered via the lookup seam (#47). With no plugins installed this is
+// exactly the built-in set, so existing behavior is unchanged.
 func (t Type) Valid() bool {
-	switch t {
-	case TypeDevelopment, TypeAnalysis, TypeSpike, TypePRReview,
-		TypeCode, TypeDocs, TypeWebsite, TypeDebugCI, TypeTests, TypeOther:
+	if t.Builtin() {
 		return true
 	}
-	return false
+	_, ok := lookupCustomType(string(t))
+	return ok
 }
 
 // NormalizeType maps any input to a known Type, collapsing unknowns to "other".
@@ -101,9 +102,12 @@ func NormalizeType(s string) Type {
 		return TypeTests
 	}
 	t := Type(s)
-	switch t {
-	case TypeDevelopment, TypeAnalysis, TypeSpike, TypePRReview,
-		TypeCode, TypeDocs, TypeWebsite, TypeDebugCI, TypeTests, TypeOther:
+	if t.Builtin() {
+		return t
+	}
+	// A plugin-registered custom type is preserved as-is rather than collapsed to
+	// "other"; unknown names still collapse (the historical default).
+	if _, ok := lookupCustomType(s); ok {
 		return t
 	}
 	return TypeOther
@@ -120,6 +124,11 @@ func (t Type) DefaultWorktree() bool {
 	switch t {
 	case TypeDevelopment, TypePRReview, TypeCode, TypeDocs, TypeWebsite, TypeDebugCI, TypeTests:
 		return true
+	}
+	// A plugin-registered custom type uses its declared isolation policy. Unknown
+	// names (no plugin) fall through to false, the historical default.
+	if pol, ok := lookupCustomType(string(t)); ok {
+		return pol.Worktree
 	}
 	return false
 }
