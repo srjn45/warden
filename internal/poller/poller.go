@@ -122,6 +122,12 @@ type Poller struct {
 
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
 
+	// Infinite-loop detection state (tick goroutine only). paneHistory holds the
+	// last loopWindow distinct pane excerpts per session; loopFlagged remembers
+	// whether a loop anomaly was already raised so it fires once per loop episode.
+	paneHistory map[string][]string
+	loopFlagged map[string]bool
+
 	// AutoApprovePolicy is the global allow/deny policy (from config). Per-session
 	// Session.AutoApprove opts an agent into evaluation against this policy.
 	AutoApprovePolicy approval.Policy
@@ -154,6 +160,8 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		lastSummary:     map[string]time.Time{},
 		inflight:        map[string]struct{}{},
 		lastCtxCheck:    map[string]time.Time{},
+		paneHistory:     map[string][]string{},
+		loopFlagged:     map[string]bool{},
 		CheckEvery:      20 * time.Second,
 		CompactCooldown: 2 * time.Minute,
 		ApprovalEvents:  make(chan ApprovalEvent, 100),
@@ -312,6 +320,10 @@ func (p *Poller) tick(ctx context.Context) error {
 					changed = true
 					paneChanged = true
 
+					// The pane is actively churning — feed loop detection (the
+					// stuck timer only catches a STALE pane, never a busy loop).
+					p.trackLoop(ctx, s, excerpt)
+
 					// Publish approval event if already waiting
 					if s.Status == store.StatusWaitingForInput && pane != "" {
 						p.publishApprovalEvent(s, pane)
@@ -359,7 +371,8 @@ func (p *Poller) tick(ctx context.Context) error {
 // store (archived/deleted), so the throttle map can't grow without bound over a
 // long-running daemon. Called only from the tick goroutine, which owns the map.
 func (p *Poller) pruneSummaryState(sessions []*store.Session) {
-	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 {
+	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 &&
+		len(p.paneHistory) == 0 && len(p.loopFlagged) == 0 {
 		return
 	}
 	live := make(map[string]struct{}, len(sessions))
@@ -374,6 +387,16 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	for id := range p.lastCtxCheck {
 		if _, ok := live[id]; !ok {
 			delete(p.lastCtxCheck, id)
+		}
+	}
+	for id := range p.paneHistory {
+		if _, ok := live[id]; !ok {
+			delete(p.paneHistory, id)
+		}
+	}
+	for id := range p.loopFlagged {
+		if _, ok := live[id]; !ok {
+			delete(p.loopFlagged, id)
 		}
 	}
 }
@@ -470,6 +493,31 @@ func (p *Poller) raiseAnomaly(ctx context.Context, s *store.Session, a Anomaly) 
 	if p.OnAnomaly != nil {
 		p.OnAnomaly(s, a)
 	}
+}
+
+// trackLoop appends the latest pane excerpt to the agent's rolling history and
+// raises a one-shot "infinite loop" anomaly when the pane keeps churning the
+// same few states (see looksLikeLoop). Called only from the tick goroutine, on
+// a real pane change, so the maps it touches need no locking. The flag clears
+// once the loop signature disappears, so a later genuine loop re-fires.
+func (p *Poller) trackLoop(ctx context.Context, s *store.Session, excerpt string) {
+	h := append(p.paneHistory[s.ID], excerpt)
+	if len(h) > loopWindow {
+		h = h[len(h)-loopWindow:]
+	}
+	p.paneHistory[s.ID] = h
+
+	if looksLikeLoop(h) {
+		if !p.loopFlagged[s.ID] {
+			p.loopFlagged[s.ID] = true
+			p.raiseAnomaly(ctx, s, Anomaly{
+				Kind:   anomalyLoop,
+				Detail: "possible infinite loop — pane keeps churning the same output with no progress; consider interrupting the agent",
+			})
+		}
+		return
+	}
+	p.loopFlagged[s.ID] = false
 }
 
 // publishApprovalEvent sends an event to the approval worker.
