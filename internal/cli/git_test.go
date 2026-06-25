@@ -53,10 +53,14 @@ func TestCommitCmdReportsSHA(t *testing.T) {
 	require.Equal(t, "do x", (*last)["message"])
 }
 
-func TestCommitCmdRequiresMessage(t *testing.T) {
-	addr, _ := gitStub(t, map[string]any{})
-	_, err := runGit(t, addr, "commit")
-	require.Error(t, err, "commit must require -m")
+func TestCommitCmdAllowsNoMessage(t *testing.T) {
+	// -m is now optional: omitting it forwards an empty message, and the daemon
+	// generates one (local model → deterministic floor). The CLI must not reject it.
+	addr, last := gitStub(t, map[string]any{"committed": true, "sha": "abc1234", "branch": "feat", "files": []string{"a.go"}})
+	out, err := runGit(t, addr, "commit")
+	require.NoError(t, err, "commit must accept a missing -m")
+	require.Contains(t, out, "committed abc1234 on feat")
+	require.Equal(t, "", (*last)["message"], "an absent -m forwards an empty message for daemon-side generation")
 }
 
 func TestCommitCmdHookFailure(t *testing.T) {
