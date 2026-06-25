@@ -46,12 +46,50 @@ func TestCommitRefusesProtectedBranch(t *testing.T) {
 	}
 }
 
-func TestCommitEmptyMessageRejected(t *testing.T) {
+func TestCommitNoMessageUsesDeterministicFloor(t *testing.T) {
+	// No -m and no local model → tier (c): a conventional-commit message built
+	// from the changed paths. A single non-doc/test root file → chore.
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git rev-parse --abbrev-ref HEAD": {Out: "feature-x\n"},
+		"git status --porcelain":          {Out: " M foo.go\n"},
+		"git rev-parse --short HEAD":      {Out: "abc1234\n"},
 	}}
-	_, err := New(fr, &FakeConfig{}).Commit(context.Background(), "/wt", "  ")
-	require.Error(t, err)
+	res, err := New(fr, &FakeConfig{}).Commit(context.Background(), "/wt", "  ") // LLM nil
+	require.NoError(t, err)
+	require.True(t, res.Committed)
+	require.Contains(t, fr.calledArgs(), []string{"git", "commit", "-m", "chore: update foo.go"})
+}
+
+func TestCommitNoMessageUsesLocalModel(t *testing.T) {
+	// No -m with a local model → tier (b): the model's line off the staged diff.
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git rev-parse --abbrev-ref HEAD": {Out: "feature-x\n"},
+		"git status --porcelain":          {Out: " M internal/foo.go\n"},
+		"git diff --cached":               {Out: "diff --git a/internal/foo.go b/internal/foo.go\n+retry"},
+		"git rev-parse --short HEAD":      {Out: "abc1234\n"},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = &fakeCompleter{out: "feat(foo): add retry to http client\n"}
+	res, err := lc.Commit(context.Background(), "/wt", "")
+	require.NoError(t, err)
+	require.True(t, res.Committed)
+	require.Contains(t, fr.calledArgs(), []string{"git", "commit", "-m", "feat(foo): add retry to http client"})
+}
+
+func TestCommitNoMessageFallsBackToFloorWhenModelErrors(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git rev-parse --abbrev-ref HEAD": {Out: "feature-x\n"},
+		"git status --porcelain":          {Out: " M docs/guide.md\n"},
+		"git diff --cached":               {Out: "diff --git a/docs/guide.md b/docs/guide.md\n+hi"},
+		"git rev-parse --short HEAD":      {Out: "abc1234\n"},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = &fakeCompleter{err: errStub("connection refused")}
+	res, err := lc.Commit(context.Background(), "/wt", "")
+	require.NoError(t, err)
+	require.True(t, res.Committed)
+	// docs-only single file → docs(docs): update guide.md
+	require.Contains(t, fr.calledArgs(), []string{"git", "commit", "-m", "docs(docs): update guide.md"})
 }
 
 func TestCommitHookFailureIsStructuredNotError(t *testing.T) {

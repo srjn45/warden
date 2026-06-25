@@ -67,7 +67,7 @@ type deleteToolArgs struct {
 }
 
 type gitCommitArgs struct {
-	Message string `json:"message" jsonschema:"the commit message — you wrote the change, so you know the intent"`
+	Message string `json:"message,omitempty" jsonschema:"the commit message — best to pass it, you wrote the change so you know the intent; if omitted warden generates one from the diff"`
 	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit; defaults to the current directory"`
 }
 type gitPushArgs struct {
@@ -299,7 +299,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "commit",
-		Description: "Stage and commit every change in the worktree on its branch — one call in place of git status/add/commit/rev-parse. warden refuses protected branches (main/master), runs pre-commit hooks and returns ONLY a failure, and links the commit to this agent. Pass `message` (you made the change, so you know the intent). Returns {committed, sha, branch, files} or a hook failure to fix.",
+		Description: "Stage and commit every change in the worktree on its branch — one call in place of git status/add/commit/rev-parse. warden refuses protected branches (main/master), runs pre-commit hooks and returns ONLY a failure, and links the commit to this agent. Pass `message` when you can (you made the change, so you know the intent); omit it and warden writes one from the diff (local model, else a deterministic conventional-commit floor). Returns {committed, sha, branch, files} or a hook failure to fix.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitCommitArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.GitCommit(ctx, sessionID(), mcpDir(a.Dir), a.Message)
 		if err != nil {

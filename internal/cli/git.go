@@ -38,7 +38,10 @@ func newCommitCmd() *cobra.Command {
 		Long: "Stage and commit every change in the current worktree on its branch.\n\n" +
 			"warden refuses protected branches (main/master), runs pre-commit hooks and\n" +
 			"returns only failures, and links the commit to this agent — one call in place\n" +
-			"of the git status/add/commit/rev-parse round-trips.",
+			"of the git status/add/commit/rev-parse round-trips.\n\n" +
+			"Pass -m to author the message (best — you made the change). Omit it and warden\n" +
+			"writes one: the local model from the staged diff if configured, otherwise a\n" +
+			"deterministic conventional-commit message from the changed paths.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, session := gitTarget()
@@ -60,9 +63,8 @@ func newCommitCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&message, "message", "m", "", "commit message (required)")
+	cmd.Flags().StringVarP(&message, "message", "m", "", "commit message; if omitted, warden generates one from the diff")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
-	_ = cmd.MarkFlagRequired("message")
 	return cmd
 }
 
