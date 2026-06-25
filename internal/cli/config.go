@@ -85,6 +85,10 @@ func printConfig(out io.Writer, cfg config.Config) {
 		{"notifications & metrics", [][2]string{
 			{"approvals", fmt.Sprintf("%t", cfg.ApprovalsEnabled)},
 			{"notify", fmt.Sprintf("%t", cfg.NotifyEnabled)},
+			{"webhook_enabled", fmt.Sprintf("%t", cfg.WebhookEnabled)},
+			// The URL carries a secret (e.g. a Slack token), so show set/unset
+			// rather than the value to keep it out of terminals and screenshots.
+			{"webhook_url", webhookURLDisplay(cfg.WebhookURL)},
 			{"metrics", fmt.Sprintf("%t", cfg.MetricsEnabled)},
 		}},
 		{"token guard", [][2]string{
@@ -118,4 +122,13 @@ func printConfig(out io.Writer, cfg config.Config) {
 		tw.Flush()
 		fmt.Fprintln(out)
 	}
+}
+
+// webhookURLDisplay renders the webhook URL as set/unset rather than its value,
+// since a Slack incoming-webhook URL embeds a secret token.
+func webhookURLDisplay(url string) string {
+	if url == "" {
+		return "(unset)"
+	}
+	return "(set)"
 }

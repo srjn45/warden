@@ -32,6 +32,8 @@ type Config struct {
 	DataDir               string          `yaml:"data_dir"`
 	ClaudeProjectsDir     string          `yaml:"claude_projects_dir"`
 	NotifyEnabled         bool            `yaml:"notify"`
+	WebhookEnabled        bool            `yaml:"webhook_enabled"`
+	WebhookURL            string          `yaml:"webhook_url"`
 	ApprovalsEnabled      bool            `yaml:"approvals"`
 	AutoApprove           approval.Policy `yaml:"auto_approve"`
 	DefaultPermissionMode string          `yaml:"default_permission_mode"`
@@ -97,6 +99,8 @@ var schema = []setting{
 	{"data_dir", "Directory for warden state (sessions, inbox, pipelines, metrics). Values: absolute path"},
 	{"claude_projects_dir", "Claude Code transcript root. Values: absolute path"},
 	{"notify", "Desktop notifications on agent status changes. Values: true | false"},
+	{"webhook_enabled", "POST a notification to webhook_url on attention-needed status transitions (waiting_for_input, errored, orphaned). Runs alongside desktop notifications. Values: true | false"},
+	{"webhook_url", "Webhook endpoint for status notifications when webhook_enabled is true. A Slack incoming-webhook URL works out of the box (the payload's \"text\" field is what Slack renders); any endpoint accepting a JSON POST of {text, title, body} works. Values: http(s) URL"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
 	{"auto_approve", "Auto-approve policy. The daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, paths})."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
@@ -150,6 +154,8 @@ func defaults() Config {
 		DataDir:           defaultDataDir(),
 		ClaudeProjectsDir: defaultClaudeProjectsDir(),
 		NotifyEnabled:     false,
+		WebhookEnabled:    false,
+		WebhookURL:        "",
 		ApprovalsEnabled:  true,
 		AutoApprove: approval.Policy{
 			Enabled:     false,

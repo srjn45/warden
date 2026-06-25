@@ -79,6 +79,18 @@ func TestLoad_WorktreeRetention_Set(t *testing.T) {
 	require.True(t, c.WorktreeAutoPrune)
 }
 
+func TestLoad_Webhook_Defaults(t *testing.T) {
+	c := Load(tmpConfig(t, "")) // empty file → all defaults
+	require.False(t, c.WebhookEnabled, "webhook_enabled defaults to false (opt-in)")
+	require.Equal(t, "", c.WebhookURL, "webhook_url defaults to empty")
+}
+
+func TestLoad_Webhook_Set(t *testing.T) {
+	c := Load(tmpConfig(t, "webhook_enabled: true\nwebhook_url: https://hooks.slack.com/services/T/B/xyz\n"))
+	require.True(t, c.WebhookEnabled)
+	require.Equal(t, "https://hooks.slack.com/services/T/B/xyz", c.WebhookURL)
+}
+
 func TestLoadInvalidPermissionModeFallsBack(t *testing.T) {
 	path := tmpConfig(t, "default_permission_mode: nonsense\n")
 	require.Equal(t, "auto", Load(path).DefaultPermissionMode)
