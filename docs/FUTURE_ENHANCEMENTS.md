@@ -223,87 +223,14 @@ skill-driven review gate; no daemon change. See FEATURES.md §7 and
 
 ---
 
-## 🧠 Orchestration & Token Reduction
-
-#### 49. Orchestration brain — responsibility transfer + enforcement + local LLM — *Phase 0 + Phase 1 complete*
-**Effort:** Phase 0a ~1 day · 0b ~2 days · 0c ~1 day · Phase 1 ~3-4 days (incremental)
-**Value:** Cut Claude token spend; enforce worktree isolation; retire the operator's
-manual git lifecycle.
-
-Move deterministic responsibilities off Claude agents onto warden, and **enforce** the
-boundary with a PreToolUse hook (steer via system prompt → deny+redirect hook → restrict
-via `disallowedTools`). Most of the win needs **no LLM**; an optional local model (Ollama)
-handles the fuzzy-cheap middle (classification, log summarization, headless commit
-messages), proven first by swapping the existing headless-Claude `Classify` call.
-
-- **0a Isolation enforcement** — ✅ **shipped.** **0a-1:** default-isolate every
-  write-agent (worktree unless `--in-repo`; pr-review exempt). **0a-2:** PreToolUse guard
-  that denies an isolated agent's Edit/Write escaping its worktree into the shared repo —
-  built on a net-new per-agent `claude --settings` hook-delivery mechanism (`warden hook
-  guard` → `POST /hooks/guard`), gated by `isolation_guard` (default on), fails open.
-  Fixes the parallel-agent collision pain. *No LLM.*
-- **0b Git lifecycle** — **0b-1:** ✅ **shipped** — `wd commit` / `wd push` / `wd sync` as
-  CLI + MCP tools (`mcp__warden__commit`/`push`/`sync`) on the existing `lifecycle.go`
-  runner, returning compact structs in place of git tool-spam. Rails (no main/master,
-  no dirty-tree sync, pre-commit-failure-as-result), per-agent workdir pinning + commit
-  bookkeeping, sync leaves conflicts in progress with only the conflicting files. Plus the
-  Layer-1 `git_conventions` prompt steer (default on). **0b-2:** ✅ **shipped** — a second
-  `PreToolUse` hook over `Bash` (`warden hook git-guard`) in the same 0a-2 per-agent
-  `--settings` file that quote-aware argv-parses each command and deny-redirects raw `git
-  commit|push|pull|rebase` to the warden tools (reads stay allowed), the deny message naming
-  the exact replacement; static verdict (no daemon round-trip), fails open, gated by
-  `git_redirect` (default on). *No LLM.*
-- **0c `wd check`** — **0c-1:** ✅ **shipped** — `wd check [name]` as CLI + MCP tool
-  (`mcp__warden__check`) backed by `lifecycle.Check`, running the per-project
-  `.warden/check.yml` command(s) and returning pass/fail with output for only the failing
-  checks (tail-truncated). Per-entry `dir:` for monorepos; config is the single source of
-  truth; no-config / unknown-name return friendly errors; daemon pins to the agent's worktree
-  (shared `pinnedWorkdir`) + records a `check` event; Layer-1 steer extended. **0c-2:** ✅
-  **shipped** — a third `PreToolUse` Bash hook (`warden hook check-guard`) on the same
-  per-agent `--settings` file deny-redirects a raw test/lint/build command the project's
-  `.warden/check.yml` registers to `wd check`, reusing the runner's own config parser
-  (`lifecycle.CheckCommands` — single source, no drift) and matching on leading-token prefix
-  (broad runs redirect, focused `-run` runs pass through); no-config repos redirect nothing,
-  reads config from the agent cwd (no daemon round-trip), fails open, gated by
-  `check_redirect` (default on). Biggest raw token win. *No LLM (optional summarize is a
-  Phase 1 follow-up).*
-- **Phase 1 Local provider** — opt-in Ollama provider; `Classify` → headless commit
-  messages → log summarization. **1a:** ✅ **shipped** — new `internal/llm` package (a
-  one-method `Completer` seam + a tiny non-streaming Ollama `/api/generate` client with a
-  hard timeout, byte cap, and error-so-caller-falls-back contract); `lifecycle` gains an
-  optional `LLM` field (nil = off) and `Classify` routes through it first, falling back to
-  headless Claude (then `TypeOther`) on any error. Gated by `local_llm` (default off) +
-  `local_llm_url`/`_model`/`_timeout`; the daemon builds the provider only when enabled.
-  First LLM in the tree; degrades to today's behavior when off/unreachable. **1b:** ✅
-  **shipped** — `Summarize` (the ≤8-word agent-activity subject) routes through the same
-  seam first, falling back to headless Claude on any local error *or empty reply* (an empty
-  summary carries no signal, so unlike `Classify` it is not trusted); and `lifecycle.Check`
-  condenses an **oversized** failure log (output past `maxCheckOutputLines`) via the local
-  model into the distinct failures, with the deterministic tail-truncation as the fallback
-  (model error / empty reply / no model → the agent still gets the failure). Within-cap
-  failures skip the model entirely. **1c:** ✅ **shipped** — `wd commit` / MCP `commit` no
-  longer require `-m`; `lifecycle.Commit` fills a missing message in after staging via the
-  same seam — (a) the author's `-m`, else (b) a Conventional-Commits subject distilled by the
-  local model from the staged diff (`git diff --cached`, capped to 16 KiB of valid UTF-8),
-  else (c) a deterministic conventional-commit floor derived from the changed paths. Every
-  degradation (no model / error / timeout / empty reply) falls to the floor, so a blank commit
-  is impossible — mirroring the Classify/Summarize fallback pattern.
-
-**Phase 1 is now complete** (1a Classify · 1b Summarize + oversized check-failure
-condensation · 1c commit messages). Its remaining LLM work shipped as the orchestrator
-conductor (#50) — now complete; see [FEATURES.md §17](FEATURES.md#17-orchestrator-wd-orch).
-
-**Design spec:** [`docs/superpowers/specs/2026-06-24-warden-orchestration-brain-design.md`](superpowers/specs/2026-06-24-warden-orchestration-brain-design.md).
-
----
-
 ## 📊 Priority Matrix (reassessed 2026-06-25)
 
 Re-scored on **feasibility × necessity** for what warden actually is today: a
 solo-operator tool for orchestrating Claude Code agents, with remote access (the
 flagship), mature pipelines, structured logging, the collab MVP, the **full
-orchestration brain (#49)**, and the **local-LLM orchestrator (#50, `wd orch`)** all
-shipped. With the north-star orchestrator now landed, weight shifts toward **dev-loop
+orchestration brain (#49 — isolation/git/check enforcement + local-LLM provider; see
+[FEATURES.md §18–19](FEATURES.md#18-local-llm-provider-internalllm))**, and the
+**local-LLM orchestrator (#50, `wd orch`)** all shipped. With the north-star orchestrator now landed, weight shifts toward **dev-loop
 closure** and fleet-management polish, and away from **enterprise/multi-user** features
 whose necessity is low for a single user.
 
