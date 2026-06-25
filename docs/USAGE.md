@@ -734,6 +734,24 @@ untouched — and your global status hooks still fire. Like the status hook it
 edit, so the backstop can never wedge an agent. Disable it with
 `warden config set isolation_guard false`.
 
+### Git-redirect guard (auto-injected, no setup)
+
+The same per-agent `--settings` file also registers a **PreToolUse hook over
+`Bash`** (`warden hook git-guard`) that turns the `git_conventions` *nudge* into
+hard enforcement. Before a Bash call runs, the hook argv-parses the command and,
+if it is a raw git **mutation** — `git commit`, `git push`, `git pull`, or
+`git rebase` — **denies** it with a message naming the warden tool to use instead
+(`mcp__warden__commit` / `push` / `sync`, or the `wd` equivalents). It quote-aware
+parses the command line, so a mutation named inside a commit message or a quoted
+argument is not a false positive, and it walks past `cd … &&`, env prefixes, and
+git global flags (`-C`, `-c`, …) to find the real subcommand.
+
+Read-only git stays yours to run directly — `git status`, `log`, `diff`, `show`,
+`branch`, `fetch`, `add` and the rest pass straight through. Unlike the isolation
+guard this needs no daemon round-trip (the redirect is a static mapping) and it
+also **fails open** on unreadable input. Disable it with
+`warden config set git_redirect false`.
+
 ---
 
 ## 10. The web dashboard

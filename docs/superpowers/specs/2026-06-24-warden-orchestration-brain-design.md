@@ -323,10 +323,18 @@ them**, so within Phase 0 the order is tools → hook → prompt line.
     Claude." Plus the Layer-1 `gitConventionsHint` (`git_conventions` config, default on)
     steering typed agents toward these tools. *No LLM.* Wire path: lifecycle → daemon
     `/git/commit|push|sync` → client `GitCommit/GitPush/GitSync` → CLI + MCP.
-  - **0b-2 — Layer-2 redirect hooks (next).** PreToolUse hook that argv-parses each `Bash`
-    call and DENY-redirects `git commit|push|rebase|pull` mutations to the warden tool
-    (reads stay allowed), riding the per-agent `--settings` mechanism built in 0a-2. The
-    deny *message* names the exact replacement tool — that is the product.
+  - **0b-2 — Layer-2 redirect hook (✅ shipped).** A second `PreToolUse` hook over `Bash`
+    (`warden hook git-guard`), registered in the same per-agent `--settings` file the 0a-2
+    isolation guard already writes. It quote-aware argv-parses each Bash call and
+    DENY-redirects raw `git commit|push|pull|rebase` mutations to the warden tool — the deny
+    *message* names the exact replacement (`mcp__warden__commit`/`push`/`sync`, or the `wd`
+    equivalents), which is the product. Reads (`status`/`log`/`diff`/`show`/`branch`/`fetch`/
+    `add`/…) stay allowed; the parser walks past `cd … &&`, env prefixes, and git global
+    flags (`-C`/`-c`/…) to the real subcommand, and quoting keeps a mutation named inside a
+    commit message from being a false positive. Unlike the isolation guard the verdict is a
+    *static* mapping — no daemon round-trip — and it **fails open** on unreadable input. Gated
+    by a new `git_redirect` config (default on); the settings writer now emits whichever of
+    the two `PreToolUse` matchers are enabled, and nothing when both are off. *No LLM.*
 - **Phase 0c — `wd check`.** Run configured test/lint/build commands, return pass/fail +
   only failing cases; add the test-command redirect hook. Optional local summarize for
   oversized failure logs (deterministic truncate fallback). *Biggest raw token win.*

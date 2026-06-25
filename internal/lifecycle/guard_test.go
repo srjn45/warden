@@ -11,8 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGuardSettingsJSON(t *testing.T) {
-	raw := guardSettingsJSON("/usr/local/bin/warden")
+// settingsMatchers unmarshals a generated settings doc into (matcher → command).
+func settingsMatchers(t *testing.T, raw string) map[string]string {
+	t.Helper()
 	var doc struct {
 		Hooks struct {
 			PreToolUse []struct {
@@ -25,26 +26,46 @@ func TestGuardSettingsJSON(t *testing.T) {
 		} `json:"hooks"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(raw), &doc))
-	require.Len(t, doc.Hooks.PreToolUse, 1)
-	m := doc.Hooks.PreToolUse[0]
-	require.Equal(t, "Edit|Write|MultiEdit|NotebookEdit", m.Matcher)
-	require.Len(t, m.Hooks, 1)
-	require.Equal(t, "command", m.Hooks[0].Type)
-	require.Contains(t, m.Hooks[0].Command, "hook guard")
-	require.Contains(t, m.Hooks[0].Command, "warden")
+	out := map[string]string{}
+	for _, m := range doc.Hooks.PreToolUse {
+		require.Len(t, m.Hooks, 1)
+		require.Equal(t, "command", m.Hooks[0].Type)
+		out[m.Matcher] = m.Hooks[0].Command
+	}
+	return out
+}
+
+func TestGuardSettingsJSON(t *testing.T) {
+	// Both hooks on → both matchers present, each pointing at its warden subcommand.
+	m := settingsMatchers(t, guardSettingsJSON("/usr/local/bin/warden", true, true))
+	require.Len(t, m, 2)
+	require.Contains(t, m["Edit|Write|MultiEdit|NotebookEdit"], "hook guard")
+	require.Contains(t, m["Bash"], "hook git-guard")
+	require.Contains(t, m["Bash"], "warden")
+}
+
+func TestGuardSettingsJSONOnlyGitRedirect(t *testing.T) {
+	// Isolation off, git redirect on → just the Bash matcher.
+	m := settingsMatchers(t, guardSettingsJSON("/usr/local/bin/warden", false, true))
+	require.Len(t, m, 1)
+	require.Contains(t, m["Bash"], "hook git-guard")
+}
+
+func TestGuardSettingsJSONBothOffIsEmpty(t *testing.T) {
+	require.Empty(t, guardSettingsJSON("/usr/local/bin/warden", false, false))
 }
 
 func TestGuardSettingsFlagDisabledOrUnconfigured(t *testing.T) {
 	// Unconfigured (no SettingsDir/WardenBin) → no flag.
 	require.Empty(t, New(&FakeRunner{}, &FakeConfig{}).guardSettingsFlag("a"))
 
-	// Configured but guard disabled in config → no flag, no file written.
+	// Configured but every PreToolUse hook disabled in config → no flag, no file.
 	dir := t.TempDir()
-	lc := New(&FakeRunner{}, &FakeConfig{IsolationGuardOff: true})
+	lc := New(&FakeRunner{}, &FakeConfig{IsolationGuardOff: true, GitRedirectOff: true})
 	lc.SettingsDir, lc.WardenBin = dir, "/usr/bin/warden"
 	require.Empty(t, lc.guardSettingsFlag("a"))
 	_, err := os.Stat(filepath.Join(dir, "a.json"))
-	require.True(t, os.IsNotExist(err), "no settings file when guard disabled")
+	require.True(t, os.IsNotExist(err), "no settings file when all hooks disabled")
 }
 
 func TestGuardSettingsFlagWritesFile(t *testing.T) {
@@ -86,11 +107,22 @@ func TestSpawnIsolatedAgentGetsSettingsFlag(t *testing.T) {
 		"an isolated write-agent must launch with the guard --settings file")
 }
 
-func TestSpawnInRepoAgentSkipsSettingsFlag(t *testing.T) {
+func TestSpawnAgentSkipsSettingsFlagWhenAllHooksOff(t *testing.T) {
 	fr := &FakeRunner{}
-	lc := New(fr, &FakeConfig{IsolationGuardOff: true})
+	lc := New(fr, &FakeConfig{IsolationGuardOff: true, GitRedirectOff: true})
 	lc.SettingsDir, lc.WardenBin = t.TempDir(), "/usr/bin/warden"
 	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo", InRepo: true})
 	require.NoError(t, err)
 	require.NotContains(t, sendKeysLaunch(t, fr, s.ID), "--settings")
+}
+
+func TestSpawnGitRedirectOnlyStillGetsSettingsFlag(t *testing.T) {
+	// Isolation guard off but git redirect on (the default) → a settings file is
+	// still written, carrying just the Bash git-guard hook.
+	fr := &FakeRunner{}
+	lc := New(fr, &FakeConfig{IsolationGuardOff: true})
+	lc.SettingsDir, lc.WardenBin = t.TempDir(), "/usr/bin/warden"
+	s, err := lc.Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	require.NoError(t, err)
+	require.Contains(t, sendKeysLaunch(t, fr, s.ID), "--settings")
 }
