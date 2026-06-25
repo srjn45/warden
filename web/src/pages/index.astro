@@ -10,6 +10,16 @@ import '../styles/app.css';
     <title>warden</title>
     <meta name="theme-color" content="#36506B" />
 
+    <!-- Apply the saved theme before first paint to avoid a flash. Mirrors
+         lib/theme.ts (key 'warden.theme', values system|light|dark). -->
+    <script is:inline>
+      try {
+        var t = localStorage.getItem('warden.theme');
+        document.documentElement.setAttribute(
+          'data-theme', t === 'light' || t === 'dark' ? t : 'system');
+      } catch (e) { /* storage unavailable */ }
+    </script>
+
     <!-- Favicons -->
     <link rel="icon" type="image/svg+xml" href="/brand/warden-symbol-mono.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />

@@ -208,6 +208,7 @@ separate server.
 | **Activity timeline** | Event timeline / activity feed of fleet state changes (`EventTimeline`, `ActivityFeed`). |
 | **Pipeline DAG view** | Pipelines rendered as their dependency graph (`PipelineDag`). |
 | **Browser notifications** | Opt-in desktop notification when an agent enters `waiting_for_input` (gated to hidden tabs). |
+| **Theme toggle (light/dark/system)** | Header toggle cycles **System → Light → Dark**, defaulting to System (follows the OS via `prefers-color-scheme`). The choice persists in `localStorage` (`warden.theme`) and is applied before first paint to avoid a flash. The palette is themed through CSS custom properties keyed on `<html data-theme>`, which also pins `color-scheme` so system colors flip on an explicit override; the wordmark swaps to match the resolved theme. |
 
 ---
 

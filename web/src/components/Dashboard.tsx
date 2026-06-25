@@ -4,6 +4,7 @@ import { listSessions, subscribeSessions } from '../lib/api';
 import { hasToken, clearToken, onAuthRequired } from '../lib/token';
 import { tabsReducer, initialTabs, isFixedTab, type TabsState } from '../lib/tabs';
 import { waitingTransitions } from '../lib/notify';
+import { loadTheme, saveTheme, applyTheme, nextTheme, resolveTheme, type Theme } from '../lib/theme';
 import AttentionBar from './AttentionBar';
 import TabBar from './TabBar';
 import OverviewTab from './OverviewTab';
@@ -34,7 +35,30 @@ export default function Dashboard() {
   const [authRequired, setAuthRequired] = useState(false);
   const [authNonce, setAuthNonce] = useState(0);
   const [tokenSet, setTokenSet] = useState(() => hasToken());
+  const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [resolved, setResolved] = useState(() => resolveTheme(loadTheme()));
   const prevSessions = useRef<Session[]>([]);
+
+  // Reflect the theme choice onto <html data-theme=…>, persist it, and track the
+  // concrete light/dark it resolves to (for picking a matching wordmark). The
+  // inline head script applies the stored value before paint to avoid a flash;
+  // this keeps everything in sync as the user toggles.
+  useEffect(() => {
+    applyTheme(theme);
+    saveTheme(theme);
+    setResolved(resolveTheme(theme));
+  }, [theme]);
+
+  // While in 'system' mode, follow the OS preference live.
+  useEffect(() => {
+    if (theme !== 'system' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => setResolved(mq.matches ? 'dark' : 'light');
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [theme]);
+
+  const cycleTheme = () => setTheme((t) => nextTheme(t));
 
   // A 401 from any REST call surfaces the token-entry modal.
   useEffect(() => onAuthRequired(() => setAuthRequired(true)), []);
@@ -107,6 +131,9 @@ export default function Dashboard() {
         onJumpAttention={() => dispatch({ kind: 'activate', id: 'overview' })}
         tokenSet={tokenSet}
         onClearToken={onClearToken}
+        theme={theme}
+        resolvedTheme={resolved}
+        onCycleTheme={cycleTheme}
       />
       <TabBar
         state={tabs}
