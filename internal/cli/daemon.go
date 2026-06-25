@@ -26,6 +26,7 @@ import (
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
@@ -141,6 +142,23 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			srv.SetSnapshots(cfg.Snapshots, snapshot.New(runner, snapStore))
+			// Plugin system (#47): only wired when the operator opts in (plugins
+			// execute external code). On a config error we log and continue with
+			// plugins off rather than refusing to start the daemon. Once loaded,
+			// the registry is installed into store so the closed-type-enum logic
+			// (Valid/DefaultWorktree/NormalizeType) recognizes custom task types,
+			// and the fail-open dispatcher is wired into the spawn/commit/check
+			// lifecycle points.
+			if cfg.PluginsEnabled {
+				reg, perr := plugin.Load(cfg.Plugins)
+				if perr != nil {
+					slog.Error("plugins: config invalid, running with plugins disabled", "err", perr)
+				} else {
+					store.SetCustomTypeLookup(reg.Lookup)
+					srv.SetPlugins(plugin.NewDispatcher(reg))
+					slog.Info("plugin system enabled", "plugins", len(reg.Plugins()))
+				}
+			}
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})

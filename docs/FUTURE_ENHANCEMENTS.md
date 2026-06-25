@@ -211,9 +211,26 @@ Self-contained `internal/snapshot` package (pure helpers + a runner over the sha
 `lifecycle.Runner` seam), gated by the `snapshots` config setting (default on). See
 `docs/superpowers/specs/2026-06-25-warden-snapshot-checkpoint-design.md`.
 
-#### 47. Plugin system — *not started*
-**Effort:** 3-4 days. Custom task types + lifecycle hooks (Go plugin or WASM).
-**Speculative — no driving use case yet.**
+#### 47. Plugin system — *shipped*
+Extend warden with **custom agent task types** and **lifecycle hooks** without
+forking, shipped as a thin MVP. Plugins are **external executables** registered in
+config (`plugins` gate + `plugin_registry`) and invoked over a documented,
+versioned **JSON-over-stdio protocol** — request on stdin, response on stdout,
+hard `CommandContext` timeout — deliberately mirroring warden's existing
+PreToolUse guard hooks (`warden hook guard`/`git-guard`/`check-guard`) rather than
+the fragile Go `plugin` package or a heavy WASM runtime (decision + rationale in
+the spec). Hooks fire at the spawn/commit/check lifecycle points (event set:
+pre/post-spawn, -commit, -check, plus a reserved pre-teardown) and are **advisory
+and fail-open** — a broken/slow/missing plugin is logged and skipped, never
+blocking or crashing an agent. Custom task types slot into the closed `store.Type`
+enum via a function-var seam (`store.SetCustomTypeLookup`) so `Valid` /
+`DefaultWorktree` / `NormalizeType` recognize plugin types **without touching any
+built-in's behavior**; each custom type declares its own worktree isolation
+policy. **Off by default** (plugins run external code). Self-contained
+`internal/plugin` package (`protocol`/`registry`/`dispatcher`), `wd plugin list`
+CLI, one example plugin under `examples/plugins/`. See
+`docs/superpowers/specs/2026-06-25-warden-plugin-system-design.md` and FEATURES.md
+§26.
 
 #### 48. AI-powered insights — *shipped*
 Mine warden's **own history** — completed and active agent sessions plus recorded
@@ -274,7 +291,10 @@ demand signal before they're worth the effort:
   no second user or second machine in play.
 - **Windows support** (#40) — user runs Linux; tmux dependency makes this WSL-only anyway.
 - **Jira integration** (#33) — user's loop is GitHub, not Jira.
-- **Plugin system** (#47) — speculative; no driving use case.
+- ~~**Plugin system** (#47)~~ — **shipped** as a thin MVP (custom task types +
+  lifecycle hooks via external executables over JSON-over-stdio; `wd plugin`,
+  FEATURES.md §26). Built ahead of a driving use case as a deliberately minimal,
+  default-off, fail-open extension seam — not the speculative full runtime.
 - ~~**Interactive tutorial** (#42)~~ — **shipped** (`wd tutorial`, FEATURES.md §24);
   built anyway as cheap, out-of-the-way onboarding polish.
 - **Goroutine batch concurrency** (#36) — only matters past ~100 concurrent agents;

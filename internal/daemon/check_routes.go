@@ -3,6 +3,9 @@ package daemon
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
+
+	"github.com/srjn45/warden/internal/plugin"
 )
 
 // CheckRequest is the body for POST /check, sent by `wd check` / mcp__warden__check.
@@ -26,6 +29,10 @@ func (s *Server) handleCheck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, msg)
 		return
 	}
+	meta := plugin.MetaFromSession(sess)
+	meta.Workdir = dir
+	// pre-check hook (#47): advisory, fail-open.
+	s.plugins.Dispatch(r.Context(), plugin.EventPreCheck, meta, map[string]string{"name": req.Name})
 	res, err := s.life.Check(r.Context(), dir, req.Name)
 	if err != nil {
 		// No config / unknown name are operator-facing 422s, not server faults:
@@ -33,6 +40,10 @@ func (s *Server) handleCheck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	// post-check hook (#47): advisory, fail-open. Payload carries pass/fail.
+	s.plugins.Dispatch(r.Context(), plugin.EventPostCheck, meta, map[string]string{
+		"name": req.Name, "passed": strconv.FormatBool(res.Passed),
+	})
 	if sess != nil {
 		detail := "passed"
 		if !res.Passed {

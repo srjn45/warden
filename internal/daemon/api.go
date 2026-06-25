@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
+	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/snapshot"
@@ -179,6 +180,10 @@ type Server struct {
 	// `snapshots`). See snapshot_routes.go.
 	snap      *snapshot.Manager
 	snapshots bool
+	// plugins dispatches lifecycle hook events to registered plugin executables
+	// (#47). nil ⇒ the plugin system is off (the default); Dispatch is then a
+	// no-op. Dispatch is always fail-open, so it never alters request flow.
+	plugins *plugin.Dispatcher
 }
 
 // SetAuth configures the bearer token required for remote access. An empty

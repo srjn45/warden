@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -71,6 +73,10 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	meta := plugin.MetaFromSession(sess)
+	meta.Workdir = dir
+	// pre-commit hook (#47): advisory, fail-open.
+	s.plugins.Dispatch(r.Context(), plugin.EventPreCommit, meta, map[string]string{"message": req.Message})
 	res, err := s.life.Commit(r.Context(), dir, req.Message)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
@@ -79,6 +85,11 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	if res.Committed && sess != nil {
 		s.recordGitEvent(sess.ID, "commit", res.SHA+" on "+res.Branch)
 	}
+	// post-commit hook (#47): advisory, fail-open. Payload carries the resulting
+	// SHA/branch and whether anything was actually committed.
+	s.plugins.Dispatch(r.Context(), plugin.EventPostCommit, meta, map[string]string{
+		"sha": res.SHA, "branch": res.Branch, "committed": strconv.FormatBool(res.Committed),
+	})
 	writeJSON(w, http.StatusOK, res)
 }
 
