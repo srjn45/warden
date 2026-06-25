@@ -303,3 +303,43 @@ the local machine. Setup recipes (LAN / Tailscale / Cloudflare Tunnel) live in
 | **Brute-force protection** | Per-IP rate-limiting on auth failures. |
 | **Web UI auth** | A token-entry modal appears on `401`, with `localStorage` persistence and a sign-out control; the static SPA shell stays public so the modal can load. |
 | **Mobile-responsive dashboard** | Bottom nav, single-column grids, and full-screen modal sheets so the GUI is usable on a phone. |
+
+---
+
+## 14. Full-text search
+
+Find agents across a growing fleet without scrolling the grid. The matcher is
+in-memory and case-insensitive, AND-ing every whitespace-separated term against a
+haystack built from each session's id, name, ticket, type, subject, prompt,
+branch, and last-pane excerpt.
+
+| Feature | Description |
+|---|---|
+| **`warden search <query…>`** | CLI search over active sessions; multiple words are ANDed. `--closed` folds in the archived (`closed/`) store too, `--json` prints raw records. Renders with the same table as `warden ls`. |
+| **`GET /search?q=&closed=`** | Daemon endpoint (`internal/daemon/search_routes.go`); a blank `q` is a `400`. Returns the standard `{sessions:[…]}` shape. |
+| **Web search bar** | The Overview tab carries a search box that filters the All-agents grid live, client-side, mirroring the backend matcher (`web/src/lib/search.ts`) for instant feedback. |
+
+---
+
+## 15. Agent history & archive
+
+Browse and search agents that have already ended — warden persists every closed
+session to the `closed/` store (newest-first), and this surfaces it.
+
+| Feature | Description |
+|---|---|
+| **`warden history`** | Lists archived sessions. `--since` accepts a duration (`24h`, `90m`, `7d`, `2w`), a date, or an RFC3339 timestamp; `--type` filters by normalized task type; `--limit` caps the count; `--json` prints raw records. |
+| **`GET /history?since=&type=&limit=`** | Daemon endpoint (`internal/daemon/history_routes.go`); `since` is RFC3339 (`400` on a bad value), `type` is normalized, `limit` caps the result. |
+| **Web Archive tab** | A 🗄 Archive tab fetches history with since (all / 24h / 7d / 30d) and type selectors, plus a client-side text filter, rendering a table of ID / Name / Type / Status / Branch / Updated / Subject. |
+
+---
+
+## 16. Batch operations
+
+Act on many agents at once from the web cockpit instead of one tile at a time.
+
+| Feature | Description |
+|---|---|
+| **Multi-select** | Per-tile checkboxes on the Cockpit grid, with Shift-click range selection. Selections are pruned automatically when an agent ends. |
+| **Bulk action bar** | A floating bar appears while ≥1 agent is selected, offering bulk **Message…**, **Terminate**, and **Delete** (the destructive ones need a second click to confirm). |
+| **Sequential fan-out** | Actions reuse the existing per-agent endpoints (`POST /sessions/{id}/terminate`/`delete`/`messages`) one at a time (`web/src/lib/batch.ts`); the bar reports partial success and keeps failures selected for retry. (Goroutine-parallel fan-out is parked as #36.) |
