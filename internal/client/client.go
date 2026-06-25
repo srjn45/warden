@@ -154,6 +154,63 @@ func (c *Client) List(ctx context.Context) ([]*store.Session, error) {
 	return resp.Sessions, nil
 }
 
+// SearchParams mirrors the daemon's GET /search query.
+type SearchParams struct {
+	Query  string // required; whitespace-separated terms (AND)
+	Closed bool   // also search the archived (closed/) store
+}
+
+// Search runs an in-memory full-text search across sessions (subject, prompt,
+// type, name, pane, id, ticket, branch). With Closed=true it also searches the
+// archived store. The daemon rejects a blank query with a 400.
+func (c *Client) Search(ctx context.Context, p SearchParams) ([]*store.Session, error) {
+	q := url.Values{}
+	q.Set("q", p.Query)
+	if p.Closed {
+		q.Set("closed", "true")
+	}
+	var resp struct {
+		Sessions []*store.Session `json:"sessions"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/search?"+q.Encode(), nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Sessions, nil
+}
+
+// HistoryParams mirrors the daemon's GET /history query.
+type HistoryParams struct {
+	Since time.Time // zero = no lower bound
+	Type  string    // "" = any task type
+	Limit int       // <=0 = no cap
+}
+
+// History browses the archived (closed/) store, newest-first, narrowed by the
+// optional since/type/limit filters.
+func (c *Client) History(ctx context.Context, p HistoryParams) ([]*store.Session, error) {
+	q := url.Values{}
+	if !p.Since.IsZero() {
+		q.Set("since", p.Since.UTC().Format(time.RFC3339))
+	}
+	if p.Type != "" {
+		q.Set("type", p.Type)
+	}
+	if p.Limit > 0 {
+		q.Set("limit", strconv.Itoa(p.Limit))
+	}
+	path := "/history"
+	if e := q.Encode(); e != "" {
+		path += "?" + e
+	}
+	var resp struct {
+		Sessions []*store.Session `json:"sessions"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Sessions, nil
+}
+
 // Watch opens the daemon's SSE session stream (GET /events/stream) and invokes
 // onSnapshot once for the initial snapshot and again for every state change the
 // daemon pushes. It blocks until ctx is cancelled, the connection drops, or
