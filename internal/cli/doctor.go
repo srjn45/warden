@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -141,6 +142,14 @@ func newDoctorCmd() *cobra.Command {
 			results := checkBinaries(exec.LookPath)
 			results = append(results, checkDaemon("http://"+cfg.Addr, httpGet))
 			results = append(results, checkDataDir(cfg.DataDir))
+
+			// Advisory: recommend a local_llm_model from detected hardware for the
+			// orchestrator (`wd orch`). Never auto-set — warden recommends, the
+			// operator decides.
+			runCmd := func(name string, args ...string) ([]byte, error) {
+				return exec.Command(name, args...).Output()
+			}
+			results = append(results, localLLMAdvice(cfg, detectMemoryGB(runCmd, runtime.GOOS, systemRAMGB)))
 
 			fmt.Fprint(cmd.OutOrStdout(), formatReport(doctorVersion, results))
 			if !allRequiredPass(results) {

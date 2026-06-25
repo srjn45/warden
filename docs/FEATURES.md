@@ -351,3 +351,27 @@ Act on many agents at once from the web cockpit instead of one tile at a time.
 | **Multi-select** | Per-tile checkboxes on the Cockpit grid, with Shift-click range selection. Selections are pruned automatically when an agent ends. |
 | **Bulk action bar** | A floating bar appears while ≥1 agent is selected, offering bulk **Message…**, **Terminate**, and **Delete** (the destructive ones need a second click to confirm). |
 | **Sequential fan-out** | Actions reuse the existing per-agent endpoints (`POST /sessions/{id}/terminate`/`delete`/`messages`) one at a time (`web/src/lib/batch.ts`); the bar reports partial success and keeps failures selected for retry. (Goroutine-parallel fan-out is parked as #36.) |
+
+---
+
+## 17. Orchestrator (`wd orch`)
+
+A warden-aware, **local-LLM** conductor REPL that turns natural-language operator
+intent into **confirmed** warden tool calls — spawn/monitor/teardown agents, drive
+pipelines, run the git/check lifecycle — without spending Claude tokens. Run it
+standalone (`wd orch`, alias `wd orchestrator`) or as the cockpit master pane (the
+`orchestrator` config setting / `--orch` flag). Requires `local_llm: true`; it's an
+interactive surface with no deterministic fallback. **It conducts; it never
+implements** — there is no edit/write/bash/shell tool in its registry, so all code
+work is delegated by `spawn_agent`-ing a Claude agent.
+
+| Feature | Description |
+|---|---|
+| **NL → tool-call loop** | Backed by the `internal/llm` `Chatter` seam (Ollama `/api/chat`, multi-turn tool-calling). A bounded turn budget stops runaway loops; malformed args / unknown tools recover instead of garbling execution. |
+| **Read-vs-mutate registry** | Read-only verbs auto-execute (`list_agents`, `get_agent`, `get_agent_output`, `get_collaboration_status`, `read_inbox`, `list_approvals`, `ctx_get`, `ctx_list`, `pipeline_list`, `pipeline_get`). The same daemon client the MCP server uses — no new business logic. |
+| **Mandatory confirm gate** | Every mutating verb (`spawn_agent`, `send_to_agent`, `terminate_agent`, `delete_agent`, `restore_agent`, `approve`, `commit`, `push`, `sync`, `check`, `ctx_set`, `send_message`, `pipeline_create`, `pipeline_cancel`, `clean_up`) requires explicit operator approval before it runs — **non-config-gated**, can't be disabled. A batched plan confirms as one unit. |
+| **Capability-tier routing** | A cheap T0 pre-classify buckets each request's needed tier against the model's tier (`modelTier`, override with `local_llm_tier`). Within tier ⇒ plan locally; over tier ⇒ escalate one planning step to headless Claude (`local_llm_escalate`, default on) or degrade honestly — execution always stays token-free warden calls. |
+| **Monitoring verbs** | `fleet_digest` / `agent_digest` summarize fleet & per-agent state (reusing the `Summarize` routing), `pending_for_me` surfaces what needs the operator, and `clean_up` proposes terminate/delete of finished agents through the same confirm gate. |
+| **`!`-shell passthrough** | A `!`-prefixed line runs in a persistent embedded `$SHELL` (cwd/env persist) and tees output to the terminal. The orchestrator takes **no action** on that output — no auto-diagnose/fix/spawn; it reports verbatim and waits. The output is visible as context to the next natural-language turn. A shell that can't start (no PTY) is non-fatal. |
+| **Cockpit integration** | As the master pane it hosts `wd orch` over the operator's shell; **Alt+t** toggles the slot to a raw `$SHELL` and back without killing either side (see §8). |
+| **Hardware-aware model recommendation** | `wd doctor` best-effort detects accelerator/host memory (NVIDIA VRAM via `nvidia-smi`, Apple unified memory via `sysctl`, else system RAM) and **recommends** a `local_llm_model` from the Qwen2.5-Coder family sized to fit (≥20 GB → `32b` · ~10 → `14b` · ~6 → `7b` · ~4 → `3b` · ≤2 → `1.5b`). It only ever recommends — the operator sets the model; warden never silently swaps it. |
