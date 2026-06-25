@@ -148,9 +148,20 @@ parallel independent-job execution in the pipeline executor, load testing with
 
 ## 📚 Documentation & Onboarding
 
-#### 42. Interactive tutorial — *not started*
-**Effort:** 1 day. First-run guided walkthrough (detect `~/.warden/tutorial-complete`).
-**Necessity: low for a single-author tool.**
+#### 42. Interactive tutorial — *shipped*
+Ships as **`wd tutorial`**: a friendly, idempotent walkthrough of the core loop
+(spawn → watch → talk → tear down) plus pointers to the cockpit TUI and web GUI.
+Completing it (or `wd tutorial --skip`) writes a `tutorial-complete` marker in
+`<data_dir>`; `--reset` clears it to run fresh. A **non-blocking** first-run hint
+(one line to stderr) points new operators at the command, gated on a missing
+marker **and** an interactive TTY **and** the `tutorial` config setting (default
+on) — never shown for piped/non-TTY output or the daemon/MCP/full-screen
+surfaces, so automation is untouched. Thin CLI verb with pure, unit-tested
+helpers (marker read/write/reset, step list, suppression logic); no daemon
+change. See FEATURES.md §24 and
+`docs/superpowers/specs/2026-06-25-warden-interactive-tutorial-design.md`.
+_Originally framed "Necessity: low for a single-author tool" — shipped anyway as
+cheap, self-contained onboarding polish that stays out of the way._
 
 #### 43. API documentation (OpenAPI) — *not started*
 **Effort:** 4 hours. Generate `openapi.yaml`; serve Swagger UI at `/api/docs`.
@@ -252,7 +263,8 @@ demand signal before they're worth the effort:
 - **Windows support** (#40) — user runs Linux; tmux dependency makes this WSL-only anyway.
 - **Jira integration** (#33) — user's loop is GitHub, not Jira.
 - **Plugin system** (#47) & **AI-powered insights** (#48) — speculative; no driving use case.
-- **Interactive tutorial** (#42) — onboarding ROI is ~zero for a single-author tool.
+- ~~**Interactive tutorial** (#42)~~ — **shipped** (`wd tutorial`, FEATURES.md §24);
+  built anyway as cheap, out-of-the-way onboarding polish.
 - **Goroutine batch concurrency** (#36) — only matters past ~100 concurrent agents;
   not the current scale.
 
