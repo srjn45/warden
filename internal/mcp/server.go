@@ -134,6 +134,10 @@ type pipelineIDArgs struct {
 	Pipeline string `json:"pipeline" jsonschema:"the pipeline id (equals its name)"`
 }
 
+type insightsArgs struct {
+	Limit int `json:"limit,omitempty" jsonschema:"cap the number of archived sessions mined (0 = daemon default)"`
+}
+
 type snapshotCreateArgs struct {
 	Message string `json:"message,omitempty" jsonschema:"optional label for the snapshot"`
 	Dir     string `json:"dir,omitempty" jsonschema:"worktree to snapshot; defaults to the current directory (pinned to this agent's own worktree)"`
@@ -646,6 +650,18 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("canceled " + a.Pipeline), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "insights",
+		Description: "Mine warden's own history (#48) into a compact, deterministic report: typical/outlier session durations by type, frequently co-edited files, error rates, busiest hours, live-agent anomalies, and — the headline — pairs of finished sessions that ran sequentially but touched disjoint files in the same repo, so they could have run in parallel as a 2-job pipeline. No model required; returns the structured Report {durations, co_edits, error_rates, busiest_periods, parallelizable, anomalies}.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a insightsArgs) (*mcpsdk.CallToolResult, any, error) {
+		rep, err := s.cl.Insights(ctx, client.InsightsParams{HistoryLimit: a.Limit})
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(rep)
+		return r, nil, err
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

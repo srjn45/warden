@@ -215,9 +215,21 @@ Self-contained `internal/snapshot` package (pure helpers + a runner over the sha
 **Effort:** 3-4 days. Custom task types + lifecycle hooks (Go plugin or WASM).
 **Speculative — no driving use case yet.**
 
-#### 48. AI-powered insights — *not started*
-**Effort:** 2-3 days. Analyze historical patterns; suggest parallelization / hints.
-**Speculative — no driving use case yet.**
+#### 48. AI-powered insights — *shipped*
+Mine warden's **own history** — completed and active agent sessions plus recorded
+resource metrics — into actionable suggestions, shipped as **`wd insights`** (CLI +
+MCP `insights`; FEATURES.md §25). A **deterministic statistics core** (durations by
+type with median/p90/max and outlier flags, frequently co-edited files, error rates by
+type, busiest hours, and sequential-but-disjoint sessions that could have run in
+**parallel**) runs with **no LLM**; an **optional local-LLM narration layer** (the
+`Narrate` seam over `llm.Completer`) summarizes the report when `local_llm` is enabled
+and **degrades gracefully** to the deterministic text on any model error/empty reply —
+mirroring the digest narrator. The parallelization suggester only fires on finished,
+same-repo sessions whose run windows do **not** overlap and whose edited file sets are
+**disjoint**. Self-contained, fully unit-tested `internal/insights` package (pure
+aggregation + suggester + narrator) behind a shared `client.Insights` aggregator, gated
+by the `insights` config setting (default on). See
+`docs/superpowers/specs/2026-06-25-warden-ai-powered-insights-design.md`.
 
 ---
 
@@ -262,7 +274,7 @@ demand signal before they're worth the effort:
   no second user or second machine in play.
 - **Windows support** (#40) — user runs Linux; tmux dependency makes this WSL-only anyway.
 - **Jira integration** (#33) — user's loop is GitHub, not Jira.
-- **Plugin system** (#47) & **AI-powered insights** (#48) — speculative; no driving use case.
+- **Plugin system** (#47) — speculative; no driving use case.
 - ~~**Interactive tutorial** (#42)~~ — **shipped** (`wd tutorial`, FEATURES.md §24);
   built anyway as cheap, out-of-the-way onboarding polish.
 - **Goroutine batch concurrency** (#36) — only matters past ~100 concurrent agents;
