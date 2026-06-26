@@ -1,93 +1,93 @@
-import { describe, it, expect } from 'vitest';
-import { tabsReducer, initialTabs, orderedTabs, tabByIndex, navTab, type TabsState } from './tabs';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  FIXED_TABS, isFixedTab, orderedRoutes, routeIndex, routeByIndex, navRoute,
+  openPin, closePin, prunePins, loadPinned, savePinned,
+} from './tabs';
+import type { Route } from './router';
 
-describe('tabsReducer', () => {
-  it('open pins an agent and activates it', () => {
-    const s = tabsReducer(initialTabs, { kind: 'open', id: 'A-1' });
-    expect(s.pinned).toEqual(['A-1']);
-    expect(s.active).toBe('A-1');
-  });
-
-  it('open is idempotent on the pinned list but re-activates', () => {
-    let s = tabsReducer(initialTabs, { kind: 'open', id: 'A-1' });
-    s = tabsReducer(s, { kind: 'activate', id: 'overview' });
-    s = tabsReducer(s, { kind: 'open', id: 'A-1' });
-    expect(s.pinned).toEqual(['A-1']);
-    expect(s.active).toBe('A-1');
-  });
-
-  it('activate switches the active tab without changing pins', () => {
-    let s = tabsReducer(initialTabs, { kind: 'open', id: 'A-1' });
-    s = tabsReducer(s, { kind: 'activate', id: 'cockpit' });
-    expect(s.active).toBe('cockpit');
-    expect(s.pinned).toEqual(['A-1']);
-  });
-
-  it('close removes a pin and falls back to overview when it was active', () => {
-    let s = tabsReducer(initialTabs, { kind: 'open', id: 'A-1' });
-    s = tabsReducer(s, { kind: 'close', id: 'A-1' });
-    expect(s.pinned).toEqual([]);
-    expect(s.active).toBe('overview');
-  });
-
-  it('close keeps the active tab when a different pin is closed', () => {
-    let s: TabsState = { pinned: ['A-1', 'B-2'], active: 'B-2' };
-    s = tabsReducer(s, { kind: 'close', id: 'A-1' });
-    expect(s.pinned).toEqual(['B-2']);
-    expect(s.active).toBe('B-2');
-  });
-
-  it('prune drops pins for agents that no longer exist', () => {
-    let s: TabsState = { pinned: ['A-1', 'B-2'], active: 'A-1' };
-    s = tabsReducer(s, { kind: 'prune', alive: ['B-2'] });
-    expect(s.pinned).toEqual(['B-2']);
-    expect(s.active).toBe('overview');
-  });
-
-  it('prune keeps the pipelines fixed tab active', () => {
-    const s = { pinned: [], active: 'pipelines' };
-    const out = tabsReducer(s, { kind: 'prune', alive: [] });
-    expect(out.active).toBe('pipelines');
-  });
-
-  it('prune keeps the context fixed tab active', () => {
-    const s = { pinned: [], active: 'context' };
-    const out = tabsReducer(s, { kind: 'prune', alive: [] });
-    expect(out.active).toBe('context');
-  });
-
-  it('index activates the Nth tab (1-based) and ignores out-of-range', () => {
-    const s: TabsState = { pinned: ['A-1'], active: 'overview' };
-    expect(tabsReducer(s, { kind: 'index', index: 1 }).active).toBe('overview');
-    expect(tabsReducer(s, { kind: 'index', index: 6 }).active).toBe('A-1');
-    expect(tabsReducer(s, { kind: 'index', index: 9 })).toBe(s); // no-op
-  });
-
-  it('nav moves through the tab list and clamps at the ends', () => {
-    const s: TabsState = { pinned: ['A-1'], active: 'overview' };
-    expect(tabsReducer(s, { kind: 'nav', delta: 1 }).active).toBe('cockpit');
-    expect(tabsReducer(s, { kind: 'nav', delta: -1 }).active).toBe('overview'); // clamped
-    const last: TabsState = { pinned: ['A-1'], active: 'A-1' };
-    expect(tabsReducer(last, { kind: 'nav', delta: 1 }).active).toBe('A-1'); // clamped
-    expect(tabsReducer(last, { kind: 'nav', delta: -1 }).active).toBe('archive');
+describe('fixed tabs', () => {
+  it('is the new route list (no context, no overview)', () => {
+    expect(FIXED_TABS).toEqual(['cockpit', 'others', 'pipelines', 'metrics', 'archive']);
+    expect(isFixedTab('cockpit')).toBe(true);
+    expect(isFixedTab('others')).toBe(true);
+    expect(isFixedTab('metrics')).toBe(true);
+    expect(isFixedTab('context')).toBe(false);
+    expect(isFixedTab('overview')).toBe(false);
   });
 });
 
-describe('tab list helpers', () => {
-  it('orderedTabs is fixed tabs followed by pins in open order', () => {
-    expect(orderedTabs({ pinned: ['A-1', 'B-2'], active: 'overview' })).toEqual([
-      'overview', 'cockpit', 'pipelines', 'context', 'archive', 'A-1', 'B-2',
+describe('ordered routes & keyboard navigation', () => {
+  it('orderedRoutes is fixed routes followed by pins in open order', () => {
+    expect(orderedRoutes(['A-1', 'B-2'])).toEqual([
+      { kind: 'cockpit' }, { kind: 'others' }, { kind: 'pipelines' },
+      { kind: 'metrics' }, { kind: 'archive' },
+      { kind: 'agent', id: 'A-1' }, { kind: 'agent', id: 'B-2' },
     ]);
   });
 
-  it('tabByIndex is 1-based and undefined out of range', () => {
-    const s: TabsState = { pinned: ['A-1'], active: 'overview' };
-    expect(tabByIndex(s, 1)).toBe('overview');
-    expect(tabByIndex(s, 6)).toBe('A-1');
-    expect(tabByIndex(s, 7)).toBeUndefined();
+  it('routeByIndex is 1-based and undefined out of range', () => {
+    expect(routeByIndex(['A-1'], 1)).toEqual({ kind: 'cockpit' });
+    expect(routeByIndex(['A-1'], 6)).toEqual({ kind: 'agent', id: 'A-1' });
+    expect(routeByIndex(['A-1'], 7)).toBeUndefined();
   });
 
-  it('navTab falls back to active when it is not in the list', () => {
-    expect(navTab({ pinned: [], active: 'ghost' }, 1)).toBe('ghost');
+  it('routeIndex finds the current route, -1 when absent', () => {
+    expect(routeIndex(['A-1'], { kind: 'others' })).toBe(1);
+    expect(routeIndex(['A-1'], { kind: 'agent', id: 'A-1' })).toBe(5);
+    expect(routeIndex(['A-1'], { kind: 'agent', id: 'ghost' })).toBe(-1);
+  });
+
+  it('navRoute moves through the list and clamps at the ends', () => {
+    expect(navRoute(['A-1'], { kind: 'cockpit' }, 1)).toEqual({ kind: 'others' });
+    expect(navRoute(['A-1'], { kind: 'cockpit' }, -1)).toEqual({ kind: 'cockpit' }); // clamped
+    const last: Route = { kind: 'agent', id: 'A-1' };
+    expect(navRoute(['A-1'], last, 1)).toEqual(last); // clamped
+    expect(navRoute(['A-1'], last, -1)).toEqual({ kind: 'archive' });
+  });
+
+  it('navRoute falls back to the current route when it is not in the list', () => {
+    const ghost: Route = { kind: 'agent', id: 'ghost' };
+    expect(navRoute([], ghost, 1)).toEqual(ghost);
+  });
+});
+
+describe('pinned-list operations', () => {
+  it('openPin adds new ids and is idempotent', () => {
+    expect(openPin([], 'A-1')).toEqual(['A-1']);
+    expect(openPin(['A-1'], 'A-1')).toEqual(['A-1']);
+    expect(openPin(['A-1'], 'B-2')).toEqual(['A-1', 'B-2']);
+  });
+
+  it('closePin removes an id', () => {
+    expect(closePin(['A-1', 'B-2'], 'A-1')).toEqual(['B-2']);
+    expect(closePin(['A-1'], 'ghost')).toEqual(['A-1']);
+  });
+
+  it('prunePins drops ids that are no longer alive', () => {
+    expect(prunePins(['A-1', 'B-2'], ['B-2'])).toEqual(['B-2']);
+    expect(prunePins(['A-1'], [])).toEqual([]);
+  });
+});
+
+describe('pinned persistence', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('round-trips through localStorage', () => {
+    savePinned(['A-1', 'B-2']);
+    expect(loadPinned()).toEqual(['A-1', 'B-2']);
+  });
+
+  it('returns empty when nothing is stored', () => {
+    expect(loadPinned()).toEqual([]);
+  });
+
+  it('migrates an old blob with a stray active field (reads only pinned)', () => {
+    localStorage.setItem('warden.tabs', JSON.stringify({ pinned: ['A-1'], active: 'overview' }));
+    expect(loadPinned()).toEqual(['A-1']);
+  });
+
+  it('tolerates a corrupt blob', () => {
+    localStorage.setItem('warden.tabs', '{not json');
+    expect(loadPinned()).toEqual([]);
   });
 });

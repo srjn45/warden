@@ -1,79 +1,93 @@
 // The shell has a fixed set of always-present tabs (FIXED_TABS) plus zero or more
-// pinned agent tabs (keyed by agent id). `active` is whichever tab is showing —
-// a fixed id or a pinned agent id.
+// pinned agent tabs (keyed by agent id). The *active* tab is no longer stored —
+// it is derived from the URL (see lib/router.ts). This module owns only the
+// pinned-agent list (which agent panes show in the bar) plus the ordered-tab
+// helpers that drive positional (1-9) and relative (j/k) keyboard navigation,
+// now keyed off routes rather than a reducer.
 
-// FIXED_TABS are the non-closeable tabs that always exist. Pruning never drops
-// the active tab when it is one of these.
-export const FIXED_TABS = ['overview', 'cockpit', 'pipelines', 'context', 'archive'] as const;
+import type { Route } from './router';
+import { FIXED_ROUTE_KINDS, routeToPath } from './router';
+
+// FIXED_TABS are the non-closeable tabs that always exist, in left-to-right
+// order. Mirrors FIXED_ROUTE_KINDS in lib/router.ts.
+export const FIXED_TABS = FIXED_ROUTE_KINDS;
 
 export function isFixedTab(id: string): boolean {
   return (FIXED_TABS as readonly string[]).includes(id);
 }
 
-export interface TabsState {
-  pinned: string[]; // agent ids, in open order
-  active: string;   // a FIXED_TABS id | <agent id>
+// orderedRoutes is the left-to-right tab list as routes — the fixed tabs
+// followed by the pinned agent tabs in open order. Drives positional (1-9) and
+// relative (j/k) keyboard navigation.
+export function orderedRoutes(pinned: string[]): Route[] {
+  return [
+    ...FIXED_TABS.map((kind): Route => ({ kind })),
+    ...pinned.map((id): Route => ({ kind: 'agent', id })),
+  ];
 }
 
-export type TabsAction =
-  | { kind: 'open'; id: string }      // pin (if new) + activate an agent
-  | { kind: 'close'; id: string }     // unpin an agent
-  | { kind: 'activate'; id: string }  // switch active tab
-  | { kind: 'index'; index: number }  // activate the 1-based Nth tab (keyboard 1-9)
-  | { kind: 'nav'; delta: number }    // activate `delta` tabs from the active one (j/k)
-  | { kind: 'prune'; alive: string[] }; // drop pins not in `alive`
-
-export const initialTabs: TabsState = { pinned: [], active: 'overview' };
-
-// orderedTabs is the left-to-right tab list — the fixed tabs followed by the
-// pinned agent tabs in open order. Drives positional (1-9) and relative (j/k)
-// keyboard navigation.
-export function orderedTabs(s: TabsState): string[] {
-  return [...FIXED_TABS, ...s.pinned];
+// routeIndex returns the 0-based position of `route` in the ordered tab list,
+// or -1 when it isn't present (e.g. a stale /agent/<deadid>).
+export function routeIndex(pinned: string[], route: Route): number {
+  const path = routeToPath(route);
+  return orderedRoutes(pinned).findIndex((r) => routeToPath(r) === path);
 }
 
-// tabByIndex returns the 1-based Nth tab id, or undefined when out of range.
-export function tabByIndex(s: TabsState, index: number): string | undefined {
-  return orderedTabs(s)[index - 1];
+// routeByIndex returns the 1-based Nth tab route, or undefined when out of
+// range (keyboard 1-9).
+export function routeByIndex(pinned: string[], index: number): Route | undefined {
+  return orderedRoutes(pinned)[index - 1];
 }
 
-// navTab returns the tab `delta` steps from the active one, clamped to the ends
-// (no wrap). Falls back to the active id when it isn't in the list.
-export function navTab(s: TabsState, delta: number): string {
-  const tabs = orderedTabs(s);
-  const i = tabs.indexOf(s.active);
-  if (i === -1) return s.active;
-  return tabs[Math.min(tabs.length - 1, Math.max(0, i + delta))];
+// navRoute returns the route `delta` steps from `route`, clamped to the ends
+// (no wrap). Falls back to `route` itself when it isn't in the list (j/k).
+export function navRoute(pinned: string[], route: Route, delta: number): Route {
+  const routes = orderedRoutes(pinned);
+  const i = routeIndex(pinned, route);
+  if (i === -1) return route;
+  return routes[Math.min(routes.length - 1, Math.max(0, i + delta))];
 }
 
-export function tabsReducer(s: TabsState, a: TabsAction): TabsState {
-  switch (a.kind) {
-    case 'open': {
-      const pinned = s.pinned.includes(a.id) ? s.pinned : [...s.pinned, a.id];
-      return { pinned, active: a.id };
+// --- pinned-agent list operations (pure) -----------------------------------
+
+// openPin adds an agent id to the pinned list if not already present.
+export function openPin(pinned: string[], id: string): string[] {
+  return pinned.includes(id) ? pinned : [...pinned, id];
+}
+
+// closePin removes an agent id from the pinned list.
+export function closePin(pinned: string[], id: string): string[] {
+  return pinned.filter((p) => p !== id);
+}
+
+// prunePins drops pins for agents that are no longer alive.
+export function prunePins(pinned: string[], alive: string[]): string[] {
+  const set = new Set(alive);
+  return pinned.filter((p) => set.has(p));
+}
+
+// --- pinned-agent persistence ----------------------------------------------
+//
+// We persist only the pinned list now (active is URL-driven). Old blobs wrote
+// the whole TabsState (`{pinned, active}`) under the same key — reading just
+// `.pinned` migrates them transparently; a stray `active:'overview'` is ignored.
+
+const TABS_KEY = 'warden.tabs';
+
+export function loadPinned(): string[] {
+  try {
+    const raw = localStorage.getItem(TABS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { pinned?: unknown };
+    if (Array.isArray(parsed?.pinned)) {
+      return parsed.pinned.filter((x): x is string => typeof x === 'string');
     }
-    case 'activate':
-      return { ...s, active: a.id };
-    case 'index': {
-      const id = tabByIndex(s, a.index);
-      return id ? { ...s, active: id } : s;
-    }
-    case 'nav':
-      return { ...s, active: navTab(s, a.delta) };
-    case 'close': {
-      const pinned = s.pinned.filter((id) => id !== a.id);
-      const active = s.active === a.id ? 'overview' : s.active;
-      return { pinned, active };
-    }
-    case 'prune': {
-      const alive = new Set(a.alive);
-      const pinned = s.pinned.filter((id) => alive.has(id));
-      const active = pinned.includes(s.active) || isFixedTab(s.active)
-        ? s.active
-        : 'overview';
-      return { pinned, active };
-    }
-    default:
-      return s;
-  }
+  } catch { /* corrupt / unavailable storage */ }
+  return [];
+}
+
+export function savePinned(pinned: string[]): void {
+  try {
+    localStorage.setItem(TABS_KEY, JSON.stringify({ pinned }));
+  } catch { /* ignore */ }
 }

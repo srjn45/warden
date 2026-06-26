@@ -1,0 +1,60 @@
+---
+// Catch-all SPA shell. The dashboard does its own client-side routing
+// (lib/router.ts) off `location.pathname`, but Astro is file-routed: a direct
+// load of /cockpit, /metrics, /agent/<id>, etc. would 404 in `astro dev` and in
+// the static build without a matching page. This catch-all renders the same
+// <Dashboard> for every sub-path so deep-links and refreshes hydrate the SPA —
+// matching the prod daemon's SPA fallback (internal/daemon/static.go).
+//
+// `getStaticPaths` emits a small set of static HTML shells (one per known
+// route) at build time; React reads the real path at runtime, so the exact set
+// only needs to cover the routes a user might refresh on.
+import Dashboard from '../components/Dashboard.tsx';
+import '../styles/app.css';
+
+export function getStaticPaths() {
+  return [
+    { params: { path: 'cockpit' } },
+    { params: { path: 'others' } },
+    { params: { path: 'pipelines' } },
+    { params: { path: 'metrics' } },
+    { params: { path: 'archive' } },
+  ];
+}
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>warden</title>
+    <meta name="theme-color" content="#36506B" />
+
+    <!-- Apply the saved theme before first paint to avoid a flash. Mirrors
+         lib/theme.ts (key 'warden.theme', values system|light|dark). -->
+    <script is:inline>
+      try {
+        var t = localStorage.getItem('warden.theme');
+        document.documentElement.setAttribute(
+          'data-theme', t === 'light' || t === 'dark' ? t : 'system');
+      } catch (e) { /* storage unavailable */ }
+    </script>
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/svg+xml" href="/brand/warden-symbol-mono.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon-180.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Social preview (og:image needs an absolute URL when served from a public domain) -->
+    <meta property="og:title" content="warden" />
+    <meta property="og:description" content="Spawn, monitor, and orchestrate Claude Code agents." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/brand/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <Dashboard client:only="react" />
+  </body>
+</html>
