@@ -16,6 +16,7 @@ it's registered. **Every** pipeline verb now has an MCP tool (full parity); only
 | `create_pipeline {spec}` | Parse + validate + register a YAML spec; returns `{id, status, jobs}` in `pending`. |
 | `validate_pipeline {spec}` | Local spec check (DAG/refs/cycles) without contacting the daemon. |
 | `list_pipeline_templates` | Built-in templates + their placeholders. |
+| `library_list` | Browse spawn presets AND pipeline templates together (`warden library list`). |
 | `start_pipeline {pipeline}` | Spawn the dependency-free entry jobs; the daemon drives the rest. |
 | `show_pipeline {pipeline}` | Per-job status + branch + emitted output (durable after agents are gone). |
 | `list_pipelines` | All pipelines + status. |

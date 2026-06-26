@@ -14,6 +14,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/preset"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -516,6 +517,25 @@ func (s *Server) registerExtraTools() {
 		Description: "List the built-in pipeline templates and their placeholders (e.g. analyze→implement→review). Use one as a starting point for create_pipeline. Read-only; local.",
 	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		return jsonResultAny(pipeline.ListTemplates())
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "library_list",
+		Description: "Browse both reusable launch-config libraries in one call: saved spawn presets (named `warden start` defaults) and the built-in pipeline templates. Returns {presets, templates}. Reuses the same sources as the preset store and list_pipeline_templates. Read-only; local. Mirrors `warden library list`.",
+	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		st, err := preset.Load(preset.DefaultPath())
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		presets := make([]map[string]any, 0, len(st.Names()))
+		for _, n := range st.Names() {
+			p, _ := st.Get(n)
+			presets = append(presets, map[string]any{"name": n, "preset": p})
+		}
+		return jsonResultAny(map[string]any{
+			"presets":   presets,
+			"templates": pipeline.ListTemplates(),
+		})
 	})
 
 	// --- schedule write verbs (list_schedules already exists, read-only) ---

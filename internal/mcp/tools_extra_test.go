@@ -46,7 +46,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
 		"pause_pipeline", "resume_pipeline", "retry_pipeline_job",
 		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",
-		"validate_pipeline", "list_pipeline_templates",
+		"validate_pipeline", "list_pipeline_templates", "library_list",
 		"create_schedule", "delete_schedule",
 	}
 	for _, name := range want {
@@ -82,6 +82,16 @@ func TestListPipelineTemplatesTool(t *testing.T) {
 	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "list_pipeline_templates"})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
+}
+
+// TestLibraryListTool returns both presets and templates without a daemon.
+func TestLibraryListTool(t *testing.T) {
+	session := connectTo(t, "http://127.0.0.1:0")
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "library_list"})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), `"presets"`)
+	require.Contains(t, textOf(res), `"templates"`)
 }
 
 // TestSavingsTool exercises the GET /savings round-trip.
