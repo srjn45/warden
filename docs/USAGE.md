@@ -938,8 +938,8 @@ Because it is a per-agent `--settings` file (and `--settings` is *additive*), th
 guard applies only to warden-spawned agents — your own Claude sessions are
 untouched — and your global status hooks still fire. Like the status hook it
 **fails open**: a missing path, unknown session, or unreachable daemon allows the
-edit, so the backstop can never wedge an agent. Disable it with
-`warden config set isolation_guard false`.
+edit, so the backstop can never wedge an agent. Disable it by setting
+`isolation_guard: false` in your config file.
 
 ### Git-redirect guard (auto-injected, no setup)
 
@@ -956,8 +956,8 @@ git global flags (`-C`, `-c`, …) to find the real subcommand.
 Read-only git stays yours to run directly — `git status`, `log`, `diff`, `show`,
 `branch`, `fetch`, `add` and the rest pass straight through. Unlike the isolation
 guard this needs no daemon round-trip (the redirect is a static mapping) and it
-also **fails open** on unreadable input. Disable it with
-`warden config set git_redirect false`.
+also **fails open** on unreadable input. Disable it by setting
+`git_redirect: false` in your config file.
 
 ### Check-redirect guard (auto-injected, config-driven)
 
@@ -977,7 +977,7 @@ command matches when the registered command's leading words are a prefix of it, 
 `go test -run TestX ./pkg` (which `wd check` can't reproduce) is run directly. A
 repo with **no config redirects nothing**, so the feature is effectively opt-in
 per repo, and the hook **fails open** on unreadable input or a malformed config.
-Disable it with `warden config set check_redirect false`.
+Disable it by setting `check_redirect: false` in your config file.
 
 ### Local model (optional, off by default)
 
@@ -988,11 +988,12 @@ classification** (labelling a prompt-spawned agent as `development` / `tests` /
 spawn. You can route that to a **local model** instead, so it never touches your
 Claude budget:
 
-```sh
-warden config set local_llm true                       # off by default
-warden config set local_llm_url   http://localhost:11434   # an Ollama-compatible server
-warden config set local_llm_model qwen2.5-coder:7b
-warden config set local_llm_timeout 20s                # hard per-call cap
+```yaml
+# in ~/.warden/config.yaml (run `wd config path` to locate it), then restart the daemon
+local_llm: true                       # off by default
+local_llm_url: http://localhost:11434 # an Ollama-compatible server
+local_llm_model: qwen2.5-coder:7b
+local_llm_timeout: 20s                # hard per-call cap
 ```
 
 With `local_llm` on, the daemon routes three fuzzy-but-cheap responsibilities at

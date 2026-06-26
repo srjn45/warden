@@ -89,9 +89,9 @@ internal seams the spawn/pipeline routes use, and it's audited.
 
 A single YAML file (default `~/.warden/config.yaml`). `warden config init`
 generates a fully-commented file; edit, then restart the daemon. `warden config`
-prints what's live. `wd config set <key> <value>` sets one key. `--config <path>`
-selects an alternate file; `--addr <host:port>` overrides the daemon address
-per-command.
+prints what's live (there is no `config set` subcommand — edit the YAML by hand;
+`wd config path` locates it). `--config <path>` selects an alternate file;
+`--addr <host:port>` overrides the daemon address per-command.
 
 Notable settings (see the generated file for the full set with defaults):
 
