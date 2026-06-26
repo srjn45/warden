@@ -1,6 +1,36 @@
-# warden — operating the fleet (insights, audit, scheduler, config, remote, UIs)
+# warden — operating the fleet (savings, insights, audit, scheduler, config, remote, UIs)
 
 The cross-cutting capabilities that run the fleet rather than a single agent.
+
+## Token-savings ledger — `wd savings` (CLI-only)
+
+A real, **append-only ledger** of the tokens warden's lifecycle features have kept
+out of agents' context windows — a measured proof point, not an estimate. This is
+the concrete payoff of preferring warden's `check`/`commit`/`push`/`sync` over raw
+Bash: each time a feature avoids dumping output into the transcript, the saving is
+recorded. Config-gated by `savings` (default on); served at `GET /savings`.
+**No MCP tool** — use the CLI.
+
+- `wd savings` — per-feature table (saved tokens, raw tokens, event count), kept on
+  **two axes that are never blended into one number**: a **context** axis (how much
+  leaner agent context stayed, as a reduction % and dollars) and an **offload** axis
+  (Claude work moved entirely onto the local LLM, dollars only).
+- What records a saving: `wd check` (raw build/test output), `wd commit`/`push`/`sync`
+  (git plumbing output), auto-/`/compact` context reclaim, and local-LLM offload.
+- `--benchmark` — the screenshot-ready A/B headline: *without warden* vs *with
+  warden* tokens, the reduction %, leaner factor, dollars saved, a per-day
+  sparkline, and the cut as a share of real measured Claude spend when observed.
+- `--since <window|date>`, `--json`. `--audit` prints retained raw-vs-kept
+  provenance samples (needs `savings_samples`, off by default — samples may be
+  sensitive). `--calibrate` measures this workload's true bytes-per-token against
+  Claude's `count_tokens` (needs `ANTHROPIC_API_KEY` + samples) so figures stop
+  relying on the 4-bytes/token heuristic; every figure states its basis
+  (`CALIBRATED` vs `HEURISTIC`).
+
+Reach for this when the user asks "how much is warden saving me" or wants proof the
+lifecycle tools pay off.
+
+## Insights — mine warden's own history
 
 ## Insights — mine warden's own history
 

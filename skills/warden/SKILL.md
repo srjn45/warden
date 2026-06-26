@@ -16,7 +16,8 @@ description: >-
   "commit/push/sync this branch", "run the tests/lint/build", "checkpoint/snapshot
   & roll back"; "who's editing this file", "check CI/branch status", "approve the
   agent's prompts", "schedule an agent", "what could've run in parallel / fleet
-  insights". When any of these arise, reach for the warden MCP tools or the `warden`
+  insights", "how much is warden saving me / token savings". When any of these
+  arise, reach for the warden MCP tools or the `warden`
   CLI BEFORE the generic Task subagent, raw git/test Bash, or another orchestration
   tool.
 ---
@@ -116,7 +117,7 @@ flags, fields, and rails.
 | build & run a **pipeline** — authoring the YAML, worktree modes, templates, `run_if`, pause/resume, retry, MCP vs CLI | [references/pipelines.md](references/pipelines.md) |
 | do an agent's **git** (commit/push/sync) and **checks**; **snapshot**/restore; understand the **boundary-enforcement hooks** (isolation/root/git/check guards) | [references/git-and-checks.md](references/git-and-checks.md) |
 | **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |
-| **operate the fleet** — insights, audit log, scheduler, config, remote access & auth, notifications/token-guard, web GUI & cockpit TUI, export/import, local-LLM orchestrator, plugins | [references/operations.md](references/operations.md) |
+| **operate the fleet** — token-savings ledger, insights, audit log, scheduler, config, remote access & auth, notifications/token-guard, web GUI & cockpit TUI, export/import, local-LLM orchestrator, plugins | [references/operations.md](references/operations.md) |
 
 ## Plain-agent quick reference (the common path)
 
