@@ -397,19 +397,26 @@ Act on many agents at once from the web cockpit instead of one tile at a time.
 
 ---
 
-## 17. Orchestrator (`wd orch`)
+## 17. Interactive mode / orchestrator (`wd orch`)
 
-A warden-aware, **local-LLM** conductor REPL that turns natural-language operator
-intent into **confirmed** warden tool calls — spawn/monitor/teardown agents, drive
-pipelines, run the git/check lifecycle — without spending Claude tokens. Run it
-standalone (`wd orch`, alias `wd orchestrator`) or as the cockpit master pane (the
-`orchestrator` config setting / `--orch` flag). Requires `local_llm: true`; it's an
-interactive surface with no deterministic fallback. **It conducts; it never
-implements** — there is no edit/write/bash/shell tool in its registry, so all code
-work is delegated by `spawn_agent`-ing a Claude agent.
+warden's **interactive mode**: a proper terminal REPL to drive the fleet. Run it
+standalone (`wd orch`, aliases `wd interactive` / `wd i` / `wd orchestrator`) or as
+the cockpit master pane (the `orchestrator` config setting / `--orch` flag). It
+drives the fleet two ways — a **deterministic `/`-command half** that needs no
+model, and a **natural-language half** that turns intent into **confirmed** warden
+tool calls without spending Claude tokens. **It conducts; it never implements** —
+there is no edit/write/bash/shell tool in its registry, so all code work is
+delegated by `spawn_agent`-ing a Claude agent.
+
+It **starts without a local model** — the `/` commands and `!`-shell always work;
+only the natural-language half needs `local_llm: true` (a bare line says so when
+it's off). This deterministic fallback is why interactive mode no longer hard-fails
+without a model.
 
 | Feature | Description |
 |---|---|
+| **Real line editor** | readline-backed: arrow-key cursor movement, ↑/↓ history persisted to `~/.warden/orch_history`, Ctrl-R reverse-search, Ctrl-A/E/W/K/U editing, Tab completion of `/` command names **and live agent ids**, Ctrl-C to abandon a line, Ctrl-D (or `exit`) to close back to the shell. Prompt/headings are colourised via lipgloss, auto-disabled on non-TTY output and `NO_COLOR`. |
+| **Deterministic `/` commands** | Type a `/`-verb (`/agents`, `/spawn <prompt>`, `/tell <id> <text>`, `/stop`, `/commit`/`/push`/`/sync`/`/check`, `/pipelines`, `/ctx*`, `/approvals`, … `/help`) and warden runs the exact verb with **no model in the loop** — reads auto-execute, mutations pass the same confirm gate as the model's calls. An unknown `/verb` is caught with a hint rather than falling through to the model. This is the reliable half: it keeps working when the local model is slow or wrong. |
 | **NL → tool-call loop** | Backed by the `internal/llm` `Chatter` seam (Ollama `/api/chat`, multi-turn tool-calling). A bounded turn budget stops runaway loops; malformed args / unknown tools recover instead of garbling execution. |
 | **Read-vs-mutate registry** | Read-only verbs auto-execute (`list_agents`, `get_agent`, `get_agent_output`, `get_collaboration_status`, `read_inbox`, `list_approvals`, `ctx_get`, `ctx_list`, `pipeline_list`, `pipeline_get`). The same daemon client the MCP server uses — no new business logic. |
 | **Mandatory confirm gate** | Every mutating verb (`spawn_agent`, `send_to_agent`, `terminate_agent`, `delete_agent`, `restore_agent`, `approve`, `commit`, `push`, `sync`, `check`, `ctx_set`, `send_message`, `pipeline_create`, `pipeline_cancel`, `clean_up`) requires explicit operator approval before it runs — **non-config-gated**, can't be disabled. A batched plan confirms as one unit. |

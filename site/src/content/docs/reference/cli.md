@@ -44,7 +44,7 @@ Available Commands:
   ls                  List all active agent sessions
   mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
   msg                 Send and receive directed messages between agents
-  orch                Natural-language conductor for agents, pipelines, and the git/check lifecycle (local LLM)
+  orch                Interactive conductor for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands)
   pipeline            Define and run DAG pipelines of agent jobs
   plugin              Inspect the plugin registry (custom task types + lifecycle hooks)
   preset              Save and list named spawn configs (replay with `warden start --preset <name>`)
@@ -533,12 +533,21 @@ Flags:
 ## warden orch
 
 ```text
-Natural-language conductor for agents, pipelines, and the git/check lifecycle (local LLM).
-Requires the local_llm config setting. Aliases: orchestrator.
+Interactive conductor for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
+Aliases: orchestrator, interactive, i.
+
+A real line editor (arrow keys, persisted history, reverse-search, Tab completion)
+that closes with Ctrl-D. Drive it with deterministic `/` commands (no model:
+/agents, /spawn <prompt>, /tell <id> <text>, … — type /help) or with natural
+language (planned by the local LLM, each call confirmed). `!cmd` runs a command
+in your own $SHELL. Starts without local_llm — only the natural-language half
+needs it.
 
 Usage:
   warden orch [flags]
 ```
+
+See [Interactive mode](/warden/multi-agent/orchestrator-repl/) for the full `/`-command table.
 
 ## warden auto-approve / set-permission-mode
 

@@ -1,8 +1,8 @@
 package orchestrator
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -219,26 +219,37 @@ func (s *Session) ObserveShell(line string, res RunResult) {
 // only OBSERVED — never acted on, even on failure. A bare line goes to the
 // model via Handle.
 func RunREPL(ctx context.Context, s *Session, sh ShellRunner, r io.Reader, w io.Writer) error {
-	sc := bufio.NewScanner(r)
+	st := newStyler(w)
+	lr := newLineReader(s, r, w, historyFilePath())
+	defer lr.Close()
 	if g, ok := s.gate.(*Gate); ok {
-		g.in = sc // single source of truth for stdin
+		g.useReader(lr, st) // single source of truth for stdin
 	}
-	fmt.Fprintln(w, "warden orchestrator — natural-language conductor. Type a request, '!cmd' to run a shell command, or 'exit'.")
-	fmt.Fprint(w, "warden› ")
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+	fmt.Fprintln(w, st.banner.Render("warden interactive — natural-language conductor over your fleet"))
+	fmt.Fprintln(w, st.hint.Render("↑/↓ history · Tab complete · /help for commands · !cmd shell · Ctrl-D to exit"))
+	for {
+		line, err := lr.Prompt(st.Promptf())
+		if errors.Is(err, errInterrupted) {
+			continue // Ctrl-C abandons the line, keeps the session
+		}
+		if err != nil {
+			return nil // EOF / Ctrl-D closes interactive mode
+		}
+		line = strings.TrimSpace(line)
 		switch {
 		case line == "":
 		case line == "exit", line == "quit":
 			return nil
 		case strings.HasPrefix(line, "!"):
 			runBang(ctx, s, sh, strings.TrimPrefix(line, "!"), w)
+		case strings.HasPrefix(line, "/"):
+			if out, handled := s.RunCommand(ctx, line); handled {
+				fmt.Fprintln(w, out)
+			}
 		default:
 			fmt.Fprintln(w, s.Handle(ctx, line))
 		}
-		fmt.Fprint(w, "warden› ")
 	}
-	return sc.Err()
 }
 
 // runBang executes a `!` command in the operator's shell and stays passive: the

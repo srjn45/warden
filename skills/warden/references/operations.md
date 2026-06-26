@@ -142,16 +142,26 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   from a plain terminal (not nested in tmux). Hold **Shift** to select text
   natively (tmux mouse mode eats plain drag).
 
-## Local-LLM orchestrator (`wd orch`)
+## Interactive mode / orchestrator (`wd orch`)
 
-A warden-aware, **local-LLM** conductor REPL that turns natural-language operator
-intent into **confirmed** warden tool calls — no Claude tokens. Requires
-`local_llm: true`. **It conducts, never implements** (no edit/write/bash in its
-registry — all code work is delegated by spawning a Claude agent). Read-only verbs
-auto-execute; every mutating verb requires explicit operator confirmation (a
-non-config-gated gate). `!`-prefixed lines run in a persistent embedded shell and
-are reported verbatim (no auto-action). Run standalone (`wd orch`) or as the cockpit
-master pane (`orchestrator` config / `--orch`).
+warden's **interactive mode** — an operator-facing terminal REPL (aliases `wd
+interactive` / `wd i`), **not** something an agent drives over MCP. A real line
+editor (arrow keys, persisted history, reverse-search, Tab completion, colour) that
+closes with Ctrl-D. Two ways to drive the fleet:
+
+- **Deterministic `/` commands (no model):** `/agents`, `/spawn <prompt>`, `/tell
+  <id> <text>`, `/stop`, `/commit`/`/push`/`/sync`/`/check`, `/pipelines`, `/ctx*`,
+  `/approvals`, … `/help` lists them. Reads auto-execute; mutations pass the confirm
+  gate. Works even when the local model misbehaves.
+- **Natural language (local LLM):** any other line is planned into **confirmed**
+  warden tool calls — no Claude tokens. **It conducts, never implements** (no
+  edit/write/bash in its registry — code work is delegated by spawning a Claude
+  agent).
+
+Starts without a model (the `/` commands and `!`-shell always work); only the NL
+half needs `local_llm: true`. `!`-prefixed lines run in a persistent embedded shell,
+reported verbatim (no auto-action). Run standalone or as the cockpit master pane
+(`orchestrator` config / `--orch`).
 
 ## Export / import & plugins
 
