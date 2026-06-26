@@ -67,61 +67,60 @@ URLs. Concretely:
 
 | Route        | Tab label              | Component             | Notes |
 |--------------|------------------------|-----------------------|-------|
-| `/`          | (Cockpit)              | `CockpitTab`          | Default — `/` renders Cockpit, canonical path stays `/` (no redirect) |
-| `/cockpit`   | ⊞ Cockpit              | `CockpitTab`          | Same view as `/`; now hosts the Fleet summary header |
+| `/`          | →                      | (redirect)            | **Redirects to `/cockpit`** — single canonical URL |
+| `/cockpit`   | ⊞ Cockpit              | `CockpitTab`          | Default view; now hosts the Fleet summary header |
+| `/others`    | ▦ Others               | `OthersTab` (renamed) | The former *Overview*, renamed — the catch-all landing spot for anything not yet homed |
 | `/pipelines` | ⛓ Pipelines           | `PipelinesTab`        | unchanged content |
 | `/metrics`   | 📊 Metrics             | `MetricsTab` (**new**)| per-agent CPU/mem/context + fleet size + tokens saved |
-| `/context`   | 🗒 Context & Messages  | `ContextMessagesTab`  | unchanged content |
 | `/archive`   | 🗄 Archive             | `ArchiveTab`          | unchanged content |
 | `/agent/<id>`| `<id>` (closeable)     | `AgentTab`            | pinned agent panes become real URLs |
+| _(no tab)_   | 🗒 header button       | `ContextMessagesTab`  | **removed from the tab bar** — opened from a small header button as an overlay (§4.5) |
 
-**Removed surfaces:**
-- The standalone **Overview** tab is removed from the tab bar. Its still-useful
-  pieces (*Needs you* / attention queue, *File conflicts*) are relocated — see
-  §4.3. The redundant *All agents* grid and *Quick spawn* card are deleted. The
-  *Resources* card moves into the new **Metrics** tab.
-
-> **Decision point for review:** Overview currently also hosts the *Needs you*
-> attention queue and *File conflicts* panel. The request says "remove the all
-> agents, move the Fleet to Cockpit" and "move metrics to a new tab" — it does
-> not explicitly say where attention/conflicts go. Proposed: fold both into
-> **Cockpit** as a collapsible header strip above the grid (they're fleet-wide
-> situational awareness and belong next to the agents). Alternative: keep a slim
-> Overview. **Flagging for your call (see §9 Q1).**
+**Decisions (resolved with maintainer):**
+- **Overview is renamed to "Others"** (route `/others`), not deleted. It is the
+  designated **catch-all** tab: the home for anything we haven't found a proper
+  place for yet. New/orphaned widgets land here until they earn a dedicated home.
+- *Needs you* (attention queue), *File conflicts*, and *Recent activity* **stay
+  in Others**.
+- Only the **Fleet** summary moves out of Others → into **Cockpit** (§4.2). The
+  *All agents* grid and *Quick spawn* card are **deleted**; the *Resources* card
+  moves into the new **Metrics** tab.
 
 ### 4.2 Cockpit becomes the home
 
-`CockpitTab` gains a header region above the agent grid:
+`CockpitTab` gains a slim Fleet header above the agent grid:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ Fleet:  12 total · 4 busy · 2 waiting · 1 errored         │  ← FleetStats (moved here)
 │ pressure: normal           dirs: warden(8) site(3) …      │
 ├──────────────────────────────────────────────────────────┤
-│ ⚠ Needs you (2)   ▸ agent-x waiting · agent-y errored     │  ← AttentionQueue (relocated, collapsible)
-│ ⚑ Conflicts (1)   ▸ api.go edited by agent-a, agent-b     │  ← ConflictsPanel (relocated, collapsible)
-├──────────────────────────────────────────────────────────┤
 │  [ agent grid — existing full-size tiles, lines=14 ]      │
 └──────────────────────────────────────────────────────────┘
 ```
 
-- `FleetStats` renders once, at the top of Cockpit (was in Overview).
-- `AttentionQueue` + `ConflictsPanel` move here as compact, collapsible rows
-  (default expanded only when non-empty) — pending the §9 Q1 decision.
+- `FleetStats` renders once, at the top of Cockpit (was in Overview). This is
+  the only piece that leaves Others for Cockpit.
+- *Needs you* / *Conflicts* / *Recent activity* stay in the **Others** tab — not
+  duplicated here.
 - The grid, batch-select, bulk action bar, and per-pane `+` spawn are unchanged.
 
 ### 4.3 What moves where (component-level)
 
 | Piece                | From (Overview)     | To                          |
 |----------------------|---------------------|-----------------------------|
-| `FleetStats`         | Overview card       | **Cockpit header**          |
-| `AttentionQueue`     | Overview *Needs you*| **Cockpit header** (collapsible) |
-| `ConflictsPanel`     | Overview *Conflicts*| **Cockpit header** (collapsible) |
+| `FleetStats`         | Overview card       | **Cockpit header** (the only piece that leaves) |
+| `AttentionQueue`     | Overview *Needs you*| **Stays — Others tab**      |
+| `ConflictsPanel`     | Overview *Conflicts*| **Stays — Others tab**      |
+| `ActivityFeed`       | Overview *Recent activity* | **Stays — Others tab** |
 | `ResourcesPanel`     | Overview *Resources*| **Metrics tab**             |
 | `QuickSpawn`         | Overview            | **Deleted** (top-right `+ New agent` is the one spawn path) |
 | `AgentGrid` (mini)   | Overview *All agents* | **Deleted** (Cockpit has the canonical grid) |
-| `ActivityFeed`       | Overview *Recent activity* | **Deleted from Overview**; see §9 Q2 (move to Metrics/Cockpit or drop) |
-| `OverviewTab.tsx`    | —                   | **Deleted** (after relocating its parts) |
+| `OverviewTab.tsx`    | —                   | **Renamed → `OthersTab.tsx`** (drops Fleet/QuickSpawn/All-agents; keeps Needs-you, Conflicts, Recent activity) |
+
+After the rewamp the **Others** tab holds: *Needs you* (attention queue), *File
+conflicts*, *Recent activity* — and is where any future not-yet-homed widget
+goes first.
 
 ### 4.4 New Metrics tab (`/metrics`)
 
@@ -137,13 +136,15 @@ Charts (each its own `<section className="card">`):
    `sample.agents[].cpu_percent`.
 2. **Memory per agent** — multi-series line chart, one series per agent,
    y = `rss_bytes` (GiB), x = time. Source: `sample.agents[].rss_bytes`.
-3. **Context per agent** — per-agent context-token usage. Source: live
-   `Session.context_tokens` (the metrics history has **no** context column). Two
-   render options (§9 Q3): (a) a **live grouped bar chart** of current
-   `context_tokens` per agent (simplest, always correct), or (b) a client-side
-   accumulated time series built from SSE session updates while the tab is open
-   (richer, but resets on reload). **Proposed: (a) bar chart now**, with a small
-   `% of window` annotation from `context_state`.
+3. **Context per agent** — multi-series **line chart** over time, one series per
+   agent, y = `context_tokens`, x = time. The metrics history store has **no**
+   context column, so the series is **accumulated client-side**: a ring buffer in
+   `Dashboard` (or a small `lib/contextHistory.ts` store) samples each live
+   `Session.context_tokens` from the existing `/sessions` + SSE feed and appends a
+   timestamped point. Survives tab switches (kept in app state above the tab); a
+   full page reload starts the window fresh (documented limitation — a true
+   persisted history is the §6 daemon follow-up). `context_state`
+   (ok/warning/critical) colors the latest point / legend so pressure is visible.
 4. **Number of agents** — single-series area/line, y = `system.agent_count`,
    x = time. Source: `getMetricsHistory()` → `sample.system.agent_count`.
 5. **Tokens saved** — single-series bar/line of daily saved tokens. Source:
@@ -154,6 +155,23 @@ Charts (each its own `<section className="card">`):
 
 Each per-agent multi-series chart gets a stable color per agent id and a compact
 legend. Empty/auth/disabled states render inline (no blank canvases).
+
+### 4.5 Context & Messages → header button (not a tab)
+
+*Context & Messages* is a read-only inspector and low-traffic, so it no longer
+earns a top-level tab. It is **removed from the tab bar** and instead opened from
+a **small icon button on the right side of the header** (`AttentionBar.tsx`),
+next to the theme / help / notify controls — e.g. `🗒`.
+
+- Clicking it opens `ContextMessagesTab`'s content as a **dismissible overlay**
+  (right-side drawer or centered modal), mirroring the existing `ShortcutsHelp`
+  overlay pattern. **Esc** closes it (wire into the existing keyboard layer in
+  `Dashboard.tsx`).
+- No route is consumed; it is overlay state (`showContext`) in `Dashboard`, not a
+  navigable URL. (If we later want deep-linkable context, it can graduate back to
+  a route — but the request is explicitly "place the button in the header".)
+- `ContextMessagesTab.tsx` is reused as-is for the overlay body (optionally
+  renamed `ContextMessagesPanel` for clarity).
 
 ---
 
@@ -166,9 +184,13 @@ The app is an Astro **static** SPA mounted once (`src/pages/index.astro` →
 adding a router dependency:
 
 - **New `web/src/lib/router.ts`** — a tiny hash-free History-API helper:
-  - `parseRoute(pathname): Route` → maps `/`→`{kind:'cockpit'}`,
-    `/cockpit|/pipelines|/metrics|/context|/archive`→ fixed tab,
+  - `parseRoute(pathname): Route` → maps
+    `/cockpit|/others|/pipelines|/metrics|/archive`→ fixed tab,
     `/agent/<id>`→`{kind:'agent', id}`, anything else → cockpit (default).
+    (`/context` is no longer a route — it's a header-button overlay, §4.5.)
+  - **`/` redirects to `/cockpit`** (single canonical URL): on load, if the path
+    is `/` the app does `history.replaceState` to `/cockpit` before first render
+    (a `replace`, not a `push`, so Back doesn't bounce). `/cockpit` is the home.
   - `routeToPath(route): string` → inverse, for building hrefs / `pushState`.
   - `navigate(route)` → `history.pushState` + dispatch an internal event.
   - `useRoute()` React hook → subscribes to `popstate` + our navigate event,
@@ -181,13 +203,15 @@ adding a router dependency:
 - **`Dashboard.tsx`** — replace tab reducer with `useRoute()`. The big
   `tabs.active === 'overview' && …` switch becomes a `switch (route.kind)`.
   Keyboard shortcuts (`j/k`, `1-9`, `/`) now call `navigate(...)` over the
-  ordered route list instead of dispatching reducer actions.
+  ordered route list instead of dispatching reducer actions. Also owns the
+  client-side context-history ring buffer feeding the Metrics tab (§4.4 item 3).
 - **`TabBar.tsx`** — render `<a href>` anchors (with `onClick`→`navigate`,
   `preventDefault`) so tabs are real links (middle-click / open-in-new-tab work)
-  and highlight via `route` match. Drop the `Overview` button; add `Metrics`.
+  and highlight via `route` match. Rename the `Overview` button → `Others`; add
+  `Metrics`.
 - **`lib/tabs.ts`** — refactor: `FIXED_TABS` becomes the route list
-  `['cockpit','pipelines','metrics','context','archive']` (no `overview`).
-  Keep `orderedTabs` / index / nav helpers but key them off routes. Pinned-agent
+  `['cockpit','others','pipelines','metrics','archive']` (no `context`). Keep
+  `orderedTabs` / index / nav helpers but key them off routes. Pinned-agent
   persistence stays; active-tab persistence is removed (URL is the source of
   truth). Update `lib/tabs.test.ts` accordingly.
 
@@ -211,15 +235,23 @@ app reads `location.pathname`.)
   `MetricsSample[]` → per-agent aligned series (CPU, RSS), fleet-size series, and
   from `Summary.Buckets` → tokens-saved series. Unit-tested (mirrors existing
   `lib/metrics.test.ts`).
-- **Edit** `CockpitTab.tsx` — add the Fleet header (FleetStats) and the
-  relocated AttentionQueue/ConflictsPanel strip.
-- **Edit** `Dashboard.tsx` — routing, switch, drop Overview wiring, add Metrics.
-- **Edit** `TabBar.tsx` — links + Metrics tab − Overview tab.
-- **Delete** `OverviewTab.tsx`, `QuickSpawn.tsx` (and its test/usages),
-  `QuickAddButton.tsx` if unused after this. Move `ResourcesPanel.tsx` usage to
-  Metrics (keep the component, or fold into MetricsTab).
-- **Keep** the top-right `+ New agent` button (`AttentionBar.tsx`) as the single
-  spawn entry point — no change beyond it now being the only one.
+- **Edit** `CockpitTab.tsx` — add the Fleet header (FleetStats) only.
+- **Rename** `OverviewTab.tsx` → `OthersTab.tsx` — drop the Fleet, Quick spawn,
+  and All-agents grid sections; keep *Needs you* (`AttentionQueue`), *File
+  conflicts* (`ConflictsPanel`), and *Recent activity* (`ActivityFeed`). This is
+  the catch-all tab going forward.
+- **Edit** `Dashboard.tsx` — routing, switch, rewire Overview→Others + Metrics,
+  own the context-history buffer, and add `showContext` overlay state (opened by
+  the new header button, closed by Esc).
+- **Edit** `TabBar.tsx` — links; rename Overview→Others; add Metrics; **remove
+  the Context & Messages tab**.
+- **Edit** `AttentionBar.tsx` — add a small right-side `🗒` button that toggles
+  the Context & Messages overlay. Keep `+ New agent` as the single spawn path.
+- **Reuse** `ContextMessagesTab.tsx` as the overlay body (optionally rename
+  `ContextMessagesPanel`).
+- **Delete** `QuickSpawn.tsx` (and its test/usages), `QuickAddButton.tsx` if
+  unused after this. Move `ResourcesPanel.tsx` usage to Metrics (keep the
+  component, or fold into MetricsTab).
 
 ### 5.3 Data sources (all already exist)
 
@@ -227,7 +259,7 @@ app reads `location.pathname`.)
 |-----------------------|--------------------------------------------------|---------------|
 | A. CPU per agent      | `getMetricsHistory()` → `agents[].cpu_percent`   | `GET /metrics/history` |
 | B. Memory per agent   | `getMetricsHistory()` → `agents[].rss_bytes`     | `GET /metrics/history` |
-| C. Context per agent  | live `Session.context_tokens` / `context_state`  | `GET /sessions` + SSE (already in `Dashboard`) |
+| C. Context per agent  | client-accumulated series from live `Session.context_tokens` / `context_state` (ring buffer in `Dashboard`) | `GET /sessions` + SSE (already in `Dashboard`) |
 | D. Number of agents   | `getMetricsHistory()` → `system.agent_count`     | `GET /metrics/history` |
 | E. Tokens saved       | **new** `getSavings()` client → `Buckets[]`      | `GET /savings?bucket=day` (exists) |
 
@@ -238,12 +270,13 @@ Handle the 403 (disabled) path explicitly.
 
 ### 5.4 Tests
 
-- Update `web/src/lib/tabs.test.ts` for the new route list (no `overview`,
-  `+metrics`).
+- Update `web/src/lib/tabs.test.ts` for the new route list
+  (`cockpit,others,pipelines,metrics,archive` — no `context`).
 - New `web/src/lib/router.test.ts` — `parseRoute`/`routeToPath` round-trips,
-  default-to-cockpit, agent routes.
+  `/`→`/cockpit` redirect, default-to-cockpit fallback, agent routes.
 - New `web/src/lib/metricsSeries.test.ts` — series transforms, empty input.
-- Adjust any test that imports the deleted `OverviewTab`/`QuickSpawn`.
+- Adjust any test that imports the renamed `OverviewTab`→`OthersTab` or the
+  deleted `QuickSpawn`.
 - `npm run test` (vitest) green; `npm run build` (astro) green.
 
 ---
@@ -257,8 +290,9 @@ any non-API, non-file GET (SPA fallback), so `/cockpit`, `/metrics`,
 rest. No new endpoints, no route changes.
 
 (One optional future follow-up, explicitly **out of scope**: add a context-token
-column to the metrics recorder so *Context per agent* can be a true historical
-time series instead of a live snapshot. Tracked, not done here.)
+column to the metrics recorder so *Context per agent* can be a **persisted**
+historical series that survives reloads, instead of the client-accumulated
+in-session series we build now. Tracked, not done here.)
 
 ## 7. Risks / edge cases
 
@@ -267,10 +301,13 @@ time series instead of a live snapshot. Tracked, not done here.)
   crashing uPlot (rebuild series defs when the agent set changes).
 - **localStorage migration:** existing users have `warden.tabs` with
   `active:'overview'`. The new loader ignores stored `active` (URL wins) and
-  only reads `pinned`; an old blob must not break parsing.
+  only reads `pinned`; an old blob must not break parsing. (`'overview'` no
+  longer exists as an active id — it's now `'others'`.)
 - **Pinned-tab default route:** closing the last agent tab or landing on a stale
   `/agent/<deadid>` must fall back to `/cockpit` (mirror today's prune→overview
-  behavior, retargeted to cockpit).
+  behavior, retargeted to cockpit — the new default).
+- **`/` redirect loop:** the `replaceState('/cockpit')` must run once on initial
+  load only and never re-fire on subsequent `/cockpit` navigations.
 - **Savings disabled (403):** Metrics tab must degrade gracefully, not error.
 - **Dev vs prod routing parity:** the `[...path].astro` catch-all keeps `astro
   dev` and the static build behaving like the daemon's fallback.
@@ -289,23 +326,26 @@ To be completed at delivery (after plan approval + implementation):
       n/a — this is human UI).
 - [ ] **CLI help** — n/a (no cobra command changes).
 
-## 9. Open questions for review (please decide before I implement)
+## 9. Decisions (resolved with maintainer, 2026-06-26)
 
-**Q1 — Attention queue & conflicts placement.** With Overview gone, where do
-*Needs you* (attention queue) and *File conflicts* live? Proposed: collapsible
-strip at the top of **Cockpit**. Alternatives: a slim retained **Overview** tab,
-or surface them only via the existing top-bar `⚠ N needs you` pill.
+**D1 — Attention queue & conflicts placement → rename Overview to "Others".**
+The Overview tab is **kept and renamed to "Others"** (`/others`). *Needs you*
+(attention queue) and *File conflicts* **stay there**. Others is the designated
+**catch-all** tab — the goto place for any new/not-yet-homed widget until it
+finds a proper home.
 
-**Q2 — Recent activity feed.** Overview's `ActivityFeed` has no obvious new home.
-Proposed: **drop it from the home view** (the per-agent panes already show
-events). Alternative: add it as a card on the Metrics tab or Cockpit footer.
+**D2 — Recent activity feed → Others tab.** `ActivityFeed` **moves to (stays in)
+the Others tab**, alongside *Needs you* and *Conflicts*.
 
-**Q3 — Context-per-agent graph shape.** Proposed: **live grouped bar chart** of
-current `context_tokens` per agent (no historical store needed). Alternative:
-client-side accumulated time series (richer, resets on reload), or defer a true
-historical series to the daemon follow-up in §6.
+**D3 — Context-per-agent graph → richer time series.** Use the **client-side
+accumulated time-series line chart** (ring buffer over live `context_tokens`),
+not a bar snapshot. Resets on full reload; a persisted series is the §6 daemon
+follow-up.
 
-**Q4 — `/` canonical path.** Proposed: `/` renders Cockpit and **stays** `/`
-(no redirect to `/cockpit`); the Cockpit tab links to `/cockpit`. Both show the
-same view. Alternative: redirect `/` → `/cockpit` so there's a single canonical
-URL.
+**D4 — `/` canonical path → redirect.** `/` **redirects to `/cockpit`**
+(`replaceState`) so there is a single canonical home URL.
+
+**D5 — Context & Messages → header button, not a tab.** It's a low-traffic
+read-only inspector, so it's **removed from the tab bar** and opened from a small
+`🗒` button on the **right side of the header**, shown as a dismissible overlay
+(Esc to close). No route consumed. See §4.5.
