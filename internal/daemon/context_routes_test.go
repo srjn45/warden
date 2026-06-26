@@ -24,7 +24,7 @@ func TestContextSetGetRoundTrip(t *testing.T) {
 	defer ts.Close()
 
 	body := bytes.NewBufferString(`{"value":"hello","by":"agent-A"}`)
-	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/context/global.greeting", body)
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/v1/context/global.greeting", body)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("PUT: %v", err)
@@ -34,7 +34,7 @@ func TestContextSetGetRoundTrip(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	resp, err = http.Get(ts.URL + "/context/global.greeting")
+	resp, err = http.Get(ts.URL + "/api/v1/context/global.greeting")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestContextSetGetRoundTrip(t *testing.T) {
 func TestContextGetMissing404(t *testing.T) {
 	ts := newCtxTestServer(t)
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/context/missing")
+	resp, err := http.Get(ts.URL + "/api/v1/context/missing")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -62,14 +62,14 @@ func TestContextGetMissing404(t *testing.T) {
 func TestContextSetDefaultsWriterToHuman(t *testing.T) {
 	ts := newCtxTestServer(t)
 	defer ts.Close()
-	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/context/k", bytes.NewBufferString(`{"value":"v"}`))
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/v1/context/k", bytes.NewBufferString(`{"value":"v"}`))
 	putResp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("PUT: %v", err)
 	}
 	putResp.Body.Close()
 
-	resp, err := http.Get(ts.URL + "/context/k")
+	resp, err := http.Get(ts.URL + "/api/v1/context/k")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -86,11 +86,11 @@ func TestContextCASConflictReturns409(t *testing.T) {
 	defer ts.Close()
 
 	// Seed a value, then CAS with a stale expected → 409.
-	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/context/lock", bytes.NewBufferString(`{"value":"agent-A"}`))
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/v1/context/lock", bytes.NewBufferString(`{"value":"agent-A"}`))
 	put, _ := http.DefaultClient.Do(req)
 	put.Body.Close()
 
-	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/context/lock/cas", bytes.NewBufferString(`{"expected":"someone-else","value":"agent-B"}`))
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/api/v1/context/lock/cas", bytes.NewBufferString(`{"expected":"someone-else","value":"agent-B"}`))
 	conflict, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("CAS POST: %v", err)
@@ -101,13 +101,13 @@ func TestContextCASConflictReturns409(t *testing.T) {
 	}
 
 	// Matching expected → 200 and the value swaps.
-	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/context/lock/cas", bytes.NewBufferString(`{"expected":"agent-A","value":"agent-B"}`))
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/api/v1/context/lock/cas", bytes.NewBufferString(`{"expected":"agent-A","value":"agent-B"}`))
 	ok, _ := http.DefaultClient.Do(req)
 	ok.Body.Close()
 	if ok.StatusCode != http.StatusOK {
 		t.Fatalf("want 200 on matching expected, got %d", ok.StatusCode)
 	}
-	resp, _ := http.Get(ts.URL + "/context/lock")
+	resp, _ := http.Get(ts.URL + "/api/v1/context/lock")
 	var e ctxstore.Entry
 	json.NewDecoder(resp.Body).Decode(&e)
 	resp.Body.Close()
@@ -120,7 +120,7 @@ func TestContextAppend(t *testing.T) {
 	ts := newCtxTestServer(t)
 	defer ts.Close()
 	for _, v := range []string{"one", "two"} {
-		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/context/log/append",
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/context/log/append",
 			bytes.NewBufferString(`{"value":"`+v+`","sep":"\n"}`))
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -128,7 +128,7 @@ func TestContextAppend(t *testing.T) {
 		}
 		resp.Body.Close()
 	}
-	resp, _ := http.Get(ts.URL + "/context/log")
+	resp, _ := http.Get(ts.URL + "/api/v1/context/log")
 	var e ctxstore.Entry
 	json.NewDecoder(resp.Body).Decode(&e)
 	resp.Body.Close()
@@ -142,7 +142,7 @@ func TestContextReservedWriterForbidden(t *testing.T) {
 	defer ts.Close()
 
 	// An agent must not be able to write to the blackboard as the daemon.
-	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/context/k",
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/v1/context/k",
 		bytes.NewBufferString(`{"value":"v","by":"daemon"}`))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -153,7 +153,7 @@ func TestContextReservedWriterForbidden(t *testing.T) {
 		t.Fatalf("want 403 for reserved writer, got %d", resp.StatusCode)
 	}
 	// The rejected write must not have created the key.
-	get, _ := http.Get(ts.URL + "/context/k")
+	get, _ := http.Get(ts.URL + "/api/v1/context/k")
 	get.Body.Close()
 	if get.StatusCode != http.StatusNotFound {
 		t.Fatalf("rejected write must not create the key, got %d", get.StatusCode)
@@ -164,11 +164,11 @@ func TestContextListAndDelete(t *testing.T) {
 	ts := newCtxTestServer(t)
 	defer ts.Close()
 	for _, k := range []string{"pipeline.p.a", "pipeline.p.b", "global.x"} {
-		req, _ := http.NewRequest(http.MethodPut, ts.URL+"/context/"+k, bytes.NewBufferString(`{"value":"v"}`))
+		req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/v1/context/"+k, bytes.NewBufferString(`{"value":"v"}`))
 		http.DefaultClient.Do(req)
 	}
 
-	resp, _ := http.Get(ts.URL + "/context?prefix=pipeline.p.")
+	resp, _ := http.Get(ts.URL + "/api/v1/context?prefix=pipeline.p.")
 	var lr struct {
 		Entries []ctxstore.Entry `json:"entries"`
 	}
@@ -178,13 +178,13 @@ func TestContextListAndDelete(t *testing.T) {
 		t.Fatalf("want 2 entries, got %d", len(lr.Entries))
 	}
 
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/context/global.x", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/context/global.x", nil)
 	resp, _ = http.DefaultClient.Do(req)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("DELETE status %d", resp.StatusCode)
 	}
-	resp, _ = http.Get(ts.URL + "/context/global.x")
+	resp, _ = http.Get(ts.URL + "/api/v1/context/global.x")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("want 404 after delete, got %d", resp.StatusCode)

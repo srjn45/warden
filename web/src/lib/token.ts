@@ -6,6 +6,12 @@
 
 const TOKEN_KEY = 'warden_token';
 
+// API_PREFIX is the versioned base path the daemon mounts its data/action API
+// under (mirrors r.Route("/api/v1") server-side). It is kept off the SPA's own
+// client-side routes (/metrics, /pipelines, …) so a deep-linked page URL never
+// collides with a JSON endpoint. Every REST/SSE/WS call prepends it.
+export const API_PREFIX = '/api/v1';
+
 export function getToken(): string {
   try {
     return localStorage.getItem(TOKEN_KEY)?.trim() ?? '';

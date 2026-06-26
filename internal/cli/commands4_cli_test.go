@@ -56,7 +56,7 @@ func TestPipelineListTemplatesCmd(t *testing.T) {
 func TestPipelineCreateFromTemplate(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /pipelines": `{"id":"mine","name":"mine","jobs":[{"id":"a"}]}`,
+		"POST /api/v1/pipelines": `{"id":"mine","name":"mine","jobs":[{"id":"a"}]}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "pipeline", "create", "--template", "analyze-implement-review",
 		"--name", "mine", "--repo", t.TempDir(), "--set", "TASK=refactor auth")
@@ -66,8 +66,8 @@ func TestPipelineCreateFromTemplate(t *testing.T) {
 	if !strings.Contains(out, "created pipeline mine") {
 		t.Fatalf("create output: %q", out)
 	}
-	if !strings.Contains(body["/pipelines"], `"spec"`) {
-		t.Fatalf("rendered spec not posted: %q", body["/pipelines"])
+	if !strings.Contains(body["/api/v1/pipelines"], `"spec"`) {
+		t.Fatalf("rendered spec not posted: %q", body["/api/v1/pipelines"])
 	}
 }
 
@@ -82,7 +82,7 @@ func TestCtxSetFromStdin(t *testing.T) {
 	t.Setenv("AGENTCTL_SESSION_ID", "")
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"PUT /context/k": `{"key":"k","value":"piped","updated_by":"human"}`,
+		"PUT /api/v1/context/k": `{"key":"k","value":"piped","updated_by":"human"}`,
 	}, nil, body))
 	// Drive the command with stdin supplying the value.
 	root := newRootCmd()
@@ -94,8 +94,8 @@ func TestCtxSetFromStdin(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("ctx set --stdin: %v", err)
 	}
-	if !strings.Contains(body["/context/k"], `"value":"piped value"`) {
-		t.Fatalf("stdin value not forwarded: %q", body["/context/k"])
+	if !strings.Contains(body["/api/v1/context/k"], `"value":"piped value"`) {
+		t.Fatalf("stdin value not forwarded: %q", body["/api/v1/context/k"])
 	}
 }
 
@@ -103,7 +103,7 @@ func TestLsWatchStreamsSnapshot(t *testing.T) {
 	// The SSE endpoint pushes one snapshot then closes; watchSessions renders it
 	// and exits cleanly on the stream end (the JSON path avoids terminal escapes).
 	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/events/stream" {
+		if r.URL.Path != "/api/v1/events/stream" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -146,7 +146,7 @@ func TestDoctorCmdRendersReport(t *testing.T) {
 
 func TestStatusCmdJSON(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions/A-1": `{"id":"A-1","name":"alpha","status":"working","type":"development"}`,
+		"GET /api/v1/sessions/A-1": `{"id":"A-1","name":"alpha","status":"working","type":"development"}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "status", "A-1", "--json")
 	if err != nil {
@@ -159,7 +159,7 @@ func TestStatusCmdJSON(t *testing.T) {
 
 func TestLsTagFilterAgainstDaemon(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions": `{"sessions":[{"id":"A-1","tags":["backend"]},{"id":"B-2","tags":["frontend"]}]}`,
+		"GET /api/v1/sessions": `{"sessions":[{"id":"A-1","tags":["backend"]},{"id":"B-2","tags":["frontend"]}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "ls", "--tag", "backend")
 	if err != nil {
@@ -174,7 +174,7 @@ func TestMsgSendCmdAsAgent(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "agent-self")
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /sessions/B-2/messages": `{"message":{"id":"3","from":"agent-self","to":"B-2","body":"hi"},"woke":false}`,
+		"POST /api/v1/sessions/B-2/messages": `{"message":{"id":"3","from":"agent-self","to":"B-2","body":"hi"},"woke":false}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "msg", "send", "B-2", "hi")
 	if err != nil {
@@ -183,14 +183,14 @@ func TestMsgSendCmdAsAgent(t *testing.T) {
 	if !strings.Contains(out, "sent to B-2") || strings.Contains(out, "woke recipient") {
 		t.Fatalf("msg send output: %q", out)
 	}
-	if !strings.Contains(body["/sessions/B-2/messages"], `"from":"agent-self"`) {
-		t.Fatalf("WARDEN_SESSION_ID must be the sender: %q", body["/sessions/B-2/messages"])
+	if !strings.Contains(body["/api/v1/sessions/B-2/messages"], `"from":"agent-self"`) {
+		t.Fatalf("WARDEN_SESSION_ID must be the sender: %q", body["/api/v1/sessions/B-2/messages"])
 	}
 }
 
 func TestMsgWaitCmdDelivers(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions/A-1/messages/wait": `{"found":true,"message":{"id":"9","from":"B-2","body":"the reply","read":false}}`,
+		"GET /api/v1/sessions/A-1/messages/wait": `{"found":true,"message":{"id":"9","from":"B-2","body":"the reply","read":false}}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "msg", "wait", "--as", "A-1", "--from", "B-2", "--timeout", "1")
 	if err != nil {

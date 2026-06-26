@@ -33,7 +33,7 @@ func TestWriteTimeoutTimesOutNonStreaming(t *testing.T) {
 	})
 	h := writeTimeout(50 * time.Millisecond)(slow)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/metrics", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503", rec.Code)
 	}
@@ -46,7 +46,7 @@ func TestWriteTimeoutBypassesStreaming(t *testing.T) {
 	})
 	h := writeTimeout(50 * time.Millisecond)(slow)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/events/stream", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/events/stream", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("streaming path should not time out; code = %d, want 200", rec.Code)
 	}
@@ -64,7 +64,7 @@ func TestMaxBytesRejectsOversizedBody(t *testing.T) {
 	})
 	h := maxBytes(10)(handler) // 10-byte cap
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/spawn", strings.NewReader(strings.Repeat("x", 100)))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spawn", strings.NewReader(strings.Repeat("x", 100)))
 	h.ServeHTTP(rec, req)
 	if readErr == nil {
 		t.Fatal("expected body read to fail past the cap")

@@ -21,7 +21,7 @@ func TestHandleSpawnRecordsAudit(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -42,7 +42,7 @@ func TestRecordAuditNilWriter(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-2", Repo: "/repo"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "spawn still succeeds with auditing off")

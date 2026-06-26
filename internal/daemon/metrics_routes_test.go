@@ -25,7 +25,7 @@ func TestHandleMetricsLive(t *testing.T) {
 		Pressure: func() string { return "normal" },
 	}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics", nil)
 	s.handleMetrics(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
@@ -45,7 +45,7 @@ func TestHandleMetricsHistory(t *testing.T) {
 	_ = r.Record(metrics.Sample{TakenAt: time.Now(), System: metrics.SystemStats{AgentCount: 7}})
 	s := &Server{mrecorder: r}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics/history?limit=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history?limit=10", nil)
 	s.handleMetricsHistory(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d", rec.Code)
@@ -78,7 +78,7 @@ func TestHandleMetricsHistorySummary(t *testing.T) {
 	s := &Server{mrecorder: r, mTokenWarn: 200000, mTokenCrit: 400000}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics/history?summary=true&agent=a1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history?summary=true&agent=a1", nil)
 	s.handleMetricsHistory(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
@@ -104,7 +104,7 @@ func TestHandleMetricsHistorySummary(t *testing.T) {
 func TestHandleMetricsHistoryNoRecorder(t *testing.T) {
 	s := &Server{} // recorder nil
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics/history", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history", nil)
 	s.handleMetricsHistory(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d", rec.Code)

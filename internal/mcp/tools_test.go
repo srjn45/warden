@@ -65,13 +65,13 @@ func call(t *testing.T, s *mcpsdk.ClientSession, name string, args map[string]an
 func TestGetAgentTool(t *testing.T) {
 	seen := map[string]recordedReq{}
 	ts := fakeDaemon(t, map[string]string{
-		"GET /sessions/A-1": `{"id":"A-1","status":"working"}`,
+		"GET /api/v1/sessions/A-1": `{"id":"A-1","status":"working"}`,
 	}, seen)
 	s := connect(t, ts.URL)
 	res := call(t, s, "get_agent", map[string]any{"ticket": "A-1"})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "A-1")
-	require.Equal(t, http.MethodGet, seen["/sessions/A-1"].method)
+	require.Equal(t, http.MethodGet, seen["/api/v1/sessions/A-1"].method)
 }
 
 func TestSendToAgentTool(t *testing.T) {
@@ -81,13 +81,13 @@ func TestSendToAgentTool(t *testing.T) {
 	res := call(t, s, "send_to_agent", map[string]any{"ticket": "A-1", "text": "hello"})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "sent to A-1")
-	require.Equal(t, http.MethodPost, seen["/sessions/A-1/input"].method)
-	require.Contains(t, seen["/sessions/A-1/input"].body, `"text":"hello"`)
+	require.Equal(t, http.MethodPost, seen["/api/v1/sessions/A-1/input"].method)
+	require.Contains(t, seen["/api/v1/sessions/A-1/input"].body, `"text":"hello"`)
 }
 
 func TestGetAgentOutputTool(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
-		"GET /sessions/A-1/output": `{"output":"recent pane text"}`,
+		"GET /api/v1/sessions/A-1/output": `{"output":"recent pane text"}`,
 	}, nil)
 	s := connect(t, ts.URL)
 	res := call(t, s, "get_agent_output", map[string]any{"ticket": "A-1", "lines": 10})
@@ -98,17 +98,17 @@ func TestGetAgentOutputTool(t *testing.T) {
 func TestGitToolsForwardResults(t *testing.T) {
 	seen := map[string]recordedReq{}
 	ts := fakeDaemon(t, map[string]string{
-		"POST /git/commit": `{"committed":true,"sha":"abc","branch":"feat","files":["a.go"]}`,
-		"POST /git/push":   `{"branch":"feat","remote":"origin","pushed":true}`,
-		"POST /git/sync":   `{"branch":"feat","base":"main","updated":true}`,
-		"POST /check":      `{"passed":true,"checks":[]}`,
+		"POST /api/v1/git/commit": `{"committed":true,"sha":"abc","branch":"feat","files":["a.go"]}`,
+		"POST /api/v1/git/push":   `{"branch":"feat","remote":"origin","pushed":true}`,
+		"POST /api/v1/git/sync":   `{"branch":"feat","base":"main","updated":true}`,
+		"POST /api/v1/check":      `{"passed":true,"checks":[]}`,
 	}, seen)
 	s := connect(t, ts.URL)
 
 	res := call(t, s, "commit", map[string]any{"message": "do it", "dir": "/repo"})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), `"sha": "abc"`)
-	require.Contains(t, seen["/git/commit"].body, `"message":"do it"`)
+	require.Contains(t, seen["/api/v1/git/commit"].body, `"message":"do it"`)
 
 	res = call(t, s, "push", map[string]any{"dir": "/repo"})
 	require.False(t, res.IsError, textOf(res))
@@ -117,12 +117,12 @@ func TestGitToolsForwardResults(t *testing.T) {
 	res = call(t, s, "sync", map[string]any{"dir": "/repo", "base": "main"})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), `"updated": true`)
-	require.Contains(t, seen["/git/sync"].body, `"base":"main"`)
+	require.Contains(t, seen["/api/v1/git/sync"].body, `"base":"main"`)
 
 	res = call(t, s, "check", map[string]any{"dir": "/repo", "name": "test"})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), `"passed": true`)
-	require.Contains(t, seen["/check"].body, `"name":"test"`)
+	require.Contains(t, seen["/api/v1/check"].body, `"name":"test"`)
 }
 
 func TestGitToolSurfacesDaemonError(t *testing.T) {
@@ -141,10 +141,10 @@ func TestGitToolSurfacesDaemonError(t *testing.T) {
 func TestCtxTools(t *testing.T) {
 	seen := map[string]recordedReq{}
 	ts := fakeDaemon(t, map[string]string{
-		"GET /context/k":         `{"key":"k","value":"the-value","updated_by":"agent"}`,
-		"GET /context":           `{"entries":[{"key":"a","value":"1"}]}`,
-		"PUT /context/k":         `{"key":"k","value":"v","updated_by":"agent"}`,
-		"POST /context/k/append": `{"key":"k","value":"v1\nv2","updated_by":"agent"}`,
+		"GET /api/v1/context/k":         `{"key":"k","value":"the-value","updated_by":"agent"}`,
+		"GET /api/v1/context":           `{"entries":[{"key":"a","value":"1"}]}`,
+		"PUT /api/v1/context/k":         `{"key":"k","value":"v","updated_by":"agent"}`,
+		"POST /api/v1/context/k/append": `{"key":"k","value":"v1\nv2","updated_by":"agent"}`,
 	}, seen)
 	s := connect(t, ts.URL)
 
@@ -164,19 +164,19 @@ func TestCtxTools(t *testing.T) {
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "appended to k")
 	// default separator is a newline when omitted
-	require.Contains(t, seen["/context/k/append"].body, `"sep":"\n"`)
+	require.Contains(t, seen["/api/v1/context/k/append"].body, `"sep":"\n"`)
 }
 
 func TestCtxCASTool(t *testing.T) {
 	seen := map[string]recordedReq{}
 	ts := fakeDaemon(t, map[string]string{
-		"POST /context/k/cas": `{"key":"k","value":"new","updated_by":"agent"}`,
+		"POST /api/v1/context/k/cas": `{"key":"k","value":"new","updated_by":"agent"}`,
 	}, seen)
 	s := connect(t, ts.URL)
 	res := call(t, s, "ctx_cas", map[string]any{"key": "k", "expected": "old", "value": "new"})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "set k")
-	require.Contains(t, seen["/context/k/cas"].body, `"expected":"old"`)
+	require.Contains(t, seen["/api/v1/context/k/cas"].body, `"expected":"old"`)
 }
 
 func TestCtxCASToolConflict(t *testing.T) {
@@ -193,7 +193,7 @@ func TestCtxCASToolConflict(t *testing.T) {
 
 func TestReadInboxTool(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
-		"GET /sessions/A-1/messages": `{"messages":[{"id":"1","from":"x","body":"hi"}]}`,
+		"GET /api/v1/sessions/A-1/messages": `{"messages":[{"id":"1","from":"x","body":"hi"}]}`,
 	}, nil)
 	s := connect(t, ts.URL)
 	res := call(t, s, "read_inbox", map[string]any{"agent": "A-1"})
@@ -214,7 +214,7 @@ func TestReadInboxToolNeedsAgentID(t *testing.T) {
 
 func TestWaitForMessageToolTimeout(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
-		"GET /sessions/A-1/messages/wait": `{"found":false}`,
+		"GET /api/v1/sessions/A-1/messages/wait": `{"found":false}`,
 	}, nil)
 	s := connect(t, ts.URL)
 	res := call(t, s, "wait_for_message", map[string]any{"agent": "A-1", "timeout_sec": 1})
@@ -224,7 +224,7 @@ func TestWaitForMessageToolTimeout(t *testing.T) {
 
 func TestWaitForMessageToolDelivers(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
-		"GET /sessions/A-1/messages/wait": `{"found":true,"message":{"id":"9","from":"B-2","body":"reply"}}`,
+		"GET /api/v1/sessions/A-1/messages/wait": `{"found":true,"message":{"id":"9","from":"B-2","body":"reply"}}`,
 	}, nil)
 	s := connect(t, ts.URL)
 	res := call(t, s, "wait_for_message", map[string]any{"agent": "A-1", "timeout_sec": 1})
@@ -234,7 +234,7 @@ func TestWaitForMessageToolDelivers(t *testing.T) {
 
 func TestCollaborationStatusTool(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
-		"GET /collab/conflicts": `{"conflicts":[{"file":"a.go","agents":[{"id":"A-1"},{"id":"B-2"}]}]}`,
+		"GET /api/v1/collab/conflicts": `{"conflicts":[{"file":"a.go","agents":[{"id":"A-1"},{"id":"B-2"}]}]}`,
 	}, nil)
 	s := connect(t, ts.URL)
 	res := call(t, s, "get_collaboration_status", map[string]any{})
@@ -244,7 +244,7 @@ func TestCollaborationStatusTool(t *testing.T) {
 
 func TestBranchStatusTool(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
-		"GET /collab/branches": `{"branches":[{"agent_id":"A-1","branch":"feat","ci":{"state":"success"}}]}`,
+		"GET /api/v1/collab/branches": `{"branches":[{"agent_id":"A-1","branch":"feat","ci":{"state":"success"}}]}`,
 	}, nil)
 	s := connect(t, ts.URL)
 	res := call(t, s, "get_branch_status", map[string]any{})
@@ -254,7 +254,7 @@ func TestBranchStatusTool(t *testing.T) {
 
 func TestWhoIsEditingFileTool(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
-		"GET /collab/conflicts": `{"conflicts":[{"file":"a.go","agents":[{"id":"A-1"},{"id":"B-2"}]}]}`,
+		"GET /api/v1/collab/conflicts": `{"conflicts":[{"file":"a.go","agents":[{"id":"A-1"},{"id":"B-2"}]}]}`,
 	}, nil)
 	s := connect(t, ts.URL)
 
@@ -271,7 +271,7 @@ func TestWhoIsEditingFileTool(t *testing.T) {
 
 func TestListSchedulesTool(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
-		"GET /schedules": `{"schedules":[{"id":"nightly","name":"nightly","kind":"cron"}]}`,
+		"GET /api/v1/schedules": `{"schedules":[{"id":"nightly","name":"nightly","kind":"cron"}]}`,
 	}, nil)
 	s := connect(t, ts.URL)
 	res := call(t, s, "list_schedules", map[string]any{})
@@ -283,11 +283,11 @@ func TestInsightsTool(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/sessions":
+		case "/api/v1/sessions":
 			_, _ = w.Write([]byte(`{"sessions":[]}`))
-		case "/history":
+		case "/api/v1/history":
 			_, _ = w.Write([]byte(`{"sessions":[{"id":"A-1","status":"done"}]}`))
-		case "/metrics/history":
+		case "/api/v1/metrics/history":
 			_, _ = w.Write([]byte(`{"summaries":[]}`))
 		default:
 			_, _ = w.Write([]byte(`{}`))
@@ -304,16 +304,16 @@ func TestInsightsTool(t *testing.T) {
 func TestSnapshotTools(t *testing.T) {
 	seen := map[string]recordedReq{}
 	ts := fakeDaemon(t, map[string]string{
-		"POST /snapshots":                `{"id":"snap-1","branch":"feat"}`,
-		"GET /snapshots":                 `{"snapshots":[{"id":"snap-1"}]}`,
-		"POST /snapshots/snap-1/restore": `{"applied":true}`,
+		"POST /api/v1/snapshots":                `{"id":"snap-1","branch":"feat"}`,
+		"GET /api/v1/snapshots":                 `{"snapshots":[{"id":"snap-1"}]}`,
+		"POST /api/v1/snapshots/snap-1/restore": `{"applied":true}`,
 	}, seen)
 	s := connect(t, ts.URL)
 
 	res := call(t, s, "snapshot_create", map[string]any{"message": "good", "dir": "/repo"})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "snap-1")
-	require.Contains(t, seen["/snapshots"].body, `"message":"good"`)
+	require.Contains(t, seen["/api/v1/snapshots"].body, `"message":"good"`)
 
 	res = call(t, s, "snapshot_list", map[string]any{"all": true})
 	require.False(t, res.IsError, textOf(res))
@@ -322,7 +322,7 @@ func TestSnapshotTools(t *testing.T) {
 	res = call(t, s, "snapshot_restore", map[string]any{"id": "snap-1", "force": true})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "applied")
-	require.Contains(t, seen["/snapshots/snap-1/restore"].body, `"force":true`)
+	require.Contains(t, seen["/api/v1/snapshots/snap-1/restore"].body, `"force":true`)
 }
 
 func TestFindApprovalErrors(t *testing.T) {

@@ -299,7 +299,7 @@ Flags:
       --json   output as JSON
 ```
 
-Enable the background monitor with `branch_track_enabled` (tune `branch_track_interval`). Alerts are **non-blocking**: an inbox note (+ desktop ping) on a new CI failure, an inbox nudge on a merged or far-behind branch. Also at `GET /collab/branches` and the `get_branch_status` MCP tool.
+Enable the background monitor with `branch_track_enabled` (tune `branch_track_interval`). Alerts are **non-blocking**: an inbox note (+ desktop ping) on a new CI failure, an inbox nudge on a merged or far-behind branch. Also at `GET /api/v1/collab/branches` and the `get_branch_status` MCP tool.
 
 ## warden insights
 

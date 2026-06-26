@@ -19,7 +19,7 @@ func TestWaitReturnsExistingMessage(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/sessions/agent-1/messages/wait?timeout=2")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/agent-1/messages/wait?timeout=2")
 	if err != nil {
 		t.Fatalf("GET wait: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestWaitTimesOut(t *testing.T) {
 	defer ts.Close()
 
 	start := time.Now()
-	resp, err := http.Get(ts.URL + "/sessions/empty/messages/wait?timeout=1")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/empty/messages/wait?timeout=1")
 	if err != nil {
 		t.Fatalf("GET wait: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestWaitWakesOnDeliveredMessage(t *testing.T) {
 
 	done := make(chan string, 1)
 	go func() {
-		resp, _ := http.Get(ts.URL + "/sessions/agent-1/messages/wait?timeout=5")
+		resp, _ := http.Get(ts.URL + "/api/v1/sessions/agent-1/messages/wait?timeout=5")
 		var wr struct {
 			Found   bool             `json:"found"`
 			Message *mailbox.Message `json:"message"`
@@ -85,7 +85,7 @@ func TestWaitWakesOnDeliveredMessage(t *testing.T) {
 
 	time.Sleep(150 * time.Millisecond) // let the waiter subscribe + do its first check
 	// deliver via the real send endpoint (calls notify() → hub → waiter re-checks)
-	http.Post(ts.URL+"/sessions/agent-1/messages", "application/json", strings.NewReader(`{"from":"agent-2","body":"ping"}`))
+	http.Post(ts.URL+"/api/v1/sessions/agent-1/messages", "application/json", strings.NewReader(`{"from":"agent-2","body":"ping"}`))
 
 	select {
 	case got := <-done:

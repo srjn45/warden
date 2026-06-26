@@ -22,7 +22,7 @@ func TestListDirsListsSubdirectories(t *testing.T) {
 	ts := httptest.NewServer((&Server{}).router())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/fs/dirs?path=" + url.QueryEscape(root))
+	resp, err := http.Get(ts.URL + "/api/v1/fs/dirs?path=" + url.QueryEscape(root))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -44,7 +44,7 @@ func TestListDirsRejectsNonDir(t *testing.T) {
 	ts := httptest.NewServer((&Server{}).router())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/fs/dirs?path=" + url.QueryEscape(f))
+	resp, err := http.Get(ts.URL + "/api/v1/fs/dirs?path=" + url.QueryEscape(f))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

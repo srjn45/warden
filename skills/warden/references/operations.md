@@ -8,7 +8,7 @@ A real, **append-only ledger** of the tokens warden's lifecycle features have ke
 out of agents' context windows — a measured proof point, not an estimate. This is
 the concrete payoff of preferring warden's `check`/`commit`/`push`/`sync` over raw
 Bash: each time a feature avoids dumping output into the transcript, the saving is
-recorded. Config-gated by `savings` (default on); served at `GET /savings`.
+recorded. Config-gated by `savings` (default on); served at `GET /api/v1/savings`.
 MCP `savings {since?, bucket?, samples?}` returns the structured Summary; the CLI
 adds the human-readable table and `--benchmark` headline.
 

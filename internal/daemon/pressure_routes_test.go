@@ -13,7 +13,7 @@ func TestHandlePressure(t *testing.T) {
 	fs := newFakeStore()
 	s := &Server{store: fs, spawnGate: true, spawnGateMax: 5, pressLevel: pressure.Warn}
 
-	req := httptest.NewRequest(http.MethodGet, "/pressure", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pressure", nil)
 	rec := httptest.NewRecorder()
 	s.handlePressure(rec, req)
 

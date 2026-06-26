@@ -51,10 +51,11 @@ func TestOpenAPISpecIsValid(t *testing.T) {
 	require.Contains(t, doc.Components.Schemas, "Session", "core Session schema must be present")
 	require.Contains(t, doc.Components.Schemas, "Error", "error envelope schema must be present")
 
-	// A representative set of known endpoints must be documented.
+	// A representative set of known endpoints must be documented. The data API
+	// lives under /api/v1; /healthz and /api/docs stay at the root.
 	for _, p := range []string{
-		"/healthz", "/sessions", "/sessions/{id}", "/spawn",
-		"/git/commit", "/pipelines", "/snapshots", "/api/docs",
+		"/healthz", "/api/v1/sessions", "/api/v1/sessions/{id}", "/api/v1/spawn",
+		"/api/v1/git/commit", "/api/v1/pipelines", "/api/v1/snapshots", "/api/docs",
 	} {
 		require.Contains(t, doc.Paths, p, "spec must document %s", p)
 	}

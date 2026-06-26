@@ -26,7 +26,7 @@ func TestCreatePRPushesThenOpensAndRecords(t *testing.T) {
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/sessions/A-1/create-pr", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/create-pr", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -54,7 +54,7 @@ func TestCreatePRHonoursBase(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]string{"base": "develop"})
-	resp, err := http.Post(ts.URL+"/sessions/A-1/create-pr", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/create-pr", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -64,7 +64,7 @@ func TestCreatePRHonoursBase(t *testing.T) {
 func TestCreatePRUnknownSessionIs404(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/sessions/ghost/create-pr", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/ghost/create-pr", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -75,7 +75,7 @@ func TestCreatePRNoWorkdirIsConflict(t *testing.T) {
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", Status: store.StatusWorking})
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/sessions/A-1/create-pr", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/create-pr", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
@@ -87,7 +87,7 @@ func TestCreatePRPushFailureIsConflictAndSkipsPR(t *testing.T) {
 	fl := &fakeLife{gitPushErr: errors.New("refusing to push protected branch \"main\"")}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/sessions/A-1/create-pr", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/create-pr", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)

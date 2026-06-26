@@ -7,7 +7,7 @@ Every time one of warden's lifecycle features avoids dumping output into an agen
 transcript, it records the saving to a real, **append-only ledger** under
 `<data_dir>/savings/`. `warden savings` reads it back — a measured proof point, not
 an estimate. Gated by the `savings` config setting (default on); the daemon serves
-it at `GET /savings` (403 when off).
+it at `GET /api/v1/savings` (403 when off).
 
 ## Two axes, never blended
 

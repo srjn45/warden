@@ -14,10 +14,10 @@ export default defineConfig({
   vite: {
     server: {
       proxy: {
-        ...proxy('/sessions'),
-        ...proxy('/spawn'),
-        ...proxy('/cleanup'),
-        ...proxy('/events'),
+        // The whole data/action API (REST + the /events/stream SSE + the
+        // /sessions/{id}/attach WS) lives under /api/v1; one prefix covers it
+        // all (and /api/docs). /healthz is the only API surface left at root.
+        ...proxy('/api'),
         ...proxy('/healthz'),
       },
     },

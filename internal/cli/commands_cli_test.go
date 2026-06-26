@@ -37,7 +37,7 @@ func TestMsgSendCmd(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "")
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /sessions/B-2/messages": `{"message":{"id":"9","from":"human","to":"B-2","body":"hi there"},"woke":true}`,
+		"POST /api/v1/sessions/B-2/messages": `{"message":{"id":"9","from":"human","to":"B-2","body":"hi there"},"woke":true}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "msg", "send", "B-2", "hi", "there")
 	if err != nil {
@@ -46,14 +46,14 @@ func TestMsgSendCmd(t *testing.T) {
 	if !strings.Contains(out, "sent to B-2 (id 9)") || !strings.Contains(out, "woke recipient") {
 		t.Fatalf("unexpected output: %q", out)
 	}
-	if !strings.Contains(body["/sessions/B-2/messages"], `"body":"hi there"`) {
-		t.Fatalf("body not joined/forwarded: %q", body["/sessions/B-2/messages"])
+	if !strings.Contains(body["/api/v1/sessions/B-2/messages"], `"body":"hi there"`) {
+		t.Fatalf("body not joined/forwarded: %q", body["/api/v1/sessions/B-2/messages"])
 	}
 }
 
 func TestMsgInboxCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions/A-1/messages": `{"messages":[{"id":"1","from":"B-2","body":"ping","read":false}]}`,
+		"GET /api/v1/sessions/A-1/messages": `{"messages":[{"id":"1","from":"B-2","body":"ping","read":false}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "msg", "inbox", "--as", "A-1")
 	if err != nil {
@@ -66,7 +66,7 @@ func TestMsgInboxCmd(t *testing.T) {
 
 func TestMsgInboxCmdEmpty(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions/A-1/messages": `{"messages":[]}`,
+		"GET /api/v1/sessions/A-1/messages": `{"messages":[]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "msg", "inbox", "--as", "A-1")
 	if err != nil {
@@ -87,7 +87,7 @@ func TestMsgInboxCmdNeedsID(t *testing.T) {
 
 func TestMsgWaitCmdTimeout(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions/A-1/messages/wait": `{"found":false}`,
+		"GET /api/v1/sessions/A-1/messages/wait": `{"found":false}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "msg", "wait", "--as", "A-1", "--timeout", "1")
 	if err != nil {
@@ -105,8 +105,8 @@ func TestCtxSetGetCmd(t *testing.T) {
 	t.Setenv("AGENTCTL_SESSION_ID", "")
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"PUT /context/global.k": `{"key":"global.k","value":"v","updated_by":"human"}`,
-		"GET /context/global.k": `{"key":"global.k","value":"the-value","updated_by":"human"}`,
+		"PUT /api/v1/context/global.k": `{"key":"global.k","value":"v","updated_by":"human"}`,
+		"GET /api/v1/context/global.k": `{"key":"global.k","value":"the-value","updated_by":"human"}`,
 	}, nil, body))
 
 	out, err := runCLI(t, addr, "ctx", "set", "global.k", "v")
@@ -116,8 +116,8 @@ func TestCtxSetGetCmd(t *testing.T) {
 	if !strings.Contains(out, "set global.k") {
 		t.Fatalf("ctx set output: %q", out)
 	}
-	if !strings.Contains(body["/context/global.k"], `"by":"human"`) {
-		t.Fatalf("writer identity not 'human' for a non-agent shell: %q", body["/context/global.k"])
+	if !strings.Contains(body["/api/v1/context/global.k"], `"by":"human"`) {
+		t.Fatalf("writer identity not 'human' for a non-agent shell: %q", body["/api/v1/context/global.k"])
 	}
 
 	out, err = runCLI(t, addr, "ctx", "get", "global.k")
@@ -146,7 +146,7 @@ func TestCtxCASCmdConflict(t *testing.T) {
 func TestCtxAppendCmd(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /context/log/append": `{"key":"log","value":"a\nb","updated_by":"human"}`,
+		"POST /api/v1/context/log/append": `{"key":"log","value":"a\nb","updated_by":"human"}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "ctx", "append", "log", "b")
 	if err != nil {
@@ -159,7 +159,7 @@ func TestCtxAppendCmd(t *testing.T) {
 
 func TestCtxListCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /context": `{"entries":[{"key":"global.a","value":"1","updated_by":"A-1"}]}`,
+		"GET /api/v1/context": `{"entries":[{"key":"global.a","value":"1","updated_by":"A-1"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "ctx", "list", "global.")
 	if err != nil {
@@ -180,8 +180,8 @@ func TestCtxDelCmd(t *testing.T) {
 	if !strings.Contains(out, "deleted k") {
 		t.Fatalf("ctx del output: %q", out)
 	}
-	if method["/context/k"] != http.MethodDelete {
-		t.Fatalf("expected DELETE, got %q", method["/context/k"])
+	if method["/api/v1/context/k"] != http.MethodDelete {
+		t.Fatalf("expected DELETE, got %q", method["/api/v1/context/k"])
 	}
 }
 
@@ -196,8 +196,8 @@ func TestCtxDelCmdRejectsBadKey(t *testing.T) {
 
 func TestPipelineListShowCmds(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /pipelines":      `{"pipelines":[{"id":"demo","status":"running","jobs":[{"id":"a"},{"id":"b"}]}]}`,
-		"GET /pipelines/demo": `{"id":"demo","status":"running","repo":"/r","jobs":[{"id":"a","status":"done","branch":"feat","output":"result"}]}`,
+		"GET /api/v1/pipelines":      `{"pipelines":[{"id":"demo","status":"running","jobs":[{"id":"a"},{"id":"b"}]}]}`,
+		"GET /api/v1/pipelines/demo": `{"id":"demo","status":"running","repo":"/r","jobs":[{"id":"a","status":"done","branch":"feat","output":"result"}]}`,
 	}, nil, nil))
 
 	out, err := runCLI(t, addr, "pipeline", "list")
@@ -228,12 +228,12 @@ func TestPipelineLifecycleCmds(t *testing.T) {
 		method   string
 		wantText string
 	}{
-		{[]string{"pipeline", "start", "demo"}, "/pipelines/demo/start", http.MethodPost, "started demo"},
-		{[]string{"pipeline", "pause", "demo"}, "/pipelines/demo/pause", http.MethodPost, "paused demo"},
-		{[]string{"pipeline", "resume", "demo"}, "/pipelines/demo/resume", http.MethodPost, "resumed demo"},
-		{[]string{"pipeline", "cancel", "demo"}, "/pipelines/demo/cancel", http.MethodPost, "canceled demo"},
-		{[]string{"pipeline", "delete", "demo"}, "/pipelines/demo", http.MethodDelete, "deleted demo"},
-		{[]string{"pipeline", "retry", "demo", "a"}, "/pipelines/demo/jobs/a/retry", http.MethodPost, "retrying demo/a"},
+		{[]string{"pipeline", "start", "demo"}, "/api/v1/pipelines/demo/start", http.MethodPost, "started demo"},
+		{[]string{"pipeline", "pause", "demo"}, "/api/v1/pipelines/demo/pause", http.MethodPost, "paused demo"},
+		{[]string{"pipeline", "resume", "demo"}, "/api/v1/pipelines/demo/resume", http.MethodPost, "resumed demo"},
+		{[]string{"pipeline", "cancel", "demo"}, "/api/v1/pipelines/demo/cancel", http.MethodPost, "canceled demo"},
+		{[]string{"pipeline", "delete", "demo"}, "/api/v1/pipelines/demo", http.MethodDelete, "deleted demo"},
+		{[]string{"pipeline", "retry", "demo", "a"}, "/api/v1/pipelines/demo/jobs/a/retry", http.MethodPost, "retrying demo/a"},
 	}
 	for _, tc := range cases {
 		out, err := runCLI(t, addr, tc.args...)
@@ -259,8 +259,8 @@ func TestPipelineEmitCmd(t *testing.T) {
 	if !strings.Contains(out, "emitted handoff for demo/a") {
 		t.Fatalf("emit output: %q", out)
 	}
-	if !strings.Contains(body["/pipelines/demo/jobs/a/emit"], `"text":"done"`) {
-		t.Fatalf("emit body: %q", body["/pipelines/demo/jobs/a/emit"])
+	if !strings.Contains(body["/api/v1/pipelines/demo/jobs/a/emit"], `"text":"done"`) {
+		t.Fatalf("emit body: %q", body["/api/v1/pipelines/demo/jobs/a/emit"])
 	}
 }
 
@@ -284,8 +284,8 @@ func TestPipelineEditJobCmd(t *testing.T) {
 	if !strings.Contains(out, "edited demo/a") {
 		t.Fatalf("edit-job output: %q", out)
 	}
-	if !strings.Contains(body["/pipelines/demo/jobs/a/edit"], `"prompt":"new prompt"`) {
-		t.Fatalf("edit-job body: %q", body["/pipelines/demo/jobs/a/edit"])
+	if !strings.Contains(body["/api/v1/pipelines/demo/jobs/a/edit"], `"prompt":"new prompt"`) {
+		t.Fatalf("edit-job body: %q", body["/api/v1/pipelines/demo/jobs/a/edit"])
 	}
 }
 
@@ -300,7 +300,7 @@ func TestPipelineEditJobCmdNeedsFlag(t *testing.T) {
 func TestScheduleCreateCmd(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /schedules": `{"id":"nightly","name":"nightly","kind":"cron","mode":"agent","enabled":true}`,
+		"POST /api/v1/schedules": `{"id":"nightly","name":"nightly","kind":"cron","mode":"agent","enabled":true}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "schedule", "create", "nightly", "--cron", "0 9 * * *", "--type", "development", "--repo", "/r", "--prompt", "go")
 	if err != nil {
@@ -309,14 +309,14 @@ func TestScheduleCreateCmd(t *testing.T) {
 	if !strings.Contains(out, "created schedule nightly") {
 		t.Fatalf("schedule create output: %q", out)
 	}
-	if !strings.Contains(body["/schedules"], `"cron":"0 9 * * *"`) {
-		t.Fatalf("schedule create body: %q", body["/schedules"])
+	if !strings.Contains(body["/api/v1/schedules"], `"cron":"0 9 * * *"`) {
+		t.Fatalf("schedule create body: %q", body["/api/v1/schedules"])
 	}
 }
 
 func TestScheduleListCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /schedules": `{"schedules":[{"id":"nightly","name":"nightly","kind":"cron","mode":"agent","cron":"0 9 * * *","enabled":true}]}`,
+		"GET /api/v1/schedules": `{"schedules":[{"id":"nightly","name":"nightly","kind":"cron","mode":"agent","cron":"0 9 * * *","enabled":true}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "schedule", "list")
 	if err != nil {
@@ -337,8 +337,8 @@ func TestScheduleDeleteCmd(t *testing.T) {
 	if !strings.Contains(out, "deleted nightly") {
 		t.Fatalf("schedule delete output: %q", out)
 	}
-	if method["/schedules/nightly"] != http.MethodDelete {
-		t.Fatalf("expected DELETE, got %q", method["/schedules/nightly"])
+	if method["/api/v1/schedules/nightly"] != http.MethodDelete {
+		t.Fatalf("expected DELETE, got %q", method["/api/v1/schedules/nightly"])
 	}
 }
 
@@ -347,7 +347,7 @@ func TestScheduleDeleteCmd(t *testing.T) {
 func TestSnapshotCreateCmd(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "A-1")
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /snapshots": `{"id":"snap-1","branch":"feat","head_sha":"abcdef1234","dirty_files":["a.go"],"stash_sha":"deadbeef99","transcript_path":"/t/x.log","transcript_lines":42}`,
+		"POST /api/v1/snapshots": `{"id":"snap-1","branch":"feat","head_sha":"abcdef1234","dirty_files":["a.go"],"stash_sha":"deadbeef99","transcript_path":"/t/x.log","transcript_lines":42}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "snapshot", "create", "-m", "good point")
 	if err != nil {
@@ -362,7 +362,7 @@ func TestSnapshotCreateCmd(t *testing.T) {
 
 func TestSnapshotListCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /snapshots": `{"snapshots":[{"id":"snap-1","branch":"feat","head_sha":"abcdef1234","message":"checkpoint"}]}`,
+		"GET /api/v1/snapshots": `{"snapshots":[{"id":"snap-1","branch":"feat","head_sha":"abcdef1234","message":"checkpoint"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "snapshot", "list", "--all")
 	if err != nil {
@@ -376,7 +376,7 @@ func TestSnapshotListCmd(t *testing.T) {
 func TestSnapshotRestoreCmd(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /snapshots/snap-1/restore": `{"snapshot_id":"snap-1","branch":"feat","applied":true,"head_match":true}`,
+		"POST /api/v1/snapshots/snap-1/restore": `{"snapshot_id":"snap-1","branch":"feat","applied":true,"head_match":true}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "snapshot", "restore", "snap-1", "--force")
 	if err != nil {
@@ -385,14 +385,14 @@ func TestSnapshotRestoreCmd(t *testing.T) {
 	if !strings.Contains(out, "restored snap-1 onto feat") {
 		t.Fatalf("snapshot restore output: %q", out)
 	}
-	if !strings.Contains(body["/snapshots/snap-1/restore"], `"force":true`) {
-		t.Fatalf("force not forwarded: %q", body["/snapshots/snap-1/restore"])
+	if !strings.Contains(body["/api/v1/snapshots/snap-1/restore"], `"force":true`) {
+		t.Fatalf("force not forwarded: %q", body["/api/v1/snapshots/snap-1/restore"])
 	}
 }
 
 func TestSnapshotRestoreCmdConflicts(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /snapshots/snap-1/restore": `{"snapshot_id":"snap-1","branch":"feat","applied":true,"head_match":false,"conflicts":["a.go"],"snapshot_head":"aaaa1111","current_head":"bbbb2222"}`,
+		"POST /api/v1/snapshots/snap-1/restore": `{"snapshot_id":"snap-1","branch":"feat","applied":true,"head_match":false,"conflicts":["a.go"],"snapshot_head":"aaaa1111","current_head":"bbbb2222"}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "snapshot", "restore", "snap-1")
 	if err != nil {
@@ -409,7 +409,7 @@ func TestSnapshotRestoreCmdConflicts(t *testing.T) {
 
 func TestSearchCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /search": `{"sessions":[{"id":"A-1","name":"alpha","subject":"do x"}]}`,
+		"GET /api/v1/search": `{"sessions":[{"id":"A-1","name":"alpha","subject":"do x"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "search", "alpha")
 	if err != nil {
@@ -422,7 +422,7 @@ func TestSearchCmd(t *testing.T) {
 
 func TestSearchCmdJSON(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /search": `{"sessions":[{"id":"A-1"}]}`,
+		"GET /api/v1/search": `{"sessions":[{"id":"A-1"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "search", "x", "--json", "--closed")
 	if err != nil {
@@ -439,7 +439,7 @@ func TestSearchCmdJSON(t *testing.T) {
 
 func TestHistoryCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /history": `{"sessions":[{"id":"A-1","name":"alpha","subject":"old work"}]}`,
+		"GET /api/v1/history": `{"sessions":[{"id":"A-1","name":"alpha","subject":"old work"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "history", "--since", "7d", "--type", "development")
 	if err != nil {
@@ -452,7 +452,7 @@ func TestHistoryCmd(t *testing.T) {
 
 func TestHistoryCmdEmpty(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /history": `{"sessions":[]}`,
+		"GET /api/v1/history": `{"sessions":[]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "history")
 	if err != nil {
@@ -473,7 +473,7 @@ func TestHistoryCmdBadSince(t *testing.T) {
 
 func TestCheckCmdPass(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /check": `{"passed":true,"checks":[{"name":"test","cmd":"go test","passed":true}]}`,
+		"POST /api/v1/check": `{"passed":true,"checks":[{"name":"test","cmd":"go test","passed":true}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "check")
 	if err != nil {
@@ -486,7 +486,7 @@ func TestCheckCmdPass(t *testing.T) {
 
 func TestCheckCmdFailExitsNonZero(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /check": `{"passed":false,"checks":[{"name":"test","cmd":"go test","passed":false,"exit_code":1,"output":"FAIL"}]}`,
+		"POST /api/v1/check": `{"passed":false,"checks":[{"name":"test","cmd":"go test","passed":false,"exit_code":1,"output":"FAIL"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "check", "test")
 	if err == nil {

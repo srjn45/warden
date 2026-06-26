@@ -29,7 +29,7 @@ func getBranches(t *testing.T, srv *Server) (int, branchesResponse) {
 	t.Helper()
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/collab/branches")
+	resp, err := http.Get(ts.URL + "/api/v1/collab/branches")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}

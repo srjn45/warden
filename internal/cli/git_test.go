@@ -31,7 +31,7 @@ func gitStub(t *testing.T, body any) (addr string, last *map[string]string) {
 	rec := map[string]string{}
 	last = &rec
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.True(t, strings.HasPrefix(r.URL.Path, "/git/") || r.URL.Path == "/check", "unexpected path %s", r.URL.Path)
+		require.True(t, strings.HasPrefix(r.URL.Path, "/api/v1/git/") || r.URL.Path == "/api/v1/check", "unexpected path %s", r.URL.Path)
 		var in map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		for k, v := range in {

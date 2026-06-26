@@ -9,7 +9,7 @@ import (
 
 func TestGetMetrics(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
+		if r.URL.Path != "/api/v1/metrics" {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		w.Write([]byte(`{"taken_at":"2026-06-09T10:00:00Z","system":{"agent_count":3,"attributed_rss_bytes":1048576},"agents":[{"id":"a","rss_bytes":1024}],"daemon":{"goroutines":5}}`))

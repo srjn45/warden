@@ -87,7 +87,7 @@ func TestListPipelineTemplatesTool(t *testing.T) {
 // TestSavingsTool exercises the GET /savings round-trip.
 func TestSavingsTool(t *testing.T) {
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/savings", r.URL.Path)
+		require.Equal(t, "/api/v1/savings", r.URL.Path)
 		_, _ = w.Write([]byte(`{"agents":3,"saved_tokens":42000}`))
 	}))
 	defer daemon.Close()
@@ -115,7 +115,7 @@ func TestPausePipelineTool(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
-	require.Equal(t, "POST /pipelines/ship-it/pause", hit)
+	require.Equal(t, "POST /api/v1/pipelines/ship-it/pause", hit)
 	require.Contains(t, textOf(res), "paused pipeline ship-it")
 }
 
@@ -135,14 +135,14 @@ func TestSetAutoApproveTool(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
-	require.Equal(t, "PATCH /sessions/A-1/auto-approve", hit)
+	require.Equal(t, "PATCH /api/v1/sessions/A-1/auto-approve", hit)
 	require.Contains(t, textOf(res), "auto-approve on for A-1")
 }
 
 // TestCreateScheduleTool exercises the schedule create round-trip.
 func TestCreateScheduleTool(t *testing.T) {
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "POST /schedules", r.Method+" "+r.URL.Path)
+		require.Equal(t, "POST /api/v1/schedules", r.Method+" "+r.URL.Path)
 		_, _ = w.Write([]byte(`{"id":"nightly","cron":"@daily"}`))
 	}))
 	defer daemon.Close()

@@ -15,7 +15,7 @@ func getHistory(t *testing.T, srv *Server, query string) (int, sessionsResponse)
 	t.Helper()
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/history" + query)
+	resp, err := http.Get(ts.URL + "/api/v1/history" + query)
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}

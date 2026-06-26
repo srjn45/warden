@@ -15,7 +15,7 @@ describe('quickAdd', () => {
     vi.stubGlobal('fetch', fetchMock);
     const out = await quickAdd('/work/project');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/spawn');
+    expect(url).toBe('/api/v1/spawn');
     expect(JSON.parse(opts.body)).toEqual({
       type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false,
       prompt: '', cwd: '/work/project', supervised: false, force: false,

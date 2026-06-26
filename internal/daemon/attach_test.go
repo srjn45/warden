@@ -49,7 +49,7 @@ func TestParseResize(t *testing.T) {
 func TestAttachUnknownSessionIs404(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/sessions/nope/attach")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/nope/attach")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -60,7 +60,7 @@ func TestAttachFoundSessionDoesNotFastReject(t *testing.T) {
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1"})
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/sessions/A-1/attach")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/A-1/attach")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.NotEqual(t, http.StatusNotFound, resp.StatusCode)

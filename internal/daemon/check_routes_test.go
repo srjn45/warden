@@ -21,7 +21,7 @@ func TestCheckPinsToSessionWorkdir(t *testing.T) {
 
 	// A spoofed dir must be ignored in favour of the agent's own worktree.
 	body, _ := json.Marshal(CheckRequest{Session: "A-1", Dir: "/repo/.worktrees/OTHER", Name: "test"})
-	resp, err := http.Post(ts.URL+"/check", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/check", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -43,7 +43,7 @@ func TestCheckNoConfigIsUnprocessable(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), fl)
 	defer ts.Close()
 	body, _ := json.Marshal(CheckRequest{Dir: "/wt"})
-	resp, err := http.Post(ts.URL+"/check", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/check", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
@@ -52,7 +52,7 @@ func TestCheckNoConfigIsUnprocessable(t *testing.T) {
 func TestCheckNoDirNoSessionRejected(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/check", "application/json", bytes.NewReader([]byte(`{}`)))
+	resp, err := http.Post(ts.URL+"/api/v1/check", "application/json", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -63,7 +63,7 @@ func TestCheckDirOnlyNoSession(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), fl)
 	defer ts.Close()
 	body, _ := json.Marshal(CheckRequest{Dir: "/some/wt"})
-	resp, err := http.Post(ts.URL+"/check", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/check", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

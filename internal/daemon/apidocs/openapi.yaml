@@ -119,7 +119,7 @@ paths:
         "404":
           description: Docs disabled (api_docs=false)
 
-  /sessions:
+  /api/v1/sessions:
     get:
       tags: [Sessions]
       summary: List active sessions
@@ -130,7 +130,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SessionList" }
 
-  /sessions/{id}:
+  /api/v1/sessions/{id}:
     get:
       tags: [Sessions]
       summary: Get one session by id or name
@@ -147,7 +147,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
-  /spawn:
+  /api/v1/spawn:
     post:
       tags: [Sessions]
       summary: Spawn a new agent
@@ -177,7 +177,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ConfirmationResponse" }
 
-  /adopt:
+  /api/v1/adopt:
     post:
       tags: [Sessions]
       summary: Adopt an existing (un-spawned) session
@@ -194,7 +194,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AdoptResponse" }
 
-  /sessions/{id}/terminate:
+  /api/v1/sessions/{id}/terminate:
     post:
       tags: [Sessions]
       summary: Terminate an agent
@@ -204,7 +204,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/delete:
+  /api/v1/sessions/{id}/delete:
     post:
       tags: [Sessions]
       summary: Delete a session record
@@ -217,7 +217,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/remove-worktree:
+  /api/v1/sessions/{id}/remove-worktree:
     post:
       tags: [Sessions]
       summary: Remove the session's git worktree + branch
@@ -230,7 +230,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/input:
+  /api/v1/sessions/{id}/input:
     post:
       tags: [Sessions]
       summary: Send text input to an agent's pane
@@ -244,7 +244,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/output:
+  /api/v1/sessions/{id}/output:
     get:
       tags: [Sessions]
       summary: Read recent pane output
@@ -262,7 +262,7 @@ paths:
               schema: { $ref: "#/components/schemas/OutputResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/attach:
+  /api/v1/sessions/{id}/attach:
     get:
       tags: [Sessions]
       summary: Attach to an agent's pane (WebSocket)
@@ -275,7 +275,7 @@ paths:
           description: Switching Protocols (WebSocket)
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/restore:
+  /api/v1/sessions/{id}/restore:
     post:
       tags: [Sessions]
       summary: Restore (re-create + resume) a lost session
@@ -284,7 +284,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/create-pr:
+  /api/v1/sessions/{id}/create-pr:
     post:
       tags: [Sessions]
       summary: Open a GitHub PR for the agent's branch
@@ -305,7 +305,7 @@ paths:
               schema: { $ref: "#/components/schemas/PRResult" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/digest:
+  /api/v1/sessions/{id}/digest:
     get:
       tags: [Sessions]
       summary: Completion digest for an agent
@@ -319,7 +319,7 @@ paths:
               schema: { $ref: "#/components/schemas/Digest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/auto-approve:
+  /api/v1/sessions/{id}/auto-approve:
     patch:
       tags: [Approvals]
       summary: Toggle auto-approve for an agent
@@ -336,7 +336,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/permission-mode:
+  /api/v1/sessions/{id}/permission-mode:
     patch:
       tags: [Sessions]
       summary: Set an agent's permission mode
@@ -355,7 +355,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/name:
+  /api/v1/sessions/{id}/name:
     patch:
       tags: [Sessions]
       summary: Rename an agent
@@ -374,7 +374,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /sessions/{id}/approve:
+  /api/v1/sessions/{id}/approve:
     post:
       tags: [Approvals]
       summary: Answer a recognized permission prompt
@@ -392,7 +392,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /events:
+  /api/v1/events:
     post:
       tags: [Events]
       summary: Ingest a Claude hook event
@@ -407,7 +407,7 @@ paths:
         "204":
           description: Unknown session (hooks fail soft)
 
-  /hooks/guard:
+  /api/v1/hooks/guard:
     post:
       tags: [Events]
       summary: Isolation guard verdict for a file-mutating tool call
@@ -424,7 +424,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GuardVerdict" }
 
-  /events/stream:
+  /api/v1/events/stream:
     get:
       tags: [Events]
       summary: Live session snapshot stream (SSE)
@@ -439,7 +439,7 @@ paths:
             text/event-stream:
               schema: { type: string }
 
-  /pressure:
+  /api/v1/pressure:
     get:
       tags: [Observability]
       summary: Memory-pressure + spawn-gate status
@@ -450,7 +450,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PressureStatus" }
 
-  /metrics:
+  /api/v1/metrics:
     get:
       tags: [Observability]
       summary: Live resource snapshot
@@ -461,7 +461,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MetricsSample" }
 
-  /metrics/history:
+  /api/v1/metrics/history:
     get:
       tags: [Observability]
       summary: Recorded metrics samples or per-agent summaries
@@ -492,7 +492,7 @@ paths:
                   - $ref: "#/components/schemas/AgentSummaryResponse"
         "400": { $ref: "#/components/responses/BadRequest" }
 
-  /worktrees:
+  /api/v1/worktrees:
     get:
       tags: [Git]
       summary: List a repo's worktrees
@@ -513,7 +513,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/WorktreeListing" }
 
-  /prune:
+  /api/v1/prune:
     post:
       tags: [Git]
       summary: Reclaim orphan worktrees
@@ -534,7 +534,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/PruneResult" }
 
-  /git/commit:
+  /api/v1/git/commit:
     post:
       tags: [Git]
       summary: Stage + commit a worktree (rail-enforcing)
@@ -550,7 +550,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/CommitResult" }
 
-  /git/push:
+  /api/v1/git/push:
     post:
       tags: [Git]
       summary: Push a worktree's branch to origin (protected-branch refusal)
@@ -566,7 +566,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PushResult" }
 
-  /git/sync:
+  /api/v1/git/sync:
     post:
       tags: [Git]
       summary: Rebase a worktree's branch onto origin/base
@@ -582,7 +582,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SyncResult" }
 
-  /check:
+  /api/v1/check:
     post:
       tags: [Git]
       summary: Run the project's .warden/check.yml command(s)
@@ -598,7 +598,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/CheckResult" }
 
-  /fs/dirs:
+  /api/v1/fs/dirs:
     get:
       tags: [Filesystem]
       summary: List immediate subdirectories
@@ -614,7 +614,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/DirListing" }
 
-  /approvals:
+  /api/v1/approvals:
     get:
       tags: [Approvals]
       summary: Live approval queue
@@ -625,7 +625,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApprovalsResponse" }
 
-  /context:
+  /api/v1/context:
     get:
       tags: [Context]
       summary: List shared-context entries
@@ -645,7 +645,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/ContextEntry" }
 
-  /context/{key}:
+  /api/v1/context/{key}:
     get:
       tags: [Context]
       summary: Read a shared-context entry
@@ -683,7 +683,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
 
-  /context/{key}/cas:
+  /api/v1/context/{key}/cas:
     post:
       tags: [Context]
       summary: Compare-and-swap a shared-context entry
@@ -710,7 +710,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
-  /context/{key}/append:
+  /api/v1/context/{key}/append:
     post:
       tags: [Context]
       summary: Atomically append to a shared-context entry
@@ -732,7 +732,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ContextEntry" }
 
-  /sessions/{id}/messages:
+  /api/v1/sessions/{id}/messages:
     post:
       tags: [Messages]
       summary: Send a directed message to an agent
@@ -778,7 +778,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Message" }
 
-  /sessions/{id}/messages/wait:
+  /api/v1/sessions/{id}/messages/wait:
     get:
       tags: [Messages]
       summary: Long-poll for a message
@@ -804,7 +804,7 @@ paths:
                   found: { type: boolean }
                   message: { $ref: "#/components/schemas/Message" }
 
-  /messages:
+  /api/v1/messages:
     get:
       tags: [Messages]
       summary: Recent message traffic across all inboxes
@@ -825,7 +825,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Message" }
 
-  /collab/conflicts:
+  /api/v1/collab/conflicts:
     get:
       tags: [Collaboration]
       summary: Current inter-agent file conflicts
@@ -841,7 +841,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Conflict" }
 
-  /collab/branches:
+  /api/v1/collab/branches:
     get:
       tags: [Collaboration]
       summary: Per-agent CI + branch-vs-main status
@@ -861,7 +861,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/BranchStatus" }
 
-  /pipelines:
+  /api/v1/pipelines:
     get:
       tags: [Pipelines]
       summary: List pipelines
@@ -895,7 +895,7 @@ paths:
               schema: { $ref: "#/components/schemas/Pipeline" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
-  /pipelines/{pid}:
+  /api/v1/pipelines/{pid}:
     get:
       tags: [Pipelines]
       summary: Show one pipeline
@@ -915,7 +915,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /pipelines/{pid}/start:
+  /api/v1/pipelines/{pid}/start:
     post:
       tags: [Pipelines]
       summary: Start a pipeline (reconcile + spawn ready jobs)
@@ -924,7 +924,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /pipelines/{pid}/pause:
+  /api/v1/pipelines/{pid}/pause:
     post:
       tags: [Pipelines]
       summary: Pause a pipeline (halt new spawns)
@@ -933,7 +933,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /pipelines/{pid}/resume:
+  /api/v1/pipelines/{pid}/resume:
     post:
       tags: [Pipelines]
       summary: Resume a paused pipeline
@@ -942,7 +942,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /pipelines/{pid}/cancel:
+  /api/v1/pipelines/{pid}/cancel:
     post:
       tags: [Pipelines]
       summary: Cancel a pipeline
@@ -951,7 +951,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /pipelines/{pid}/jobs/{job}/emit:
+  /api/v1/pipelines/{pid}/jobs/{job}/emit:
     post:
       tags: [Pipelines]
       summary: Emit a job's output (commit work + fan out downstream)
@@ -970,7 +970,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /pipelines/{pid}/jobs/{job}/edit:
+  /api/v1/pipelines/{pid}/jobs/{job}/edit:
     post:
       tags: [Pipelines]
       summary: Edit a pending job's prompt and/or handoff
@@ -989,7 +989,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /pipelines/{pid}/jobs/{job}/retry:
+  /api/v1/pipelines/{pid}/jobs/{job}/retry:
     post:
       tags: [Pipelines]
       summary: Retry a failed / needs-attention job
@@ -1000,7 +1000,7 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /history:
+  /api/v1/history:
     get:
       tags: [Observability]
       summary: Browse the archived (closed) session store
@@ -1024,7 +1024,7 @@ paths:
               schema: { $ref: "#/components/schemas/SessionList" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
-  /search:
+  /api/v1/search:
     get:
       tags: [Observability]
       summary: Full-text search across sessions
@@ -1050,7 +1050,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
-  /import:
+  /api/v1/import:
     post:
       tags: [Import/Export]
       summary: Import session records from an export envelope
@@ -1072,7 +1072,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ImportResult" }
 
-  /snapshots:
+  /api/v1/snapshots:
     post:
       tags: [Snapshots]
       summary: Capture a worktree + transcript snapshot
@@ -1118,7 +1118,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
-  /snapshots/{id}/restore:
+  /api/v1/snapshots/{id}/restore:
     post:
       tags: [Snapshots]
       summary: Restore a snapshot onto its recorded worktree
@@ -1144,7 +1144,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /savings:
+  /api/v1/savings:
     get:
       tags: [Savings]
       summary: Aggregated token-savings summary
@@ -1176,7 +1176,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
-  /schedules:
+  /api/v1/schedules:
     get:
       tags: [Schedules]
       summary: List schedules
@@ -1222,7 +1222,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
-  /schedules/{id}:
+  /api/v1/schedules/{id}:
     delete:
       tags: [Schedules]
       summary: Delete a schedule

@@ -606,7 +606,7 @@ warden's lifecycle features (starting with `wd check`) kept out of agents' conte
 windows. Two axes are reported separately and never blended: the **context** axis
 (how much leaner context stayed, % and $) and the **offload** axis (Claude work
 moved off entirely onto the local LLM, $). Gated by the `savings` setting (default
-on); `GET /savings` returns 403 when off. See [FEATURES.md §29](FEATURES.md).
+on); `GET /api/v1/savings` returns 403 when off. See [FEATURES.md §29](FEATURES.md).
 
 ```sh
 warden savings                    # per-feature table (saved/raw tokens, events)
@@ -628,7 +628,7 @@ status** (latest `gh run list` in the worktree) and its **standing vs `origin/ma
 `branch_track_enabled`, tune `branch_track_interval`) delivers **non-blocking**
 alerts — an inbox note (+ desktop ping) on a new CI failure, an inbox nudge on a
 merged or far-behind branch. Every `gh`/git call fails open. Also at
-`GET /collab/branches` and the `get_branch_status` MCP tool. See
+`GET /api/v1/collab/branches` and the `get_branch_status` MCP tool. See
 [FEATURES.md §6](FEATURES.md).
 
 ### `warden insights [--json]`
@@ -1207,7 +1207,7 @@ daemon address for a single command.
 | `token_critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
 | `log_level` | `info` | Minimum severity the daemon logs (`debug`/`info`/`warn`/`error`). Overridden by `warden daemon --log-level` |
 | `log_format` | `text` | Daemon log output format: `text` (human-readable) or `json` (structured, one object per line). Overridden by `warden daemon --log-format` |
-| `savings` | `true` | Record the token reductions warden's lifecycle features earn to an append-only ledger, surfaced by `warden savings` and `GET /savings` (403 when off) |
+| `savings` | `true` | Record the token reductions warden's lifecycle features earn to an append-only ledger, surfaced by `warden savings` and `GET /api/v1/savings` (403 when off) |
 | `savings_samples` | `false` | Retain opt-in raw-vs-kept **provenance samples** for `warden savings --audit`. WARNING: samples hold substrings of real build/test/git output, which may be sensitive. Requires `savings` |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`). Off → the schedule routes 403 and the reconcile loop is a no-op |
 | `branch_track_enabled` | `false` | Enable the per-agent branch monitor (`warden branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |

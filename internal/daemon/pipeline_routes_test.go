@@ -31,7 +31,7 @@ func TestPipelineCreateThenList(t *testing.T) {
 	ts, _ := newPipeServer(t)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
@@ -43,7 +43,7 @@ func TestPipelineCreateThenList(t *testing.T) {
 		t.Fatalf("created pipeline wrong: %+v", p)
 	}
 
-	resp2, err := http.Get(ts.URL + "/pipelines")
+	resp2, err := http.Get(ts.URL + "/api/v1/pipelines")
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 	var lr struct {
@@ -59,7 +59,7 @@ func TestPipelineCreateInvalidYAML400(t *testing.T) {
 	ts, _ := newPipeServer(t)
 	defer ts.Close()
 	bad := `{"spec":"name: demo\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    depends_on: [ghost]\n"}`
-	resp, err := http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(bad))
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(bad))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -70,9 +70,9 @@ func TestPipelineCreateInvalidYAML400(t *testing.T) {
 func TestPipelineStartSpawnsRoot(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
 
-	resp, err := http.Post(ts.URL+"/pipelines/demo/start", "application/json", nil)
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/start", "application/json", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -87,10 +87,10 @@ func TestPipelineStartSpawnsRoot(t *testing.T) {
 func TestPipelineEmitMarksDone(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
-	http.Post(ts.URL+"/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
 
-	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/emit", "application/json", strings.NewReader(`{"text":"all done"}`))
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/jobs/a/emit", "application/json", strings.NewReader(`{"text":"all done"}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -108,7 +108,7 @@ func TestPipelineEmitMarksDone(t *testing.T) {
 func TestPipelineShow404(t *testing.T) {
 	ts, _ := newPipeServer(t)
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/pipelines/ghost")
+	resp, err := http.Get(ts.URL + "/api/v1/pipelines/ghost")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
@@ -120,9 +120,9 @@ func TestPipelineShow404(t *testing.T) {
 func TestPipelineEditJobRoute(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) // job "a", pending
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) // job "a", pending
 
-	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/edit", "application/json", strings.NewReader(`{"prompt":"new prompt"}`))
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/jobs/a/edit", "application/json", strings.NewReader(`{"prompt":"new prompt"}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -139,8 +139,8 @@ func TestPipelineEditJobRoute(t *testing.T) {
 func TestPipelineEditJobNothing400(t *testing.T) {
 	ts, _ := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
-	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/edit", "application/json", strings.NewReader(`{}`))
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/jobs/a/edit", "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -153,14 +153,14 @@ func TestPipelineEditJobNothing400(t *testing.T) {
 func TestPipelineRetryRoute(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody))
 	// force job a into a failed state.
 	ps.Update("demo", func(p *pipeline.Pipeline) {
 		p.Job("a").Status = pipeline.JobFailed
 		p.Status = pipeline.StatusStalled
 	})
 
-	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/retry", "application/json", nil)
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/jobs/a/retry", "application/json", nil)
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -177,8 +177,8 @@ func TestPipelineRetryRoute(t *testing.T) {
 func TestPipelineRetryNotRetryable409(t *testing.T) {
 	ts, _ := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck // a pending
-	resp, err := http.Post(ts.URL+"/pipelines/demo/jobs/a/retry", "application/json", nil)
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck // a pending
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/jobs/a/retry", "application/json", nil)
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -191,13 +191,13 @@ func TestPipelineRetryNotRetryable409(t *testing.T) {
 func TestPipelineCancelSkipsNeedsAttention(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody))
 	ps.Update("demo", func(p *pipeline.Pipeline) {
 		p.Job("a").Status = pipeline.JobNeedsAttention
 		p.Job("a").SessionID = "demo-a"
 		p.Status = pipeline.StatusRunning
 	})
-	resp, err := http.Post(ts.URL+"/pipelines/demo/cancel", "application/json", nil)
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/cancel", "application/json", nil)
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -238,10 +238,10 @@ func TestPipelineCancelRejectsFinished(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ts, ps := newPipeServer(t)
 			defer ts.Close()
-			http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+			http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody))
 			ps.Update("demo", tc.setup)
 
-			resp, err := http.Post(ts.URL+"/pipelines/demo/cancel", "application/json", nil)
+			resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/cancel", "application/json", nil)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 			if resp.StatusCode != tc.wantCode {
@@ -258,9 +258,9 @@ func TestPipelineCancelRejectsFinished(t *testing.T) {
 func TestPipelineDeleteRoute(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) // job "a" pending
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) // job "a" pending
 
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/pipelines/demo", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/pipelines/demo", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("DELETE: %v", err)
@@ -284,7 +284,7 @@ func TestPipelineDeleteReapsJobSessions(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody))
 	// job "a" finished but its agent session still lingers (tmux alive).
 	ps.Update("demo", func(p *pipeline.Pipeline) {
 		p.Job("a").Status = pipeline.JobDone
@@ -292,7 +292,7 @@ func TestPipelineDeleteReapsJobSessions(t *testing.T) {
 	})
 	ss.Insert(context.Background(), &store.Session{ID: "demo-a", PipelineID: "demo", JobID: "a", Status: store.StatusDone})
 
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/pipelines/demo", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/pipelines/demo", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -317,13 +317,13 @@ func TestPipelineDeleteClearsContext(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) // pipeline "demo", job "a" pending
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) // pipeline "demo", job "a" pending
 	// Stand in for the executor's per-job output handoff keys, plus an unrelated key.
 	cs.Set("pipeline.demo.a.output", "result of a", "pipeline:demo")
 	cs.Set("global.keep", "unrelated", "human")
 	cs.Set("pipeline.demo2.a.output", "other pipeline", "pipeline:demo2") // must survive
 
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/pipelines/demo", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/pipelines/demo", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -359,7 +359,7 @@ func TestTerminateFailsRunningPipelineJob(t *testing.T) {
 		Jobs: []pipeline.Job{{ID: "only", Status: pipeline.JobRunning, SessionID: "demo-only"}}})
 	ss.Insert(context.Background(), &store.Session{ID: "demo-only", TmuxSession: "demo-only", PipelineID: "demo", JobID: "only", Status: store.StatusWorking})
 
-	resp, err := http.Post(ts.URL+"/sessions/demo-only/terminate", "application/json", nil)
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/demo-only/terminate", "application/json", nil)
 	require.NoError(t, err)
 	resp.Body.Close()
 
@@ -386,7 +386,7 @@ func TestSessionEndFailsRunningPipelineJob(t *testing.T) {
 		Jobs: []pipeline.Job{{ID: "only", Status: pipeline.JobRunning, SessionID: "demo-only"}}})
 	ss.Insert(context.Background(), &store.Session{ID: "demo-only", PipelineID: "demo", JobID: "only", Status: store.StatusWorking})
 
-	resp, err := http.Post(ts.URL+"/events", "application/json",
+	resp, err := http.Post(ts.URL+"/api/v1/events", "application/json",
 		strings.NewReader(`{"session":"demo-only","type":"SessionEnd"}`))
 	require.NoError(t, err)
 	resp.Body.Close()
@@ -400,10 +400,10 @@ func TestSessionEndFailsRunningPipelineJob(t *testing.T) {
 func TestPipelineDeleteRefusesLiveJob(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody))
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody))
 	ps.Update("demo", func(p *pipeline.Pipeline) { p.Job("a").Status = pipeline.JobRunning })
 
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/pipelines/demo", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/pipelines/demo", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("DELETE: %v", err)
@@ -417,10 +417,10 @@ func TestPipelineDeleteRefusesLiveJob(t *testing.T) {
 func TestPipelinePauseResumeRoute(t *testing.T) {
 	ts, ps := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
-	http.Post(ts.URL+"/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
 
-	resp, err := http.Post(ts.URL+"/pipelines/demo/pause", "application/json", nil)
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/pause", "application/json", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -431,7 +431,7 @@ func TestPipelinePauseResumeRoute(t *testing.T) {
 		t.Fatalf("status %s, want paused", got.Status)
 	}
 
-	resp2, err := http.Post(ts.URL+"/pipelines/demo/resume", "application/json", nil)
+	resp2, err := http.Post(ts.URL+"/api/v1/pipelines/demo/resume", "application/json", nil)
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
@@ -447,8 +447,8 @@ func TestPipelinePauseResumeRoute(t *testing.T) {
 func TestPipelinePauseNotRunning409(t *testing.T) {
 	ts, _ := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck // pending
-	resp, err := http.Post(ts.URL+"/pipelines/demo/pause", "application/json", nil)
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck // pending
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/pause", "application/json", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
@@ -459,9 +459,9 @@ func TestPipelinePauseNotRunning409(t *testing.T) {
 func TestPipelineResumeNotPaused409(t *testing.T) {
 	ts, _ := newPipeServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
-	http.Post(ts.URL+"/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
-	resp, err := http.Post(ts.URL+"/pipelines/demo/resume", "application/json", nil)
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/resume", "application/json", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
@@ -472,7 +472,7 @@ func TestPipelineResumeNotPaused409(t *testing.T) {
 func TestPipelinePause404(t *testing.T) {
 	ts, _ := newPipeServer(t)
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/pipelines/ghost/pause", "application/json", nil)
+	resp, err := http.Post(ts.URL+"/api/v1/pipelines/ghost/pause", "application/json", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {

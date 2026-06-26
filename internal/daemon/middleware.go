@@ -94,7 +94,7 @@ const (
 // Flush/Hijack): the SSE stream, the WS tmux attach, and the message long-poll.
 func isStreamingPath(r *http.Request) bool {
 	p := r.URL.Path
-	return p == "/events/stream" ||
+	return strings.HasSuffix(p, "/events/stream") ||
 		strings.HasSuffix(p, "/attach") ||
 		strings.HasSuffix(p, "/messages/wait")
 }

@@ -10,7 +10,7 @@ import (
 
 func TestAuthorizeNoTokenAllowsAll(t *testing.T) {
 	s := &Server{} // authToken == "" ⇒ auth disabled
-	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
 	if ok, scope := s.authorize(req); !ok || scope != scopeFull {
 		t.Fatalf("auth-disabled must allow; got ok=%v scope=%v", ok, scope)
 	}
@@ -34,7 +34,7 @@ func TestAuthorizeWithToken(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
 			tc.set(req)
 			if ok, _ := s.authorize(req); ok != tc.want {
 				t.Fatalf("authorize() ok=%v, want %v", ok, tc.want)
@@ -47,7 +47,7 @@ func TestAuthorizeLoopbackStillRequiresToken(t *testing.T) {
 	// No loopback exemption: a localhost request with no token is denied when a
 	// token is configured (a same-host reverse proxy must not bypass auth).
 	s := &Server{authToken: "secret"}
-	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
 	req.RemoteAddr = "127.0.0.1:54321"
 	if ok, _ := s.authorize(req); ok {
 		t.Fatal("loopback request without token must be denied when auth is on")
@@ -64,7 +64,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 	// Denied: no token → 401, handler not reached.
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing token: code=%d, want 401", rec.Code)
 	}
@@ -74,7 +74,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 	// Allowed: valid token → handler runs.
 	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !reached {
@@ -107,8 +107,8 @@ func TestRouterAuthSplit(t *testing.T) {
 	require.NotEqual(t, http.StatusUnauthorized, get("/", ""), "static UI must load so the token modal can render")
 
 	// Gated.
-	require.Equal(t, http.StatusUnauthorized, get("/sessions", ""))
-	require.Equal(t, http.StatusOK, get("/sessions", "secret"))
+	require.Equal(t, http.StatusUnauthorized, get("/api/v1/sessions", ""))
+	require.Equal(t, http.StatusOK, get("/api/v1/sessions", "secret"))
 }
 
 func TestBearerToken(t *testing.T) {
@@ -125,7 +125,7 @@ func TestBearerToken(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/x", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/x", nil)
 			tc.set(req)
 			if got := bearerToken(req); got != tc.want {
 				t.Fatalf("bearerToken()=%q, want %q", got, tc.want)

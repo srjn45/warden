@@ -23,8 +23,8 @@ func TestHandoffToExistingAgent(t *testing.T) {
 	t.Setenv("AGENTCTL_SESSION_ID", "")
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions/B-2":           `{"id":"B-2","status":"working"}`,
-		"POST /sessions/B-2/messages": `{"message":{"id":"7","from":"human","to":"B-2","body":"x"},"woke":true}`,
+		"GET /api/v1/sessions/B-2":           `{"id":"B-2","status":"working"}`,
+		"POST /api/v1/sessions/B-2/messages": `{"message":{"id":"7","from":"human","to":"B-2","body":"x"},"woke":true}`,
 	}, nil, body))
 	rf := writeResumeFile(t)
 	out, err := runCLI(t, addr, "handoff", "--to", "B-2", "--resume-file", rf, "--resume-prompt", "finish the migration")
@@ -34,8 +34,8 @@ func TestHandoffToExistingAgent(t *testing.T) {
 	if !strings.Contains(out, "handed off to B-2") || !strings.Contains(out, "woke recipient") {
 		t.Fatalf("handoff --to output: %q", out)
 	}
-	if !strings.Contains(body["/sessions/B-2/messages"], "finish the migration") {
-		t.Fatalf("resume prompt not delivered in the message body: %q", body["/sessions/B-2/messages"])
+	if !strings.Contains(body["/api/v1/sessions/B-2/messages"], "finish the migration") {
+		t.Fatalf("resume prompt not delivered in the message body: %q", body["/api/v1/sessions/B-2/messages"])
 	}
 }
 
@@ -44,7 +44,7 @@ func TestHandoffToMissingTargetFailsFast(t *testing.T) {
 	t.Setenv("AGENTCTL_SESSION_ID", "")
 	sent := false
 	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/messages") {
+		if strings.HasSuffix(r.URL.Path, "/api/v1/messages") {
 			sent = true
 		}
 		// The target lookup 404s.
@@ -64,7 +64,7 @@ func TestHandoffNewDelegate(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "")
 	t.Setenv("AGENTCTL_SESSION_ID", "")
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /spawn": `{"id":"DEL-1","type":"development","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"DEL-1","type":"development","status":"spawning"}`,
 	}, nil, nil))
 	rf := writeResumeFile(t)
 	out, err := runCLI(t, addr, "handoff", "--repo", t.TempDir(), "--type", "development",

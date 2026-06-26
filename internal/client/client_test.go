@@ -24,7 +24,7 @@ func TestIsConnRefused(t *testing.T) {
 
 func TestListSessions(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/sessions", r.URL.Path)
+		require.Equal(t, "/api/v1/sessions", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"sessions":[{"id":"A-1","status":"working"}]}`))
 	}))
@@ -39,7 +39,7 @@ func TestListSessions(t *testing.T) {
 
 func TestWatchDeliversSnapshots(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/events/stream", r.URL.Path)
+		require.Equal(t, "/api/v1/events/stream", r.URL.Path)
 		fl := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		// Initial snapshot, a heartbeat comment (must be ignored), then a change.
@@ -104,7 +104,7 @@ func TestDaemonDownGivesFriendlyError(t *testing.T) {
 
 func TestSpawn(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/spawn", r.URL.Path)
+		require.Equal(t, "/api/v1/spawn", r.URL.Path)
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":"A-1","status":"spawning"}`))
 	}))
@@ -159,7 +159,7 @@ func TestCallerDeadlineIsNotOverridden(t *testing.T) {
 
 func TestListDirs(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/fs/dirs", r.URL.Path)
+		require.Equal(t, "/api/v1/fs/dirs", r.URL.Path)
 		require.Equal(t, "/home/me/work", r.URL.Query().Get("path"))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"path":"/home/me/work","parent":"/home/me","entries":[{"name":"api","path":"/home/me/work/api"}]}`))
@@ -190,7 +190,7 @@ func TestRemoveWorktreeConflictIsStatusError(t *testing.T) {
 
 func TestClientApprovals(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/approvals", r.URL.Path)
+		require.Equal(t, "/api/v1/approvals", r.URL.Path)
 		w.Write([]byte(`{"enabled":true,"approvals":[{"id":"a1","recognized":true,"options":["Yes","No"],"fingerprint":"ff"}]}`))
 	}))
 	defer ts.Close()
@@ -205,7 +205,7 @@ func TestClientApprovals(t *testing.T) {
 func TestClientApprove(t *testing.T) {
 	var gotBody map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/sessions/a1/approve", r.URL.Path)
+		require.Equal(t, "/api/v1/sessions/a1/approve", r.URL.Path)
 		json.NewDecoder(r.Body).Decode(&gotBody)
 		w.Write([]byte(`{"status":"answered"}`))
 	}))
@@ -219,7 +219,7 @@ func TestClientApprove(t *testing.T) {
 func TestAdoptSendsBodyAndParsesResponse(t *testing.T) {
 	var gotBody map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/adopt", r.URL.Path)
+		require.Equal(t, "/api/v1/adopt", r.URL.Path)
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"session":{"id":"agent-x"},"warning":"heads up"}`))
@@ -261,7 +261,7 @@ func TestClientSetPermissionMode(t *testing.T) {
 	err := New(ts.URL).SetPermissionMode(context.Background(), "abc123", "acceptEdits")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPatch, gotMethod)
-	require.Equal(t, "/sessions/abc123/permission-mode", gotPath)
+	require.Equal(t, "/api/v1/sessions/abc123/permission-mode", gotPath)
 	require.Equal(t, "acceptEdits", gotBody["permission_mode"])
 }
 
@@ -280,7 +280,7 @@ func TestCtxSetSendsValueAndBy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CtxSet: %v", err)
 	}
-	if gotMethod != http.MethodPut || gotPath != "/context/global.k" {
+	if gotMethod != http.MethodPut || gotPath != "/api/v1/context/global.k" {
 		t.Fatalf("got %s %s", gotMethod, gotPath)
 	}
 	if !strings.Contains(gotBody, `"value":"v"`) || !strings.Contains(gotBody, `"by":"agent-A"`) {
@@ -341,7 +341,7 @@ func TestMsgSendParsesMessageAndWoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MsgSend: %v", err)
 	}
-	if gotMethod != http.MethodPost || gotPath != "/sessions/agent-1/messages" {
+	if gotMethod != http.MethodPost || gotPath != "/api/v1/sessions/agent-1/messages" {
 		t.Fatalf("got %s %s", gotMethod, gotPath)
 	}
 	if !strings.Contains(gotBody, `"from":"agent-2"`) || !strings.Contains(gotBody, `"body":"hi"`) {
@@ -421,7 +421,7 @@ func TestPipelineEditJobAndRetry(t *testing.T) {
 	if err := c.PipelineRetry(context.Background(), "demo", "a"); err != nil {
 		t.Fatalf("PipelineRetry: %v", err)
 	}
-	if retryPath != "/pipelines/demo/jobs/a/retry" {
+	if retryPath != "/api/v1/pipelines/demo/jobs/a/retry" {
 		t.Fatalf("retry path %s", retryPath)
 	}
 }
@@ -430,7 +430,7 @@ func TestPipelineCreateAndEmit(t *testing.T) {
 	var createBody, emitPath string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/pipelines" && r.Method == http.MethodPost:
+		case r.URL.Path == "/api/v1/pipelines" && r.Method == http.MethodPost:
 			b, _ := io.ReadAll(r.Body)
 			createBody = string(b)
 			w.WriteHeader(http.StatusCreated)
@@ -453,7 +453,7 @@ func TestPipelineCreateAndEmit(t *testing.T) {
 	if err := c.PipelineEmit(context.Background(), "demo", "a", "done"); err != nil {
 		t.Fatalf("PipelineEmit: %v", err)
 	}
-	if emitPath != "/pipelines/demo/jobs/a/emit" {
+	if emitPath != "/api/v1/pipelines/demo/jobs/a/emit" {
 		t.Fatalf("emit path %s", emitPath)
 	}
 }
@@ -500,7 +500,7 @@ func TestPressure(t *testing.T) {
 
 func TestMsgRecent(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/messages", r.URL.Path)
+		require.Equal(t, "/api/v1/messages", r.URL.Path)
 		require.Equal(t, "5", r.URL.Query().Get("limit"))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"messages":[{"id":"1","from":"a","to":"b","body":"hi"}]}`))

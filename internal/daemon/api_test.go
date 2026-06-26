@@ -274,7 +274,7 @@ func TestGetSessions(t *testing.T) {
 	ts := testServer(t, fs)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/sessions")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var body sessionsResponse
@@ -286,7 +286,7 @@ func TestGetSessions(t *testing.T) {
 func TestGetSessionNotFound(t *testing.T) {
 	ts := testServer(t, newFakeStore())
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/sessions/missing")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/missing")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -298,7 +298,7 @@ func TestPostEventUpdatesStatusAndAppends(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(EventRequest{Session: "A-1", Type: "Notification", Detail: "Allow Bash?"})
-	resp, err := http.Post(ts.URL+"/events", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/events", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -314,7 +314,7 @@ func TestPostEventSessionEndMarksDone(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(EventRequest{Session: "A-1", Type: "SessionEnd"})
-	resp, err := http.Post(ts.URL+"/events", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/events", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Equal(t, store.StatusDone, fs.data["A-1"].Status, "SessionEnd is terminal")
@@ -332,7 +332,7 @@ func TestPostEventUnknownSessionSoftOK(t *testing.T) {
 	ts := testServer(t, newFakeStore())
 	defer ts.Close()
 	body, _ := json.Marshal(EventRequest{Session: "ghost", Type: "Stop"})
-	resp, err := http.Post(ts.URL+"/events", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/events", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	// Hooks must fail soft: unknown session is accepted (204), never 5xx.
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)

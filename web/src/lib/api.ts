@@ -2,7 +2,7 @@ import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message, Co
 import type { Verdict, PressureStatus } from './pressure';
 import type { MetricsSample } from './metrics';
 import type { Summary } from './savings';
-import { getToken, withToken, notifyAuthRequired } from './token';
+import { getToken, withToken, notifyAuthRequired, API_PREFIX } from './token';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -18,7 +18,7 @@ async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   const token = getToken();
   const headers = new Headers(init?.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  const res = await fetch(input, { ...init, headers });
+  const res = await fetch(API_PREFIX + input, { ...init, headers });
   if (res.status === 401) notifyAuthRequired();
   return res;
 }
@@ -288,7 +288,7 @@ export function subscribeSessions(
   onError: () => void,
   onOpen: () => void,
 ): () => void {
-  const es = new EventSource(withToken('/events/stream'));
+  const es = new EventSource(withToken(API_PREFIX + '/events/stream'));
   es.onopen = () => onOpen();
   es.onmessage = (e) => {
     try {

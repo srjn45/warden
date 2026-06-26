@@ -59,11 +59,11 @@ func TestInsightsCmdEnabled(t *testing.T) {
 	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/sessions":
+		case "/api/v1/sessions":
 			_, _ = w.Write([]byte(`{"sessions":[]}`))
-		case "/history":
+		case "/api/v1/history":
 			_, _ = w.Write([]byte(`{"sessions":[{"id":"A-1","type":"development","status":"done"}]}`))
-		case "/metrics/history":
+		case "/api/v1/metrics/history":
 			_, _ = w.Write([]byte(`{"summaries":[]}`))
 		default:
 			_, _ = w.Write([]byte(`{}`))
@@ -83,11 +83,11 @@ func TestInsightsCmdJSON(t *testing.T) {
 	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/sessions":
+		case "/api/v1/sessions":
 			_, _ = w.Write([]byte(`{"sessions":[]}`))
-		case "/history":
+		case "/api/v1/history":
 			_, _ = w.Write([]byte(`{"sessions":[]}`))
-		case "/metrics/history":
+		case "/api/v1/metrics/history":
 			_, _ = w.Write([]byte(`{"summaries":[]}`))
 		default:
 			_, _ = w.Write([]byte(`{}`))

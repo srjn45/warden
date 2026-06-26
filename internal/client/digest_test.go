@@ -10,7 +10,7 @@ import (
 
 func TestClientDigest(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/sessions/agent-1/digest" {
+		if r.URL.Path != "/api/v1/sessions/agent-1/digest" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
