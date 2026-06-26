@@ -36,6 +36,8 @@ Every `/` command maps to one warden verb; reads run immediately, mutations pass
 
 Unknown `/verbs` are caught with a hint — a typo never silently falls through to the model.
 
+Read results are rendered for a **human**, not dumped as JSON: `/agents` and `/pipelines` print aligned tables (id · status · type · name · what), `/agent <id>` a tight labelled block (empty fields omitted), `/ctx` a key/value table, and `/inbox` / `/collab` / `/approvals` one compact line each. (The local model still receives the structured JSON when it plans in natural language — only the deterministic `/`-command output is reshaped.)
+
 ## How it behaves
 
 | Behaviour | Detail |
