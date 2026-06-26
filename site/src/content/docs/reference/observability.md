@@ -19,7 +19,7 @@ for these are no longer read; see [Configuration & environment](/warden/referenc
 | **Token-savings ledger** (`warden savings`) | A real, append-only ledger of the tokens warden's lifecycle features kept out of agents' context. Gated by `savings` (default on). See [Token-savings ledger](/warden/reference/savings/). |
 | **Insights** (`warden insights`) | History-mined patterns and parallelization opportunities. Gated by `insights` (default on). See [Insights](/warden/reference/insights/). |
 
-The web dashboard surfaces the resource metrics as a **Resources panel** with live per-agent + system resource charts (uPlot).
+The web dashboard surfaces these in the **Metrics** tab (`/metrics`): per-agent **CPU**, **Memory**, and **Context** charts, a **fleet-size** trend, a **Tokens saved** chart (from the savings ledger), and a **Live footprint** card with the live per-agent + system resource charts (uPlot). See [Web mission control → Metrics view](/warden/guides/web-mission-control/#metrics-view).
 
 ```sh
 warden stats           # one-shot view of the fleet's resource footprint

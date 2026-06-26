@@ -13,7 +13,7 @@ warden search auth --closed          # include archived agents
 warden ls --tag backend --tag urgent # only agents carrying every tag
 ```
 
-`search` matches case-insensitively across each agent's id, name, ticket, type, subject, prompt, branch, tags, and last-pane excerpt. Tag agents at spawn with `warden start --tags backend,urgent` (normalized to lowercase, deduped). The web Overview tab carries a live search box, and the Cockpit can group the grid by directory, type, status, or tag.
+`search` matches case-insensitively across each agent's id, name, ticket, type, subject, prompt, branch, tags, and last-pane excerpt. Tag agents at spawn with `warden start --tags backend,urgent` (normalized to lowercase, deduped). The web dashboard carries a live search box, and the Cockpit can group the grid by directory, type, status, or tag.
 
 ## History & archive
 

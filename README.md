@@ -37,7 +37,7 @@ Capability highlights from the **v5.x** line (full notes on the [releases page](
 - **Snapshots & insights** — `warden snapshot` checkpoints a worktree + transcript for rollback; `warden insights` mines agent history for patterns and parallelization wins.
 - **Branch tracking (`warden branches`)** — opt-in monitor of each agent's CI status and standing vs `origin/main`, with non-blocking inbox/desktop alerts.
 - **Extensibility** — a `warden plugin` system (custom task types + lifecycle hooks over JSON-stdio) and an interactive **OpenAPI/Swagger UI** at `/api/docs`.
-- **Web** — dark-mode theming, global keyboard shortcuts, Cockpit agent grouping, live resource charts, and an Archive tab.
+- **Web** — real URL routing (`/cockpit`, `/others`, `/pipelines`, `/metrics`, `/archive`, `/agent/<id>` — deep-linkable, back/forward, shareable), a Cockpit home with a Fleet header, a dedicated **Metrics** tab (per-agent CPU / memory / context, fleet size, tokens saved), dark-mode theming, global keyboard shortcuts, Cockpit agent grouping, and an Archive tab.
 - **Remote access** — bearer-token auth (`warden token …`) and a Docker/compose deployment.
 - **First-run tutorial (`warden tutorial`)** — a guided walkthrough of the core loop, with a one-line nudge until you've taken (or skipped) the tour.
 
@@ -826,7 +826,7 @@ warden search auth backend          # AND every term across active sessions; --c
 warden history --since 7d --type development --limit 20   # browse the archived (closed) store
 ```
 
-`search` matches case-insensitively over id/name/ticket/type/subject/prompt/branch/tags/last-pane; `--json` on either prints raw records. The web Overview carries a live search box and a 🗄 Archive tab mirrors `history`.
+`search` matches case-insensitively over id/name/ticket/type/subject/prompt/branch/tags/last-pane; `--json` on either prints raw records. The web dashboard carries a live search box and a 🗄 Archive tab mirrors `history`.
 
 ### `warden export` / `warden import`
 
@@ -1192,19 +1192,28 @@ Then open `http://localhost:8765` in a browser.
 
 ### What it does
 
-The dashboard is a **tabbed mission-control shell**: two fixed tabs — **Overview** and **Cockpit** — plus one closeable tab per agent you pin.
+The dashboard is a **routed mission-control shell**. Tabs are **real URLs** (History-API routing — back/forward, refresh, and shareable deep links all work), so each surface has its own address:
 
-- **Overview tab** — live fleet list over SSE (no manual refresh), each row with a coloured busy/idle badge (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) and the agent's auto-generated **subject**, plus fleet stats and an **attention queue** that surfaces agents in `waiting_for_input`/`errored`/`orphaned`.
-- **Cockpit tab** — a multi-pane view for watching several agents at once.
-- **Agent tabs** — pin any agent to its own tab to get a **live, interactive terminal** (`AttachTerminal`) — a real `tmux attach` bridged to the browser over a WebSocket, so you can type into the agent and watch it respond in real time. (The old read-only polled snapshot + separate send box were removed.)
+| Route | Tab | What's there |
+|---|---|---|
+| `/cockpit` | ⊞ **Cockpit** | **The home view** (`/` redirects here). A slim **Fleet** header (totals · busy · waiting · errored, pressure, dirs) above the full agent grid. |
+| `/others` | ▦ **Others** | The former *Overview*, now a **catch-all**: *Needs you* (attention queue), *File conflicts*, and *Recent activity*. |
+| `/pipelines` | ⛓ **Pipelines** | Pipeline list + live DAG / job drawer. |
+| `/metrics` | 📊 **Metrics** | Per-agent and fleet-wide charts — see below. |
+| `/archive` | 🗄 **Archive** | Ended sessions with since/type filters. |
+| `/agent/<id>` | `<id>` | A pinned agent's live terminal (one closeable tab per pinned agent). |
+
+- **Cockpit is the home** — `/` redirects to `/cockpit`. It carries the **Fleet** summary header (moved out of the old Overview) above the canonical agent grid; the redundant *Quick spawn* widget and the duplicate *All agents* mini-grid were removed.
+- **Metrics tab (`/metrics`)** — a scrollable column of uPlot chart cards: **CPU per agent**, **Memory per agent** (GiB), **Context per agent** (a client-accumulated time series of each agent's live context fill, legend dot colored by `ok`/`warning`/`critical`; in-session only — resets on full reload), **Number of agents** (fleet size over time), and **Tokens saved** (daily bars from the savings ledger + a headline saved-tokens/$ figure). When the savings ledger is disabled the card shows a "set `savings: true`" hint instead of an empty chart. A **Live footprint** card carries the former Resources panel.
+- **Context & Messages** — no longer a tab; opened from a small **🗒 button in the header** as a dismissible overlay (**Esc** to close).
+- **Agent tabs** — pin any agent to its own tab to get a **live, interactive terminal** (`AttachTerminal`) — a real `tmux attach` bridged to the browser over a WebSocket, so you can type into the agent and watch it respond in real time.
 - **Create agent** — **+ New agent** opens a prompt box (with a directory picker and a **Supervised** checkbox). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. Tick **Supervised** to launch with `--permission-mode acceptEdits` instead of full bypass. For a managed worktree, use the CLI: `warden start TICKET --type development --repo …`.
 - **Terminate** — surfaces the git guard (409 → **Force** + optional **hard-delete**) when there's uncommitted/unpushed work.
 - **Agent grouping** — the Cockpit grid buckets agents into collapsible panes by **Directory / Type / Status / Tag** (choice saved to LocalStorage).
 - **Batch operations** — per-tile checkboxes (Shift-click range select) raise a bulk action bar offering **Message…**, **Terminate**, and **Delete** across the selection.
-- **Search & Archive** — a live search box on Overview filters the fleet client-side; a 🗄 **Archive** tab browses ended sessions with since/type filters.
-- **Resources & timeline** — live per-agent and system resource charts (uPlot), an event/activity timeline, and a pipeline DAG view.
+- **Search & Archive** — a live search box filters the fleet client-side; the 🗄 **Archive** tab browses ended sessions with since/type filters.
 - **Theme toggle** — header control cycles **System → Light → Dark** (defaults to System; persisted, applied before first paint).
-- **Keyboard shortcuts** — a global layer: `?` help overlay, `n` new agent, `/` focus filter, `r` refresh, `1`–`9` jump to a tab, `j`/`k` next/previous tab, `Esc` close/blur.
+- **Keyboard shortcuts** — a global layer: `?` help overlay, `n` new agent, `/` focus filter, `r` refresh, `1`–`9` jump to a tab, `j`/`k` next/previous tab, `Esc` close/blur (also closes the Context overlay).
 - **Browser notifications** — opt in to get a desktop notification when an agent enters `waiting_for_input` (gated so they only fire while the tab is hidden).
 
 ### Remote access

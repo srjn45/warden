@@ -171,25 +171,28 @@ own tmux session, most in a git worktree).
 
 ## 12. Web mission control
 
-The browser GUI (served by the daemon) provides: agent grid + overview, the
-**cockpit** (approvals / attention queue), **pipelines** tab with a live DAG,
-**context & messages** tab, **archive** tab, in-browser **attach** terminal,
-spawn modals, bulk actions, fleet stats / resource panels, activity feed,
-conflicts panel, keyboard shortcuts, and theming.
+The browser GUI (served by the daemon) is a **URL-routed** shell (`/cockpit`
+home · `/others` · `/pipelines` · `/metrics` · `/archive` · `/agent/<id>` —
+deep-linkable, back/forward, shareable). It provides: the **Cockpit** home
+(Fleet header + agent grid), the **Others** catch-all (attention queue,
+conflicts, activity), a **Pipelines** tab with a live DAG, a **Metrics** tab
+(per-agent CPU/memory/context, fleet size, tokens saved), an **Archive** tab,
+in-browser **attach** terminals, a header-button **Context & Messages** overlay,
+spawn modal, bulk actions, keyboard shortcuts, and theming.
 
 | Feature | Where | Docs |
 |---|---|---|
-| Agent grid / overview / busy-idle badges | Overview tab | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Cockpit: approvals + attention queue | Cockpit tab | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Pipelines tab + live DAG | Pipelines tab | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Context & messages | Context tab | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Archive (history) | Archive tab | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| In-browser attach terminal | Agent tab | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Spawn / quick-spawn modal | Quick add | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| URL routing (deep links, back/forward) | all routes | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Agent grid + Fleet header / busy-idle badges | Cockpit (`/cockpit`, home) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Attention queue / approvals | Others (`/others`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Pipelines tab + live DAG | Pipelines (`/pipelines`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Metrics: CPU/mem/context per agent, fleet size, tokens saved | Metrics (`/metrics`) | [observability](https://srjn45.github.io/warden/reference/observability/) |
+| Archive (history) | Archive (`/archive`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| In-browser attach terminal | Agent (`/agent/<id>`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Context & messages | header 🗒 overlay | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Spawn modal (+ New agent) | header button | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Bulk actions | Bulk action bar | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Fleet stats / resource panels | Overview | [observability](https://srjn45.github.io/warden/reference/observability/) |
-| Activity feed / event timeline | Overview | [observability](https://srjn45.github.io/warden/reference/observability/) |
-| Conflicts panel | Overview | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Conflicts panel / activity feed | Others (`/others`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Keyboard shortcuts + help | global | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | REST API + OpenAPI (`/api/docs`) | daemon | [api-openapi](https://srjn45.github.io/warden/reference/api-openapi/) |
 
