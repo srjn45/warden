@@ -1,0 +1,73 @@
+# warden — git lifecycle, checks, snapshots & boundary enforcement
+
+warden moves an agent's **deterministic** work — git and project checks — off the
+LLM and onto first-class commands, and **enforces** the worktree boundary with
+PreToolUse hooks. **Prefer these over raw git/test Bash** — they are one call
+instead of many, return compact results instead of tool-spam, enforce this repo's
+rails, and the guard hooks will deny the raw escapes anyway.
+
+## Git lifecycle — `commit` / `push` / `sync`
+
+MCP tools `commit` / `push` / `sync` (CLI `wd commit`/`push`/`sync`) operate on the
+agent's pinned worktree via the `lifecycle` runner, returning compact structs in
+place of git tool-spam.
+
+| Tool | Does | Rails |
+|---|---|---|
+| `commit {message?, dir?}` | Stage + commit everything on the branch in one call. Returns `{committed, sha, branch, files}` or a hook failure to fix. | Refuses `main`/`master`; runs pre-commit hooks and returns **only** a failure; links the commit to the agent. **Pass `message` when you can** (you made the change, you know the intent); omit it and warden writes one from the diff (local model, else a deterministic conventional-commit floor — a blank commit is impossible). |
+| `push {dir?}` | Push the branch. | — |
+| `sync {dir?}` | Rebase-sync onto the upstream. | Refuses a dirty tree; on conflict leaves it in progress carrying only the conflicting files (then resolve + continue). |
+
+`wd done <id> --create-pr` pushes the branch and opens a GitHub PR before
+terminating the agent (see agents.md).
+
+## Checks — `check`
+
+MCP `check {name?, dir?}` (CLI `wd check [name]`) runs the project's
+`.warden/check.yml` command(s) and returns pass/fail with output for **only the
+failing** checks (tail-truncated; oversized logs condensed by the local model when
+enabled). Pass `name` for one check (`test`/`lint`/`build`) or omit to run all.
+Per-entry `dir:` supports monorepos; config is the single source of truth.
+
+**Use this instead of `go test` / `npm test` / `make verify` in Bash.** It is the
+biggest raw-token win — you read a compact summary, not hundreds of log lines.
+
+## Snapshots — checkpoint & roll back
+
+MCP `snapshot_create` / `snapshot_list` / `snapshot_restore` (CLI `wd snapshot
+create|list|restore`). Checkpoint an agent at a known-good point — its **worktree
+state** *and* its **session transcript** — and roll back later. Config-gated by
+`snapshots` (default on).
+
+- `snapshot_create [name] [-m msg]` — captures the worktree **non-destructively**
+  via `git stash create` (builds a commit object recording the working tree without
+  touching it — no stash pushed, no index change), plus HEAD/branch/dirty-file list
+  and the tmux scrollback as the transcript. Defaults to the current agent.
+- `snapshot_list [name] [--all]` — snapshots for an agent (or every session),
+  newest first.
+- `snapshot_restore <id> [--force]` — re-applies the snapshot's stash onto its
+  recorded worktree. **Rails:** refuses a dirty tree unless `--force`, never
+  restores onto `main`/`master`. **Reversible-safe** — apply neither resets HEAD
+  nor drops the snapshot; a partial apply leaves conflicting paths to resolve.
+
+Prefer a snapshot over a manual `git stash` before a risky change.
+
+## Boundary-enforcement hooks (why a raw command got denied)
+
+warden installs PreToolUse hooks per agent via a `claude --settings` file. Each
+**fails open** (a hook error never blocks the agent) and is individually
+config-gated (default on). When a hook denies a command, **switch to the warden
+tool it names** — don't work around it.
+
+| Hook (config gate) | Behavior |
+|---|---|
+| **Prompt steer** (`git_conventions`) | A system-prompt hint steering agents toward `wd commit`/`push`/`sync` (and `wd check`) over raw git/test Bash — the gentle first layer. |
+| **Git-guard** (`git_redirect`) | Deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed), naming the exact replacement. Static verdict, no daemon round-trip. |
+| **Check-guard** (`check_redirect`) | Deny-redirects a raw test/lint/build command registered in `.warden/check.yml` to `wd check`, matching on leading token (broad runs redirect; focused `-run` runs pass through). No-config repos redirect nothing. |
+| **Isolation guard** (`isolation_guard`) | Denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (daemon round-trip: `POST /hooks/guard`). |
+| **Root guard** (`root_guard`) | Denies any file-mutating tool whose target is in the **main** repo working tree (the shared project root), decided locally from the target path + `git rev-parse` — the backstop for free-form and `--in-repo` agents the isolation guard exempts. Operators who genuinely want an in-place agent set `wd config set root_guard false`. |
+
+**Default-isolated write agents:** every write-type agent
+(`code`/`docs`/`website`/`debug-ci`/`tests`) gets its own worktree unless
+`--in-repo`; `pr-review` is exempt. This is what makes the guards meaningful and
+prevents parallel-agent collisions.
