@@ -17,7 +17,7 @@ import (
 )
 
 // llmCandidate is one local model warden can recommend for the orchestrator
-// (`wd orch`). The orchestrator *conducts* — it turns intent into warden tool
+// (`wd repl`). The orchestrator *conducts* — it turns intent into warden tool
 // calls and never writes code — so the capability that matters is reliable
 // tool/function calling, not coding benchmarks. RAMGB is the practical memory to
 // run the model well (≈Q4 weights + KV cache + runtime overhead), the figure the
@@ -336,7 +336,7 @@ func avgAvail(sample func() (float64, bool), n int, sleep func()) (float64, bool
 func newLLMCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "llm",
-		Short: "Local-LLM helpers for the orchestrator (wd orch)",
+		Short: "Local-LLM helpers for the REPL (wd repl)",
 	}
 	cmd.AddCommand(newLLMSuggestCmd())
 	return cmd
@@ -345,8 +345,8 @@ func newLLMCmd() *cobra.Command {
 func newLLMSuggestCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "suggest",
-		Short: "Recommend local models for the orchestrator, sized to this machine's memory",
-		Long: `Suggest local LLM models for warden's orchestrator (wd orch), ranked against
+		Short: "Recommend local models for the REPL, sized to this machine's memory",
+		Long: `Suggest local LLM models for warden's REPL (wd repl), ranked against
 this machine's memory.
 
 warden auto-detects two figures: total memory (GPU VRAM, Apple unified memory, or

@@ -144,7 +144,7 @@ func newDoctorCmd() *cobra.Command {
 			results = append(results, checkDataDir(cfg.DataDir))
 
 			// Advisory: recommend a local_llm_model from detected hardware for the
-			// orchestrator (`wd orch`). Never auto-set — warden recommends, the
+			// orchestrator (`wd repl`). Never auto-set — warden recommends, the
 			// operator decides.
 			runCmd := func(name string, args ...string) ([]byte, error) {
 				return exec.Command(name, args...).Output()

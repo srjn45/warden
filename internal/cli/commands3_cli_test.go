@@ -102,13 +102,13 @@ func TestInsightsCmdJSON(t *testing.T) {
 	}
 }
 
-func TestOrchCmdStartsWithoutLocalLLM(t *testing.T) {
+func TestReplCmdStartsWithoutLocalLLM(t *testing.T) {
 	// Default config has local_llm off. The deterministic /commands are the
-	// fallback, so orch now starts and notes the NL half is off instead of
+	// fallback, so repl now starts and notes the NL half is off instead of
 	// refusing. /help needs neither a daemon nor a model.
-	out, err := runCLIStdin(t, "", "/help\nexit\n", "orch")
+	out, err := runCLIStdin(t, "", "/help\nexit\n", "repl")
 	if err != nil {
-		t.Fatalf("orch should start without local_llm, got %v", err)
+		t.Fatalf("repl should start without local_llm, got %v", err)
 	}
 	if !strings.Contains(out, "natural-language mode is off") {
 		t.Fatalf("expected the NL-off notice, got %q", out)
