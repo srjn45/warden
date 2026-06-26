@@ -169,6 +169,26 @@ func (s *scriptChatter) Chat(_ context.Context, msgs []llm.Message, _ []llm.Tool
 	return r, nil
 }
 
+// seqErrChatter returns a scripted error OR reply per Chat call (errs[i] wins
+// when non-nil), so a test can model the model failing one turn then recovering.
+type seqErrChatter struct {
+	errs    []error
+	replies []llm.Reply
+	calls   int
+}
+
+func (c *seqErrChatter) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema) (llm.Reply, error) {
+	i := c.calls
+	c.calls++
+	if i < len(c.errs) && c.errs[i] != nil {
+		return llm.Reply{}, c.errs[i]
+	}
+	if i < len(c.replies) {
+		return c.replies[i], nil
+	}
+	return llm.Reply{Text: "(out of script)"}, nil
+}
+
 // fakeShell is a scripted ShellRunner: it records the commands it was asked to
 // run and returns a canned RunResult, so REPL routing/passivity can be tested
 // without a real PTY.

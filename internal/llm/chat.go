@@ -61,6 +61,19 @@ type Chatter interface {
 	Chat(ctx context.Context, msgs []Message, tools []ToolSchema) (Reply, error)
 }
 
+// ToolArgError reports that the model emitted a tool call whose arguments could
+// not be decoded into an object. Unlike a transport or HTTP failure it is
+// *recoverable*: the caller should feed the problem back to the model and let it
+// retry the turn, rather than treating the model as unavailable. It carries the
+// offending tool's name so the nudge can be specific.
+type ToolArgError struct {
+	Tool string
+	Err  error
+}
+
+func (e *ToolArgError) Error() string { return fmt.Sprintf("tool call %q: %v", e.Tool, e.Err) }
+func (e *ToolArgError) Unwrap() error { return e.Err }
+
 // decodeArgs turns a model-emitted tool-call arguments blob into a map. Ollama
 // normally sends a JSON object, but some small models stringify it; we accept
 // both, and treat empty/null/"" as a valid no-argument call (an empty map). Only
