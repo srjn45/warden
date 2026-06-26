@@ -152,6 +152,10 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			srv.SetSavings(cfg.Savings, savStore)
+			// Let the LLM-offload sites (Classify/Summarize) inside lifecycle record
+			// their savings through the same gate-aware, fail-open path. The Server
+			// holds the gate, so the hook is safe to set unconditionally.
+			lc.SavingsHook = srv.RecordLifecycleSaving
 			// Native scheduler (#15): opt-in (scheduler_enabled, default off). The
 			// store file is created regardless so toggling the gate on doesn't lose a
 			// prior schedules.json; the gate decides whether the routes + loop run.

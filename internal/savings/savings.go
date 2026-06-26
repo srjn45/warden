@@ -17,11 +17,14 @@ import (
 // Feature labels — the set of lifecycle surfaces that record a saving. Kept as
 // constants so the emit sites, the aggregator, and any UI legend never drift.
 const (
-	FeatureCheck      = "check"       // wd check: raw test/lint output → failures-only summary
-	FeatureCommit     = "commit"      // wd commit/push/sync: git tool-spam → compact struct
-	FeatureCondense   = "condense"    // local-model condensation of an oversized check log
-	FeatureLLMOffload = "llm_offload" // classify/summarize/commit-msg routed to a free local model
-	FeatureCompact    = "compact"     // auto-/compact reclaiming context-window fill
+	FeatureCheck  = "check"  // wd check: raw test/lint output → failures-only summary (incl. local-model condensation, already reflected in the kept side)
+	FeatureCommit = "commit" // wd commit/push/sync: git tool-spam → compact struct
+	// FeatureLLMOffload covers a classify/summarize call served by the local model
+	// instead of warden's own Claude — the whole prompt left Claude's spend (kept 0).
+	FeatureLLMOffload = "llm_offload"
+	// FeatureCompact is reserved for auto-/compact reclaiming context-window fill;
+	// not yet emitted (its saving is measured post-compaction in the poller).
+	FeatureCompact = "compact"
 )
 
 // Event is one recorded saving. RawTokens is the counterfactual (what the

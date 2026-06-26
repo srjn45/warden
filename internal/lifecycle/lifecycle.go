@@ -20,6 +20,7 @@ import (
 
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -332,6 +333,23 @@ type Lifecycle struct {
 	// the local LLM is off, so every LLM-backed method uses its headless-Claude or
 	// deterministic fallback. The daemon sets it only when config enables it.
 	LLM llm.Completer
+	// SavingsHook, when set, is called by the LLM-offload sites (Classify/Summarize/
+	// GenerateName/commit-message) when a responsibility is served by the local
+	// model instead of warden's own Claude — with the prompt tokens that never
+	// reached Claude (rawTokens) and what still did (keptTokens, 0 for a full
+	// offload). The daemon wires it to the savings ledger; nil disables recording.
+	// Called inline on the offload path, so it must be cheap and must not panic.
+	SavingsHook func(feature, agent string, rawTokens, keptTokens int)
+}
+
+// recordOffload reports a fully-offloaded local-model call to the savings hook (if
+// any): the whole prompt left warden's Claude spend, so rawTokens is the prompt's
+// estimated size and keptTokens is 0. agent may be "" (an unattributed call).
+func (l *Lifecycle) recordOffload(agent, prompt string) {
+	if l.SavingsHook == nil {
+		return
+	}
+	l.SavingsHook(savings.FeatureLLMOffload, agent, savings.EstimateTokens([]byte(prompt)), 0)
 }
 
 // ConfigProvider is the subset of config.Config that lifecycle needs.
@@ -524,6 +542,7 @@ func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, er
 	arg := classifyArg(prompt)
 	if l.LLM != nil {
 		if out, err := l.LLM.Complete(ctx, arg); err == nil {
+			l.recordOffload("", arg) // the whole classify call stayed off warden's Claude spend
 			return parseType(out), nil
 		} else {
 			slog.Warn("classify: local LLM failed, falling back to claude", "err", err)
@@ -554,6 +573,7 @@ func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string,
 	if l.LLM != nil {
 		if out, err := l.LLM.Complete(ctx, arg); err == nil {
 			if s := parseSummary(out); s != "" {
+				l.recordOffload(sess.ID, arg) // summary served locally, not by warden's Claude
 				return s, nil
 			}
 		} else {
@@ -579,6 +599,9 @@ func (l *Lifecycle) GenerateName(ctx context.Context, prompt string) string {
 		return ""
 	}
 	if l.LLM != nil {
+		// No savings event here: GenerateName's fallback is a deterministic slug,
+		// not Claude — the local model displaces no Claude call, so offloading it
+		// saves nothing to record (unlike Classify/Summarize).
 		if out, err := l.LLM.Complete(ctx, nameArg(prompt)); err == nil {
 			if n := parseName(out); n != "" {
 				return n

@@ -94,6 +94,20 @@ func (s *Server) recordCheckSavings(sess *store.Session, res lifecycle.CheckResu
 	}
 }
 
+// RecordLifecycleSaving is the lifecycle.Lifecycle.SavingsHook seam: it records a
+// saving emitted from deep inside a lifecycle feature (an LLM offload — a
+// Classify/Summarize call served by the local model instead of warden's own
+// Claude) that the request handler never observes. Gate-aware and fail-open like
+// the other record helpers; a zero raw figure is a no-op.
+func (s *Server) RecordLifecycleSaving(feature, agent string, rawTokens, keptTokens int) {
+	if !s.savingsOn || s.savings == nil || rawTokens == 0 {
+		return
+	}
+	if err := s.savings.Record(savings.NewEvent(feature, agent, rawTokens, keptTokens)); err != nil {
+		slog.Warn("savings: failed to record lifecycle event", "feature", feature, "err", err)
+	}
+}
+
 // recordGitSavings records one FeatureCommit event for a completed wd
 // commit/push/sync: rawBytes is the git output warden ran on the agent's behalf
 // (CommitResult.RawBytes et al.), and the kept side is the compact struct the

@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -484,6 +485,37 @@ func TestClassifyUsesLocalLLMWhenSet(t *testing.T) {
 	require.Equal(t, 1, fc.calls)
 	require.NotContains(t, fr.calledArgs(), []string{"claude", "-p", classifyArg(prompt)},
 		"a successful local classify must not also spend warden's Claude")
+}
+
+func TestClassifyOffloadFiresSavingsHook(t *testing.T) {
+	prompt := "write unit tests for the parser"
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	lc.LLM = &fakeCompleter{out: "tests\n"}
+	var feature, agent string
+	var raw, kept int
+	lc.SavingsHook = func(f, a string, r, k int) { feature, agent, raw, kept = f, a, r, k }
+
+	_, err := lc.Classify(context.Background(), prompt)
+	require.NoError(t, err)
+	require.Equal(t, savings.FeatureLLMOffload, feature, "a local classify records an offload saving")
+	require.Equal(t, "", agent, "Classify has no agent to attribute")
+	require.Equal(t, savings.EstimateTokens([]byte(classifyArg(prompt))), raw, "raw is the prompt that never reached Claude")
+	require.Equal(t, 0, kept, "a full offload keeps nothing in Claude")
+}
+
+func TestClassifyClaudeFallbackDoesNotFireSavingsHook(t *testing.T) {
+	prompt := "build a REST API for orders"
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"claude -p " + classifyArg(prompt): {Out: "development\n"},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.LLM = &fakeCompleter{err: errStub("connection refused")}
+	fired := false
+	lc.SavingsHook = func(string, string, int, int) { fired = true }
+
+	_, err := lc.Classify(context.Background(), prompt)
+	require.NoError(t, err)
+	require.False(t, fired, "falling back to Claude offloads nothing — no saving to record")
 }
 
 func TestClassifyFallsBackToClaudeWhenLocalErrors(t *testing.T) {
