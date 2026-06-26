@@ -1034,16 +1034,32 @@ warden daemon
 open http://localhost:8765
 ```
 
-It's a **tabbed mission-control shell**: fixed **Overview** and **Cockpit** tabs
-plus one closeable tab per pinned agent. Overview has the live SSE agent list,
-busy/idle badges, fleet stats, an **attention queue** (agents in
-`waiting_for_input`/`errored`/`orphaned`), and a **+ New agent** prompt box with
-a directory picker. Pin an agent to its own tab to get a **live, interactive
+It's a **URL-routed mission-control shell**: tabs are real URLs (back/forward,
+refresh, and shareable deep links all work). The routes are `/cockpit` (the
+home — `/` redirects here), `/others`, `/pipelines`, `/metrics`, `/archive`, and
+`/agent/<id>` for each pinned agent.
+
+**Cockpit** (`/cockpit`) is the home view: a slim **Fleet** header (totals,
+busy/waiting/errored, pressure, per-dir counts) above the live SSE agent grid
+with busy/idle badges. **Others** (`/others`) is the renamed former *Overview*,
+now a catch-all for the **attention queue** (agents in
+`waiting_for_input`/`errored`/`orphaned`), **file conflicts**, and **recent
+activity**. The **+ New agent** prompt box (with a directory picker) sits in the
+header alongside a small **🗒 Context & Messages** button that opens a dismissible
+overlay (Esc closes). Pin an agent to its own tab to get a **live, interactive
 terminal** — a real `tmux attach` bridged to the browser over a WebSocket, so
-you can type into the agent and watch it respond (no more read-only snapshot).
-The **Terminate** button surfaces the same git guard (with **Force** and an
-optional hard-delete) when there's unsaved work. Opt in to **browser
-notifications** to be pinged when an agent needs input while the tab is hidden.
+you can type into the agent and watch it respond. The **Terminate** button
+surfaces the same git guard (with **Force** and an optional hard-delete) when
+there's unsaved work. Opt in to **browser notifications** to be pinged when an
+agent needs input while the tab is hidden.
+
+**Metrics tab** (`/metrics`): a scrollable column of charts — **CPU per agent**,
+**Memory per agent**, **Context per agent** (a live, in-session time series of
+each agent's context fill, coloured by `ok`/`warning`/`critical`; it resets on a
+full page reload), **Number of agents** over time, and **Tokens saved** (daily
+bars from the savings ledger plus a headline saved-tokens/$ figure — a "set
+`savings: true`" hint shows when the ledger is disabled), plus a **Live
+footprint** card with the live resource charts.
 
 The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a
 selected pipeline's jobs as status-colored cards with dependency chips, and a
@@ -1052,9 +1068,9 @@ per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) /
 session. (Creating / editing pipelines in the browser is not yet available —
 use `warden pipeline create -f`.)
 
-**Search the fleet:** the Overview tab has a search box that filters the
-all-agents grid live as you type (matching id/name/type/subject/branch and
-more), so you can pin down one agent in a crowded grid without scrolling.
+**Search the fleet:** the dashboard has a search box that filters the agent
+grid live as you type (matching id/name/type/subject/branch and more), so you
+can pin down one agent in a crowded grid without scrolling.
 
 **Batch operations (Cockpit):** each tile in the Cockpit grid has a checkbox;
 click to select, Shift-click to select a range. While anything is selected a

@@ -129,11 +129,14 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
 ## Web GUI & cockpit TUI
 
 - **Web GUI** — the daemon embeds a React dashboard at `http://localhost:8765` (no
-  separate server): live fleet over SSE, attention queue with one-click approvals,
-  interactive terminal (xterm.js over WebSocket), agent grouping by
-  Directory/Type/Status/Tag, pipeline DAG view, digest/resources panels, archive &
-  search, theme toggle, keyboard shortcuts (`?` for help), batch multi-select
-  actions.
+  separate server): URL-routed shell (`/cockpit` home · `/others` · `/pipelines` ·
+  `/metrics` · `/archive` · `/agent/<id>`), live fleet over SSE, Cockpit Fleet
+  header + agent grid, Others catch-all (attention queue with one-click approvals,
+  conflicts, activity), a Metrics tab (per-agent CPU/memory/context, fleet size,
+  tokens saved), interactive terminal (xterm.js over WebSocket), agent grouping by
+  Directory/Type/Status/Tag, pipeline DAG view, a header-button Context & Messages
+  overlay, archive & search, theme toggle, keyboard shortcuts (`?` for help), batch
+  multi-select actions.
 - **Cockpit TUI** — `warden tui` (or bare `warden`): a tmux-composited cockpit with
   an agents list, a shell pane, and a live detail pane. `n` new, `s` send, `a`
   attach, `d` digest, `i` approvals, `c` context/message inspector, `x`
