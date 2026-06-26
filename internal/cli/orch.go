@@ -26,7 +26,8 @@ you to your shell prompt.
 
 Two ways to drive it:
   • Deterministic ` + "`/` commands" + ` (no model): /agents, /spawn <prompt>, /tell <id> <text>,
-    /pipelines, … — Tab-complete the verb and live agent ids. Type /help for the list.
+    /pipelines, … — typing / pops a live, filtering menu of verbs; Tab also
+    completes verbs and live agent ids. Type /help for the list.
   • Natural language: any other line is planned by the local LLM into warden tool
     calls, each confirmed before it runs.
 

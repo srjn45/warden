@@ -207,7 +207,7 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 | `/warden` Claude skill | shipped in `skills/` | drives MCP/CLI | ✓ | — | — | [mcp-and-skill](https://srjn45.github.io/warden/multi-agent/mcp-and-skill/) |
 | Interactive mode / orchestrator REPL | `orch` (aliases `interactive`, `i`) | **CLI-only** (interactive REPL) | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
 | ↳ deterministic `/` commands (no model) | `/agents`, `/spawn`, `/tell`, … `/help` | — | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
-| ↳ line editor: history, reverse-search, Tab completion, colour | readline-backed | — | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
+| ↳ line editor: history, reverse-search, live `/` menu, Tab completion, colour | readline-backed | — | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
 
 ## 15. Admin / host (CLI-only by design)
 

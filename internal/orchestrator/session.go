@@ -231,7 +231,7 @@ func RunREPL(ctx context.Context, s *Session, sh ShellRunner, r io.Reader, w io.
 		g.useReader(lr, st) // single source of truth for stdin
 	}
 	fmt.Fprintln(w, st.banner.Render("warden interactive — natural-language conductor over your fleet"))
-	fmt.Fprintln(w, st.hint.Render("↑/↓ history · Tab complete · /help for commands · !cmd shell · Ctrl-D to exit"))
+	fmt.Fprintln(w, st.hint.Render("↑/↓ history · type / for commands · Tab complete · !cmd shell · Ctrl-D to exit"))
 	for {
 		line, err := lr.Prompt(st.Promptf())
 		if errors.Is(err, errInterrupted) {

@@ -65,5 +65,5 @@ func TestRunREPL_ShowsBannerAndHint(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, RunREPL(context.Background(), s, nil, strings.NewReader("exit\n"), &out))
 	require.Contains(t, out.String(), "warden interactive")
-	require.Contains(t, out.String(), "/help for commands")
+	require.Contains(t, out.String(), "type / for commands")
 }
