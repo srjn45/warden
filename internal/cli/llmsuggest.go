@@ -38,20 +38,30 @@ type llmCandidate struct {
 // llmCatalog is warden's curated shortlist of local models for the orchestrator,
 // ordered by memory footprint. It is intentionally tool-calling-forward (general
 // instruct / agentic models, MoE where it buys efficiency) rather than
-// coding-tuned: the conductor routes tool calls, it does not implement. Figures
-// are approximate Q4 footprints — model rankings move, so treat this as a
-// sensible default set, not a leaderboard.
+// coding-tuned: the conductor routes tool calls, it does not implement. RAM
+// figures are approximate Q4 footprints.
+//
+// Scores are calibrated against the Berkeley Function-Calling Leaderboard (BFCL
+// v4, last updated 2025-12-16; gorilla.cs.berkeley.edu/leaderboard.html),
+// weighted toward the MULTI-TURN subcategory because the orchestrator runs a
+// multi-turn tool-call loop. Two findings drive the ranking: (1) Qwen3 beats
+// Qwen2.5 at equal size and dominates the open-model board; (2) the curve is
+// steep at the small end — multi-turn accuracy falls off a cliff below ~8B
+// (Qwen3-32B ≈ 47% vs Qwen3-4B ≈ 16% multi-turn), so small models score low.
+// BFCL doesn't publish a row for every exact Ollama tag, so sizes between
+// measured anchors are interpolated within their family. Leaderboards move
+// monthly — re-check the source before trusting a close call.
 var llmCatalog = []llmCandidate{
-	{"qwen2.5:3b", "3B", 3, "Qwen2.5", 3, "small fallback; basic tool routing on low-memory machines"},
-	{"qwen3:4b", "4B", 4, "Qwen3", 5, "strong small agentic model; good tool calling for its size"},
-	{"qwen2.5:7b", "7B", 6, "Qwen2.5", 5, "reliable function calling at a low memory cost"},
-	{"qwen3:8b", "8B", 7, "Qwen3", 6, "better agentic/tool use than qwen2.5:7b at similar memory"},
-	{"qwen3:14b", "14B", 10, "Qwen3", 8, "sweet spot for tool routing on a working dev machine"},
-	{"mistral-small3.2", "24B", 15, "Mistral", 8, "excellent instruction-following + function calling"},
-	{"gpt-oss:20b", "20B MoE (~3.6B active)", 16, "gpt-oss", 9, "strong tool use, fast despite size (MoE)"},
-	{"qwen3:30b-a3b", "30B MoE (3B active)", 20, "Qwen3", 9, "top-tier agentic, fast inference (only 3B active)"},
-	{"qwen2.5-coder:32b", "32B", 22, "Qwen2.5-Coder", 4, "warden's legacy default; coding-tuned, heavy for a conductor"},
-	{"gpt-oss:120b", "120B MoE", 65, "gpt-oss", 10, "server-class; only for dedicated / headless hosts"},
+	{"qwen2.5:3b", "3B", 3, "Qwen2.5", 2, "last-resort floor; weak at multi-turn tool calls"},
+	{"qwen3:4b", "4B", 4, "Qwen3", 3, "runs on little memory, but small-model multi-turn is shaky"},
+	{"qwen2.5:7b", "7B", 6, "Qwen2.5", 4, "usable single-turn tool calling; older family"},
+	{"qwen3:8b", "8B", 7, "Qwen3", 6, "solid Qwen3 tool use; the practical small-machine floor"},
+	{"qwen3:14b", "14B", 10, "Qwen3", 7, "sweet spot for tool routing on a working dev machine"},
+	{"mistral-small3.2", "24B", 15, "Mistral", 7, "strong instruction-following + function calling"},
+	{"gpt-oss:20b", "20B MoE (~3.6B active)", 16, "gpt-oss", 8, "strong agentic tool use, fast despite size (MoE)"},
+	{"qwen3:30b-a3b", "30B MoE (3B active)", 20, "Qwen3", 9, "best locally-runnable conductor; near-flagship BFCL, fast MoE"},
+	{"qwen2.5-coder:32b", "32B", 22, "Qwen2.5-Coder", 4, "warden's legacy default; coding-tuned + older family, weak multi-turn for its size"},
+	{"gpt-oss:120b", "120B MoE", 65, "gpt-oss", 10, "server-class; closest to flagship tool-calling, dedicated hosts only"},
 }
 
 // fitStatus is how a candidate relates to the detected memory.
