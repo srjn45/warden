@@ -80,7 +80,7 @@ attaching. Config-gated by `approvals` (on by default).
   prompts fall back to attach.
 
 **Auto-approve** (off by default): auto-answers recognized yes/no prompts by always
-selecting option 1. Enable globally via `auto_approve` or per-agent with `warden
-auto-approve <id> on|off`. Only recognized yes/no prompts; skips
+selecting option 1. Enable globally via `auto_approve` or per-agent with MCP
+`set_auto_approve {ticket, enabled}` / `warden auto-approve <id> on|off`. Only recognized yes/no prompts; skips
 multi-select/text-entry/unrecognized (falls back to manual); never retries on
 failure; logs every attempt.

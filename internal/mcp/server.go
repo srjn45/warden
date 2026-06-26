@@ -731,6 +731,11 @@ func NewServer(daemonBase string) *Server {
 		return r, nil, err
 	})
 
+	// Parity tools (read/insight, lifecycle controls, the rest of the pipeline
+	// and schedule verbs, delegation) live in tools_extra.go to keep this
+	// constructor readable.
+	s.registerExtraTools()
+
 	return s
 }
 

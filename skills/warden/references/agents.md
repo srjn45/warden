@@ -36,11 +36,11 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | restore a lost/orphaned agent | `warden restore <id>` |
 | adopt an existing session | `warden adopt [--session-id <uuid>] [--dir <path>]` |
 | attach interactively | `warden attach <id>` |
-| completion digest | `warden digest <id>` (`--json`) — files touched, branch, turn count, narrative |
-| search the fleet | `warden search <query…>` (terms ANDed; `--closed` folds in archive; `--json`) |
-| browse the archive | `warden history` (`--since 24h|7d|2w|date`, `--type`, `--limit`, `--json`) |
-| rotate yourself into a fresh agent | `/warden rotate` — see below (self only) |
-| delegate a sub-task to another agent | `/warden handoff` — see below (you keep running) |
+| completion digest | MCP `digest {ticket}` / `warden digest <id>` (`--json`) — files touched, branch, turn count, narrative |
+| search the fleet | MCP `search {query, closed?}` / `warden search <query…>` (terms ANDed; `--closed` folds in archive) |
+| browse the archive | MCP `history {since?, type?, limit?}` / `warden history` (`--since 24h|7d|2w|date`, `--type`, `--limit`) |
+| rotate yourself into a fresh agent | `/warden rotate` (self) — see below; remote: MCP `rotate_agent {ticket, resume_prompt, resume_file?}` |
+| delegate a sub-task to another agent | `/warden handoff` (you keep running) — see below; MCP `handoff_agent {prompt, context?, to?|repo/type/…}` |
 
 ## Spawn options worth knowing
 
@@ -49,7 +49,8 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   column, preserved on restore.
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`
   (legacy `--supervised` = `acceptEdits`). Global default `default_permission_mode`
-  (defaults `auto`). Change at runtime: `warden set-permission-mode <id> <mode>`.
+  (defaults `auto`). Change at runtime: MCP `set_permission_mode {ticket, mode}` /
+  `warden set-permission-mode <id> <mode>`.
 - **Presets** — `warden preset save <name> [spawn flags]` persists
   `--type`/`--model`/`--permission-mode`/`--auto-restart`/`--worktree`/`--in-repo`;
   `warden preset list`; `warden start --preset <name>` (explicit flags still
@@ -72,8 +73,11 @@ same gate governs new-delegate `handoff`.
 When **you yourself** are a long-running agent whose context has grown large and
 the user runs `/warden rotate`, hand your work to a fresh successor in the same
 workspace, then retire yourself. This bounds context and returns memory to the OS
-without losing the task. **Self only** — you rotate the agent you run in (id in
-`$WARDEN_SESSION_ID`); there is no remote rotate.
+without losing the task. From **inside** the agent use `/warden rotate` (it reads
+`$WARDEN_SESSION_ID`). An **orchestrator** can rotate any agent remotely via MCP
+`rotate_agent {ticket, resume_prompt, resume_file?}` — same semantics (successor
+inherits the worktree + permission mode; old agent reaped after the successor
+spawns).
 
 Two phases, with a human review gate between them:
 
