@@ -262,7 +262,10 @@ func (d *stubDeps) recordedEvents(id string) []store.Event {
 	defer d.sendMu.Unlock()
 	return append([]store.Event(nil), d.events[id]...)
 }
-func (d *stubDeps) ContextTokens(_ context.Context, _ *store.Session) (int, bool)    { return 0, false }
+func (d *stubDeps) ContextTokens(_ context.Context, _ *store.Session) (int, bool) { return 0, false }
+func (d *stubDeps) TranscriptUsage(_ context.Context, _ *store.Session) (int, int, bool) {
+	return 0, 0, false
+}
 func (d *stubDeps) UpdateContext(_ context.Context, _ string, _ int, _ string) error { return nil }
 func (d *stubDeps) Compact(_ context.Context, _ *store.Session) error                { return nil }
 func (d *stubDeps) StampCompact(_ context.Context, _ string) error                   { return nil }

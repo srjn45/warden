@@ -72,6 +72,11 @@ type Deps interface {
 	// ContextTokens returns the agent's current context-window occupancy read
 	// from its transcript. ok=false when no model turn has been recorded yet.
 	ContextTokens(ctx context.Context, s *store.Session) (tokens int, ok bool)
+	// TranscriptUsage returns the agent's cumulative billed token usage
+	// (input+output summed over every assistant turn) read from its transcript.
+	// ok=false when no usage has been recorded yet or the transcript is
+	// unreadable. Used for the real-spend denominator and the net compact cost.
+	TranscriptUsage(ctx context.Context, s *store.Session) (inputTokens, outputTokens int, ok bool)
 	// UpdateContext persists the gauge (tokens + state band).
 	UpdateContext(ctx context.Context, id string, tokens int, state string) error
 	// Compact sends "/compact" to the agent (only called when it is idle/waiting).
@@ -123,8 +128,18 @@ type Poller struct {
 	// OnSaving, if set, records a token-savings event (the daemon wires it to the
 	// savings ledger). The poller uses it for the auto-/compact win: when a
 	// compaction it issued lands, the reclaimed context tokens are recorded as a
-	// FeatureCompact saving. Best-effort and gate-aware on the receiving side.
-	OnSaving func(feature, agent string, rawTokens, keptTokens int)
+	// FeatureCompact saving. costTokens is the one-time output cost of generating
+	// the summary (measured from the transcript usage delta straddling the
+	// compaction, or 0 when unmeasurable) so the recorded saving is NET. Best-effort
+	// and gate-aware on the receiving side.
+	OnSaving func(feature, agent string, rawTokens, keptTokens, costTokens int)
+
+	// OnSpend, if set, records an agent's cumulative billed spend (input+output
+	// tokens read from its transcript) so the report can express savings as a share
+	// of REAL measured spend. Called each context check with the latest cumulative
+	// reading; the daemon wires it to the spend tracker (which only ever raises a
+	// session's figure). Best-effort and gate-aware on the receiving side.
+	OnSpend func(agent string, inputTokens, outputTokens int)
 
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
 
@@ -171,10 +186,15 @@ type ApprovalEvent struct {
 // compactPending is a /compact awaiting its reclaim: pre is the context-token
 // reading captured the moment warden sent /compact, at is when it was sent (used
 // to abandon a compaction that never visibly landed so it can't later be
-// credited to an unrelated drop).
+// credited to an unrelated drop). preOut is the agent's cumulative billed output
+// tokens at that same moment; outOK records whether it was measurable. The output
+// the transcript bills between then and the landing is the summary-generation
+// cost, netted out of the recorded saving so the figure is a true NET reclaim.
 type compactPending struct {
-	pre int
-	at  time.Time
+	pre    int
+	preOut int
+	outOK  bool
+	at     time.Time
 }
 
 func New(d Deps, stuckAfter time.Duration) *Poller {

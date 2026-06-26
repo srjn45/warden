@@ -25,6 +25,7 @@ import (
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
+	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -193,6 +194,11 @@ type Server struct {
 	// error never alters the check it measures. See savings_routes.go.
 	savings   *savings.Store
 	savingsOn bool
+	// spend is the per-session real-spend tracker (cumulative billed input+output
+	// tokens read from agents' transcripts). nil ⇒ unconfigured; gated by savingsOn
+	// alongside the ledger, since it only feeds the savings report's denominator.
+	// Recording is fail-open. See savings_routes.go / spend package.
+	spend *spend.Store
 	// plugins dispatches lifecycle hook events to registered plugin executables
 	// (#47). nil ⇒ the plugin system is off (the default); Dispatch is then a
 	// no-op. Dispatch is always fail-open, so it never alters request flow.

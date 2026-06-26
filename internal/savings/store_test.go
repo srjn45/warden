@@ -22,10 +22,10 @@ func TestStoreRecordAndEvents(t *testing.T) {
 		t.Fatalf("fresh store has %d events, want 0", len(evs))
 	}
 
-	if err := s.Record(NewEvent(FeatureCheck, "a1", 1000, 100)); err != nil {
+	if err := s.Record(NewEvent(FeatureCheck, "a1", 1000, 100, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Record(NewEvent(FeatureCommit, "a2", 200, 20)); err != nil {
+	if err := s.Record(NewEvent(FeatureCommit, "a2", 200, 20, 0)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,7 +72,7 @@ func TestStoreSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Record(NewEvent(FeatureCheck, "a1", 1000, 0)); err != nil {
+	if err := s.Record(NewEvent(FeatureCheck, "a1", 1000, 0, 0)); err != nil {
 		t.Fatal(err)
 	}
 	sum, err := s.Summary(time.Time{})

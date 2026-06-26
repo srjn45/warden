@@ -44,6 +44,9 @@ func TestDecideContext(t *testing.T) {
 type ctxFakeDeps struct {
 	tokens    int
 	tokensOK  bool
+	inUsage   int
+	outUsage  int
+	usageOK   bool
 	updated   []string // "tokens:state"
 	compacted int
 	stamped   int
@@ -66,6 +69,9 @@ func (f *ctxFakeDeps) FinalizeExit(context.Context, string, store.Status, store.
 func (f *ctxFakeDeps) ClearExit(context.Context, string) {}
 func (f *ctxFakeDeps) ContextTokens(context.Context, *store.Session) (int, bool) {
 	return f.tokens, f.tokensOK
+}
+func (f *ctxFakeDeps) TranscriptUsage(context.Context, *store.Session) (int, int, bool) {
+	return f.inUsage, f.outUsage, f.usageOK
 }
 func (f *ctxFakeDeps) UpdateContext(_ context.Context, _ string, tokens int, state string) error {
 	f.updated = append(f.updated, fmt.Sprintf("%d:%s", tokens, state))
@@ -175,19 +181,20 @@ func TestCompactLanded(t *testing.T) {
 func TestReconcileCompactRecordsReclaim(t *testing.T) {
 	p := New(&ctxFakeDeps{}, time.Minute)
 	var got struct {
-		feature, agent       string
-		rawTokens, keptToken int
-		calls                int
+		feature, agent             string
+		rawTokens, keptToken, cost int
+		calls                      int
 	}
-	p.OnSaving = func(feature, agent string, raw, kept int) {
-		got.feature, got.agent, got.rawTokens, got.keptToken = feature, agent, raw, kept
+	p.OnSaving = func(feature, agent string, raw, kept, cost int) {
+		got.feature, got.agent, got.rawTokens, got.keptToken, got.cost = feature, agent, raw, kept, cost
 		got.calls++
 	}
 	now := time.Now()
+	// preOut/outOK unset → cost unmeasurable on the park side, so cost must be 0.
 	p.pendingCompact["a1"] = compactPending{pre: 420000, at: now}
 	s := &store.Session{ID: "a1"}
 
-	p.reconcileCompact(s, 150000, now.Add(time.Minute))
+	p.reconcileCompact(s, 150000, 0, false, now.Add(time.Minute))
 
 	if got.calls != 1 {
 		t.Fatalf("OnSaving calls=%d, want 1", got.calls)
@@ -198,6 +205,9 @@ func TestReconcileCompactRecordsReclaim(t *testing.T) {
 	if got.rawTokens != 420000 || got.keptToken != 150000 {
 		t.Fatalf("raw=%d kept=%d, want 420000/150000 (saved=270000)", got.rawTokens, got.keptToken)
 	}
+	if got.cost != 0 {
+		t.Fatalf("cost=%d, want 0 (unmeasurable usage delta)", got.cost)
+	}
 	if _, ok := p.pendingCompact["a1"]; ok {
 		t.Fatal("pending marker must be cleared once the reclaim is recorded")
 	}
@@ -206,12 +216,12 @@ func TestReconcileCompactRecordsReclaim(t *testing.T) {
 func TestReconcileCompactWaitsForReclaim(t *testing.T) {
 	p := New(&ctxFakeDeps{}, time.Minute)
 	var calls int
-	p.OnSaving = func(string, string, int, int) { calls++ }
+	p.OnSaving = func(string, string, int, int, int) { calls++ }
 	now := time.Now()
 	p.pendingCompact["a1"] = compactPending{pre: 420000, at: now}
 
 	// Reading hasn't dropped yet and we're within the window: keep waiting.
-	p.reconcileCompact(&store.Session{ID: "a1"}, 425000, now.Add(time.Minute))
+	p.reconcileCompact(&store.Session{ID: "a1"}, 425000, 0, false, now.Add(time.Minute))
 	if calls != 0 {
 		t.Fatalf("OnSaving calls=%d, want 0 (compaction not landed)", calls)
 	}
@@ -223,13 +233,13 @@ func TestReconcileCompactWaitsForReclaim(t *testing.T) {
 func TestReconcileCompactAbandonsStale(t *testing.T) {
 	p := New(&ctxFakeDeps{}, time.Minute)
 	var calls int
-	p.OnSaving = func(string, string, int, int) { calls++ }
+	p.OnSaving = func(string, string, int, int, int) { calls++ }
 	now := time.Now()
 	p.pendingCompact["a1"] = compactPending{pre: 420000, at: now}
 
 	// No drop and the window has elapsed: abandon without crediting a saving so a
 	// later unrelated drop can't be mis-attributed to this compaction.
-	p.reconcileCompact(&store.Session{ID: "a1"}, 425000, now.Add(compactLandWindow+time.Minute))
+	p.reconcileCompact(&store.Session{ID: "a1"}, 425000, 0, false, now.Add(compactLandWindow+time.Minute))
 	if calls != 0 {
 		t.Fatalf("OnSaving calls=%d, want 0 (compaction never landed)", calls)
 	}
@@ -239,23 +249,25 @@ func TestReconcileCompactAbandonsStale(t *testing.T) {
 }
 
 func TestCheckContextCompactParksThenRecords(t *testing.T) {
-	fd := &ctxFakeDeps{tokens: 420000, tokensOK: true}
+	// Cumulative billed output starts at 1000 and grows by 1200 (the summary
+	// generation) by the time the compaction lands — that delta is the net cost.
+	fd := &ctxFakeDeps{tokens: 420000, tokensOK: true, inUsage: 50000, outUsage: 1000, usageOK: true}
 	p := New(fd, time.Minute)
 	p.TokenWarn, p.TokenCrit = 200000, 400000
 	p.WarnAlert, p.AutoCompact, p.TokenGuard = true, true, true
 	var saved struct {
-		feature   string
-		raw, kept int
-		calls     int
+		feature         string
+		raw, kept, cost int
+		calls           int
 	}
-	p.OnSaving = func(feature, _ string, raw, kept int) {
-		saved.feature, saved.raw, saved.kept = feature, raw, kept
+	p.OnSaving = func(feature, _ string, raw, kept, cost int) {
+		saved.feature, saved.raw, saved.kept, saved.cost = feature, raw, kept, cost
 		saved.calls++
 	}
 	s := &store.Session{ID: "a1", Status: store.StatusIdle}
 
-	// Tick 1: critical + idle → /compact issued and the pre-compact reading parked,
-	// nothing recorded yet (the reclaim hasn't shown up).
+	// Tick 1: critical + idle → /compact issued and the pre-compact reading parked
+	// (with the cumulative output of 1000), nothing recorded yet.
 	t0 := time.Now()
 	p.checkContext(context.Background(), s, t0)
 	if fd.compacted != 1 {
@@ -265,14 +277,19 @@ func TestCheckContextCompactParksThenRecords(t *testing.T) {
 		t.Fatalf("OnSaving fired %d times on the parking tick, want 0", saved.calls)
 	}
 
-	// Tick 2: the compaction has landed — the reading dropped. Record the reclaim.
+	// Tick 2: the compaction has landed — context dropped and the transcript has
+	// billed 1200 more output tokens generating the summary. Record the NET reclaim.
 	fd.tokens = 150000
+	fd.outUsage = 2200
 	p.checkContext(context.Background(), s, t0.Add(time.Minute))
 	if saved.calls != 1 {
 		t.Fatalf("OnSaving calls=%d, want 1 once the reclaim landed", saved.calls)
 	}
 	if saved.feature != "compact" || saved.raw != 420000 || saved.kept != 150000 {
 		t.Fatalf("recorded feature=%q raw=%d kept=%d, want compact/420000/150000", saved.feature, saved.raw, saved.kept)
+	}
+	if saved.cost != 1200 {
+		t.Fatalf("cost=%d, want 1200 (summary-generation output delta)", saved.cost)
 	}
 }
 

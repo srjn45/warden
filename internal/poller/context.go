@@ -71,10 +71,20 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 		s.ContextTokens = tokens
 	}
 
+	// Read the agent's cumulative billed usage from the same transcript: it feeds
+	// the real-spend denominator (OnSpend) and the net compact cost (the output
+	// delta straddling a compaction). Best-effort — an unreadable usage block just
+	// leaves spend unknown for this tick.
+	inUsage, outUsage, usageOK := p.deps.TranscriptUsage(ctx, s)
+	if usageOK && p.OnSpend != nil {
+		p.OnSpend(s.ID, inUsage, outUsage)
+	}
+
 	// Reconcile any /compact still awaiting its reclaim. A compaction lands a few
 	// ticks after it is sent; when this reading falls below the parked pre-compact
-	// level, the difference is the context warden reclaimed — record it.
-	p.reconcileCompact(s, tokens, now)
+	// level, the difference is the context warden reclaimed — record it (net of the
+	// summary-generation output cost measured from outUsage).
+	p.reconcileCompact(s, tokens, outUsage, usageOK, now)
 
 	sinceCompact := p.CompactCooldown // default to "elapsed" when never compacted
 	if s.LastCompactAt != nil {
@@ -104,9 +114,11 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 			s.LastCompactAt = &t
 			_ = p.deps.StampCompact(ctx, s.ID)
 			// Park the pre-compact reading so the reclaim can be measured once the
-			// compaction lands (reconcileCompact on a later tick). Overwrites any
-			// prior marker — the most recent send is the one to credit.
-			p.pendingCompact[s.ID] = compactPending{pre: tokens, at: now}
+			// compaction lands (reconcileCompact on a later tick). preOut is the
+			// cumulative billed output now, before the summary is generated; the
+			// output the transcript bills by the landing tick is the generation cost.
+			// Overwrites any prior marker — the most recent send is the one to credit.
+			p.pendingCompact[s.ID] = compactPending{pre: tokens, preOut: outUsage, outOK: usageOK, at: now}
 		}
 	}
 }
@@ -115,10 +127,15 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 // reading dropped below the pre-compact level) and, if so, records the reclaimed
 // context as a FeatureCompact saving via OnSaving. Context tokens only fall on
 // compaction, so any decrease is the signal; raw is the pre-compact reading and
-// kept is what survived, making Saved the tokens reclaimed. A marker older than
-// compactLandWindow is abandoned (the compaction never visibly landed) so it
-// can't later be credited to an unrelated drop. Tick goroutine only.
-func (p *Poller) reconcileCompact(s *store.Session, tokens int, now time.Time) {
+// kept is what survived. The summary warden told the agent to generate bills a
+// one-time output cost that the kept-context side does NOT capture, so the output
+// the transcript billed between the /compact send and this landing (curOut-preOut)
+// is passed as cost, making the recorded Saved a true NET reclaim. When the usage
+// delta is unmeasurable on either side, cost is 0 — warden never guesses the cost
+// upward, which could only understate a real saving. A marker older than
+// compactLandWindow is abandoned (the compaction never visibly landed) so it can't
+// later be credited to an unrelated drop. Tick goroutine only.
+func (p *Poller) reconcileCompact(s *store.Session, tokens, curOut int, curOutOK bool, now time.Time) {
 	pc, ok := p.pendingCompact[s.ID]
 	if !ok {
 		return
@@ -126,13 +143,28 @@ func (p *Poller) reconcileCompact(s *store.Session, tokens int, now time.Time) {
 	if compactLanded(pc.pre, tokens) {
 		delete(p.pendingCompact, s.ID)
 		if p.OnSaving != nil {
-			p.OnSaving(savings.FeatureCompact, s.ID, pc.pre, tokens)
+			p.OnSaving(savings.FeatureCompact, s.ID, pc.pre, tokens, compactCost(pc, curOut, curOutOK))
 		}
 		return
 	}
 	if now.Sub(pc.at) >= compactLandWindow {
 		delete(p.pendingCompact, s.ID)
 	}
+}
+
+// compactCost is the one-time billed output cost of generating a compaction's
+// summary: the cumulative billed output the transcript grew by between the
+// /compact send (pc.preOut) and the landing reading (curOut). It is 0 unless both
+// readings were measurable and the delta is positive — an unmeasurable or
+// non-increasing usage delta yields no (conservative) cost rather than a guess.
+func compactCost(pc compactPending, curOut int, curOutOK bool) int {
+	if !pc.outOK || !curOutOK {
+		return 0
+	}
+	if d := curOut - pc.preOut; d > 0 {
+		return d
+	}
+	return 0
 }
 
 // compactLanded reports whether a context reading taken after a /compact shows

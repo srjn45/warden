@@ -61,6 +61,18 @@ func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "read savings ledger: "+err.Error())
 		return
 	}
+	// Stamp the real measured-spend denominator (cumulative billed input+output
+	// across agents' transcripts) onto the summary so the CLI benchmark can frame
+	// savings as a share of true spend. Best-effort: a nil tracker or read error
+	// leaves MeasuredSpend at 0 and the report falls back to the context-reduction
+	// wording rather than failing.
+	if s.spend != nil {
+		if total, terr := s.spend.Total(); terr != nil {
+			slog.Warn("savings: read spend total failed", "err", terr)
+		} else {
+			sum.MeasuredSpend = total
+		}
+	}
 	writeJSON(w, http.StatusOK, sum)
 }
 
@@ -87,23 +99,41 @@ func (s *Server) recordCheckSavings(sess *store.Session, res lifecycle.CheckResu
 	if sess != nil {
 		agent = sess.ID
 	}
+	// cost=0: `wd check` condenses output on the LOCAL model (or a deterministic
+	// tail), so it spends no Claude tokens to earn the saving — already net.
 	ev := savings.NewEvent(savings.FeatureCheck, agent,
-		savings.EstimateTokensLen(rawBytes), savings.EstimateTokensLen(keptBytes))
+		savings.EstimateTokensLen(rawBytes), savings.EstimateTokensLen(keptBytes), 0)
 	if err := s.savings.Record(ev); err != nil {
 		slog.Warn("savings: failed to record check event", "err", err)
 	}
 }
 
-// RecordLifecycleSaving is the lifecycle.Lifecycle.SavingsHook seam: it records a
-// saving emitted from deep inside a lifecycle feature (an LLM offload — a
-// Classify/Summarize call served by the local model instead of warden's own
-// Claude) that the request handler never observes. Gate-aware and fail-open like
-// the other record helpers; a zero raw figure is a no-op.
-func (s *Server) RecordLifecycleSaving(feature, agent string, rawTokens, keptTokens int) {
+// RecordSpend records an agent's cumulative billed spend (input+output tokens
+// read from its transcript) into the real-spend tracker. The poller wires it to
+// OnSpend; the tracker only ever raises a session's figure. Gate-aware and
+// fail-open like the ledger record helpers — spend feeds only the report, so a
+// nil tracker, the feature being off, or a write error just logs.
+func (s *Server) RecordSpend(agent string, inputTokens, outputTokens int) {
+	if !s.savingsOn || s.spend == nil {
+		return
+	}
+	if err := s.spend.Record(agent, inputTokens+outputTokens); err != nil {
+		slog.Warn("savings: failed to record spend", "agent", agent, "err", err)
+	}
+}
+
+// RecordLifecycleSaving records a saving emitted from outside the request handler:
+// an LLM offload (a Classify/Summarize call served by the local model instead of
+// warden's own Claude — costTokens 0, it runs off Claude entirely) or the poller's
+// auto-/compact reclaim (costTokens = the measured one-time output cost of
+// generating the summary, netting the saving down to a true reclaim). It is the
+// lifecycle.SavingsHook and poller.OnSaving seam. Gate-aware and fail-open like the
+// other record helpers; a zero raw figure is a no-op.
+func (s *Server) RecordLifecycleSaving(feature, agent string, rawTokens, keptTokens, costTokens int) {
 	if !s.savingsOn || s.savings == nil || rawTokens == 0 {
 		return
 	}
-	if err := s.savings.Record(savings.NewEvent(feature, agent, rawTokens, keptTokens)); err != nil {
+	if err := s.savings.Record(savings.NewEvent(feature, agent, rawTokens, keptTokens, costTokens)); err != nil {
 		slog.Warn("savings: failed to record lifecycle event", "feature", feature, "err", err)
 	}
 }
@@ -130,8 +160,10 @@ func (s *Server) recordGitSavings(sess *store.Session, rawBytes int, result any)
 	if sess != nil {
 		agent = sess.ID
 	}
+	// cost=0: warden runs the git plumbing itself (no Claude call), so the compact
+	// struct the agent receives is already the net saving.
 	ev := savings.NewEvent(savings.FeatureCommit, agent,
-		savings.EstimateTokensLen(rawBytes), savings.EstimateTokensLen(keptBytes))
+		savings.EstimateTokensLen(rawBytes), savings.EstimateTokensLen(keptBytes), 0)
 	if err := s.savings.Record(ev); err != nil {
 		slog.Warn("savings: failed to record git event", "err", err)
 	}

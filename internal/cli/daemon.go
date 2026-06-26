@@ -31,6 +31,7 @@ import (
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
+	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -152,13 +153,27 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			srv.SetSavings(cfg.Savings, savStore)
+			// Real-spend tracker: cumulative billed input+output tokens per session,
+			// read from agents' transcripts, feeding the savings report's denominator.
+			// Created regardless of the gate (like the ledger) so toggling savings on
+			// later doesn't lose prior data; recording is gate-aware on the Server.
+			spendStore, err := spend.NewStore(filepath.Join(cfg.DataDir, "spend"))
+			if err != nil {
+				return err
+			}
+			srv.SetSpend(spendStore)
+			pl.OnSpend = srv.RecordSpend
 			// Let the LLM-offload sites (Classify/Summarize) inside lifecycle record
-			// their savings through the same gate-aware, fail-open path. The Server
+			// their savings through the same gate-aware, fail-open path. Those calls run
+			// off Claude entirely, so the saving is already net (cost 0). The Server
 			// holds the gate, so the hook is safe to set unconditionally.
-			lc.SavingsHook = srv.RecordLifecycleSaving
+			lc.SavingsHook = func(feature, agent string, rawTokens, keptTokens int) {
+				srv.RecordLifecycleSaving(feature, agent, rawTokens, keptTokens, 0)
+			}
 			// The poller credits the auto-/compact reclaim to the same ledger: when a
-			// compaction it issued lands, the reclaimed context tokens are recorded as
-			// a FeatureCompact saving through the gate-aware, fail-open hook.
+			// compaction it issued lands, the reclaimed context tokens are recorded as a
+			// FeatureCompact saving NET of the measured summary-generation cost, through
+			// the gate-aware, fail-open hook.
 			pl.OnSaving = srv.RecordLifecycleSaving
 			// Native scheduler (#15): opt-in (scheduler_enabled, default off). The
 			// store file is created regardless so toggling the gate on doesn't lose a
