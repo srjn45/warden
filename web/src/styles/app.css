@@ -129,7 +129,6 @@ kbd {
 .overview { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
 .overview .card { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; }
 .overview .card h3 { margin: 0 0 .6rem; font-size: .95rem; }
-.overview .overview-grid { grid-column: 1 / -1; }
 .attn-queue { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem; }
 .attn-card { text-align: left; background: #b0880018; border: 1px solid #b0880055; border-radius: .4rem; padding: .5rem .6rem; cursor: pointer; color: inherit; }
 .attn-card:hover { background: #b0880033; }
@@ -146,10 +145,10 @@ kbd {
 .pressure-gauge.ok { color: var(--busy); }
 .pressure-gauge.warn { color: var(--attention); }
 .pressure-gauge.crit { color: var(--error); font-weight: 600; }
-.quick-spawn { display: flex; flex-direction: column; gap: .5rem; }
-.quick-spawn textarea { padding: .5rem; font: inherit; resize: vertical; }
 
 /* ── Agent grid / cockpit ── */
+.cockpit-fleet { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; margin-bottom: 1rem; }
+.cockpit-fleet h3 { margin: 0 0 .6rem; font-size: .95rem; }
 .agent-grid-group { margin-bottom: 1rem; border: 1px solid #8884; border-radius: .5rem; overflow: hidden; }
 .grid-group-bar { display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem; background: #8881; border-bottom: 1px solid #8884; }
 .grid-group-toolbar { display: flex; align-items: center; gap: .4rem; margin-bottom: .6rem; flex-wrap: wrap; }

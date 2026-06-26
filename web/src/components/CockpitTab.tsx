@@ -3,10 +3,12 @@ import type { Session } from '../lib/types';
 import { groupSessions } from '../lib/group';
 import AgentGrid from './AgentGrid';
 import BulkActionBar from './BulkActionBar';
+import FleetStats from './FleetStats';
 
-// CockpitTab is the full-size live grid (taller tiles than the Overview
-// mini-grid). Clicking a pane pins + focuses that agent; the per-pane '+'
-// (wired via onCreated) spawns a new agent in that pane's directory.
+// CockpitTab is the full-size live grid and the default home view. A slim Fleet
+// header (FleetStats, moved here from the former Overview) sits above the grid;
+// clicking a pane pins + focuses that agent; the per-pane '+' (wired via
+// onCreated) spawns a new agent in that pane's directory.
 //
 // The Cockpit is also where batch operations (#21) live: each tile carries a
 // checkbox, and selecting one or more agents reveals the bulk action bar.
@@ -60,6 +62,10 @@ export default function CockpitTab({ sessions, onSelect, onCreated }: {
 
   return (
     <div className="cockpit">
+      <section className="card cockpit-fleet">
+        <h3>Fleet</h3>
+        <FleetStats sessions={sessions} />
+      </section>
       <AgentGrid
         sessions={sessions}
         onSelect={onSelect}
