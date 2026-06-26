@@ -34,8 +34,8 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-  test:
-    name: Test (Go + web)
+  test-go:
+    name: Test (Go)
     # Runs on macOS to match the development platform (tmux-driven sessions,
     # macOS pressure sampler). The binary itself cross-compiles to Linux — see
     # the build matrix below.
@@ -50,6 +50,14 @@ jobs:
         run: brew install tmux
       - name: Go tests
         run: go test ./...
+
+  test-web:
+    name: Test (web)
+    # Pure Node — no tmux or macOS sampler, so it runs on the faster/cheaper
+    # ubuntu runner, in parallel with the Go tests.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -60,7 +68,7 @@ jobs:
 
   build:
     name: Release build (${{ matrix.os }})
-    needs: [lint, test]
+    needs: [lint, test-go, test-web]
     strategy:
       fail-fast: false
       matrix:
