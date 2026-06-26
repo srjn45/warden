@@ -50,14 +50,17 @@ It adds no new storage — it reuses the preset store and the embedded template 
 
 The Cockpit grid has per-tile checkboxes (with Shift-click range select). While ≥1 agent is selected a floating bar offers bulk **Message…**, **Terminate**, and **Delete** (destructive ones need a second click). Actions fan out one agent at a time and report partial success, keeping failures selected for retry.
 
-## Handoff
+## Handoff (`warden handoff`)
 
-Delegate a sub-task to *another* agent while the source keeps running (contrast with `rotate`, which retires the source). Phase 1 — writing the handoff package — is driven by the `/warden` skill; the verb delivers it:
+`warden handoff` is the single verb for passing work to another agent, with three modes. Phase 1 — writing the handoff package — is driven by the `/warden` skill; the verb delivers it:
 
 ```sh
-warden handoff --resume-file notes.md --resume-prompt "take the API layer"   # spawn a fresh delegate
-warden handoff --to agent-4f2a --resume-file notes.md                        # deliver into a running agent's inbox
+warden handoff --resume-file notes.md --resume-prompt "take the API layer"   # new delegate (own worktree); source keeps running
+warden handoff --to agent-4f2a --resume-file notes.md --resume-prompt "…"    # deliver into a running agent's inbox; source keeps running
+warden handoff --retire --confirm --resume-file notes.md --resume-prompt "…" # retire self into a same-worktree successor
 ```
+
+The first two modes **keep the source running**. `--retire` (requires `--confirm`) is the **self-succession** mode — it spawns a successor in the calling agent's own worktree and reaps the caller, exactly what the `warden rotate` alias runs (see [Self-rotation](/warden/guides/rotation-digests/#self-rotation-warden-handoff---retire-alias-warden-rotate)). `--retire` and `--to` are mutually exclusive.
 
 ## Export / import
 

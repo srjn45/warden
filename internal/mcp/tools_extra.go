@@ -109,14 +109,17 @@ type rotateAgentArgs struct {
 	ResumeFile   string `json:"resume_file,omitempty" jsonschema:"optional path to handoff notes the successor reads first (and deletes)"`
 }
 type handoffAgentArgs struct {
-	To      string `json:"to,omitempty" jsonschema:"deliver into an existing agent's inbox instead of spawning a new delegate"`
-	Repo    string `json:"repo,omitempty" jsonschema:"new-delegate mode: repo for the delegate; defaults to the current directory"`
-	Type    string `json:"type,omitempty" jsonschema:"new-delegate mode: task type for the delegate"`
-	Name    string `json:"name,omitempty" jsonschema:"new-delegate mode: optional human-readable name"`
-	Branch  string `json:"branch,omitempty" jsonschema:"new-delegate mode: optional branch"`
-	Prompt  string `json:"prompt" jsonschema:"the task being delegated"`
-	Context string `json:"context,omitempty" jsonschema:"handoff context (goal, decisions, pointers) inlined into the delegate's prompt or the inbox message"`
-	Force   bool   `json:"force,omitempty" jsonschema:"new-delegate mode: spawn past the memory-pressure gate"`
+	To         string `json:"to,omitempty" jsonschema:"deliver into an existing agent's inbox instead of spawning a new delegate (mutually exclusive with retire)"`
+	Repo       string `json:"repo,omitempty" jsonschema:"new-delegate mode: repo for the delegate; defaults to the current directory"`
+	Type       string `json:"type,omitempty" jsonschema:"new-delegate mode: task type for the delegate"`
+	Name       string `json:"name,omitempty" jsonschema:"new-delegate mode: optional human-readable name"`
+	Branch     string `json:"branch,omitempty" jsonschema:"new-delegate mode: optional branch"`
+	Prompt     string `json:"prompt" jsonschema:"the task being delegated (in retire mode, the successor's resume prompt)"`
+	Context    string `json:"context,omitempty" jsonschema:"handoff context (goal, decisions, pointers) inlined into the delegate's prompt or the inbox message"`
+	Force      bool   `json:"force,omitempty" jsonschema:"new-delegate mode: spawn past the memory-pressure gate"`
+	Retire     bool   `json:"retire,omitempty" jsonschema:"retire mode: retire the ticket agent and hand its work to a fresh successor in the SAME worktree (same behavior as rotate_agent; mutually exclusive with to)"`
+	Ticket     string `json:"ticket,omitempty" jsonschema:"retire mode: the agent to retire; its successor inherits the same worktree (cwd) and permission mode"`
+	ResumeFile string `json:"resume_file,omitempty" jsonschema:"retire mode: optional path to handoff notes the successor reads first (and deletes)"`
 }
 type retryPipelineArgs struct {
 	Pipeline string `json:"pipeline" jsonschema:"the pipeline id"`
@@ -371,36 +374,22 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "rotate_agent",
-		Description: "Retire an agent and hand its work to a fresh successor in the SAME worktree (cwd) and permission mode — useful when an agent's context is bloated/near-compaction. Spawns the successor first, then reaps the old agent (fail-safe: if the spawn fails the old agent is left running). With resume_file, the successor reads the handoff notes there first. Mirrors `warden rotate`.",
+		Description: "Retire an agent and hand its work to a fresh successor in the SAME worktree (cwd) and permission mode — useful when an agent's context is bloated/near-compaction. Spawns the successor first, then reaps the old agent (fail-safe: if the spawn fails the old agent is left running). With resume_file, the successor reads the handoff notes there first. Alias for `handoff_agent {retire: true}`; mirrors `warden rotate` / `warden handoff --retire`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a rotateAgentArgs) (*mcpsdk.CallToolResult, any, error) {
-		if strings.TrimSpace(a.ResumePrompt) == "" {
-			return textResult("error: resume_prompt is required"), nil, nil
-		}
-		old, err := s.cl.Get(ctx, a.Ticket)
-		if err != nil {
-			return textResult("error: look up " + a.Ticket + ": " + err.Error()), nil, nil
-		}
-		prompt := a.ResumePrompt
-		if a.ResumeFile != "" {
-			// Mirrors composeSuccessorPrompt in internal/cli/rotate.go.
-			prompt = fmt.Sprintf("You are resuming work handed off from a previous agent that is being retired. "+
-				"First read the handoff notes at %s for full context, decisions already made, and next steps. "+
-				"Once you have read and internalized them, delete that handoff file. Then continue the work:\n\n%s", a.ResumeFile, a.ResumePrompt)
-		}
-		successor, err := s.cl.Spawn(ctx, client.SpawnParams{Prompt: prompt, Cwd: old.Workdir, PermissionMode: old.PermissionMode})
-		if err != nil {
-			return textResult("error: spawn successor (old agent left running): " + err.Error()), nil, nil
-		}
-		if err := s.cl.Terminate(ctx, a.Ticket); err != nil {
-			return jsonResultAny(map[string]any{"successor": successor.ID, "workdir": successor.Workdir, "retired": a.Ticket, "warning": "successor spawned but reaping old agent failed: " + err.Error()})
-		}
-		return jsonResultAny(map[string]any{"successor": successor.ID, "workdir": successor.Workdir, "retired": a.Ticket})
+		return s.rotateAgent(ctx, a.Ticket, a.ResumePrompt, a.ResumeFile)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "handoff_agent",
-		Description: "Delegate a sub-task to a DIFFERENT agent (the source keeps running). Default: spawn a fresh delegate (in its own worktree) seeded with the task + inlined context. With to=<id>: deliver the handoff into an existing agent's inbox instead (wakes it if idle). Mirrors `warden handoff`.",
+		Description: "Hand off work to another agent. Default: spawn a fresh delegate (in its own worktree) seeded with the task + inlined context; source keeps running. With to=<id>: deliver the handoff into an existing agent's inbox instead (wakes it if idle); source keeps running. With retire=true: retire the ticket agent and hand its work to a fresh successor in the SAME worktree (self-succession; subsumes rotate_agent). retire and to are mutually exclusive. Mirrors `warden handoff`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a handoffAgentArgs) (*mcpsdk.CallToolResult, any, error) {
+		if a.Retire && a.To != "" {
+			return textResult("error: retire and to are mutually exclusive: retire reaps the ticket agent into a same-worktree successor, while to delegates to an existing agent and keeps it running"), nil, nil
+		}
+		// Retire mode routes through the same path as rotate_agent.
+		if a.Retire {
+			return s.rotateAgent(ctx, a.Ticket, a.Prompt, a.ResumeFile)
+		}
 		if strings.TrimSpace(a.Prompt) == "" {
 			return textResult("error: prompt is required"), nil, nil
 		}
@@ -563,6 +552,36 @@ func (s *Server) registerExtraTools() {
 		}
 		return textResult("deleted schedule " + a.ID), nil, nil
 	})
+}
+
+// rotateAgent is the shared self-succession path behind both rotate_agent and
+// handoff_agent{retire:true}: retire the ticket agent and hand its work to a
+// fresh successor in the SAME worktree (cwd) and permission mode. Spawn-before-
+// reap is fail-safe — if the spawn fails the old agent is left running. Mirrors
+// the CLI's runRotate / composeSuccessorPrompt in internal/cli/rotate.go.
+func (s *Server) rotateAgent(ctx context.Context, ticket, resumePrompt, resumeFile string) (*mcpsdk.CallToolResult, any, error) {
+	if strings.TrimSpace(resumePrompt) == "" {
+		return textResult("error: resume prompt is required"), nil, nil
+	}
+	old, err := s.cl.Get(ctx, ticket)
+	if err != nil {
+		return textResult("error: look up " + ticket + ": " + err.Error()), nil, nil
+	}
+	prompt := resumePrompt
+	if resumeFile != "" {
+		// Mirrors composeSuccessorPrompt in internal/cli/rotate.go.
+		prompt = fmt.Sprintf("You are resuming work handed off from a previous agent that is being retired. "+
+			"First read the handoff notes at %s for full context, decisions already made, and next steps. "+
+			"Once you have read and internalized them, delete that handoff file. Then continue the work:\n\n%s", resumeFile, resumePrompt)
+	}
+	successor, err := s.cl.Spawn(ctx, client.SpawnParams{Prompt: prompt, Cwd: old.Workdir, PermissionMode: old.PermissionMode})
+	if err != nil {
+		return textResult("error: spawn successor (old agent left running): " + err.Error()), nil, nil
+	}
+	if err := s.cl.Terminate(ctx, ticket); err != nil {
+		return jsonResultAny(map[string]any{"successor": successor.ID, "workdir": successor.Workdir, "retired": ticket, "warning": "successor spawned but reaping old agent failed: " + err.Error()})
+	}
+	return jsonResultAny(map[string]any{"successor": successor.ID, "workdir": successor.Workdir, "retired": ticket})
 }
 
 // jsonResultAny is jsonResult adapted to the (result, any, error) tool return

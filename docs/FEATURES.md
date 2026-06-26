@@ -147,27 +147,36 @@ warden auto-approve abc123 off  # disable for agent abc123
 
 ---
 
-## 7. Self-rotation (`warden rotate`)
+## 7. Handoff — one verb (`warden handoff`)
 
-Run **inside an agent session** to retire a long-lived, context-heavy agent and
-hand off to a fresh successor in the same workdir/worktree. Phase 1 (writing the
-handoff file + resume prompt) is driven by the `/warden` skill; on confirmation
-the agent spawns its successor and reaps itself.
+`warden handoff` is the single concept for passing work to another agent. It has
+three modes, distinguished by who runs the work next and whether the caller
+survives. Phase 1 (writing the handoff file + resume prompt) is driven by the
+`/warden` skill; this verb performs the delivery.
 
-- **Spawn-before-reap** is fail-safe — if the successor fails to spawn, the
-  current agent keeps running.
-- Rotation **reuses the worktree by cwd and never removes it** (a compile-time
-  invariant: the rotator interface omits worktree removal).
+- **New delegate (default)** — spawns a fresh delegate in its **own isolated
+  worktree** for a sub-task; the source agent **keeps running**.
+- **Existing agent (`--to <id>`)** — delivers the handoff into an already-running
+  agent's inbox (waking it); the source agent **keeps running**.
+- **Retire self (`--retire`, requires `--confirm`)** — spawns a successor in the
+  calling agent's **same workdir/worktree**, then reaps the caller
+  (self-succession). This is what the `warden rotate` **alias** runs.
 
-**Cross-agent handoff (`warden handoff`)** is the delegation counterpart: an
-agent (or the operator) hands a context package to a **different** agent and
-**keeps running**. Default mode spawns a fresh delegate in its **own isolated
-worktree**; `--to <id>` delivers the handoff into an existing agent's inbox
-(waking it). The handoff file's **content is inlined** into the recipient's
-prompt/message — the recipient runs in a different worktree and can't read the
-source's file by path. Phase 1 (writing the handoff + resume prompt) is
-skill-driven; the source agent is **never** terminated (a compile-time invariant:
-the handoff interface omits termination).
+`--retire` and `--to` are **mutually exclusive** (one reaps the caller, the other
+never does). Invariants enforced at compile time via the minimal client
+interfaces each mode uses:
+
+- The **retire** path **reuses the worktree by cwd and never removes it** (the
+  rotator interface omits worktree removal). **Spawn-before-reap** is fail-safe —
+  if the successor fails to spawn, the caller keeps running.
+- The **delegate / `--to`** paths **never terminate the source** (the handoff
+  interface omits termination). For `--to`, the handoff file's **content is
+  inlined** into the message — the recipient runs in a different worktree and
+  can't read the source's file by path.
+
+`warden rotate` and the `rotate_agent` MCP tool remain as **thin aliases** for the
+retire mode (`warden handoff --retire` / `handoff_agent {retire:true}`) — same
+flags, same behavior.
 
 ---
 
@@ -234,7 +243,7 @@ stay CLI-only). Tools exposed:
 | `terminate_agent` / `restore_agent` | Stop (reversible) / resume an agent |
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
-| `rotate_agent` / `handoff_agent` | Retire→successor in place / delegate to another agent |
+| `handoff_agent` / `rotate_agent` | Hand off work — delegate to new/`to` existing agent, or `retire`→successor in place; `rotate_agent` is an alias for `handoff_agent {retire:true}` |
 | `ctx_set` / `ctx_cas` / `ctx_append` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `send_message` / `read_inbox` / `wait_for_message` | Directed messaging (park/wake) |
 | `get_collaboration_status` / `who_is_editing_file` | File-conflict detection |

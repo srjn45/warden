@@ -705,17 +705,18 @@ warden tutorial --reset               # clear the marker so the tour (and hint) 
 
 Disable the hint entirely with `tutorial: false` in the config.
 
-### `warden rotate` (self-rotation)
+### `warden handoff --retire` (self-rotation; alias `warden rotate`)
 
 Run **inside an agent session** to retire a long-lived, context-heavy agent and hand off to a fresh successor in the same workdir/worktree. Phase 1 is driven by the `/warden` skill (the agent writes a handoff file + resume prompt and shows you); on your go-ahead it spawns the successor and reaps itself.
 
 ```sh
-warden rotate --confirm \
+warden handoff --retire --confirm \
   --resume-file "${TMPDIR:-/tmp}/warden-rotate-handoff-$WARDEN_SESSION_ID.md" \
   --resume-prompt "Continue the migration from where the notes leave off"
+# `warden rotate --confirm …` is an exact alias.
 ```
 
-The handoff file lives at a unique, per-agent temp path so concurrent rotations never clobber each other; the successor deletes it once read (and `/tmp` self-clears). Spawn-before-reap is fail-safe: if the successor fails to spawn, the current agent keeps running. Rotation reuses the worktree by cwd and never removes it.
+The handoff file lives at a unique, per-agent temp path so concurrent rotations never clobber each other; the successor deletes it once read (and `/tmp` self-clears). Spawn-before-reap is fail-safe: if the successor fails to spawn, the current agent keeps running. Rotation reuses the worktree by cwd and never removes it. `--retire` is mutually exclusive with `--to`.
 
 ### Pipelines — `warden pipeline`
 
@@ -956,7 +957,7 @@ Retention is policy-driven via the `worktree_keep_done` / `worktree_auto_prune` 
 
 ### `warden handoff`
 
-The cross-agent delegation counterpart to `rotate`: an agent (or operator) hands a context package to a **different** agent and **keeps running**. Default mode spawns a fresh delegate in its own isolated worktree; `--to <id>` delivers the handoff into an existing agent's inbox (waking it). The handoff content is inlined into the recipient's prompt. Phase 1 (writing the handoff) is `/warden`-skill-driven; the source agent is never terminated.
+The single verb for passing work to another agent, with three modes. Default mode spawns a fresh delegate in its own isolated worktree; `--to <id>` delivers the handoff into an existing agent's inbox (waking it) — both **keep the source running** and inline the handoff content into the recipient's prompt/message. `--retire` (requires `--confirm`) is the **self-succession** mode: it spawns a successor in the calling agent's **same** worktree and reaps the caller — exactly what the `warden rotate` alias runs (see above). `--retire` and `--to` are mutually exclusive. Phase 1 (writing the handoff) is `/warden`-skill-driven.
 
 ### `warden token generate|show|rotate`
 

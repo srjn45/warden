@@ -105,55 +105,77 @@ func runRotate(ctx context.Context, r rotator, selfID, successorPrompt string, o
 	return successor, nil
 }
 
+// runRetire performs the self-succession flow shared by `warden rotate` and
+// `warden handoff --retire`: it requires --confirm, validates the handoff file,
+// composes the successor prompt, then spawns the successor in THIS agent's
+// worktree (cwd) and reaps the calling agent via runRotate. It NEVER removes the
+// worktree — the rotator interface omits RemoveWorktree, making that a
+// compile-time guarantee. Both entry points call this so their behavior is
+// byte-for-byte identical.
+func runRetire(cmd *cobra.Command) error {
+	confirm, _ := cmd.Flags().GetBool("confirm")
+	if !confirm {
+		return fmt.Errorf("retire is irreversible; re-run with --confirm once you've reviewed the handoff")
+	}
+	resumeFile, _ := cmd.Flags().GetString("resume-file")
+	resumePrompt, _ := cmd.Flags().GetString("resume-prompt")
+	if resumeFile == "" || resumePrompt == "" {
+		return fmt.Errorf("--resume-file and --resume-prompt are both required with --confirm")
+	}
+	selfID, err := selfSessionID()
+	if err != nil {
+		return err
+	}
+	if err := validateHandoff(resumeFile); err != nil {
+		return err
+	}
+	prompt := composeSuccessorPrompt(resumePrompt, resumeFile)
+	out := cmd.OutOrStdout()
+	// Summary is printed in onSpawned — BEFORE the reap — because the reap
+	// kills this process in self-rotation. See runRotate's doc comment.
+	onSpawned := func(successor *store.Session) {
+		fmt.Fprintf(out, "rotated: successor %s spawned in %s\n", successor.ID, successor.Workdir)
+		fmt.Fprintf(out, "  handoff notes: %s\n", resumeFile)
+		fmt.Fprintf(out, "  old agent %s retiring; its transcript remains on disk for recovery (the temp handoff file is cleaned up by the successor)\n", selfID)
+		fmt.Fprintf(out, "  attach to the successor: warden attach %s\n", successor.ID)
+	}
+	successor, err := runRotate(cmd.Context(), clientFor(cmd), selfID, prompt, onSpawned)
+	if successor == nil {
+		return err // get/spawn failed; nothing irreversible happened, summary not printed
+	}
+	// Reaching here with a non-nil err means the reap failed — which means the
+	// session was NOT killed, so this process is still alive to warn.
+	if err != nil {
+		fmt.Fprintf(out, "  WARNING: %v — check `warden ls`; if it's still running, retry `warden done %s` or attach and /exit\n", err, selfID)
+	}
+	return nil
+}
+
+// addRetireFlags installs the flags the retire flow reads. Shared so the `rotate`
+// alias and `handoff --retire` expose the identical surface.
+func addRetireFlags(cmd *cobra.Command) {
+	cmd.Flags().Bool("confirm", false, "actually spawn the successor and retire this agent (required for retire)")
+	cmd.Flags().String("resume-file", "", "path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)")
+	cmd.Flags().String("resume-prompt", "", "the successor's initial task prompt")
+}
+
+// newRotateCmd is a thin alias for `handoff --retire`: it retires the calling
+// agent and hands its work to a fresh successor in the same worktree. Its
+// behavior is exactly runRetire — the same code path handoff --retire uses.
 func newRotateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rotate",
-		Short: "Hand this agent's work to a fresh successor in the same workspace, then retire it",
+		Short: "Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)",
 		Long: "Run inside an agent session. Phase 1 is driven by the /warden skill " +
 			"(the agent writes a handoff file + resume prompt and shows you). On your " +
-			"go-ahead, run with --confirm to spawn the successor and reap this agent.",
+			"go-ahead, run with --confirm to spawn the successor and reap this agent.\n\n" +
+			"This is a thin alias for `warden handoff --retire` — the unified handoff " +
+			"verb's self-succession mode. Both run the identical code path.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			confirm, _ := cmd.Flags().GetBool("confirm")
-			if !confirm {
-				return fmt.Errorf("rotate is irreversible; re-run with --confirm once you've reviewed the handoff")
-			}
-			resumeFile, _ := cmd.Flags().GetString("resume-file")
-			resumePrompt, _ := cmd.Flags().GetString("resume-prompt")
-			if resumeFile == "" || resumePrompt == "" {
-				return fmt.Errorf("--resume-file and --resume-prompt are both required with --confirm")
-			}
-			selfID, err := selfSessionID()
-			if err != nil {
-				return err
-			}
-			if err := validateHandoff(resumeFile); err != nil {
-				return err
-			}
-			prompt := composeSuccessorPrompt(resumePrompt, resumeFile)
-			out := cmd.OutOrStdout()
-			// Summary is printed in onSpawned — BEFORE the reap — because the reap
-			// kills this process in self-rotation. See runRotate's doc comment.
-			onSpawned := func(successor *store.Session) {
-				fmt.Fprintf(out, "rotated: successor %s spawned in %s\n", successor.ID, successor.Workdir)
-				fmt.Fprintf(out, "  handoff notes: %s\n", resumeFile)
-				fmt.Fprintf(out, "  old agent %s retiring; its transcript remains on disk for recovery (the temp handoff file is cleaned up by the successor)\n", selfID)
-				fmt.Fprintf(out, "  attach to the successor: warden attach %s\n", successor.ID)
-			}
-			successor, err := runRotate(cmd.Context(), clientFor(cmd), selfID, prompt, onSpawned)
-			if successor == nil {
-				return err // get/spawn failed; nothing irreversible happened, summary not printed
-			}
-			// Reaching here with a non-nil err means the reap failed — which means the
-			// session was NOT killed, so this process is still alive to warn.
-			if err != nil {
-				fmt.Fprintf(out, "  WARNING: %v — check `warden ls`; if it's still running, retry `warden done %s` or attach and /exit\n", err, selfID)
-			}
-			return nil
+			return runRetire(cmd)
 		},
 	}
-	cmd.Flags().Bool("confirm", false, "actually spawn the successor and retire this agent (required)")
-	cmd.Flags().String("resume-file", "", "path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)")
-	cmd.Flags().String("resume-prompt", "", "the successor's initial task prompt")
+	addRetireFlags(cmd)
 	return cmd
 }
