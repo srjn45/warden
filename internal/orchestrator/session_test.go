@@ -98,6 +98,56 @@ func TestSession_BatchConfirmsOnce(t *testing.T) {
 	require.Equal(t, 2, fd.spawnCalls)
 }
 
+func TestSession_DuplicateMutationGatedOnce(t *testing.T) {
+	// The model re-proposes the *identical* spawn after it already succeeded — a
+	// real small-model failure mode. The operator must be asked exactly once and
+	// only one agent must spawn; the loop breaks instead of running to the budget.
+	dup := ToolCall{Name: "spawn_agent", Args: map[string]any{"prompt": "x"}}
+	chat := &scriptChatter{replies: []llm.Reply{
+		{ToolCalls: []ToolCall{dup}},
+		{ToolCalls: []ToolCall{dup}}, // identical re-proposal
+		{ToolCalls: []ToolCall{dup}}, // ...and again, in case it kept going
+	}}
+	fd := &fakeDaemon{}
+	gate := alwaysApprove()
+	s := newTestSession(chat, fd, gate)
+	out := s.Handle(context.Background(), "spawn an agent")
+	require.Equal(t, 1, gate.confirmCalls, "the duplicate call is suppressed, not re-gated")
+	require.Equal(t, 1, fd.spawnCalls, "only one agent spawns")
+	require.Contains(t, out, "spawn_agent", "the operator gets the real outcome, not a generic message")
+	require.Less(t, chat.calls, maxTurns, "the loop breaks early instead of spinning to the turn budget")
+}
+
+func TestSession_RejectedMutationNotReGated(t *testing.T) {
+	// Reject a spawn; the model re-proposes the same call. We must not ask again.
+	dup := ToolCall{Name: "spawn_agent", Args: map[string]any{"prompt": "x"}}
+	chat := &scriptChatter{replies: []llm.Reply{
+		{ToolCalls: []ToolCall{dup}},
+		{ToolCalls: []ToolCall{dup}},
+	}}
+	fd := &fakeDaemon{}
+	gate := alwaysReject()
+	s := newTestSession(chat, fd, gate)
+	s.Handle(context.Background(), "spawn an agent")
+	require.Equal(t, 1, gate.confirmCalls, "a re-proposed rejected call is suppressed, not re-asked")
+	require.Zero(t, fd.spawnCalls)
+}
+
+func TestSession_DistinctMutationsBothGate(t *testing.T) {
+	// Dedup must not collapse genuinely different calls across turns.
+	chat := &scriptChatter{replies: []llm.Reply{
+		{ToolCalls: []ToolCall{{Name: "spawn_agent", Args: map[string]any{"prompt": "a"}}}},
+		{ToolCalls: []ToolCall{{Name: "spawn_agent", Args: map[string]any{"prompt": "b"}}}},
+		{Text: "spawned both."},
+	}}
+	fd := &fakeDaemon{}
+	gate := alwaysApprove()
+	s := newTestSession(chat, fd, gate)
+	s.Handle(context.Background(), "spawn two different agents")
+	require.Equal(t, 2, gate.confirmCalls, "distinct calls each get their own confirm")
+	require.Equal(t, 2, fd.spawnCalls)
+}
+
 func TestSession_ChatErrorSurfaces(t *testing.T) {
 	s := newTestSession(errChatter{err: errors.New("connection refused")}, &fakeDaemon{}, alwaysReject())
 	out := s.Handle(context.Background(), "anything")

@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -89,6 +90,8 @@ func (s *Session) Handle(ctx context.Context, line string) string {
 		}
 	}
 
+	start := len(s.msgs)
+	done := map[string]bool{} // signatures of mutations already handled this loop
 	for turn := 0; turn < maxTurns; turn++ {
 		reply, err := s.chat.Chat(ctx, s.withContext(ctx), s.reg.ToolSchemas())
 		if err != nil {
@@ -98,7 +101,16 @@ func (s *Session) Handle(ctx context.Context, line string) string {
 		if len(reply.ToolCalls) == 0 {
 			return reply.Text // model yielded prose — done
 		}
-		s.runCalls(ctx, reply.ToolCalls)
+		if !s.runCalls(ctx, reply.ToolCalls, done) {
+			// Every call this turn was one the model had already made — it's
+			// looping on a finished action instead of reporting it. Stop and hand
+			// back the real outcome rather than re-prompting the operator with the
+			// same approval (the duplicate-call loop).
+			if out := s.toolResults(start); out != "" {
+				return out
+			}
+			return "done"
+		}
 	}
 	return "couldn't complete that within the turn budget — try a smaller ask"
 }
@@ -112,23 +124,30 @@ func (s *Session) runPlan(ctx context.Context, calls []ToolCall) string {
 		return "nothing to do"
 	}
 	start := len(s.msgs)
-	s.runCalls(ctx, calls)
+	s.runCalls(ctx, calls, map[string]bool{})
+	if out := s.toolResults(start); out != "" {
+		return out
+	}
+	return "done"
+}
+
+// toolResults renders every tool message appended since index start into the
+// operator-facing form: this is the human path (a `/`-command, an escalated
+// plan, or a broken-out duplicate loop), so it reshapes the model-facing JSON
+// into a readable table — a multi-line block stands on its own, a scalar keeps
+// the "tool: value" framing. Empty when nothing ran.
+func (s *Session) toolResults(start int) string {
 	var b strings.Builder
 	for _, m := range s.msgs[start:] {
-		if m.Role == llm.RoleTool {
-			// This is the human-facing path (a `/`-command or an escalated plan),
-			// so reshape the model-facing JSON into a readable table; a multi-line
-			// block stands on its own, a scalar keeps the "tool: value" framing.
-			out := present(m.ToolName, m.Content)
-			if strings.Contains(out, "\n") {
-				fmt.Fprintf(&b, "%s\n", out)
-			} else {
-				fmt.Fprintf(&b, "%s: %s\n", m.ToolName, out)
-			}
+		if m.Role != llm.RoleTool {
+			continue
 		}
-	}
-	if b.Len() == 0 {
-		return "done"
+		out := present(m.ToolName, m.Content)
+		if strings.Contains(out, "\n") {
+			fmt.Fprintf(&b, "%s\n", out)
+		} else {
+			fmt.Fprintf(&b, "%s: %s\n", m.ToolName, out)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -136,33 +155,64 @@ func (s *Session) runPlan(ctx context.Context, calls []ToolCall) string {
 // runCalls partitions a batch: read-only calls dispatch immediately; the
 // mutating ones are confirmed as one unit, then dispatched (or rejected). Each
 // result (or error) is appended as a tool message the model sees next turn.
-func (s *Session) runCalls(ctx context.Context, calls []ToolCall) {
+//
+// done carries the signatures of mutating calls already handled this turn-loop
+// (run OR rejected). A mutating call whose signature is already there is
+// *suppressed* — not re-confirmed — so a model that re-proposes a finished
+// action can't pester the operator with the same approval again. The bool report
+// is whether the turn made progress: it dispatched a read or a not-yet-seen
+// mutation. A turn that was nothing but already-handled mutations returns false,
+// the caller's signal to break the loop instead of spinning to the turn budget.
+func (s *Session) runCalls(ctx context.Context, calls []ToolCall, done map[string]bool) bool {
 	var mutating []ToolCall
+	progressed := false
 	for _, c := range calls {
 		tl, ok := s.reg.Lookup(c.Name)
 		if !ok {
 			s.recordTool(c.Name, fmt.Sprintf("unknown tool %q — choose one of the provided tools", c.Name))
+			progressed = true // a fresh error the model hasn't seen — let it recover
 			continue
 		}
-		if tl.Mutating {
-			mutating = append(mutating, c)
+		if !tl.Mutating {
+			s.dispatch(ctx, c) // reads are cheap and re-running gives fresh data
+			progressed = true
 			continue
 		}
-		s.dispatch(ctx, c)
+		if done[callSig(c)] {
+			s.recordTool(c.Name, "this exact call was already handled earlier this turn — its outcome is above; report that, do not propose it again")
+			continue
+		}
+		mutating = append(mutating, c)
 	}
 	if len(mutating) == 0 {
-		return
+		return progressed
 	}
 	switch d := s.gate.Confirm(mutating); d.Action {
 	case Approve, Edit:
 		for _, c := range d.Calls {
 			s.dispatch(ctx, c)
+			done[callSig(c)] = true
+			progressed = true
 		}
 	default: // Reject
 		for _, c := range mutating {
 			s.recordTool(c.Name, "operator rejected this action")
+			done[callSig(c)] = true // a re-proposal of a rejected call is suppressed too
 		}
 	}
+	return progressed
+}
+
+// callSig is a stable identity for a tool call — its name plus its JSON-encoded
+// args. encoding/json sorts object keys, so two calls with equal arg maps yield
+// equal signatures; this is how the loop spots a model re-proposing an action it
+// already made.
+func callSig(c ToolCall) string {
+	b, err := json.Marshal(c.Args)
+	if err != nil {
+		b = []byte(fmt.Sprintf("%#v", c.Args)) // never collide silently on a weird arg
+	}
+	return c.Name + "\x00" + string(b)
 }
 
 func (s *Session) dispatch(ctx context.Context, c ToolCall) {
