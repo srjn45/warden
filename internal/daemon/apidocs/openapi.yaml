@@ -513,9 +513,14 @@ paths:
           content:
             application/json:
               schema:
-                oneOf:
-                  - $ref: "#/components/schemas/MetricsHistoryResponse"
-                  - $ref: "#/components/schemas/AgentSummaryResponse"
+                type: object
+                properties:
+                  samples:
+                    type: array
+                    items: { $ref: "#/components/schemas/MetricsSample" }
+                  summaries:
+                    type: array
+                    items: { $ref: "#/components/schemas/AgentSummaryResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/v1/worktrees:
@@ -1180,6 +1185,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [snapshots]
                 properties:
                   snapshots:
                     type: array
@@ -1271,6 +1277,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [schedules]
                 properties:
                   schedules:
                     type: array
@@ -1981,6 +1988,10 @@ components:
         transcript_lines: { type: integer }
 
     RestoreResult:
+      x-go-type: snapshot.RestoreResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/snapshot
+        name: snapshot
       type: object
       properties:
         snapshot_id: { type: string }

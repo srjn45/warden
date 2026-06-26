@@ -441,11 +441,6 @@ type InputRequest struct {
 // Message defines model for Message.
 type Message = mailbox.Message
 
-// MetricsHistoryResponse defines model for MetricsHistoryResponse.
-type MetricsHistoryResponse struct {
-	Samples []MetricsSample `json:"samples,omitempty"`
-}
-
 // MetricsSample A resource snapshot (system + per-agent + daemon stats).
 type MetricsSample = metrics.Sample
 
@@ -522,19 +517,7 @@ type RemoveWorktreeRequest struct {
 }
 
 // RestoreResult defines model for RestoreResult.
-type RestoreResult struct {
-	Applied        bool     `json:"applied,omitempty"`
-	Branch         string   `json:"branch,omitempty"`
-	Conflicts      []string `json:"conflicts,omitempty"`
-	CurrentHead    string   `json:"current_head,omitempty"`
-	HeadMatch      bool     `json:"head_match,omitempty"`
-	Message        string   `json:"message,omitempty"`
-	SessionId      string   `json:"session_id,omitempty"`
-	SnapshotHead   string   `json:"snapshot_head,omitempty"`
-	SnapshotId     string   `json:"snapshot_id,omitempty"`
-	TranscriptPath string   `json:"transcript_path,omitempty"`
-	Workdir        string   `json:"workdir,omitempty"`
-}
+type RestoreResult = snapshot.RestoreResult
 
 // SavingsFeature Rolled-up token saving for one lifecycle feature.
 type SavingsFeature struct {
@@ -763,11 +746,6 @@ type GetMetricsHistoryParams struct {
 	Agent string `form:"agent,omitempty" json:"agent,omitempty"`
 }
 
-// GetMetricsHistory200JSONResponseBody defines parameters for GetMetricsHistory.
-type GetMetricsHistory200JSONResponseBody struct {
-	union json.RawMessage
-}
-
 // CreatePipelineJSONBody defines parameters for CreatePipeline.
 type CreatePipelineJSONBody struct {
 	// Spec pipeline YAML
@@ -965,68 +943,6 @@ type RestoreSnapshotJSONRequestBody RestoreSnapshotJSONBody
 
 // SpawnAgentJSONRequestBody defines body for SpawnAgent for application/json ContentType.
 type SpawnAgentJSONRequestBody = SpawnRequest
-
-// AsMetricsHistoryResponse returns the union data inside the GetMetricsHistory200JSONResponseBody as a MetricsHistoryResponse
-func (t GetMetricsHistory200JSONResponseBody) AsMetricsHistoryResponse() (MetricsHistoryResponse, error) {
-	var body MetricsHistoryResponse
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromMetricsHistoryResponse overwrites any union data inside the GetMetricsHistory200JSONResponseBody as the provided MetricsHistoryResponse
-func (t *GetMetricsHistory200JSONResponseBody) FromMetricsHistoryResponse(v MetricsHistoryResponse) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeMetricsHistoryResponse performs a merge with any union data inside the GetMetricsHistory200JSONResponseBody, using the provided MetricsHistoryResponse
-func (t *GetMetricsHistory200JSONResponseBody) MergeMetricsHistoryResponse(v MetricsHistoryResponse) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsAgentSummaryResponse returns the union data inside the GetMetricsHistory200JSONResponseBody as a AgentSummaryResponse
-func (t GetMetricsHistory200JSONResponseBody) AsAgentSummaryResponse() (AgentSummaryResponse, error) {
-	var body AgentSummaryResponse
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromAgentSummaryResponse overwrites any union data inside the GetMetricsHistory200JSONResponseBody as the provided AgentSummaryResponse
-func (t *GetMetricsHistory200JSONResponseBody) FromAgentSummaryResponse(v AgentSummaryResponse) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeAgentSummaryResponse performs a merge with any union data inside the GetMetricsHistory200JSONResponseBody, using the provided AgentSummaryResponse
-func (t *GetMetricsHistory200JSONResponseBody) MergeAgentSummaryResponse(v AgentSummaryResponse) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t GetMetricsHistory200JSONResponseBody) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *GetMetricsHistory200JSONResponseBody) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -4448,12 +4364,15 @@ type GetMetricsHistoryResponseObject interface {
 	VisitGetMetricsHistoryResponse(w http.ResponseWriter) error
 }
 
-type GetMetricsHistory200JSONResponse = GetMetricsHistory200JSONResponseBody
+type GetMetricsHistory200JSONResponse struct {
+	Samples   []MetricsSample        `json:"samples,omitempty"`
+	Summaries []AgentSummaryResponse `json:"summaries,omitempty"`
+}
 
 func (response GetMetricsHistory200JSONResponse) VisitGetMetricsHistoryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.union); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -4967,7 +4886,7 @@ type ListSchedulesResponseObject interface {
 }
 
 type ListSchedules200JSONResponse struct {
-	Schedules []Schedule `json:"schedules,omitempty"`
+	Schedules []Schedule `json:"schedules"`
 }
 
 func (response ListSchedules200JSONResponse) VisitListSchedulesResponse(w http.ResponseWriter) error {
@@ -5730,7 +5649,7 @@ type ListSnapshotsResponseObject interface {
 }
 
 type ListSnapshots200JSONResponse struct {
-	Snapshots []Snapshot `json:"snapshots,omitempty"`
+	Snapshots []Snapshot `json:"snapshots"`
 }
 
 func (response ListSnapshots200JSONResponse) VisitListSnapshotsResponse(w http.ResponseWriter) error {
