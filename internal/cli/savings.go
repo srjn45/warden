@@ -13,11 +13,13 @@ import (
 	"github.com/srjn45/warden/internal/savings"
 )
 
-// formatSavings renders the savings summary as a human report: a headline line
-// (cumulative tokens + dollars + reduction %), then a per-feature table sorted
-// biggest-win-first. The window line names the period so a screenshot is
-// self-describing. Empty ledger reads as an explicit "nothing recorded yet"
-// rather than a blank table.
+// formatSavings renders the savings summary as a human report: two honest
+// headline claims — the context axis (how much leaner agent context stayed, in %
+// and $) and, separately, the offload axis (Claude work moved off entirely, in
+// $) — then a per-feature table sorted biggest-win-first. The two axes are never
+// blended into a single percentage. The window line names the period so a
+// screenshot is self-describing. Empty ledger reads as an explicit "nothing
+// recorded yet" rather than a blank table.
 func formatSavings(sum *savings.Summary, sinceStr string) string {
 	var b strings.Builder
 	window := "all time"
@@ -29,9 +31,16 @@ func formatSavings(sum *savings.Summary, sinceStr string) string {
 		fmt.Fprintf(&b, "warden records a saving each time a lifecycle feature keeps tokens out of an agent's context — run `wd check` in a project with a .warden/check.yml to start the ledger.\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "token savings (%s) — priced at $%.0f/M input tokens\n", window, savings.PricePerMTok)
-	fmt.Fprintf(&b, "  %s tokens saved · $%.2f · %.1f%% of would-be context spend eliminated · %d events\n",
-		humanCount(sum.SavedTokens), sum.SavedDollars, sum.ReductionPct, sum.Events)
+	contextEvents := sum.Events - sum.OffloadedEvents
+	fmt.Fprintf(&b, "token savings (%s) — input $%.0f/M, output $%.0f/M (Opus)\n", window, savings.PricePerMTok, savings.OutputPricePerMTok)
+	if contextEvents > 0 {
+		fmt.Fprintf(&b, "  agent context kept %.1f%% leaner · $%.2f saved · %d events\n",
+			sum.ContextReductionPct, sum.ContextSavedDollars, contextEvents)
+	}
+	if sum.OffloadedEvents > 0 {
+		fmt.Fprintf(&b, "  + $%.2f of Claude work offloaded entirely (%d calls; output volume assumed, not measured)\n",
+			sum.OffloadedDollars, sum.OffloadedEvents)
+	}
 	fmt.Fprintf(&b, "%-14s %10s %10s %8s\n", "FEATURE", "SAVED", "RAW", "EVENTS")
 	for _, f := range sum.Features {
 		fmt.Fprintf(&b, "%-14s %10s %10s %8d\n",
@@ -40,13 +49,15 @@ func formatSavings(sum *savings.Summary, sinceStr string) string {
 	return b.String()
 }
 
-// formatBenchmark renders the ledger as the headline A/B proof point: the
-// counterfactual ("without warden", the raw tokens that would have entered
-// Claude) versus the measured reality ("with warden", what actually did),
-// followed by the one-line verdict — reduction %, leanness multiplier, dollars
-// saved — and the features driving it. It reframes the same totals formatSavings
-// tables, so the two views never disagree; this one is built to screenshot and
-// sell. Empty ledger reuses the same "nothing yet" guidance.
+// formatBenchmark renders the ledger as the headline A/B proof point. The
+// without/with block is restricted to the CONTEXT axis — the counterfactual
+// ("without warden", the raw tokens that would have entered Claude) versus the
+// measured reality ("with warden", what actually did) — because the offload axis
+// keeps nothing (kept==0) and would distort a without/with framing into a
+// meaningless ∞×. Offload is reported honestly on its own line below the verdict.
+// It reframes the same totals formatSavings tables, so the two views never
+// disagree; this one is built to screenshot and sell. Empty ledger reuses the
+// same "nothing yet" guidance.
 func formatBenchmark(sum *savings.Summary, sinceStr string) string {
 	var b strings.Builder
 	window := "all time"
@@ -58,14 +69,20 @@ func formatBenchmark(sum *savings.Summary, sinceStr string) string {
 		fmt.Fprintf(&b, "warden records a saving each time a lifecycle feature keeps tokens out of an agent's context — run `wd check` in a project with a .warden/check.yml to start the ledger.\n")
 		return b.String()
 	}
-	rawDollars := dollarsFor(sum.RawTokens)
-	keptDollars := dollarsFor(sum.KeptTokens)
-	fmt.Fprintf(&b, "warden A/B — %s · %d events · priced at $%.0f/M input tokens\n\n", window, sum.Events, savings.PricePerMTok)
-	fmt.Fprintf(&b, "  without warden   %8s tokens   $%8.2f   would have entered Claude\n", humanCount(sum.RawTokens), rawDollars)
-	fmt.Fprintf(&b, "  with warden      %8s tokens   $%8.2f   actually did\n", humanCount(sum.KeptTokens), keptDollars)
-	fmt.Fprintf(&b, "  %s\n", strings.Repeat("─", 56))
-	fmt.Fprintf(&b, "  %.1f%% less context · %s leaner · $%.2f saved\n",
-		sum.ReductionPct, leanFactor(sum.RawTokens, sum.KeptTokens), sum.SavedDollars)
+	fmt.Fprintf(&b, "warden A/B — %s · %d events · input $%.0f/M, output $%.0f/M (Opus)\n\n", window, sum.Events, savings.PricePerMTok, savings.OutputPricePerMTok)
+	if contextEvents := sum.Events - sum.OffloadedEvents; contextEvents > 0 {
+		rawDollars := dollarsFor(sum.ContextRawTokens)
+		keptDollars := dollarsFor(sum.ContextKeptTokens)
+		fmt.Fprintf(&b, "  without warden   %8s tokens   $%8.2f   would have entered Claude\n", humanCount(sum.ContextRawTokens), rawDollars)
+		fmt.Fprintf(&b, "  with warden      %8s tokens   $%8.2f   actually did\n", humanCount(sum.ContextKeptTokens), keptDollars)
+		fmt.Fprintf(&b, "  %s\n", strings.Repeat("─", 56))
+		fmt.Fprintf(&b, "  %.1f%% less context · %s leaner · $%.2f saved\n",
+			sum.ContextReductionPct, leanFactor(sum.ContextRawTokens, sum.ContextKeptTokens), sum.ContextSavedDollars)
+	}
+	if sum.OffloadedEvents > 0 {
+		fmt.Fprintf(&b, "  + $%.2f of Claude work offloaded entirely (%d calls, %s input tokens; output volume assumed, not measured)\n",
+			sum.OffloadedDollars, sum.OffloadedEvents, humanCount(sum.OffloadedTokens))
+	}
 	if len(sum.Features) > 0 {
 		fmt.Fprintf(&b, "\ndriven by:\n")
 		for _, f := range sum.Features {

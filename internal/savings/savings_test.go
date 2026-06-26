@@ -64,8 +64,9 @@ func TestSummarize(t *testing.T) {
 	if sum.ReductionPct < 93.9 || sum.ReductionPct > 94.1 {
 		t.Errorf("ReductionPct = %.2f, want ~94", sum.ReductionPct)
 	}
-	// $ = 1880 tokens * $5/MTok.
-	wantDollars := 1880.0 * 5.0 / 1_000_000
+	// Blended $ is the honest sum of both axes: context input (1580 saved tokens *
+	// $5/MTok) + offload (300 input * $5/MTok + 1 event * 64 output * $25/MTok).
+	wantDollars := (1580.0*5.0 + 300.0*5.0 + 1*64*25.0) / 1_000_000
 	if sum.SavedDollars < wantDollars-1e-9 || sum.SavedDollars > wantDollars+1e-9 {
 		t.Errorf("SavedDollars = %.8f, want %.8f", sum.SavedDollars, wantDollars)
 	}
@@ -82,6 +83,66 @@ func TestSummarize(t *testing.T) {
 	}
 	if sum.Features[2].Feature != FeatureCommit {
 		t.Errorf("Features[2] = %q, want commit", sum.Features[2].Feature)
+	}
+}
+
+func TestFeatureAxis(t *testing.T) {
+	cases := map[string]string{
+		FeatureCheck:      axisContext,
+		FeatureCommit:     axisContext,
+		FeatureCompact:    axisContext,
+		FeatureLLMOffload: axisOffload,
+		"some_future":     axisContext, // unknown features default to the context axis
+	}
+	for feature, want := range cases {
+		if got := featureAxis(feature); got != want {
+			t.Errorf("featureAxis(%q) = %q, want %q", feature, got, want)
+		}
+	}
+}
+
+func TestSummarizeAxes(t *testing.T) {
+	evs := []Event{
+		NewEvent(FeatureCheck, "a1", 1000, 100),   // context: saved 900
+		NewEvent(FeatureCheck, "a2", 500, 0),      // context: saved 500
+		NewEvent(FeatureCommit, "a1", 200, 20),    // context: saved 180
+		NewEvent(FeatureLLMOffload, "a1", 300, 0), // offload: 300 input, 1 event
+		NewEvent(FeatureLLMOffload, "a2", 700, 0), // offload: 700 input, 1 event
+	}
+	sum := Summarize(evs, time.Time{})
+
+	// Context axis: raw 1700, kept 120, saved 1580 — over context features ONLY,
+	// so the two offload events do not touch this ratio.
+	if sum.ContextRawTokens != 1700 || sum.ContextKeptTokens != 120 || sum.ContextSavedTokens != 1580 {
+		t.Errorf("context tokens = raw %d/kept %d/saved %d, want 1700/120/1580",
+			sum.ContextRawTokens, sum.ContextKeptTokens, sum.ContextSavedTokens)
+	}
+	// ContextReductionPct = 1580 / (1580 + 120) = 92.94%.
+	if sum.ContextReductionPct < 92.9 || sum.ContextReductionPct > 93.0 {
+		t.Errorf("ContextReductionPct = %.2f, want ~92.94", sum.ContextReductionPct)
+	}
+	wantCtxDollars := 1580.0 * 5.0 / 1_000_000
+	if sum.ContextSavedDollars < wantCtxDollars-1e-9 || sum.ContextSavedDollars > wantCtxDollars+1e-9 {
+		t.Errorf("ContextSavedDollars = %.8f, want %.8f", sum.ContextSavedDollars, wantCtxDollars)
+	}
+
+	// Offload axis: 1000 input tokens over 2 events.
+	if sum.OffloadedTokens != 1000 || sum.OffloadedEvents != 2 {
+		t.Errorf("offload = %d tokens/%d events, want 1000/2", sum.OffloadedTokens, sum.OffloadedEvents)
+	}
+	// OffloadedDollars = 1000 input * $5/MTok + 2 events * 64 output * $25/MTok.
+	wantOffload := (1000.0*5.0 + 2*64*25.0) / 1_000_000
+	if sum.OffloadedDollars < wantOffload-1e-9 || sum.OffloadedDollars > wantOffload+1e-9 {
+		t.Errorf("OffloadedDollars = %.8f, want %.8f (input + assumed output)", sum.OffloadedDollars, wantOffload)
+	}
+	// Sanity: the assumed output term is non-trivial, so output pricing is in play.
+	if inputOnly := 1000.0 * 5.0 / 1_000_000; sum.OffloadedDollars <= inputOnly {
+		t.Errorf("OffloadedDollars = %.8f did not add avoided output (input-only %.8f)", sum.OffloadedDollars, inputOnly)
+	}
+
+	// Blended SavedDollars is the honest sum of both axes' priced values.
+	if want := wantCtxDollars + wantOffload; sum.SavedDollars < want-1e-9 || sum.SavedDollars > want+1e-9 {
+		t.Errorf("SavedDollars = %.8f, want context+offload %.8f", sum.SavedDollars, want)
 	}
 }
 
