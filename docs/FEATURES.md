@@ -667,8 +667,8 @@ of reading `internal/daemon`. Config-gated by `api_docs` (default on).
 |---|---|
 | **`GET /api/docs`** | Interactive Swagger UI page. Served from a **pinned, vendored** copy of `swagger-ui-dist@5.17.14` embedded in the binary — **no runtime CDN**, so it works offline and inside the container image. |
 | **`GET /api/docs/openapi.yaml`** | The raw OpenAPI document (`application/yaml`). |
-| **Spec derived from real routes** | The spec describes the routes that actually exist — every operation maps to a registered handler in `server.go` / the `register*Routes` helpers, with schemas modelled off the real Go types (`store.Session`, the daemon request DTOs, `lifecycle.*Result`, `snapshot.Snapshot`, `pipeline.Pipeline`, …). |
-| **Drift guard** | `TestSpecMatchesRoutes` walks the live chi mux and asserts two-way equality between the concrete routes and the spec's paths — an undocumented endpoint (or a stale spec entry) fails CI. |
+| **Spec-first: server generated from the spec** | `openapi.yaml` is the single source of truth; the daemon's typed ("strict") chi server is generated from it with `oapi-codegen` (`internal/daemon/oapi`, via `go generate`). The `*Server` implements the generated `StrictServerInterface`, and ~18 response schemas alias the real Go types (`store.Session`, `lifecycle.*Result`, `snapshot.Snapshot`, `pipeline.Pipeline`, …) via `x-go-type`, so the wire format is byte-identical with zero adapters. |
+| **Drift guard (compiler + codegen)** | Every `operationId` becomes an interface method the daemon must implement — an undocumented or mismatched endpoint is a **build failure**, not a stale doc. A CI guard (`make generate-check`) also fails if the committed generated code drifts from the spec. `TestSpecMatchesRoutes` remains as a route-presence smoke test for the hand-registered public/streaming routes outside codegen. |
 | **Public surface** | Like `/healthz` and the static SPA shell, the docs are unauthenticated — the spec holds no secrets — while still documenting the `bearerAuth` scheme that gates every data/action route. |
 
 Self-contained `internal/daemon/apidocs` package (`//go:embed` of the spec +

@@ -1175,9 +1175,11 @@ recommended), set `allow_nonloopback: true` in the config.
 
 For programmatic or remote consumers, the daemon serves an interactive **Swagger
 UI** at `GET /api/docs` and the raw **OpenAPI 3.x** document at
-`GET /api/docs/openapi.yaml`. The spec is derived from the real routes (a CI drift
-guard fails the build if a route is undocumented) and documents the `bearerAuth`
-scheme that gates every data/action route. Like `/healthz`, the docs page itself is
+`GET /api/docs/openapi.yaml`. The setup is spec-first: `openapi.yaml` is the single
+source of truth and the daemon's typed server is generated from it, so an
+undocumented endpoint is a compile error (a CI guard also fails the build if the
+generated code drifts from the spec). It documents the `bearerAuth` scheme that
+gates every data/action route. Like `/healthz`, the docs page itself is
 unauthenticated (it holds no secrets). Gated by `api_docs` (default on); Swagger UI
 is vendored into the binary, so it works offline and inside the container image.
 See [FEATURES.md §27](FEATURES.md).

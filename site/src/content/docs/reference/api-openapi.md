@@ -14,10 +14,13 @@ reference instead of reading the source. Gated by the `api_docs` config setting
 | `GET /api/docs` | Interactive **Swagger UI**, served from a pinned, **vendored** copy embedded in the binary — no runtime CDN, so it works offline and inside the container image. |
 | `GET /api/docs/openapi.yaml` | The raw OpenAPI document (`application/yaml`). |
 
-The spec is derived from the **real routes**: every operation maps to a registered
-handler, with schemas modelled off the actual Go types. A CI **drift guard**
-(`TestSpecMatchesRoutes`) walks the live router and fails the build if a route is
-undocumented or a spec entry is stale — so the reference can't rot.
+The spec is **spec-first**: `openapi.yaml` is the single source of truth, and the
+daemon's typed HTTP server is **generated from it** (via `oapi-codegen`). Every
+operation becomes a method the server must implement, so an undocumented or
+mismatched endpoint is a **compile error** rather than silent drift — and a CI
+guard (`make generate-check`) fails the build if the generated code falls out of
+sync with the spec. Response schemas alias the actual Go types, so the reference
+and the wire format are the same thing by construction.
 
 ## Base path
 
