@@ -77,6 +77,7 @@ type Config struct {
 	LocalLLMTimeout        string        `yaml:"local_llm_timeout"`
 	LocalLLMEscalate       bool          `yaml:"local_llm_escalate"`
 	LocalLLMTier           string        `yaml:"local_llm_tier"`
+	LocalLLMClassifier     string        `yaml:"local_llm_classifier"`
 	Orchestrator           bool          `yaml:"orchestrator"`
 	PluginsEnabled         bool          `yaml:"plugins"`
 	Plugins                []plugin.Spec `yaml:"plugin_registry"`
@@ -154,6 +155,7 @@ var schema = []setting{
 	{"local_llm_timeout", "Hard timeout for each local-model call before falling back to Claude. Values: Go duration (e.g. 20s, 1m)"},
 	{"local_llm_escalate", "Let the orchestrator escalate an over-tier planning step to headless Claude (one bounded `claude -p`); off ⇒ degrade honestly instead. Execution stays token-free warden calls either way. Values: true | false"},
 	{"local_llm_tier", "Explicit orchestrator planning-tier override for the local model. auto derives the tier from the model name. Values: auto | t0 | t1 | t2"},
+	{"local_llm_classifier", "How the orchestrator buckets a request's needed planning tier. heuristic uses cheap surface signals (no model call); model adds a one-shot local-model classification (more accurate, one extra round-trip) and falls back to the heuristic on any error. Values: heuristic | model"},
 	{"orchestrator", "Start the cockpit master pane in orchestrator mode (the natural-language conductor) instead of a plain shell. Values: true | false"},
 	{"plugins", "Enable the plugin system (#47): load the external plugin executables in plugin_registry, register their custom agent task types, and invoke their subscribed lifecycle hooks over a JSON-over-stdio protocol. OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Values: true | false"},
 	{"plugin_registry", "Plugins loaded when `plugins` is true. A list of entries, each with: name, path (the plugin executable), events (subscribed lifecycle hooks; any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree}). Empty by default. Values: list"},
@@ -225,6 +227,7 @@ func defaults() Config {
 		LocalLLMTimeout:        "20s",
 		LocalLLMEscalate:       true,
 		LocalLLMTier:           "auto",
+		LocalLLMClassifier:     "heuristic",
 		Orchestrator:           false,
 		PluginsEnabled:         false,
 		Plugins:                []plugin.Spec{},
@@ -753,6 +756,17 @@ func (c Config) GetLocalLLMEscalate() bool { return c.LocalLLMEscalate }
 // GetLocalLLMTier returns the explicit orchestrator planning-tier override
 // ("auto"|"t0"|"t1"|"t2"); "auto" derives the tier from the model name.
 func (c Config) GetLocalLLMTier() string { return c.LocalLLMTier }
+
+// GetLocalLLMClassifier returns how the orchestrator buckets a request's needed
+// planning tier: "heuristic" (cheap surface signals, no model call — the
+// default) or "model" (a one-shot local-model classification that falls back to
+// the heuristic on any error). Empty normalises to "heuristic".
+func (c Config) GetLocalLLMClassifier() string {
+	if strings.TrimSpace(c.LocalLLMClassifier) == "" {
+		return "heuristic"
+	}
+	return c.LocalLLMClassifier
+}
 
 // GetOrchestrator reports whether the cockpit master pane starts in orchestrator
 // mode instead of a plain shell.
