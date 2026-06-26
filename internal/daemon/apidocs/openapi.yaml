@@ -934,6 +934,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [pipelines]
                 properties:
                   pipelines:
                     type: array
@@ -951,7 +952,7 @@ paths:
               properties:
                 spec: { type: string, description: "pipeline YAML" }
       responses:
-        "200":
+        "201":
           description: The parsed + stored pipeline
           content:
             application/json:
@@ -1054,8 +1055,8 @@ paths:
             schema:
               type: object
               properties:
-                prompt: { type: string }
-                handoff: { type: string }
+                prompt: { type: string, x-go-type-skip-optional-pointer: false }
+                handoff: { type: string, x-go-type-skip-optional-pointer: false }
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
