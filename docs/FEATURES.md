@@ -346,7 +346,7 @@ the local machine. Setup recipes (LAN / Tailscale / Cloudflare Tunnel) live in
 | **Token management** | `warden token generate` mints a token, `warden token show` prints the current one (to paste into a remote client), and `warden token rotate` regenerates it in place and restarts the daemon. Persisted to `~/.warden/token.env` (`WARDEN_TOKEN=<hex>`, `0600`); the `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk. |
 | **Brute-force protection** | Per-IP rate-limiting on auth failures. |
 | **Web UI auth** | A token-entry modal appears on `401`, with `localStorage` persistence and a sign-out control; the static SPA shell stays public so the modal can load. |
-| **Mobile-responsive dashboard** | Bottom nav, single-column grids, and full-screen modal sheets so the GUI is usable on a phone. |
+| **Mobile-responsive dashboard** | A keyboard-aware layout sized to the visible viewport: a bottom nav that stays pinned above the soft keyboard, single-column grids, full-screen modal sheets, and an interactive terminal you can swipe to scroll (driving tmux/the agent's scrollback like a wheel) with a sticky on-screen key bar (Esc/Tab/Ctrl-C/↑↓/Bottom). |
 | **API reference** | Interactive OpenAPI docs at `/api/docs` (raw spec at `/api/docs/openapi.yaml`) document every daemon route and the `bearerAuth` scheme for remote/API consumers — see §27. |
 
 ---
