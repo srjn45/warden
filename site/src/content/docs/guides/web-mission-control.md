@@ -19,10 +19,10 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 | Route | Tab | What's there |
 |---|---|---|
 | `/cockpit` | ⊞ **Cockpit** | **The home view** (`/` redirects here). A slim **Fleet** header — totals · busy · waiting · errored, pressure, per-directory counts — above the full agent grid. |
-| `/others` | ▦ **Others** | The former *Overview*, renamed to a **catch-all**: *Needs you* (attention queue), *File conflicts*, and *Recent activity*. New/not-yet-homed widgets land here first. |
 | `/pipelines` | ⛓ **Pipelines** | Pipeline list + live DAG / per-job drawer. |
 | `/metrics` | 📊 **Metrics** | Per-agent and fleet-wide charts — [see below](#metrics-view). |
 | `/archive` | 🗄 **Archive** | Ended sessions with since/type filters. |
+| `/others` | ▦ **Others** | The former *Overview*, renamed to a **catch-all** (sits last): *Needs you* (attention queue), *File conflicts*, and *Recent activity*. New/not-yet-homed widgets land here first. |
 | `/agent/<id>` | `<id>` | A pinned agent's live terminal (one closeable tab per pinned agent). |
 
 `/` redirects to `/cockpit`, so there is a single canonical home URL. Deep-linking and refresh work because the daemon serves the SPA for any non-API path.
@@ -52,12 +52,14 @@ The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a sele
 
 ## Metrics view
 
-The **Metrics** tab (`/metrics`) is a scrollable column of self-contained uPlot chart cards:
+The **Metrics** tab (`/metrics`) is a responsive grid of self-contained uPlot chart cards — **two columns** on wide screens (each per-agent chart sits beside its fleet-wide total), collapsing to a **single column** on phones:
 
 | Card | What it shows |
 |---|---|
 | **CPU per agent** | One line series per live agent, `cpu_percent` over time (from the metrics history store). |
+| **Total CPU** | A single fleet-wide line: `cpu_percent` summed across all agents per sample. Sits beside *CPU per agent*. |
 | **Memory per agent** | One line series per agent, resident memory in GiB over time. |
+| **Total memory** | A single fleet-wide line: resident memory (GiB) summed across all agents. Sits beside *Memory per agent*. |
 | **Context per agent** | One line series per agent of its live context-window fill over time, with the legend dot coloured by `ok`/`warning`/`critical`. This series is **accumulated client-side** (a ring buffer over the live SSE feed) — it survives tab switches but **starts fresh on a full page reload** (a persisted history is a tracked daemon follow-up). |
 | **Number of agents** | Fleet size (`agent_count`) over time. |
 | **Tokens saved** | Daily bars of tokens kept out of agents' context (from the [savings ledger](/warden/reference/savings/)), plus a headline saved-tokens / dollars figure. If the ledger is disabled (`savings: false`) the card shows a "set `savings: true`" hint instead of an empty chart. |

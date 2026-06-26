@@ -129,11 +129,12 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
 ## Web GUI & cockpit TUI
 
 - **Web GUI** — the daemon embeds a React dashboard at `http://localhost:8765` (no
-  separate server): URL-routed shell (`/cockpit` home · `/others` · `/pipelines` ·
-  `/metrics` · `/archive` · `/agent/<id>`), live fleet over SSE, Cockpit Fleet
+  separate server): URL-routed shell (`/cockpit` home · `/pipelines` · `/metrics` ·
+  `/archive` · `/others` · `/agent/<id>`), live fleet over SSE, Cockpit Fleet
   header + agent grid, Others catch-all (attention queue with one-click approvals,
-  conflicts, activity), a Metrics tab (per-agent CPU/memory/context, fleet size,
-  tokens saved), interactive terminal (xterm.js over WebSocket), agent grouping by
+  conflicts, activity; sits last), a Metrics tab (per-agent + fleet-total CPU/memory,
+  per-agent context, fleet size, tokens saved; two-column responsive layout),
+  interactive terminal (xterm.js over WebSocket), agent grouping by
   Directory/Type/Status/Tag, pipeline DAG view, a header-button Context & Messages
   overlay, archive & search, theme toggle, keyboard shortcuts (`?` for help), batch
   multi-select actions.

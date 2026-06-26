@@ -44,7 +44,10 @@ body { margin: 0; }
 .topbar h1 { font-size: 1.1rem; margin: 0; }
 .topbar h1.brand { display: inline-flex; align-items: center; margin: 0; }
 .topbar h1.brand img { display: block; height: 26px; width: auto; }
-.topbar button { margin-left: auto; }
+/* The action controls live in one group pinned flush-right with even spacing,
+   so they line up regardless of which optional buttons (attention pill, sign
+   out) are present. */
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
 .conn { font-size: .8rem; padding: .1rem .5rem; border-radius: 1rem; }
 .conn.ok { background: #1a7f3722; color: var(--busy); }
 .conn.down { background: #cf222e22; color: var(--error); }
@@ -95,10 +98,9 @@ body { margin: 0; }
 .attn-pill { background: var(--attention); color: #fff; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; }
 .notify-toggle, .theme-toggle { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; }
 .theme-toggle { font: inherit; }
-.token-clear { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; margin-left: 0; }
-.help-toggle { background: #8882; border: none; border-radius: 1rem; width: 1.6rem; height: 1.6rem; padding: 0; cursor: pointer; color: inherit; font-weight: 700; margin-left: 0; }
-.context-toggle { background: #8882; border: none; border-radius: 1rem; width: 1.6rem; height: 1.6rem; padding: 0; cursor: pointer; color: inherit; margin-left: 0; line-height: 1; }
-.topbar .new-btn { margin-left: 0; }
+.token-clear { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; }
+.help-toggle { background: #8882; border: none; border-radius: 1rem; width: 1.6rem; height: 1.6rem; padding: 0; cursor: pointer; color: inherit; font-weight: 700; }
+.context-toggle { background: #8882; border: none; border-radius: 1rem; width: 1.6rem; height: 1.6rem; padding: 0; cursor: pointer; color: inherit; line-height: 1; }
 .modal.token-modal { gap: .8rem; }
 
 /* ── Keyboard shortcuts help (?) ── */
@@ -147,8 +149,14 @@ kbd {
 .pressure-gauge.crit { color: var(--error); font-weight: 600; }
 
 /* ── Metrics tab ── */
-.metrics { display: flex; flex-direction: column; gap: 1rem; max-width: 960px; }
-.metrics .metrics-card { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; }
+/* Responsive chart grid: two columns on wide screens (each per-agent chart sits
+   beside its fleet-wide total), collapsing to a single column once a cell can no
+   longer hold ~380px — i.e. on phones. auto-fit handles the breakpoint so no
+   media query is needed. */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; max-width: 1280px; align-items: start; }
+/* The live-footprint table is not a chart — let it span the full width. */
+.metrics .metrics-wide { grid-column: 1 / -1; }
+.metrics .metrics-card { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; min-width: 0; }
 .metrics .metrics-card h3 { margin: 0 0 .6rem; font-size: .95rem; }
 .metrics-chart { width: 100%; }
 .metrics-empty { padding: .4rem 0; }
@@ -342,12 +350,11 @@ kbd {
    view stacks, and modals become full-screen sheets. */
 @media (max-width: 640px) {
   /* Topbar: let the controls wrap instead of overflowing a narrow bar. The
-     desktop `margin-left: auto` on the first button is what pushes the cluster
-     right; drop it so they pack and wrap, keeping only "+ New" pinned right. */
+     action group keeps its right alignment but is allowed to wrap onto a second
+     line and pack its buttons when the bar gets too narrow. */
   .topbar { flex-wrap: wrap; gap: .5rem; padding: .5rem .7rem; }
   .topbar h1.brand img { height: 22px; }
-  .topbar button { margin-left: 0; }
-  .topbar .new-btn { margin-left: auto; }
+  .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
 
   /* Tab strip → bottom nav: as the last flex child of the 100vh column it
      sits below the (flex:1) content. Bigger tap targets; safe-area inset for

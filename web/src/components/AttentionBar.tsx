@@ -40,39 +40,42 @@ export default function AttentionBar({
           ⚠ {attentionCount} need{attentionCount === 1 ? 's' : ''} you
         </button>
       )}
-      <button
-        className="theme-toggle"
-        onClick={onCycleTheme}
-        title={`Theme: ${THEME_LABEL[theme]} (click to change)`}
-        aria-label={`Theme: ${THEME_LABEL[theme]}. Click to change.`}
-      >
-        {THEME_ICON[theme]} {THEME_LABEL[theme]}
-      </button>
-      <button
-        className="context-toggle"
-        onClick={onToggleContext}
-        title="Context & Messages"
-        aria-label="Open Context & Messages"
-      >
-        🗒
-      </button>
-      <button
-        className="help-toggle"
-        onClick={onShowHelp}
-        title="Keyboard shortcuts (press ?)"
-        aria-label="Show keyboard shortcuts"
-      >
-        ?
-      </button>
-      <button className="notify-toggle" onClick={onToggleNotify} title="Browser notifications when an agent needs input">
-        {notifyEnabled ? '🔔 on' : '🔕 off'}
-      </button>
-      {tokenSet && (
-        <button className="token-clear" onClick={onClearToken} title="Forget the stored access token on this device">
-          🔑 sign out
+      {/* Action controls grouped flush-right with even spacing. */}
+      <div className="topbar-actions">
+        <button
+          className="theme-toggle"
+          onClick={onCycleTheme}
+          title={`Theme: ${THEME_LABEL[theme]} (click to change)`}
+          aria-label={`Theme: ${THEME_LABEL[theme]}. Click to change.`}
+        >
+          {THEME_ICON[theme]} {THEME_LABEL[theme]}
         </button>
-      )}
-      <button className="new-btn" onClick={onNew}>+ New agent</button>
+        <button
+          className="context-toggle"
+          onClick={onToggleContext}
+          title="Context & Messages"
+          aria-label="Open Context & Messages"
+        >
+          🗒
+        </button>
+        <button
+          className="help-toggle"
+          onClick={onShowHelp}
+          title="Keyboard shortcuts (press ?)"
+          aria-label="Show keyboard shortcuts"
+        >
+          ?
+        </button>
+        <button className="notify-toggle" onClick={onToggleNotify} title="Browser notifications when an agent needs input">
+          {notifyEnabled ? '🔔 on' : '🔕 off'}
+        </button>
+        {tokenSet && (
+          <button className="token-clear" onClick={onClearToken} title="Forget the stored access token on this device">
+            🔑 sign out
+          </button>
+        )}
+        <button className="new-btn" onClick={onNew}>+ New agent</button>
+      </div>
     </header>
   );
 }

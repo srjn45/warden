@@ -62,6 +62,36 @@ export function rssSeries(samples: MetricsSample[]): AgentSeries {
   return perAgentSeries(samples, (a) => a.rss_bytes / 2 ** 30);
 }
 
+// TotalSeries is a single aggregate line: one value per sample summed across all
+// agents present in that sample — the fleet-wide total that sits beside the
+// per-agent breakdown.
+export interface TotalSeries {
+  t: number[];      // unix seconds, oldest-first
+  values: number[]; // aggregate aligned to t
+}
+
+// totalSeries sums one per-agent scalar across every agent in each sample.
+export function totalSeries(
+  samples: MetricsSample[],
+  pick: (a: AgentStat) => number,
+): TotalSeries {
+  const ordered = [...samples].sort(byTakenAt);
+  return {
+    t: ordered.map((s) => new Date(s.taken_at).getTime() / 1000),
+    values: ordered.map((s) => (s.agents ?? []).reduce((sum, a) => sum + pick(a), 0)),
+  };
+}
+
+// totalCpuSeries: fleet-wide CPU%, summed across agents per sample.
+export function totalCpuSeries(samples: MetricsSample[]): TotalSeries {
+  return totalSeries(samples, (a) => a.cpu_percent);
+}
+
+// totalRssSeries: fleet-wide resident memory in GiB, summed across agents.
+export function totalRssSeries(samples: MetricsSample[]): TotalSeries {
+  return totalSeries(samples, (a) => a.rss_bytes / 2 ** 30);
+}
+
 // FleetSeries is the single-series fleet-size trend.
 export interface FleetSeries {
   t: number[];     // unix seconds, oldest-first
