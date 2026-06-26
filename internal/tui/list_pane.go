@@ -90,7 +90,7 @@ func (m listPaneModel) items() []item {
 	}
 	// Pipeline-owned sessions are shown under their pipeline, not the flat list —
 	// except orphans whose pipeline was deleted, which fall back to the flat list.
-	head = append(head, pipelineItems(m.pipelines, m.collapsed)...)
+	head = append(head, pipelineItems(m.pipelines, m.sessions, m.collapsed)...)
 	return append(head, buildItems(flatSessions(m.sessions, m.pipelines), m.openedDirs)...)
 }
 

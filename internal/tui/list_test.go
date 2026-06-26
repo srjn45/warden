@@ -335,7 +335,7 @@ func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 func TestPipelineItems(t *testing.T) {
 	ps := []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}, {ID: "b", Status: pipeline.JobPending}}}}
-	items := pipelineItems(ps, nil)
+	items := pipelineItems(ps, nil, nil)
 	if len(items) != 3 {
 		t.Fatalf("want 3 items (1 pipeline + 2 jobs), got %d", len(items))
 	}
@@ -399,6 +399,51 @@ func TestRenderItemLinePipelineRows(t *testing.T) {
 	jobRow := renderItemLine(item{pjPipe: "demo", pjJob: &pipeline.Job{ID: "a", Status: pipeline.JobDone, DependsOn: []string{"x"}}}, false, 60)
 	if !strings.Contains(jobRow, "a") || !strings.Contains(jobRow, glyph) || !strings.Contains(jobRow, "x") {
 		t.Fatalf("job row wrong: %q", jobRow)
+	}
+}
+
+func TestRenderItemLineJobRowWithLiveSession(t *testing.T) {
+	// A running job linked to a live session surfaces the agent badge, the token
+	// gauge, and the branch.
+	job := &pipeline.Job{ID: "implement", Status: pipeline.JobRunning, Branch: "feat/x"}
+	sess := &store.Session{
+		ID:            "agent-1",
+		Status:        store.StatusWaitingForInput,
+		ContextTokens: 120_000,
+		ContextState:  store.ContextWarning,
+	}
+	row := renderItemLine(item{pjPipe: "demo", pjJob: job, pjSess: sess}, false, 100)
+	for _, want := range []string{"implement", "running", "needs-input", "120k", "feat/x"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("job row missing %q: %q", want, row)
+		}
+	}
+
+	// No job branch → fall back to the session's worktree basename.
+	job2 := &pipeline.Job{ID: "build", Status: pipeline.JobRunning}
+	sess2 := &store.Session{ID: "agent-2", Status: store.StatusWorking, Worktree: "/home/u/repo/.worktrees/PROJ-9"}
+	row = renderItemLine(item{pjPipe: "demo", pjJob: job2, pjSess: sess2}, false, 100)
+	if !strings.Contains(row, "PROJ-9") {
+		t.Fatalf("job row should show worktree basename: %q", row)
+	}
+
+	// No linked session → lean row, no panic, still shows id + status.
+	row = renderItemLine(item{pjPipe: "demo", pjJob: &pipeline.Job{ID: "pending", Status: pipeline.JobPending}}, false, 100)
+	if !strings.Contains(row, "pending") {
+		t.Fatalf("session-less job row wrong: %q", row)
+	}
+}
+
+func TestPipelineItemsLinksSessions(t *testing.T) {
+	ps := []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning, SessionID: "agent-1"}, {ID: "b", Status: pipeline.JobPending}}}}
+	sessions := []*store.Session{{ID: "agent-1", Status: store.StatusWorking}}
+	items := pipelineItems(ps, sessions, nil)
+	if items[1].pjSess == nil || items[1].pjSess.ID != "agent-1" {
+		t.Fatalf("job a should link session agent-1: %+v", items[1].pjSess)
+	}
+	if items[2].pjSess != nil {
+		t.Fatalf("job b has no session, should stay nil: %+v", items[2].pjSess)
 	}
 }
 
@@ -605,13 +650,13 @@ func TestPipelineItemsHonorsCollapsed(t *testing.T) {
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}, {ID: "b", Status: pipeline.JobPending}}}}
 
 	// collapsed → header only.
-	items := pipelineItems(ps, map[string]bool{"demo": true})
+	items := pipelineItems(ps, nil, map[string]bool{"demo": true})
 	require.Len(t, items, 1, "collapsed pipeline emits only its header row")
 	require.NotNil(t, items[0].pipeline)
 	require.True(t, items[0].collapsed, "header item carries collapsed state")
 
 	// expanded (explicit false) → header + jobs.
-	items = pipelineItems(ps, map[string]bool{"demo": false})
+	items = pipelineItems(ps, nil, map[string]bool{"demo": false})
 	require.Len(t, items, 3, "expanded pipeline emits header + job rows")
 	require.False(t, items[0].collapsed)
 }
