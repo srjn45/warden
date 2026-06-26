@@ -272,8 +272,8 @@ type ApprovalView = approval.View
 
 // ApprovalsResponse defines model for ApprovalsResponse.
 type ApprovalsResponse struct {
-	Approvals []ApprovalView `json:"approvals,omitempty"`
-	Enabled   bool           `json:"enabled,omitempty"`
+	Approvals []ApprovalView `json:"approvals"`
+	Enabled   bool           `json:"enabled"`
 }
 
 // BranchStatus defines model for BranchStatus.
@@ -344,17 +344,17 @@ type Digest = digest.Digest
 
 // DirEntry defines model for DirEntry.
 type DirEntry struct {
-	Name string `json:"name,omitempty"`
-	Path string `json:"path,omitempty"`
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 // DirListing defines model for DirListing.
 type DirListing struct {
-	Entries []DirEntry `json:"entries,omitempty"`
+	Entries []DirEntry `json:"entries"`
 
 	// Parent empty at the filesystem root
-	Parent string `json:"parent,omitempty"`
-	Path   string `json:"path,omitempty"`
+	Parent string `json:"parent"`
+	Path   string `json:"path"`
 }
 
 // Error defines model for Error.
@@ -423,7 +423,7 @@ type GuardRequest struct {
 
 // GuardVerdict defines model for GuardVerdict.
 type GuardVerdict struct {
-	Decision GuardVerdictDecision `json:"decision,omitempty"`
+	Decision GuardVerdictDecision `json:"decision"`
 	Reason   string               `json:"reason,omitempty"`
 }
 
@@ -591,7 +591,7 @@ type Session = store.Session
 
 // SessionList defines model for SessionList.
 type SessionList struct {
-	Sessions []Session `json:"sessions,omitempty"`
+	Sessions []Session `json:"sessions"`
 }
 
 // Snapshot defines model for Snapshot.
