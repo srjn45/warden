@@ -63,6 +63,7 @@ type Config struct {
 	GitConventions         bool          `yaml:"git_conventions"`
 	GitRedirect            bool          `yaml:"git_redirect"`
 	CheckRedirect          bool          `yaml:"check_redirect"`
+	RootGuard              bool          `yaml:"root_guard"`
 	Snapshots              bool          `yaml:"snapshots"`
 	Savings                bool          `yaml:"savings"`
 	SavingsSamples         bool          `yaml:"savings_samples"`
@@ -139,6 +140,7 @@ var schema = []setting{
 	{"git_conventions", "Append the git-conventions hint steering agents toward wd commit/push/sync over raw git Bash. Values: true | false"},
 	{"git_redirect", "Install the PreToolUse hook that denies raw git commit/push/pull/rebase in Bash and redirects to the warden tools (reads stay allowed). Values: true | false"},
 	{"check_redirect", "Install the PreToolUse hook that denies a raw test/lint/build command the project's .warden/check.yml registers and redirects it to wd check (returns only failures). No config means nothing is redirected. Values: true | false"},
+	{"root_guard", "Install the PreToolUse hook that blocks ANY spawned agent from editing files in the main repo working tree (the shared project root), regardless of whether it owns a worktree. Unlike isolation_guard this needs no daemon and catches free-form/--in-repo agents too — so it also overrides the --in-repo opt-out. Values: true | false"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
 	{"savings", "Record the token reductions warden's lifecycle features earn (starting with wd check: raw test output kept out of the transcript) to an append-only ledger, surfaced by wd savings and GET /savings. Off disables recording and returns 403 on the endpoint. Values: true | false"},
 	{"savings_samples", "Retain opt-in provenance samples in the savings ledger: a truncated (~2KB) snapshot of the real raw output a feature avoided and the kept output it returned, sampled on a fraction of events and shown by wd savings --audit so a skeptic can eyeball actual bytes. WARNING: these samples retain substrings of real build/test/git output, which may be sensitive — off by default. Requires savings. Values: true | false"},
@@ -209,6 +211,7 @@ func defaults() Config {
 		GitConventions:         true,
 		GitRedirect:            true,
 		CheckRedirect:          true,
+		RootGuard:              true,
 		Snapshots:              true,
 		Savings:                true,
 		SavingsSamples:         false,
@@ -697,6 +700,12 @@ func (c Config) GetGitRedirect() bool { return c.GitRedirect }
 // .warden/check.yml registers and points the agent at wd check instead). With no
 // project config nothing is redirected, so this is effectively opt-in per repo.
 func (c Config) GetCheckRedirect() bool { return c.CheckRedirect }
+
+// GetRootGuard reports whether the PreToolUse root-guard hook is installed into
+// spawned agents. It blocks any edit that targets the main repo working tree —
+// the daemon-free backstop that catches even no-worktree (free-form / --in-repo)
+// agents the isolation guard intentionally exempts.
+func (c Config) GetRootGuard() bool { return c.RootGuard }
 
 // GetSavings reports whether the token-savings ledger is enabled (the default).
 // When off, lifecycle features record no savings and GET /savings returns 403.

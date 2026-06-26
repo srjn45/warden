@@ -110,6 +110,9 @@ type FakeConfig struct {
 	// CheckRedirectOff disables the PreToolUse check-redirect hook; the zero value
 	// leaves it on, matching the production default.
 	CheckRedirectOff bool
+	// RootGuardOff disables the PreToolUse root-guard hook; the zero value leaves
+	// it on, matching the production default.
+	RootGuardOff bool
 }
 
 func (f *FakeConfig) GetDefaultPermissionMode() string {
@@ -132,6 +135,8 @@ func (f *FakeConfig) GetGitConventions() bool { return !f.GitConventionsOff }
 func (f *FakeConfig) GetGitRedirect() bool { return !f.GitRedirectOff }
 
 func (f *FakeConfig) GetCheckRedirect() bool { return !f.CheckRedirectOff }
+
+func (f *FakeConfig) GetRootGuard() bool { return !f.RootGuardOff }
 
 // FakeRunner matches on "name arg1 arg2 ..." joined by spaces.
 type FakeRunner struct {
