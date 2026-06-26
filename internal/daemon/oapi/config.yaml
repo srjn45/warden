@@ -1,0 +1,21 @@
+# oapi-codegen configuration — spec-first generation of the daemon's HTTP API.
+# The OpenAPI document at ../apidocs/openapi.yaml is the single source of truth;
+# this produces the typed strict chi server the daemon implements.
+package: oapi
+output: api.gen.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true
+output-options:
+  skip-prune: false
+  # These routes are non-JSON / streaming / public and are registered by hand on
+  # the chi mux (see daemon router): SSE, WebSocket attach, the liveness probe,
+  # and the two public docs routes. They stay documented in the spec but are
+  # excluded from the strict generated server.
+  exclude-operation-ids:
+    - streamEvents
+    - attachSession
+    - healthz
+    - getApiDocs
+    - getOpenAPISpec

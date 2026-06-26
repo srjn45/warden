@@ -70,6 +70,7 @@ security:
 paths:
   /healthz:
     get:
+      operationId: healthz
       tags: [Health]
       summary: Liveness probe
       description: Public. Pings the store; returns 503 if the store is unavailable.
@@ -88,6 +89,7 @@ paths:
 
   /api/docs:
     get:
+      operationId: getApiDocs
       tags: [Documentation]
       summary: Interactive API docs (Swagger UI)
       description: |
@@ -106,6 +108,7 @@ paths:
 
   /api/docs/openapi.yaml:
     get:
+      operationId: getOpenAPISpec
       tags: [Documentation]
       summary: Raw OpenAPI document
       description: Public. Serves this specification. Gated by `api_docs` (404 when disabled).
@@ -121,6 +124,7 @@ paths:
 
   /api/v1/sessions:
     get:
+      operationId: listSessions
       tags: [Sessions]
       summary: List active sessions
       responses:
@@ -132,6 +136,7 @@ paths:
 
   /api/v1/sessions/{id}:
     get:
+      operationId: getSession
       tags: [Sessions]
       summary: Get one session by id or name
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -149,6 +154,7 @@ paths:
 
   /api/v1/spawn:
     post:
+      operationId: spawnAgent
       tags: [Sessions]
       summary: Spawn a new agent
       description: |
@@ -179,6 +185,7 @@ paths:
 
   /api/v1/adopt:
     post:
+      operationId: adoptSession
       tags: [Sessions]
       summary: Adopt an existing (un-spawned) session
       description: Registers a resume- or live-mode session warden did not spawn.
@@ -196,6 +203,7 @@ paths:
 
   /api/v1/sessions/{id}/terminate:
     post:
+      operationId: terminateSession
       tags: [Sessions]
       summary: Terminate an agent
       description: Kills the agent's tmux session; keeps the record and worktree.
@@ -206,6 +214,7 @@ paths:
 
   /api/v1/sessions/{id}/delete:
     post:
+      operationId: deleteSession
       tags: [Sessions]
       summary: Delete a session record
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -219,6 +228,7 @@ paths:
 
   /api/v1/sessions/{id}/remove-worktree:
     post:
+      operationId: removeWorktree
       tags: [Sessions]
       summary: Remove the session's git worktree + branch
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -232,6 +242,7 @@ paths:
 
   /api/v1/sessions/{id}/input:
     post:
+      operationId: sendInput
       tags: [Sessions]
       summary: Send text input to an agent's pane
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -246,6 +257,7 @@ paths:
 
   /api/v1/sessions/{id}/output:
     get:
+      operationId: getOutput
       tags: [Sessions]
       summary: Read recent pane output
       parameters:
@@ -264,6 +276,7 @@ paths:
 
   /api/v1/sessions/{id}/attach:
     get:
+      operationId: attachSession
       tags: [Sessions]
       summary: Attach to an agent's pane (WebSocket)
       description: |
@@ -277,6 +290,7 @@ paths:
 
   /api/v1/sessions/{id}/restore:
     post:
+      operationId: restoreSession
       tags: [Sessions]
       summary: Restore (re-create + resume) a lost session
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -286,6 +300,7 @@ paths:
 
   /api/v1/sessions/{id}/create-pr:
     post:
+      operationId: createPR
       tags: [Sessions]
       summary: Open a GitHub PR for the agent's branch
       description: Push → digest → gh pr create. An existing PR returns Created=false.
@@ -307,6 +322,7 @@ paths:
 
   /api/v1/sessions/{id}/digest:
     get:
+      operationId: getDigest
       tags: [Sessions]
       summary: Completion digest for an agent
       description: LLM narrative summary + changed files + branch/turns/status.
@@ -321,6 +337,7 @@ paths:
 
   /api/v1/sessions/{id}/auto-approve:
     patch:
+      operationId: setAutoApprove
       tags: [Approvals]
       summary: Toggle auto-approve for an agent
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -338,6 +355,7 @@ paths:
 
   /api/v1/sessions/{id}/permission-mode:
     patch:
+      operationId: setPermissionMode
       tags: [Sessions]
       summary: Set an agent's permission mode
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -357,6 +375,7 @@ paths:
 
   /api/v1/sessions/{id}/name:
     patch:
+      operationId: setName
       tags: [Sessions]
       summary: Rename an agent
       description: A blank name clears it. Rejects an invalid format or a duplicate name.
@@ -376,6 +395,7 @@ paths:
 
   /api/v1/sessions/{id}/approve:
     post:
+      operationId: approveSession
       tags: [Approvals]
       summary: Answer a recognized permission prompt
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -394,6 +414,7 @@ paths:
 
   /api/v1/events:
     post:
+      operationId: ingestEvent
       tags: [Events]
       summary: Ingest a Claude hook event
       description: Sent by warden's hooks; appends an event and applies any status transition.
@@ -409,6 +430,7 @@ paths:
 
   /api/v1/hooks/guard:
     post:
+      operationId: guardHook
       tags: [Events]
       summary: Isolation guard verdict for a file-mutating tool call
       description: Backs the PreToolUse hook — decides whether an agent may Edit/Write a path.
@@ -426,6 +448,7 @@ paths:
 
   /api/v1/events/stream:
     get:
+      operationId: streamEvents
       tags: [Events]
       summary: Live session snapshot stream (SSE)
       description: |
@@ -441,6 +464,7 @@ paths:
 
   /api/v1/pressure:
     get:
+      operationId: getPressure
       tags: [Observability]
       summary: Memory-pressure + spawn-gate status
       responses:
@@ -452,6 +476,7 @@ paths:
 
   /api/v1/metrics:
     get:
+      operationId: getMetrics
       tags: [Observability]
       summary: Live resource snapshot
       responses:
@@ -463,6 +488,7 @@ paths:
 
   /api/v1/metrics/history:
     get:
+      operationId: getMetricsHistory
       tags: [Observability]
       summary: Recorded metrics samples or per-agent summaries
       parameters:
@@ -494,6 +520,7 @@ paths:
 
   /api/v1/worktrees:
     get:
+      operationId: listWorktrees
       tags: [Git]
       summary: List a repo's worktrees
       parameters:
@@ -515,6 +542,7 @@ paths:
 
   /api/v1/prune:
     post:
+      operationId: pruneWorktrees
       tags: [Git]
       summary: Reclaim orphan worktrees
       requestBody:
@@ -536,6 +564,7 @@ paths:
 
   /api/v1/git/commit:
     post:
+      operationId: gitCommit
       tags: [Git]
       summary: Stage + commit a worktree (rail-enforcing)
       requestBody:
@@ -552,6 +581,7 @@ paths:
 
   /api/v1/git/push:
     post:
+      operationId: gitPush
       tags: [Git]
       summary: Push a worktree's branch to origin (protected-branch refusal)
       requestBody:
@@ -568,6 +598,7 @@ paths:
 
   /api/v1/git/sync:
     post:
+      operationId: gitSync
       tags: [Git]
       summary: Rebase a worktree's branch onto origin/base
       requestBody:
@@ -584,6 +615,7 @@ paths:
 
   /api/v1/check:
     post:
+      operationId: runCheck
       tags: [Git]
       summary: Run the project's .warden/check.yml command(s)
       requestBody:
@@ -600,6 +632,7 @@ paths:
 
   /api/v1/fs/dirs:
     get:
+      operationId: listDirs
       tags: [Filesystem]
       summary: List immediate subdirectories
       parameters:
@@ -616,6 +649,7 @@ paths:
 
   /api/v1/approvals:
     get:
+      operationId: listApprovals
       tags: [Approvals]
       summary: Live approval queue
       responses:
@@ -627,6 +661,7 @@ paths:
 
   /api/v1/context:
     get:
+      operationId: listContext
       tags: [Context]
       summary: List shared-context entries
       parameters:
@@ -647,6 +682,7 @@ paths:
 
   /api/v1/context/{key}:
     get:
+      operationId: getContext
       tags: [Context]
       summary: Read a shared-context entry
       parameters: [{ $ref: "#/components/parameters/CtxKey" }]
@@ -658,6 +694,7 @@ paths:
               schema: { $ref: "#/components/schemas/ContextEntry" }
         "404": { $ref: "#/components/responses/NotFound" }
     put:
+      operationId: setContext
       tags: [Context]
       summary: Write a shared-context entry
       parameters: [{ $ref: "#/components/parameters/CtxKey" }]
@@ -677,6 +714,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ContextEntry" }
     delete:
+      operationId: deleteContext
       tags: [Context]
       summary: Delete a shared-context entry
       parameters: [{ $ref: "#/components/parameters/CtxKey" }]
@@ -685,6 +723,7 @@ paths:
 
   /api/v1/context/{key}/cas:
     post:
+      operationId: casContext
       tags: [Context]
       summary: Compare-and-swap a shared-context entry
       parameters: [{ $ref: "#/components/parameters/CtxKey" }]
@@ -712,6 +751,7 @@ paths:
 
   /api/v1/context/{key}/append:
     post:
+      operationId: appendContext
       tags: [Context]
       summary: Atomically append to a shared-context entry
       parameters: [{ $ref: "#/components/parameters/CtxKey" }]
@@ -734,6 +774,7 @@ paths:
 
   /api/v1/sessions/{id}/messages:
     post:
+      operationId: sendMessage
       tags: [Messages]
       summary: Send a directed message to an agent
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
@@ -757,6 +798,7 @@ paths:
                   message: { $ref: "#/components/schemas/Message" }
                   woke: { type: boolean }
     get:
+      operationId: getInbox
       tags: [Messages]
       summary: Read an agent's inbox
       description: Returned messages are marked read.
@@ -780,6 +822,7 @@ paths:
 
   /api/v1/sessions/{id}/messages/wait:
     get:
+      operationId: waitForMessage
       tags: [Messages]
       summary: Long-poll for a message
       description: Blocks (server long-poll) until a message arrives or timeout elapses.
@@ -806,6 +849,7 @@ paths:
 
   /api/v1/messages:
     get:
+      operationId: listRecentMessages
       tags: [Messages]
       summary: Recent message traffic across all inboxes
       description: Read-only global view; never marks anything read.
@@ -827,6 +871,7 @@ paths:
 
   /api/v1/collab/conflicts:
     get:
+      operationId: getConflicts
       tags: [Collaboration]
       summary: Current inter-agent file conflicts
       responses:
@@ -843,6 +888,7 @@ paths:
 
   /api/v1/collab/branches:
     get:
+      operationId: getBranchStatus
       tags: [Collaboration]
       summary: Per-agent CI + branch-vs-main status
       description: >
@@ -863,6 +909,7 @@ paths:
 
   /api/v1/pipelines:
     get:
+      operationId: listPipelines
       tags: [Pipelines]
       summary: List pipelines
       responses:
@@ -877,6 +924,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Pipeline" }
     post:
+      operationId: createPipeline
       tags: [Pipelines]
       summary: Create a pipeline from a YAML spec
       requestBody:
@@ -897,6 +945,7 @@ paths:
 
   /api/v1/pipelines/{pid}:
     get:
+      operationId: getPipeline
       tags: [Pipelines]
       summary: Show one pipeline
       parameters: [{ $ref: "#/components/parameters/PipelineId" }]
@@ -908,6 +957,7 @@ paths:
               schema: { $ref: "#/components/schemas/Pipeline" }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
+      operationId: deletePipeline
       tags: [Pipelines]
       summary: Delete a pipeline
       parameters: [{ $ref: "#/components/parameters/PipelineId" }]
@@ -917,6 +967,7 @@ paths:
 
   /api/v1/pipelines/{pid}/start:
     post:
+      operationId: startPipeline
       tags: [Pipelines]
       summary: Start a pipeline (reconcile + spawn ready jobs)
       parameters: [{ $ref: "#/components/parameters/PipelineId" }]
@@ -926,6 +977,7 @@ paths:
 
   /api/v1/pipelines/{pid}/pause:
     post:
+      operationId: pausePipeline
       tags: [Pipelines]
       summary: Pause a pipeline (halt new spawns)
       parameters: [{ $ref: "#/components/parameters/PipelineId" }]
@@ -935,6 +987,7 @@ paths:
 
   /api/v1/pipelines/{pid}/resume:
     post:
+      operationId: resumePipeline
       tags: [Pipelines]
       summary: Resume a paused pipeline
       parameters: [{ $ref: "#/components/parameters/PipelineId" }]
@@ -944,6 +997,7 @@ paths:
 
   /api/v1/pipelines/{pid}/cancel:
     post:
+      operationId: cancelPipeline
       tags: [Pipelines]
       summary: Cancel a pipeline
       parameters: [{ $ref: "#/components/parameters/PipelineId" }]
@@ -953,6 +1007,7 @@ paths:
 
   /api/v1/pipelines/{pid}/jobs/{job}/emit:
     post:
+      operationId: emitPipelineJob
       tags: [Pipelines]
       summary: Emit a job's output (commit work + fan out downstream)
       parameters:
@@ -972,6 +1027,7 @@ paths:
 
   /api/v1/pipelines/{pid}/jobs/{job}/edit:
     post:
+      operationId: editPipelineJob
       tags: [Pipelines]
       summary: Edit a pending job's prompt and/or handoff
       parameters:
@@ -991,6 +1047,7 @@ paths:
 
   /api/v1/pipelines/{pid}/jobs/{job}/retry:
     post:
+      operationId: retryPipelineJob
       tags: [Pipelines]
       summary: Retry a failed / needs-attention job
       parameters:
@@ -1002,6 +1059,7 @@ paths:
 
   /api/v1/history:
     get:
+      operationId: listHistory
       tags: [Observability]
       summary: Browse the archived (closed) session store
       parameters:
@@ -1026,6 +1084,7 @@ paths:
 
   /api/v1/search:
     get:
+      operationId: search
       tags: [Observability]
       summary: Full-text search across sessions
       parameters:
@@ -1052,6 +1111,7 @@ paths:
 
   /api/v1/import:
     post:
+      operationId: importSessions
       tags: [Import/Export]
       summary: Import session records from an export envelope
       description: Inserts records into the active store (metadata only; worktrees are not recreated).
@@ -1074,6 +1134,7 @@ paths:
 
   /api/v1/snapshots:
     post:
+      operationId: createSnapshot
       tags: [Snapshots]
       summary: Capture a worktree + transcript snapshot
       description: Gated by the `snapshots` config setting; returns 403 when disabled.
@@ -1094,6 +1155,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
     get:
+      operationId: listSnapshots
       tags: [Snapshots]
       summary: List snapshots
       parameters:
@@ -1120,6 +1182,7 @@ paths:
 
   /api/v1/snapshots/{id}/restore:
     post:
+      operationId: restoreSnapshot
       tags: [Snapshots]
       summary: Restore a snapshot onto its recorded worktree
       description: Refuses a dirty tree unless force=true; never restores onto main/master.
@@ -1146,6 +1209,7 @@ paths:
 
   /api/v1/savings:
     get:
+      operationId: getSavings
       tags: [Savings]
       summary: Aggregated token-savings summary
       description: >
@@ -1178,6 +1242,7 @@ paths:
 
   /api/v1/schedules:
     get:
+      operationId: listSchedules
       tags: [Schedules]
       summary: List schedules
       description: Gated by the `scheduler_enabled` config setting; returns 403 when disabled.
@@ -1198,6 +1263,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
     post:
+      operationId: createSchedule
       tags: [Schedules]
       summary: Create a recurring (cron) or single-shot (at) schedule
       description: >
@@ -1224,6 +1290,7 @@ paths:
 
   /api/v1/schedules/{id}:
     delete:
+      operationId: deleteSchedule
       tags: [Schedules]
       summary: Delete a schedule
       description: Gated by the `scheduler_enabled` config setting; returns 403 when disabled.
@@ -1322,6 +1389,10 @@ components:
         saved_dollars: { type: number, format: double }
 
     SavingsSummary:
+      x-go-type: savings.Summary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/savings
+        name: savings
       type: object
       description: Aggregated token savings over the requested window.
       properties:
@@ -1355,6 +1426,10 @@ components:
       enum: [development, analysis, spike, pr-review, code, docs, website, debug-ci, tests, other]
 
     Event:
+      x-go-type: store.Event
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
       type: object
       properties:
         ts: { type: string, format: date-time }
@@ -1362,6 +1437,10 @@ components:
         detail: { type: string }
 
     Session:
+      x-go-type: store.Session
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
       type: object
       properties:
         id: { type: string }
@@ -1425,6 +1504,10 @@ components:
         tags: { type: array, items: { type: string } }
 
     Verdict:
+      x-go-type: pressure.Verdict
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/pressure
+        name: pressure
       type: object
       properties:
         elevated: { type: boolean }
@@ -1505,6 +1588,10 @@ components:
         gate_enabled: { type: boolean }
 
     MetricsSample:
+      x-go-type: metrics.Sample
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/metrics
+        name: metrics
       type: object
       description: A resource snapshot (system + per-agent + daemon stats).
       properties:
@@ -1521,6 +1608,10 @@ components:
           items: { $ref: "#/components/schemas/MetricsSample" }
 
     AgentSummaryResponse:
+      x-go-type: metrics.AgentSummary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/metrics
+        name: metrics
       type: object
       properties:
         summaries:
@@ -1543,6 +1634,10 @@ components:
           items: { $ref: "#/components/schemas/DirEntry" }
 
     ApprovalView:
+      x-go-type: approval.View
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/approval
+        name: approval
       type: object
       properties:
         id: { type: string }
@@ -1561,6 +1656,10 @@ components:
           items: { $ref: "#/components/schemas/ApprovalView" }
 
     ContextEntry:
+      x-go-type: ctxstore.Entry
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ctxstore
+        name: ctxstore
       type: object
       properties:
         key: { type: string }
@@ -1569,6 +1668,10 @@ components:
         updated_at: { type: string, format: date-time }
 
     Message:
+      x-go-type: mailbox.Message
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/mailbox
+        name: mailbox
       type: object
       properties:
         id: { type: string }
@@ -1585,6 +1688,10 @@ components:
         name: { type: string }
 
     Conflict:
+      x-go-type: collab.Conflict
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/collab
+        name: collab
       type: object
       properties:
         file: { type: string }
@@ -1600,6 +1707,10 @@ components:
         url: { type: string }
 
     BranchStatus:
+      x-go-type: branchtrack.BranchStatus
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/branchtrack
+        name: branchtrack
       type: object
       properties:
         agent_id: { type: string }
@@ -1628,6 +1739,10 @@ components:
         digest: { $ref: "#/components/schemas/Digest" }
 
     Pipeline:
+      x-go-type: pipeline.Pipeline
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/pipeline
+        name: pipeline
       type: object
       properties:
         id: { type: string }
@@ -1666,6 +1781,10 @@ components:
             name: { type: string, description: "configured check entry ('' = all)" }
 
     CommitResult:
+      x-go-type: lifecycle.CommitResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
       type: object
       properties:
         committed: { type: boolean }
@@ -1676,6 +1795,10 @@ components:
         hook_output: { type: string }
 
     PushResult:
+      x-go-type: lifecycle.PushResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
       type: object
       properties:
         branch: { type: string }
@@ -1684,6 +1807,10 @@ components:
         output: { type: string }
 
     SyncResult:
+      x-go-type: lifecycle.SyncResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
       type: object
       properties:
         branch: { type: string }
@@ -1702,6 +1829,10 @@ components:
         output: { type: string }
 
     CheckResult:
+      x-go-type: lifecycle.CheckResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
       type: object
       properties:
         passed: { type: boolean }
@@ -1710,6 +1841,10 @@ components:
           items: { $ref: "#/components/schemas/CheckOutcome" }
 
     PRResult:
+      x-go-type: lifecycle.PRResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
       type: object
       properties:
         branch: { type: string }
@@ -1757,6 +1892,10 @@ components:
         removed: { type: integer }
 
     Digest:
+      x-go-type: digest.Digest
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/digest
+        name: digest
       type: object
       properties:
         summary: { type: string }
@@ -1767,6 +1906,10 @@ components:
         task: { type: string }
 
     Export:
+      x-go-type: store.Export
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
       type: object
       properties:
         version: { type: integer }
@@ -1776,6 +1919,10 @@ components:
           items: { $ref: "#/components/schemas/Session" }
 
     ImportResult:
+      x-go-type: store.ImportResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
       type: object
       properties:
         imported: { type: array, items: { type: string } }
@@ -1791,6 +1938,10 @@ components:
         message: { type: string }
 
     Snapshot:
+      x-go-type: snapshot.Snapshot
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/snapshot
+        name: snapshot
       type: object
       properties:
         id: { type: string }
@@ -1835,6 +1986,10 @@ components:
         spec: { type: string, description: "pipeline YAML; non-empty selects pipeline mode" }
 
     Schedule:
+      x-go-type: schedule.Schedule
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/schedule
+        name: schedule
       type: object
       properties:
         id: { type: string }
