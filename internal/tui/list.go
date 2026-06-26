@@ -167,6 +167,7 @@ type item struct {
 	collapsed bool               // pipeline header row: jobs hidden (▸ vs ▾)
 	pjPipe    string             // pipelineJob row: owning pipeline id
 	pjJob     *pipeline.Job      // pipelineJob row: the job
+	pjSess    *store.Session     // pipelineJob row: linked live session (nil if none/terminal)
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't
@@ -247,9 +248,15 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 }
 
 // pipelineItems flattens pipelines into a header row per pipeline followed by an
-// indented row per job. Each job row holds a distinct *Job pointer. A pipeline
-// whose id is marked in `collapsed` emits only its header row (jobs hidden).
-func pipelineItems(ps []*pipeline.Pipeline, collapsed map[string]bool) []item {
+// indented row per job. Each job row holds a distinct *Job pointer plus, when the
+// job has spawned an agent, the matching live session (for the state badge, token
+// gauge, and worktree). A pipeline whose id is marked in `collapsed` emits only its
+// header row (jobs hidden).
+func pipelineItems(ps []*pipeline.Pipeline, sessions []*store.Session, collapsed map[string]bool) []item {
+	byID := make(map[string]*store.Session, len(sessions))
+	for _, s := range sessions {
+		byID[s.ID] = s
+	}
 	var out []item
 	for _, p := range ps {
 		c := collapsed[p.ID]
@@ -259,7 +266,7 @@ func pipelineItems(ps []*pipeline.Pipeline, collapsed map[string]bool) []item {
 		}
 		for i := range p.Jobs {
 			j := p.Jobs[i] // fresh var each iteration → distinct pointer
-			out = append(out, item{pjPipe: p.ID, pjJob: &j})
+			out = append(out, item{pjPipe: p.ID, pjJob: &j, pjSess: byID[j.SessionID]})
 		}
 	}
 	return out
@@ -509,7 +516,26 @@ func renderItemLine(it item, selected bool, width int) string {
 		}
 		glyph, st := jobBadge(it.pjJob.Status)
 		statusWord := fmt.Sprintf("%-13s", string(it.pjJob.Status))
-		line = fmt.Sprintf("    %s %-12s %s", st.Render(glyph), trunc(it.pjJob.ID, 12), st.Render(statusWord)) + deps
+		// When the job has a live session, surface the agent's execution badge and
+		// context-token gauge — a "running" job whose agent "needs-input" matters.
+		agentCol, ctxCol := fmt.Sprintf("%-11s", ""), fmt.Sprintf("%-6s", "")
+		if s := it.pjSess; s != nil {
+			label, ast := badge(s.Status, s.ExitCode)
+			agentCol = ast.Render(fmt.Sprintf("%-11s", label))
+			if cl, cst := contextLabel(s.ContextTokens, s.ContextState); cl != "" {
+				ctxCol = cst.Render(fmt.Sprintf("%-6s", cl))
+			}
+		}
+		// Branch/worktree: prefer the job's branch, else the session's worktree name.
+		branchInfo := it.pjJob.Branch
+		if branchInfo == "" && it.pjSess != nil && it.pjSess.Worktree != "" {
+			branchInfo = filepath.Base(it.pjSess.Worktree)
+		}
+		if branchInfo != "" {
+			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
+		}
+		line = fmt.Sprintf("    %s %-12s %s %s %s%s",
+			st.Render(glyph), trunc(it.pjJob.ID, 12), st.Render(statusWord), agentCol, ctxCol, branchInfo) + deps
 	case it.session == nil:
 		line = stMuted.Render("(no agents — n to spawn here)")
 	default:
