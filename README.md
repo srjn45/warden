@@ -28,7 +28,7 @@ alias agents=warden
 Capability highlights from the **v5.x** line (full notes on the [releases page](https://github.com/srjn45/warden/releases); the complete catalog lives in [docs/FEATURES.md](docs/FEATURES.md)):
 
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
-- **Orchestrator (`warden orch`)** — a local-LLM conductor REPL that turns operator intent into confirmed warden tool calls without spending Claude tokens; optionally hosts the cockpit master pane.
+- **Interactive mode (`warden orch`)** — a terminal REPL with a real line editor (history, Tab completion, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending Claude tokens); optionally hosts the cockpit master pane.
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
 - **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s, and web batch operations.
 - **Observability** — per-agent metrics & performance history (`warden stats`), crash/anomaly detection, the context-size guard, and webhook/Slack notifications.
@@ -360,7 +360,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `collab_enabled` / `collab_interval` / `collab_hint` | `true` / … / `true` | File-conflict detection across worktrees, scan interval, and the spawn-time coordination hint |
 | `isolation_guard` / `git_redirect` / `check_redirect` / `git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
 | `log_level` / `log_format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
-| `local_llm` (+ `local_llm_url`/`_model`/`_timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Required by `warden orch` |
+| `local_llm` (+ `local_llm_url`/`_model`/`_timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden orch` (its `/` commands work without it) |
 | `orchestrator` | `false` | Start the cockpit master pane in `warden orch` mode instead of a plain shell |
 
 `warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree_keep_done` / `worktree_auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the orchestrator tier knobs (`local_llm_tier` / `local_llm_escalate`).
@@ -948,12 +948,17 @@ warden token rotate                   # regenerate in place + restart the daemon
 
 The `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk.
 
-### `warden orch`
+### `warden orch` — interactive mode
 
-A warden-aware, **local-LLM** conductor REPL that turns natural-language operator intent into **confirmed** warden tool calls (spawn/monitor/teardown, pipelines, git/check lifecycle) without spending Claude tokens. It conducts; it never implements — all code work is delegated by spawning a Claude agent. Requires `local_llm: true`; every mutating action passes a mandatory confirm gate. Run standalone, or as the cockpit master pane via the `orchestrator` config / `--orch` flag (Alt+t toggles it with a raw shell). See [docs/FEATURES.md §17](docs/FEATURES.md).
+warden's **interactive mode**: a proper terminal REPL to drive the fleet, with a real line editor (arrow keys, persisted history, reverse-search, **Tab completion**, colourised prompt) that closes cleanly with Ctrl-D. It drives the fleet two ways:
+
+- **Deterministic `/` commands (no model)** — `/agents`, `/spawn <prompt>`, `/tell <id> <text>`, `/pipelines`, … (`/help` lists them). These keep working even when the local model is slow or wrong.
+- **Natural language (local LLM)** — any other line is planned into **confirmed** warden tool calls without spending Claude tokens. It conducts; it never implements — all code work is delegated by spawning a Claude agent.
+
+It **starts without a local model** (the `/` commands and `!`-shell always work); only the natural-language half needs `local_llm: true`. Every mutating action passes a mandatory confirm gate. Run standalone, or as the cockpit master pane via the `orchestrator` config / `--orch` flag (Alt+t toggles it with a raw shell). See [docs/FEATURES.md §17](docs/FEATURES.md).
 
 ```sh
-warden orch                           # alias: warden orchestrator
+warden orch                           # aliases: warden interactive, warden i, warden orchestrator
 ```
 
 ### `warden plugin`

@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"errors"
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -16,13 +16,32 @@ import (
 func newOrchCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "orch",
-		Aliases: []string{"orchestrator"},
-		Short:   "Natural-language conductor for agents, pipelines, and the git/check lifecycle (local LLM).",
-		Args:    cobra.NoArgs,
+		Aliases: []string{"orchestrator", "interactive", "i"},
+		Short:   "Interactive conductor for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).",
+		Long: `Interactive mode: a full-screen-free REPL to drive your warden fleet from the terminal.
+
+It is a real line editor — arrow keys, history (persisted across sessions),
+reverse-search, and Tab completion — that closes cleanly with Ctrl-D, returning
+you to your shell prompt.
+
+Two ways to drive it:
+  • Deterministic ` + "`/` commands" + ` (no model): /agents, /spawn <prompt>, /tell <id> <text>,
+    /pipelines, … — Tab-complete the verb and live agent ids. Type /help for the list.
+  • Natural language: any other line is planned by the local LLM into warden tool
+    calls, each confirmed before it runs.
+
+` + "`!cmd`" + ` runs a command in your own $SHELL. Requires local_llm: true for the
+natural-language half; the ` + "`/` commands" + ` work regardless.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := config.Load(configPathFor(cmd))
+			out := cmd.OutOrStdout()
+			// The deterministic `/` commands and `!shell` are the always-available
+			// half, so interactive mode no longer hard-requires a local model — it
+			// starts either way. Only the natural-language half needs local_llm; we
+			// say so up front when it's off, then let surface() handle any bare line.
 			if !cfg.GetLocalLLM() {
-				return errors.New("orchestrator requires local_llm: true (it is an interactive surface with no deterministic fallback) — set it with `wd config set local_llm true`")
+				fmt.Fprintln(out, "natural-language mode is off (local_llm: true not set in `wd config path`) — /commands and !shell still work; type /help.")
 			}
 			cl := clientFor(cmd)
 			chat := llm.NewOllama(cfg.LocalLLMURL, cfg.LocalLLMModel, cfg.LocalLLMTimeoutDuration())
@@ -35,7 +54,6 @@ func newOrchCmd() *cobra.Command {
 			// pass through to a persistent $SHELL started in the launch dir, teeing
 			// output to the same terminal. A shell that won't start (no PTY) is not
 			// fatal — `!` simply reports it's unavailable.
-			out := cmd.OutOrStdout()
 			cwd, _ := os.Getwd()
 			var sh orchestrator.ShellRunner
 			if s, err := orchestrator.NewShell(cwd, out); err == nil {
