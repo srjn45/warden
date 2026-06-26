@@ -221,7 +221,19 @@ kbd {
 .agent-tab { display: flex; flex-direction: column; gap: .8rem; height: 100%; }
 .agent-tab-head { display: flex; flex-direction: column; gap: .4rem; }
 .agent-tab-head h2 { margin: 0; font-size: 1.1rem; }
-.xterm-host { height: 420px; background: var(--term-bg); border-radius: .4rem; padding: .4rem; }
+.xterm-wrap { display: flex; flex-direction: column; gap: .35rem; }
+/* pan-y lets us claim vertical swipes for scrollback (handled in JS) while the
+   browser keeps pinch-zoom; without it the page would scroll instead. */
+.xterm-host { height: 420px; background: var(--term-bg); border-radius: .4rem; padding: .4rem; touch-action: pan-y; }
+/* On-screen keys for sequences a phone keyboard can't send (Esc/Tab/Ctrl-C/…). */
+.term-keybar { display: flex; flex-wrap: wrap; gap: .3rem; }
+.term-keybar button {
+  background: var(--panel); border: 1px solid var(--panel-line); color: inherit;
+  border-radius: .35rem; padding: .3rem .6rem; font: inherit; font-size: .8rem;
+  cursor: pointer; min-width: 2.4rem; min-height: 2.1rem;
+}
+.term-keybar button:active { background: var(--accent); color: #fff; }
+.term-keybar-bottom { margin-left: auto; }
 .details-toggle { align-self: flex-start; background: none; border: none; color: var(--idle); cursor: pointer; font: inherit; }
 .agent-tab-actions { display: flex; gap: 1rem; }
 .agent-details { display: flex; flex-direction: column; gap: .5rem; }
