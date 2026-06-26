@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
@@ -387,38 +388,25 @@ func (s *Server) router() http.Handler {
 
 	// The data/action API lives under /api/v1 so its paths never collide with the
 	// SPA's client-side routes (/metrics, /pipelines, … are real browser URLs the
-	// static catch-all must be free to serve). The version segment lets a future
-	// breaking change land under /api/v2 without disturbing existing clients.
-	r.Route("/api/v1", func(ar chi.Router) {
+	// static catch-all must be free to serve). Every documented JSON operation is
+	// served by the spec-generated strict chi server (oapi-codegen); *Server
+	// implements oapi.StrictServerInterface in the strict_*.go files. The two
+	// streaming routes (SSE event feed + WS attach) don't fit the strict
+	// request/response model, so they are excluded from generation (see
+	// oapi/config.yaml) and registered by hand alongside it.
+	r.Group(func(ar chi.Router) {
 		ar.Use(s.authMiddleware) // bearer-token gate for the API, SSE, and WS
-		ar.Get("/sessions", s.handleListSessions)
-		ar.Get("/sessions/{id}", s.handleGetSession)
-		ar.Post("/events", s.handleEvent)
-		ar.Post("/hooks/guard", s.handleGuard)
-		ar.Get("/events/stream", s.handleEventsStream)
-		// Lifecycle routes: POST /spawn, /sessions/{id}/{terminate,delete,
-		// remove-worktree,input,restore}, GET /sessions/{id}/{output,attach}.
-		s.registerLifecycleRoutes(ar)
-		ar.Get("/fs/dirs", s.handleListDirs)
-		ar.Get("/approvals", s.handleApprovals)
-		ar.Post("/sessions/{id}/approve", s.handleApprove)
-		ar.Patch("/sessions/{id}/auto-approve", s.handleSetAutoApprove)
-		ar.Patch("/sessions/{id}/permission-mode", s.handleSetPermissionMode)
-		ar.Patch("/sessions/{id}/name", s.handleSetName)
-		ar.Get("/sessions/{id}/digest", s.handleDigest)
-		ar.Get("/metrics", s.handleMetrics)
-		ar.Get("/metrics/history", s.handleMetricsHistory)
-		s.registerContextRoutes(ar)
-		s.registerMessageRoutes(ar)
-		s.registerCollabRoutes(ar)
-		s.registerBranchRoutes(ar)
-		s.registerPipelineRoutes(ar)
-		s.registerScheduleRoutes(ar)
-		s.registerHistoryRoutes(ar)
-		s.registerSearchRoutes(ar)
-		s.registerImportRoutes(ar)
-		s.registerSnapshotRoutes(ar)
-		s.registerSavingsRoutes(ar)
+		ar.Use(stashRequest)     // expose *http.Request to strict handlers (audit IP)
+		ar.Get("/api/v1/events/stream", s.handleEventsStream)
+		ar.Get("/api/v1/sessions/{id}/attach", s.handleAttach)
+		strict := oapi.NewStrictHandlerWithOptions(s, nil, oapi.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc:  strictRequestError,
+			ResponseErrorHandlerFunc: strictResponseError,
+		})
+		oapi.HandlerWithOptions(strict, oapi.ChiServerOptions{
+			BaseRouter:       ar,
+			ErrorHandlerFunc: strictParamError,
+		})
 	})
 
 	s.registerAPIDocsRoutes(r) // public OpenAPI docs; explicit /api/docs* routes
