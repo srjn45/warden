@@ -28,7 +28,7 @@ func TestSessionEscalatePlanRunsThroughGate(t *testing.T) {
 
 	// A multi-clause request the heuristic scores above T0 so it escalates.
 	out := s.Handle(context.Background(), "spawn one, and then a pipeline, and review")
-	require.Equal(t, "done — see the results above", out)
+	require.Contains(t, out, "spawn_agent: spawned new-agent", "runPlan surfaces the real dispatch result")
 	require.Equal(t, 1, fd.spawnCalls, "the drafted mutation ran after gate approval")
 	require.Equal(t, 0, chat.calls, "the local chat model is bypassed when escalating")
 	require.Equal(t, 1, gate.confirmCalls)

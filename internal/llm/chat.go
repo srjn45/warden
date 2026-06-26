@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Role identifies who produced a chat Message.
@@ -82,6 +83,79 @@ func decodeArgs(raw json.RawMessage) (map[string]any, error) {
 	}
 	return nil, fmt.Errorf("decode tool arguments: not a JSON object or stringified object: %s", trimmed)
 }
+
+// inlineCall is the JSON shape small models emit when they put a tool call in
+// the assistant *content* instead of the structured tool_calls field. Different
+// models name the arguments key differently, so we accept both spellings.
+type inlineCall struct {
+	Name       string          `json:"name"`
+	Arguments  json.RawMessage `json:"arguments"`
+	Parameters json.RawMessage `json:"parameters"`
+}
+
+// SalvageToolCalls recovers tool calls a small model emitted as plain content —
+// a JSON object (or array of them) shaped like {"name":...,"arguments":{...}} —
+// instead of in the structured tool_calls field. This is a common qwen/Ollama
+// failure mode that otherwise surfaces to the operator as raw JSON and runs
+// nothing. It returns the recovered calls and the residual prose (the content
+// with the salvaged JSON removed).
+//
+// It is deliberately conservative: it fires only when the *entire* trimmed
+// content — after stripping ```json fences and <tool_call> tags — parses as a
+// tool-call-shaped object/array with a non-empty name, so ordinary prose (or
+// prose that merely mentions JSON) is never misread as a call.
+func SalvageToolCalls(content string) (calls []ToolCall, residual string) {
+	t := stripToolCallWrappers(content)
+	if t == "" {
+		return nil, content
+	}
+	var list []inlineCall
+	if err := json.Unmarshal([]byte(t), &list); err != nil {
+		var one inlineCall
+		if err := json.Unmarshal([]byte(t), &one); err != nil {
+			return nil, content
+		}
+		list = []inlineCall{one}
+	}
+	for _, ic := range list {
+		if len(trimSpaceStr(ic.Name)) == 0 {
+			return nil, content // not actually a tool call — leave content untouched
+		}
+		raw := ic.Arguments
+		if len(raw) == 0 {
+			raw = ic.Parameters
+		}
+		args, err := decodeArgs(raw)
+		if err != nil {
+			return nil, content
+		}
+		calls = append(calls, ToolCall{Name: ic.Name, Args: args})
+	}
+	if len(calls) == 0 {
+		return nil, content
+	}
+	return calls, "" // the whole content WAS the call(s)
+}
+
+// stripToolCallWrappers removes the ```json … ``` fences and <tool_call> … tags
+// small models wrap a content-embedded tool call in, returning the trimmed inner
+// text. Applied fence-then-tag so either nesting order is unwrapped.
+func stripToolCallWrappers(s string) string {
+	t := trimSpaceStr(s)
+	if rest, ok := strings.CutPrefix(t, "```"); ok {
+		rest = strings.TrimPrefix(rest, "json")
+		rest = strings.TrimPrefix(rest, "JSON")
+		if i := strings.LastIndex(rest, "```"); i >= 0 {
+			rest = rest[:i]
+		}
+		t = trimSpaceStr(rest)
+	}
+	t = trimSpaceStr(strings.TrimSuffix(strings.TrimPrefix(t, "<tool_call>"), "</tool_call>"))
+	return t
+}
+
+// trimSpaceStr trims leading/trailing whitespace from a string.
+func trimSpaceStr(s string) string { return strings.TrimSpace(s) }
 
 // trimSpace trims leading/trailing ASCII whitespace from a RawMessage without a
 // string copy (json.RawMessage is a []byte).
