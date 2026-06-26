@@ -1223,6 +1223,14 @@ paths:
           in: query
           description: Only count savings since this window (a Go duration like `168h`, or an RFC3339 timestamp). Absent ⇒ all time.
           schema: { type: string }
+        - name: bucket
+          in: query
+          description: "Attach a zero-filled saved-tokens trend at this granularity: hour or day (an unknown value yields no trend)."
+          schema: { type: string }
+        - name: samples
+          in: query
+          description: Attach the retained provenance pairs (raw vs. kept samples).
+          schema: { type: boolean }
       responses:
         "200":
           description: The savings summary
@@ -1581,6 +1589,7 @@ components:
 
     PressureStatus:
       type: object
+      required: [level, level_name, agent_count, max_agents, elevated, gate_enabled]
       properties:
         level: { type: integer }
         level_name: { type: string }
