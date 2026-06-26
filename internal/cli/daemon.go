@@ -182,6 +182,16 @@ func newDaemonCmd() *cobra.Command {
 			if cfg.WebhookEnabled && cfg.WebhookURL != "" {
 				notifier = notify.Multi(notifier, notify.NewWebhook(cfg.WebhookURL))
 			}
+			// Branch tracker (#44): opt-in. When enabled it fans CI failures out
+			// through the same operator notifier seam (desktop + webhook) and
+			// scans on the configured interval; left disabled its Run returns
+			// immediately (interval 0).
+			if cfg.BranchTrackEnabled {
+				srv.SetBranchTrackNotifier(notifier)
+				srv.SetBranchTrackInterval(cfg.BranchTrackIntervalDuration())
+			} else {
+				srv.SetBranchTrackInterval(0)
+			}
 			notifyHook := daemon.NotifyOnTransition(notifier)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestartMax, cfg.AutoRestartResetDuration())
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimitAutoResume, cfg.RateLimitResumePrompt)

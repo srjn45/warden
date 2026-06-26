@@ -57,6 +57,8 @@ type Config struct {
 	CollabEnabled          bool          `yaml:"collab_enabled"`
 	CollabInterval         string        `yaml:"collab_interval"`
 	CollabHint             bool          `yaml:"collab_hint"`
+	BranchTrackEnabled     bool          `yaml:"branch_track_enabled"`
+	BranchTrackInterval    string        `yaml:"branch_track_interval"`
 	IsolationGuard         bool          `yaml:"isolation_guard"`
 	GitConventions         bool          `yaml:"git_conventions"`
 	GitRedirect            bool          `yaml:"git_redirect"`
@@ -128,6 +130,8 @@ var schema = []setting{
 	{"collab_enabled", "Warn agents when another agent is editing the same file. Values: true | false"},
 	{"collab_interval", "File-conflict scan interval. Values: Go duration (e.g. 10s, 30s)"},
 	{"collab_hint", "Append the conflict-check hint to spawned agents so they coordinate on shared files. Values: true | false"},
+	{"branch_track_enabled", "Monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts. Values: true | false"},
+	{"branch_track_interval", "Branch-tracker scan interval. Values: Go duration (e.g. 2m, 5m)"},
 	{"isolation_guard", "Install the PreToolUse hook that blocks an isolated agent from editing files outside its worktree (into the shared repo). Values: true | false"},
 	{"git_conventions", "Append the git-conventions hint steering agents toward wd commit/push/sync over raw git Bash. Values: true | false"},
 	{"git_redirect", "Install the PreToolUse hook that denies raw git commit/push/pull/rebase in Bash and redirects to the warden tools (reads stay allowed). Values: true | false"},
@@ -193,6 +197,8 @@ func defaults() Config {
 		CollabEnabled:          true,
 		CollabInterval:         "10s",
 		CollabHint:             true,
+		BranchTrackEnabled:     false,
+		BranchTrackInterval:    "2m",
 		IsolationGuard:         true,
 		GitConventions:         true,
 		GitRedirect:            true,
@@ -295,6 +301,7 @@ func validate(c *Config) {
 	c.LogFormat = validLogFormat(c.LogFormat, d.LogFormat)
 	c.AutoRestartReset = validDuration(c.AutoRestartReset, d.AutoRestartReset)
 	c.CollabInterval = validDuration(c.CollabInterval, d.CollabInterval)
+	c.BranchTrackInterval = validDuration(c.BranchTrackInterval, d.BranchTrackInterval)
 	c.RateLimitRetryInterval = validDuration(c.RateLimitRetryInterval, d.RateLimitRetryInterval)
 	c.RateLimitBuffer = validDuration(c.RateLimitBuffer, d.RateLimitBuffer)
 	if strings.TrimSpace(c.LocalLLMURL) == "" {
@@ -744,6 +751,11 @@ func (c Config) RateLimitRetryIntervalDuration() time.Duration {
 // CollabIntervalDuration returns the file-conflict scan interval.
 func (c Config) CollabIntervalDuration() time.Duration {
 	return durOr(c.CollabInterval, 10*time.Second)
+}
+
+// BranchTrackIntervalDuration returns the branch-tracker scan interval.
+func (c Config) BranchTrackIntervalDuration() time.Duration {
+	return durOr(c.BranchTrackInterval, 2*time.Minute)
 }
 
 // RateLimitBufferDuration returns the buffer added to a parsed rate-limit reset.

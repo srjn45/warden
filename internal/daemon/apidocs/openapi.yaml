@@ -837,6 +837,26 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Conflict" }
 
+  /collab/branches:
+    get:
+      tags: [Collaboration]
+      summary: Per-agent CI + branch-vs-main status
+      description: >
+        Read-only snapshot, recomputed per request, of each tracked agent's
+        branch: latest GitHub CI run and how it sits against origin/main
+        (behind/ahead/merged). A disabled tracker returns an empty list.
+      responses:
+        "200":
+          description: Branch status for every tracked agent with a branch
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  branches:
+                    type: array
+                    items: { $ref: "#/components/schemas/BranchStatus" }
+
   /pipelines:
     get:
       tags: [Pipelines]
@@ -1439,6 +1459,24 @@ components:
         agents:
           type: array
           items: { $ref: "#/components/schemas/ConflictAgent" }
+
+    CIStatus:
+      type: object
+      properties:
+        state: { type: string, enum: [success, failure, pending, none] }
+        workflow: { type: string }
+        url: { type: string }
+
+    BranchStatus:
+      type: object
+      properties:
+        agent_id: { type: string }
+        name: { type: string }
+        branch: { type: string }
+        ci: { $ref: "#/components/schemas/CIStatus" }
+        behind: { type: integer, description: "commits in origin/main not in HEAD" }
+        ahead: { type: integer, description: "commits in HEAD not in origin/main" }
+        merged: { type: boolean }
 
     PipelineJob:
       type: object

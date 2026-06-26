@@ -504,6 +504,18 @@ func NewServer(daemonBase string) *Server {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "get_branch_status",
+		Description: "Per-agent CI + branch-vs-main status: each tracked agent's latest GitHub CI run and how its branch sits against origin/main (behind/ahead/merged). Read-only. Empty if the branch tracker is disabled.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		statuses, err := s.cl.BranchStatuses(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		res, err := jsonResult(statuses)
+		return res, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "who_is_editing_file",
 		Description: "Show which agents are currently editing a specific file. Returns the agents sharing that file, or a note that no other agent is.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a whoIsEditingArgs) (*mcpsdk.CallToolResult, any, error) {

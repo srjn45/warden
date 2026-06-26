@@ -242,9 +242,28 @@ exhausted, so the poll loop remains the safety net. Tested under `-race` with a
 fake `fsWatch` backend (reconcile/budget/debounce bookkeeping) plus one real-
 fsnotify end-to-end test.
 
-**Still remaining** (unchanged from "Deferred" below): OverlapDetector (work
-dedup), BranchTracker / GitHub CI monitoring, collaboration groups, SSE replay
-and the multi-cache/circuit-breaker layer.
+**Update (2026-06-26): BranchTracker shipped (#44).** A daemon-side monitor
+(`internal/branchtrack`) reports, per active agent with a branch, its GitHub CI
+status (`gh run list` inside the worktree → success/failure/pending/none) and its
+standing vs `origin/main` (commits behind/ahead + merged), deduping gh/git work
+by branch. Alerts are **informational, never blocking**: a newly-observed CI
+failure delivers an inbox note **and** a desktop notification (desktop reserved
+for CI failures); a merged branch or one >10 commits behind delivers an inbox
+nudge. A 5-minute dedup window keyed on `(branch, signal-state)` re-alerts on a
+state change (pending→failure) but suppresses steady-state repeats. Every
+subprocess **fails open** (missing/unauthenticated `gh`, timeout, non-repo
+worktree → skip that branch this tick). Read-only surfaces: `Statuses(ctx)`,
+`GET /collab/branches`, client `BranchStatuses`, `warden branches` (`--json`),
+the `get_branch_status` MCP tool. Opt-in: `branch_track_enabled` (default false),
+`branch_track_interval` (default `2m`). Structurally mirrors `collab.Monitor`; no
+optimization layer (warden runs ≤10 agents).
+
+**Still remaining:** nothing from this spec is planned. The remaining "advanced
+collaboration" ideas — OverlapDetector, collaboration groups, SSE replay + the
+multi-cache/circuit-breaker layer — were **audited and dropped** (see Appendix A
+and the Deferred section): the first has no live signal and overlaps the shipped
+conflict detector, the second is redundant with the pipeline subsystem, and the
+third optimizes for a scale warden doesn't carry.
 
 ---
 
@@ -252,12 +271,16 @@ and the multi-cache/circuit-breaker layer.
 
 ```yaml
 # warden config (internal/config) — as shipped
-collab_enabled: true   # master switch for the file-conflict monitor
-collab_interval: 10s   # file-conflict poll interval; 0 disables
-collab_hint: true      # append the conflict-check nudge to spawned agents
+collab_enabled: true        # master switch for the file-conflict monitor
+collab_interval: 10s        # file-conflict poll interval; 0 disables
+collab_hint: true           # append the conflict-check nudge to spawned agents
+branch_track_enabled: false # opt-in CI + branch-vs-main monitor (#44)
+branch_track_interval: 2m   # branch-tracker scan interval
 ```
 
-No `GITHUB_TOKEN`, no FSNotify tunables — those belong to deferred phases.
+No `GITHUB_TOKEN`: BranchTracker shells out to the operator's already-authenticated
+`gh`/`git` inside each worktree and fails open if either is unavailable. No
+FSNotify tunables — those belong to deferred phases.
 
 ---
 
@@ -282,15 +305,27 @@ Appendix A for the full original design and the data to collect first):
   `internal/collab/watcher.go`. The "future FSNotify phase must either build a
   termination event bus or reconcile watchers against the active-session set on
   each tick" caveat from Appendix A.1 was resolved with the per-tick reconcile.
-- **OverlapDetector** (work deduplication). Note: its plan-file signal matched
-  files by agent/session id, but real specs are named `YYYY-MM-DD-feature.md`
-  and contain no agent id — that signal is dead under current conventions and
-  must be redesigned before the detector is worth building.
-- **BranchTracker / GitHub CI monitoring** — orthogonal to conflict detection;
-  partly duplicated by `gh pr checks` and GitHub's own CI emails.
-- **SSE event replay, collaboration groups, parallel startup recovery,
-  multi-cache layers, circuit breakers** — all optimizations for a scale not
-  yet demonstrated.
+- ~~**BranchTracker / GitHub CI monitoring**.~~ **Shipped 2026-06-26 (#44)** —
+  see the Implementation status update above and `internal/branchtrack`. Built as
+  the lean version of the A.1 design: the per-branch dedup and merge/behind
+  detection were kept; the ETag conditional requests, circuit breaker, and
+  exponential backoff were **cut** (warden runs ≤10 agents on a 2m tick — there is
+  no rate pressure to manage, and fail-open subprocesses are simpler than a
+  breaker). The "orthogonal to conflict detection; partly duplicated by
+  `gh pr checks`" caveat held, but bringing CI status into the agent's inbox + the
+  operator's desktop (where warden's other alerts already land) earned its ~350 LOC.
+- **OverlapDetector** (work deduplication) — **dropped, not deferred.** Its only
+  signal was an agent's plan file matched by agent/session id, but real specs are
+  named `YYYY-MM-DD-feature.md` and carry no agent id — the signal is dead under
+  current conventions. The idea also overlaps the shipped file-conflict detector.
+  Resurrecting it would mean inventing a fresh signal from scratch; not worth it at
+  current scale.
+- **Collaboration groups** — **dropped, not deferred.** Redundant with the pipeline
+  subsystem, which already expresses grouped work through dependencies, handoffs,
+  and shared context.
+- **SSE event replay, parallel startup recovery, multi-cache layers, circuit
+  breakers** — **dropped, not deferred.** All optimizations for a scale (100+
+  agents) warden doesn't carry; straight serial recomputation is correct here.
 
 Each deferred item should also be reconciled with systems that shipped after
 the original design: **bearer-token remote auth**, **worktree GC**
@@ -398,3 +433,15 @@ dynamic directory pickup, and an inotify watch budget, all degrading to the
 existing poll loop. Updated Implementation status and Appendix A's deferred
 list. Remaining deferred work unchanged (OverlapDetector, BranchTracker,
 groups, SSE replay / multi-cache).
+**2026-06-26 (rev 11):** **BranchTracker** shipped (`internal/branchtrack`, #44) —
+opt-in daemon monitor of per-agent GitHub CI status + branch-vs-`origin/main`
+standing, delivering informational inbox/desktop alerts with a 5m dedup window,
+every subprocess failing open. Built lean (per-branch dedup + merge/behind kept;
+ETag/circuit-breaker/backoff cut). Surfaces: `GET /collab/branches`, client
+`BranchStatuses`, `warden branches`, `get_branch_status` MCP tool; keys
+`branch_track_enabled` (default false) / `branch_track_interval` (default `2m`).
+This was the **last** piece of the advanced bucket judged worth building: an audit
+**dropped** OverlapDetector (dead plan-file signal, overlaps the conflict
+detector), collaboration groups (redundant with pipelines), and SSE replay +
+multi-cache (optimizing a scale warden doesn't carry). Nothing from this spec
+remains planned.
