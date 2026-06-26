@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/savings"
 )
 
@@ -33,6 +35,7 @@ func formatSavings(sum *savings.Summary, sinceStr string) string {
 	}
 	contextEvents := sum.Events - sum.OffloadedEvents
 	fmt.Fprintf(&b, "token savings (%s) — input $%.0f/M, output $%.0f/M (Opus)\n", window, savings.PricePerMTok, savings.OutputPricePerMTok)
+	fmt.Fprintf(&b, "%s\n", basisLine(sum))
 	if contextEvents > 0 {
 		fmt.Fprintf(&b, "  agent context kept %.1f%% leaner · $%.2f saved · %d events\n",
 			sum.ContextReductionPct, sum.ContextSavedDollars, contextEvents)
@@ -69,7 +72,8 @@ func formatBenchmark(sum *savings.Summary, sinceStr string) string {
 		fmt.Fprintf(&b, "warden records a saving each time a lifecycle feature keeps tokens out of an agent's context — run `wd check` in a project with a .warden/check.yml to start the ledger.\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "warden A/B — %s · %d events · input $%.0f/M, output $%.0f/M (Opus)\n\n", window, sum.Events, savings.PricePerMTok, savings.OutputPricePerMTok)
+	fmt.Fprintf(&b, "warden A/B — %s · %d events · input $%.0f/M, output $%.0f/M (Opus)\n", window, sum.Events, savings.PricePerMTok, savings.OutputPricePerMTok)
+	fmt.Fprintf(&b, "%s\n\n", basisLine(sum))
 	if contextEvents := sum.Events - sum.OffloadedEvents; contextEvents > 0 {
 		rawDollars := dollarsFor(sum.ContextRawTokens)
 		keptDollars := dollarsFor(sum.ContextKeptTokens)
@@ -203,6 +207,67 @@ func clip(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// basisLine states whether the figures rest on a calibrated, workload-measured
+// bytes-per-token factor or the generic 4-bytes/token heuristic, so the basis is
+// never ambiguous. Calibration is forward-only — it prices events recorded after
+// `wd savings --calibrate`, while older rows keep the heuristic counts they were
+// recorded with — which the wording flags so the claim stays honest.
+func basisLine(sum *savings.Summary) string {
+	if sum.Calibrated {
+		return fmt.Sprintf("basis: CALIBRATED — %.2f bytes/token measured for this workload (Claude %s, %d samples); prices events recorded after calibration, earlier rows keep heuristic counts",
+			sum.CalibratedBytesPerToken, savings.CalibrationModel, sum.CalibrationSamples)
+	}
+	return "basis: HEURISTIC — 4 bytes/token estimate; run `wd savings --calibrate` to measure this workload's true ratio"
+}
+
+// runCalibrate derives an empirical bytes-per-token factor for this install's
+// workload and persists it. It reads the retained provenance samples straight
+// from the local ledger (no daemon round-trip), counts a bounded sample against
+// Claude's count_tokens endpoint, and writes the factor next to the ledger. The
+// API key comes from ANTHROPIC_API_KEY via the SDK and is never printed; if it is
+// unset the run exits non-zero WITHOUT touching the persisted factor, and every
+// other command keeps working offline on the heuristic.
+func runCalibrate(cmd *cobra.Command, sinceStr string, since time.Time, maxCalls int) error {
+	out := cmd.OutOrStdout()
+	cfg := config.Load(configPathFor(cmd))
+	dir := filepath.Join(cfg.DataDir, "savings")
+
+	store, err := savings.NewStore(dir)
+	if err != nil {
+		return err
+	}
+	samples, err := store.CalibrationSamples(since)
+	if err != nil {
+		return fmt.Errorf("read ledger samples: %w", err)
+	}
+	if len(samples) == 0 {
+		window := "all time"
+		if sinceStr != "" {
+			window = "since " + sinceStr
+		}
+		return fmt.Errorf("no retained provenance samples to calibrate from (%s) — set `savings_samples: true` in the config file, run a few `wd check`/`wd commit` actions to populate the ledger, then re-run `wd savings --calibrate`", window)
+	}
+	// Construct the counter BEFORE any network use; a missing API key fails here,
+	// leaving the persisted factor untouched.
+	counter, err := savings.NewAnthropicCounter()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "calibrating against Claude %s count_tokens (up to %d samples)…\n", savings.CalibrationModel, maxCalls)
+	cal, err := savings.DeriveCalibration(cmd.Context(), counter, samples, maxCalls)
+	if err != nil {
+		return err
+	}
+	if err := savings.SaveCalibration(dir, cal); err != nil {
+		return fmt.Errorf("persist calibration: %w", err)
+	}
+	fmt.Fprintf(out, "calibrated: %.3f bytes/token (%d samples, %s bytes → %s tokens)\n",
+		cal.BytesPerToken, cal.Samples, humanCount(cal.SampleBytes), humanCount(cal.SampleTokens))
+	fmt.Fprintf(out, "heuristic was 4.000 bytes/token; saved to %s\n", filepath.Join(dir, "calibration.json"))
+	fmt.Fprintf(out, "applies to events recorded from now on; earlier events keep their heuristic counts.\n")
+	return nil
+}
+
 // dollarsFor prices a token count at the same input rate the ledger uses, so the
 // A/B "without"/"with" dollar columns are consistent with SavedDollars.
 func dollarsFor(tokens int) float64 { return float64(tokens) * savings.PricePerMTok / 1_000_000 }
@@ -247,11 +312,19 @@ func newSavingsCmd() *cobra.Command {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			bench, _ := cmd.Flags().GetBool("benchmark")
 			audit, _ := cmd.Flags().GetBool("audit")
+			calibrate, _ := cmd.Flags().GetBool("calibrate")
+			maxCalls, _ := cmd.Flags().GetInt("calibrate-max")
 			out := cmd.OutOrStdout()
 
 			since, err := parseSince(sinceStr, time.Now())
 			if err != nil {
 				return err
+			}
+			// --calibrate is a local, write-side operation: it reads the ledger and
+			// the count_tokens API directly, persisting a factor — it does not query
+			// the daemon report, so handle it before the client call.
+			if calibrate {
+				return runCalibrate(cmd, strings.TrimSpace(sinceStr), since, maxCalls)
 			}
 			// Ask the daemon for the day buckets (sparkline) only when benchmarking,
 			// and the provenance samples only when auditing — the common report and
@@ -285,5 +358,7 @@ func newSavingsCmd() *cobra.Command {
 	cmd.Flags().Bool("json", false, "output the structured summary as JSON")
 	cmd.Flags().Bool("benchmark", false, "show the headline A/B proof (without-vs-with-warden tokens, reduction %, $ saved) with a per-day trend sparkline, instead of the per-feature table")
 	cmd.Flags().Bool("audit", false, "print a few retained raw-vs-kept provenance samples (requires savings_samples) so real bytes behind the counts can be eyeballed")
+	cmd.Flags().Bool("calibrate", false, "measure this workload's true bytes-per-token ratio against Claude's count_tokens endpoint (needs ANTHROPIC_API_KEY and retained samples) and persist it, so figures stop relying on the generic 4-bytes/token guess")
+	cmd.Flags().Int("calibrate-max", savings.DefaultCalibrationCalls, "cap the number of paid count_tokens calls a --calibrate run makes")
 	return cmd
 }

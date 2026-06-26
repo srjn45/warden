@@ -79,6 +79,19 @@ func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
 			sum.MeasuredSpend = total
 		}
 	}
+	// Stamp the calibration basis so the report can state CALIBRATED vs HEURISTIC.
+	// `wd savings --calibrate` writes the sidecar from a separate process, so we
+	// re-read it here and also refresh the live estimation factor — that way a
+	// calibration picked up by any report is in force for events recorded next,
+	// without waiting for a daemon restart. Best-effort: a read error just logs.
+	if cal, ok, cerr := s.savings.Calibration(); cerr != nil {
+		slog.Warn("savings: read calibration failed", "err", cerr)
+	} else if ok {
+		sum.Calibrated = true
+		sum.CalibratedBytesPerToken = cal.BytesPerToken
+		sum.CalibrationSamples = cal.Samples
+		savings.SetCalibration(cal.BytesPerToken)
+	}
 	writeJSON(w, http.StatusOK, sum)
 }
 
