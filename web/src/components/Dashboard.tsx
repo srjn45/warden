@@ -9,6 +9,7 @@ import {
   loadPinned, savePinned, openPin, closePin, prunePins, navRoute, routeByIndex,
 } from '../lib/tabs';
 import { waitingTransitions } from '../lib/notify';
+import { appendContextPoint, type ContextPoint } from '../lib/metricsSeries';
 import { loadTheme, saveTheme, applyTheme, nextTheme, resolveTheme, type Theme } from '../lib/theme';
 import { resolveShortcut } from '../lib/shortcuts';
 import AttentionBar from './AttentionBar';
@@ -44,6 +45,14 @@ export default function Dashboard() {
   const [theme, setTheme] = useState<Theme>(loadTheme);
   const [resolved, setResolved] = useState(() => resolveTheme(loadTheme()));
   const prevSessions = useRef<Session[]>([]);
+  // Client-accumulated context-token history feeding the Metrics tab's
+  // Context-per-agent chart (spec §4.4 item 3). Owned here, above the tab, so it
+  // survives tab switches; a full page reload starts the window fresh. Sampled
+  // on a 5s timer reading the latest live sessions (kept in a ref so the timer
+  // need not re-arm on every SSE push).
+  const [contextHistory, setContextHistory] = useState<ContextPoint[]>([]);
+  const sessionsRef = useRef<Session[]>([]);
+  sessionsRef.current = sessions;
 
   // Reflect the theme choice onto <html data-theme=…>, persist it, and track the
   // concrete light/dark it resolves to (for picking a matching wordmark). The
@@ -114,6 +123,14 @@ export default function Dashboard() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [showHelp, showCreate, showContext, route, pinned]);
+
+  // Sample each agent's live context fill every 5s into the ring buffer.
+  useEffect(() => {
+    const tick = () => setContextHistory((p) => appendContextPoint(p, sessionsRef.current, Date.now() / 1000));
+    tick();
+    const h = setInterval(tick, 5000);
+    return () => clearInterval(h);
+  }, []);
 
   // A 401 from any REST call surfaces the token-entry modal.
   useEffect(() => onAuthRequired(() => setAuthRequired(true)), []);
@@ -204,7 +221,7 @@ export default function Dashboard() {
         {route.kind === 'others' && <OthersTab sessions={sessions} onSelect={select} />}
         {route.kind === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} onCreated={select} />}
         {route.kind === 'pipelines' && <PipelinesTab onSelect={select} />}
-        {route.kind === 'metrics' && <MetricsTab />}
+        {route.kind === 'metrics' && <MetricsTab contextHistory={contextHistory} />}
         {route.kind === 'archive' && <ArchiveTab />}
         {route.kind === 'agent' && (activeSession
           ? <AgentTab session={activeSession} onClosed={() => closeAgent(activeSession.id)} />
