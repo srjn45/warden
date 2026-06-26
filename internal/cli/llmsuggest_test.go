@@ -27,11 +27,11 @@ func recName(s []llmSuggestion) string {
 }
 
 func TestSuggestModels_RoomyMachinePicksBestConductor(t *testing.T) {
-	// 48 GB total, 30 GB free: everything but the 65 GB server model fits now;
-	// the recommendation is the best-scoring conductor with headroom — a leaner
-	// agentic model, NOT the biggest (coding-tuned) one.
+	// 48 GB total, 30 GB free: everything but the 65 GB server model fits now; the
+	// recommendation is the best-scoring conductor with headroom — the top
+	// locally-runnable BFCL model (Qwen3 MoE), NOT the biggest (coding-tuned) one.
 	s := suggestModels(48, 30)
-	require.Equal(t, "gpt-oss:20b", recName(s))
+	require.Equal(t, "qwen3:30b-a3b", recName(s))
 	require.Equal(t, fitNow, suggestionFor(t, s, "qwen3:30b-a3b").Status)
 	require.Equal(t, fitTooLarge, suggestionFor(t, s, "gpt-oss:120b").Status)
 	// The heavy coding-tuned model fits but is never the pick over a better score.
