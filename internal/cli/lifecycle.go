@@ -213,13 +213,146 @@ func newRestoreCmd() *cobra.Command {
 	}
 }
 
+// teardownOpts selects which teardown steps to run and how. The zero value is a
+// no-op; callers turn on the steps they want. It backs the single `stop`
+// umbrella command AND its four thin-wrapper aliases (terminate/delete/
+// remove-worktree/done), so every teardown path composes the SAME helper.
+type teardownOpts struct {
+	terminate      bool   // kill the tmux+claude session
+	deleteRecord   bool   // clear (archive) the stored record
+	removeWorktree bool   // remove the git worktree + branch
+	hard           bool   // purge the record instead of archiving
+	createPR       bool   // open a GitHub PR first, while the agent is intact
+	base           string // base branch for the PR (only with createPR)
+	force          bool   // override the worktree alive/uncommitted/unpushed guards
+	deleteAdopted  bool   // also delete an adopted (warden-didn't-create) branch
+	yes            bool   // skip the interactive worktree-removal confirmation
+}
+
+// teardown composes the existing daemon-client calls in the safe order —
+// PR (while the agent is still intact) → terminate → delete record → remove
+// worktree. The worktree-removal confirmation prompt is asked UP FRONT, before
+// any destructive step, so declining leaves the agent fully intact; it is
+// gated by opts.yes and only shown when worktree removal is actually requested.
+//
+// Returns ok=false (with err=nil) when the user declines the confirmation, so
+// callers can skip their success summary.
+func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (ok bool, err error) {
+	// Confirm worktree removal before doing anything destructive, so a decline
+	// is a true no-op rather than a half-finished teardown.
+	if o.removeWorktree && !o.yes {
+		fmt.Fprintf(cmd.OutOrStdout(), "Remove the git worktree and branch for %s? This cannot be undone. [y/N]: ", id)
+		var ans string
+		_, _ = fmt.Fscanln(cmd.InOrStdin(), &ans)
+		if ans != "y" && ans != "Y" {
+			fmt.Fprintln(cmd.OutOrStdout(), "aborted")
+			return false, nil
+		}
+	}
+	// Open the PR first, while the agent is still intact: if anything fails
+	// (dirty push, protected branch, no gh) the agent is left running so the
+	// operator can fix it and retry, rather than losing the session.
+	if o.createPR {
+		res, err := c.CreatePR(cmd.Context(), id, o.base)
+		if err != nil {
+			return false, fmt.Errorf("create PR: %w\n(agent left running — fix the issue and retry, or re-run without opening a PR)", err)
+		}
+		verb := "opened PR"
+		if !res.Created {
+			verb = "PR already exists"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, res.URL)
+	}
+	if o.terminate {
+		if err := c.Terminate(cmd.Context(), id); err != nil {
+			return false, err
+		}
+	}
+	if o.deleteRecord {
+		if err := c.Delete(cmd.Context(), id, o.hard); err != nil {
+			return false, err
+		}
+	}
+	if o.removeWorktree {
+		if err := c.RemoveWorktree(cmd.Context(), id, o.force, o.deleteAdopted); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func newStopCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stop <TICKET>",
+		Short: "Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)",
+		Long: `Stop an agent. The single umbrella teardown verb.
+
+By default ` + "`wd stop <TICKET>`" + ` does a FULL teardown: terminate the
+tmux+claude session, clear (archive) the record, and remove the git worktree +
+branch (asking for confirmation first, unless --yes). Subtractive flags keep
+parts around; --pr opens a GitHub PR first while the agent is still intact.
+
+The four older verbs are kept as thin aliases — each is just ` + "`stop`" + ` with a
+fixed flag combo:
+
+  old verb                    equivalent
+  --------------------------  ------------------------------------------------
+  wd terminate <T>            wd stop <T> --keep-record --keep-worktree
+  wd delete <T> [--hard]      wd stop <T> --keep-worktree (record only)
+  wd remove-worktree <T>      wd stop <T> --keep-record  (worktree only)
+  wd done <T> [--hard|--pr]   wd stop <T> --keep-worktree [--hard|--pr]
+  wd stop <T>                 terminate + clear record + remove worktree
+
+Safe ordering is always: PR -> terminate -> clear record -> remove worktree, so
+a failed push leaves the agent running.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			keepRecord, _ := cmd.Flags().GetBool("keep-record")
+			keepWorktree, _ := cmd.Flags().GetBool("keep-worktree")
+			hard, _ := cmd.Flags().GetBool("hard")
+			pr, _ := cmd.Flags().GetBool("pr")
+			base, _ := cmd.Flags().GetString("base")
+			yes, _ := cmd.Flags().GetBool("yes")
+			force, _ := cmd.Flags().GetBool("force")
+			deleteAdopted, _ := cmd.Flags().GetBool("delete-adopted-branch")
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				terminate:      true,
+				deleteRecord:   !keepRecord,
+				removeWorktree: !keepWorktree,
+				hard:           hard,
+				createPR:       pr,
+				base:           base,
+				force:          force,
+				deleteAdopted:  deleteAdopted,
+				yes:            yes,
+			})
+			if err != nil || !ok {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "stopped %s\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().Bool("keep-record", false, "do not clear the stored record")
+	cmd.Flags().Bool("keep-worktree", false, "do not remove the git worktree (this + default == the old 'done')")
+	cmd.Flags().Bool("hard", false, "purge the record instead of archiving")
+	cmd.Flags().Bool("pr", false, "open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down")
+	cmd.Flags().String("base", "", "base branch for the PR (default main); only meaningful with --pr")
+	cmd.Flags().Bool("yes", false, "skip the worktree-removal confirmation prompt")
+	cmd.Flags().Bool("force", false, "override the alive/uncommitted/unpushed worktree guards")
+	cmd.Flags().Bool("delete-adopted-branch", false, "also delete the branch even if warden did not create it (adopted branches are kept by default)")
+	return cmd
+}
+
+// newTerminateCmd is a thin alias for `stop --keep-record --keep-worktree`.
 func newTerminateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "terminate <TICKET>",
-		Short: "Stop an agent: kill its tmux+claude session (keeps the record and worktree)",
+		Short: "Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := clientFor(cmd).Terminate(cmd.Context(), args[0]); err != nil {
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{terminate: true})
+			if err != nil || !ok {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "terminated %s\n", args[0])
@@ -228,14 +361,16 @@ func newTerminateCmd() *cobra.Command {
 	}
 }
 
+// newDeleteCmd is a thin alias for `stop` that only clears the record.
 func newDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <TICKET>",
-		Short: "Clear an agent's stored record (archives by default; --hard to purge)",
+		Short: "Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hard, _ := cmd.Flags().GetBool("hard")
-			if err := clientFor(cmd).Delete(cmd.Context(), args[0], hard); err != nil {
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{deleteRecord: true, hard: hard})
+			if err != nil || !ok {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "deleted %s\n", args[0])
@@ -246,25 +381,21 @@ func newDeleteCmd() *cobra.Command {
 	return cmd
 }
 
+// newRemoveWorktreeCmd is a thin alias for `stop --keep-record` (worktree only),
+// preserving the always-ask confirmation prompt.
 func newRemoveWorktreeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "remove-worktree <TICKET>",
-		Short: "Remove an agent's git worktree + branch (always asks; --force overrides guards)",
+		Short: "Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			yes, _ := cmd.Flags().GetBool("yes")
 			force, _ := cmd.Flags().GetBool("force")
 			deleteAdopted, _ := cmd.Flags().GetBool("delete-adopted-branch")
-			if !yes {
-				fmt.Fprintf(cmd.OutOrStdout(), "Remove the git worktree and branch for %s? This cannot be undone. [y/N]: ", args[0])
-				var ans string
-				_, _ = fmt.Fscanln(cmd.InOrStdin(), &ans)
-				if ans != "y" && ans != "Y" {
-					fmt.Fprintln(cmd.OutOrStdout(), "aborted")
-					return nil
-				}
-			}
-			if err := clientFor(cmd).RemoveWorktree(cmd.Context(), args[0], force, deleteAdopted); err != nil {
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				removeWorktree: true, force: force, deleteAdopted: deleteAdopted, yes: yes,
+			})
+			if err != nil || !ok {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed worktree for %s\n", args[0])
@@ -277,34 +408,21 @@ func newRemoveWorktreeCmd() *cobra.Command {
 	return cmd
 }
 
+// newDoneCmd is a thin alias for `stop --keep-worktree`: terminate + clear the
+// record while keeping the worktree, with the PR-first ordering.
 func newDoneCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "done <TICKET>",
-		Short: "Terminate an agent and clear its record (does NOT remove the worktree)",
+		Short: "Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hard, _ := cmd.Flags().GetBool("hard")
 			createPR, _ := cmd.Flags().GetBool("create-pr")
 			base, _ := cmd.Flags().GetString("base")
-			c := clientFor(cmd)
-			// Open the PR first, while the agent is still intact: if anything fails
-			// (dirty push, protected branch, no gh) the agent is left running so the
-			// operator can fix it and retry, rather than losing the session.
-			if createPR {
-				res, err := c.CreatePR(cmd.Context(), args[0], base)
-				if err != nil {
-					return fmt.Errorf("create PR: %w\n(agent left running — fix the issue and retry, or run `warden done %s` without --create-pr)", err, args[0])
-				}
-				verb := "opened PR"
-				if !res.Created {
-					verb = "PR already exists"
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, res.URL)
-			}
-			if err := c.Terminate(cmd.Context(), args[0]); err != nil {
-				return err
-			}
-			if err := c.Delete(cmd.Context(), args[0], hard); err != nil {
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				terminate: true, deleteRecord: true, hard: hard, createPR: createPR, base: base,
+			})
+			if err != nil || !ok {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "done %s (terminated + record cleared; worktree, if any, kept — use remove-worktree)\n", args[0])
