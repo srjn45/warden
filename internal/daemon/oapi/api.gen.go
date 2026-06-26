@@ -484,12 +484,12 @@ type PipelineJobRunIf string
 
 // PressureStatus defines model for PressureStatus.
 type PressureStatus struct {
-	AgentCount  int    `json:"agent_count,omitempty"`
-	Elevated    bool   `json:"elevated,omitempty"`
-	GateEnabled bool   `json:"gate_enabled,omitempty"`
-	Level       int    `json:"level,omitempty"`
-	LevelName   string `json:"level_name,omitempty"`
-	MaxAgents   int    `json:"max_agents,omitempty"`
+	AgentCount  int    `json:"agent_count"`
+	Elevated    bool   `json:"elevated"`
+	GateEnabled bool   `json:"gate_enabled"`
+	Level       int    `json:"level"`
+	LevelName   string `json:"level_name"`
+	MaxAgents   int    `json:"max_agents"`
 }
 
 // PruneRequest defines model for PruneRequest.
@@ -789,6 +789,12 @@ type EmitPipelineJobJSONBody struct {
 type GetSavingsParams struct {
 	// Since Only count savings since this window (a Go duration like `168h`, or an RFC3339 timestamp). Absent ⇒ all time.
 	Since string `form:"since,omitempty" json:"since,omitempty"`
+
+	// Bucket Attach a zero-filled saved-tokens trend at this granularity: hour or day (an unknown value yields no trend).
+	Bucket string `form:"bucket,omitempty" json:"bucket,omitempty"`
+
+	// Samples Attach the retained provenance pairs (raw vs. kept samples).
+	Samples bool `form:"samples,omitempty" json:"samples,omitempty"`
 }
 
 // SearchParams defines parameters for Search.
@@ -2695,6 +2701,32 @@ func (siw *ServerInterfaceWrapper) GetSavings(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "bucket" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bucket", r.URL.Query(), &params.Bucket, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bucket"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bucket", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "samples" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "samples", r.URL.Query(), &params.Samples, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "samples"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "samples", Err: err})
 		}
 		return
 	}
