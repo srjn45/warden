@@ -71,6 +71,24 @@ func TestGate_EditAddsOmittedField(t *testing.T) {
 	require.Equal(t, "feature-x", d.Calls[0].Args["branch"], "omitted field filled in")
 }
 
+// TestGate_EditShowsConfigDefault proves a blank field warden will fill from
+// config renders its default in the bracket ("[default: …]") instead of "[]", so
+// the operator can see what an empty answer resolves to.
+func TestGate_EditShowsConfigDefault(t *testing.T) {
+	var out bytes.Buffer
+	// 'e' to edit, then Enter through each field (prompt, name, type, repo,
+	// branch, worktree, in_repo, model) so the model/permission_mode prompts get
+	// rendered before EOF.
+	g := NewGate(strings.NewReader("e\n\n\n\n\n\n\n\n\n"), &out)
+	g.useRegistry(NewRegistry())
+	g.UseDefaults(map[string]string{"model": "opus", "permission_mode": "bypassPermissions"})
+	g.Confirm([]ToolCall{{Name: "spawn_agent", Args: map[string]any{"prompt": "review"}}})
+	require.Contains(t, out.String(), "model [default: opus]:")
+	require.Contains(t, out.String(), "permission_mode [default: bypassPermissions]:")
+	// A field with no default and no value still shows the empty bracket.
+	require.Contains(t, out.String(), "name []:")
+}
+
 // TestGate_EditCoercesBool proves a boolean field is parsed from y/n, not stored
 // as the literal string. worktree is the 6th spawn_agent field (after prompt,
 // name, type, repo, branch).

@@ -43,11 +43,20 @@ type Gate struct {
 	// editor can prompt field-by-field. It may be nil — a gate built without a
 	// registry (in tests) falls back to editing the call's own args.
 	reg *Registry
+	// defaults holds the config value warden will substitute for a field the
+	// operator leaves blank (e.g. model, permission_mode). Shown in the prompt
+	// brackets so the operator can see what an empty answer will actually use.
+	defaults map[string]string
 }
 
 // useRegistry points the editor at the tool schemas so it can prompt one field
 // at a time. NewSession wires this when the gate is a *Gate.
 func (g *Gate) useRegistry(r *Registry) { g.reg = r }
+
+// UseDefaults records the config defaults warden applies to blank fields, so the
+// editor can show "[default: …]" instead of an empty "[]" for fields the model
+// omitted (model, permission_mode). The REPL wires this from live config.
+func (g *Gate) UseDefaults(d map[string]string) { g.defaults = d }
 
 // NewGate builds a gate over the given reader/writer (stdin/stdout in the REPL,
 // scripted buffers in tests). By default it reads through a plain scanner; the
@@ -117,7 +126,7 @@ func (g *Gate) editOne(c ToolCall) ToolCall {
 	fmt.Fprintln(g.out, g.style.hint.Render(
 		fmt.Sprintf("editing %s — type a new value or press Enter to keep the current one (Ctrl-C to finish):", c.Name)))
 	for _, f := range fields {
-		line, err := g.in.Prompt(fieldPrompt(f, args))
+		line, err := g.in.Prompt(g.fieldPrompt(f, args))
 		if err != nil {
 			break // Ctrl-C / EOF → keep the remaining fields as proposed
 		}
@@ -204,12 +213,20 @@ func orderFields(props map[string]any, required []string) []fieldSpec {
 
 // fieldPrompt renders one short prompt: the field name and its current value
 // (truncated so the line never exceeds the terminal width). Booleans show a y/n
-// hint.
-func fieldPrompt(f fieldSpec, args map[string]any) string {
+// hint. When the field is blank but warden has a config default for it, the
+// bracket shows "default: <value>" so the operator knows what an empty answer
+// will use (e.g. model, permission_mode).
+func (g *Gate) fieldPrompt(f fieldSpec, args map[string]any) string {
 	if f.kind == "boolean" {
 		return fmt.Sprintf("  %s [%v] (y/n): ", f.name, argBool(args, f.name))
 	}
-	return fmt.Sprintf("  %s [%s]: ", f.name, truncateVal(argStr(args, f.name), 28))
+	cur := argStr(args, f.name)
+	if cur == "" {
+		if d := g.defaults[f.name]; d != "" {
+			return fmt.Sprintf("  %s [default: %s]: ", f.name, truncateVal(d, 20))
+		}
+	}
+	return fmt.Sprintf("  %s [%s]: ", f.name, truncateVal(cur, 28))
 }
 
 // setField applies a non-blank operator entry to args, coercing by type. A
