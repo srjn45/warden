@@ -220,9 +220,9 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 |---|---|---|---|---|---|---|
 | MCP server (stdio) | `mcp` | n/a (is the server) | ✓ | — | — | [mcp-and-skill](https://srjn45.github.io/warden/multi-agent/mcp-and-skill/) |
 | `/warden` Claude skill | shipped in `skills/` | drives MCP/CLI | ✓ | — | — | [mcp-and-skill](https://srjn45.github.io/warden/multi-agent/mcp-and-skill/) |
-| Interactive mode / orchestrator REPL | `orch` (aliases `interactive`, `i`) | **CLI-only** (interactive REPL) | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
-| ↳ deterministic `/` commands (no model) | `/agents`, `/spawn`, `/tell`, … `/help` | — | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
-| ↳ line editor: history, reverse-search, Tab completion, colour | readline-backed | — | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
+| Interactive mode / REPL | `repl` (aliases `interactive`, `i`) | **CLI-only** (interactive REPL) | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
+| ↳ deterministic `/` commands (no model) | `/agents`, `/spawn`, `/tell`, … `/help` | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
+| ↳ line editor: history, reverse-search, Tab completion, colour | readline-backed | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 
 ## 15. Admin / host (CLI-only by design)
 
@@ -237,7 +237,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | Bearer token generate / show / rotate | `token` | the secret that protects every other surface | [remote-access](https://srjn45.github.io/warden/guides/remote-access/) |
 | Configuration view / init / path | `config` | local file authoring | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
 | Health / environment doctor | `doctor` | host diagnostics | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
-| Local-LLM model picker (memory-ranked) | `llm suggest` | reads host hardware to size the orchestrator model | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
+| Local-LLM model picker (memory-ranked) | `llm suggest` | reads host hardware to size the orchestrator model | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | First-run tutorial | `tutorial` | interactive walkthrough | [quickstart](https://srjn45.github.io/warden/start/quickstart/) |
 | Shell completion | `completion` | shell integration | [install](https://srjn45.github.io/warden/start/install/) |
 | Hook entry points (guards) | `hook` / `*-guard` | invoked by Claude Code hooks | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
@@ -249,7 +249,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 Every fleet/data feature is reachable over MCP (**63 tools**). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
-§15 (plus interactive `attach`/`orch` and local-config `preset`), which are
+§15 (plus interactive `attach`/`repl` and local-config `preset`), which are
 CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `get_metrics`, `savings`, `search`, `history`, `audit_log`, `list_worktrees`,
 `list_plugins`, `get_pressure`, `set_auto_approve`, `set_permission_mode`,

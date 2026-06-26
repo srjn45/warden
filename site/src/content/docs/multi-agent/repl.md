@@ -3,6 +3,10 @@ title: Interactive mode (REPL)
 description: warden repl — an interactive REPL with a real line editor, deterministic /commands, and a local-LLM natural-language half, all over your warden fleet.
 ---
 
+:::caution[Experimental]
+The REPL is an experimental client. The deterministic `/`-command half is stable; the local-LLM natural-language half is still evolving and may change between releases.
+:::
+
 `warden repl` (aliases `warden interactive`, `warden i`) is warden's **interactive mode**: a proper terminal REPL to drive your fleet. It is a real line editor — **arrow keys, in-line editing, history persisted across sessions, reverse-search, and Tab completion** — that closes cleanly with **Ctrl-D** (or `exit`), returning you to your shell prompt.
 
 ```sh

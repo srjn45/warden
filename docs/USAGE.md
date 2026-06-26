@@ -16,13 +16,16 @@ watch them from one place. Each agent is a real `claude` process running inside
 its own detached **tmux** window. You spawn agents, watch what they're doing,
 talk to them, and tear them down — without juggling terminals by hand.
 
-One binary wears three hats:
+One binary wears several hats:
 
 | Face | What it is | You run it… |
 |---|---|---|
 | **daemon** | The single long-running process. Owns the on-disk session store, serves a loopback REST API on `127.0.0.1:8765`, and runs a background poller that keeps each agent's status and subject fresh. | Once, in the background (usually via launchd). |
-| **CLI client** | `ls`, `status`, `start`, `done`, `attach`, `send`, `tail`, `tui` — thin HTTP clients that talk to the daemon. | Whenever you want to act on agents. |
+| **CLI client** | `ls`, `status`, `start`, `done`, `attach`, `send`, `tail`, the git/check lifecycle verbs (`commit`/`push`/`sync`/`check`), and more — thin HTTP clients that talk to the daemon. | Whenever you want to act on agents. |
+| **TUI cockpit** | `warden tui` (or bare `warden`) — a live tmux-based terminal dashboard of the whole fleet. | When you want a terminal cockpit. |
+| **Web GUI** | A React dashboard the daemon embeds and serves alongside the API — tabbed mission control with live SSE, interactive terminals, and an attention queue. | Open the daemon's address in a browser. |
 | **MCP server** | `warden mcp` — a stdio bridge so an *orchestrator* Claude session can manage agents through tool calls. | Wired into a Claude session's MCP config. |
+| **Interactive REPL** *(experimental)* | `warden repl` — a local-LLM conductor REPL that turns plain-English intent into confirmed warden actions, spending no Claude tokens. | When you want NL control without an MCP Claude session. |
 
 Everything flows through the daemon, so **the daemon must be running** before
 any other command will work.
