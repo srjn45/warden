@@ -160,6 +160,122 @@ func TestCheckContextPreCrashAnomalyOncePerEpisode(t *testing.T) {
 	}
 }
 
+func TestCompactLanded(t *testing.T) {
+	if !compactLanded(420000, 150000) {
+		t.Fatal("a drop below the pre-compact reading must count as landed")
+	}
+	if compactLanded(420000, 420000) {
+		t.Fatal("an unchanged reading is not a landing")
+	}
+	if compactLanded(420000, 430000) {
+		t.Fatal("a higher reading (context still growing) is not a landing")
+	}
+}
+
+func TestReconcileCompactRecordsReclaim(t *testing.T) {
+	p := New(&ctxFakeDeps{}, time.Minute)
+	var got struct {
+		feature, agent       string
+		rawTokens, keptToken int
+		calls                int
+	}
+	p.OnSaving = func(feature, agent string, raw, kept int) {
+		got.feature, got.agent, got.rawTokens, got.keptToken = feature, agent, raw, kept
+		got.calls++
+	}
+	now := time.Now()
+	p.pendingCompact["a1"] = compactPending{pre: 420000, at: now}
+	s := &store.Session{ID: "a1"}
+
+	p.reconcileCompact(s, 150000, now.Add(time.Minute))
+
+	if got.calls != 1 {
+		t.Fatalf("OnSaving calls=%d, want 1", got.calls)
+	}
+	if got.feature != "compact" || got.agent != "a1" {
+		t.Fatalf("feature=%q agent=%q, want compact/a1", got.feature, got.agent)
+	}
+	if got.rawTokens != 420000 || got.keptToken != 150000 {
+		t.Fatalf("raw=%d kept=%d, want 420000/150000 (saved=270000)", got.rawTokens, got.keptToken)
+	}
+	if _, ok := p.pendingCompact["a1"]; ok {
+		t.Fatal("pending marker must be cleared once the reclaim is recorded")
+	}
+}
+
+func TestReconcileCompactWaitsForReclaim(t *testing.T) {
+	p := New(&ctxFakeDeps{}, time.Minute)
+	var calls int
+	p.OnSaving = func(string, string, int, int) { calls++ }
+	now := time.Now()
+	p.pendingCompact["a1"] = compactPending{pre: 420000, at: now}
+
+	// Reading hasn't dropped yet and we're within the window: keep waiting.
+	p.reconcileCompact(&store.Session{ID: "a1"}, 425000, now.Add(time.Minute))
+	if calls != 0 {
+		t.Fatalf("OnSaving calls=%d, want 0 (compaction not landed)", calls)
+	}
+	if _, ok := p.pendingCompact["a1"]; !ok {
+		t.Fatal("pending marker must persist while waiting within the window")
+	}
+}
+
+func TestReconcileCompactAbandonsStale(t *testing.T) {
+	p := New(&ctxFakeDeps{}, time.Minute)
+	var calls int
+	p.OnSaving = func(string, string, int, int) { calls++ }
+	now := time.Now()
+	p.pendingCompact["a1"] = compactPending{pre: 420000, at: now}
+
+	// No drop and the window has elapsed: abandon without crediting a saving so a
+	// later unrelated drop can't be mis-attributed to this compaction.
+	p.reconcileCompact(&store.Session{ID: "a1"}, 425000, now.Add(compactLandWindow+time.Minute))
+	if calls != 0 {
+		t.Fatalf("OnSaving calls=%d, want 0 (compaction never landed)", calls)
+	}
+	if _, ok := p.pendingCompact["a1"]; ok {
+		t.Fatal("a stale pending marker must be abandoned past the land window")
+	}
+}
+
+func TestCheckContextCompactParksThenRecords(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 420000, tokensOK: true}
+	p := New(fd, time.Minute)
+	p.TokenWarn, p.TokenCrit = 200000, 400000
+	p.WarnAlert, p.AutoCompact, p.TokenGuard = true, true, true
+	var saved struct {
+		feature   string
+		raw, kept int
+		calls     int
+	}
+	p.OnSaving = func(feature, _ string, raw, kept int) {
+		saved.feature, saved.raw, saved.kept = feature, raw, kept
+		saved.calls++
+	}
+	s := &store.Session{ID: "a1", Status: store.StatusIdle}
+
+	// Tick 1: critical + idle → /compact issued and the pre-compact reading parked,
+	// nothing recorded yet (the reclaim hasn't shown up).
+	t0 := time.Now()
+	p.checkContext(context.Background(), s, t0)
+	if fd.compacted != 1 {
+		t.Fatalf("compacted=%d, want 1", fd.compacted)
+	}
+	if saved.calls != 0 {
+		t.Fatalf("OnSaving fired %d times on the parking tick, want 0", saved.calls)
+	}
+
+	// Tick 2: the compaction has landed — the reading dropped. Record the reclaim.
+	fd.tokens = 150000
+	p.checkContext(context.Background(), s, t0.Add(time.Minute))
+	if saved.calls != 1 {
+		t.Fatalf("OnSaving calls=%d, want 1 once the reclaim landed", saved.calls)
+	}
+	if saved.feature != "compact" || saved.raw != 420000 || saved.kept != 150000 {
+		t.Fatalf("recorded feature=%q raw=%d kept=%d, want compact/420000/150000", saved.feature, saved.raw, saved.kept)
+	}
+}
+
 func TestCheckContextNoUsageIsNoop(t *testing.T) {
 	fd := &ctxFakeDeps{tokensOK: false}
 	p := New(fd, time.Minute)

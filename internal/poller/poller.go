@@ -120,7 +120,19 @@ type Poller struct {
 	// OnContextAlert, if set, fires once per upward threshold crossing.
 	OnContextAlert func(sess *store.Session, state ctxtokens.State, tokens int)
 
+	// OnSaving, if set, records a token-savings event (the daemon wires it to the
+	// savings ledger). The poller uses it for the auto-/compact win: when a
+	// compaction it issued lands, the reclaimed context tokens are recorded as a
+	// FeatureCompact saving. Best-effort and gate-aware on the receiving side.
+	OnSaving func(feature, agent string, rawTokens, keptTokens int)
+
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
+
+	// pendingCompact tracks /compact sends whose reclaim hasn't shown up yet: a
+	// compaction lands asynchronously, so the pre-compact reading is parked here
+	// and reconciled against a later (lower) reading to measure the saving (tick
+	// goroutine only).
+	pendingCompact map[string]compactPending
 
 	// Infinite-loop detection state (tick goroutine only). paneHistory holds the
 	// last loopWindow distinct pane excerpts per session; loopFlagged remembers
@@ -156,6 +168,15 @@ type ApprovalEvent struct {
 	Pane    string         // pane content that triggered the event
 }
 
+// compactPending is a /compact awaiting its reclaim: pre is the context-token
+// reading captured the moment warden sent /compact, at is when it was sent (used
+// to abandon a compaction that never visibly landed so it can't later be
+// credited to an unrelated drop).
+type compactPending struct {
+	pre int
+	at  time.Time
+}
+
 func New(d Deps, stuckAfter time.Duration) *Poller {
 	return &Poller{
 		deps:            d,
@@ -164,6 +185,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		lastSummary:     map[string]time.Time{},
 		inflight:        map[string]struct{}{},
 		lastCtxCheck:    map[string]time.Time{},
+		pendingCompact:  map[string]compactPending{},
 		paneHistory:     map[string][]string{},
 		loopFlagged:     map[string]bool{},
 		preCrashFlagged: map[string]bool{},
@@ -377,8 +399,8 @@ func (p *Poller) tick(ctx context.Context) error {
 // long-running daemon. Called only from the tick goroutine, which owns the map.
 func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 &&
-		len(p.paneHistory) == 0 && len(p.loopFlagged) == 0 &&
-		len(p.preCrashFlagged) == 0 {
+		len(p.pendingCompact) == 0 && len(p.paneHistory) == 0 &&
+		len(p.loopFlagged) == 0 && len(p.preCrashFlagged) == 0 {
 		return
 	}
 	live := make(map[string]struct{}, len(sessions))
@@ -393,6 +415,11 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	for id := range p.lastCtxCheck {
 		if _, ok := live[id]; !ok {
 			delete(p.lastCtxCheck, id)
+		}
+	}
+	for id := range p.pendingCompact {
+		if _, ok := live[id]; !ok {
+			delete(p.pendingCompact, id)
 		}
 	}
 	for id := range p.paneHistory {

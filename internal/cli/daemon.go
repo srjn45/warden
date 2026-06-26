@@ -156,6 +156,10 @@ func newDaemonCmd() *cobra.Command {
 			// their savings through the same gate-aware, fail-open path. The Server
 			// holds the gate, so the hook is safe to set unconditionally.
 			lc.SavingsHook = srv.RecordLifecycleSaving
+			// The poller credits the auto-/compact reclaim to the same ledger: when a
+			// compaction it issued lands, the reclaimed context tokens are recorded as
+			// a FeatureCompact saving through the gate-aware, fail-open hook.
+			pl.OnSaving = srv.RecordLifecycleSaving
 			// Native scheduler (#15): opt-in (scheduler_enabled, default off). The
 			// store file is created regardless so toggling the gate on doesn't lose a
 			// prior schedules.json; the gate decides whether the routes + loop run.

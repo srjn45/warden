@@ -6,8 +6,16 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/ctxtokens"
+	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// compactLandWindow bounds how long a pending /compact waits for its reclaim to
+// appear before warden abandons it. Past this, the compaction is presumed to
+// have failed to land (or the agent never processed it), so the parked
+// pre-compact reading is discarded rather than later credited to an unrelated
+// context drop. Var (not const) so tests can shrink it.
+var compactLandWindow = 15 * time.Minute
 
 // ctxDecision is the outcome of evaluating an agent's context state this tick.
 type ctxDecision struct {
@@ -63,6 +71,11 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 		s.ContextTokens = tokens
 	}
 
+	// Reconcile any /compact still awaiting its reclaim. A compaction lands a few
+	// ticks after it is sent; when this reading falls below the parked pre-compact
+	// level, the difference is the context warden reclaimed — record it.
+	p.reconcileCompact(s, tokens, now)
+
 	sinceCompact := p.CompactCooldown // default to "elapsed" when never compacted
 	if s.LastCompactAt != nil {
 		sinceCompact = now.Sub(*s.LastCompactAt)
@@ -90,6 +103,39 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 			t := now
 			s.LastCompactAt = &t
 			_ = p.deps.StampCompact(ctx, s.ID)
+			// Park the pre-compact reading so the reclaim can be measured once the
+			// compaction lands (reconcileCompact on a later tick). Overwrites any
+			// prior marker — the most recent send is the one to credit.
+			p.pendingCompact[s.ID] = compactPending{pre: tokens, at: now}
 		}
 	}
 }
+
+// reconcileCompact checks whether a /compact parked for s has landed (this
+// reading dropped below the pre-compact level) and, if so, records the reclaimed
+// context as a FeatureCompact saving via OnSaving. Context tokens only fall on
+// compaction, so any decrease is the signal; raw is the pre-compact reading and
+// kept is what survived, making Saved the tokens reclaimed. A marker older than
+// compactLandWindow is abandoned (the compaction never visibly landed) so it
+// can't later be credited to an unrelated drop. Tick goroutine only.
+func (p *Poller) reconcileCompact(s *store.Session, tokens int, now time.Time) {
+	pc, ok := p.pendingCompact[s.ID]
+	if !ok {
+		return
+	}
+	if compactLanded(pc.pre, tokens) {
+		delete(p.pendingCompact, s.ID)
+		if p.OnSaving != nil {
+			p.OnSaving(savings.FeatureCompact, s.ID, pc.pre, tokens)
+		}
+		return
+	}
+	if now.Sub(pc.at) >= compactLandWindow {
+		delete(p.pendingCompact, s.ID)
+	}
+}
+
+// compactLanded reports whether a context reading taken after a /compact shows
+// the compaction has landed — i.e. the reading fell below the pre-compact level.
+// Context-window occupancy only decreases on compaction, so any drop is the cue.
+func compactLanded(pre, cur int) bool { return cur < pre }
