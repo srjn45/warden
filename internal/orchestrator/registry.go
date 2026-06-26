@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/srjn45/warden/internal/client"
@@ -311,11 +312,23 @@ func NewRegistry() *Registry {
 				})},
 			Mutating: true,
 			invoke: func(ctx context.Context, d Daemon, a map[string]any) (string, error) {
-				s, err := d.Spawn(ctx, client.SpawnParams{
+				p := client.SpawnParams{
 					Type: argStr(a, "type"), Prompt: argStr(a, "prompt"), Repo: argStr(a, "repo"),
 					Branch: argStr(a, "branch"), Worktree: argBool(a, "worktree"), InRepo: argBool(a, "in_repo"),
 					Name: argStr(a, "name"), Model: argStr(a, "model"), PermissionMode: argStr(a, "permission_mode"),
-				})
+				}
+				// A free-form spawn (no type/repo — the recommended plain-prompt
+				// path) launches in the operator's cwd, and the daemon *requires*
+				// that dir. The model never supplies it, so default it to the
+				// orchestrator's own working directory (mirrors `wd spawn`).
+				// Without this every plain-prompt spawn is rejected with
+				// "provide a launch dir (cwd …)".
+				if p.Type == "" && p.Repo == "" && p.Cwd == "" {
+					if wd, err := os.Getwd(); err == nil {
+						p.Cwd = wd
+					}
+				}
+				s, err := d.Spawn(ctx, p)
 				if err != nil {
 					return "", err
 				}

@@ -37,6 +37,27 @@ func TestDispatch_RoutesToDaemon(t *testing.T) {
 	require.Equal(t, "refactor auth", fd.lastSpawn.Prompt)
 }
 
+func TestDispatch_FreeFormSpawnDefaultsCwd(t *testing.T) {
+	// A plain-prompt spawn (no type/repo) is the recommended path, but the daemon
+	// requires a launch dir — the model never supplies one, so the registry must
+	// default Cwd to the orchestrator's own working dir. Without this every
+	// plain-prompt spawn is rejected.
+	fd := &fakeDaemon{}
+	_, err := NewRegistry().Dispatch(context.Background(), fd, ToolCall{Name: "spawn_agent",
+		Args: map[string]any{"prompt": "review the docs"}})
+	require.NoError(t, err)
+	require.NotEmpty(t, fd.lastSpawn.Cwd, "free-form spawn must carry a launch dir")
+}
+
+func TestDispatch_TypedSpawnLeavesCwdEmpty(t *testing.T) {
+	// A managed (type+repo) spawn does not launch in cwd, so we must not inject one.
+	fd := &fakeDaemon{}
+	_, err := NewRegistry().Dispatch(context.Background(), fd, ToolCall{Name: "spawn_agent",
+		Args: map[string]any{"type": "development", "repo": "/some/repo", "prompt": "x"}})
+	require.NoError(t, err)
+	require.Empty(t, fd.lastSpawn.Cwd, "typed spawn must not get a cwd")
+}
+
 func TestDispatch_UnknownToolErrors(t *testing.T) {
 	_, err := NewRegistry().Dispatch(context.Background(), &fakeDaemon{}, ToolCall{Name: "nope"})
 	require.ErrorContains(t, err, "unknown tool")

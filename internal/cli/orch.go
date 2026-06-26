@@ -45,9 +45,17 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 			}
 			cl := clientFor(cmd)
 			chat := llm.NewOllama(cfg.LocalLLMURL, cfg.LocalLLMModel, cfg.LocalLLMTimeoutDuration())
+			// Show the operator what an empty model / permission_mode field in the
+			// [e]dit flow will actually resolve to (warden fills these from config
+			// when the model omits them).
+			gate := orchestrator.NewGate(cmd.InOrStdin(), cmd.OutOrStdout())
+			gate.UseDefaults(map[string]string{
+				"model":           cfg.GetModelDefault(),
+				"permission_mode": cfg.GetDefaultPermissionMode(),
+			})
 			sess := orchestrator.NewSession(
 				chat, cl, orchestrator.NewRegistry(),
-				orchestrator.NewGate(cmd.InOrStdin(), cmd.OutOrStdout()),
+				gate,
 				orchestrator.NewRouterFromConfig(cfg),
 			)
 			// The orchestrator runs on top of the operator's own shell: `!`-lines
