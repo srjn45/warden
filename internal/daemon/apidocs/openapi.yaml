@@ -1479,6 +1479,7 @@ components:
 
     SessionList:
       type: object
+      required: [sessions]
       properties:
         sessions:
           type: array
@@ -1573,6 +1574,7 @@ components:
 
     GuardVerdict:
       type: object
+      required: [decision]
       properties:
         decision: { type: string, enum: [allow, deny] }
         reason: { type: string }
@@ -1620,12 +1622,14 @@ components:
 
     DirEntry:
       type: object
+      required: [name, path]
       properties:
         name: { type: string }
         path: { type: string }
 
     DirListing:
       type: object
+      required: [path, parent, entries]
       properties:
         path: { type: string }
         parent: { type: string, description: "empty at the filesystem root" }
@@ -1649,6 +1653,7 @@ components:
 
     ApprovalsResponse:
       type: object
+      required: [enabled, approvals]
       properties:
         enabled: { type: boolean }
         approvals:
