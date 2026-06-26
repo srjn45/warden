@@ -81,17 +81,17 @@ func TestLocalLLMAdvice(t *testing.T) {
 	require.True(t, off.ok)
 	require.False(t, off.required, "the recommendation is advisory, never a failure")
 	require.Contains(t, off.detail, "qwen2.5-coder:3b")
-	require.Contains(t, off.detail, "local_llm true")
+	require.Contains(t, off.detail, "local_llm: true")
 
 	// on with a matching model → confirmed.
 	match := localLLMAdvice(config.Config{LocalLLM: true, LocalLLMModel: "qwen2.5-coder:3b"}, mem)
 	require.Contains(t, match.detail, "qwen2.5-coder:3b")
-	require.NotContains(t, match.detail, "config set local_llm_model", "no change needed when it already matches")
+	require.NotContains(t, match.detail, "change local_llm_model", "no change needed when it already matches")
 
-	// on with a mismatched model → suggest the set command, never auto-swap.
+	// on with a mismatched model → point at the config file, never auto-swap.
 	miss := localLLMAdvice(config.Config{LocalLLM: true, LocalLLMModel: "llama3:8b"}, mem)
 	require.Contains(t, miss.detail, "llama3:8b")
-	require.Contains(t, miss.detail, "wd config set local_llm_model qwen2.5-coder:3b")
+	require.Contains(t, miss.detail, "change local_llm_model to qwen2.5-coder:3b in your config file")
 
 	// detection failure → conservative floor.
 	undetected := localLLMAdvice(config.Config{LocalLLM: true}, memProbe{ok: false})

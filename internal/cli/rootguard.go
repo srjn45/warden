@@ -23,7 +23,7 @@ import (
 // worktree — which the daemon policy leaves unconstrained. The trade-off is that
 // it also overrides the `--in-repo` opt-out: with root_guard on, no spawned agent
 // may write the main checkout. Operators who genuinely want an in-place agent set
-// `wd config set root_guard false`.
+// `root_guard: false` in their config file (`wd config path`).
 //
 // It ALWAYS exits 0 and fails open (allow) on any uncertainty — unreadable input,
 // a non-git path, a path it cannot resolve, or a git error — because the guard is
@@ -107,7 +107,7 @@ func detectRootWrite(ctx context.Context, tool, path, cwd string) string {
 		"Spawned agents must make changes inside their own worktree — warden creates one " +
 		"when you spawn with a managed type (`wd start <ticket> --type <type>`). Re-run the " +
 		"edit against a path inside your worktree. (If this agent is meant to work in-place, " +
-		"the operator can disable this with `wd config set root_guard false`.)"
+		"the operator can disable this by setting `root_guard: false` in their config file.)"
 }
 
 // nearestExistingDir walks up from dir to the first directory that exists,
