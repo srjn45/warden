@@ -97,15 +97,15 @@ warden's ≤10-agent scale:
 Re-scored on **feasibility × necessity** for what warden actually is today: a
 solo-operator tool for orchestrating Claude Code agents, with remote access (the
 flagship), mature pipelines, structured logging, the collab MVP, the **full
-orchestration brain (#49)** and the **local-LLM orchestrator (#50, `wd orch`)** all
+orchestration brain (#49)** and the **local-LLM REPL (#50, `wd repl`)** all
 shipped. With the north-star orchestrator landed and the recent onboarding /
 extensibility batch merged (#42 tutorial, #43 OpenAPI docs, #46 snapshots, #47
 plugins, #48 insights — all in FEATURES.md), the remaining roadmap is mostly
 **usage-gated large bets** and **parked enterprise features** whose necessity is low
 for a single user.
 
-> **Tiers 1–3 are cleared** — the orchestrator (#50, `wd orch`) shipped (see
-> [FEATURES.md §17](FEATURES.md#17-orchestrator-wd-orch)), along with the
+> **Tiers 1–3 are cleared** — the REPL (#50, `wd repl`) shipped (see
+> [FEATURES.md §17](FEATURES.md#17-interactive-mode--repl-wd-repl)), along with the
 > onboarding / extensibility batch (#42, #43, #46, #47, #48). Only Tiers 4–5
 > remain below, and both are now empty or parked.
 

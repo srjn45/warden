@@ -54,7 +54,7 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `search` / `history` / `audit_log` | Full-text search / archived agents / the action audit trail |
 | `export_sessions` / `import_sessions` / `list_plugins` | Serialize / load session metadata / list registered plugins |
 
-> **Full parity (63 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, and `rotate`/`handoff`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `orch`); see the [feature catalog](/warden/reference/features/).
+> **Full parity (63 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, and `rotate`/`handoff`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`); see the [feature catalog](/warden/reference/features/).
 
 Example orchestrator prompts:
 
@@ -67,7 +67,7 @@ Example orchestrator prompts:
 - *"Kick off the analyze-implement-review pipeline on /path/to/repo"* → `create_pipeline` (template) + `start_pipeline`
 - *"Commit and push agent-4f2a's branch"* → `commit` then `push`; *"is anyone else editing auth.go?"* → `who_is_editing_file`
 
-> Prefer natural language over tool calls? `warden orch` is a local-LLM conductor REPL that drives these same operations from plain English without an orchestrator Claude session — see [Orchestrator REPL](/warden/multi-agent/orchestrator-repl/).
+> Prefer natural language over tool calls? `warden repl` is a local-LLM conductor REPL that drives these same operations from plain English without an orchestrator Claude session — see [Interactive REPL](/warden/multi-agent/repl/).
 
 ## The `/warden` Claude skill
 
