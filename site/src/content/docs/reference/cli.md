@@ -572,9 +572,18 @@ A real line editor (arrow keys, persisted history, reverse-search, a live `/`
 menu that filters as you type, Tab completion) that closes with Ctrl-D. Drive it
 with deterministic `/` commands (no model:
 /agents, /spawn <prompt>, /tell <id> <text>, … — type /help) or with natural
-language (planned by the local LLM, each call confirmed). `!cmd` runs a command
-in your own $SHELL. Starts without local_llm — only the natural-language half
-needs it.
+language (planned by the local LLM, each call confirmed).
+
+Guided argument forms: when a `/` command needs more than you typed, warden
+collects the arguments interactively — a numbered pick-list for fields with a
+known set (model, permission_mode, type, yes/no), free text for the rest. A
+command auto-opens the form when a required argument is missing (bare /spawn);
+add a trailing + to fill every field (/spawn+ <prompt>). With a local model
+present each field opens with a suggested value you can accept with Enter, type
+over, or clear with "-".
+
+`!cmd` runs a command in your own $SHELL. Starts without local_llm — only the
+natural-language half needs it.
 
 Usage:
   warden orch [flags]

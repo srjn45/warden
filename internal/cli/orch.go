@@ -31,6 +31,14 @@ Two ways to drive it:
   • Natural language: any other line is planned by the local LLM into warden tool
     calls, each confirmed before it runs.
 
+Guided argument forms: when a ` + "`/` command" + ` needs more than you typed, warden
+collects the arguments interactively — a numbered pick-list for fields with a
+known set (model, permission_mode, type, yes/no), free text for the rest. A
+command auto-opens the form when a required argument is missing (e.g. bare
+/spawn); add a trailing + to fill every field (/spawn+ <prompt>). With a local
+model present each field opens with a suggested value you can accept with Enter,
+type over, or clear with "-".
+
 ` + "`!cmd`" + ` runs a command in your own $SHELL. Requires local_llm: true for the
 natural-language half; the ` + "`/` commands" + ` work regardless.`,
 		Args: cobra.NoArgs,
