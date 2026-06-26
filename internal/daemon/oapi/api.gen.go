@@ -176,48 +176,6 @@ func (e TaskType) Valid() bool {
 	}
 }
 
-// Defines values for WorktreeListingLifecycle.
-const (
-	Archived WorktreeListingLifecycle = "archived"
-	Empty    WorktreeListingLifecycle = ""
-	Live     WorktreeListingLifecycle = "live"
-)
-
-// Valid indicates whether the value is a known member of the WorktreeListingLifecycle enum.
-func (e WorktreeListingLifecycle) Valid() bool {
-	switch e {
-	case Archived:
-		return true
-	case Empty:
-		return true
-	case Live:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for WorktreeListingState.
-const (
-	Clean    WorktreeListingState = "clean"
-	Dirty    WorktreeListingState = "dirty"
-	Unpushed WorktreeListingState = "unpushed"
-)
-
-// Valid indicates whether the value is a known member of the WorktreeListingState enum.
-func (e WorktreeListingState) Valid() bool {
-	switch e {
-	case Clean:
-		return true
-	case Dirty:
-		return true
-	case Unpushed:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for SetPermissionModeJSONBodyPermissionMode.
 const (
 	AcceptEdits       SetPermissionModeJSONBodyPermissionMode = "acceptEdits"
@@ -260,7 +218,7 @@ type AdoptRequest struct {
 
 // AdoptResponse defines model for AdoptResponse.
 type AdoptResponse struct {
-	Session Session `json:"session,omitempty"`
+	Session Session `json:"session"`
 	Warning string  `json:"warning,omitempty"`
 }
 
@@ -318,8 +276,8 @@ type CommitResult = lifecycle.CommitResult
 
 // ConfirmationResponse defines model for ConfirmationResponse.
 type ConfirmationResponse struct {
-	ConfirmationRequired bool    `json:"confirmation_required,omitempty"`
-	Verdict              Verdict `json:"verdict,omitempty"`
+	ConfirmationRequired bool    `json:"confirmation_required"`
+	Verdict              Verdict `json:"verdict"`
 }
 
 // Conflict defines model for Conflict.
@@ -446,7 +404,7 @@ type MetricsSample = metrics.Sample
 
 // OutputResponse defines model for OutputResponse.
 type OutputResponse struct {
-	Output string `json:"output,omitempty"`
+	Output string `json:"output"`
 }
 
 // PRResult defines model for PRResult.
@@ -496,16 +454,7 @@ type PruneRequest struct {
 }
 
 // PruneResult defines model for PruneResult.
-type PruneResult struct {
-	Action        string `json:"action,omitempty"`
-	Branch        string `json:"branch,omitempty"`
-	BranchDeleted bool   `json:"branch_deleted,omitempty"`
-	Lifecycle     string `json:"lifecycle,omitempty"`
-	Owner         string `json:"owner,omitempty"`
-	Path          string `json:"path,omitempty"`
-	Reason        string `json:"reason,omitempty"`
-	State         string `json:"state,omitempty"`
-}
+type PruneResult = lifecycle.PruneResult
 
 // PushResult defines model for PushResult.
 type PushResult = lifecycle.PushResult
@@ -628,21 +577,7 @@ type TaskType string
 type Verdict = pressure.Verdict
 
 // WorktreeListing defines model for WorktreeListing.
-type WorktreeListing struct {
-	Branch    string                   `json:"branch,omitempty"`
-	Detached  bool                     `json:"detached,omitempty"`
-	Lifecycle WorktreeListingLifecycle `json:"lifecycle,omitempty"`
-	Locked    bool                     `json:"locked,omitempty"`
-	Owner     string                   `json:"owner,omitempty"`
-	Path      string                   `json:"path,omitempty"`
-	State     WorktreeListingState     `json:"state,omitempty"`
-}
-
-// WorktreeListingLifecycle defines model for WorktreeListing.Lifecycle.
-type WorktreeListingLifecycle string
-
-// WorktreeListingState defines model for WorktreeListing.State.
-type WorktreeListingState string
+type WorktreeListing = lifecycle.WorktreeListing
 
 // CtxKey defines model for CtxKey.
 type CtxKey = string
@@ -3844,16 +3779,16 @@ type AdoptSessionResponseObject interface {
 	VisitAdoptSessionResponse(w http.ResponseWriter) error
 }
 
-type AdoptSession200JSONResponse AdoptResponse
+type AdoptSession201JSONResponse AdoptResponse
 
-func (response AdoptSession200JSONResponse) VisitAdoptSessionResponse(w http.ResponseWriter) error {
+func (response AdoptSession201JSONResponse) VisitAdoptSessionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4813,7 +4748,7 @@ type PruneWorktreesResponseObject interface {
 }
 
 type PruneWorktrees200JSONResponse struct {
-	Results []PruneResult `json:"results,omitempty"`
+	Results []PruneResult `json:"results"`
 }
 
 func (response PruneWorktrees200JSONResponse) VisitPruneWorktreesResponse(w http.ResponseWriter) error {
@@ -5154,7 +5089,9 @@ type SetAutoApproveResponseObject interface {
 	VisitSetAutoApproveResponse(w http.ResponseWriter) error
 }
 
-type SetAutoApprove200JSONResponse struct{ OKJSONResponse }
+type SetAutoApprove200JSONResponse struct {
+	AutoApprove bool `json:"auto_approve"`
+}
 
 func (response SetAutoApprove200JSONResponse) VisitSetAutoApproveResponse(w http.ResponseWriter) error {
 
@@ -5228,7 +5165,10 @@ type DeleteSessionResponseObject interface {
 	VisitDeleteSessionResponse(w http.ResponseWriter) error
 }
 
-type DeleteSession200JSONResponse struct{ OKJSONResponse }
+type DeleteSession200JSONResponse struct {
+	Status  string `json:"status"`
+	Warning string `json:"warning"`
+}
 
 func (response DeleteSession200JSONResponse) VisitDeleteSessionResponse(w http.ResponseWriter) error {
 
@@ -5415,7 +5355,9 @@ type SetNameResponseObject interface {
 	VisitSetNameResponse(w http.ResponseWriter) error
 }
 
-type SetName200JSONResponse struct{ OKJSONResponse }
+type SetName200JSONResponse struct {
+	Name string `json:"name"`
+}
 
 func (response SetName200JSONResponse) VisitSetNameResponse(w http.ResponseWriter) error {
 
@@ -5503,7 +5445,9 @@ type SetPermissionModeResponseObject interface {
 	VisitSetPermissionModeResponse(w http.ResponseWriter) error
 }
 
-type SetPermissionMode200JSONResponse struct{ OKJSONResponse }
+type SetPermissionMode200JSONResponse struct {
+	PermissionMode string `json:"permission_mode"`
+}
 
 func (response SetPermissionMode200JSONResponse) VisitSetPermissionModeResponse(w http.ResponseWriter) error {
 
@@ -5513,6 +5457,20 @@ func (response SetPermissionMode200JSONResponse) VisitSetPermissionModeResponse(
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetPermissionMode400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetPermissionMode400JSONResponse) VisitSetPermissionModeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5773,16 +5731,16 @@ type SpawnAgentResponseObject interface {
 	VisitSpawnAgentResponse(w http.ResponseWriter) error
 }
 
-type SpawnAgent200JSONResponse Session
+type SpawnAgent201JSONResponse Session
 
-func (response SpawnAgent200JSONResponse) VisitSpawnAgentResponse(w http.ResponseWriter) error {
+func (response SpawnAgent201JSONResponse) VisitSpawnAgentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5824,7 +5782,7 @@ type ListWorktreesResponseObject interface {
 }
 
 type ListWorktrees200JSONResponse struct {
-	Worktrees []WorktreeListing `json:"worktrees,omitempty"`
+	Worktrees []WorktreeListing `json:"worktrees"`
 }
 
 func (response ListWorktrees200JSONResponse) VisitListWorktreesResponse(w http.ResponseWriter) error {
