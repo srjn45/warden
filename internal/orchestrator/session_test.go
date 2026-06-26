@@ -57,6 +57,26 @@ func TestSession_MutationApprovedRuns(t *testing.T) {
 	require.Equal(t, "development", fd.lastSpawn.Type)
 }
 
+func TestSession_SanitizesHallucinatedSpawnArgs(t *testing.T) {
+	// A small model commonly pads a spawn with a fabricated repo and a bogus
+	// model/type. The daemon must receive only the clean fields — warden defaults
+	// the rest — instead of erroring on "/path/to/repo" or an unknown model.
+	chat := &scriptChatter{replies: []llm.Reply{
+		{ToolCalls: []ToolCall{{Name: "spawn_agent", Args: map[string]any{
+			"prompt": "review auth", "repo": "/path/to/repo", "model": "gpt-4", "type": "frobnicate",
+		}}}},
+		{Text: "spawned."},
+	}}
+	fd := &fakeDaemon{}
+	s := newTestSession(chat, fd, alwaysApprove())
+	s.Handle(context.Background(), "review the auth package")
+	require.Equal(t, 1, fd.spawnCalls)
+	require.Empty(t, fd.lastSpawn.Repo, "the fabricated repo path was dropped")
+	require.Empty(t, fd.lastSpawn.Model, "the bogus model was dropped")
+	require.Empty(t, fd.lastSpawn.Type, "the bogus type was dropped")
+	require.Equal(t, "review auth", fd.lastSpawn.Prompt)
+}
+
 func TestSession_UnknownToolRecovers(t *testing.T) {
 	chat := &scriptChatter{replies: []llm.Reply{
 		{ToolCalls: []ToolCall{{Name: "frobnicate"}}},

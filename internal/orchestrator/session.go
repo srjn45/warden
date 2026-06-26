@@ -167,6 +167,7 @@ func (s *Session) runCalls(ctx context.Context, calls []ToolCall, done map[strin
 	var mutating []ToolCall
 	progressed := false
 	for _, c := range calls {
+		c = sanitizeCall(c) // drop hallucinated args before the gate sees the call
 		tl, ok := s.reg.Lookup(c.Name)
 		if !ok {
 			s.recordTool(c.Name, fmt.Sprintf("unknown tool %q — choose one of the provided tools", c.Name))
