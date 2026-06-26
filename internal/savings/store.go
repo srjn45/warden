@@ -132,6 +132,38 @@ func (s *Store) gateSampleLocked(ev *Event) {
 	}
 }
 
+// CalibrationSamples returns the retained provenance sample strings (both the raw
+// and kept side of every event that carries them) since `since`, newest-first,
+// for `wd savings --calibrate` to count against count_tokens. Only the truncated
+// samples persisted under savings_samples are available — events whose samples
+// were not retained contribute nothing, which is why calibration measures the
+// workload from whatever real bytes the ledger kept. Best-effort like Events.
+func (s *Store) CalibrationSamples(since time.Time) ([]string, error) {
+	evs, err := s.Events(since)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(evs))
+	for i := len(evs) - 1; i >= 0; i-- { // newest first
+		e := evs[i]
+		if e.RawSample != "" {
+			out = append(out, e.RawSample)
+		}
+		if e.KeptSample != "" {
+			out = append(out, e.KeptSample)
+		}
+	}
+	return out, nil
+}
+
+// Calibration reads the persisted calibration sidecar next to the ledger (written
+// by `wd savings --calibrate`). The bool is false (no error) when no calibration
+// exists yet. The daemon calls this at report time to stamp the summary's basis
+// and to refresh the live estimation factor.
+func (s *Store) Calibration() (Calibration, bool, error) {
+	return LoadCalibration(filepath.Dir(s.path))
+}
+
 // Summary reads the events since `since` and aggregates them. Convenience wrapper
 // the daemon's GET /savings handler uses so the HTTP layer stays a thin shell.
 func (s *Store) Summary(since time.Time) (Summary, error) {

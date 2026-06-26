@@ -10,8 +10,10 @@
 package savings
 
 import (
+	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -132,20 +134,79 @@ func NewEvent(feature, agent string, rawTokens, keptTokens, costTokens int) Even
 	}
 }
 
-// EstimateTokens approximates the token count of a byte slice. We use the
-// widely-cited ~4-bytes-per-token heuristic (ceil), which is good enough for a
-// savings gauge measured across thousands of events; the estimate is isolated
-// here so a future exact count-tokens call can replace it without touching any
-// emit site. An empty slice is 0 tokens.
+// EstimateTokens approximates the token count of a byte slice. By default it uses
+// the widely-cited ~4-bytes-per-token heuristic (ceil); once `wd savings
+// --calibrate` has measured this workload's true bytes-per-token ratio against
+// Claude's count_tokens endpoint, that empirical factor is used instead (see
+// SetCalibration). The estimate is isolated here — the single place bytes become
+// tokens — so calibration changes every emit site's accounting without touching
+// any of them. An empty slice is 0 tokens.
 func EstimateTokens(b []byte) int { return EstimateTokensLen(len(b)) }
 
 // EstimateTokensLen is EstimateTokens over a known byte length, for call sites
-// that have the size but not the bytes (e.g. a string already truncated).
+// that have the size but not the bytes (e.g. a string already truncated). When
+// uncalibrated (no factor set) it is exactly (n+3)/4, byte-for-byte the prior
+// behavior; when calibrated it divides bytes by the measured bytes-per-token,
+// rounding to the nearest token (never below 1 for a non-empty input).
 func EstimateTokensLen(n int) int {
+	return estimateTokensLen(n, currentBytesPerToken())
+}
+
+// estimateTokensLen is the pure core of the estimate, parameterized on the factor
+// so the calibrated and heuristic paths are both unit-testable without touching
+// the package-global state. bytesPerToken <= 0 selects the (n+3)/4 heuristic.
+func estimateTokensLen(n int, bytesPerToken float64) int {
 	if n <= 0 {
 		return 0
 	}
+	if bytesPerToken > 0 {
+		t := int(math.Round(float64(n) / bytesPerToken))
+		if t < 1 {
+			t = 1 // a non-empty input is at least one token
+		}
+		return t
+	}
 	return (n + 3) / 4
+}
+
+// activeBytesPerToken is the live calibrated bytes-per-token factor consulted by
+// EstimateTokensLen. 0 ⇒ uncalibrated, so estimation falls back to the (n+3)/4
+// heuristic and behaves exactly as it did before any calibration. Guarded by
+// calibMu; the daemon sets it from the persisted calibration sidecar (see
+// calibrate.go). This is the single seam where calibration enters the otherwise
+// pure token estimate.
+var (
+	calibMu             sync.RWMutex
+	activeBytesPerToken float64
+)
+
+// SetCalibration installs an empirical bytes-per-token factor for all subsequent
+// estimates. A non-positive value is ignored (calibration only ever replaces the
+// heuristic with a real measurement, never with garbage). The daemon calls this
+// when it loads the persisted calibration; `wd savings --calibrate` derives and
+// persists the factor that ends up here.
+func SetCalibration(bytesPerToken float64) {
+	if bytesPerToken <= 0 {
+		return
+	}
+	calibMu.Lock()
+	defer calibMu.Unlock()
+	activeBytesPerToken = bytesPerToken
+}
+
+// ClearCalibration reverts estimation to the heuristic. Used by tests to restore
+// the package-global default; production code never un-calibrates.
+func ClearCalibration() {
+	calibMu.Lock()
+	defer calibMu.Unlock()
+	activeBytesPerToken = 0
+}
+
+// currentBytesPerToken reads the live factor under the read lock.
+func currentBytesPerToken() float64 {
+	calibMu.RLock()
+	defer calibMu.RUnlock()
+	return activeBytesPerToken
 }
 
 // FeatureSummary is the rolled-up saving for one feature over a window.
@@ -202,6 +263,21 @@ type Summary struct {
 	// the context-reduction wording. Populated by the daemon at report time, not
 	// by Summarize, since it is sourced outside the event ledger.
 	MeasuredSpend int `json:"measured_spend,omitempty"`
+
+	// Calibrated reports whether token estimates use an empirically derived
+	// bytes-per-token factor (wd savings --calibrate) instead of the generic
+	// 4-bytes/token heuristic, so the report can state its basis unambiguously.
+	// CalibratedBytesPerToken and CalibrationSamples describe that basis. Populated
+	// by the daemon at report time from the persisted calibration sidecar (like
+	// MeasuredSpend), not by Summarize — calibration is sourced outside the event
+	// ledger. Calibration is FORWARD-ONLY: a historical event keeps the heuristic
+	// counts it was recorded with (its raw bytes were never retained, so it cannot
+	// be re-priced), and only events recorded after calibration carry calibrated
+	// counts. A mixed ledger therefore reads HEURISTIC for old rows and CALIBRATED
+	// for new ones; the flag reports that the calibrated factor is now in force.
+	Calibrated              bool    `json:"calibrated,omitempty"`
+	CalibratedBytesPerToken float64 `json:"calibrated_bytes_per_token,omitempty"`
+	CalibrationSamples      int     `json:"calibration_samples,omitempty"`
 
 	// Buckets is the per-day saved-tokens trend over the window, oldest day first.
 	// Populated only when the caller asks for it (GET /savings?bucket=day); nil/

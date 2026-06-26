@@ -66,6 +66,54 @@ func TestStoreEventsSinceFilter(t *testing.T) {
 	}
 }
 
+func TestStoreCalibrationSamples(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(filepath.Join(dir, "savings"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetSampling(true) // retention is off by default; calibration needs real bytes
+
+	// First sample-eligible event is always retained (1-in-sampleEvery keeps the 1st).
+	ev := NewEvent(FeatureCheck, "a1", 1000, 100, 0)
+	ev.RawSample = "raw command output bytes"
+	ev.KeptSample = "kept"
+	if err := s.Record(ev); err != nil {
+		t.Fatal(err)
+	}
+	// An event with no samples contributes nothing.
+	if err := s.Record(NewEvent(FeatureCommit, "a2", 200, 20, 0)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.CalibrationSamples(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both the raw and kept side of the one retained event surface.
+	if len(got) != 2 {
+		t.Fatalf("CalibrationSamples = %v, want 2 strings", got)
+	}
+	if got[0] != "raw command output bytes" || got[1] != "kept" {
+		t.Fatalf("CalibrationSamples = %v, want raw then kept", got)
+	}
+
+	// Calibration() reads the sidecar that lives next to the ledger.
+	if _, ok, err := s.Calibration(); err != nil || ok {
+		t.Fatalf("fresh store Calibration: ok=%v err=%v, want ok=false", ok, err)
+	}
+	if err := SaveCalibration(filepath.Join(dir, "savings"), Calibration{BytesPerToken: 3.5, Samples: 2, Model: CalibrationModel}); err != nil {
+		t.Fatal(err)
+	}
+	cal, ok, err := s.Calibration()
+	if err != nil || !ok {
+		t.Fatalf("Calibration after save: ok=%v err=%v", ok, err)
+	}
+	if cal.BytesPerToken != 3.5 {
+		t.Fatalf("Calibration factor = %v, want 3.5", cal.BytesPerToken)
+	}
+}
+
 func TestStoreSummary(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewStore(filepath.Join(dir, "savings"))

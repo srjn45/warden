@@ -192,6 +192,36 @@ func TestFormatSavingsTwoAxes(t *testing.T) {
 	}
 }
 
+func TestBasisLine(t *testing.T) {
+	// Uncalibrated: the report must say HEURISTIC and point at --calibrate.
+	heur := basisLine(&savings.Summary{})
+	if !strings.Contains(heur, "HEURISTIC") || !strings.Contains(heur, "--calibrate") {
+		t.Errorf("uncalibrated basis line = %q, want HEURISTIC + --calibrate hint", heur)
+	}
+	// Calibrated: the report must say CALIBRATED with the factor and sample count.
+	cal := basisLine(&savings.Summary{Calibrated: true, CalibratedBytesPerToken: 3.72, CalibrationSamples: 40})
+	for _, want := range []string{"CALIBRATED", "3.72 bytes/token", "40 samples", savings.CalibrationModel} {
+		if !strings.Contains(cal, want) {
+			t.Errorf("calibrated basis line missing %q, got: %q", want, cal)
+		}
+	}
+}
+
+// TestFormatSavingsStatesBasis ensures the headline report always declares its
+// basis so a reader never mistakes a heuristic figure for a measured one.
+func TestFormatSavingsStatesBasis(t *testing.T) {
+	if out := formatSavings(mixedAxisSummary(), "7d"); !strings.Contains(out, "basis: HEURISTIC") {
+		t.Errorf("uncalibrated report missing HEURISTIC basis, got:\n%s", out)
+	}
+	sum := mixedAxisSummary()
+	sum.Calibrated = true
+	sum.CalibratedBytesPerToken = 3.5
+	sum.CalibrationSamples = 25
+	if out := formatBenchmark(sum, "7d"); !strings.Contains(out, "basis: CALIBRATED") {
+		t.Errorf("calibrated benchmark missing CALIBRATED basis, got:\n%s", out)
+	}
+}
+
 func TestFormatSavingsEmpty(t *testing.T) {
 	out := formatSavings(&savings.Summary{}, "")
 	if !strings.Contains(out, "no savings recorded yet (all time)") {

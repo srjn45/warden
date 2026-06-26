@@ -153,6 +153,13 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			srv.SetSavings(cfg.Savings, savStore, cfg.SavingsSamples)
+			// Apply a previously-derived calibration factor (wd savings --calibrate)
+			// so a freshly started daemon prices new events by this workload's measured
+			// bytes-per-token ratio rather than the 4-bytes/token heuristic. Absent or
+			// unreadable ⇒ the heuristic stands; report time refreshes it thereafter.
+			if cal, ok, cerr := savStore.Calibration(); cerr == nil && ok {
+				savings.SetCalibration(cal.BytesPerToken)
+			}
 			// Real-spend tracker: cumulative billed input+output tokens per session,
 			// read from agents' transcripts, feeding the savings report's denominator.
 			// Created regardless of the gate (like the ledger) so toggling savings on
