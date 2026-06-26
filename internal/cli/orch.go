@@ -65,7 +65,7 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 			sess := orchestrator.NewSession(
 				chat, cl, orchestrator.NewRegistry(),
 				gate,
-				orchestrator.NewRouterFromConfig(cfg),
+				orchestrator.NewRouterFromConfig(cfg, chat),
 			)
 			// The orchestrator runs on top of the operator's own shell: `!`-lines
 			// pass through to a persistent $SHELL started in the launch dir, teeing

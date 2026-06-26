@@ -17,9 +17,14 @@ const claudeEscalationTimeout = 45 * time.Second
 
 // NewRouterFromConfig builds a Router from warden config: the model's planning
 // tier comes from local_llm_tier (or the model name when "auto"), and escalation
-// from local_llm_escalate. Classification is a cheap deterministic heuristic (no
-// model call); escalation shells one bounded `claude -p`.
-func NewRouterFromConfig(cfg config.Config) *Router {
+// from local_llm_escalate. Classification is the deterministic heuristic (no
+// model call) by default, or — when local_llm_classifier is "model" and a
+// Completer is available — a one-shot local-model classification that falls back
+// to the heuristic on any error. Escalation shells one bounded `claude -p`.
+//
+// comp may be nil (no local model wired); then classification stays heuristic
+// regardless of the config value.
+func NewRouterFromConfig(cfg config.Config, comp llm.Completer) *Router {
 	tier, ok := ParseTier(cfg.GetLocalLLMTier())
 	if !ok {
 		tier = modelTier(cfg.LocalLLMModel)
@@ -28,7 +33,11 @@ func NewRouterFromConfig(cfg config.Config) *Router {
 	if cfg.GetLocalLLMEscalate() {
 		esc = &claudeEscalator{}
 	}
-	return NewRouter(tier, cfg.GetLocalLLMEscalate(), heuristicClassifier{}, esc)
+	var cls Classifier = heuristicClassifier{}
+	if comp != nil && strings.EqualFold(cfg.GetLocalLLMClassifier(), "model") {
+		cls = modelClassifier{comp: comp, fallback: heuristicClassifier{}}
+	}
+	return NewRouter(tier, cfg.GetLocalLLMEscalate(), cls, esc)
 }
 
 // heuristicClassifier buckets a request's needed tier from cheap surface signals
