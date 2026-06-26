@@ -22,6 +22,7 @@ import (
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
@@ -186,6 +187,12 @@ type Server struct {
 	// `snapshots`). See snapshot_routes.go.
 	snap      *snapshot.Manager
 	snapshots bool
+	// savings is the token-savings ledger (the measured token-reduction proof).
+	// nil ⇒ unconfigured; savingsOn additionally gates GET /savings (config
+	// `savings`). recordCheckSavings is fail-open, so a nil store or a write
+	// error never alters the check it measures. See savings_routes.go.
+	savings   *savings.Store
+	savingsOn bool
 	// plugins dispatches lifecycle hook events to registered plugin executables
 	// (#47). nil ⇒ the plugin system is off (the default); Dispatch is then a
 	// no-op. Dispatch is always fail-open, so it never alters request flow.
@@ -396,6 +403,7 @@ func (s *Server) router() http.Handler {
 		s.registerSearchRoutes(ar)
 		s.registerImportRoutes(ar)
 		s.registerSnapshotRoutes(ar)
+		s.registerSavingsRoutes(ar)
 	})
 
 	s.registerAPIDocsRoutes(r) // public OpenAPI docs; explicit /api/docs* routes

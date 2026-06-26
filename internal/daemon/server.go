@@ -13,6 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -57,6 +58,15 @@ func (s *Server) SetSnapshots(enabled bool, m *snapshot.Manager) { s.snapshots =
 // off, the default) makes every dispatch call a no-op, so the server runs exactly
 // as before. Dispatch is fail-open, so this never changes request control flow.
 func (s *Server) SetPlugins(d *plugin.Dispatcher) { s.plugins = d }
+
+// SetSavings wires the token-savings ledger and its config gate. enabled=false
+// (or a nil store) makes recording a no-op and GET /savings return 403, so the
+// server runs exactly as before. Recording is always fail-open — a ledger write
+// never alters the request it measures.
+func (s *Server) SetSavings(enabled bool, store *savings.Store) {
+	s.savingsOn = enabled
+	s.savings = store
+}
 
 // shutdownGrace bounds how long Shutdown waits for in-flight requests to drain
 // before returning (after which the process exits and any stragglers are cut).

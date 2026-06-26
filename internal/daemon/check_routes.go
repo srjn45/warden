@@ -51,5 +51,8 @@ func (s *Server) handleCheck(w http.ResponseWriter, r *http.Request) {
 		}
 		s.recordGitEvent(sess.ID, "check", detail)
 	}
+	// Record the token saving (fail-open): the raw test output `wd check` kept
+	// out of the transcript. Done before writeJSON since RawBytes is json:"-".
+	s.recordCheckSavings(sess, res)
 	writeJSON(w, http.StatusOK, res)
 }

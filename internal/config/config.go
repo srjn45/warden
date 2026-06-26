@@ -64,6 +64,7 @@ type Config struct {
 	GitRedirect            bool          `yaml:"git_redirect"`
 	CheckRedirect          bool          `yaml:"check_redirect"`
 	Snapshots              bool          `yaml:"snapshots"`
+	Savings                bool          `yaml:"savings"`
 	Tutorial               bool          `yaml:"tutorial"`
 	Insights               bool          `yaml:"insights"`
 	ApiDocs                bool          `yaml:"api_docs"`
@@ -138,6 +139,7 @@ var schema = []setting{
 	{"git_redirect", "Install the PreToolUse hook that denies raw git commit/push/pull/rebase in Bash and redirects to the warden tools (reads stay allowed). Values: true | false"},
 	{"check_redirect", "Install the PreToolUse hook that denies a raw test/lint/build command the project's .warden/check.yml registers and redirects it to wd check (returns only failures). No config means nothing is redirected. Values: true | false"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
+	{"savings", "Record the token reductions warden's lifecycle features earn (starting with wd check: raw test output kept out of the transcript) to an append-only ledger, surfaced by wd savings and GET /savings. Off disables recording and returns 403 on the endpoint. Values: true | false"},
 	{"tutorial", "Print a one-line first-run hint pointing at `wd tutorial` until the walkthrough is completed (it writes a tutorial-complete marker in data_dir). The hint is non-blocking and only shown on an interactive TTY; this gate disables it. Values: true | false"},
 	{"insights", "Enable the AI-powered insights engine (wd insights + MCP insights): mine agent history for duration outliers, co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could run in parallel. Deterministic by default; narrated by the local model when local_llm is on. Values: true | false"},
 	{"api_docs", "Serve the OpenAPI spec + interactive Swagger UI at /api/docs (public, like the static UI shell; the spec describes the API shape but holds no secrets). Values: true | false"},
@@ -206,6 +208,7 @@ func defaults() Config {
 		GitRedirect:            true,
 		CheckRedirect:          true,
 		Snapshots:              true,
+		Savings:                true,
 		Tutorial:               true,
 		Insights:               true,
 		ApiDocs:                true,
@@ -691,6 +694,10 @@ func (c Config) GetGitRedirect() bool { return c.GitRedirect }
 // .warden/check.yml registers and points the agent at wd check instead). With no
 // project config nothing is redirected, so this is effectively opt-in per repo.
 func (c Config) GetCheckRedirect() bool { return c.CheckRedirect }
+
+// GetSavings reports whether the token-savings ledger is enabled (the default).
+// When off, lifecycle features record no savings and GET /savings returns 403.
+func (c Config) GetSavings() bool { return c.Savings }
 
 // GetSnapshots reports whether the snapshot/checkpoint system is enabled (the
 // daemon gates the wd snapshot create/list/restore endpoints on it).
