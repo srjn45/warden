@@ -3,6 +3,12 @@ title: Quickstart
 description: Spawn your first agent in prompt mode, then watch, talk to, and tear it down — the whole loop.
 ---
 
+:::tip[New here? Take the guided tour]
+Run `warden tutorial` for an interactive walkthrough of the whole loop (spawn →
+watch → commit → tear down). Until you've taken or skipped it, warden prints a
+one-line nudge. `warden tutorial --skip` dismisses it; `--reset` brings it back.
+:::
+
 The fastest path is **prompt mode**: give a plain-English task and let warden handle the rest. No repo, no flags.
 
 ```sh
