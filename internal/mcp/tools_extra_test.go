@@ -149,6 +149,47 @@ func TestSetAutoApproveTool(t *testing.T) {
 	require.Contains(t, textOf(res), "auto-approve on for A-1")
 }
 
+// TestHandoffAgentRetire asserts handoff_agent{retire:true} runs the rotate path:
+// it spawns a successor in the ticket agent's worktree, then reaps that agent —
+// identical to rotate_agent.
+func TestHandoffAgentRetire(t *testing.T) {
+	var hits []string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.Method+" "+r.URL.Path)
+		switch {
+		case r.URL.Path == "/api/v1/sessions/OLD-1" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"OLD-1","workdir":"/repo/.worktrees/OLD-1","permission_mode":"acceptEdits"}`))
+		case r.URL.Path == "/api/v1/spawn":
+			_, _ = w.Write([]byte(`{"id":"SUCC-1","workdir":"/repo/.worktrees/OLD-1"}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "handoff_agent",
+		Arguments: map[string]any{"retire": true, "ticket": "OLD-1", "prompt": "carry on"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), `"successor": "SUCC-1"`)
+	require.Contains(t, textOf(res), `"retired": "OLD-1"`)
+	require.Contains(t, hits, "POST /api/v1/sessions/OLD-1/terminate", "retire must reap the ticket agent")
+}
+
+// TestHandoffAgentRetireRejectsTo guards the mutual exclusion at the MCP surface.
+func TestHandoffAgentRetireRejectsTo(t *testing.T) {
+	session := connectTo(t, "http://127.0.0.1:0")
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "handoff_agent",
+		Arguments: map[string]any{"retire": true, "to": "B-2", "prompt": "x", "ticket": "OLD-1"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, textOf(res), "mutually exclusive")
+}
+
 // TestCreateScheduleTool exercises the schedule create round-trip.
 func TestCreateScheduleTool(t *testing.T) {
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

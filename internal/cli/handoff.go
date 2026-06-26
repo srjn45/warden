@@ -123,14 +123,30 @@ func runHandoffTo(ctx context.Context, c handoffClient, targetID, from, body str
 func newHandoffCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "handoff",
-		Short: "Delegate a sub-task to another agent — a brand-new one or an existing one (--to)",
-		Long: "Hand a structured context package to a DIFFERENT agent so it can pick up a related " +
-			"task. Unlike `rotate`, the source agent keeps running. Phase 1 (writing the handoff " +
+		Short: "Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)",
+		Long: "Hand a structured context package off to another agent. Phase 1 (writing the handoff " +
 			"file + resume prompt) is driven by the /warden skill; this verb performs the delivery. " +
-			"Default mode spawns a fresh delegate in its own worktree; --to <id> delivers into an " +
-			"already-running agent's inbox (waking it).",
+			"Three modes:\n\n" +
+			"  • default — spawn a fresh delegate in its own isolated worktree for a sub-task; the " +
+			"source agent keeps running.\n" +
+			"  • --to <id> — deliver the handoff into an already-running agent's inbox (waking it); " +
+			"the source agent keeps running.\n" +
+			"  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling " +
+			"agent (self-succession). Requires --confirm. This is what the `rotate` alias runs.\n\n" +
+			"--retire and --to are mutually exclusive: retire reaps the caller, --to never does.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			retire, _ := cmd.Flags().GetBool("retire")
+			toFlag, _ := cmd.Flags().GetString("to")
+			// --retire (self-succession, reaps the caller) and --to (delegate to an
+			// existing agent, keeps the caller) are contradictory.
+			if retire && toFlag != "" {
+				return fmt.Errorf("--retire and --to are mutually exclusive: --retire reaps this agent into a same-worktree successor, while --to delegates to an existing agent and keeps this agent running")
+			}
+			// Retire reuses the exact `rotate` code path so behavior is identical.
+			if retire {
+				return runRetire(cmd)
+			}
 			resumeFile, _ := cmd.Flags().GetString("resume-file")
 			resumePrompt, _ := cmd.Flags().GetString("resume-prompt")
 			if resumeFile == "" || resumePrompt == "" {
@@ -188,8 +204,10 @@ func newHandoffCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("resume-file", "", "path to the handoff notes file whose content is delivered to the recipient")
+	cmd.Flags().String("resume-file", "", "path to the handoff notes file whose content is delivered to the recipient (with --retire, the path the successor reads in place)")
 	cmd.Flags().String("resume-prompt", "", "the recipient's task prompt")
+	cmd.Flags().Bool("retire", false, "self-succession: spawn a successor in THIS agent's worktree and reap the calling agent (mutually exclusive with --to; requires --confirm). Equivalent to 'warden rotate'")
+	cmd.Flags().Bool("confirm", false, "with --retire, actually spawn the successor and retire this agent (required)")
 	cmd.Flags().String("to", "", "deliver to this existing agent id instead of spawning a new one")
 	cmd.Flags().String("as", "", "act as this agent id for provenance (defaults to $WARDEN_SESSION_ID, else 'human')")
 	cmd.Flags().String("type", "development", "task type for a new delegate (ignored with --to)")

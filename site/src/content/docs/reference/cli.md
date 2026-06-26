@@ -37,7 +37,7 @@ Available Commands:
   doctor              Run preflight checks (required binaries, daemon, data dir)
   done                Terminate an agent and clear its record (does NOT remove the worktree)
   export              Serialize agent session metadata to JSON on stdout
-  handoff             Delegate a sub-task to another agent — a brand-new one or an existing one (--to)
+  handoff             Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
   insights            Mine agent history for patterns and parallelization wins
@@ -54,7 +54,7 @@ Available Commands:
   remove-worktree     Remove an agent's git worktree + branch (always asks; --force overrides guards)
   repl                Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands)
   restore             Recreate and resume a lost/orphaned agent (claude --resume)
-  rotate              Hand this agent's work to a fresh successor in the same workspace, then retire it
+  rotate              Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
   savings             Show the token reductions warden's lifecycle features have earned
   schedule            Fire an agent or pipeline on a cron/at timer (opt-in)
   search              Full-text search agents by subject, prompt, type, name, branch, or pane text
@@ -181,14 +181,18 @@ Flags:
 
 ## warden rotate
 
+`warden rotate` is a thin alias for `warden handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
+
 ```text
 Run inside an agent session. Phase 1 is driven by the /warden skill (the agent writes a handoff file + resume prompt and shows you). On your go-ahead, run with --confirm to spawn the successor and reap this agent.
+
+This is a thin alias for `warden handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
 
 Usage:
   warden rotate [flags]
 
 Flags:
-      --confirm                actually spawn the successor and retire this agent (required)
+      --confirm                actually spawn the successor and retire this agent (required for retire)
   -h, --help                   help for rotate
       --resume-file string     path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)
       --resume-prompt string   the successor's initial task prompt
@@ -568,17 +572,25 @@ See the [Remote access](/warden/guides/remote-access/) guide.
 ## warden handoff
 
 ```text
-Hand a structured context package to a DIFFERENT agent so it can pick up a related task. Unlike
-`rotate`, the source agent keeps running. Default mode spawns a fresh delegate in its own worktree;
---to <id> delivers into an already-running agent's inbox (waking it).
+Hand a structured context package off to another agent. Phase 1 (writing the handoff file + resume
+prompt) is driven by the /warden skill; this verb performs the delivery. Three modes:
+
+  • default — spawn a fresh delegate in its own isolated worktree for a sub-task; the source agent keeps running.
+  • --to <id> — deliver the handoff into an already-running agent's inbox (waking it); the source agent keeps running.
+  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling agent (self-succession). Requires --confirm. This is what the `rotate` alias runs.
+
+--retire and --to are mutually exclusive: retire reaps the caller, --to never does.
 
 Usage:
   warden handoff [flags]
 
 Flags:
+      --retire                 self-succession: spawn a successor in THIS agent's worktree and reap the calling agent (mutually exclusive with --to; requires --confirm). Equivalent to 'warden rotate'
+      --confirm                with --retire, actually spawn the successor and retire this agent (required)
       --to string              deliver to this existing agent id instead of spawning a new one
-      --resume-file string     path to the handoff notes file delivered to the recipient
+      --resume-file string     path to the handoff notes file whose content is delivered to the recipient (with --retire, the path the successor reads in place)
       --resume-prompt string   the recipient's task prompt
+      --as string              act as this agent id for provenance (defaults to $WARDEN_SESSION_ID, else 'human')
       --type string            task type for a new delegate (default "development")
       --branch / --name / --repo / --force   options for a new delegate (ignored with --to)
 ```

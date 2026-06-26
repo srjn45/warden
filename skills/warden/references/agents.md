@@ -41,8 +41,8 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | completion digest | MCP `digest {ticket}` / `warden digest <id>` (`--json`) — files touched, branch, turn count, narrative |
 | search the fleet | MCP `search {query, closed?}` / `warden search <query…>` (terms ANDed; `--closed` folds in archive) |
 | browse the archive | MCP `history {since?, type?, limit?}` / `warden history` (`--since 24h|7d|2w|date`, `--type`, `--limit`) |
-| rotate yourself into a fresh agent | `/warden rotate` (self) — see below; remote: MCP `rotate_agent {ticket, resume_prompt, resume_file?}` |
-| delegate a sub-task to another agent | `/warden handoff` (you keep running) — see below; MCP `handoff_agent {prompt, context?, to?|repo/type/…}` |
+| hand off / delegate work (one verb, three modes) | `/warden handoff` — see below. New delegate (default) / `--to <id>` (existing agent) keep you running; `--retire` reaps you into a same-worktree successor. MCP `handoff_agent {prompt, context?, to?|repo/type/… | retire+ticket}` |
+| rotate yourself into a fresh agent | `/warden handoff --retire` (alias: `/warden rotate`) — self-succession, see below; remote: MCP `rotate_agent {ticket, resume_prompt, resume_file?}` or `handoff_agent {retire:true, ticket, prompt}` |
 
 ## Spawn options worth knowing
 
@@ -75,16 +75,33 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 many agents are already live. `--force` (or MCP `force:true`) spawns anyway. The
 same gate governs new-delegate `handoff`.
 
-## Rotating a long-running agent into a fresh one (self-rotation)
+## Handoff is one concept
+
+`handoff` covers **every** way of passing work to another agent. Pick the mode by
+who runs the work next and whether **you** survive:
+
+| mode | flag | successor lives in | does it reap you? |
+| --- | --- | --- | --- |
+| new delegate | _(default)_ | its own fresh worktree | no — you keep running |
+| existing agent | `--to <id>` | that agent's worktree | no — you keep running |
+| retire self | `--retire` | **your** worktree (cwd) | **yes** — you are retired |
+
+`--retire` is the **self-succession** mode (formerly the separate `rotate`
+command). `warden rotate` is now a thin alias for `warden handoff --retire` — same
+flags, same behavior. `--retire` and `--to` are mutually exclusive (one reaps you,
+the other never does).
+
+## Retiring a long-running agent into a fresh one (`handoff --retire`)
 
 When **you yourself** are a long-running agent whose context has grown large and
-the user runs `/warden rotate`, hand your work to a fresh successor in the same
-workspace, then retire yourself. This bounds context and returns memory to the OS
-without losing the task. From **inside** the agent use `/warden rotate` (it reads
-`$WARDEN_SESSION_ID`). An **orchestrator** can rotate any agent remotely via MCP
-`rotate_agent {ticket, resume_prompt, resume_file?}` — same semantics (successor
-inherits the worktree + permission mode; old agent reaped after the successor
-spawns).
+the user runs `/warden rotate` (or asks you to retire/rotate), hand your work to a
+fresh successor in the same workspace, then retire yourself. This bounds context
+and returns memory to the OS without losing the task. From **inside** the agent
+use `/warden handoff --retire` (or its `/warden rotate` alias) — it reads
+`$WARDEN_SESSION_ID`. An **orchestrator** can retire any agent remotely via MCP
+`handoff_agent {retire:true, ticket, prompt, resume_file?}` (or the `rotate_agent`
+alias) — same semantics (successor inherits the worktree + permission mode; old
+agent reaped after the successor spawns).
 
 Two phases, with a human review gate between them:
 
@@ -102,9 +119,10 @@ Two phases, with a human review gate between them:
 
    ```sh
    HANDOFF="${TMPDIR:-/tmp}/warden-rotate-handoff-$WARDEN_SESSION_ID.md"
-   warden rotate --confirm \
+   warden handoff --retire --confirm \
      --resume-file "$HANDOFF" \
      --resume-prompt "<the resume prompt>"
+   # `warden rotate --confirm …` is an exact alias if you prefer the short verb.
    ```
 
    This spawns the successor in your exact working directory (same worktree, same
@@ -112,24 +130,23 @@ Two phases, with a human review gate between them:
    deletes the temp handoff file once read. Nothing irreversible happens without
    `--confirm`.
 
-Do **not** spawn the successor or terminate yourself by hand — `warden rotate`
-inherits your launch config and orders spawn-before-reap safely (a failed spawn
-leaves you running, so no work is stranded).
+Do **not** spawn the successor or terminate yourself by hand — `warden handoff
+--retire` inherits your launch config and orders spawn-before-reap safely (a
+failed spawn leaves you running, so no work is stranded).
 
-## Delegating a sub-task to another agent (handoff)
+## Delegating a sub-task to another agent (`handoff` default / `--to`)
 
-`handoff` is the **cross-agent** counterpart to `rotate`. Where `rotate` retires
-**you** in favour of a same-worktree successor, `handoff` hands a slice of work to
-a **different** agent and **you keep running**. Use it to fork off an independent
-sub-task or to brief an already-running agent.
+These are the **cross-agent** handoff modes — you hand a slice of work to a
+**different** agent and **you keep running** (contrast `--retire` above, which
+reaps you). Use them to fork off an independent sub-task or to brief an
+already-running agent.
 
-Two modes:
 - **New delegate (default):** spawns a fresh agent with **its own isolated
   worktree** off the repo. Best for a sub-task that can proceed in parallel.
 - **Existing agent (`--to <id>`):** delivers the handoff into a running agent's
   inbox (waking it if idle). Best for briefing an agent already on a related task.
 
-Same two-phase, human-reviewed shape as rotate:
+Same two-phase, human-reviewed shape as the retire mode:
 
 1. **Prepare (you do this directly).** Write a handoff file to a unique per-agent
    temp path (`${TMPDIR:-/tmp}/warden-handoff-$WARDEN_SESSION_ID.md`). The

@@ -35,7 +35,7 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `terminate_agent` / `restore_agent` | Stop (reversible) / resume an agent |
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
-| `rotate_agent` / `handoff_agent` | Retire→successor in place / delegate to another agent |
+| `handoff_agent` / `rotate_agent` | Hand off work — delegate to new/`to` existing agent, or `retire`→successor in place; `rotate_agent` is an alias for `handoff_agent {retire:true}` |
 | `ctx_set` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `ctx_cas` / `ctx_append` | Compare-and-set / append-to-list context writes (lock-free coordination) |
 | `send_message` / `read_inbox` / `wait_for_message` | Directed messaging, incl. a blocking long-poll wait |

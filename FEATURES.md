@@ -50,8 +50,8 @@ own tmux session, most in a git worktree).
 | Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Tags (group / filter) | `start --tag`, `ls --tag` | `spawn_agent` (`tags`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Model selection | `start --model` / config | `spawn_agent` (`model`) | ✓ | ✓ | — | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
-| Self-rotation (retire → successor) | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
-| Delegate / handoff to another agent | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
+| Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
+| Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 
 ## 2. Task types & worktrees
 

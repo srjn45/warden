@@ -3,19 +3,21 @@ title: Self-rotation & digests
 description: Retire a context-heavy agent into a fresh successor, and summarize what an agent accomplished.
 ---
 
-## Self-rotation (`warden rotate`)
+## Self-rotation (`warden handoff --retire`, alias `warden rotate`)
 
-Run **inside an agent session** to retire a long-lived, context-heavy agent and hand off to a fresh successor in the same workdir/worktree. Phase 1 (writing the handoff file + resume prompt) is driven by the `/warden` skill; on confirmation the agent spawns its successor and reaps itself.
+Run **inside an agent session** to retire a long-lived, context-heavy agent and hand off to a fresh successor in the same workdir/worktree. This is the **retire** mode of the unified [`handoff`](/warden/guides/fleet-operations/#handoff-warden-handoff) verb; `warden rotate` is an exact alias. Phase 1 (writing the handoff file + resume prompt) is driven by the `/warden` skill; on confirmation the agent spawns its successor and reaps itself.
 
 ```sh
-warden rotate --confirm \
+warden handoff --retire --confirm \
   --resume-file "${TMPDIR:-/tmp}/warden-rotate-handoff-$WARDEN_SESSION_ID.md" \
   --resume-prompt "Continue the migration from where the notes leave off"
+# `warden rotate --confirm …` is an exact alias.
 ```
 
 - The handoff file uses a **unique, per-agent temp path** (`$TMPDIR` keyed on `$WARDEN_SESSION_ID`), so concurrent agents rotating at the same time never overwrite each other's notes. The successor deletes it once it has read it, and `/tmp` self-clears as a backstop.
 - **Spawn-before-reap** is fail-safe — if the successor fails to spawn, the current agent keeps running.
 - Rotation **reuses the worktree by cwd and never removes it** (a compile-time invariant: the rotator interface omits worktree removal).
+- `--retire` is **mutually exclusive** with `--to` — retire reaps the caller, while the delegate / `--to` modes keep it running.
 
 ## Completion digest (`warden digest`)
 
