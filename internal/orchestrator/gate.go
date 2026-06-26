@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -37,7 +39,15 @@ type Gate struct {
 	in    lineReader
 	out   io.Writer
 	style *styler
+	// reg supplies each tool's parameter schema (field names + types) so the
+	// editor can prompt field-by-field. It may be nil — a gate built without a
+	// registry (in tests) falls back to editing the call's own args.
+	reg *Registry
 }
+
+// useRegistry points the editor at the tool schemas so it can prompt one field
+// at a time. NewSession wires this when the gate is a *Gate.
+func (g *Gate) useRegistry(r *Registry) { g.reg = r }
 
 // NewGate builds a gate over the given reader/writer (stdin/stdout in the REPL,
 // scripted buffers in tests). By default it reads through a plain scanner; the
@@ -81,28 +91,200 @@ func (g *Gate) Confirm(calls []ToolCall) Decision {
 	}
 }
 
-// edit re-prompts the operator for each call's args as a JSON object. Minimal by
-// design for the MVP — a field-by-field editor is a follow-up. An unparseable or
-// blank entry keeps the original args for that call.
+// edit walks the operator through each proposed call one field at a time: a
+// short prompt per field shows the current value, and a blank line (Enter) keeps
+// it. This replaces the old single-line JSON editor, which built a prompt wider
+// than the terminal (unusable to hand-edit, and the interactive reader
+// mis-renders an over-width prompt — it stacks copies of it). Ctrl-C or EOF
+// part-way through stops editing and keeps the remaining fields untouched.
 func (g *Gate) edit(calls []ToolCall) []ToolCall {
 	edited := make([]ToolCall, len(calls))
 	for i, c := range calls {
-		prompt := fmt.Sprintf("edit args for %s (JSON, blank to keep %s): ", c.Name, renderArgs(c.Args))
-		nc := ToolCall{Name: c.Name, Args: c.Args}
-		if line, err := g.in.Prompt(prompt); err == nil {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				var m map[string]any
-				if err := json.Unmarshal([]byte(line), &m); err == nil {
-					nc.Args = m
-				} else {
-					fmt.Fprintln(g.out, "  (unparseable JSON — keeping original)")
-				}
-			}
-		}
-		edited[i] = nc
+		edited[i] = g.editOne(c)
 	}
 	return edited
+}
+
+// editOne prompts for each editable field of a single call. It starts from a
+// copy of the proposed args, so untouched fields (and fields the operator skips)
+// keep exactly what the model proposed.
+func (g *Gate) editOne(c ToolCall) ToolCall {
+	args := cloneArgs(c.Args)
+	fields := g.fieldsFor(c)
+	if len(fields) == 0 {
+		return ToolCall{Name: c.Name, Args: args}
+	}
+	fmt.Fprintln(g.out, g.style.hint.Render(
+		fmt.Sprintf("editing %s — type a new value or press Enter to keep the current one (Ctrl-C to finish):", c.Name)))
+	for _, f := range fields {
+		line, err := g.in.Prompt(fieldPrompt(f, args))
+		if err != nil {
+			break // Ctrl-C / EOF → keep the remaining fields as proposed
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue // Enter keeps the current value
+		}
+		setField(args, f, line, g.out)
+	}
+	return ToolCall{Name: c.Name, Args: args}
+}
+
+// fieldSpec is one editable argument: its key and JSON-Schema type.
+type fieldSpec struct {
+	name string
+	kind string // "string" | "boolean" | "integer"
+}
+
+// fieldsFor returns the editable fields for a call, ordered for prompting. It
+// prefers the tool's declared schema (so the operator can fill in a field the
+// model omitted, e.g. branch); with no registry it falls back to the keys the
+// call already carries.
+func (g *Gate) fieldsFor(c ToolCall) []fieldSpec {
+	props := map[string]any{}
+	var required []string
+	if g.reg != nil {
+		if tl, ok := g.reg.Lookup(c.Name); ok {
+			if p, ok := tl.Schema.Parameters["properties"].(map[string]any); ok {
+				props = p
+			}
+			required, _ = tl.Schema.Parameters["required"].([]string)
+		}
+	}
+	if len(props) == 0 {
+		for k, v := range c.Args {
+			props[k] = map[string]any{"type": kindOf(v)}
+		}
+	}
+	return orderFields(props, required)
+}
+
+// preferredFieldOrder lists known argument keys in the order an operator most
+// naturally fills them. Unlisted keys follow, alphabetically. Required keys
+// always lead, in their schema order.
+var preferredFieldOrder = []string{
+	"prompt", "name", "type", "repo", "branch", "worktree", "in_repo",
+	"model", "permission_mode", "agent", "ticket", "to", "body", "text",
+	"message", "key", "value", "spec", "id", "option", "dir", "base",
+	"hard", "unread", "prefix", "lines",
+}
+
+func orderFields(props map[string]any, required []string) []fieldSpec {
+	seen := map[string]bool{}
+	var out []fieldSpec
+	add := func(name string) {
+		if seen[name] {
+			return
+		}
+		p, ok := props[name]
+		if !ok {
+			return
+		}
+		seen[name] = true
+		out = append(out, fieldSpec{name: name, kind: kindFromProp(p)})
+	}
+	for _, n := range required {
+		add(n)
+	}
+	for _, n := range preferredFieldOrder {
+		add(n)
+	}
+	rest := make([]string, 0, len(props))
+	for n := range props {
+		if !seen[n] {
+			rest = append(rest, n)
+		}
+	}
+	sort.Strings(rest)
+	for _, n := range rest {
+		add(n)
+	}
+	return out
+}
+
+// fieldPrompt renders one short prompt: the field name and its current value
+// (truncated so the line never exceeds the terminal width). Booleans show a y/n
+// hint.
+func fieldPrompt(f fieldSpec, args map[string]any) string {
+	if f.kind == "boolean" {
+		return fmt.Sprintf("  %s [%v] (y/n): ", f.name, argBool(args, f.name))
+	}
+	return fmt.Sprintf("  %s [%s]: ", f.name, truncateVal(argStr(args, f.name), 28))
+}
+
+// setField applies a non-blank operator entry to args, coercing by type. A
+// malformed bool/int is reported and the current value kept, so a typo never
+// silently writes garbage.
+func setField(args map[string]any, f fieldSpec, line string, out io.Writer) {
+	switch f.kind {
+	case "boolean":
+		b, ok := parseBoolInput(line)
+		if !ok {
+			fmt.Fprintln(out, "  (enter y or n — keeping current)")
+			return
+		}
+		args[f.name] = b
+	case "integer":
+		n, err := strconv.Atoi(line)
+		if err != nil {
+			fmt.Fprintln(out, "  (enter a whole number — keeping current)")
+			return
+		}
+		args[f.name] = n
+	default:
+		args[f.name] = line
+	}
+}
+
+func parseBoolInput(s string) (val, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "y", "yes", "true", "1":
+		return true, true
+	case "n", "no", "false", "0":
+		return false, true
+	}
+	return false, false
+}
+
+func kindFromProp(p any) string {
+	if m, ok := p.(map[string]any); ok {
+		if t, ok := m["type"].(string); ok {
+			return t
+		}
+	}
+	return "string"
+}
+
+func kindOf(v any) string {
+	switch v.(type) {
+	case bool:
+		return "boolean"
+	case float64, int:
+		return "integer"
+	default:
+		return "string"
+	}
+}
+
+func cloneArgs(a map[string]any) map[string]any {
+	out := make(map[string]any, len(a))
+	for k, v := range a {
+		out[k] = v
+	}
+	return out
+}
+
+// truncateVal keeps a current-value preview short (and single-line) so the
+// readline prompt stays well under the terminal width.
+func truncateVal(s string, max int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= max {
+		return s
+	}
+	if max <= 1 {
+		return s[:max]
+	}
+	return s[:max-1] + "…"
 }
 
 func renderArgs(args map[string]any) string {
