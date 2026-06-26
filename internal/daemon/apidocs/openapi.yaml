@@ -167,7 +167,7 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/SpawnRequest" }
       responses:
-        "200":
+        "201":
           description: The spawned session
           content:
             application/json:
@@ -195,7 +195,7 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/AdoptRequest" }
       responses:
-        "200":
+        "201":
           description: The adopted session (plus an optional non-fatal warning)
           content:
             application/json:
@@ -223,7 +223,16 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/DeleteRequest" }
       responses:
-        "200": { $ref: "#/components/responses/OK" }
+        "200":
+          description: Deleted (warning set when the agent may still be live)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, warning]
+                properties:
+                  status: { type: string }
+                  warning: { type: string }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/sessions/{id}/remove-worktree:
@@ -350,7 +359,15 @@ paths:
               properties:
                 enabled: { type: boolean }
       responses:
-        "200": { $ref: "#/components/responses/OK" }
+        "200":
+          description: The new auto-approve state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [auto_approve]
+                properties:
+                  auto_approve: { type: boolean }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/sessions/{id}/permission-mode:
@@ -370,7 +387,16 @@ paths:
                   type: string
                   enum: [auto, default, acceptEdits, bypassPermissions, dontAsk, plan]
       responses:
-        "200": { $ref: "#/components/responses/OK" }
+        "200":
+          description: The new permission mode
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [permission_mode]
+                properties:
+                  permission_mode: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/sessions/{id}/name:
@@ -389,7 +415,15 @@ paths:
               properties:
                 name: { type: string }
       responses:
-        "200": { $ref: "#/components/responses/OK" }
+        "200":
+          description: The new name (blank when cleared)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [name]
+                properties:
+                  name: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -540,6 +574,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [worktrees]
                 properties:
                   worktrees:
                     type: array
@@ -562,6 +597,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [results]
                 properties:
                   results:
                     type: array
@@ -1545,6 +1581,7 @@ components:
 
     ConfirmationResponse:
       type: object
+      required: [confirmation_required, verdict]
       properties:
         confirmation_required: { type: boolean }
         verdict: { $ref: "#/components/schemas/Verdict" }
@@ -1558,6 +1595,7 @@ components:
 
     AdoptResponse:
       type: object
+      required: [session]
       properties:
         session: { $ref: "#/components/schemas/Session" }
         warning: { type: string }
@@ -1581,6 +1619,7 @@ components:
 
     OutputResponse:
       type: object
+      required: [output]
       properties:
         output: { type: string }
 
@@ -1886,6 +1925,10 @@ components:
         output: { type: string }
 
     WorktreeListing:
+      x-go-type: lifecycle.WorktreeListing
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
       type: object
       properties:
         path: { type: string }
@@ -1905,6 +1948,10 @@ components:
         include_archived: { type: boolean }
 
     PruneResult:
+      x-go-type: lifecycle.PruneResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
       type: object
       properties:
         path: { type: string }
