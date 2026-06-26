@@ -67,6 +67,20 @@ type deleteToolArgs struct {
 	Hard   bool   `json:"hard,omitempty" jsonschema:"permanently purge instead of archiving"`
 }
 
+// stopArgs backs the umbrella stop_agent tool. The default (all keep_* false)
+// is a full teardown: terminate + clear record + remove worktree. The keep_*
+// flags are subtractive, mirroring the `wd stop` CLI flags.
+type stopArgs struct {
+	Ticket              string `json:"ticket" jsonschema:"the agent's ticket / session id"`
+	KeepRecord          bool   `json:"keep_record,omitempty" jsonschema:"do not clear the stored record"`
+	KeepWorktree        bool   `json:"keep_worktree,omitempty" jsonschema:"do not remove the git worktree (keep_worktree alone == the old done)"`
+	Hard                bool   `json:"hard,omitempty" jsonschema:"purge the record instead of archiving"`
+	PR                  bool   `json:"pr,omitempty" jsonschema:"open a GitHub PR for the agent's branch (pushes first) before tearing down"`
+	Base                string `json:"base,omitempty" jsonschema:"base branch for the PR (default main); only meaningful with pr=true"`
+	Force               bool   `json:"force,omitempty" jsonschema:"override the alive/uncommitted/unpushed worktree guards"`
+	DeleteAdoptedBranch bool   `json:"delete_adopted_branch,omitempty" jsonschema:"also delete the branch even if warden did not create it (adopted branches are kept by default)"`
+}
+
 type gitCommitArgs struct {
 	Message string `json:"message,omitempty" jsonschema:"the commit message — best to pass it, you wrote the change so you know the intent; if omitted warden generates one from the diff"`
 	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit; defaults to the current directory"`
@@ -596,6 +610,39 @@ func NewServer(daemonBase string) *Server {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("removed worktree for " + a.Ticket), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "stop_agent",
+		Description: "Tear down an agent — the single umbrella verb. Default (all keep_* false) is a FULL teardown: terminate the session, clear (archive) the record, AND remove the git worktree + branch. Subtractive flags keep parts: keep_record, keep_worktree (keep_worktree alone == the old 'done'). hard=true purges the record; pr=true opens a GitHub PR first while the agent is intact (safe order: PR → terminate → clear record → remove worktree). DESTRUCTIVE when it removes the worktree — only do so after explicit user confirmation; force=true overrides the alive/uncommitted/unpushed guards.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stopArgs) (*mcpsdk.CallToolResult, any, error) {
+		// Safe order: PR (while the agent is intact) → terminate → clear record → remove worktree.
+		prefix := ""
+		if a.PR {
+			res, err := s.cl.CreatePR(ctx, a.Ticket, a.Base)
+			if err != nil {
+				return textResult("error: create PR: " + err.Error() + " (agent left running — fix the issue and retry)"), nil, nil
+			}
+			verb := "opened PR"
+			if !res.Created {
+				verb = "PR already exists"
+			}
+			prefix = verb + ": " + res.URL + "; "
+		}
+		if err := s.cl.Terminate(ctx, a.Ticket); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		if !a.KeepRecord {
+			if err := s.cl.Delete(ctx, a.Ticket, a.Hard); err != nil {
+				return textResult("error: " + err.Error()), nil, nil
+			}
+		}
+		if !a.KeepWorktree {
+			if err := s.cl.RemoveWorktree(ctx, a.Ticket, a.Force, a.DeleteAdoptedBranch); err != nil {
+				return textResult("error: " + err.Error()), nil, nil
+			}
+		}
+		return textResult(prefix + "stopped " + a.Ticket), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

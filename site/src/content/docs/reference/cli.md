@@ -63,6 +63,7 @@ Available Commands:
   snapshot            Checkpoint a worktree + transcript and roll back later
   start               Spawn an agent — `start "<prompt>"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)
   stats               Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
+  stop                Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
   status              Show full status for one session
   sync                Fetch and rebase the current branch onto its base (warden conflict detect)
   tail                Print the recent output of an agent's claude session
@@ -648,6 +649,7 @@ A handful of lifecycle commands share the simple `<TICKET>` shape:
 
 ```text
 warden adopt [--session-id <uuid>] [--dir <path>]   Register an existing Claude session
+warden stop <TICKET> [flags]                         Umbrella teardown (default: terminate + clear record + remove worktree)
 warden terminate <TICKET>                           Stop an agent (keeps record + worktree)
 warden restore <TICKET>                             Recreate/resume a lost/orphaned agent
 warden done <TICKET> [--hard]                        Terminate + clear record (worktree kept)
@@ -656,3 +658,32 @@ warden remove-worktree <TICKET> [--force]            Remove the git worktree + b
 warden daemon [--addr ADDR]                          Run the hub (HTTP API + poller)
 warden mcp [--addr ADDR]                             Run the MCP stdio server
 ```
+
+### `warden stop` — the umbrella teardown verb
+
+`warden stop <TICKET>` is the single umbrella for all four teardown verbs.
+By default it does a **full teardown**: terminate the session, clear (archive)
+the record, **and** remove the git worktree + branch (asking for confirmation
+first, unless `--yes`). Subtractive flags keep parts; `--pr` opens a GitHub PR
+first while the agent is intact. Safe order: PR → terminate → clear record →
+remove worktree.
+
+```text
+--keep-record            do not clear the stored record
+--keep-worktree          do not remove the worktree (this + default == `done`)
+--hard                   purge the record instead of archiving
+--pr [--base <branch>]   open a GitHub PR first (pushes the branch)
+--yes                    skip the worktree-removal confirmation prompt
+--force                  override the alive/uncommitted/unpushed worktree guards
+--delete-adopted-branch  also delete a branch warden did not create
+```
+
+The four older verbs are kept as thin aliases (behavior unchanged):
+
+| old verb | equivalent |
+|---|---|
+| `wd terminate <T>` | `wd stop <T> --keep-record --keep-worktree` |
+| `wd delete <T> [--hard]` | `wd stop <T> --keep-worktree` (record only) |
+| `wd remove-worktree <T>` | `wd stop <T> --keep-record` (worktree only) |
+| `wd done <T> [--hard\|--create-pr]` | `wd stop <T> --keep-worktree [--hard\|--pr]` |
+| `wd stop <T>` | terminate + clear record + remove worktree |

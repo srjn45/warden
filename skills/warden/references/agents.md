@@ -2,8 +2,8 @@
 
 Plain agents are the default: independent one-off tasks. Manage them through the
 MCP tools (`list_agents`, `get_agent`, `spawn_agent`, `send_to_agent`,
-`get_agent_output`, `terminate_agent`, `delete_agent`, `remove_worktree`,
-`restore_agent`, `adopt_agent`) or the CLI. The per-agent tools take a `ticket` —
+`get_agent_output`, `stop_agent`, `terminate_agent`, `delete_agent`,
+`remove_worktree`, `restore_agent`, `adopt_agent`) or the CLI. The per-agent tools take a `ticket` —
 the agent's **id** from `list_agents` (prompt-spawned ids look like
 `agent-<shortid>`).
 
@@ -15,9 +15,10 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Only add `type`+`repo` (+`branch`/`pr`/`worktree`) for a managed worktree tied to a repo/ticket. Add `model`, `permission_mode`/`supervised`, `tags` as needed. |
 | what is agent <id> doing | `get_agent` (status, subject, workdir, events) + `get_agent_output` (recent terminal) → report concisely. |
 | tell / ask agent <id> to do Y | `send_to_agent` (id as `ticket`, plus `text`). Echo back what you sent. |
-| stop / terminate / kill <id> | `terminate_agent` — kills tmux+claude, keeps record+worktree; reversible via `restore_agent`. |
-| clear / delete an agent's record | `delete_agent` (id, `hard?`) — archives by default. |
-| remove an agent's worktree | `remove_worktree` (id, `force?`) — DESTRUCTIVE; **confirm with the user first**; terminate the agent first. |
+| tear down / clean up <id> (full) | `stop_agent` — **the primary teardown verb.** Default = terminate + clear record + remove worktree. Subtractive flags: `keep_record`, `keep_worktree` (`keep_worktree` alone == old `done`); `hard` purges; `pr`+`base` open a PR first; `force`/`delete_adopted_branch` for the worktree. Safe order: PR → terminate → clear record → remove worktree. DESTRUCTIVE (removes the worktree) — **confirm with the user first**. |
+| stop / terminate / kill <id> (reversible) | `terminate_agent` — kills tmux+claude, keeps record+worktree; reversible via `restore_agent`. Alias for `stop_agent {keep_record:true, keep_worktree:true}`. |
+| clear / delete an agent's record | `delete_agent` (id, `hard?`) — archives by default. Alias for `stop_agent {keep_worktree:true}` (record only). |
+| remove an agent's worktree | `remove_worktree` (id, `force?`) — DESTRUCTIVE; **confirm with the user first**; terminate the agent first. Alias for `stop_agent {keep_record:true}` (worktree only). |
 | restore a lost/orphaned agent | `restore_agent` (id) — only for sessions whose tmux is gone (status `orphaned`); resumes the same conversation. |
 | adopt an existing Claude session | `adopt_agent` (dir?, session_id?, tmux_session?). |
 
@@ -31,8 +32,9 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | spawn from a prompt | `warden start "<prompt>"` |
 | spawn a managed worktree agent | `warden start <TICKET> --type <TYPE> --repo <repo>` |
 | send a message to an agent | `warden send <id> "<text>"` |
-| terminate + clear record (keeps worktree) | `warden done <id>` (`--create-pr` pushes the branch and opens a GitHub PR before terminating, `--base` sets target, default main) |
-| remove the worktree | `warden remove-worktree <id>` (guarded; `--force` overrides) |
+| full teardown (terminate + clear record + remove worktree) | `warden stop <id>` (asks before removing the worktree unless `--yes`; `--keep-record`/`--keep-worktree` subtract steps; `--hard`; `--pr [--base <b>]` opens a PR first) |
+| terminate + clear record (keeps worktree) | `warden done <id>` (= `warden stop <id> --keep-worktree`; `--create-pr` pushes the branch and opens a GitHub PR before terminating, `--base` sets target, default main) |
+| remove the worktree | `warden remove-worktree <id>` (= `warden stop <id> --keep-record`; guarded; `--force` overrides) |
 | restore a lost/orphaned agent | `warden restore <id>` |
 | adopt an existing session | `warden adopt [--session-id <uuid>] [--dir <path>]` |
 | attach interactively | `warden attach <id>` |

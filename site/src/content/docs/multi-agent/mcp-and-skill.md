@@ -31,6 +31,7 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `spawn_agent` | Spawn (prompt mode or `type`+`repo`; `supervised` opt-in) |
 | `adopt_agent` | Register an existing Claude session |
 | `send_to_agent` / `get_agent_output` / `digest` | Type into / read recent output / catch-up summary of an agent |
+| `stop_agent` | Umbrella teardown (default: terminate + clear record + remove worktree; `keep_record`/`keep_worktree` subtract, `hard`/`pr`/`force` modifiers) |
 | `terminate_agent` / `restore_agent` | Stop (reversible) / resume an agent |
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
@@ -54,7 +55,7 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `search` / `history` / `audit_log` | Full-text search / archived agents / the action audit trail |
 | `export_sessions` / `import_sessions` / `list_plugins` | Serialize / load session metadata / list registered plugins |
 
-> **Full parity (63 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, and `rotate`/`handoff`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`); see the [feature catalog](/warden/reference/features/).
+> **Full parity (65 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, and `rotate`/`handoff`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`); see the [feature catalog](/warden/reference/features/).
 
 Example orchestrator prompts:
 
@@ -63,7 +64,7 @@ Example orchestrator prompts:
 - *"List all my agents"* → `list_agents`
 - *"Spin up an agent to research SSE reconnection"* → `spawn_agent` with a `prompt` (auto-typed)
 - *"Spawn a debug-ci agent in /path/to/repo"* → `spawn_agent` with `type`+`repo`
-- *"Stop PROJ-350"* → `terminate_agent` (reversible); "clear its record too" → `delete_agent`
+- *"Stop PROJ-350"* → `terminate_agent` (reversible); "clear its record too" → `delete_agent`; *"tear PROJ-350 down completely"* → `stop_agent` (default: terminate + clear record + remove worktree)
 - *"Kick off the analyze-implement-review pipeline on /path/to/repo"* → `create_pipeline` (template) + `start_pipeline`
 - *"Commit and push agent-4f2a's branch"* → `commit` then `push`; *"is anyone else editing auth.go?"* → `who_is_editing_file`
 

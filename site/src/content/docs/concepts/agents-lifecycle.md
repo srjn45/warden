@@ -18,11 +18,12 @@ description: How agents are spawned and auto-classified, and the commands that s
 
 | Command / feature | Description |
 |---|---|
-| `terminate` | Stop an agent (kill tmux + claude); **keeps** the record and worktree. The safe, reversible "stop" default. |
+| `stop` | **The single umbrella teardown verb.** Default = full teardown: terminate + clear (archive) record + remove worktree (asks first unless `--yes`). Subtractive flags: `--keep-record`, `--keep-worktree` (`--keep-worktree` alone == `done`), `--hard`, `--pr`/`--base`, `--force`, `--delete-adopted-branch`. Safe order: PR → terminate → clear record → remove worktree. |
+| `terminate` | Stop an agent (kill tmux + claude); **keeps** the record and worktree. The safe, reversible "stop" default. Alias for `stop --keep-record --keep-worktree`. |
 | `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). |
-| `done` | Terminate **and** clear the record in one step (worktree kept). `--hard` purges instead of archiving. |
-| `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. |
-| `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. |
+| `done` | Terminate **and** clear the record in one step (worktree kept). `--hard` purges instead of archiving. Alias for `stop --keep-worktree`. |
+| `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. Alias for `stop --keep-worktree` (record only). |
+| `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. Alias for `stop --keep-record` (worktree only). |
 | `adopt` | Register an existing Claude session — resume newest-for-dir under tmux, or live-register a running tmux session. |
 | **Cascade cleanup** | Deleting a pipeline/agent cascades cleanup of its shared-context keys and (on hard-delete) its mailbox inbox. |
 

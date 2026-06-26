@@ -63,11 +63,12 @@ on-disk state:
 
 | Command / feature | Description |
 |---|---|
-| `terminate` | Stop an agent (kill tmux + claude); **keeps** the record and worktree. The safe, reversible "stop" default. |
+| `stop` | **The single umbrella teardown verb.** Default `wd stop <TICKET>` = full teardown: terminate the session, clear (archive) the record, **and** remove the git worktree + branch (asks for confirmation first unless `--yes`). Subtractive flags: `--keep-record`, `--keep-worktree` (`--keep-worktree` alone == the old `done`), `--hard` (purge record), `--pr`/`--base` (open a GitHub PR first while the agent is intact), `--force`/`--delete-adopted-branch` (worktree guards). Safe order: PR → terminate → clear record → remove worktree, so a failed push leaves the agent running. |
+| `terminate` | Stop an agent (kill tmux + claude); **keeps** the record and worktree. The safe, reversible "stop" default. Alias for `stop --keep-record --keep-worktree`. |
 | `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). |
-| `done` | Terminate **and** clear the record in one step (worktree kept). `--hard` purges instead of archiving. `--create-pr` first pushes the agent's branch and opens a GitHub PR (`gh`) titled from the agent and bodied from its digest (`--base` sets the target, default main) — the PR is opened *before* termination, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created. |
-| `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. |
-| `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. |
+| `done` | Terminate **and** clear the record in one step (worktree kept). Alias for `stop --keep-worktree`. `--hard` purges instead of archiving. `--create-pr` first pushes the agent's branch and opens a GitHub PR (`gh`) titled from the agent and bodied from its digest (`--base` sets the target, default main) — the PR is opened *before* termination, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created. |
+| `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. Alias for `stop --keep-worktree` (record only). |
+| `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. Alias for `stop --keep-record` (worktree only); always asks unless `--yes`. |
 | `worktree ls` | List warden-owned worktrees under `.worktrees`, joined to active/archived records (provenance-tracked). |
 | `prune` | Reclaim orphaned warden worktrees (always prompts; `--force` overrides guards, `--include-archived` widens scope). Retention is policy-driven via the `worktree_keep_done` / `worktree_auto_prune` config settings. |
 | `adopt` | Register an existing Claude session — resume newest-for-dir under tmux, or live-register a running tmux session. |
@@ -219,7 +220,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator Claude session can manage
-the fleet through tool calls. **64 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **65 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:
@@ -231,6 +232,7 @@ stay CLI-only). Tools exposed:
 | `adopt_agent` | Register an existing Claude session |
 | `send_to_agent` / `get_agent_output` | Type into / read recent output of an agent |
 | `digest` | Compact catch-up summary of one agent |
+| `stop_agent` | **Umbrella teardown.** Default = full teardown (terminate + clear record + remove worktree); `keep_record` / `keep_worktree` subtract steps, `hard` purges, `pr`/`base` open a PR first, `force`/`delete_adopted_branch` for the worktree guards |
 | `terminate_agent` / `restore_agent` | Stop (reversible) / resume an agent |
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |

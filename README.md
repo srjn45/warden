@@ -591,9 +591,32 @@ Attach your terminal to the agent's tmux session interactively.
 warden attach PROJ-350
 ```
 
+### `warden stop <TICKET>`
+
+The **single umbrella teardown verb.** By default `warden stop <TICKET>` does a **full teardown**: terminate the tmux + claude session, clear (archive) the record, **and** remove the git worktree + branch (asking for confirmation first, unless `--yes`). Subtractive flags keep parts around; `--pr` opens a GitHub PR first while the agent is still intact. Safe order is always PR → terminate → clear record → remove worktree, so a failed push leaves the agent running.
+
+```sh
+warden stop PROJ-350                 # full teardown (asks before removing the worktree)
+warden stop PROJ-350 --yes           # ...without the confirmation prompt
+warden stop PROJ-350 --keep-worktree # terminate + clear record, keep the worktree (== `done`)
+warden stop PROJ-350 --keep-record   # terminate + remove worktree, keep the record
+warden stop PROJ-350 --hard          # purge the record instead of archiving
+warden stop PROJ-350 --pr --base main # open a GitHub PR first, then tear down
+```
+
+The four older verbs are kept as thin **aliases** — each is just `stop` with a fixed flag combo:
+
+| old verb | equivalent |
+|---|---|
+| `wd terminate <T>` | `wd stop <T> --keep-record --keep-worktree` |
+| `wd delete <T> [--hard]` | `wd stop <T> --keep-worktree` (record only) |
+| `wd remove-worktree <T>` | `wd stop <T> --keep-record` (worktree only) |
+| `wd done <T> [--hard\|--create-pr]` | `wd stop <T> --keep-worktree [--hard\|--pr]` |
+| `wd stop <T>` | terminate + clear record + remove worktree |
+
 ### `warden done <TICKET>`
 
-Terminate the agent (kill its tmux + claude session) **and** clear its stored record in one step. It does **not** remove the git worktree — that is a separate, explicitly-confirmed step (`remove-worktree`). Equivalent to `terminate` followed by `delete`.
+Terminate the agent (kill its tmux + claude session) **and** clear its stored record in one step. It does **not** remove the git worktree — that is a separate, explicitly-confirmed step (`remove-worktree`). Equivalent to `terminate` followed by `delete`, i.e. `stop --keep-worktree`.
 
 ```sh
 warden done PROJ-350          # terminate + clear record (worktree kept)
@@ -605,7 +628,7 @@ warden done PROJ-350 --create-pr --base main   # push the branch + open a GitHub
 
 ### `warden terminate <TICKET>`
 
-Stop an agent: kill its tmux + claude session, but **keep** the record and worktree. This is the safe "stop this agent" default — it is reversible with `warden restore`.
+Stop an agent: kill its tmux + claude session, but **keep** the record and worktree. This is the safe "stop this agent" default — it is reversible with `warden restore`. Alias for `stop --keep-record --keep-worktree`.
 
 ```sh
 warden terminate PROJ-350
@@ -621,7 +644,7 @@ warden restore PROJ-350
 
 ### `warden delete <TICKET>`
 
-Clear an agent's stored record (archives by default; `--hard` purges). Does not touch tmux or the worktree.
+Clear an agent's stored record (archives by default; `--hard` purges). Does not touch tmux or the worktree. Alias for `stop --keep-worktree` (record only).
 
 ```sh
 warden delete PROJ-350
@@ -630,7 +653,7 @@ warden delete PROJ-350 --hard
 
 ### `warden remove-worktree <TICKET>`
 
-Remove an agent's git worktree and branch. **Destructive.** It refuses if the agent is still running (terminate it first) or if the worktree has uncommitted changes or unpushed commits — use `--force` to override the guard.
+Remove an agent's git worktree and branch. **Destructive.** It refuses if the agent is still running (terminate it first) or if the worktree has uncommitted changes or unpushed commits — use `--force` to override the guard. Alias for `stop --keep-record` (worktree only); always asks unless `--yes`.
 
 ```sh
 warden remove-worktree PROJ-350
@@ -1011,7 +1034,7 @@ warden mcp
 warden mcp --addr 127.0.0.1:8765
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`.
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `stop_agent`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`.
 
 ### `warden completion <shell>`
 
@@ -1055,6 +1078,7 @@ Once registered, the orchestrator session can call these tools directly:
 | `adopt_agent` | Register an existing Claude session: resume newest-for-dir under tmux, or live-register a running tmux session |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Return the recent terminal output of a specific agent |
+| `stop_agent` | **Umbrella teardown.** Default = full teardown (terminate + clear record + remove worktree). `keep_record` / `keep_worktree` subtract steps (`keep_worktree` alone == the old `done`); `hard` purges the record; `pr`/`base` open a GitHub PR first while the agent is intact; `force`/`delete_adopted_branch` for the worktree guards. **Destructive** when it removes the worktree — only after explicit user confirmation |
 | `terminate_agent` | Stop an agent (kill tmux + claude); keeps the record and worktree. Reversible via `restore_agent` — the default "stop this agent" action |
 | `restore_agent` | Recreate and resume a lost/orphaned agent's session (`claude --resume`) |
 | `delete_agent` | Clear an agent's stored record (archives by default; `hard` purges). Does not touch tmux or the worktree |

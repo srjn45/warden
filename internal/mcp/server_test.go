@@ -239,6 +239,59 @@ func TestTeardownTools(t *testing.T) {
 	}
 }
 
+// TestStopAgentTool: the umbrella stop_agent default is a full teardown
+// (terminate + delete record + remove worktree); keep_* flags are subtractive.
+func TestStopAgentTool(t *testing.T) {
+	newSession := func(t *testing.T) (*mcpsdk.ClientSession, map[string]bool) {
+		hits := map[string]bool{}
+		daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits[r.URL.Path] = true
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		}))
+		t.Cleanup(daemon.Close)
+		srv := NewServer(daemon.URL)
+		ctx := context.Background()
+		ct, st := mcpsdk.NewInMemoryTransports()
+		go func() { _ = srv.Run(ctx, st) }()
+		cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+		session, err := cl.Connect(ctx, ct, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { session.Close() })
+		return session, hits
+	}
+
+	t.Run("default full teardown", func(t *testing.T) {
+		session, hits := newSession(t)
+		res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "stop_agent", Arguments: map[string]any{"ticket": "A-1"}})
+		require.NoError(t, err)
+		require.False(t, res.IsError, textOf(res))
+		require.True(t, hits["/api/v1/sessions/A-1/terminate"])
+		require.True(t, hits["/api/v1/sessions/A-1/delete"])
+		require.True(t, hits["/api/v1/sessions/A-1/remove-worktree"])
+	})
+
+	t.Run("keep_worktree skips worktree removal", func(t *testing.T) {
+		session, hits := newSession(t)
+		res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "stop_agent", Arguments: map[string]any{"ticket": "A-1", "keep_worktree": true}})
+		require.NoError(t, err)
+		require.False(t, res.IsError, textOf(res))
+		require.True(t, hits["/api/v1/sessions/A-1/terminate"])
+		require.True(t, hits["/api/v1/sessions/A-1/delete"])
+		require.False(t, hits["/api/v1/sessions/A-1/remove-worktree"])
+	})
+
+	t.Run("keep_record skips delete", func(t *testing.T) {
+		session, hits := newSession(t)
+		res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "stop_agent", Arguments: map[string]any{"ticket": "A-1", "keep_record": true}})
+		require.NoError(t, err)
+		require.False(t, res.IsError, textOf(res))
+		require.True(t, hits["/api/v1/sessions/A-1/terminate"])
+		require.False(t, hits["/api/v1/sessions/A-1/delete"])
+		require.True(t, hits["/api/v1/sessions/A-1/remove-worktree"])
+	})
+}
+
 func TestListApprovalsTool(t *testing.T) {
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/approvals" {

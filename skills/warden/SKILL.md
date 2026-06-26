@@ -134,7 +134,8 @@ The per-agent MCP tools take a `ticket` argument — the agent's **id** from
 | spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Use `type`+`repo` only for a managed worktree tied to a repo/ticket. |
 | what is agent <id> doing | `get_agent` (status/subject/workdir/events) + `get_agent_output` (recent terminal) → report concisely. |
 | tell / ask agent <id> to do Y | `send_to_agent` (id as `ticket`, `text`). Echo back what you sent. |
-| stop / terminate <id> | `terminate_agent` — kills tmux+claude, keeps record+worktree; reversible via `restore_agent`. |
+| tear down / clean up <id> (full) | `stop_agent` — **the primary teardown verb.** Default = terminate + clear record + remove worktree. `keep_record`/`keep_worktree` subtract steps (`keep_worktree` alone == old `done`); `hard` purges; `pr`/`base` open a PR first; `force`/`delete_adopted_branch` for the worktree. DESTRUCTIVE (removes the worktree) — **confirm first**. |
+| stop / terminate <id> (reversible) | `terminate_agent` — kills tmux+claude, keeps record+worktree; reversible via `restore_agent`. Alias for `stop_agent {keep_record:true, keep_worktree:true}`. |
 | delete an agent's record | `delete_agent` (id, `hard?`) — archives by default. |
 | remove an agent's worktree | `remove_worktree` — DESTRUCTIVE; **confirm first**; terminate the agent first. |
 
