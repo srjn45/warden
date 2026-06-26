@@ -1,6 +1,7 @@
 import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message, Conflict } from './types';
 import type { Verdict, PressureStatus } from './pressure';
 import type { MetricsSample } from './metrics';
+import type { Summary } from './savings';
 import { getToken, withToken, notifyAuthRequired } from './token';
 
 export class ApiError extends Error {
@@ -177,6 +178,20 @@ export async function getMetricsHistory(sinceISO?: string, limit = 480): Promise
     await apiFetch(`/metrics/history${qs ? `?${qs}` : ''}`),
   );
   return data.samples ?? [];
+}
+
+// getSavings returns the aggregated token-savings summary (GET /savings). Pass
+// bucket='day' to attach the per-day saved-tokens trend the Metrics tab plots,
+// and an optional sinceISO window (RFC3339 or a duration like "7d"). The route
+// is GATED: when savings is disabled the daemon answers 403, surfaced here as
+// an ApiError(403) the caller turns into a friendly "enable savings" hint
+// rather than an empty chart.
+export async function getSavings(sinceISO?: string, bucket?: 'day'): Promise<Summary> {
+  const q = new URLSearchParams();
+  if (sinceISO) q.set('since', sinceISO);
+  if (bucket) q.set('bucket', bucket);
+  const qs = q.toString();
+  return parse<Summary>(await apiFetch(`/savings${qs ? `?${qs}` : ''}`));
 }
 
 export async function listApprovals(): Promise<{ enabled: boolean; approvals: ApprovalView[] }> {

@@ -146,6 +146,17 @@ kbd {
 .pressure-gauge.warn { color: var(--attention); }
 .pressure-gauge.crit { color: var(--error); font-weight: 600; }
 
+/* ── Metrics tab ── */
+.metrics { display: flex; flex-direction: column; gap: 1rem; max-width: 960px; }
+.metrics .metrics-card { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; }
+.metrics .metrics-card h3 { margin: 0 0 .6rem; font-size: .95rem; }
+.metrics-chart { width: 100%; }
+.metrics-empty { padding: .4rem 0; }
+.metrics-headline { margin: 0 0 .6rem; font-size: .9rem; }
+.metrics-legend { display: flex; flex-wrap: wrap; gap: .5rem .9rem; margin-top: .5rem; font-size: .8rem; color: var(--idle); }
+.metrics-legend-item { display: inline-flex; align-items: center; gap: .35rem; }
+.metrics-dot { width: .6rem; height: .6rem; border-radius: 50%; display: inline-block; }
+
 /* ── Agent grid / cockpit ── */
 .cockpit-fleet { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; margin-bottom: 1rem; }
 .cockpit-fleet h3 { margin: 0 0 .6rem; font-size: .95rem; }
