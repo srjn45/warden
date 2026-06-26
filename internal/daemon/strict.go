@@ -42,6 +42,13 @@ func strictRequestError(w http.ResponseWriter, _ *http.Request, _ error) {
 	writeErr(w, http.StatusBadRequest, "bad json")
 }
 
+// strictParamError renders a query/path parameter binding failure (a missing
+// required param or a bad format) as the daemon's JSON error envelope with 400,
+// instead of the generator's default plain-text response.
+func strictParamError(w http.ResponseWriter, _ *http.Request, err error) {
+	writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+}
+
 // requestCtxKey carries the live *http.Request into strict handlers, which only
 // receive a context.Context. recordAudit/clientIP need the request for the
 // caller's origin IP.
