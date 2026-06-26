@@ -105,6 +105,16 @@ func (m listPaneModel) selectedID() string {
 
 func (m listPaneModel) selectedKey() string { return itemKey(itemAt(m.items(), m.cursor)) }
 
+// detailTitle is the label for the modeDetails overlay: the agent id, or
+// "pipeline/job" for a pipeline job row. The cursor cannot move while the overlay
+// is open (keys scroll), so the item under it is stable across the overlay's life.
+func (m listPaneModel) detailTitle() string {
+	if it := itemAt(m.items(), m.cursor); it.pjJob != nil {
+		return it.pjPipe + "/" + it.pjJob.ID
+	}
+	return m.selectedID()
+}
+
 func (m listPaneModel) fallbackDir() string {
 	d, _ := os.Getwd()
 	return d
@@ -709,9 +719,17 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, digestCmd(m.api, s.ID)
 		}
 	case "i":
-		if s := m.selected(); s != nil {
+		// Details overlay for an agent row, or a pipeline job row (its live agent
+		// detail when running, else the job's stored detail).
+		it := itemAt(m.items(), m.cursor)
+		switch {
+		case it.session != nil:
 			m.mode = modeDetails
-			m.vp.SetContent(detailBody(s, m.vp.Width))
+			m.vp.SetContent(detailBody(it.session, m.vp.Width))
+			m.vp.GotoTop()
+		case it.pjJob != nil:
+			m.mode = modeDetails
+			m.vp.SetContent(jobDetailBody(it.pjJob, it.pjSess, m.vp.Width))
 			m.vp.GotoTop()
 		}
 	case "p":
@@ -775,8 +793,12 @@ func (m listPaneModel) View() string {
 		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · d/esc back · q quit")
 	}
 	if m.mode == modeDetails {
-		body := titleBox("Details — "+m.selectedID(), m.vp.View(), m.w, bodyH)
-		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · r rename · i/esc back · q quit")
+		body := titleBox("Details — "+m.detailTitle(), m.vp.View(), m.w, bodyH)
+		keys := "↑/↓ pgup/pgdn g/G scroll · i/esc back · q quit"
+		if m.selected() != nil { // rename applies to a standalone agent only
+			keys = "↑/↓ pgup/pgdn g/G scroll · r rename · i/esc back · q quit"
+		}
+		return header + "\n" + body + "\n" + stMuted.Render(keys)
 	}
 	if m.mode == modeRename {
 		body := titleBox("Details — "+m.selectedID(), m.vp.View(), m.w, bodyH)

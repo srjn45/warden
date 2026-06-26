@@ -600,6 +600,34 @@ func TestKeyAttachRunningJob(t *testing.T) {
 	}
 }
 
+func TestKeyInfoOnPipelineJob(t *testing.T) {
+	m := pipeModel()
+	m.cursor = 1 // job "a"
+	updated, _ := m.handleKey(key("i"))
+	um := updated.(listPaneModel)
+	if um.mode != modeDetails {
+		t.Fatalf("i on a job row should open modeDetails, got %v", um.mode)
+	}
+	if got := um.detailTitle(); got != "demo/a" {
+		t.Fatalf("detail title want demo/a, got %q", got)
+	}
+}
+
+func TestJobDetailBody(t *testing.T) {
+	job := &pipeline.Job{ID: "a", Status: pipeline.JobFailed, Prompt: "do the thing"}
+	// no session → the job's stored detail (prompt visible).
+	body := jobDetailBody(job, nil, 80)
+	if !strings.Contains(body, "do the thing") {
+		t.Fatalf("session-less job detail should show stored job detail: %q", body)
+	}
+	// live session → the agent's detail (session id visible).
+	sess := &store.Session{ID: "demo-a", Status: store.StatusWorking}
+	body = jobDetailBody(job, sess, 80)
+	if !strings.Contains(body, "demo-a") {
+		t.Fatalf("live-session job detail should show agent detail: %q", body)
+	}
+}
+
 func TestBuildRowsNoHeaderForPipelineRows(t *testing.T) {
 	items := []item{
 		{pipeline: &pipeline.Pipeline{ID: "demo", Status: pipeline.StatusRunning}},
