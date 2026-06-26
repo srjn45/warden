@@ -557,6 +557,30 @@ warden msg wait --as agent-9c1d --timeout 120
 Define and run a **DAG of agent jobs** from a YAML spec or a built-in template. See
 §7.5 below for the full guide.
 
+### `warden schedule create|list|delete`
+Fire an agent or a pipeline on a timer — **opt-in**, set `scheduler_enabled: true`
+in the config file and keep the daemon running (schedules only fire while it is up).
+`--cron` is recurring; `--at` is single-shot (fires once, then goes inactive).
+Default fire mode is one agent spawn; pass `--pipeline <spec.yaml>` to fire a
+pipeline instead. The startup reconcile never backfills a cron run missed while the
+daemon was down. See [FEATURES.md §28](FEATURES.md).
+
+```bash
+# Recurring: review pending PRs every weekday at 9am
+warden schedule create daily-review --cron "0 9 * * *" \
+    --type pr-review --repo ~/dev/warden --prompt "Review any open PRs"
+
+# Single-shot: kick off a development agent at a specific time
+warden schedule create launch --at 2026-06-27T09:00 \
+    --type development --repo ~/dev/warden --prompt "Start the migration"
+
+# Recurring pipeline
+warden schedule create nightly --cron "0 2 * * *" --pipeline ci.yaml
+
+warden schedule list
+warden schedule delete daily-review
+```
+
 ### `warden stats [--watch] [--history [--agent ID]] [--json]`
 Warden's resource footprint. Bare, it prints a live snapshot: a system line
 (memory/swap/pressure), the daemon's own stats, and per-agent RSS/CPU/procs/

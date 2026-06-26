@@ -107,6 +107,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	if s.branchTracker != nil && s.branchTrackInterval > 0 {
 		go s.branchTracker.Run(runCtx, s.branchTrackInterval)
 	}
+	// Native scheduler (#15): fires due cron/at schedules. No-op when the
+	// scheduler_enabled gate is off (the default).
+	if s.scheduler && s.schedStore != nil {
+		go s.runScheduler(runCtx)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              addr,

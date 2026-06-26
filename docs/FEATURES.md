@@ -235,6 +235,7 @@ the fleet through tool calls. Tools exposed:
 | `check` | Run the project's `.warden/check.yml` checks, returning pass/fail with output for only the failing ones (see §22) |
 | `create_pipeline` / `list_pipelines` / `show_pipeline` | Create a DAG pipeline from a YAML spec / list / inspect (jobs, branches, handoffs) |
 | `start_pipeline` / `cancel_pipeline` | Start (spawn entry jobs) / cancel (terminate live jobs) a pipeline |
+| `list_schedules` | List the daemon's cron/at schedules with next-run, state, and last error (read-only; see §28). Returns a 403 error when the scheduler is disabled |
 
 > Pipeline MCP tools are thin wrappers over the same daemon routes the CLI uses,
 > so an orchestrator Claude session can drive a multi-stage workflow
@@ -630,3 +631,32 @@ of reading `internal/daemon`. Config-gated by `api_docs` (default on).
 Self-contained `internal/daemon/apidocs` package (`//go:embed` of the spec +
 Swagger UI assets), reusing the daemon's existing embed+handler pattern. See
 `docs/superpowers/specs/2026-06-25-warden-openapi-api-docs-design.md`.
+
+---
+
+## 28. Native scheduler (`wd schedule`)
+
+Recurring (`--cron`) and single-shot (`--at`) triggers that the daemon fires on
+its own timer — no external crontab needed. Each schedule fires **either** one
+agent spawn **or** a pipeline, through the same internal seams the `/spawn` and
+pipeline routes use (never by shelling out to the CLI). **Opt-in:** gated by
+`scheduler_enabled` (default **off**) — the routes return 403 and the reconcile
+loop is a no-op until you enable it, because schedules only fire while the daemon
+is running. This reverses the original "use OS cron" decision
+(`docs/superpowers/specs/2026-06-10-warden-scheduled-pipelines-decision.md`),
+keeping the concern as the default-off gate.
+
+| Feature | Description |
+|---|---|
+| **`wd schedule create <name> --cron "0 9 * * *" --type pr-review --repo <p> --prompt "…"`** | Recurring agent spawn. `--cron` is a 5-field spec (`robfig/cron/v3`, `@daily` etc. supported). |
+| **`wd schedule create <name> --at 2026-06-27T09:00 --prompt "…"`** | Single-shot agent spawn — fires once at/after the time, then goes inactive. `--at` is RFC3339 or `2006-01-02T15:04` (local time). |
+| **`wd schedule create <name> --cron "…" --pipeline <spec.yaml>`** | Fire a pipeline instead of an agent. Each fire creates a fresh pipeline whose name is timestamp-suffixed, so recurring runs never collide. |
+| **`wd schedule list`** | All schedules with kind (cron/at), mode (agent/pipeline), spec, enabled state, next run, and last error. |
+| **`wd schedule delete <id>`** | Remove a schedule (id == its name). |
+| **No backfill** | On daemon startup each schedule's next-run is recomputed from the wall clock: a cron schedule resumes at its next *future* occurrence (a run missed while the daemon was down is **not** replayed), while a past-due single-shot fires once. |
+| **Fail-soft loop** | A fire error is recorded in the schedule's `last_error` and logged; it never crashes the once-a-minute reconcile loop or stops other schedules firing. An agent-name collision fails just that fire (honest over silently renaming). |
+| **Read-only MCP + audit** | `list_schedules` (MCP) exposes the same view; create/delete are written to the audit log (`schedule_create` / `schedule_delete`). |
+
+Persisted atomically to `~/.warden/schedules.json`. Pure next-fire logic lives in
+`internal/schedule` (table-tested); the daemon's reconcile loop is
+`internal/daemon/scheduler.go`.

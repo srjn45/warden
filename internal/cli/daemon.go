@@ -28,6 +28,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -142,6 +143,14 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			srv.SetSnapshots(cfg.Snapshots, snapshot.New(runner, snapStore))
+			// Native scheduler (#15): opt-in (scheduler_enabled, default off). The
+			// store file is created regardless so toggling the gate on doesn't lose a
+			// prior schedules.json; the gate decides whether the routes + loop run.
+			schedStore, err := schedule.NewStore(filepath.Join(cfg.DataDir, "schedules.json"))
+			if err != nil {
+				return err
+			}
+			srv.SetScheduler(cfg.SchedulerEnabled, schedStore, time.Minute)
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with
 			// plugins off rather than refusing to start the daemon. Once loaded,
