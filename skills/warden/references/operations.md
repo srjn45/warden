@@ -154,6 +154,12 @@ drive the fleet:
   <id> <text>`, `/stop`, `/commit`/`/push`/`/sync`/`/check`, `/pipelines`, `/ctx*`,
   `/approvals`, … `/help` lists them. Reads auto-execute; mutations pass the confirm
   gate. Works even when the local model misbehaves.
+- **Guided argument forms:** when a `/` command needs more than was typed, warden
+  collects the args interactively — numbered pick-lists for known-set fields (model,
+  permission_mode, type, yes/no), free text otherwise. Auto-opens for a missing
+  required arg (bare `/spawn`); a `+` suffix (`/spawn+ <prompt>`) opens the full
+  form. Deterministic structure; a local model, if present, pre-fills each field
+  with a suggestion (Enter accepts, type overrides, `-` clears).
 - **Natural language (local LLM):** any other line is planned into **confirmed**
   warden tool calls — no Claude tokens. **It conducts, never implements** (no
   edit/write/bash in its registry — code work is delegated by spawning a Claude

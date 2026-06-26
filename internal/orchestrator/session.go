@@ -61,9 +61,14 @@ func NewSession(chat llm.Chatter, d Daemon, reg *Registry, gate confirmer, route
 	comp, _ := chat.(llm.Completer)
 	reg.AddMonitoring(NewMonitorWithGate(d, NewCondenser(comp), gate))
 	// Hand the gate the tool schemas so its [e]dit flow can prompt field-by-field
-	// (a tool may expose a field the model omitted, e.g. branch).
+	// (a tool may expose a field the model omitted, e.g. branch), and — when a
+	// local model is present — the pre-fill seam that suggests form values from
+	// the operator's query.
 	if g, ok := gate.(*Gate); ok {
 		g.useRegistry(reg)
+		if comp != nil {
+			g.usePrefiller(llmPrefiller{comp})
+		}
 	}
 	return &Session{chat: chat, daem: d, reg: reg, gate: gate, tier: router}
 }

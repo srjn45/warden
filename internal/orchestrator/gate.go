@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -47,7 +48,15 @@ type Gate struct {
 	// operator leaves blank (e.g. model, permission_mode). Shown in the prompt
 	// brackets so the operator can see what an empty answer will actually use.
 	defaults map[string]string
+	// prefill optionally suggests field values from the operator's query (the
+	// hybrid form). nil ⇒ a plain, model-free form. Only the /-command Form path
+	// uses it; the model's own [e]dit already carries the model's proposed args.
+	prefill prefiller
 }
+
+// usePrefiller installs the LLM suggestion seam for the /-command form. NewSession
+// wires this when the local model is a Completer; it may be left nil.
+func (g *Gate) usePrefiller(p prefiller) { g.prefill = p }
 
 // useRegistry points the editor at the tool schemas so it can prompt one field
 // at a time. NewSession wires this when the gate is a *Gate.
@@ -116,27 +125,98 @@ func (g *Gate) edit(calls []ToolCall) []ToolCall {
 
 // editOne prompts for each editable field of a single call. It starts from a
 // copy of the proposed args, so untouched fields (and fields the operator skips)
-// keep exactly what the model proposed.
+// keep exactly what the model proposed. The model's own proposal is the
+// pre-selection, so no extra suggestions are layered on.
 func (g *Gate) editOne(c ToolCall) ToolCall {
+	return g.collect(c, g.fieldsFor(c), nil, "editing")
+}
+
+// Form collects arguments for a /-command-initiated call. query is the
+// operator's original words, fed to the LLM pre-fill so each field opens with a
+// suggested value the operator can accept with Enter; fields are the schema
+// fields to offer (all of them for a `+` form, just the required ones when a
+// command auto-opens for a missing argument). The completed call still rides the
+// confirm gate afterwards for any mutation — the form fills, it does not approve.
+func (g *Gate) Form(ctx context.Context, query string, c ToolCall, fields []fieldSpec) ToolCall {
+	var suggest map[string]string
+	if g.prefill != nil {
+		suggest = g.prefill.Prefill(ctx, c.Name, query, fields)
+	}
+	return g.collect(c, fields, suggest, "filling")
+}
+
+// collect is the shared per-field walk behind both [e]dit and the /-command
+// form. For each field it shows a pick-list (enum fields), a y/n hint (booleans),
+// or a free-text bracket, with the value Enter will accept already selected:
+// whatever the operator/model already set, else an LLM suggestion, else the
+// config default. Enter keeps it; "-" clears it back to the config default;
+// Ctrl-C/EOF stops and keeps the rest untouched.
+func (g *Gate) collect(c ToolCall, fields []fieldSpec, suggest map[string]string, verb string) ToolCall {
 	args := cloneArgs(c.Args)
-	fields := g.fieldsFor(c)
 	if len(fields) == 0 {
 		return ToolCall{Name: c.Name, Args: args}
 	}
-	fmt.Fprintln(g.out, g.style.hint.Render(
-		fmt.Sprintf("editing %s — type a new value or press Enter to keep the current one (Ctrl-C to finish):", c.Name)))
+	// Seed suggestions into blank fields so the existing "Enter keeps current"
+	// path doubles as "Enter accepts the suggestion".
 	for _, f := range fields {
+		if argStr(args, f.name) == "" {
+			if v, ok := suggest[f.name]; ok {
+				args[f.name] = v
+			}
+		}
+	}
+	fmt.Fprintln(g.out, g.style.hint.Render(
+		fmt.Sprintf("%s %s — Enter accepts the value in [ ], type a new one, or \"-\" to clear (Ctrl-C to finish):", verb, c.Name)))
+	for _, f := range fields {
+		if opts := fieldOptions(f.name); len(opts) > 0 {
+			fmt.Fprintln(g.out, g.style.hint.Render(renderOptions(opts, g.selected(f, args))))
+		}
 		line, err := g.in.Prompt(g.fieldPrompt(f, args))
 		if err != nil {
 			break // Ctrl-C / EOF → keep the remaining fields as proposed
 		}
 		line = strings.TrimSpace(line)
 		if line == "" {
-			continue // Enter keeps the current value
+			continue // Enter keeps the current/suggested value
+		}
+		if line == "-" {
+			delete(args, f.name) // clear → fall back to the config default
+			continue
 		}
 		setField(args, f, line, g.out)
 	}
 	return ToolCall{Name: c.Name, Args: args}
+}
+
+// selected is the value a bare Enter will keep for a field: the current arg if
+// set, otherwise the config default warden would substitute. Used to mark the
+// pick-list so the pre-selection is visible.
+func (g *Gate) selected(f fieldSpec, args map[string]any) string {
+	if cur := argStr(args, f.name); cur != "" {
+		return cur
+	}
+	return g.defaults[f.name]
+}
+
+// formFields returns the schema fields a /-command form should offer for a tool,
+// optionally narrowed to a set of names (the required-only auto-open case). An
+// empty `only` means "every fillable field".
+func (g *Gate) formFields(tool string, only ...string) []fieldSpec {
+	all := g.fieldsFor(ToolCall{Name: tool})
+	if len(only) == 0 {
+		return all
+	}
+	want := make(map[string]bool, len(only))
+	for _, n := range only {
+		want[n] = true
+	}
+	out := all[:0:0]
+	for _, f := range all {
+		if want[f.name] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // fieldSpec is one editable argument: its key and JSON-Schema type.
@@ -249,6 +329,15 @@ func setField(args map[string]any, f fieldSpec, line string, out io.Writer) {
 		}
 		args[f.name] = n
 	default:
+		if opts := fieldOptions(f.name); len(opts) > 0 {
+			v, ok := resolveOption(line, opts)
+			if !ok {
+				fmt.Fprintf(out, "  (pick 1-%d or a listed value — keeping current)\n", len(opts))
+				return
+			}
+			args[f.name] = v
+			return
+		}
 		args[f.name] = line
 	}
 }

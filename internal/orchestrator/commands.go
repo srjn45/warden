@@ -20,6 +20,15 @@ type command struct {
 	summary      string
 	takesAgentID bool // hint the Tab completer to offer live agent ids
 	build        func(args []string) ([]ToolCall, error)
+	// tool is the underlying registry verb. It lets the argument form open even
+	// when build can't run (e.g. `/spawn+` or `/spawn` with the required prompt
+	// missing), where there is no built call to read the tool name from.
+	tool string
+	// formAuto opens the interactive argument form (instead of just printing the
+	// usage line) when a required argument is missing. requiredFields are the
+	// fields that auto-opened form collects.
+	formAuto       bool
+	requiredFields []string
 }
 
 // one builds a single-call result, the common case.
@@ -105,6 +114,7 @@ var commandList = []command{
 
 	// ---- mutations (confirm gate) ----
 	{name: "/spawn", usage: "/spawn <prompt...>", summary: "spawn an agent to do a task",
+		tool: "spawn_agent", formAuto: true, requiredFields: []string{"prompt"},
 		build: func(a []string) ([]ToolCall, error) {
 			if len(a) == 0 {
 				return nil, errors.New("usage: /spawn <prompt...>")
@@ -255,17 +265,79 @@ func (s *Session) RunCommand(ctx context.Context, line string) (string, bool) {
 	if name == "/help" || name == "/?" || name == "/commands" {
 		return commandHelp(), true
 	}
+	// A trailing `+` on the verb (e.g. `/spawn+`) opts into the full argument
+	// form: every fillable field is offered, not just what was typed.
+	full := false
+	if len(name) > 1 && strings.HasSuffix(name, "+") {
+		full, name = true, strings.TrimSuffix(name, "+")
+	}
 	// Allow `--hard`-style flags to be dropped before the positional args by
 	// leaving them in place; builders read the flags they care about.
 	cmd, ok := commandIndex[name]
 	if !ok {
 		return fmt.Sprintf("unknown command %s — type /help for the list", name), true
 	}
-	calls, err := cmd.build(fields[1:])
-	if err != nil {
+	args := fields[1:]
+	query := strings.Join(args, " ") // operator's words, for the form's LLM pre-fill
+	calls, err := cmd.build(args)
+	switch {
+	case full:
+		return s.runForm(ctx, cmd, calls, err, query, formFull), true
+	case err != nil && cmd.formAuto && s.canForm():
+		return s.runForm(ctx, cmd, calls, err, query, formRequired), true
+	case err != nil:
 		return err.Error(), true
+	default:
+		return s.runPlan(ctx, calls), true
 	}
-	return s.runPlan(ctx, calls), true
+}
+
+// formMode selects how many fields a /-command form offers.
+type formMode int
+
+const (
+	formRequired formMode = iota // only the command's required fields (auto-open)
+	formFull                     // every fillable field (the `+` gesture)
+)
+
+// canForm reports whether the gate can drive an interactive form (a real *Gate
+// over a terminal; the scripted gate in tests is not).
+func (s *Session) canForm() bool {
+	_, ok := s.gate.(*Gate)
+	return ok
+}
+
+// runForm collects a /-command's arguments interactively and then runs the
+// completed call through the normal plan path — reads execute, mutations still
+// pass the confirm gate. seed comes from whatever build produced; if build
+// couldn't run (a missing required arg, or a bare `/spawn+`), the command's
+// declared tool name seeds an empty call so the form can still open.
+func (s *Session) runForm(ctx context.Context, cmd command, calls []ToolCall, buildErr error, query string, mode formMode) string {
+	g, ok := s.gate.(*Gate)
+	if !ok { // non-interactive gate (tests / non-TTY): no form, plain behaviour
+		if buildErr != nil {
+			return buildErr.Error()
+		}
+		return s.runPlan(ctx, calls)
+	}
+	var seed ToolCall
+	switch {
+	case len(calls) > 0:
+		seed = calls[0]
+	case cmd.tool != "":
+		seed = ToolCall{Name: cmd.tool}
+	default:
+		if buildErr != nil {
+			return buildErr.Error()
+		}
+		return "nothing to do"
+	}
+	fields := g.formFields(seed.Name)
+	if mode == formRequired {
+		fields = g.formFields(seed.Name, cmd.requiredFields...)
+	}
+	done := g.Form(ctx, query, seed, fields)
+	return s.runPlan(ctx, []ToolCall{done})
 }
 
 // commandHelp renders the `/help` listing: every command with its usage and a
