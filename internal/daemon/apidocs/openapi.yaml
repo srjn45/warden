@@ -675,6 +675,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [entries]
                 properties:
                   entries:
                     type: array
@@ -788,12 +789,13 @@ paths:
                 from: { type: string }
                 body: { type: string }
       responses:
-        "200":
+        "201":
           description: Stored message + whether the recipient was woken
           content:
             application/json:
               schema:
                 type: object
+                required: [message, woke]
                 properties:
                   message: { $ref: "#/components/schemas/Message" }
                   woke: { type: boolean }
@@ -815,6 +817,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [messages]
                 properties:
                   messages:
                     type: array
@@ -843,9 +846,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [found]
                 properties:
                   found: { type: boolean }
-                  message: { $ref: "#/components/schemas/Message" }
+                  message:
+                    nullable: true
+                    x-go-type-skip-optional-pointer: false
+                    allOf: [{ $ref: "#/components/schemas/Message" }]
 
   /api/v1/messages:
     get:
@@ -864,6 +871,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [messages]
                 properties:
                   messages:
                     type: array
@@ -881,6 +889,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [conflicts]
                 properties:
                   conflicts:
                     type: array
@@ -902,6 +911,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [branches]
                 properties:
                   branches:
                     type: array
