@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -90,5 +91,34 @@ func (s *Server) recordCheckSavings(sess *store.Session, res lifecycle.CheckResu
 		savings.EstimateTokensLen(rawBytes), savings.EstimateTokensLen(keptBytes))
 	if err := s.savings.Record(ev); err != nil {
 		slog.Warn("savings: failed to record check event", "err", err)
+	}
+}
+
+// recordGitSavings records one FeatureCommit event for a completed wd
+// commit/push/sync: rawBytes is the git output warden ran on the agent's behalf
+// (CommitResult.RawBytes et al.), and the kept side is the compact struct the
+// agent actually receives — measured by marshaling the same value writeJSON
+// sends, so the json:"-" RawBytes field is correctly excluded. Fail-open like
+// recordCheckSavings: a nil store, the feature being off, or a write error only
+// logs. sess may be nil (a human-run git action), recorded unattributed.
+func (s *Server) recordGitSavings(sess *store.Session, rawBytes int, result any) {
+	if !s.savingsOn || s.savings == nil {
+		return
+	}
+	if rawBytes == 0 {
+		return // nothing the agent would have read (e.g. a clean-tree commit)
+	}
+	keptBytes := 0
+	if b, err := json.Marshal(result); err == nil {
+		keptBytes = len(b)
+	}
+	var agent string
+	if sess != nil {
+		agent = sess.ID
+	}
+	ev := savings.NewEvent(savings.FeatureCommit, agent,
+		savings.EstimateTokensLen(rawBytes), savings.EstimateTokensLen(keptBytes))
+	if err := s.savings.Record(ev); err != nil {
+		slog.Warn("savings: failed to record git event", "err", err)
 	}
 }

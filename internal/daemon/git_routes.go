@@ -90,6 +90,9 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	s.plugins.Dispatch(r.Context(), plugin.EventPostCommit, meta, map[string]string{
 		"sha": res.SHA, "branch": res.Branch, "committed": strconv.FormatBool(res.Committed),
 	})
+	// Record the git tool-spam this compact struct kept out of context (before
+	// serialization, since RawBytes is json:"-"). Fail-open.
+	s.recordGitSavings(sess, res.RawBytes, res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -106,6 +109,7 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 	if sess != nil {
 		s.recordGitEvent(sess.ID, "push", res.Branch+" -> "+res.Remote)
 	}
+	s.recordGitSavings(sess, res.RawBytes, res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -122,6 +126,7 @@ func (s *Server) handleGitSync(w http.ResponseWriter, r *http.Request) {
 	if sess != nil && res.Updated {
 		s.recordGitEvent(sess.ID, "sync", "rebased onto "+res.Base)
 	}
+	s.recordGitSavings(sess, res.RawBytes, res)
 	writeJSON(w, http.StatusOK, res)
 }
 
