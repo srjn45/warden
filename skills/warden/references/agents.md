@@ -57,11 +57,19 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `--type`/`--model`/`--permission-mode`/`--auto-restart`/`--worktree`/`--in-repo`;
   `warden preset list`; `warden start --preset <name>` (explicit flags still
   override). CLI-only.
+- **Prompt templates** — `warden prompt-template save <name> --prompt "…{{VAR}}…"`
+  (alias `pt`) persists a reusable, variabled prompt *body* (where presets store
+  *flags*); variables are auto-derived from the `{{VAR}}` placeholders.
+  `warden prompt-template list`; `warden start --prompt-template <name> --set
+  FILE=foo.go --set X=y` fills it in as the spawn prompt (every declared variable
+  must be supplied). A positional prompt still wins; free-form only (no `--type`).
+  CLI-only.
 - **Library** — `warden library list` (alias `lib`) is one umbrella that browses
-  BOTH saved spawn presets AND the built-in pipeline templates in two labeled
-  sections; `warden library save-preset <name> [spawn flags]` delegates to
-  `preset save`. Also over MCP as `library_list` (returns `{presets, templates}`).
-  Presets/templates surfaces are otherwise unchanged.
+  saved spawn presets, saved prompt templates, AND the built-in pipeline templates
+  in labeled sections; `warden library save-preset <name> [spawn flags]` delegates
+  to `preset save` and `warden library save-prompt <name> --prompt "…"` delegates
+  to `prompt-template save`. Also over MCP as `library_list` (returns `{presets,
+  prompt_templates, templates}`). Presets/templates surfaces are otherwise unchanged.
 - **Tags** — `warden start --tags backend,urgent` (lowercased, deduped). Part of
   the search haystack; filter with `warden ls --tag …`.
 - **Task types (`--type`)** — `development`/`code`/`docs`/`website`/`debug-ci`/`tests`
