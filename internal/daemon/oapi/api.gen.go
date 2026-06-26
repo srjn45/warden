@@ -754,8 +754,8 @@ type CreatePipelineJSONBody struct {
 
 // EditPipelineJobJSONBody defines parameters for EditPipelineJob.
 type EditPipelineJobJSONBody struct {
-	Handoff string `json:"handoff,omitempty"`
-	Prompt  string `json:"prompt,omitempty"`
+	Handoff *string `json:"handoff,omitempty"`
+	Prompt  *string `json:"prompt,omitempty"`
 }
 
 // EmitPipelineJobJSONBody defines parameters for EmitPipelineJob.
@@ -4403,7 +4403,7 @@ type ListPipelinesResponseObject interface {
 }
 
 type ListPipelines200JSONResponse struct {
-	Pipelines []Pipeline `json:"pipelines,omitempty"`
+	Pipelines []Pipeline `json:"pipelines"`
 }
 
 func (response ListPipelines200JSONResponse) VisitListPipelinesResponse(w http.ResponseWriter) error {
@@ -4426,16 +4426,16 @@ type CreatePipelineResponseObject interface {
 	VisitCreatePipelineResponse(w http.ResponseWriter) error
 }
 
-type CreatePipeline200JSONResponse Pipeline
+type CreatePipeline201JSONResponse Pipeline
 
-func (response CreatePipeline200JSONResponse) VisitCreatePipelineResponse(w http.ResponseWriter) error {
+func (response CreatePipeline201JSONResponse) VisitCreatePipelineResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
 }
