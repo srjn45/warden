@@ -152,7 +152,7 @@ func newDaemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			srv.SetSavings(cfg.Savings, savStore)
+			srv.SetSavings(cfg.Savings, savStore, cfg.SavingsSamples)
 			// Real-spend tracker: cumulative billed input+output tokens per session,
 			// read from agents' transcripts, feeding the savings report's denominator.
 			// Created regardless of the gate (like the ledger) so toggling savings on
@@ -165,16 +165,21 @@ func newDaemonCmd() *cobra.Command {
 			pl.OnSpend = srv.RecordSpend
 			// Let the LLM-offload sites (Classify/Summarize) inside lifecycle record
 			// their savings through the same gate-aware, fail-open path. Those calls run
-			// off Claude entirely, so the saving is already net (cost 0). The Server
-			// holds the gate, so the hook is safe to set unconditionally.
-			lc.SavingsHook = func(feature, agent string, rawTokens, keptTokens int) {
-				srv.RecordLifecycleSaving(feature, agent, rawTokens, keptTokens, 0)
+			// off Claude entirely, so the saving is already net (cost 0); the offload
+			// passes its prompt as the raw provenance sample. The Server holds the gate,
+			// so the hook is safe to set unconditionally.
+			lc.SavingsHook = func(feature, agent string, rawTokens, keptTokens int, rawSample, keptSample string) {
+				srv.RecordLifecycleSaving(feature, agent, rawTokens, keptTokens, 0, rawSample, keptSample)
 			}
 			// The poller credits the auto-/compact reclaim to the same ledger: when a
 			// compaction it issued lands, the reclaimed context tokens are recorded as a
 			// FeatureCompact saving NET of the measured summary-generation cost, through
-			// the gate-aware, fail-open hook.
-			pl.OnSaving = srv.RecordLifecycleSaving
+			// the gate-aware, fail-open hook. Context readings carry no text, so the
+			// compact path passes no provenance sample.
+			pl.OnSaving = func(feature, agent string, rawTokens, keptTokens, costTokens int) {
+				srv.RecordLifecycleSaving(feature, agent, rawTokens, keptTokens, costTokens, "", "")
+			}
+
 			// Native scheduler (#15): opt-in (scheduler_enabled, default off). The
 			// store file is created regardless so toggling the gate on doesn't lose a
 			// prior schedules.json; the gate decides whether the routes + loop run.

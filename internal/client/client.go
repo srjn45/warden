@@ -555,16 +555,28 @@ func (c *Client) SnapshotRestore(ctx context.Context, id string, force bool) (*s
 }
 
 // Savings fetches the aggregated token-savings summary. A non-zero since limits
-// the window; the zero time requests all-time. The daemon returns 403 (a
-// StatusError with Code 403) when the savings ledger is disabled, which the CLI
-// turns into a friendly enable hint.
-func (c *Client) Savings(ctx context.Context, since time.Time) (*savings.Summary, error) {
-	q := "/savings"
+// the window; the zero time requests all-time. bucket additionally requests the
+// per-day trend (Summary.Buckets, for the sparkline); samples requests the
+// retained provenance pairs (Summary.Samples, for the audit view). The daemon
+// returns 403 (a StatusError with Code 403) when the savings ledger is disabled,
+// which the CLI turns into a friendly enable hint.
+func (c *Client) Savings(ctx context.Context, since time.Time, bucket, samples bool) (*savings.Summary, error) {
+	q := url.Values{}
 	if !since.IsZero() {
-		q += "?since=" + url.QueryEscape(since.UTC().Format(time.RFC3339))
+		q.Set("since", since.UTC().Format(time.RFC3339))
+	}
+	if bucket {
+		q.Set("bucket", "day")
+	}
+	if samples {
+		q.Set("samples", "1")
+	}
+	path := "/savings"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
 	}
 	var sum savings.Summary
-	if err := c.do(ctx, http.MethodGet, q, nil, &sum); err != nil {
+	if err := c.do(ctx, http.MethodGet, path, nil, &sum); err != nil {
 		return nil, err
 	}
 	return &sum, nil

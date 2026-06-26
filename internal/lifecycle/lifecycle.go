@@ -337,9 +337,11 @@ type Lifecycle struct {
 	// GenerateName/commit-message) when a responsibility is served by the local
 	// model instead of warden's own Claude — with the prompt tokens that never
 	// reached Claude (rawTokens) and what still did (keptTokens, 0 for a full
-	// offload). The daemon wires it to the savings ledger; nil disables recording.
-	// Called inline on the offload path, so it must be cheap and must not panic.
-	SavingsHook func(feature, agent string, rawTokens, keptTokens int)
+	// offload), plus the optional provenance bytes (rawSample is the offload prompt;
+	// keptSample is "" for an offload). The daemon wires it to the savings ledger;
+	// nil disables recording. Called inline on the offload path, so it must be cheap
+	// and must not panic.
+	SavingsHook func(feature, agent string, rawTokens, keptTokens int, rawSample, keptSample string)
 }
 
 // recordOffload reports a fully-offloaded local-model call to the savings hook (if
@@ -349,7 +351,9 @@ func (l *Lifecycle) recordOffload(agent, prompt string) {
 	if l.SavingsHook == nil {
 		return
 	}
-	l.SavingsHook(savings.FeatureLLMOffload, agent, savings.EstimateTokens([]byte(prompt)), 0)
+	// The prompt is the raw provenance sample (it left Claude's spend entirely);
+	// there is no kept side for a full offload. The hook truncates/gates the sample.
+	l.SavingsHook(savings.FeatureLLMOffload, agent, savings.EstimateTokens([]byte(prompt)), 0, prompt, "")
 }
 
 // ConfigProvider is the subset of config.Config that lifecycle needs.

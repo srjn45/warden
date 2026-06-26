@@ -491,9 +491,11 @@ func TestClassifyOffloadFiresSavingsHook(t *testing.T) {
 	prompt := "write unit tests for the parser"
 	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.LLM = &fakeCompleter{out: "tests\n"}
-	var feature, agent string
+	var feature, agent, rawSample, keptSample string
 	var raw, kept int
-	lc.SavingsHook = func(f, a string, r, k int) { feature, agent, raw, kept = f, a, r, k }
+	lc.SavingsHook = func(f, a string, r, k int, rs, ks string) {
+		feature, agent, raw, kept, rawSample, keptSample = f, a, r, k, rs, ks
+	}
 
 	_, err := lc.Classify(context.Background(), prompt)
 	require.NoError(t, err)
@@ -501,6 +503,8 @@ func TestClassifyOffloadFiresSavingsHook(t *testing.T) {
 	require.Equal(t, "", agent, "Classify has no agent to attribute")
 	require.Equal(t, savings.EstimateTokens([]byte(classifyArg(prompt))), raw, "raw is the prompt that never reached Claude")
 	require.Equal(t, 0, kept, "a full offload keeps nothing in Claude")
+	require.Equal(t, classifyArg(prompt), rawSample, "the offload prompt is the raw provenance sample")
+	require.Equal(t, "", keptSample, "a full offload has no kept side")
 }
 
 func TestClassifyClaudeFallbackDoesNotFireSavingsHook(t *testing.T) {
@@ -511,7 +515,7 @@ func TestClassifyClaudeFallbackDoesNotFireSavingsHook(t *testing.T) {
 	lc := New(fr, &FakeConfig{})
 	lc.LLM = &fakeCompleter{err: errStub("connection refused")}
 	fired := false
-	lc.SavingsHook = func(string, string, int, int) { fired = true }
+	lc.SavingsHook = func(string, string, int, int, string, string) { fired = true }
 
 	_, err := lc.Classify(context.Background(), prompt)
 	require.NoError(t, err)

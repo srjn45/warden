@@ -60,13 +60,20 @@ func (s *Server) SetSnapshots(enabled bool, m *snapshot.Manager) { s.snapshots =
 // as before. Dispatch is fail-open, so this never changes request control flow.
 func (s *Server) SetPlugins(d *plugin.Dispatcher) { s.plugins = d }
 
-// SetSavings wires the token-savings ledger and its config gate. enabled=false
+// SetSavings wires the token-savings ledger and its config gates. enabled=false
 // (or a nil store) makes recording a no-op and GET /savings return 403, so the
-// server runs exactly as before. Recording is always fail-open — a ledger write
-// never alters the request it measures.
-func (s *Server) SetSavings(enabled bool, store *savings.Store) {
+// server runs exactly as before. samples toggles the opt-in provenance capture
+// (config `savings_samples`); it is wired into both the emit-site flag and the
+// store's persistence gate so a sample is never retained unless both agree.
+// Recording is always fail-open — a ledger write never alters the request it
+// measures.
+func (s *Server) SetSavings(enabled bool, store *savings.Store, samples bool) {
 	s.savingsOn = enabled
 	s.savings = store
+	s.savingsSamples = samples
+	if store != nil {
+		store.SetSampling(samples)
+	}
 }
 
 // SetSpend wires the per-session real-spend tracker that feeds the savings

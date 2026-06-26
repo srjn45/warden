@@ -21,6 +21,22 @@ import (
 type Store struct {
 	mu   sync.Mutex
 	path string
+	// samples gates persistence of the opt-in RawSample/KeptSample provenance
+	// pairs (config `savings_samples`, default off). When off, Record strips any
+	// sample an emit site attached before writing — the ledger never stores raw or
+	// kept output unless the operator opted in. sampleCount drives the 1-in-N
+	// retention that bounds growth even when the gate is on. Both guarded by mu.
+	samples     bool
+	sampleCount int
+}
+
+// SetSampling toggles whether Record persists the opt-in provenance samples
+// (config `savings_samples`). The daemon calls it when wiring the gate. When off,
+// any sample an emit site attached is dropped before the event is written.
+func (s *Store) SetSampling(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.samples = on
 }
 
 // NewStore creates the savings dir (0700) and returns a ledger writer/reader
@@ -41,12 +57,13 @@ func (s *Store) Record(ev Event) error {
 	if ev.TS.IsZero() {
 		ev.TS = time.Now().UTC()
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gateSampleLocked(&ev)
 	line, err := json.Marshal(ev)
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
@@ -95,12 +112,47 @@ func (s *Store) Events(since time.Time) ([]Event, error) {
 	return out, sc.Err()
 }
 
+// gateSampleLocked enforces the privacy + volume policy on an event's retained
+// provenance samples before it is written: when sampling is off it strips both
+// sides (the ledger never stores raw/kept output unconditionally); when on it
+// keeps them only on ~1 in sampleEvery sample-eligible events so growth stays
+// bounded. Events that carry no sample are left untouched (and don't advance the
+// counter). Caller holds s.mu.
+func (s *Store) gateSampleLocked(ev *Event) {
+	if ev.RawSample == "" && ev.KeptSample == "" {
+		return
+	}
+	if !s.samples {
+		ev.RawSample, ev.KeptSample = "", ""
+		return
+	}
+	s.sampleCount++
+	if s.sampleCount%sampleEvery != 1 { // keep the 1st, then every Nth eligible event
+		ev.RawSample, ev.KeptSample = "", ""
+	}
+}
+
 // Summary reads the events since `since` and aggregates them. Convenience wrapper
 // the daemon's GET /savings handler uses so the HTTP layer stays a thin shell.
 func (s *Store) Summary(since time.Time) (Summary, error) {
+	return s.Report(since, false, false)
+}
+
+// Report reads the events since `since` and aggregates them, optionally also
+// attaching the per-day trend buckets and/or the retained provenance samples
+// (the audit view). It reads the ledger once and fans the events into each
+// projection, so the GET /savings handler stays a thin shell over a single scan.
+func (s *Store) Report(since time.Time, bucket, samples bool) (Summary, error) {
 	evs, err := s.Events(since)
 	if err != nil {
 		return Summary{}, err
 	}
-	return Summarize(evs, since), nil
+	sum := Summarize(evs, since)
+	if bucket {
+		sum.Buckets = BucketByDay(evs)
+	}
+	if samples {
+		sum.Samples = collectSamples(evs)
+	}
+	return sum, nil
 }

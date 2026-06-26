@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/srjn45/warden/internal/savings"
 )
 
 // protectedBranches are the long-lived integration branches an agent must never
@@ -34,6 +36,10 @@ type CommitResult struct {
 	// own size to record the tokens `wd commit` kept out of context. A conservative
 	// floor — it excludes the per-tool-call envelope each of those round-trips adds.
 	RawBytes int `json:"-"`
+	// RawSample is a truncated (~2KB) head of that combined raw git output, kept in
+	// memory (json:"-", never sent to the agent) so the savings emit site can persist
+	// a provenance sample when savings_samples is enabled. See CheckOutcome.RawSample.
+	RawSample string `json:"-"`
 }
 
 // PushResult is the compact struct `wd push` / `mcp__warden__push` returns.
@@ -44,6 +50,8 @@ type PushResult struct {
 	Output string `json:"output,omitempty"`
 	// RawBytes is the raw `git push` output warden consumed; see CommitResult.RawBytes.
 	RawBytes int `json:"-"`
+	// RawSample is a truncated head of that raw output; see CommitResult.RawSample.
+	RawSample string `json:"-"`
 }
 
 // SyncResult is the compact struct `wd sync` / `mcp__warden__sync` returns. On a
@@ -59,6 +67,8 @@ type SyncResult struct {
 	Output    string   `json:"output,omitempty"`
 	// RawBytes is the combined fetch+rebase output warden consumed; see CommitResult.RawBytes.
 	RawBytes int `json:"-"`
+	// RawSample is a truncated head of that raw output; see CommitResult.RawSample.
+	RawSample string `json:"-"`
 }
 
 // Commit stages and commits every change in dir on its current branch, enforcing
@@ -79,16 +89,21 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 	}
 	// raw accumulates the git output the agent would have read had it driven these
 	// commands itself — the counterfactual `wd commit` keeps out of context.
+	// rawText mirrors it as actual bytes so the savings emit site can keep a
+	// truncated provenance sample (gated by savings_samples).
 	raw := len(status)
+	var rawText strings.Builder
+	rawText.WriteString(status)
 	files := parsePorcelainPaths(status)
 	if len(files) == 0 {
-		return CommitResult{Committed: false, Branch: branch, RawBytes: raw}, nil // clean tree
+		return CommitResult{Committed: false, Branch: branch, RawBytes: raw, RawSample: savings.TruncateSample(rawText.String())}, nil // clean tree
 	}
 	addOut, err := l.run.Run(ctx, dir, "git", "add", "-A")
 	if err != nil {
 		return CommitResult{}, fmt.Errorf("git add: %w: %s", err, addOut)
 	}
 	raw += len(addOut)
+	rawText.WriteString(addOut)
 	// Provenance tiers: the caller's message is best (the agent wrote the change,
 	// so it knows intent). With none, fill it in — local model from the staged diff,
 	// else a deterministic conventional-commit floor — staging first so git diff
@@ -99,16 +114,18 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 	}
 	out, err := l.run.Run(ctx, dir, "git", "commit", "-m", message)
 	raw += len(out)
+	rawText.WriteString(out)
 	if err != nil {
 		// A pre-commit hook (or other commit-time check) rejected it. Unstage so
 		// the agent is back at its pre-commit state, and hand back only the output
 		// it needs to fix the failure.
 		_, _ = l.run.Run(ctx, dir, "git", "reset")
-		return CommitResult{Branch: branch, Files: files, HookFailed: true, HookOutput: strings.TrimSpace(out), RawBytes: raw}, nil
+		return CommitResult{Branch: branch, Files: files, HookFailed: true, HookOutput: strings.TrimSpace(out), RawBytes: raw, RawSample: savings.TruncateSample(rawText.String())}, nil
 	}
 	sha, _ := l.run.Run(ctx, dir, "git", "rev-parse", "--short", "HEAD")
 	raw += len(sha)
-	return CommitResult{Committed: true, SHA: strings.TrimSpace(sha), Branch: branch, Files: files, RawBytes: raw}, nil
+	rawText.WriteString(sha)
+	return CommitResult{Committed: true, SHA: strings.TrimSpace(sha), Branch: branch, Files: files, RawBytes: raw, RawSample: savings.TruncateSample(rawText.String())}, nil
 }
 
 // commitMsgMaxDiffBytes caps how much staged diff the local model sees when
@@ -290,7 +307,7 @@ func (l *Lifecycle) Push(ctx context.Context, dir string) (PushResult, error) {
 	if err != nil {
 		return PushResult{}, fmt.Errorf("git push: %w: %s", err, strings.TrimSpace(out))
 	}
-	return PushResult{Branch: branch, Remote: "origin", Pushed: true, Output: strings.TrimSpace(out), RawBytes: len(out)}, nil
+	return PushResult{Branch: branch, Remote: "origin", Pushed: true, Output: strings.TrimSpace(out), RawBytes: len(out), RawSample: savings.TruncateSample(out)}, nil
 }
 
 // Sync fetches origin/base and rebases dir's branch onto it. It refuses a dirty
@@ -320,6 +337,7 @@ func (l *Lifecycle) Sync(ctx context.Context, dir, base string) (SyncResult, err
 	raw := len(fetchOut)
 	out, err := l.run.Run(ctx, dir, "git", "rebase", "origin/"+base)
 	raw += len(out)
+	rawSample := savings.TruncateSample(fetchOut + out)
 	if err != nil {
 		conflicts := l.unmergedPaths(ctx, dir)
 		if len(conflicts) == 0 {
@@ -327,9 +345,9 @@ func (l *Lifecycle) Sync(ctx context.Context, dir, base string) (SyncResult, err
 			_, _ = l.run.Run(ctx, dir, "git", "rebase", "--abort")
 			return SyncResult{}, fmt.Errorf("git rebase onto origin/%s: %w: %s", base, err, strings.TrimSpace(out))
 		}
-		return SyncResult{Branch: branch, Base: base, Conflicts: conflicts, Output: strings.TrimSpace(out), RawBytes: raw}, nil
+		return SyncResult{Branch: branch, Base: base, Conflicts: conflicts, Output: strings.TrimSpace(out), RawBytes: raw, RawSample: rawSample}, nil
 	}
-	return SyncResult{Branch: branch, Base: base, Updated: true, Output: strings.TrimSpace(out), RawBytes: raw}, nil
+	return SyncResult{Branch: branch, Base: base, Updated: true, Output: strings.TrimSpace(out), RawBytes: raw, RawSample: rawSample}, nil
 }
 
 // unmergedPaths lists files with merge conflicts in dir (best-effort, nil on error).

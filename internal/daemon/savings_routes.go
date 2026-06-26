@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -56,7 +57,12 @@ func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
 		}
 		since = t
 	}
-	sum, err := s.savings.Summary(since)
+	// Optional projections, off by default so the common report is unchanged:
+	// ?bucket=day attaches the per-day trend (sparkline), ?samples=1 attaches the
+	// retained provenance pairs (wd savings --audit).
+	bucket := r.URL.Query().Get("bucket") == "day"
+	samples := r.URL.Query().Get("samples") == "1"
+	sum, err := s.savings.Report(since, bucket, samples)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "read savings ledger: "+err.Error())
 		return
@@ -103,6 +109,21 @@ func (s *Server) recordCheckSavings(sess *store.Session, res lifecycle.CheckResu
 	// tail), so it spends no Claude tokens to earn the saving — already net.
 	ev := savings.NewEvent(savings.FeatureCheck, agent,
 		savings.EstimateTokensLen(rawBytes), savings.EstimateTokensLen(keptBytes), 0)
+	if s.savingsSamples {
+		// Provenance: the real raw command output vs. what `wd check` actually
+		// returned. RawSample is captured per-outcome in runCheck (json:"-", never
+		// sent to the agent); join the outcomes and truncate the aggregate.
+		var rawB, keptB strings.Builder
+		for _, c := range res.Checks {
+			rawB.WriteString(c.RawSample)
+			if c.Output != "" {
+				keptB.WriteString(c.Output)
+				keptB.WriteByte('\n')
+			}
+		}
+		ev.RawSample = savings.TruncateSample(rawB.String())
+		ev.KeptSample = savings.TruncateSample(keptB.String())
+	}
 	if err := s.savings.Record(ev); err != nil {
 		slog.Warn("savings: failed to record check event", "err", err)
 	}
@@ -127,13 +148,20 @@ func (s *Server) RecordSpend(agent string, inputTokens, outputTokens int) {
 // warden's own Claude — costTokens 0, it runs off Claude entirely) or the poller's
 // auto-/compact reclaim (costTokens = the measured one-time output cost of
 // generating the summary, netting the saving down to a true reclaim). It is the
-// lifecycle.SavingsHook and poller.OnSaving seam. Gate-aware and fail-open like the
-// other record helpers; a zero raw figure is a no-op.
-func (s *Server) RecordLifecycleSaving(feature, agent string, rawTokens, keptTokens, costTokens int) {
+// lifecycle.SavingsHook and poller.OnSaving seam. rawSample/keptSample are the
+// optional provenance bytes (the offload prompt; "" for the compact path, which
+// has no text). Gate-aware and fail-open like the other record helpers; a zero
+// raw figure is a no-op.
+func (s *Server) RecordLifecycleSaving(feature, agent string, rawTokens, keptTokens, costTokens int, rawSample, keptSample string) {
 	if !s.savingsOn || s.savings == nil || rawTokens == 0 {
 		return
 	}
-	if err := s.savings.Record(savings.NewEvent(feature, agent, rawTokens, keptTokens, costTokens)); err != nil {
+	ev := savings.NewEvent(feature, agent, rawTokens, keptTokens, costTokens)
+	if s.savingsSamples {
+		ev.RawSample = savings.TruncateSample(rawSample)
+		ev.KeptSample = savings.TruncateSample(keptSample)
+	}
+	if err := s.savings.Record(ev); err != nil {
 		slog.Warn("savings: failed to record lifecycle event", "feature", feature, "err", err)
 	}
 }
@@ -145,7 +173,7 @@ func (s *Server) RecordLifecycleSaving(feature, agent string, rawTokens, keptTok
 // sends, so the json:"-" RawBytes field is correctly excluded. Fail-open like
 // recordCheckSavings: a nil store, the feature being off, or a write error only
 // logs. sess may be nil (a human-run git action), recorded unattributed.
-func (s *Server) recordGitSavings(sess *store.Session, rawBytes int, result any) {
+func (s *Server) recordGitSavings(sess *store.Session, rawBytes int, rawSample string, result any) {
 	if !s.savingsOn || s.savings == nil {
 		return
 	}
@@ -153,8 +181,10 @@ func (s *Server) recordGitSavings(sess *store.Session, rawBytes int, result any)
 		return // nothing the agent would have read (e.g. a clean-tree commit)
 	}
 	keptBytes := 0
+	var keptJSON []byte
 	if b, err := json.Marshal(result); err == nil {
 		keptBytes = len(b)
+		keptJSON = b
 	}
 	var agent string
 	if sess != nil {
@@ -164,6 +194,12 @@ func (s *Server) recordGitSavings(sess *store.Session, rawBytes int, result any)
 	// struct the agent receives is already the net saving.
 	ev := savings.NewEvent(savings.FeatureCommit, agent,
 		savings.EstimateTokensLen(rawBytes), savings.EstimateTokensLen(keptBytes), 0)
+	if s.savingsSamples {
+		// Provenance: the truncated raw git output (captured json:"-" on the result)
+		// vs. the marshaled compact struct the agent actually receives.
+		ev.RawSample = savings.TruncateSample(rawSample)
+		ev.KeptSample = savings.TruncateSample(string(keptJSON))
+	}
 	if err := s.savings.Record(ev); err != nil {
 		slog.Warn("savings: failed to record git event", "err", err)
 	}

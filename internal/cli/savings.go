@@ -91,6 +91,15 @@ func formatBenchmark(sum *savings.Summary, sinceStr string) string {
 		fmt.Fprintf(&b, "  cut measured Claude spend ~%.1f%% (saved %s of %s billed+saved tokens)\n",
 			pct, humanCount(sum.SavedTokens), humanCount(sum.SavedTokens+sum.MeasuredSpend))
 	}
+	// Trend: a per-day sparkline of saved tokens so the headline shows movement,
+	// not just a cumulative total. Only when the daemon returned day buckets.
+	if len(sum.Buckets) > 0 {
+		vals := make([]int, len(sum.Buckets))
+		for i, d := range sum.Buckets {
+			vals[i] = d.SavedTokens
+		}
+		fmt.Fprintf(&b, "\ntrend  %s  (%d day%s, saved/day)\n", sparkline(vals), len(vals), plural(len(vals)))
+	}
 	if len(sum.Features) > 0 {
 		fmt.Fprintf(&b, "\ndriven by:\n")
 		for _, f := range sum.Features {
@@ -116,6 +125,82 @@ func spendCutPct(saved, measuredSpend int) (float64, bool) {
 	}
 	denom := saved + measuredSpend
 	return float64(saved) / float64(denom) * 100, true
+}
+
+// sparkRamp is the eight-level block ramp the sparkline draws from, lowest first.
+var sparkRamp = []rune("▁▂▃▄▅▆▇█")
+
+// sparkline renders values as a one-rune-per-value unicode bar chart scaled to
+// the series max (▁▂▃▄▅▆▇█). It is pure and deterministic: empty input → "",
+// a flat series (incl. a single value) renders as the full block at every
+// position (the max is each value), and a 1..8 ramp renders ▁..█. Non-positive
+// values render as the lowest bar. Used for the savings trend in --benchmark.
+func sparkline(values []int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	max := 0
+	for _, v := range values {
+		if v > max {
+			max = v
+		}
+	}
+	var b strings.Builder
+	last := len(sparkRamp) - 1
+	for _, v := range values {
+		idx := 0
+		if max > 0 && v > 0 {
+			idx = v * last / max // integer floor; v==max → last (full block)
+		}
+		b.WriteRune(sparkRamp[idx])
+	}
+	return b.String()
+}
+
+// plural returns "s" unless n is 1, for simple count phrasing.
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// formatAudit renders the retained provenance samples (wd savings --audit): a few
+// real raw-vs-kept pairs so a skeptic can eyeball actual bytes behind the token
+// counts. Each side is clipped for the terminal (the stored sample is already
+// truncated). When nothing is retained it prints why and how to turn capture on.
+func formatAudit(sum *savings.Summary, sinceStr string) string {
+	var b strings.Builder
+	window := "all time"
+	if sinceStr != "" {
+		window = "since " + sinceStr
+	}
+	if len(sum.Samples) == 0 {
+		fmt.Fprintf(&b, "no provenance samples retained (%s)\n", window)
+		fmt.Fprintf(&b, "warden retains raw-vs-kept samples only when `savings_samples: true` is set in the config file (off by default — samples hold substrings of real build/test/git output). Enable it, then re-run a `wd check`/`wd commit` to capture a few.\n")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "retained provenance samples (%s) — real bytes behind the token counts\n", window)
+	for i, s := range sum.Samples {
+		fmt.Fprintf(&b, "\n[%d] %s\n", i+1, s.Feature)
+		fmt.Fprintf(&b, "  raw  (%d bytes): %s\n", len(s.RawSample), clip(s.RawSample, 240))
+		fmt.Fprintf(&b, "  kept (%d bytes): %s\n", len(s.KeptSample), clip(s.KeptSample, 240))
+	}
+	return b.String()
+}
+
+// clip flattens s to a single line and caps it at n runes with an ellipsis, so a
+// multi-line sample stays readable in the audit table. Empty → "(empty)".
+func clip(s string, n int) string {
+	s = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(s, "\n", "⏎"), "\t", " "))
+	if s == "" {
+		return "(empty)"
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 // dollarsFor prices a token count at the same input rate the ledger uses, so the
@@ -160,13 +245,18 @@ func newSavingsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sinceStr, _ := cmd.Flags().GetString("since")
 			jsonOut, _ := cmd.Flags().GetBool("json")
+			bench, _ := cmd.Flags().GetBool("benchmark")
+			audit, _ := cmd.Flags().GetBool("audit")
 			out := cmd.OutOrStdout()
 
 			since, err := parseSince(sinceStr, time.Now())
 			if err != nil {
 				return err
 			}
-			sum, err := clientFor(cmd).Savings(cmd.Context(), since)
+			// Ask the daemon for the day buckets (sparkline) only when benchmarking,
+			// and the provenance samples only when auditing — the common report and
+			// plain --json stay byte-for-byte unchanged.
+			sum, err := clientFor(cmd).Savings(cmd.Context(), since, bench, audit)
 			if err != nil {
 				// A disabled ledger (403) is operator config, not a failure — point
 				// at the switch rather than dumping a raw HTTP error.
@@ -179,7 +269,11 @@ func newSavingsCmd() *cobra.Command {
 			if jsonOut {
 				return printJSON(out, sum)
 			}
-			if bench, _ := cmd.Flags().GetBool("benchmark"); bench {
+			if audit {
+				fmt.Fprint(out, formatAudit(sum, strings.TrimSpace(sinceStr)))
+				return nil
+			}
+			if bench {
 				fmt.Fprint(out, formatBenchmark(sum, strings.TrimSpace(sinceStr)))
 				return nil
 			}
@@ -189,6 +283,7 @@ func newSavingsCmd() *cobra.Command {
 	}
 	cmd.Flags().String("since", "", "only count savings since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)")
 	cmd.Flags().Bool("json", false, "output the structured summary as JSON")
-	cmd.Flags().Bool("benchmark", false, "show the headline A/B proof (without-vs-with-warden tokens, reduction %, $ saved) instead of the per-feature table")
+	cmd.Flags().Bool("benchmark", false, "show the headline A/B proof (without-vs-with-warden tokens, reduction %, $ saved) with a per-day trend sparkline, instead of the per-feature table")
+	cmd.Flags().Bool("audit", false, "print a few retained raw-vs-kept provenance samples (requires savings_samples) so real bytes behind the counts can be eyeballed")
 	return cmd
 }
