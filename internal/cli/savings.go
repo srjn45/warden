@@ -40,6 +40,60 @@ func formatSavings(sum *savings.Summary, sinceStr string) string {
 	return b.String()
 }
 
+// formatBenchmark renders the ledger as the headline A/B proof point: the
+// counterfactual ("without warden", the raw tokens that would have entered
+// Claude) versus the measured reality ("with warden", what actually did),
+// followed by the one-line verdict — reduction %, leanness multiplier, dollars
+// saved — and the features driving it. It reframes the same totals formatSavings
+// tables, so the two views never disagree; this one is built to screenshot and
+// sell. Empty ledger reuses the same "nothing yet" guidance.
+func formatBenchmark(sum *savings.Summary, sinceStr string) string {
+	var b strings.Builder
+	window := "all time"
+	if sinceStr != "" {
+		window = "since " + sinceStr
+	}
+	if sum.Events == 0 {
+		fmt.Fprintf(&b, "no savings recorded yet (%s)\n", window)
+		fmt.Fprintf(&b, "warden records a saving each time a lifecycle feature keeps tokens out of an agent's context — run `wd check` in a project with a .warden/check.yml to start the ledger.\n")
+		return b.String()
+	}
+	rawDollars := dollarsFor(sum.RawTokens)
+	keptDollars := dollarsFor(sum.KeptTokens)
+	fmt.Fprintf(&b, "warden A/B — %s · %d events · priced at $%.0f/M input tokens\n\n", window, sum.Events, savings.PricePerMTok)
+	fmt.Fprintf(&b, "  without warden   %8s tokens   $%8.2f   would have entered Claude\n", humanCount(sum.RawTokens), rawDollars)
+	fmt.Fprintf(&b, "  with warden      %8s tokens   $%8.2f   actually did\n", humanCount(sum.KeptTokens), keptDollars)
+	fmt.Fprintf(&b, "  %s\n", strings.Repeat("─", 56))
+	fmt.Fprintf(&b, "  %.1f%% less context · %s leaner · $%.2f saved\n",
+		sum.ReductionPct, leanFactor(sum.RawTokens, sum.KeptTokens), sum.SavedDollars)
+	if len(sum.Features) > 0 {
+		fmt.Fprintf(&b, "\ndriven by:\n")
+		for _, f := range sum.Features {
+			share := 0.0
+			if sum.SavedTokens > 0 {
+				share = float64(f.SavedTokens) / float64(sum.SavedTokens) * 100
+			}
+			fmt.Fprintf(&b, "  %-12s %8s saved (%.0f%%)\n", f.Feature, humanCount(f.SavedTokens), share)
+		}
+	}
+	return b.String()
+}
+
+// dollarsFor prices a token count at the same input rate the ledger uses, so the
+// A/B "without"/"with" dollar columns are consistent with SavedDollars.
+func dollarsFor(tokens int) float64 { return float64(tokens) * savings.PricePerMTok / 1_000_000 }
+
+// leanFactor expresses how many times more tokens agents would have burned
+// without warden (raw ÷ kept). When nothing was kept (every counted token left
+// Claude entirely — e.g. a pure-offload window) the ratio is unbounded, rendered
+// as "∞×" rather than a divide-by-zero.
+func leanFactor(raw, kept int) string {
+	if kept <= 0 {
+		return "∞×"
+	}
+	return fmt.Sprintf("%.1f×", float64(raw)/float64(kept))
+}
+
 // humanCount renders a token count compactly: 12 / 3.4k / 1.2M. Savings figures
 // span single tokens (a tiny check) to millions (a fleet over weeks), so a plain
 // integer reads poorly at the top end.
@@ -86,11 +140,16 @@ func newSavingsCmd() *cobra.Command {
 			if jsonOut {
 				return printJSON(out, sum)
 			}
+			if bench, _ := cmd.Flags().GetBool("benchmark"); bench {
+				fmt.Fprint(out, formatBenchmark(sum, strings.TrimSpace(sinceStr)))
+				return nil
+			}
 			fmt.Fprint(out, formatSavings(sum, strings.TrimSpace(sinceStr)))
 			return nil
 		},
 	}
 	cmd.Flags().String("since", "", "only count savings since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)")
 	cmd.Flags().Bool("json", false, "output the structured summary as JSON")
+	cmd.Flags().Bool("benchmark", false, "show the headline A/B proof (without-vs-with-warden tokens, reduction %, $ saved) instead of the per-feature table")
 	return cmd
 }
