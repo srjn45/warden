@@ -209,10 +209,10 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 |---|---|---|---|---|---|---|
 | MCP server (stdio) | `mcp` | n/a (is the server) | ✓ | — | — | [mcp-and-skill](https://srjn45.github.io/warden/multi-agent/mcp-and-skill/) |
 | `/warden` Claude skill | shipped in `skills/` | drives MCP/CLI | ✓ | — | — | [mcp-and-skill](https://srjn45.github.io/warden/multi-agent/mcp-and-skill/) |
-| Interactive mode / orchestrator REPL | `orch` (aliases `interactive`, `i`) | **CLI-only** (interactive REPL) | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
-| ↳ deterministic `/` commands (no model) | `/agents`, `/spawn`, `/tell`, … `/help` | — | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
-| ↳ line editor: history, reverse-search, live `/` menu, Tab completion, colour | readline-backed | — | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
-| ↳ guided argument forms (pick-lists + free text, LLM pre-fill) | bare `/spawn`, `/spawn+ <prompt>` | — | — | — | — | [orchestrator-repl](https://srjn45.github.io/warden/multi-agent/orchestrator-repl/) |
+| Interactive REPL | `repl` (aliases `interactive`, `i`) | **CLI-only** (interactive REPL) | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
+| ↳ deterministic `/` commands (no model) | `/agents`, `/spawn`, `/tell`, … `/help` | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
+| ↳ line editor: history, reverse-search, live `/` menu, Tab completion, colour | readline-backed | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
+| ↳ guided argument forms (pick-lists + free text, LLM pre-fill) | bare `/spawn`, `/spawn+ <prompt>` | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 
 ## 15. Admin / host (CLI-only by design)
 
@@ -238,7 +238,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 Every fleet/data feature is reachable over MCP (**63 tools**). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
-§15 (plus interactive `attach`/`orch` and local-config `preset`), which are
+§15 (plus interactive `attach`/`repl` and local-config `preset`), which are
 CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `get_metrics`, `savings`, `search`, `history`, `audit_log`, `list_worktrees`,
 `list_plugins`, `get_pressure`, `set_auto_approve`, `set_permission_mode`,

@@ -50,7 +50,7 @@ export default defineConfig({
           { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },
           { label: 'Shared context & messages', slug: 'multi-agent/shared-context-messages' },
           { label: 'Orchestration: MCP & skill', slug: 'multi-agent/mcp-and-skill' },
-          { label: 'Orchestrator REPL (local LLM)', slug: 'multi-agent/orchestrator-repl' },
+          { label: 'Interactive REPL (local LLM)', slug: 'multi-agent/repl' },
         ]},
         { label: 'Reference', items: [
           { label: 'Feature catalog', slug: 'reference/features' },

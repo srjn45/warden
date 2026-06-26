@@ -41,17 +41,17 @@ Available Commands:
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
   insights            Mine agent history for patterns and parallelization wins
-  llm                 Local-LLM helpers for the orchestrator (wd orch)
+  llm                 Local-LLM helpers for the REPL (wd repl)
   ls                  List all active agent sessions
   mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
   msg                 Send and receive directed messages between agents
-  orch                Interactive conductor for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands)
   pipeline            Define and run DAG pipelines of agent jobs
   plugin              Inspect the plugin registry (custom task types + lifecycle hooks)
   preset              Save and list named spawn configs (replay with `warden start --preset <name>`)
   prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
   push                Push the current branch to origin (warden rails + bookkeeping)
   remove-worktree     Remove an agent's git worktree + branch (always asks; --force overrides guards)
+  repl                Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands)
   restore             Recreate and resume a lost/orphaned agent (claude --resume)
   rotate              Hand this agent's work to a fresh successor in the same workspace, then retire it
   savings             Show the token reductions warden's lifecycle features have earned
@@ -222,7 +222,7 @@ Usage:
 ## warden llm suggest
 
 ```text
-Suggest local LLM models for warden's orchestrator (wd orch), ranked against
+Suggest local LLM models for warden's REPL (wd repl), ranked against
 this machine's memory.
 
 warden auto-detects two figures: total memory (GPU VRAM, Apple unified memory, or
@@ -562,11 +562,11 @@ Flags:
       --branch / --name / --repo / --force   options for a new delegate (ignored with --to)
 ```
 
-## warden orch
+## warden repl
 
 ```text
 Interactive conductor for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
-Aliases: orchestrator, interactive, i.
+Aliases: interactive, i.
 
 A real line editor (arrow keys, persisted history, reverse-search, a live `/`
 menu that filters as you type, Tab completion) that closes with Ctrl-D. Drive it
@@ -586,10 +586,10 @@ over, or clear with "-".
 natural-language half needs it.
 
 Usage:
-  warden orch [flags]
+  warden repl [flags]
 ```
 
-See [Interactive mode](/warden/multi-agent/orchestrator-repl/) for the full `/`-command table.
+See [Interactive mode](/warden/multi-agent/repl/) for the full `/`-command table.
 
 ## warden auto-approve / set-permission-mode
 

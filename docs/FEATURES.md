@@ -325,8 +325,8 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `local_llm` | `false` | Route fuzzy-cheap tasks (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error (§21) |
 | `local_llm_url` / `local_llm_model` / `local_llm_timeout` | `http://localhost:11434` / `qwen2.5-coder:7b` / `20s` | Local Ollama server URL, model tag, and per-call hard timeout (§21) |
 | `local_llm_tier` / `local_llm_escalate` | `auto` / `true` | Orchestrator planning-tier override (`auto`/`t0`/`t1`/`t2`) / allow one over-tier planning step to escalate to headless Claude (§17) |
-| `local_llm_classifier` | `heuristic` | How the orchestrator buckets a request's needed planning tier: `heuristic` (cheap surface signals, no model call) or `model` (a one-shot local-model classification, one extra round-trip, falls back to the heuristic on any error) (§17) |
-| `orchestrator` | `false` | Start the cockpit master pane in `wd orch` mode instead of a plain shell (§17) |
+| `local_llm_classifier` | `heuristic` | How the REPL buckets a request's needed planning tier: `heuristic` (cheap surface signals, no model call) or `model` (a one-shot local-model classification, one extra round-trip, falls back to the heuristic on any error) (§17) |
+| `repl` | `false` | Start the cockpit master pane in `wd repl` mode instead of a plain shell (§17) |
 
 > The old `WARDEN_*` environment variables are no longer read — the daemon warns
 > once at startup if any are still set. The per-agent IPC vars warden injects
@@ -398,11 +398,11 @@ Act on many agents at once from the web cockpit instead of one tile at a time.
 
 ---
 
-## 17. Interactive mode / orchestrator (`wd orch`)
+## 17. Interactive mode / REPL (`wd repl`)
 
 warden's **interactive mode**: a proper terminal REPL to drive the fleet. Run it
-standalone (`wd orch`, aliases `wd interactive` / `wd i` / `wd orchestrator`) or as
-the cockpit master pane (the `orchestrator` config setting / `--orch` flag). It
+standalone (`wd repl`, aliases `wd interactive` / `wd i`) or as
+the cockpit master pane (the `repl` config setting / `--repl` flag). It
 drives the fleet two ways — a **deterministic `/`-command half** that needs no
 model, and a **natural-language half** that turns intent into **confirmed** warden
 tool calls without spending Claude tokens. **It conducts; it never implements** —
@@ -425,10 +425,10 @@ without a model.
 | **Mandatory confirm gate** | Every mutating verb (`spawn_agent`, `send_to_agent`, `terminate_agent`, `delete_agent`, `restore_agent`, `approve`, `commit`, `push`, `sync`, `check`, `ctx_set`, `send_message`, `pipeline_create`, `pipeline_cancel`, `clean_up`) requires explicit operator approval before it runs — **non-config-gated**, can't be disabled. A batched plan confirms as one unit. |
 | **Capability-tier routing** | A cheap pre-classify buckets each request's needed tier against the model's tier (`modelTier`, override with `local_llm_tier`). Classification defaults to a deterministic heuristic; set `local_llm_classifier: model` to swap in a one-shot local-model verdict (falls back to the heuristic on any error) for the hard single-sentence asks the heuristic can't see. Within tier ⇒ plan locally; over tier ⇒ escalate one planning step to headless Claude (`local_llm_escalate`, default on) or degrade honestly — execution always stays token-free warden calls. |
 | **Monitoring verbs** | `fleet_digest` / `agent_digest` summarize fleet & per-agent state (reusing the `Summarize` routing), `pending_for_me` surfaces what needs the operator, and `clean_up` proposes terminate/delete of finished agents through the same confirm gate. |
-| **`!`-shell passthrough** | A `!`-prefixed line runs in a persistent embedded `$SHELL` (cwd/env persist) and tees output to the terminal. The orchestrator takes **no action** on that output — no auto-diagnose/fix/spawn; it reports verbatim and waits. The output is visible as context to the next natural-language turn. A shell that can't start (no PTY) is non-fatal. |
-| **Cockpit integration** | As the master pane it hosts `wd orch` over the operator's shell; **Alt+t** toggles the slot to a raw `$SHELL` and back without killing either side (see §8). |
+| **`!`-shell passthrough** | A `!`-prefixed line runs in a persistent embedded `$SHELL` (cwd/env persist) and tees output to the terminal. The REPL takes **no action** on that output — no auto-diagnose/fix/spawn; it reports verbatim and waits. The output is visible as context to the next natural-language turn. A shell that can't start (no PTY) is non-fatal. |
+| **Cockpit integration** | As the master pane it hosts `wd repl` over the operator's shell; **Alt+t** toggles the slot to a raw `$SHELL` and back without killing either side (see §8). |
 | **Hardware-aware model recommendation** | `wd doctor` best-effort detects accelerator/host memory (NVIDIA VRAM via `nvidia-smi`, Apple unified memory via `sysctl`, else system RAM) and **recommends** a `local_llm_model` sized to fit. It only ever recommends — the operator sets the model; warden never silently swaps it. |
-| **`wd llm suggest` — memory-ranked model picker** | A dedicated recommender that auto-detects **two** figures from the *same* memory pool: **total** memory (the bound) and **average free** memory (sampled a few times, smoothing spikes) — VRAM for an NVIDIA GPU, the unified pool on Apple Silicon, else Linux `MemAvailable`. It scores a curated, **tool-calling-forward** catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — not raw size or coding skill, since the orchestrator routes tool calls and never writes code. Scores are calibrated against the [Berkeley Function-Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) (BFCL v4), weighted toward the multi-turn subcategory the orchestrator's loop exercises — so a leaner agentic model outranks a bigger coding-tuned one. Each model is marked `fits now` / `free memory first` / `too large`. The ★ pick is the best-scoring model that runs **comfortably now** while leaving headroom for your real workload (Docker, DBs, IDE, Claude sessions, the daemon). `--samples`, `--total-gb`/`--free-gb` overrides, `--json`. |
+| **`wd llm suggest` — memory-ranked model picker** | A dedicated recommender that auto-detects **two** figures from the *same* memory pool: **total** memory (the bound) and **average free** memory (sampled a few times, smoothing spikes) — VRAM for an NVIDIA GPU, the unified pool on Apple Silicon, else Linux `MemAvailable`. It scores a curated, **tool-calling-forward** catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — not raw size or coding skill, since the REPL routes tool calls and never writes code. Scores are calibrated against the [Berkeley Function-Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) (BFCL v4), weighted toward the multi-turn subcategory the REPL's loop exercises — so a leaner agentic model outranks a bigger coding-tuned one. Each model is marked `fits now` / `free memory first` / `too large`. The ★ pick is the best-scoring model that runs **comfortably now** while leaving headroom for your real workload (Docker, DBs, IDE, Claude sessions, the daemon). `--samples`, `--total-gb`/`--free-gb` overrides, `--json`. |
 
 ---
 
@@ -482,7 +482,7 @@ package the daemon for containerized remote access. The remote-access auth model
 An opt-in, Ollama-compatible local model that handles warden's "fuzzy but cheap"
 work without spending Claude tokens. Off by default (`local_llm`); every call has a
 hard timeout and a deterministic fallback, so warden behaves exactly as before when
-the model is off, unreachable, or wrong. The orchestrator (§17) is the one surface
+the model is off, unreachable, or wrong. The REPL (§17) is the one surface
 that *requires* it; everything below degrades silently to prior behavior.
 
 | Feature | Description |
@@ -493,7 +493,7 @@ that *requires* it; everything below degrades silently to prior behavior.
 | **Check-failure condensation** | An **oversized** check-failure log (output past the line cap) is condensed by the local model into its distinct failures; deterministic tail-truncation is the fallback. Within-cap failures skip the model entirely. |
 | **Headless commit messages** | `wd commit` / MCP `commit` no longer require `-m`: a missing message is distilled by the local model from the staged diff (`git diff --cached`, capped to 16 KiB) into a Conventional-Commits subject, with a path-derived conventional-commit floor as the guaranteed fallback — a blank commit is impossible. |
 
-Gated by `local_llm` (+ `local_llm_url` / `_model` / `_timeout`); the orchestrator's
+Gated by `local_llm` (+ `local_llm_url` / `_model` / `_timeout`); the REPL's
 tier knobs (`local_llm_tier` / `_escalate`) live in §17.
 
 ---
@@ -578,7 +578,7 @@ suppression predicate — with no daemon change.
 
 Mine warden's **own history** — completed and active agent sessions plus the
 resource metrics it already records — into actionable suggestions. Like the
-orchestrator and digest, it is a **deterministic statistics core that needs no
+REPL and digest, it is a **deterministic statistics core that needs no
 LLM**, with an **optional local-LLM narration layer** that degrades gracefully to
 the deterministic text whenever the model is off, unreachable, errors, or returns
 an empty reply. Config-gated by `insights` (default on).

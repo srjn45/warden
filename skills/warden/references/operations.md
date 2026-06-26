@@ -107,8 +107,8 @@ Notable settings (see the generated file for the full set with defaults):
   `auto_restart_max`/`auto_restart_reset`, `rate_limit_auto_resume`.
 - **Boundary guards:** `isolation_guard`, `root_guard`, `git_redirect`,
   `check_redirect`, `git_conventions` (see git-and-checks.md).
-- **Local LLM / orchestrator:** `local_llm` (+ `local_llm_url`/`_model`/`_timeout`),
-  `local_llm_tier`/`_escalate`/`_classifier`, `orchestrator`.
+- **Local LLM / REPL:** `local_llm` (+ `local_llm_url`/`_model`/`_timeout`),
+  `local_llm_tier`/`_escalate`/`_classifier`, `repl`.
 - **Misc:** `metrics`, `snapshots`, `insights`, `plugins`/`plugin_registry`,
   `scheduler_enabled`, `api_docs`, `collab_*`, `branch_track_*`, `tutorial`,
   `allow_nonloopback`, `log_level`/`log_format`.
@@ -142,11 +142,11 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   an agents list, a shell pane, and a live detail pane. `n` new, `s` send, `a`
   attach, `d` digest, `i` approvals, `c` context/message inspector, `x`
   terminate/cancel, `?` help; `Alt+←/→/↑/↓` move pane focus; `Alt+t` toggles the
-  master pane between the orchestrator and a raw shell. Requires tmux ≥ 3.1; run
+  master pane between the REPL and a raw shell. Requires tmux ≥ 3.1; run
   from a plain terminal (not nested in tmux). Hold **Shift** to select text
   natively (tmux mouse mode eats plain drag).
 
-## Interactive mode / orchestrator (`wd orch`)
+## Interactive mode / REPL (`wd repl`)
 
 warden's **interactive mode** — an operator-facing terminal REPL (aliases `wd
 interactive` / `wd i`), **not** something an agent drives over MCP. A real line
@@ -172,7 +172,7 @@ drive the fleet:
 Starts without a model (the `/` commands and `!`-shell always work); only the NL
 half needs `local_llm: true`. `!`-prefixed lines run in a persistent embedded shell,
 reported verbatim (no auto-action). Run standalone or as the cockpit master pane
-(`orchestrator` config / `--orch`).
+(`repl` config / `--repl`).
 
 **Picking the local model — `wd llm suggest`.** Auto-detects the machine's **total**
 and **average free** memory (same pool: NVIDIA VRAM / Apple unified / Linux
@@ -180,7 +180,7 @@ and **average free** memory (same pool: NVIDIA VRAM / Apple unified / Linux
 marking each `fits now` / `free memory first` / `too large`. It scores a
 tool-calling-forward catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by
 **conductor suitability** — calibrated against the Berkeley Function-Calling
-Leaderboard (BFCL v4, multi-turn-weighted), since the orchestrator routes tool
+Leaderboard (BFCL v4, multi-turn-weighted), since the REPL routes tool
 calls and never writes code, so size/coding skill is the wrong axis — and stars
 the best model that runs comfortably now with headroom. Flags: `--samples`, `--total-gb`/`--free-gb`
 overrides, `--json`. `wd doctor` prints the one-line version. Recommendation only —

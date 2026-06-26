@@ -46,7 +46,7 @@ Common settings (run `warden config` for the complete, live list):
 | `token_auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting |
 | `token_warn` | `200000` | Warning threshold in context tokens (inclusive) |
 | `token_critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |
-| `local_llm` | `false` | Enable the local-LLM provider (orchestrator REPL, commit-message/insights narration, classify/summarize offload) |
+| `local_llm` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
 | `metrics` | `true` | Record per-agent performance history for `warden stats --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate and a hard cap on concurrent agents (0 = no cap) |
 | `pipeline_keep_done` / `pipeline_hint` | — | Pipeline retention + the decomposition nudge |
