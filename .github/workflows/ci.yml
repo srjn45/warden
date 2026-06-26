@@ -33,6 +33,12 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+      - name: openapi codegen up to date
+        # openapi.yaml is the single source of truth for the daemon's HTTP API;
+        # internal/daemon/oapi/api.gen.go is generated from it and committed. Fail
+        # if the spec changed without regenerating (or the generated file was
+        # hand-edited) so the two can never silently drift.
+        run: make generate-check
 
   test-go:
     name: Test (Go)

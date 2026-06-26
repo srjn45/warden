@@ -1,4 +1,4 @@
-.PHONY: build test test-integration bench fuzz cover lint fmt fmt-check verify verify-fast run-daemon ui ui-dev web-deps web-test release install-skill install-hooks install uninstall reinstall
+.PHONY: build test test-integration bench fuzz cover lint fmt fmt-check generate generate-check verify verify-fast run-daemon ui ui-dev web-deps web-test release install-skill install-hooks install uninstall reinstall
 
 # Stamp commit/date into source builds so `warden version` is useful locally.
 # Release builds get these (plus the version tag) from goreleaser's ldflags.
@@ -41,6 +41,21 @@ cover:
 lint:
 	go vet ./...
 
+# Regenerate the strict OpenAPI server (internal/daemon/oapi/api.gen.go) from the
+# hand-authored spec. The spec is the single source of truth; the generated file
+# is committed so normal builds need no codegen step.
+generate:
+	go generate ./...
+
+# CI guard: regenerate and fail if the committed code drifts from the spec — i.e.
+# someone edited openapi.yaml without running `make generate` (or vice versa).
+generate-check: generate
+	@if ! git diff --quiet -- internal/daemon/oapi; then \
+		echo "internal/daemon/oapi is out of date — run 'make generate' and commit the result:"; \
+		git --no-pager diff --stat -- internal/daemon/oapi; \
+		exit 1; \
+	fi
+
 # Format all Go sources in place.
 fmt:
 	gofmt -w $$(git ls-files '*.go')
@@ -60,14 +75,14 @@ fmt-check:
 # daemon/lifecycle/pipeline/poller/tui packages can time out locally when live
 # warden agents are competing for the machine — that's why the pre-push hook
 # uses verify-fast instead and leaves the heavy suite to CI's isolated runner.
-verify: fmt-check lint test web-test release
+verify: fmt-check generate-check lint test web-test release
 	./bin/warden --help >/dev/null
 
 # Fast, deterministic pre-push gate (no tmux-contention-prone Go tests):
 # gofmt, vet, web unit tests, and a release build with a binary smoke test.
 # Catches the formatting/compile/vet/web breakage that CI rejects, in well
 # under a minute. CI's macOS runner owns the full `go test ./...` in isolation.
-verify-fast: fmt-check lint web-test release
+verify-fast: fmt-check generate-check lint web-test release
 	./bin/warden --help >/dev/null
 
 run-daemon: build

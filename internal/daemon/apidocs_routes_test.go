@@ -82,10 +82,15 @@ func chiRoutes(t *testing.T, srv *Server) map[string]bool {
 	return routes
 }
 
-// TestSpecMatchesRoutes is the drift guard: every concrete route the daemon
-// registers must have a matching path in the OpenAPI spec, and every spec path
-// must correspond to a real route. New endpoints (or stale spec entries) fail
-// this test until the spec is updated.
+// TestSpecMatchesRoutes is a route-presence smoke test. Since the strict server
+// is generated from openapi.yaml, the request/response *schemas* are enforced by
+// the compiler (every operationId becomes an interface method the daemon must
+// implement) and the committed api.gen.go is kept in lockstep with the spec by
+// the `go generate` CI guard. What this test still adds is parity for the
+// hand-registered routes that sit outside strict generation — /healthz, the
+// /api/docs surface, the SSE stream and the attach socket: every concrete route
+// the daemon registers must have a matching spec path, and every spec path must
+// correspond to a real route.
 func TestSpecMatchesRoutes(t *testing.T) {
 	doc := loadSpec(t)
 	srv := &Server{apiDocs: true}
