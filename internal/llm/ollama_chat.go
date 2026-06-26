@@ -102,6 +102,14 @@ func (o *Ollama) Chat(ctx context.Context, msgs []Message, tools []ToolSchema) (
 		}
 		reply.ToolCalls = append(reply.ToolCalls, ToolCall{Name: tc.Function.Name, Args: args})
 	}
+	// Small models (e.g. qwen) sometimes emit a tool call as plain content rather
+	// than in the structured tool_calls field. Salvage it so the loop runs the
+	// call instead of printing raw JSON to the operator and doing nothing.
+	if len(reply.ToolCalls) == 0 && strings.TrimSpace(reply.Text) != "" {
+		if calls, residual := SalvageToolCalls(reply.Text); len(calls) > 0 {
+			reply.ToolCalls, reply.Text = calls, residual
+		}
+	}
 	return reply, nil
 }
 

@@ -136,3 +136,53 @@ func TestOllamaChat_TimesOut(t *testing.T) {
 	require.Error(t, err)
 	require.Less(t, time.Since(start), 2*time.Second, "the hard timeout must bound the chat call")
 }
+
+// TestOllamaChat_SalvagesInlineToolCall covers the qwen failure mode in the
+// screenshot: the model emits a tool call as plain content (no structured
+// tool_calls). The salvage must promote it so the loop runs it instead of
+// printing raw JSON and doing nothing.
+func TestOllamaChat_SalvagesInlineToolCall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(ollamaChatResponse{Message: ollamaChatMessage{
+			Role:    "assistant",
+			Content: `{"name":"spawn_agent","arguments":{"prompt":"review docs"}}`,
+		}})
+	}))
+	defer srv.Close()
+	reply, err := NewOllama(srv.URL, "m", time.Second).Chat(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.Len(t, reply.ToolCalls, 1)
+	require.Equal(t, "spawn_agent", reply.ToolCalls[0].Name)
+	require.Equal(t, "review docs", reply.ToolCalls[0].Args["prompt"])
+	require.Empty(t, reply.Text, "the salvaged JSON must not also leak as prose")
+}
+
+func TestSalvageToolCalls(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    string // expected tool name, "" ⇒ no salvage
+	}{
+		{"bare object", `{"name":"spawn_agent","arguments":{"prompt":"x"}}`, "spawn_agent"},
+		{"parameters key", `{"name":"check","parameters":{"agent":"a1"}}`, "check"},
+		{"json fenced", "```json\n{\"name\":\"push\",\"arguments\":{\"agent\":\"a1\"}}\n```", "push"},
+		{"tool_call tagged", `<tool_call>{"name":"sync","arguments":{}}</tool_call>`, "sync"},
+		{"array", `[{"name":"list_agents","arguments":{}}]`, "list_agents"},
+		{"plain prose", "Two agents are running; none blocked.", ""},
+		{"json mention in prose", `I would call {"name":"x"} but won't.`, ""},
+		{"object without name", `{"arguments":{"prompt":"x"}}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			calls, residual := SalvageToolCalls(tc.content)
+			if tc.want == "" {
+				require.Empty(t, calls)
+				require.Equal(t, tc.content, residual, "non-salvage must leave content untouched")
+				return
+			}
+			require.Len(t, calls, 1)
+			require.Equal(t, tc.want, calls[0].Name)
+			require.Empty(t, residual)
+		})
+	}
+}

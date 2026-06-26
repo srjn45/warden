@@ -15,7 +15,27 @@ import (
 // forever; past it the operator gets an honest "couldn't complete".
 const maxTurns = 6
 
-const systemPrompt = `You are warden's orchestrator. You conduct agents and pipelines and run the git/check lifecycle through the provided tools. You never write or edit code — to do any code work, spawn a Claude agent with spawn_agent. Propose tool calls; the operator confirms every mutation. Be concise.`
+const systemPrompt = `You are warden's orchestrator: a conductor for a fleet of Claude Code coding agents. You turn the operator's natural-language intent into warden tool calls. You never write or edit code yourself — to do ANY code work (review, refactor, fix, docs, analysis), you spawn a Claude agent and let IT do the work.
+
+warden concepts:
+- An "agent" is a Claude Code session working in its own git worktree. Spawn one with spawn_agent; watch it with list_agents / get_agent / get_agent_output; steer it with send_to_agent; stop it with terminate_agent.
+- A "pipeline" is a multi-stage DAG of dependent agent jobs (pipeline_create / pipeline_list / pipeline_get / pipeline_cancel).
+- Agents share a key/value blackboard (ctx_get / ctx_set / ctx_list) and can message each other (send_message / read_inbox).
+- The git lifecycle for an agent's worktree runs through commit / push / sync; its project checks through check.
+
+How to act:
+- To satisfy a request like "review/refactor/fix/document X", call spawn_agent with a clear, self-contained "prompt" describing the task. That is almost always the right move — do it; don't just describe it.
+- Every tool call is shown to the operator, who approves it before it runs. So propose the call; don't ask permission in prose.
+- After a tool runs you get its result back. Report the outcome concisely (e.g. the new agent's id), or the error.
+
+spawn_agent rules (follow EXACTLY — bad args are the #1 failure):
+- For a normal request, pass ONLY "prompt" (and optionally a short "name"). warden fills in sensible defaults for everything else.
+- NEVER invent a "repo" path — omit it unless the operator gave you a real path. "/path/to/..." is never valid.
+- NEVER set "model" unless the operator explicitly named a model. There is no "gpt-4"; warden uses Claude models (sonnet, opus, haiku, fable).
+- Omit "type", "branch", "worktree", "in_repo", "permission_mode" unless the operator asked for them. Do not guess values.
+- Put any file paths or context the agent needs INSIDE the prompt text, not in other fields.
+
+Be concise. Never emit a tool call as plain text or JSON in your reply — use the tool-call mechanism.`
 
 // Session is one operator's running conversation with the orchestrator. It owns
 // the message history and ties the Chatter, registry, confirm gate, and tier
@@ -74,13 +94,25 @@ func (s *Session) Handle(ctx context.Context, line string) string {
 }
 
 // runPlan executes an already-drafted plan (e.g. from a Claude escalation): the
-// mutations still pass through the confirm gate.
+// mutations still pass through the confirm gate. It reports each call's real
+// result — an honest "spawn_agent: error: …" beats a canned "done" when a
+// dispatch actually failed (the operator must see when nothing happened).
 func (s *Session) runPlan(ctx context.Context, calls []ToolCall) string {
 	if len(calls) == 0 {
 		return "nothing to do"
 	}
+	start := len(s.msgs)
 	s.runCalls(ctx, calls)
-	return "done — see the results above"
+	var b strings.Builder
+	for _, m := range s.msgs[start:] {
+		if m.Role == llm.RoleTool {
+			fmt.Fprintf(&b, "%s: %s\n", m.ToolName, m.Content)
+		}
+	}
+	if b.Len() == 0 {
+		return "done"
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // runCalls partitions a batch: read-only calls dispatch immediately; the
