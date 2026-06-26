@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // RunJobDetailPane renders one terminal job's stored detail to stdout and then
@@ -80,6 +81,18 @@ func jobDetailText(p *pipeline.Pipeline, jobID string, width int) (string, error
 		}
 	}
 	return "", fmt.Errorf("job %q not found in pipeline %s", jobID, p.ID)
+}
+
+// jobDetailBody renders a pipeline job's detail for the in-pane modeDetails
+// overlay (height 0 ⇒ no padding; the viewport scrolls). A job whose agent is
+// still live shows the full agent detail — parity with pressing i on any agent;
+// a terminal or not-yet-spawned job shows its stored detail (prompt/handoff/
+// output/digest) since there is no live session to inspect.
+func jobDetailBody(j *pipeline.Job, sess *store.Session, width int) string {
+	if sess != nil {
+		return detailBody(sess, width)
+	}
+	return renderPipelineJob(j, width, 0)
 }
 
 // renderPipelineJob draws one job's full details in the detail pane — used for
