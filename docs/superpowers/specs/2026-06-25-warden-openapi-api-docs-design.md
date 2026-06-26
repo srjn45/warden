@@ -17,25 +17,46 @@ This ships a machine-readable **OpenAPI 3.x** description of every real route pl
 an interactive **Swagger UI** at `/api/docs`, served entirely from embedded
 assets so it works offline and inside the container image.
 
-## Spec-derived-from-real-routes invariant
+## Spec-first invariant (updated 2026-06-27)
 
 The load-bearing constraint: **the spec describes the routes that actually
-exist** — no invented endpoints, nothing real left out. The authoritative route
-table is `internal/daemon/server.go`'s `router()` plus the `register*Routes`
-helpers; `internal/client/client.go` is the second view of the same surface and
-was cross-checked path-by-path.
+exist** — no invented endpoints, nothing real left out. Originally this was an
+*invariant maintained by hand*: the spec was authored to mirror `router()` and
+the `register*Routes` helpers, with `internal/client/client.go` as a second view
+cross-checked path-by-path, and a path-only drift guard
+(`TestSpecMatchesRoutes`) walked the live chi mux (`chi.Walk`) asserting two-way
+equality between the concrete routes and the spec's `paths`.
 
-To keep it honest as the API evolves, a **drift guard** (`TestSpecMatchesRoutes`
-in `apidocs_routes_test.go`) walks the live chi mux (`chi.Walk`) and asserts a
-two-way equality between the concrete routes and the spec's `paths`:
+That cross-check only validated **path existence** — never request/response
+**schemas, parameters, methods, or status codes** — so ~1,800 lines describing
+the wire format could silently drift. We have since **flipped to spec-first**:
+`openapi.yaml` is now the single source of truth and **`oapi-codegen` generates a
+typed ("strict") chi server** from it (`internal/daemon/oapi/api.gen.go`, via
+`go generate`). The daemon's `*Server` implements the generated
+`StrictServerInterface`, so:
 
-- every registered route (minus the two wildcard routes) has a matching spec path, and
-- every spec path corresponds to a real route.
+- **Schemas are compiler-enforced.** Every `operationId` becomes an interface
+  method whose request/response *types* must match the spec; a missing or extra
+  operation, or a mismatched DTO, is now a **build failure**, not a silent gap.
+  The 74 hand-written `handleXxx` handlers and the ~40 daemon-local request/
+  response DTOs were deleted — the generated types are the only wire surface.
+- **The generated file can't drift from the spec.** A CI guard
+  (`make generate-check` → `go generate ./... && git diff --exit-code` over
+  `internal/daemon/oapi`) fails if the spec changed without regenerating.
+- **`TestSpecMatchesRoutes` is downgraded** to a route-presence smoke test: it
+  still asserts route↔spec parity for the **hand-registered** routes that sit
+  outside strict generation — `/healthz`, the `/api/docs*` surface, the SSE
+  stream `/api/v1/events/stream`, and the attach socket — which the generator
+  does not own. Those streaming/attach ops are excluded from codegen
+  (`config.yaml`'s `exclude-operation-ids`) and registered manually; the SPA
+  catch-all `/*` and the Swagger UI asset subtree `/api/docs/swagger-ui/*` carry
+  no documentable schema and are skipped as before.
 
-Add an endpoint without documenting it — or leave a stale path in the spec — and
-the test fails. The only routes excluded are the wildcards that carry no
-documentable schema: the SPA catch-all `/*` and the Swagger UI asset subtree
-`/api/docs/swagger-ui/*`.
+Domain responses reuse the real Go types directly: ~18 schemas carry
+`x-go-type` + `x-go-type-import` so the generated model is a **type alias** to
+the existing domain type (`store.Session`, `lifecycle.*Result`,
+`pipeline.Pipeline`, …). Zero adapter mappings, and the wire output stays
+byte-identical to the hand-written handlers it replaced.
 
 ## Embed / serve approach
 
@@ -58,12 +79,16 @@ explicit `/api/docs*` routes win over the SPA catch-all):
 - `GET /api/docs/swagger-ui/*` → the vendored static assets (path-cleaned,
   traversal-rejected, served from the embedded FS).
 
-The spec itself is a hand-maintained file rather than a code-generated artifact:
-warden has no struct-tag→OpenAPI generator in its build, and a small accurate
-hand-written spec (guarded against drift by the test above) is lighter than a new
-codegen dependency. Schemas are modelled off the real Go types
-(`store.Session`/`Event`, the daemon request DTOs, `lifecycle.*Result`,
-`snapshot.Snapshot`, `pipeline.Pipeline`, `digest.Digest`, …).
+The spec itself is **hand-authored** (warden has no struct-tag→OpenAPI generator),
+but it is no longer just documentation: as of the spec-first flip (above) it is
+the **input** to `oapi-codegen`, which generates the daemon's typed server from
+it. The direction reversed — code now follows the spec, not the other way round.
+Schemas are still modelled on the real Go types (`store.Session`/`Event`,
+`lifecycle.*Result`, `snapshot.Snapshot`, `pipeline.Pipeline`, `digest.Digest`,
+…), now wired through `x-go-type` aliases so the generated models *are* those
+types. The vendored Swagger UI keeps reading the same embedded
+`apidocs/openapi.yaml`; the `embedded-spec` the generator can emit is not the
+served copy, so there is a single source of truth.
 
 ## Auth decision for `/api/docs`
 
@@ -99,7 +124,8 @@ registered either way, so the drift guard's view of the route table is stable.
 - **Validity** — the embedded spec parses as YAML, declares `openapi: 3.x`, and
   carries the load-bearing sections (`info`, non-empty `paths`, the `bearerAuth`
   scheme, the `Session`/`Error` schemas, and a representative set of known paths).
-- **Drift** — the two-way route↔spec equality described above.
+- **Drift** — route↔spec parity for the hand-registered routes (the strict
+  schemas are enforced by the compiler + the `make generate-check` CI guard).
 - **Serving** — `/api/docs` returns 200 HTML referencing the spec + assets, the
   raw-spec route serves the document, and a vendored asset is reachable.
 - **Gate** — with `api_docs=false` all three routes 404.
