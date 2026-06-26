@@ -65,6 +65,7 @@ type Config struct {
 	CheckRedirect          bool          `yaml:"check_redirect"`
 	Snapshots              bool          `yaml:"snapshots"`
 	Savings                bool          `yaml:"savings"`
+	SavingsSamples         bool          `yaml:"savings_samples"`
 	Tutorial               bool          `yaml:"tutorial"`
 	Insights               bool          `yaml:"insights"`
 	ApiDocs                bool          `yaml:"api_docs"`
@@ -140,6 +141,7 @@ var schema = []setting{
 	{"check_redirect", "Install the PreToolUse hook that denies a raw test/lint/build command the project's .warden/check.yml registers and redirects it to wd check (returns only failures). No config means nothing is redirected. Values: true | false"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
 	{"savings", "Record the token reductions warden's lifecycle features earn (starting with wd check: raw test output kept out of the transcript) to an append-only ledger, surfaced by wd savings and GET /savings. Off disables recording and returns 403 on the endpoint. Values: true | false"},
+	{"savings_samples", "Retain opt-in provenance samples in the savings ledger: a truncated (~2KB) snapshot of the real raw output a feature avoided and the kept output it returned, sampled on a fraction of events and shown by wd savings --audit so a skeptic can eyeball actual bytes. WARNING: these samples retain substrings of real build/test/git output, which may be sensitive — off by default. Requires savings. Values: true | false"},
 	{"tutorial", "Print a one-line first-run hint pointing at `wd tutorial` until the walkthrough is completed (it writes a tutorial-complete marker in data_dir). The hint is non-blocking and only shown on an interactive TTY; this gate disables it. Values: true | false"},
 	{"insights", "Enable the AI-powered insights engine (wd insights + MCP insights): mine agent history for duration outliers, co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could run in parallel. Deterministic by default; narrated by the local model when local_llm is on. Values: true | false"},
 	{"api_docs", "Serve the OpenAPI spec + interactive Swagger UI at /api/docs (public, like the static UI shell; the spec describes the API shape but holds no secrets). Values: true | false"},
@@ -209,6 +211,7 @@ func defaults() Config {
 		CheckRedirect:          true,
 		Snapshots:              true,
 		Savings:                true,
+		SavingsSamples:         false,
 		Tutorial:               true,
 		Insights:               true,
 		ApiDocs:                true,
@@ -698,6 +701,11 @@ func (c Config) GetCheckRedirect() bool { return c.CheckRedirect }
 // GetSavings reports whether the token-savings ledger is enabled (the default).
 // When off, lifecycle features record no savings and GET /savings returns 403.
 func (c Config) GetSavings() bool { return c.Savings }
+
+// GetSavingsSamples reports whether the savings ledger retains opt-in provenance
+// samples (truncated raw/kept output) for the wd savings --audit view. Off by
+// default — the samples may hold sensitive substrings of real output.
+func (c Config) GetSavingsSamples() bool { return c.SavingsSamples }
 
 // GetSnapshots reports whether the snapshot/checkpoint system is enabled (the
 // daemon gates the wd snapshot create/list/restore endpoints on it).

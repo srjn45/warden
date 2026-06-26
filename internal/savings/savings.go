@@ -11,6 +11,7 @@ package savings
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -73,6 +74,38 @@ type Event struct {
 	KeptTokens int       `json:"kept_tokens"`
 	CostTokens int       `json:"cost_tokens,omitempty"`
 	Saved      int       `json:"saved"`
+	// RawSample/KeptSample are an opt-in provenance pair: a TRUNCATED snapshot of
+	// the real raw output the feature avoided and the real kept output it returned,
+	// so a skeptic can eyeball actual bytes behind the token counts (wd savings
+	// --audit). Retained only when the `savings_samples` gate is on, only on ~1 in
+	// sampleEvery events, and never larger than sampleCap — never the full output.
+	// They may hold sensitive substrings of build/test/git output, which is why the
+	// capture is off by default. omitempty so an un-sampled event stays compact.
+	RawSample  string `json:"raw_sample,omitempty"`
+	KeptSample string `json:"kept_sample,omitempty"`
+}
+
+const (
+	// sampleCap bounds a retained provenance sample (bytes, ~2KB). Enough to see
+	// that the raw side really is bulky and the kept side really is lean, without
+	// turning the append-only ledger into a copy of every output it measures.
+	sampleCap = 2048
+	// sampleEvery retains a sample on ~1 in N sample-eligible events, bounding
+	// ledger growth when savings_samples is on. Small so even a low-volume install
+	// captures a handful — the audit view only needs a few real pairs to convince.
+	sampleEvery = 4
+)
+
+// TruncateSample returns at most sampleCap bytes from the head of s, dropping a
+// trailing partial UTF-8 rune left by the cut so the stored sample is always
+// valid UTF-8. Empty in → empty out. The emit sites call this to bound a retained
+// raw/kept sample before it reaches the ledger.
+func TruncateSample(s string) string {
+	if len(s) <= sampleCap {
+		return s
+	}
+	// ToValidUTF8 strips the run of invalid bytes a mid-rune cut leaves at the tail.
+	return strings.ToValidUTF8(s[:sampleCap], "")
 }
 
 // NewEvent builds an Event, deriving the NET Saved as RawTokens-KeptTokens-
@@ -169,6 +202,74 @@ type Summary struct {
 	// the context-reduction wording. Populated by the daemon at report time, not
 	// by Summarize, since it is sourced outside the event ledger.
 	MeasuredSpend int `json:"measured_spend,omitempty"`
+
+	// Buckets is the per-day saved-tokens trend over the window, oldest day first.
+	// Populated only when the caller asks for it (GET /savings?bucket=day); nil/
+	// omitted otherwise so the common report stays unchanged. Drives the sparkline.
+	Buckets []DayBucket `json:"buckets,omitempty"`
+	// Samples is a handful of retained provenance pairs (newest first) for the
+	// audit view. Populated only when the caller asks (GET /savings?samples=1) and
+	// only ever holds events whose samples were retained at record time. omitempty.
+	Samples []SamplePair `json:"samples,omitempty"`
+}
+
+// DayBucket is one UTC calendar day's rolled-up saving — the unit the trend
+// sparkline plots. Date is YYYY-MM-DD (UTC).
+type DayBucket struct {
+	Date        string `json:"date"`
+	SavedTokens int    `json:"saved_tokens"`
+	Events      int    `json:"events"`
+}
+
+// SamplePair is one retained raw-vs-kept provenance sample for the audit view:
+// the feature it came from plus the truncated real bytes of each side.
+type SamplePair struct {
+	Feature    string `json:"feature"`
+	RawSample  string `json:"raw_sample"`
+	KeptSample string `json:"kept_sample"`
+}
+
+// BucketByDay rolls events into per-UTC-day buckets (saved tokens + event count),
+// returned oldest day first. Pure — the caller supplies the windowed events. Days
+// with no events are absent (the ledger is sparse); the sparkline plots whatever
+// days are present in order.
+func BucketByDay(events []Event) []DayBucket {
+	byDay := map[string]*DayBucket{}
+	for _, e := range events {
+		day := e.TS.UTC().Format("2006-01-02")
+		b := byDay[day]
+		if b == nil {
+			b = &DayBucket{Date: day}
+			byDay[day] = b
+		}
+		b.SavedTokens += e.Saved
+		b.Events++
+	}
+	out := make([]DayBucket, 0, len(byDay))
+	for _, b := range byDay {
+		out = append(out, *b)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out
+}
+
+// auditSampleLimit caps how many retained provenance pairs the audit view shows —
+// a skeptic needs a few real examples, not the whole ledger.
+const auditSampleLimit = 5
+
+// collectSamples returns up to auditSampleLimit retained provenance pairs from
+// events, newest first (events are oldest-first on disk). Events that carry no
+// retained sample are skipped. Pure.
+func collectSamples(events []Event) []SamplePair {
+	out := make([]SamplePair, 0, auditSampleLimit)
+	for i := len(events) - 1; i >= 0 && len(out) < auditSampleLimit; i-- {
+		e := events[i]
+		if e.RawSample == "" && e.KeptSample == "" {
+			continue
+		}
+		out = append(out, SamplePair{Feature: e.Feature, RawSample: e.RawSample, KeptSample: e.KeptSample})
+	}
+	return out
 }
 
 // dollarsPerToken is the price warden attributes to a saved input token when

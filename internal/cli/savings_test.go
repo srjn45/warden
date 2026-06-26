@@ -31,6 +31,77 @@ func TestLeanFactor(t *testing.T) {
 	}
 }
 
+func TestSparkline(t *testing.T) {
+	if got := sparkline(nil); got != "" {
+		t.Errorf("sparkline(nil) = %q, want empty", got)
+	}
+	if got := sparkline([]int{}); got != "" {
+		t.Errorf("sparkline([]) = %q, want empty", got)
+	}
+	if got := sparkline([]int{5}); got != "█" {
+		t.Errorf("sparkline single = %q, want █", got)
+	}
+	if got := sparkline([]int{3, 3, 3}); got != "███" {
+		t.Errorf("sparkline flat = %q, want ███", got)
+	}
+	if got := sparkline([]int{1, 2, 3, 4, 5, 6, 7, 8}); got != "▁▂▃▄▅▆▇█" {
+		t.Errorf("sparkline ramp = %q, want ▁▂▃▄▅▆▇█", got)
+	}
+	if got := sparkline([]int{0, 0}); got != "▁▁" {
+		t.Errorf("sparkline zeros = %q, want ▁▁", got)
+	}
+}
+
+func TestFormatBenchmarkTrend(t *testing.T) {
+	sum := &savings.Summary{
+		Events: 3, RawTokens: 4200, KeptTokens: 2600, SavedTokens: 1600,
+		Buckets: []savings.DayBucket{
+			{Date: "2026-06-01", SavedTokens: 100, Events: 1},
+			{Date: "2026-06-02", SavedTokens: 800, Events: 2},
+		},
+	}
+	out := formatBenchmark(sum, "7d")
+	for _, want := range []string{"trend", "▁█", "2 days"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("benchmark trend missing %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestFormatAuditEmpty(t *testing.T) {
+	out := formatAudit(&savings.Summary{}, "")
+	for _, want := range []string{"no provenance samples retained (all time)", "savings_samples"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("empty audit missing %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestFormatAudit(t *testing.T) {
+	sum := &savings.Summary{Samples: []savings.SamplePair{
+		{Feature: "check", RawSample: "FAIL: parser_test.go:42\nexpected 3 got 4", KeptSample: `{"passed":false}`},
+		{Feature: "commit", RawSample: "M  internal/x.go\n?? new.go", KeptSample: `{"committed":true}`},
+	}}
+	out := formatAudit(sum, "7d")
+	for _, want := range []string{
+		"retained provenance samples (since 7d)",
+		"check",
+		"commit",
+		"raw",
+		"kept",
+		"FAIL: parser_test.go:42", // raw bytes shown, newline flattened
+		`{"passed":false}`,        // kept bytes shown
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("audit output missing %q, got:\n%s", want, out)
+		}
+	}
+	// Multi-line raw is flattened to a single display line.
+	if strings.Contains(out, "expected 3 got 4\n") && strings.Count(out, "\n[1] check") == 0 {
+		t.Errorf("raw sample newline not flattened:\n%s", out)
+	}
+}
+
 func TestFormatBenchmarkEmpty(t *testing.T) {
 	out := formatBenchmark(&savings.Summary{}, "")
 	if !strings.Contains(out, "no savings recorded yet (all time)") {

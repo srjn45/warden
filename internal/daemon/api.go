@@ -199,6 +199,11 @@ type Server struct {
 	// alongside the ledger, since it only feeds the savings report's denominator.
 	// Recording is fail-open. See savings_routes.go / spend package.
 	spend *spend.Store
+	// savingsSamples gates the opt-in provenance capture at the emit sites (config
+	// `savings_samples`, default off). When on, the record* helpers attach a
+	// truncated raw/kept sample to the event; the store applies the 1-in-N
+	// retention. Capture is fail-open like the rest of the savings path.
+	savingsSamples bool
 	// plugins dispatches lifecycle hook events to registered plugin executables
 	// (#47). nil ⇒ the plugin system is off (the default); Dispatch is then a
 	// no-op. Dispatch is always fail-open, so it never alters request flow.

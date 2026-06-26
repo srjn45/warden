@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/srjn45/warden/internal/savings"
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,6 +67,12 @@ type CheckOutcome struct {
 	// the tokens `wd check` saved. Captured on pass too, where Output is empty
 	// and the whole raw log is the saving.
 	RawBytes int `json:"-"`
+	// RawSample is a truncated (~2KB) head of the command's raw combined output,
+	// retained only in memory (json:"-", never sent to the agent) so the savings
+	// emit site can persist a provenance sample when savings_samples is enabled.
+	// Always populated (cheap, bounded) regardless of the gate; the daemon decides
+	// whether it is ever written to the ledger.
+	RawSample string `json:"-"`
 }
 
 // CheckResult aggregates the checks `wd check` / `mcp__warden__check` ran — a
@@ -115,7 +122,7 @@ func (l *Lifecycle) runCheck(ctx context.Context, dir, name string, entry CheckE
 		runDir = filepath.Join(dir, entry.Dir)
 	}
 	out, err := l.run.Run(ctx, runDir, "sh", "-c", entry.Cmd)
-	outcome := CheckOutcome{Name: name, Cmd: entry.Cmd, Passed: err == nil, RawBytes: len(out)}
+	outcome := CheckOutcome{Name: name, Cmd: entry.Cmd, Passed: err == nil, RawBytes: len(out), RawSample: savings.TruncateSample(out)}
 	if err != nil {
 		outcome.ExitCode = exitCode(err)
 		outcome.Output = l.summarizeCheckOutput(ctx, name, out)
