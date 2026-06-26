@@ -91,6 +91,7 @@ func TestLibraryListTool(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), `"presets"`)
+	require.Contains(t, textOf(res), `"prompt_templates"`)
 	require.Contains(t, textOf(res), `"templates"`)
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/preset"
+	"github.com/srjn45/warden/internal/prompttemplate"
 )
 
 // promptFromArgs returns the prompt for a free-form (no --type) spawn: the
@@ -53,11 +54,20 @@ func newStartCmd() *cobra.Command {
 			}
 			typ := stringFlagOr(cmd, "type", pre.Type)
 
+			// A prompt template fills the (free-form) spawn prompt; it has no role
+			// in typed mode, where the daemon generates the prompt from the ticket.
+			if tplName, _ := cmd.Flags().GetString("prompt-template"); tplName != "" && typ != "" {
+				return fmt.Errorf("--prompt-template applies to free-form spawns; drop --type or use the template's prompt directly")
+			}
+
 			// Free-form mode: `warden start "<prompt>" [--dir]` (autonomous) or
 			// `warden start --dir <path>` with no prompt (interactive: opens
 			// claude in the dir and waits). No --type.
 			if typ == "" {
-				prompt := promptFromArgs(args)
+				prompt, err := resolveStartPrompt(cmd, args)
+				if err != nil {
+					return err
+				}
 				dirFlag, _ := cmd.Flags().GetString("dir")
 				dir, err := resolveDir(dirFlag)
 				if err != nil {
@@ -161,6 +171,8 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)")
 	cmd.Flags().String("preset", "", "load saved spawn defaults from a named preset (see `warden preset`); explicit flags override")
+	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
+	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
 	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
 	return cmd
 }
@@ -182,6 +194,49 @@ func loadStartPreset(cmd *cobra.Command) (preset.Preset, error) {
 		return preset.Preset{}, fmt.Errorf("preset %q not found — list saved presets with `warden preset list`", name)
 	}
 	return p, nil
+}
+
+// resolveStartPrompt determines the free-form spawn prompt. An explicit
+// positional prompt always wins; otherwise, when --prompt-template is given, the
+// named template is loaded and its `{{VAR}}` placeholders filled from --set
+// VAR=value pairs. With neither, the prompt is "" (interactive spawn).
+func resolveStartPrompt(cmd *cobra.Command, args []string) (string, error) {
+	if p := promptFromArgs(args); p != "" {
+		return p, nil
+	}
+	name, _ := cmd.Flags().GetString("prompt-template")
+	if name == "" {
+		return "", nil
+	}
+	store, err := prompttemplate.Load(promptTemplatePathFor(cmd))
+	if err != nil {
+		return "", err
+	}
+	tpl, ok := store.Get(name)
+	if !ok {
+		return "", fmt.Errorf("prompt template %q not found — list saved templates with `warden prompt-template list`", name)
+	}
+	sets, _ := cmd.Flags().GetStringArray("set")
+	vars, err := parseSetVars(sets)
+	if err != nil {
+		return "", err
+	}
+	return tpl.Resolve(vars)
+}
+
+// parseSetVars turns repeated `--set VAR=value` flags into a name→value map.
+// The value may itself contain `=` (only the first separator splits); an empty
+// or `=`-less entry is rejected so a malformed --set surfaces immediately.
+func parseSetVars(sets []string) (map[string]string, error) {
+	vars := make(map[string]string, len(sets))
+	for _, s := range sets {
+		k, v, ok := strings.Cut(s, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("invalid --set %q: expected VAR=value", s)
+		}
+		vars[k] = v
+	}
+	return vars, nil
 }
 
 // resolveDir returns the explicit --dir flag value (resolved to an absolute

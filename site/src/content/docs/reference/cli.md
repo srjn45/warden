@@ -41,7 +41,7 @@ Available Commands:
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
   insights            Mine agent history for patterns and parallelization wins
-  library             Browse saved spawn presets and pipeline templates in one place
+  library             Browse saved spawn presets, prompt templates, and pipeline templates in one place
   llm                 Local-LLM helpers for the REPL (wd repl)
   ls                  List all active agent sessions
   mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
@@ -49,6 +49,7 @@ Available Commands:
   pipeline            Define and run DAG pipelines of agent jobs
   plugin              Inspect the plugin registry (custom task types + lifecycle hooks)
   preset              Save and list named spawn configs (replay with `warden start --preset <name>`)
+  prompt-template     Save and list reusable, variabled prompt templates (fill with `warden start --prompt-template <name> --set VAR=value`)
   prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
   push                Push the current branch to origin (warden rails + bookkeeping)
   remove-worktree     Remove an agent's git worktree + branch (always asks; --force overrides guards)
@@ -100,7 +101,9 @@ Flags:
       --permission-mode string   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
       --pr string                PR number/url (pr-review)
       --preset string            load saved spawn defaults from a named preset (see `warden preset`); explicit flags override
+      --prompt-template string   fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins
       --repo string              repo path (default: current directory)
+      --set stringArray          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
       --supervised               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags strings             comma-separated labels for grouping/filtering (searchable; filter with `warden ls --tag`)
       --type string              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
@@ -534,13 +537,31 @@ Available Commands:
   save   Save the given spawn flags as a named preset
 ```
 
+## warden prompt-template
+
+```text
+Save and list reusable, variabled prompt templates (fill with `warden start
+--prompt-template <name> --set VAR=value`).
+
+Usage:
+  warden prompt-template [command]
+
+Aliases:
+  prompt-template, prompt-templates, pt
+
+Available Commands:
+  list   List saved prompt templates and their variables
+  save   Save a named prompt template with {{VAR}} placeholders
+```
+
 ## warden library
 
 ```text
-Browse saved spawn presets and pipeline templates in one place. One umbrella over
-warden's reusable launch configs: spawn PRESETS (named `warden start` defaults) and
-the built-in pipeline TEMPLATES (read-only). Purely additive — the `preset` and
-`pipeline list-templates` commands keep working unchanged.
+Browse saved spawn presets, prompt templates, and pipeline templates in one place.
+One umbrella over warden's reusable launch configs: spawn PRESETS (named `warden
+start` defaults), prompt TEMPLATES (variabled prompt bodies), and the built-in
+pipeline TEMPLATES (read-only). Purely additive — the `preset`, `prompt-template`,
+and `pipeline list-templates` commands keep working unchanged.
 
 Usage:
   warden library [command]
@@ -549,8 +570,9 @@ Aliases:
   library, lib
 
 Available Commands:
-  list          List saved spawn presets and built-in pipeline templates
+  list          List saved spawn presets, prompt templates, and built-in pipeline templates
   save-preset   Save the given spawn flags as a named preset (same as `warden preset save`)
+  save-prompt   Save a variabled prompt template (same as `warden prompt-template save`)
 ```
 
 ## warden token

@@ -161,7 +161,10 @@ own tmux session, most in a git worktree).
 | Import session metadata | `import` | `import_sessions` | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | Save a spawn preset | `preset save` / `library save-preset` | **CLI-only** (local config authoring) | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | List presets | `preset list` | **CLI-only** | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
-| Browse presets + pipeline templates (one umbrella) | `library list` | `library_list` | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
+| Save a prompt template | `prompt-template save` / `library save-prompt` | **CLI-only** (local config authoring) | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
+| List prompt templates | `prompt-template list` | **CLI-only** | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
+| Fill a prompt template into a spawn | `start --prompt-template <name> --set VAR=value` | **CLI-only** | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
+| Browse presets + prompt templates + pipeline templates (one umbrella) | `library list` | `library_list` | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 
 ## 11. Plugins (custom task types & hooks)
 
@@ -252,7 +255,8 @@ out / rotating the very token that guards the MCP and HTTP channels).
 Every fleet/data feature is reachable over MCP (**65 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
-§15 (plus interactive `attach`/`repl` and local-config `preset`), which are
+§15 (plus interactive `attach`/`repl` and the local-config `preset` /
+`prompt-template` authoring commands), which are
 CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `get_metrics`, `savings`, `search`, `history`, `audit_log`, `list_worktrees`,
 `list_plugins`, `get_pressure`, `set_auto_approve`, `set_permission_mode`,

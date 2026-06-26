@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/srjn45/warden/internal/preset"
+	"github.com/srjn45/warden/internal/prompttemplate"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,18 +39,48 @@ func TestLibraryListShowsBothSections(t *testing.T) {
 	require.Contains(t, out, "type=pr-review")
 	require.Contains(t, out, "model=opus")
 
+	// Prompt-templates section, with a seeded template and its variables.
+	ptStore := &prompttemplate.Store{}
+	ptStore.Set("bugfix", prompttemplate.Template{Prompt: "Fix {{FILE}}", Vars: []string{"FILE"}})
+	require.NoError(t, ptStore.Save(filepath.Join(filepath.Dir(cfg), "prompt-templates.yaml")))
+	out = runLibrary(t, cfg, "list")
+	require.Contains(t, out, "PROMPT TEMPLATES")
+	require.Contains(t, out, "bugfix")
+	require.Contains(t, out, "FILE")
+
 	// Templates section, with a known built-in template.
 	require.Contains(t, out, "PIPELINE TEMPLATES")
 	require.Contains(t, out, "analyze-implement-review")
 }
 
-// TestLibraryListEmptyPresets still shows both labeled sections.
+// TestLibraryListEmptyPresets still shows all three labeled sections.
 func TestLibraryListEmptyPresets(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "config.yaml")
 	out := runLibrary(t, cfg, "list")
 	require.Contains(t, out, "SPAWN PRESETS")
 	require.Contains(t, out, "none saved")
+	require.Contains(t, out, "PROMPT TEMPLATES")
 	require.Contains(t, out, "PIPELINE TEMPLATES")
+}
+
+// TestLibrarySavePromptDelegates writes through the same prompt-template store
+// as `warden prompt-template save`.
+func TestLibrarySavePromptDelegates(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+
+	out := runLibrary(t, cfg, "save-prompt", "refactor", "--prompt", "Refactor {{FILE}} to use {{LIB}}")
+	require.Contains(t, out, "saved prompt template")
+	require.Contains(t, out, "refactor")
+
+	store, err := prompttemplate.Load(filepath.Join(filepath.Dir(cfg), "prompt-templates.yaml"))
+	require.NoError(t, err)
+	tpl, ok := store.Get("refactor")
+	require.True(t, ok)
+	require.Equal(t, []string{"FILE", "LIB"}, tpl.Vars)
+
+	// The saved template is then visible via `library list`.
+	list := runLibrary(t, cfg, "list")
+	require.Contains(t, list, "refactor")
 }
 
 // TestLibrarySavePresetDelegates writes through the same preset store as

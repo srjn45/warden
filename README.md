@@ -30,7 +30,7 @@ Capability highlights from the **v5.x** line (full notes on the [releases page](
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
 - **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending Claude tokens); optionally hosts the cockpit master pane.
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
-- **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s, and web batch operations.
+- **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s and variabled `prompt-template`s (browse both via `warden library`), and web batch operations.
 - **Observability** — per-agent metrics & performance history (`warden stats`), crash/anomaly detection, the context-size guard, and webhook/Slack notifications.
 - **Token-savings ledger (`warden savings`)** — a real, append-only ledger of the tokens warden's lifecycle features keep out of agents' context, with an `--benchmark` A/B headline (without-vs-with warden, % reduction, $ saved) you can screenshot.
 - **Native scheduler (`warden schedule`)** — opt-in cron/at triggers that fire an agent or a pipeline on the daemon's own timer; no external crontab.
@@ -528,6 +528,7 @@ Flags:
 - `--model <model>` — per-agent model (id or alias `opus`/`sonnet`/`haiku`/`fable`); defaults to the `model_default` config setting
 - `--tags <a,b>` — attach tags (lowercased, deduped); searchable and filterable with `warden ls --tag`
 - `--preset <name>` — seed spawn defaults from a saved preset (`warden preset save`); explicit flags still override
+- `--prompt-template <name> --set VAR=value` — fill a saved prompt template (`warden prompt-template save`) into the spawn prompt; repeat `--set` per variable. A positional prompt still wins; free-form only (no `--type`)
 - `--auto-restart` — opt this agent into daemon auto-restart on error (tuned by `auto_restart_*` config)
 - `--permission-mode <mode>` — control Claude's permission level (valid modes: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`); defaults to the `default_permission_mode` config setting (default: `auto`)
 - `--supervised` — legacy alias for `--permission-mode acceptEdits`; risky tools prompt and the approvals inbox surfaces them (see the `approvals` setting)
@@ -883,16 +884,29 @@ warden start "quick fix" --preset fast            # explicit flags still overrid
 
 `--type`/`--model`/`--permission-mode`/`--auto-restart`/`--worktree`/`--in-repo` are persisted to `~/.warden/presets.yaml`; per-invocation inputs (ticket, branch, PR, dir) are not.
 
-### `warden library list|save-preset`
+### `warden prompt-template save|list`
 
-One umbrella over both kinds of reusable launch config — saved spawn **presets** and the built-in pipeline **templates**.
+Where a preset stores reusable *flags*, a prompt template stores a reusable *prompt body* with `{{VAR}}` placeholders. Save one, then fill it in at spawn time (alias `pt`).
 
 ```sh
-warden library list                               # presets + pipeline templates, two labeled sections (alias: wd lib list)
-warden library save-preset fast --model haiku     # delegates to `warden preset save`
+warden prompt-template save bugfix --prompt "Fix the bug in {{FILE}} described by {{TICKET}}"
+warden prompt-template list                        # each template + its variables
+warden start --prompt-template bugfix --set FILE=server.go --set TICKET=WARD-42
 ```
 
-Purely additive: it reuses the existing preset store and the embedded template catalog, so `warden preset` and `warden pipeline list-templates` keep working unchanged. Pipeline templates are embedded/read-only (no `save-template`; author one with `warden pipeline create -f <spec.yaml>`). Also exposed over MCP as `library_list`.
+Variables are auto-derived from the body and persisted to `~/.warden/prompt-templates.yaml`. Every declared variable must be supplied (a typo'd `--set` is rejected), and an explicit positional prompt still wins. `--prompt-template` is free-form only (no `--type`).
+
+### `warden library list|save-preset|save-prompt`
+
+One umbrella over all three kinds of reusable launch config — saved spawn **presets**, saved **prompt templates**, and the built-in pipeline **templates**.
+
+```sh
+warden library list                               # presets + prompt templates + pipeline templates, labeled sections (alias: wd lib list)
+warden library save-preset fast --model haiku     # delegates to `warden preset save`
+warden library save-prompt bugfix --prompt "Fix {{FILE}}"   # delegates to `warden prompt-template save`
+```
+
+Purely additive: it reuses the existing preset store, the prompt-template store, and the embedded template catalog, so `warden preset`, `warden prompt-template`, and `warden pipeline list-templates` keep working unchanged. Pipeline templates are embedded/read-only (no `save-template`; author one with `warden pipeline create -f <spec.yaml>`). Also exposed over MCP as `library_list` (returns `{presets, prompt_templates, templates}`).
 
 ### `warden stats`
 

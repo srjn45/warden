@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/preset"
+	"github.com/srjn45/warden/internal/prompttemplate"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -510,7 +511,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "library_list",
-		Description: "Browse both reusable launch-config libraries in one call: saved spawn presets (named `warden start` defaults) and the built-in pipeline templates. Returns {presets, templates}. Reuses the same sources as the preset store and list_pipeline_templates. Read-only; local. Mirrors `warden library list`.",
+		Description: "Browse all three reusable launch-config libraries in one call: saved spawn presets (named `warden start` defaults), saved prompt templates (variabled prompt bodies), and the built-in pipeline templates. Returns {presets, prompt_templates, templates}. Reuses the same sources as the preset store, the prompt-template store, and list_pipeline_templates. Read-only; local. Mirrors `warden library list`.",
 	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		st, err := preset.Load(preset.DefaultPath())
 		if err != nil {
@@ -521,9 +522,19 @@ func (s *Server) registerExtraTools() {
 			p, _ := st.Get(n)
 			presets = append(presets, map[string]any{"name": n, "preset": p})
 		}
+		pt, err := prompttemplate.Load(prompttemplate.DefaultPath())
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		promptTemplates := make([]map[string]any, 0, len(pt.Names()))
+		for _, n := range pt.Names() {
+			t, _ := pt.Get(n)
+			promptTemplates = append(promptTemplates, map[string]any{"name": n, "prompt": t.Prompt, "vars": t.Vars})
+		}
 		return jsonResultAny(map[string]any{
-			"presets":   presets,
-			"templates": pipeline.ListTemplates(),
+			"presets":          presets,
+			"prompt_templates": promptTemplates,
+			"templates":        pipeline.ListTemplates(),
 		})
 	})
 

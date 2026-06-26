@@ -106,8 +106,8 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   search/history, audit log, worktree list/prune, plugins, export/import, and
   rotate/handoff. The only **CLI-only** verbs are host/process/interactive/secret
   ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `tutorial`,
-  `completion`, and local-config `preset` — by design (see the [feature
-  catalog](../../FEATURES.md)).
+  `completion`, and the local-config `preset` / `prompt-template` authoring
+  commands — by design (see the [feature catalog](../../FEATURES.md)).
 
 ## Capability map → reference file
 
@@ -117,7 +117,7 @@ flags, fields, and rails.
 
 | You need to… | Reference |
 |---|---|
-| spawn / triage / message / terminate agents; **handoff** work to another agent — new delegate, `--to` an existing one, or `--retire` yourself into a same-worktree successor (`rotate` is an alias); restore/adopt; model, permission-mode, presets, tags, search, history | [references/agents.md](references/agents.md) |
+| spawn / triage / message / terminate agents; **handoff** work to another agent — new delegate, `--to` an existing one, or `--retire` yourself into a same-worktree successor (`rotate` is an alias); restore/adopt; model, permission-mode, presets, prompt templates, tags, search, history | [references/agents.md](references/agents.md) |
 | build & run a **pipeline** — authoring the YAML, worktree modes, templates, `run_if`, pause/resume, retry, MCP vs CLI | [references/pipelines.md](references/pipelines.md) |
 | do an agent's **git** (commit/push/sync) and **checks**; **snapshot**/restore; understand the **boundary-enforcement hooks** (isolation/root/git/check guards) | [references/git-and-checks.md](references/git-and-checks.md) |
 | **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |

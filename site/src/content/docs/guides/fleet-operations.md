@@ -37,14 +37,29 @@ warden preset list
 warden start --preset backend-dev "implement the rate limiter"   # explicit flags still override
 ```
 
-`warden library` (alias `wd lib`) is one umbrella over both reusable launch-config kinds — saved spawn presets **and** the built-in pipeline templates:
+## Prompt templates
+
+Where a preset stores reusable *flags*, a prompt template stores a reusable *prompt body* with `{{VAR}}` placeholders. Save one, then fill it in at spawn time:
 
 ```sh
-warden library list                            # presets + pipeline templates in two labeled sections
-warden library save-preset backend-dev --type code --model opus   # delegates to `preset save`
+warden prompt-template save bugfix --prompt "Fix the bug in {{FILE}} described by {{TICKET}}"
+warden prompt-template list                       # each template + its variables
+warden start --prompt-template bugfix --set FILE=server.go --set TICKET=WARD-42
 ```
 
-It adds no new storage — it reuses the preset store and the embedded template catalog (also over MCP as `library_list`), and `warden preset` / `warden pipeline list-templates` keep working unchanged.
+Variables are auto-derived from the body. Every declared variable must be supplied (a typo'd `--set` is rejected), and an explicit positional prompt still wins. Templates live in `~/.warden/prompt-templates.yaml`, beside `presets.yaml`. `--prompt-template` is free-form only (no `--type`).
+
+## The library umbrella
+
+`warden library` (alias `wd lib`) is one umbrella over all three reusable launch-config kinds — saved spawn presets, saved prompt templates, **and** the built-in pipeline templates:
+
+```sh
+warden library list                            # presets + prompt templates + pipeline templates in labeled sections
+warden library save-preset backend-dev --type code --model opus      # delegates to `preset save`
+warden library save-prompt bugfix --prompt "Fix {{FILE}}"            # delegates to `prompt-template save`
+```
+
+It adds no new storage — it reuses the preset store, the prompt-template store, and the embedded template catalog (also over MCP as `library_list`, which returns `{presets, prompt_templates, templates}`), and `warden preset` / `warden prompt-template` / `warden pipeline list-templates` keep working unchanged.
 
 ## Batch operations (web)
 
