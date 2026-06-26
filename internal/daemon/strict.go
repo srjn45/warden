@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+
+	"github.com/srjn45/warden/internal/store"
 )
 
 // apiError drives a specific HTTP status + the daemon's standard {"error": msg}
@@ -69,4 +71,19 @@ func requestFromContext(ctx context.Context) *http.Request {
 // ctx so the audit actor (caller IP) is still stamped.
 func (s *Server) recordAuditCtx(ctx context.Context, action, target string, detail map[string]string) {
 	s.recordAudit(requestFromContext(ctx), action, target, detail)
+}
+
+// derefSessions converts the store's []*store.Session into the value slice the
+// generated SessionList holds. It preserves nil-ness so the wire output matches
+// the hand-written handlers byte for byte (a nil input still marshals to null,
+// an empty input to []).
+func derefSessions(in []*store.Session) []store.Session {
+	if in == nil {
+		return nil
+	}
+	out := make([]store.Session, 0, len(in))
+	for _, ss := range in {
+		out = append(out, *ss)
+	}
+	return out
 }

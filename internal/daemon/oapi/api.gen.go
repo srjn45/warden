@@ -3993,7 +3993,7 @@ type GetBranchStatusResponseObject interface {
 }
 
 type GetBranchStatus200JSONResponse struct {
-	Branches []BranchStatus `json:"branches,omitempty"`
+	Branches []BranchStatus `json:"branches"`
 }
 
 func (response GetBranchStatus200JSONResponse) VisitGetBranchStatusResponse(w http.ResponseWriter) error {
@@ -4016,7 +4016,7 @@ type GetConflictsResponseObject interface {
 }
 
 type GetConflicts200JSONResponse struct {
-	Conflicts []Conflict `json:"conflicts,omitempty"`
+	Conflicts []Conflict `json:"conflicts"`
 }
 
 func (response GetConflicts200JSONResponse) VisitGetConflictsResponse(w http.ResponseWriter) error {
@@ -4040,7 +4040,7 @@ type ListContextResponseObject interface {
 }
 
 type ListContext200JSONResponse struct {
-	Entries []ContextEntry `json:"entries,omitempty"`
+	Entries []ContextEntry `json:"entries"`
 }
 
 func (response ListContext200JSONResponse) VisitListContextResponse(w http.ResponseWriter) error {
@@ -4404,7 +4404,7 @@ type ListRecentMessagesResponseObject interface {
 }
 
 type ListRecentMessages200JSONResponse struct {
-	Messages []Message `json:"messages,omitempty"`
+	Messages []Message `json:"messages"`
 }
 
 func (response ListRecentMessages200JSONResponse) VisitListRecentMessagesResponse(w http.ResponseWriter) error {
@@ -5420,7 +5420,7 @@ type GetInboxResponseObject interface {
 }
 
 type GetInbox200JSONResponse struct {
-	Messages []Message `json:"messages,omitempty"`
+	Messages []Message `json:"messages"`
 }
 
 func (response GetInbox200JSONResponse) VisitGetInboxResponse(w http.ResponseWriter) error {
@@ -5444,19 +5444,19 @@ type SendMessageResponseObject interface {
 	VisitSendMessageResponse(w http.ResponseWriter) error
 }
 
-type SendMessage200JSONResponse struct {
-	Message Message `json:"message,omitempty"`
-	Woke    bool    `json:"woke,omitempty"`
+type SendMessage201JSONResponse struct {
+	Message Message `json:"message"`
+	Woke    bool    `json:"woke"`
 }
 
-func (response SendMessage200JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+func (response SendMessage201JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5471,8 +5471,8 @@ type WaitForMessageResponseObject interface {
 }
 
 type WaitForMessage200JSONResponse struct {
-	Found   bool    `json:"found,omitempty"`
-	Message Message `json:"message,omitempty"`
+	Found   bool     `json:"found"`
+	Message *Message `json:"message,omitempty"`
 }
 
 func (response WaitForMessage200JSONResponse) VisitWaitForMessageResponse(w http.ResponseWriter) error {
