@@ -6,20 +6,25 @@ job's prompt, and chains git worktrees so code flows downstream. **You author th
 YAML spec for the user.**
 
 Pipelines are drivable from **both** the MCP tools and the CLI — prefer MCP when
-it's registered. A few admin verbs are CLI-only (noted below).
+it's registered. **Every** pipeline verb now has an MCP tool (full parity); only
+`create --template`/`--set` placeholder expansion stays CLI-only.
 
 ## MCP tools
 
 | Tool | Purpose |
 |---|---|
 | `create_pipeline {spec}` | Parse + validate + register a YAML spec; returns `{id, status, jobs}` in `pending`. |
-| `start_pipeline {name}` | Spawn the dependency-free entry jobs; the daemon drives the rest. |
-| `show_pipeline {name}` | Per-job status + branch + emitted output (durable after agents are gone). |
+| `validate_pipeline {spec}` | Local spec check (DAG/refs/cycles) without contacting the daemon. |
+| `list_pipeline_templates` | Built-in templates + their placeholders. |
+| `start_pipeline {pipeline}` | Spawn the dependency-free entry jobs; the daemon drives the rest. |
+| `show_pipeline {pipeline}` | Per-job status + branch + emitted output (durable after agents are gone). |
 | `list_pipelines` | All pipelines + status. |
-| `cancel_pipeline {name}` | Stop (terminates any live jobs). |
-
-CLI-only admin: `validate`, `list-templates`, `create --template`, `pause`/`resume`,
-`edit-job`, `retry`, `delete`, `emit`.
+| `pause_pipeline` / `resume_pipeline {pipeline}` | Halt new spawns (in-flight finish) / resume spawning. |
+| `retry_pipeline_job {pipeline, job}` | Re-run a failed job and reopen skipped descendants. |
+| `edit_pipeline_job {pipeline, job, prompt?, handoff?}` | Tweak a pending job before it runs. |
+| `emit_pipeline_output {pipeline, job, text}` | Set a job's handoff output passed downstream. |
+| `cancel_pipeline {pipeline}` | Stop (terminates any live jobs). |
+| `delete_pipeline {pipeline}` | Remove the record (cancel first if jobs are live). |
 
 ## CLI lifecycle
 

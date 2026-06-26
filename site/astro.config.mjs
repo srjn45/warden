@@ -53,6 +53,7 @@ export default defineConfig({
           { label: 'Orchestrator REPL (local LLM)', slug: 'multi-agent/orchestrator-repl' },
         ]},
         { label: 'Reference', items: [
+          { label: 'Feature catalog', slug: 'reference/features' },
           { label: 'CLI command reference', slug: 'reference/cli' },
           { label: 'Configuration & environment', slug: 'reference/env-vars' },
           { label: 'Observability & metrics', slug: 'reference/observability' },

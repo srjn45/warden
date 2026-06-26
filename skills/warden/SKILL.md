@@ -97,13 +97,17 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   launchd/systemd) — do not guess at state. There may be a systemd unit
   (`warden.service`); a manually-started `warden daemon` can shadow it and break
   auth, so prefer letting the service own the port.
-- **MCP tools and the CLI wrap the same daemon REST API**, so prefer MCP and fall
-  back to CLI only when MCP is blocked (see above). Pipelines, git/check lifecycle,
-  snapshots, ctx/msg, approvals, branches/collab, and insights are all reachable
-  from MCP *and* CLI. A few admin verbs are **CLI-only** regardless: pipeline
-  `pause`/`resume`/`edit-job`/`retry`/`delete`/`emit`/`validate`/templates,
-  `schedule create/delete`, `audit`, `config`, `token`, `preset`, `export`/`import`,
-  `plugin`, `rotate`/`handoff`.
+- **MCP tools and the CLI wrap the same daemon REST API** (63 MCP tools), so prefer
+  MCP and fall back to CLI only when MCP is blocked (see above). **Every fleet/data
+  feature is reachable from MCP *and* CLI** — pipelines (all verbs incl.
+  pause/resume/retry/edit-job/emit/delete/validate/templates), schedules
+  (create/list/delete), git/check lifecycle, snapshots, ctx/msg, approvals +
+  auto-approve + permission-mode, branches/collab, insights, savings, metrics,
+  search/history, audit log, worktree list/prune, plugins, export/import, and
+  rotate/handoff. The only **CLI-only** verbs are host/process/interactive/secret
+  ones — `daemon`, `config`, `token`, `attach`, `orch`, `doctor`, `tutorial`,
+  `completion`, and local-config `preset` — by design (see the [feature
+  catalog](../../FEATURES.md)).
 
 ## Capability map → reference file
 

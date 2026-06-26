@@ -19,7 +19,7 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
 alias agents=warden
 ```
 
-> **New here?** See [docs/USAGE.md](docs/USAGE.md) for a task-oriented guide to running agents day to day, and [docs/FEATURES.md](docs/FEATURES.md) for a complete catalog of what warden can do. The sections below cover build, install, and contributor setup.
+> **New here?** See [docs/USAGE.md](docs/USAGE.md) for a task-oriented guide to running agents day to day, [docs/FEATURES.md](docs/FEATURES.md) for a complete catalog of what warden can do, and [FEATURES.md](FEATURES.md) for the at-a-glance **coverage matrix** (which of CLI / MCP / skill / web / TUI can drive each feature). The sections below cover build, install, and contributor setup.
 
 ---
 

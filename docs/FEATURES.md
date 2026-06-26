@@ -218,29 +218,48 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator Claude session can manage
-the fleet through tool calls. Tools exposed:
+the fleet through tool calls. **63 tools** are exposed — every fleet/data feature
+the CLI has, so the skill/MCP can drive warden at full parity (only the
+host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
+stay CLI-only). Tools exposed:
 
-| Tool | Purpose |
+| Tool(s) | Purpose |
 |---|---|
 | `list_agents` / `get_agent` | List agents / full detail for one |
 | `spawn_agent` | Spawn (prompt mode or `type`+`repo`; `supervised` opt-in) |
 | `adopt_agent` | Register an existing Claude session |
 | `send_to_agent` / `get_agent_output` | Type into / read recent output of an agent |
+| `digest` | Compact catch-up summary of one agent |
 | `terminate_agent` / `restore_agent` | Stop (reversible) / resume an agent |
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
-| `ctx_set` / `ctx_get` / `ctx_list` | Shared-context blackboard |
-| `send_message` / `read_inbox` | Directed messaging |
+| `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
+| `rotate_agent` / `handoff_agent` | Retire→successor in place / delegate to another agent |
+| `ctx_set` / `ctx_cas` / `ctx_append` / `ctx_get` / `ctx_list` | Shared-context blackboard |
+| `send_message` / `read_inbox` / `wait_for_message` | Directed messaging (park/wake) |
+| `get_collaboration_status` / `who_is_editing_file` | File-conflict detection |
+| `get_branch_status` | Per-agent CI + branch-vs-main status |
 | `list_approvals` / `approve` | List / answer pending tool-permission prompts |
+| `set_auto_approve` / `set_permission_mode` | Auto-approve toggle / permission-mode change |
 | `commit` / `push` / `sync` | Git lifecycle on the agent's pinned worktree — staged commit (auto-message when omitted), push, rebase-sync — returning compact structs instead of raw git output (see §22) |
 | `check` | Run the project's `.warden/check.yml` checks, returning pass/fail with output for only the failing ones (see §22) |
 | `create_pipeline` / `list_pipelines` / `show_pipeline` | Create a DAG pipeline from a YAML spec / list / inspect (jobs, branches, handoffs) |
-| `start_pipeline` / `cancel_pipeline` | Start (spawn entry jobs) / cancel (terminate live jobs) a pipeline |
-| `list_schedules` | List the daemon's cron/at schedules with next-run, state, and last error (read-only; see §28). Returns a 403 error when the scheduler is disabled |
+| `start_pipeline` / `cancel_pipeline` / `pause_pipeline` / `resume_pipeline` | Run / cancel / pause / resume a pipeline |
+| `retry_pipeline_job` / `edit_pipeline_job` / `emit_pipeline_output` / `delete_pipeline` | Per-job retry / edit a pending job / set handoff output / delete a pipeline |
+| `validate_pipeline` / `list_pipeline_templates` | Local spec validation / built-in templates (no daemon) |
+| `list_schedules` / `create_schedule` / `delete_schedule` | List / create / delete daemon cron/at schedules (see §28) |
+| `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree+transcript checkpoints & rollback (see §23) |
+| `insights` | Mine fleet history for patterns & parallelization wins (see §25) |
+| `get_metrics` / `get_pressure` | Live/historical resource metrics / memory-pressure gate (see §11) |
+| `savings` | Token-savings ledger (see §29) |
+| `search` / `history` / `audit_log` | Full-text search / archived agents / action audit trail |
+| `list_plugins` | Registered plugins, their task types & hook events (see §26) |
+| `export_sessions` / `import_sessions` | Serialize / load agent session metadata (see §19) |
 
-> Pipeline MCP tools are thin wrappers over the same daemon routes the CLI uses,
-> so an orchestrator Claude session can drive a multi-stage workflow
-> (analyze→implement→review) without shelling out. Pause/resume/delete/edit-job/retry
-> remain CLI-only (`warden pipeline …`).
+> All MCP tools are thin wrappers over the same daemon routes (or local helpers)
+> the CLI uses, so an orchestrator Claude session can drive a multi-stage workflow
+> (analyze→implement→review) — including pause/resume/retry/edit-job and
+> scheduling — without shelling out. The complete coverage matrix is in
+> [FEATURES.md](../FEATURES.md).
 
 ### `/warden` Claude skill
 

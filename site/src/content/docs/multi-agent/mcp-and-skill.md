@@ -30,23 +30,31 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `list_agents` / `get_agent` | List agents / full detail for one |
 | `spawn_agent` | Spawn (prompt mode or `type`+`repo`; `supervised` opt-in) |
 | `adopt_agent` | Register an existing Claude session |
-| `send_to_agent` / `get_agent_output` | Type into / read recent output of an agent |
+| `send_to_agent` / `get_agent_output` / `digest` | Type into / read recent output / catch-up summary of an agent |
 | `terminate_agent` / `restore_agent` | Stop (reversible) / resume an agent |
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
+| `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
+| `rotate_agent` / `handoff_agent` | Retire→successor in place / delegate to another agent |
 | `ctx_set` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `ctx_cas` / `ctx_append` | Compare-and-set / append-to-list context writes (lock-free coordination) |
 | `send_message` / `read_inbox` / `wait_for_message` | Directed messaging, incl. a blocking long-poll wait |
 | `list_approvals` / `approve` | List / answer pending tool-permission prompts |
+| `set_auto_approve` / `set_permission_mode` | Toggle auto-approval / change an agent's permission mode |
 | `commit` / `push` / `sync` / `check` | The git + check lifecycle on an agent's branch (warden rails) |
 | `get_collaboration_status` / `who_is_editing_file` | See which agents are editing the same files |
 | `get_branch_status` | Per-agent CI status + standing vs `origin/main` (the branch monitor, read-only) |
-| `create_pipeline` / `start_pipeline` | Author (from YAML or a built-in template) and launch a DAG pipeline |
-| `show_pipeline` / `list_pipelines` / `cancel_pipeline` | Inspect / list / cancel pipelines |
-| `list_schedules` | List the daemon's cron/at schedules (read-only; 403 when the scheduler is disabled) |
+| `create_pipeline` / `validate_pipeline` / `list_pipeline_templates` | Author / locally validate / list templates for a DAG pipeline |
+| `start_pipeline` / `pause_pipeline` / `resume_pipeline` / `cancel_pipeline` | Run / pause / resume / cancel a pipeline |
+| `show_pipeline` / `list_pipelines` / `delete_pipeline` | Inspect / list / delete pipelines |
+| `retry_pipeline_job` / `edit_pipeline_job` / `emit_pipeline_output` | Per-job retry / edit a pending job / set handoff output |
+| `list_schedules` / `create_schedule` / `delete_schedule` | List / create / delete the daemon's cron/at schedules (403 when disabled) |
 | `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree + transcript checkpoints and rollback |
 | `insights` / `savings` | History-mined patterns / the token-savings ledger |
+| `get_metrics` / `get_pressure` | Live/historical resource metrics / memory-pressure gate verdict |
+| `search` / `history` / `audit_log` | Full-text search / archived agents / the action audit trail |
+| `export_sessions` / `import_sessions` / `list_plugins` | Serialize / load session metadata / list registered plugins |
 
-> Pipelines **can** be driven over MCP: `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, and `cancel_pipeline` are all tools. The finer-grained controls — `pause`/`resume`/`delete`/`edit-job`/`retry` — remain CLI-only (`warden pipeline …`).
+> **Full parity (63 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, and `rotate`/`handoff`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `orch`); see the [feature catalog](/warden/reference/features/).
 
 Example orchestrator prompts:
 

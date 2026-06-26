@@ -2,14 +2,15 @@
 
 The cross-cutting capabilities that run the fleet rather than a single agent.
 
-## Token-savings ledger — `wd savings` (CLI-only)
+## Token-savings ledger — `savings` / `wd savings`
 
 A real, **append-only ledger** of the tokens warden's lifecycle features have kept
 out of agents' context windows — a measured proof point, not an estimate. This is
 the concrete payoff of preferring warden's `check`/`commit`/`push`/`sync` over raw
 Bash: each time a feature avoids dumping output into the transcript, the saving is
 recorded. Config-gated by `savings` (default on); served at `GET /savings`.
-**No MCP tool** — use the CLI.
+MCP `savings {since?, bucket?, samples?}` returns the structured Summary; the CLI
+adds the human-readable table and `--benchmark` headline.
 
 - `wd savings` — per-feature table (saved tokens, raw tokens, event count), kept on
   **two axes that are never blended into one number**: a **context** axis (how much
@@ -49,9 +50,10 @@ needed; optional local-LLM narration). Config-gated by `insights` (default on).
 Reach for this whenever the user asks "what could've been parallel" or "how's the
 fleet doing" — don't eyeball it.
 
-## Audit log (CLI-only)
+## Audit log — `audit_log` / `wd audit log`
 
-`warden audit log` — an append-only trail of meaningful daemon actions (`spawn`,
+MCP `audit_log {action?, target?, since?, until?, limit?}` returns the events;
+`warden audit log` is the CLI view — an append-only trail of meaningful daemon actions (`spawn`,
 `terminate`, `delete`, `approve`, `pipeline_start`/`pipeline_cancel`,
 `schedule_create`/`schedule_delete`) at `~/.warden/audit.jsonl` (`0600`). Each
 record: `time`, `action`, `actor`, `target`, action-specific `detail`. Flags:
@@ -62,8 +64,9 @@ record: `time`, `action`, `actor`, `target`, action-specific `detail`. Flags:
 
 Daemon-fired triggers — no external crontab. **Opt-in:** gated by
 `scheduler_enabled` (default **off**); routes return 403 and the loop is a no-op
-until enabled (schedules only fire while the daemon runs). MCP `list_schedules` is
-**read-only** (403 when disabled); create/delete are CLI-only.
+until enabled (schedules only fire while the daemon runs). Full MCP coverage:
+`list_schedules` (read-only), `create_schedule {name, cron|at, type/repo/prompt | spec}`,
+`delete_schedule {id}` (all 403 when disabled).
 
 ```sh
 warden schedule create <name> --cron "0 9 * * *" --type pr-review --repo <p> --prompt "…"
@@ -152,14 +155,27 @@ master pane (`orchestrator` config / `--orch`).
 
 ## Export / import & plugins
 
-- **Export/import (CLI):** `warden export` dumps active records as a versioned JSON
-  envelope (`--all` includes the archive); `warden import` reads it from stdin,
-  **idempotent by id** (`--merge` overwrites collisions). Worktrees/branches/tmux
-  are **not** serialized or recreated — an imported record just remembers where its
-  worktree used to live.
-- **Plugins (`wd plugin`):** extend warden with **custom agent task types** and
-  **lifecycle hooks** via an external executable over JSON-over-stdio. Default
-  **off** (`plugins` gate; plugins run external code). Hooks are advisory and
-  fail-open (a `pre-` hook cannot veto). `wd plugin list` shows registered plugins,
+- **Export/import:** MCP `export_sessions {all?}` / `import_sessions {data, merge?}`
+  (CLI `warden export`/`import`). Export dumps active records as a versioned JSON
+  envelope (`all` includes the archive); import is **idempotent by id** (`merge`
+  overwrites collisions). Worktrees/branches/tmux are **not** serialized or
+  recreated — an imported record just remembers where its worktree used to live.
+- **Plugins:** extend warden with **custom agent task types** and **lifecycle
+  hooks** via an external executable over JSON-over-stdio. Default **off** (`plugins`
+  gate; plugins run external code). Hooks are advisory and fail-open (a `pre-` hook
+  cannot veto). MCP `list_plugins` (CLI `wd plugin list`) shows registered plugins,
   paths, custom types, and subscribed events. Configure with `plugins` +
   `plugin_registry`; example under `examples/plugins/`.
+
+## Fleet inspection — search, history, metrics, worktrees
+
+Read verbs for catching up on the fleet, all MCP-first:
+
+- `search {query, closed?}` (CLI `wd search`) — full-text across agents (subject,
+  prompt, type, name, pane, id, ticket, branch); `closed` also searches the archive.
+- `history {since?, type?, limit?}` (CLI `wd history`) — browse archived agents.
+- `get_metrics {history?, since?, limit?}` (CLI `wd stats`) — live resource snapshot
+  or time-series; `get_pressure` is the spawn gate's memory-headroom verdict.
+- `list_worktrees {repo?}` / `prune_worktrees {repo?, dry_run?, force?}` (CLI
+  `wd worktree ls` / `wd prune`) — list / reconcile a repo's worktrees.
+- `digest {ticket}` (CLI `wd digest`) — a compact catch-up summary of one agent.
