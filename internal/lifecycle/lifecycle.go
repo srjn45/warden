@@ -367,6 +367,7 @@ type ConfigProvider interface {
 	GetGitConventions() bool
 	GetGitRedirect() bool
 	GetCheckRedirect() bool
+	GetRootGuard() bool
 }
 
 func New(r Runner, cfg ConfigProvider) *Lifecycle { return &Lifecycle{run: r, cfg: cfg} }
@@ -1446,7 +1447,7 @@ func (l *Lifecycle) guardSettingsFlag(id string) string {
 	if l.SettingsDir == "" || l.WardenBin == "" {
 		return ""
 	}
-	doc := guardSettingsJSON(l.WardenBin, l.cfg.GetIsolationGuard(), l.cfg.GetGitRedirect(), l.cfg.GetCheckRedirect())
+	doc := guardSettingsJSON(l.WardenBin, l.cfg.GetIsolationGuard(), l.cfg.GetGitRedirect(), l.cfg.GetCheckRedirect(), l.cfg.GetRootGuard())
 	if doc == "" {
 		return "" // every PreToolUse hook disabled — write nothing
 	}
@@ -1474,14 +1475,21 @@ func (l *Lifecycle) guardSettingsFlag(id string) string {
 //     .warden/check.yml registers and points the agent at `wd check` (reads the
 //     per-project config itself — no daemon round-trip; no config means nothing
 //     is redirected).
+//   - rootGuard: denies any file edit that targets the main repo working tree,
+//     for every spawned agent regardless of worktree ownership (a pure, local
+//     git check — no daemon round-trip). This is the backstop that catches the
+//     no-worktree (free-form / --in-repo) agents the isolation guard exempts.
 //
 // It returns "" when every hook is disabled, so the caller writes no file.
 // wardenBin is shell-quoted because Claude runs the command string through a shell.
-func guardSettingsJSON(wardenBin string, isolation, gitRedirect, checkRedirect bool) string {
+func guardSettingsJSON(wardenBin string, isolation, gitRedirect, checkRedirect, rootGuard bool) string {
 	bin := shellQuoteArg(wardenBin)
 	var pre []any
 	if isolation {
 		pre = append(pre, hookMatcher("Edit|Write|MultiEdit|NotebookEdit", bin+" hook guard"))
+	}
+	if rootGuard {
+		pre = append(pre, hookMatcher("Edit|Write|MultiEdit|NotebookEdit", bin+" hook root-guard"))
 	}
 	if gitRedirect {
 		pre = append(pre, hookMatcher("Bash", bin+" hook git-guard"))

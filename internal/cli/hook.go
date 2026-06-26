@@ -43,6 +43,7 @@ func newHookCmd() *cobra.Command {
 		Hidden: true,
 	}
 	cmd.AddCommand(newHookGuardCmd())
+	cmd.AddCommand(newHookRootGuardCmd())
 	cmd.AddCommand(newHookGitGuardCmd())
 	cmd.AddCommand(newHookCheckGuardCmd())
 	return cmd
