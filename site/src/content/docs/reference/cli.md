@@ -568,8 +568,9 @@ Flags:
 Interactive conductor for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
 Aliases: orchestrator, interactive, i.
 
-A real line editor (arrow keys, persisted history, reverse-search, Tab completion)
-that closes with Ctrl-D. Drive it with deterministic `/` commands (no model:
+A real line editor (arrow keys, persisted history, reverse-search, a live `/`
+menu that filters as you type, Tab completion) that closes with Ctrl-D. Drive it
+with deterministic `/` commands (no model:
 /agents, /spawn <prompt>, /tell <id> <text>, … — type /help) or with natural
 language (planned by the local LLM, each call confirmed). `!cmd` runs a command
 in your own $SHELL. Starts without local_llm — only the natural-language half

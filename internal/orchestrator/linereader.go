@@ -97,6 +97,7 @@ func newLineReader(s *Session, r io.Reader, w io.Writer, historyFile string) lin
 		Stdout:            w,
 		HistoryFile:       historyFile,
 		AutoComplete:      newCompleter(s),
+		Listener:          &suggester{out: w, style: newStyler(w)},
 		InterruptPrompt:   "^C",
 		EOFPrompt:         "exit",
 		HistorySearchFold: true,

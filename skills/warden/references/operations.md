@@ -146,8 +146,9 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
 
 warden's **interactive mode** — an operator-facing terminal REPL (aliases `wd
 interactive` / `wd i`), **not** something an agent drives over MCP. A real line
-editor (arrow keys, persisted history, reverse-search, Tab completion, colour) that
-closes with Ctrl-D. Two ways to drive the fleet:
+editor (arrow keys, persisted history, reverse-search, a live `/`-command menu that
+filters as you type, Tab completion, colour) that closes with Ctrl-D. Two ways to
+drive the fleet:
 
 - **Deterministic `/` commands (no model):** `/agents`, `/spawn <prompt>`, `/tell
   <id> <text>`, `/stop`, `/commit`/`/push`/`/sync`/`/check`, `/pipelines`, `/ctx*`,
