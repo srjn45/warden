@@ -60,6 +60,11 @@ func NewSession(chat llm.Chatter, d Daemon, reg *Registry, gate confirmer, route
 	// deterministic table.
 	comp, _ := chat.(llm.Completer)
 	reg.AddMonitoring(NewMonitorWithGate(d, NewCondenser(comp), gate))
+	// Hand the gate the tool schemas so its [e]dit flow can prompt field-by-field
+	// (a tool may expose a field the model omitted, e.g. branch).
+	if g, ok := gate.(*Gate); ok {
+		g.useRegistry(reg)
+	}
 	return &Session{chat: chat, daem: d, reg: reg, gate: gate, tier: router}
 }
 
