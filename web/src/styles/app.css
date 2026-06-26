@@ -290,7 +290,10 @@ kbd {
 .job-needs_attention { border-left: 3px solid #e84; }
 .job-skipped { border-left: 3px solid #555; opacity: 0.6; }
 .job-pending { border-left: 3px solid #888; }
-.job-drawer { width: 320px; flex: none; overflow-y: auto; border-left: 1px solid var(--panel-line); padding-left: 12px; display: flex; flex-direction: column; gap: 6px; }
+/* Pipelines are rendered vertically and are usually linear, so the DAG column
+   needs little horizontal room — give the job drawer half the view, capped so it
+   stays readable on ultra-wide screens. */
+.job-drawer { width: 50%; max-width: 720px; min-width: 360px; flex: none; overflow-y: auto; border-left: 1px solid var(--panel-line); padding-left: 12px; display: flex; flex-direction: column; gap: 6px; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; }
 .job-text { white-space: pre-wrap; word-break: break-word; background: var(--panel); padding: 8px; border-radius: 6px; max-height: 240px; overflow-y: auto; }
 .drawer-actions { display: flex; gap: 8px; margin-top: 8px; }
@@ -403,7 +406,8 @@ kbd {
   .pipelines { flex-direction: column; height: auto; }
   .pipe-list { width: auto; flex-direction: row; flex-wrap: wrap; }
   .job-drawer {
-    width: auto; border-left: none; border-top: 1px solid var(--panel-line);
+    width: auto; min-width: 0; max-width: none;
+    border-left: none; border-top: 1px solid var(--panel-line);
     padding-left: 0; padding-top: 12px;
   }
 
