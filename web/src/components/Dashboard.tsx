@@ -13,7 +13,7 @@ import { loadTheme, saveTheme, applyTheme, nextTheme, resolveTheme, type Theme }
 import { resolveShortcut } from '../lib/shortcuts';
 import AttentionBar from './AttentionBar';
 import TabBar from './TabBar';
-import OverviewTab from './OverviewTab';
+import OthersTab from './OthersTab';
 import CockpitTab from './CockpitTab';
 import MetricsTab from './MetricsTab';
 import AgentTab from './AgentTab';
@@ -36,7 +36,6 @@ export default function Dashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showContext, setShowContext] = useState(false);
-  const [filterSignal, setFilterSignal] = useState(0);
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [pinned, setPinned] = useState<string[]>(loadPinned);
   const [authRequired, setAuthRequired] = useState(false);
@@ -91,9 +90,10 @@ export default function Dashboard() {
         case 'help': e.preventDefault(); setShowHelp((v) => !v); break;
         case 'new': e.preventDefault(); setShowCreate(true); break;
         case 'filter':
+          // The agent filter lived in the old Overview grid, which is gone; the
+          // `/` shortcut now just jumps to Others (the needs-you / activity hub).
           e.preventDefault();
           navigate({ kind: 'others' });
-          setFilterSignal((n) => n + 1);
           break;
         case 'refresh': e.preventDefault(); refresh(); break;
         case 'nav': e.preventDefault(); navigate(navRoute(pinned, route, sc.delta)); break;
@@ -201,7 +201,7 @@ export default function Dashboard() {
         onClose={closeAgent}
       />
       <main className="tab-content">
-        {route.kind === 'others' && <OverviewTab sessions={sessions} onSelect={select} focusSignal={filterSignal} />}
+        {route.kind === 'others' && <OthersTab sessions={sessions} onSelect={select} />}
         {route.kind === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} onCreated={select} />}
         {route.kind === 'pipelines' && <PipelinesTab onSelect={select} />}
         {route.kind === 'metrics' && <MetricsTab />}
