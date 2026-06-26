@@ -17,13 +17,20 @@ export interface FeatureSummary {
   saved_dollars: number;
 }
 
-// DayBucket is one UTC calendar day's saved-tokens roll-up — the unit the
-// tokens-saved trend plots. date is YYYY-MM-DD (UTC). Present only when the
-// request asks for it (GET /savings?bucket=day), oldest day first.
-export interface DayBucket {
+// Bucket is one interval of the saved-tokens trend (a UTC day or hour) — the
+// unit the tokens-saved chart plots. ts is the bucket start (unix seconds, the
+// chart x-axis); date is the human label ("2026-06-26" or "2026-06-26 15:00").
+// The trend is zero-filled and contiguous, so cumulative runs monotonically and
+// idle intervals are real zeros. by_feature is the per-feature split for the
+// stacked breakdown. Present only when the request asks for it (GET
+// /savings?bucket=day|hour), oldest interval first.
+export interface Bucket {
+  ts: number;
   date: string;
   saved_tokens: number;
   events: number;
+  cumulative: number;
+  by_feature?: Record<string, number> | null;
 }
 
 // Summary is the whole ledger (over a window) aggregated for display. The
@@ -52,6 +59,8 @@ export interface Summary {
   measured_spend?: number;
   calibrated?: boolean;
 
-  // Per-day saved-tokens trend (GET /savings?bucket=day), oldest day first.
-  buckets?: DayBucket[] | null;
+  // Saved-tokens trend (GET /savings?bucket=day|hour), zero-filled and
+  // oldest-first. bucket_granularity names the width the trend was built at.
+  buckets?: Bucket[] | null;
+  bucket_granularity?: string;
 }

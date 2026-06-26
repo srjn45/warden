@@ -168,6 +168,14 @@ kbd {
 .metrics-legend { display: flex; flex-wrap: wrap; gap: .5rem .9rem; margin-top: .5rem; font-size: .8rem; color: var(--idle); }
 .metrics-legend-item { display: inline-flex; align-items: center; gap: .35rem; }
 .metrics-dot { width: .6rem; height: .6rem; border-radius: 50%; display: inline-block; }
+/* Card header with an inline window picker (savings trend). */
+.metrics-card-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .6rem; }
+.metrics-card-head h3 { margin: 0; }
+.metrics-seg { display: inline-flex; border: 1px solid #8884; border-radius: .3rem; overflow: hidden; }
+.metrics-seg-btn { border: 0; border-left: 1px solid #8884; background: transparent; color: inherit; cursor: pointer; font-size: .72rem; padding: .1rem .4rem; }
+.metrics-seg-btn:first-child { border-left: 0; }
+.metrics-seg-btn:hover { background: #8881; }
+.metrics-seg-btn.is-active { background: #2f81f733; color: var(--accent, #2f81f7); }
 
 /* ── Agent grid / cockpit ── */
 .cockpit-fleet { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; margin-bottom: 1rem; }

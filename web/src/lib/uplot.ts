@@ -33,6 +33,21 @@ export function agentColor(id: string): string {
   return `hsl(${h % 360} 70% 55%)`;
 }
 
+// FEATURE_COLORS pins a stable hue per savings feature so the stacked breakdown
+// and any legend agree across renders. Unknown/future features fall back to the
+// deterministic agentColor hash so they still get a distinct, stable color.
+const FEATURE_COLORS: Record<string, string> = {
+  llm_offload: '#3fb950', // green — the dominant offload axis
+  check: '#4ea1ff',       // blue
+  commit: '#d2a8ff',      // purple
+  compact: '#e0a000',     // amber
+};
+
+// featureColor maps a savings feature label to its band color.
+export function featureColor(feature: string): string {
+  return FEATURE_COLORS[feature] ?? agentColor(feature);
+}
+
 // contextStateColor maps a context_state to a pressure color for the legend.
 export function contextStateColor(state: string): string {
   switch (state) {

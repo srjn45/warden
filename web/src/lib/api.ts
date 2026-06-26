@@ -181,12 +181,12 @@ export async function getMetricsHistory(sinceISO?: string, limit = 480): Promise
 }
 
 // getSavings returns the aggregated token-savings summary (GET /savings). Pass
-// bucket='day' to attach the per-day saved-tokens trend the Metrics tab plots,
-// and an optional sinceISO window (RFC3339 or a duration like "7d"). The route
-// is GATED: when savings is disabled the daemon answers 403, surfaced here as
-// an ApiError(403) the caller turns into a friendly "enable savings" hint
-// rather than an empty chart.
-export async function getSavings(sinceISO?: string, bucket?: 'day'): Promise<Summary> {
+// bucket='day'|'hour' to attach the zero-filled saved-tokens trend the Metrics
+// tab plots at that granularity, and an optional sinceISO window (RFC3339 or a
+// duration like "7d"). The route is GATED: when savings is disabled the daemon
+// answers 403, surfaced here as an ApiError(403) the caller turns into a
+// friendly "enable savings" hint rather than an empty chart.
+export async function getSavings(sinceISO?: string, bucket?: 'day' | 'hour'): Promise<Summary> {
   const q = new URLSearchParams();
   if (sinceISO) q.set('since', sinceISO);
   if (bucket) q.set('bucket', bucket);

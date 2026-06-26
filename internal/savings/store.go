@@ -167,21 +167,25 @@ func (s *Store) Calibration() (Calibration, bool, error) {
 // Summary reads the events since `since` and aggregates them. Convenience wrapper
 // the daemon's GET /savings handler uses so the HTTP layer stays a thin shell.
 func (s *Store) Summary(since time.Time) (Summary, error) {
-	return s.Report(since, false, false)
+	return s.Report(since, "", false)
 }
 
 // Report reads the events since `since` and aggregates them, optionally also
-// attaching the per-day trend buckets and/or the retained provenance samples
-// (the audit view). It reads the ledger once and fans the events into each
-// projection, so the GET /savings handler stays a thin shell over a single scan.
-func (s *Store) Report(since time.Time, bucket, samples bool) (Summary, error) {
+// attaching the zero-filled trend buckets (bucket = "hour"|"day"; "" ⇒ none)
+// and/or the retained provenance samples (the audit view). It reads the ledger
+// once and fans the events into each projection, so the GET /savings handler
+// stays a thin shell over a single scan. The trend is built up to now so the line
+// extends to the present even when the last saving was a while ago.
+func (s *Store) Report(since time.Time, bucket string, samples bool) (Summary, error) {
 	evs, err := s.Events(since)
 	if err != nil {
 		return Summary{}, err
 	}
 	sum := Summarize(evs, since)
-	if bucket {
-		sum.Buckets = BucketByDay(evs)
+	if bucket != "" {
+		gran := normalizeGranularity(bucket)
+		sum.BucketGranularity = gran
+		sum.Buckets = BucketBy(evs, gran, since, time.Now())
 	}
 	if samples {
 		sum.Samples = collectSamples(evs)

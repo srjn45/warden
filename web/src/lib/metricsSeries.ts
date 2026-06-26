@@ -1,11 +1,11 @@
 // Pure transforms feeding the Metrics tab's uPlot charts. Everything here is
 // I/O-free and unit-tested (metricsSeries.test.ts): MetricsSample[] → aligned
 // per-agent series (CPU, RSS) + a fleet-size series, live context samples →
-// a client-accumulated per-agent context series, and DayBucket[] →
-// tokens-saved bars. All handle empty input and series churn (agents appearing
+// a client-accumulated per-agent context series, and Bucket[] →
+// tokens-saved trend + per-feature stack. All handle empty input and series churn (agents appearing
 // and leaving across the window) without producing data uPlot can choke on.
 import type { AgentStat, MetricsSample } from './metrics';
-import type { DayBucket } from './savings';
+import type { Bucket } from './savings';
 
 // AgentSeries is column-oriented multi-series data: a shared oldest-first time
 // axis `t` plus one value column per agent, aligned to `t` with `null` where
@@ -107,23 +107,68 @@ export function fleetSizeSeries(samples: MetricsSample[]): FleetSeries {
   };
 }
 
-// SavedSeries is the tokens-saved bar trend. x carries the day timestamp (unix
-// seconds, midnight UTC) for a time axis; dates keeps the YYYY-MM-DD label.
+// SavedSeries is the tokens-saved trend. x carries the bucket start (unix
+// seconds, UTC) for a time axis; saved is the per-bucket net tokens; cumulative
+// is the running total (monotonic) for the second, always-growing line; dates
+// keeps the human label. The daemon zero-fills the buckets, so the arrays are
+// contiguous and the line is continuous even across idle intervals.
 export interface SavedSeries {
   x: number[];
   saved: number[];
+  cumulative: number[];
   dates: string[];
 }
 
-// tokensSavedSeries turns the per-day buckets (oldest-first from the daemon)
-// into a chartable trend. Empty/absent buckets → empty arrays.
-export function tokensSavedSeries(buckets: DayBucket[] | null | undefined): SavedSeries {
+// tokensSavedSeries turns the trend buckets (oldest-first from the daemon) into
+// a chartable series. Uses each bucket's `ts` directly (so it works for hourly
+// and daily granularity alike). Empty/absent buckets → empty arrays.
+export function tokensSavedSeries(buckets: Bucket[] | null | undefined): SavedSeries {
   const bs = buckets ?? [];
   return {
-    x: bs.map((b) => Date.parse(`${b.date}T00:00:00Z`) / 1000),
+    x: bs.map((b) => b.ts),
     saved: bs.map((b) => b.saved_tokens),
+    cumulative: bs.map((b) => b.cumulative),
     dates: bs.map((b) => b.date),
   };
+}
+
+// FeatureStack is the per-feature stacked-area view of the trend: one band per
+// feature over the shared time axis. To render a stack with uPlot's painter
+// (series drawn in array order, later on top), each band carries the CUMULATIVE
+// top edge — feature k's column is the sum of features 0..k in that bucket — and
+// `features` is ordered by total saved, largest first. A card draws them in that
+// order: the tallest band paints first, smaller bands over it, so the visible
+// slices read as a stack summing to the bucket total.
+export interface FeatureStack {
+  t: number[];
+  features: string[];               // largest total first (draw order)
+  tops: Record<string, (number | null)[]>; // feature -> cumulative top edge aligned to t
+}
+
+// featureStackSeries builds the stacked per-feature breakdown from the trend
+// buckets. Features are ordered by their total saved tokens (largest first), and
+// each band's values are the running cumulative across that ordering within each
+// bucket. Empty/absent buckets or buckets with no by_feature split → empty.
+export function featureStackSeries(buckets: Bucket[] | null | undefined): FeatureStack {
+  const bs = buckets ?? [];
+  const totals: Record<string, number> = {};
+  for (const b of bs) {
+    for (const [f, v] of Object.entries(b.by_feature ?? {})) totals[f] = (totals[f] ?? 0) + v;
+  }
+  const features = Object.keys(totals).sort((a, c) => totals[c] - totals[a] || a.localeCompare(c));
+  const t = bs.map((b) => b.ts);
+  const tops: Record<string, (number | null)[]> = {};
+  for (const f of features) tops[f] = [];
+  for (const b of bs) {
+    let running = 0;
+    for (const f of features) {
+      running += (b.by_feature ?? {})[f] ?? 0;
+      // null when the whole bucket is empty, so uPlot leaves a gap rather than a
+      // flat zero band stretching across idle intervals.
+      tops[f].push(b.saved_tokens === 0 ? null : running);
+    }
+  }
+  return { t, features, tops };
 }
 
 // ── Context per agent (client-accumulated) ──────────────────────────────────

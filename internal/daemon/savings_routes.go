@@ -58,9 +58,13 @@ func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
 		since = t
 	}
 	// Optional projections, off by default so the common report is unchanged:
-	// ?bucket=day attaches the per-day trend (sparkline), ?samples=1 attaches the
-	// retained provenance pairs (wd savings --audit).
-	bucket := r.URL.Query().Get("bucket") == "day"
+	// ?bucket=day|hour attaches the zero-filled saved-tokens trend at that
+	// granularity (an unknown value yields no trend, not a 400), ?samples=1
+	// attaches the retained provenance pairs (wd savings --audit).
+	bucket := r.URL.Query().Get("bucket")
+	if bucket != savings.GranularityHour && bucket != savings.GranularityDay {
+		bucket = ""
+	}
 	samples := r.URL.Query().Get("samples") == "1"
 	sum, err := s.savings.Report(since, bucket, samples)
 	if err != nil {

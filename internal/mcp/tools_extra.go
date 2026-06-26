@@ -194,7 +194,11 @@ func (s *Server) registerExtraTools() {
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
-		sum, err := s.cl.Savings(ctx, since, a.Bucket, a.Samples)
+		bucket := ""
+		if a.Bucket {
+			bucket = "day" // savings.GranularityDay; MCP keeps the simple day roll-up
+		}
+		sum, err := s.cl.Savings(ctx, since, bucket, a.Samples)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

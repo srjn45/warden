@@ -560,18 +560,18 @@ func (c *Client) SnapshotRestore(ctx context.Context, id string, force bool) (*s
 }
 
 // Savings fetches the aggregated token-savings summary. A non-zero since limits
-// the window; the zero time requests all-time. bucket additionally requests the
-// per-day trend (Summary.Buckets, for the sparkline); samples requests the
-// retained provenance pairs (Summary.Samples, for the audit view). The daemon
-// returns 403 (a StatusError with Code 403) when the savings ledger is disabled,
-// which the CLI turns into a friendly enable hint.
-func (c *Client) Savings(ctx context.Context, since time.Time, bucket, samples bool) (*savings.Summary, error) {
+// the window; the zero time requests all-time. bucket ("day"|"hour"; "" for none)
+// additionally requests the zero-filled saved-tokens trend (Summary.Buckets);
+// samples requests the retained provenance pairs (Summary.Samples, for the audit
+// view). The daemon returns 403 (a StatusError with Code 403) when the savings
+// ledger is disabled, which the CLI turns into a friendly enable hint.
+func (c *Client) Savings(ctx context.Context, since time.Time, bucket string, samples bool) (*savings.Summary, error) {
 	q := url.Values{}
 	if !since.IsZero() {
 		q.Set("since", since.UTC().Format(time.RFC3339))
 	}
-	if bucket {
-		q.Set("bucket", "day")
+	if bucket != "" {
+		q.Set("bucket", bucket)
 	}
 	if samples {
 		q.Set("samples", "1")
