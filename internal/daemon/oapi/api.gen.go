@@ -251,17 +251,17 @@ func (e SetPermissionModeJSONBodyPermissionMode) Valid() bool {
 // AdoptRequest defines model for AdoptRequest.
 type AdoptRequest struct {
 	// Cwd required; dir whose claude session to adopt
-	Cwd       *string `json:"cwd,omitempty"`
-	SessionId *string `json:"session_id,omitempty"`
+	Cwd       string `json:"cwd,omitempty"`
+	SessionId string `json:"session_id,omitempty"`
 
 	// TmuxSession non-empty => live-register an existing tmux session
-	TmuxSession *string `json:"tmux_session,omitempty"`
+	TmuxSession string `json:"tmux_session,omitempty"`
 }
 
 // AdoptResponse defines model for AdoptResponse.
 type AdoptResponse struct {
-	Session *Session `json:"session,omitempty"`
-	Warning *string  `json:"warning,omitempty"`
+	Session Session `json:"session,omitempty"`
+	Warning string  `json:"warning,omitempty"`
 }
 
 // AgentSummaryResponse defines model for AgentSummaryResponse.
@@ -272,8 +272,8 @@ type ApprovalView = approval.View
 
 // ApprovalsResponse defines model for ApprovalsResponse.
 type ApprovalsResponse struct {
-	Approvals *[]ApprovalView `json:"approvals,omitempty"`
-	Enabled   *bool           `json:"enabled,omitempty"`
+	Approvals []ApprovalView `json:"approvals,omitempty"`
+	Enabled   bool           `json:"enabled,omitempty"`
 }
 
 // BranchStatus defines model for BranchStatus.
@@ -281,9 +281,9 @@ type BranchStatus = branchtrack.BranchStatus
 
 // CIStatus defines model for CIStatus.
 type CIStatus struct {
-	State    *CIStatusState `json:"state,omitempty"`
-	Url      *string        `json:"url,omitempty"`
-	Workflow *string        `json:"workflow,omitempty"`
+	State    CIStatusState `json:"state,omitempty"`
+	Url      string        `json:"url,omitempty"`
+	Workflow string        `json:"workflow,omitempty"`
 }
 
 // CIStatusState defines model for CIStatus.State.
@@ -291,23 +291,23 @@ type CIStatusState string
 
 // CheckOutcome defines model for CheckOutcome.
 type CheckOutcome struct {
-	Cmd      *string `json:"cmd,omitempty"`
-	ExitCode *int    `json:"exit_code,omitempty"`
-	Name     *string `json:"name,omitempty"`
-	Output   *string `json:"output,omitempty"`
-	Passed   *bool   `json:"passed,omitempty"`
+	Cmd      string `json:"cmd,omitempty"`
+	ExitCode int    `json:"exit_code,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Output   string `json:"output,omitempty"`
+	Passed   bool   `json:"passed,omitempty"`
 }
 
 // CheckRequest defines model for CheckRequest.
 type CheckRequest struct {
 	// Dir worktree directory (human fallback)
-	Dir *string `json:"dir,omitempty"`
+	Dir string `json:"dir,omitempty"`
 
 	// Name configured check entry ('' = all)
-	Name *string `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
 
 	// Session calling agent id ('' = human run); pins to the agent's worktree
-	Session *string `json:"session,omitempty"`
+	Session string `json:"session,omitempty"`
 }
 
 // CheckResult defines model for CheckResult.
@@ -318,8 +318,8 @@ type CommitResult = lifecycle.CommitResult
 
 // ConfirmationResponse defines model for ConfirmationResponse.
 type ConfirmationResponse struct {
-	ConfirmationRequired *bool    `json:"confirmation_required,omitempty"`
-	Verdict              *Verdict `json:"verdict,omitempty"`
+	ConfirmationRequired bool    `json:"confirmation_required,omitempty"`
+	Verdict              Verdict `json:"verdict,omitempty"`
 }
 
 // Conflict defines model for Conflict.
@@ -327,8 +327,8 @@ type Conflict = collab.Conflict
 
 // ConflictAgent defines model for ConflictAgent.
 type ConflictAgent struct {
-	Id   *string `json:"id,omitempty"`
-	Name *string `json:"name,omitempty"`
+	Id   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // ContextEntry defines model for ContextEntry.
@@ -336,7 +336,7 @@ type ContextEntry = ctxstore.Entry
 
 // DeleteRequest defines model for DeleteRequest.
 type DeleteRequest struct {
-	Hard *bool `json:"hard,omitempty"`
+	Hard bool `json:"hard,omitempty"`
 }
 
 // Digest defines model for Digest.
@@ -344,17 +344,17 @@ type Digest = digest.Digest
 
 // DirEntry defines model for DirEntry.
 type DirEntry struct {
-	Name *string `json:"name,omitempty"`
-	Path *string `json:"path,omitempty"`
+	Name string `json:"name,omitempty"`
+	Path string `json:"path,omitempty"`
 }
 
 // DirListing defines model for DirListing.
 type DirListing struct {
-	Entries *[]DirEntry `json:"entries,omitempty"`
+	Entries []DirEntry `json:"entries,omitempty"`
 
 	// Parent empty at the filesystem root
-	Parent *string `json:"parent,omitempty"`
-	Path   *string `json:"path,omitempty"`
+	Parent string `json:"parent,omitempty"`
+	Path   string `json:"path,omitempty"`
 }
 
 // Error defines model for Error.
@@ -367,11 +367,11 @@ type Event = store.Event
 
 // EventRequest defines model for EventRequest.
 type EventRequest struct {
-	Detail *string `json:"detail,omitempty"`
+	Detail string `json:"detail,omitempty"`
 
 	// Session tmux session name == session id
-	Session *string `json:"session,omitempty"`
-	Type    *string `json:"type,omitempty"`
+	Session string `json:"session,omitempty"`
+	Type    string `json:"type,omitempty"`
 }
 
 // Export defines model for Export.
@@ -379,52 +379,52 @@ type Export = store.Export
 
 // FileChange defines model for FileChange.
 type FileChange struct {
-	Added   *int    `json:"added,omitempty"`
-	Path    *string `json:"path,omitempty"`
-	Removed *int    `json:"removed,omitempty"`
+	Added   int    `json:"added,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Removed int    `json:"removed,omitempty"`
 }
 
 // GitCommitRequest defines model for GitCommitRequest.
 type GitCommitRequest struct {
 	// Dir worktree directory (human fallback)
-	Dir     *string `json:"dir,omitempty"`
-	Message *string `json:"message,omitempty"`
+	Dir     string `json:"dir,omitempty"`
+	Message string `json:"message,omitempty"`
 
 	// Session calling agent id ('' = human run); pins to the agent's worktree
-	Session *string `json:"session,omitempty"`
+	Session string `json:"session,omitempty"`
 }
 
 // GitDirRequest defines model for GitDirRequest.
 type GitDirRequest struct {
 	// Dir worktree directory (human fallback)
-	Dir *string `json:"dir,omitempty"`
+	Dir string `json:"dir,omitempty"`
 
 	// Session calling agent id ('' = human run); pins to the agent's worktree
-	Session *string `json:"session,omitempty"`
+	Session string `json:"session,omitempty"`
 }
 
 // GitSyncRequest defines model for GitSyncRequest.
 type GitSyncRequest struct {
-	Base *string `json:"base,omitempty"`
+	Base string `json:"base,omitempty"`
 
 	// Dir worktree directory (human fallback)
-	Dir *string `json:"dir,omitempty"`
+	Dir string `json:"dir,omitempty"`
 
 	// Session calling agent id ('' = human run); pins to the agent's worktree
-	Session *string `json:"session,omitempty"`
+	Session string `json:"session,omitempty"`
 }
 
 // GuardRequest defines model for GuardRequest.
 type GuardRequest struct {
-	Path    *string `json:"path,omitempty"`
-	Session *string `json:"session,omitempty"`
-	Tool    *string `json:"tool,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Session string `json:"session,omitempty"`
+	Tool    string `json:"tool,omitempty"`
 }
 
 // GuardVerdict defines model for GuardVerdict.
 type GuardVerdict struct {
-	Decision *GuardVerdictDecision `json:"decision,omitempty"`
-	Reason   *string               `json:"reason,omitempty"`
+	Decision GuardVerdictDecision `json:"decision,omitempty"`
+	Reason   string               `json:"reason,omitempty"`
 }
 
 // GuardVerdictDecision defines model for GuardVerdict.Decision.
@@ -443,7 +443,7 @@ type Message = mailbox.Message
 
 // MetricsHistoryResponse defines model for MetricsHistoryResponse.
 type MetricsHistoryResponse struct {
-	Samples *[]MetricsSample `json:"samples,omitempty"`
+	Samples []MetricsSample `json:"samples,omitempty"`
 }
 
 // MetricsSample A resource snapshot (system + per-agent + daemon stats).
@@ -451,7 +451,7 @@ type MetricsSample = metrics.Sample
 
 // OutputResponse defines model for OutputResponse.
 type OutputResponse struct {
-	Output *string `json:"output,omitempty"`
+	Output string `json:"output,omitempty"`
 }
 
 // PRResult defines model for PRResult.
@@ -462,21 +462,21 @@ type Pipeline = pipeline.Pipeline
 
 // PipelineJob defines model for PipelineJob.
 type PipelineJob struct {
-	Branch     *string           `json:"branch,omitempty"`
-	DependsOn  *[]string         `json:"depends_on,omitempty"`
-	Digest     *Digest           `json:"digest,omitempty"`
-	Handoff    *string           `json:"handoff,omitempty"`
-	Id         *string           `json:"id,omitempty"`
-	Output     *string           `json:"output,omitempty"`
-	Prompt     *string           `json:"prompt,omitempty"`
-	RunIf      *PipelineJobRunIf `json:"run_if,omitempty"`
-	SessionId  *string           `json:"session_id,omitempty"`
-	Status     *string           `json:"status,omitempty"`
-	Supervised *bool             `json:"supervised,omitempty"`
-	Type       *string           `json:"type,omitempty"`
+	Branch     string           `json:"branch,omitempty"`
+	DependsOn  []string         `json:"depends_on,omitempty"`
+	Digest     Digest           `json:"digest,omitempty"`
+	Handoff    string           `json:"handoff,omitempty"`
+	Id         string           `json:"id,omitempty"`
+	Output     string           `json:"output,omitempty"`
+	Prompt     string           `json:"prompt,omitempty"`
+	RunIf      PipelineJobRunIf `json:"run_if,omitempty"`
+	SessionId  string           `json:"session_id,omitempty"`
+	Status     string           `json:"status,omitempty"`
+	Supervised bool             `json:"supervised,omitempty"`
+	Type       string           `json:"type,omitempty"`
 
 	// Worktree none | fresh | from:<jobid>
-	Worktree *string `json:"worktree,omitempty"`
+	Worktree string `json:"worktree,omitempty"`
 }
 
 // PipelineJobRunIf defines model for PipelineJob.RunIf.
@@ -484,32 +484,32 @@ type PipelineJobRunIf string
 
 // PressureStatus defines model for PressureStatus.
 type PressureStatus struct {
-	AgentCount  *int    `json:"agent_count,omitempty"`
-	Elevated    *bool   `json:"elevated,omitempty"`
-	GateEnabled *bool   `json:"gate_enabled,omitempty"`
-	Level       *int    `json:"level,omitempty"`
-	LevelName   *string `json:"level_name,omitempty"`
-	MaxAgents   *int    `json:"max_agents,omitempty"`
+	AgentCount  int    `json:"agent_count,omitempty"`
+	Elevated    bool   `json:"elevated,omitempty"`
+	GateEnabled bool   `json:"gate_enabled,omitempty"`
+	Level       int    `json:"level,omitempty"`
+	LevelName   string `json:"level_name,omitempty"`
+	MaxAgents   int    `json:"max_agents,omitempty"`
 }
 
 // PruneRequest defines model for PruneRequest.
 type PruneRequest struct {
-	DryRun          *bool   `json:"dry_run,omitempty"`
-	Force           *bool   `json:"force,omitempty"`
-	IncludeArchived *bool   `json:"include_archived,omitempty"`
-	Repo            *string `json:"repo,omitempty"`
+	DryRun          bool   `json:"dry_run,omitempty"`
+	Force           bool   `json:"force,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
+	Repo            string `json:"repo,omitempty"`
 }
 
 // PruneResult defines model for PruneResult.
 type PruneResult struct {
-	Action        *string `json:"action,omitempty"`
-	Branch        *string `json:"branch,omitempty"`
-	BranchDeleted *bool   `json:"branch_deleted,omitempty"`
-	Lifecycle     *string `json:"lifecycle,omitempty"`
-	Owner         *string `json:"owner,omitempty"`
-	Path          *string `json:"path,omitempty"`
-	Reason        *string `json:"reason,omitempty"`
-	State         *string `json:"state,omitempty"`
+	Action        string `json:"action,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	BranchDeleted bool   `json:"branch_deleted,omitempty"`
+	Lifecycle     string `json:"lifecycle,omitempty"`
+	Owner         string `json:"owner,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	State         string `json:"state,omitempty"`
 }
 
 // PushResult defines model for PushResult.
@@ -517,37 +517,37 @@ type PushResult = lifecycle.PushResult
 
 // RemoveWorktreeRequest defines model for RemoveWorktreeRequest.
 type RemoveWorktreeRequest struct {
-	DeleteAdoptedBranch *bool `json:"delete_adopted_branch,omitempty"`
-	Force               *bool `json:"force,omitempty"`
+	DeleteAdoptedBranch bool `json:"delete_adopted_branch,omitempty"`
+	Force               bool `json:"force,omitempty"`
 }
 
 // RestoreResult defines model for RestoreResult.
 type RestoreResult struct {
-	Applied        *bool     `json:"applied,omitempty"`
-	Branch         *string   `json:"branch,omitempty"`
-	Conflicts      *[]string `json:"conflicts,omitempty"`
-	CurrentHead    *string   `json:"current_head,omitempty"`
-	HeadMatch      *bool     `json:"head_match,omitempty"`
-	Message        *string   `json:"message,omitempty"`
-	SessionId      *string   `json:"session_id,omitempty"`
-	SnapshotHead   *string   `json:"snapshot_head,omitempty"`
-	SnapshotId     *string   `json:"snapshot_id,omitempty"`
-	TranscriptPath *string   `json:"transcript_path,omitempty"`
-	Workdir        *string   `json:"workdir,omitempty"`
+	Applied        bool     `json:"applied,omitempty"`
+	Branch         string   `json:"branch,omitempty"`
+	Conflicts      []string `json:"conflicts,omitempty"`
+	CurrentHead    string   `json:"current_head,omitempty"`
+	HeadMatch      bool     `json:"head_match,omitempty"`
+	Message        string   `json:"message,omitempty"`
+	SessionId      string   `json:"session_id,omitempty"`
+	SnapshotHead   string   `json:"snapshot_head,omitempty"`
+	SnapshotId     string   `json:"snapshot_id,omitempty"`
+	TranscriptPath string   `json:"transcript_path,omitempty"`
+	Workdir        string   `json:"workdir,omitempty"`
 }
 
 // SavingsFeature Rolled-up token saving for one lifecycle feature.
 type SavingsFeature struct {
-	Events  *int    `json:"events,omitempty"`
-	Feature *string `json:"feature,omitempty"`
+	Events  int    `json:"events,omitempty"`
+	Feature string `json:"feature,omitempty"`
 
 	// KeptTokens Tokens that actually entered context
-	KeptTokens *int `json:"kept_tokens,omitempty"`
+	KeptTokens int `json:"kept_tokens,omitempty"`
 
 	// RawTokens Counterfactual tokens (what would have entered context)
-	RawTokens    *int     `json:"raw_tokens,omitempty"`
-	SavedDollars *float64 `json:"saved_dollars,omitempty"`
-	SavedTokens  *int     `json:"saved_tokens,omitempty"`
+	RawTokens    int     `json:"raw_tokens,omitempty"`
+	SavedDollars float64 `json:"saved_dollars,omitempty"`
+	SavedTokens  int     `json:"saved_tokens,omitempty"`
 }
 
 // SavingsSummary Aggregated token savings over the requested window.
@@ -559,31 +559,31 @@ type Schedule = schedule.Schedule
 // ScheduleCreateRequest defines model for ScheduleCreateRequest.
 type ScheduleCreateRequest struct {
 	// Agent optional name for the spawned agent
-	Agent *string `json:"agent,omitempty"`
+	Agent string `json:"agent,omitempty"`
 
 	// At single-shot time, RFC3339 or 2006-01-02T15:04 (mutually exclusive with cron)
-	At *string `json:"at,omitempty"`
+	At string `json:"at,omitempty"`
 
 	// Branch optional development branch / pr-review checkout
-	Branch *string `json:"branch,omitempty"`
+	Branch string `json:"branch,omitempty"`
 
 	// Cron recurring cron spec (mutually exclusive with at)
-	Cron *string `json:"cron,omitempty"`
+	Cron string `json:"cron,omitempty"`
 
 	// Name schedule id (== name)
 	Name string `json:"name"`
 
 	// Prompt agent prompt (agent mode)
-	Prompt *string `json:"prompt,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
 
 	// Repo repo path (required for a typed agent)
-	Repo *string `json:"repo,omitempty"`
+	Repo string `json:"repo,omitempty"`
 
 	// Spec pipeline YAML; non-empty selects pipeline mode
-	Spec *string `json:"spec,omitempty"`
+	Spec string `json:"spec,omitempty"`
 
 	// Type agent task type (agent mode)
-	Type *string `json:"type,omitempty"`
+	Type string `json:"type,omitempty"`
 }
 
 // Session defines model for Session.
@@ -591,7 +591,7 @@ type Session = store.Session
 
 // SessionList defines model for SessionList.
 type SessionList struct {
-	Sessions *[]Session `json:"sessions,omitempty"`
+	Sessions []Session `json:"sessions,omitempty"`
 }
 
 // Snapshot defines model for Snapshot.
@@ -600,36 +600,36 @@ type Snapshot = snapshot.Snapshot
 // SnapshotCreateRequest defines model for SnapshotCreateRequest.
 type SnapshotCreateRequest struct {
 	// Dir human fallback worktree dir
-	Dir     *string `json:"dir,omitempty"`
-	Message *string `json:"message,omitempty"`
+	Dir     string `json:"dir,omitempty"`
+	Message string `json:"message,omitempty"`
 
 	// Session agent id; pins capture to its worktree
-	Session *string `json:"session,omitempty"`
+	Session string `json:"session,omitempty"`
 }
 
 // SpawnRequest defines model for SpawnRequest.
 type SpawnRequest struct {
-	AutoRestart *bool   `json:"auto_restart,omitempty"`
-	Branch      *string `json:"branch,omitempty"`
-	Cwd         *string `json:"cwd,omitempty"`
+	AutoRestart bool   `json:"auto_restart,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Cwd         string `json:"cwd,omitempty"`
 
 	// Force bypass the memory-pressure spawn gate
-	Force          *bool   `json:"force,omitempty"`
-	InRepo         *bool   `json:"in_repo,omitempty"`
-	Model          *string `json:"model,omitempty"`
-	Name           *string `json:"name,omitempty"`
-	PermissionMode *string `json:"permission_mode,omitempty"`
-	Pr             *string `json:"pr,omitempty"`
-	Prompt         *string `json:"prompt,omitempty"`
+	Force          bool   `json:"force,omitempty"`
+	InRepo         bool   `json:"in_repo,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Name           string `json:"name,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+	Pr             string `json:"pr,omitempty"`
+	Prompt         string `json:"prompt,omitempty"`
 
 	// Repo required in typed mode
-	Repo   *string   `json:"repo,omitempty"`
-	Tags   *[]string `json:"tags,omitempty"`
-	Ticket *string   `json:"ticket,omitempty"`
+	Repo   string   `json:"repo,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
+	Ticket string   `json:"ticket,omitempty"`
 
 	// Type task type (typed mode); empty = free-form
-	Type     *string `json:"type,omitempty"`
-	Worktree *bool   `json:"worktree,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Worktree bool   `json:"worktree,omitempty"`
 }
 
 // Status Agent lifecycle status
@@ -646,13 +646,13 @@ type Verdict = pressure.Verdict
 
 // WorktreeListing defines model for WorktreeListing.
 type WorktreeListing struct {
-	Branch    *string                   `json:"branch,omitempty"`
-	Detached  *bool                     `json:"detached,omitempty"`
-	Lifecycle *WorktreeListingLifecycle `json:"lifecycle,omitempty"`
-	Locked    *bool                     `json:"locked,omitempty"`
-	Owner     *string                   `json:"owner,omitempty"`
-	Path      *string                   `json:"path,omitempty"`
-	State     *WorktreeListingState     `json:"state,omitempty"`
+	Branch    string                   `json:"branch,omitempty"`
+	Detached  bool                     `json:"detached,omitempty"`
+	Lifecycle WorktreeListingLifecycle `json:"lifecycle,omitempty"`
+	Locked    bool                     `json:"locked,omitempty"`
+	Owner     string                   `json:"owner,omitempty"`
+	Path      string                   `json:"path,omitempty"`
+	State     WorktreeListingState     `json:"state,omitempty"`
 }
 
 // WorktreeListingLifecycle defines model for WorktreeListing.Lifecycle.
@@ -687,7 +687,7 @@ type NotFound = Error
 
 // OK defines model for OK.
 type OK struct {
-	Status *string `json:"status,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
@@ -695,72 +695,72 @@ type bearerAuthContextKey string
 
 // ListContextParams defines parameters for ListContext.
 type ListContextParams struct {
-	Prefix *string `form:"prefix,omitempty" json:"prefix,omitempty"`
+	Prefix string `form:"prefix,omitempty" json:"prefix,omitempty"`
 }
 
 // SetContextJSONBody defines parameters for SetContext.
 type SetContextJSONBody struct {
 	// By writer attribution
-	By    *string `json:"by,omitempty"`
-	Value *string `json:"value,omitempty"`
+	By    string `json:"by,omitempty"`
+	Value string `json:"value,omitempty"`
 }
 
 // AppendContextJSONBody defines parameters for AppendContext.
 type AppendContextJSONBody struct {
-	By *string `json:"by,omitempty"`
+	By string `json:"by,omitempty"`
 
 	// Sep separator inserted before value (skipped when creating)
-	Sep   *string `json:"sep,omitempty"`
-	Value *string `json:"value,omitempty"`
+	Sep   string `json:"sep,omitempty"`
+	Value string `json:"value,omitempty"`
 }
 
 // CasContextJSONBody defines parameters for CasContext.
 type CasContextJSONBody struct {
-	By *string `json:"by,omitempty"`
+	By string `json:"by,omitempty"`
 
 	// Expected '' = key must be absent
-	Expected *string `json:"expected,omitempty"`
-	Value    *string `json:"value,omitempty"`
+	Expected string `json:"expected,omitempty"`
+	Value    string `json:"value,omitempty"`
 }
 
 // ListDirsParams defines parameters for ListDirs.
 type ListDirsParams struct {
 	// Path Directory to list (empty = the user's home directory)
-	Path *string `form:"path,omitempty" json:"path,omitempty"`
+	Path string `form:"path,omitempty" json:"path,omitempty"`
 }
 
 // ListHistoryParams defines parameters for ListHistory.
 type ListHistoryParams struct {
 	// Since RFC3339 lower bound
-	Since *time.Time `form:"since,omitempty" json:"since,omitempty"`
+	Since time.Time `form:"since,omitempty" json:"since,omitempty"`
 
 	// Type Filter by normalized task type
-	Type  *string `form:"type,omitempty" json:"type,omitempty"`
-	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Type  string `form:"type,omitempty" json:"type,omitempty"`
+	Limit int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ImportSessionsParams defines parameters for ImportSessions.
 type ImportSessionsParams struct {
 	// Merge Overwrite on id collision instead of skipping
-	Merge *bool `form:"merge,omitempty" json:"merge,omitempty"`
+	Merge bool `form:"merge,omitempty" json:"merge,omitempty"`
 }
 
 // ListRecentMessagesParams defines parameters for ListRecentMessages.
 type ListRecentMessagesParams struct {
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Limit int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetMetricsHistoryParams defines parameters for GetMetricsHistory.
 type GetMetricsHistoryParams struct {
 	// Since RFC3339 lower bound
-	Since *time.Time `form:"since,omitempty" json:"since,omitempty"`
-	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
+	Since time.Time `form:"since,omitempty" json:"since,omitempty"`
+	Limit int       `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Summary When true, return per-agent summaries instead of raw samples
-	Summary *bool `form:"summary,omitempty" json:"summary,omitempty"`
+	Summary bool `form:"summary,omitempty" json:"summary,omitempty"`
 
 	// Agent Narrow summaries to one agent id (with summary=true)
-	Agent *string `form:"agent,omitempty" json:"agent,omitempty"`
+	Agent string `form:"agent,omitempty" json:"agent,omitempty"`
 }
 
 // GetMetricsHistory200JSONResponseBody defines parameters for GetMetricsHistory.
@@ -771,24 +771,24 @@ type GetMetricsHistory200JSONResponseBody struct {
 // CreatePipelineJSONBody defines parameters for CreatePipeline.
 type CreatePipelineJSONBody struct {
 	// Spec pipeline YAML
-	Spec *string `json:"spec,omitempty"`
+	Spec string `json:"spec,omitempty"`
 }
 
 // EditPipelineJobJSONBody defines parameters for EditPipelineJob.
 type EditPipelineJobJSONBody struct {
-	Handoff *string `json:"handoff,omitempty"`
-	Prompt  *string `json:"prompt,omitempty"`
+	Handoff string `json:"handoff,omitempty"`
+	Prompt  string `json:"prompt,omitempty"`
 }
 
 // EmitPipelineJobJSONBody defines parameters for EmitPipelineJob.
 type EmitPipelineJobJSONBody struct {
-	Text *string `json:"text,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 // GetSavingsParams defines parameters for GetSavings.
 type GetSavingsParams struct {
 	// Since Only count savings since this window (a Go duration like `168h`, or an RFC3339 timestamp). Absent ⇒ all time.
-	Since *string `form:"since,omitempty" json:"since,omitempty"`
+	Since string `form:"since,omitempty" json:"since,omitempty"`
 }
 
 // SearchParams defines parameters for Search.
@@ -797,64 +797,64 @@ type SearchParams struct {
 	Q string `form:"q" json:"q"`
 
 	// Closed Also search the archived store
-	Closed *bool `form:"closed,omitempty" json:"closed,omitempty"`
+	Closed bool `form:"closed,omitempty" json:"closed,omitempty"`
 }
 
 // ApproveSessionJSONBody defines parameters for ApproveSession.
 type ApproveSessionJSONBody struct {
 	// Fingerprint Options fingerprint the UI rendered
-	Fingerprint *string `json:"fingerprint,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
 
 	// Option 1-based option to select
-	Option *int `json:"option,omitempty"`
+	Option int `json:"option,omitempty"`
 }
 
 // SetAutoApproveJSONBody defines parameters for SetAutoApprove.
 type SetAutoApproveJSONBody struct {
-	Enabled *bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 // CreatePRJSONBody defines parameters for CreatePR.
 type CreatePRJSONBody struct {
 	// Base PR base branch ('' = main)
-	Base *string `json:"base,omitempty"`
+	Base string `json:"base,omitempty"`
 }
 
 // GetInboxParams defines parameters for GetInbox.
 type GetInboxParams struct {
 	// Unread Filter to unread only
-	Unread *bool `form:"unread,omitempty" json:"unread,omitempty"`
+	Unread bool `form:"unread,omitempty" json:"unread,omitempty"`
 }
 
 // SendMessageJSONBody defines parameters for SendMessage.
 type SendMessageJSONBody struct {
-	Body *string `json:"body,omitempty"`
-	From *string `json:"from,omitempty"`
+	Body string `json:"body,omitempty"`
+	From string `json:"from,omitempty"`
 }
 
 // WaitForMessageParams defines parameters for WaitForMessage.
 type WaitForMessageParams struct {
 	// Timeout Long-poll window in seconds
-	Timeout *int `form:"timeout,omitempty" json:"timeout,omitempty"`
+	Timeout int `form:"timeout,omitempty" json:"timeout,omitempty"`
 
 	// From Only wait for messages from this sender
-	From *string `form:"from,omitempty" json:"from,omitempty"`
+	From string `form:"from,omitempty" json:"from,omitempty"`
 }
 
 // SetNameJSONBody defines parameters for SetName.
 type SetNameJSONBody struct {
-	Name *string `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // GetOutputParams defines parameters for GetOutput.
 type GetOutputParams struct {
 	// Lines Number of trailing lines to capture
-	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
+	Lines int `form:"lines,omitempty" json:"lines,omitempty"`
 }
 
 // SetPermissionModeJSONBody defines parameters for SetPermissionMode.
 type SetPermissionModeJSONBody struct {
-	PermissionMode *SetPermissionModeJSONBodyPermissionMode `json:"permission_mode,omitempty"`
+	PermissionMode SetPermissionModeJSONBodyPermissionMode `json:"permission_mode,omitempty"`
 }
 
 // SetPermissionModeJSONBodyPermissionMode defines parameters for SetPermissionMode.
@@ -863,12 +863,12 @@ type SetPermissionModeJSONBodyPermissionMode string
 // ListSnapshotsParams defines parameters for ListSnapshots.
 type ListSnapshotsParams struct {
 	// Session Filter to one session
-	Session *string `form:"session,omitempty" json:"session,omitempty"`
+	Session string `form:"session,omitempty" json:"session,omitempty"`
 }
 
 // RestoreSnapshotJSONBody defines parameters for RestoreSnapshot.
 type RestoreSnapshotJSONBody struct {
-	Force *bool `json:"force,omitempty"`
+	Force bool `json:"force,omitempty"`
 }
 
 // ListWorktreesParams defines parameters for ListWorktrees.
@@ -3885,7 +3885,7 @@ type BadRequestJSONResponse Error
 type NotFoundJSONResponse Error
 
 type OKJSONResponse struct {
-	Status *string `json:"status,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 type AdoptSessionRequestObject struct {
@@ -3961,7 +3961,7 @@ type GetBranchStatusResponseObject interface {
 }
 
 type GetBranchStatus200JSONResponse struct {
-	Branches *[]BranchStatus `json:"branches,omitempty"`
+	Branches []BranchStatus `json:"branches,omitempty"`
 }
 
 func (response GetBranchStatus200JSONResponse) VisitGetBranchStatusResponse(w http.ResponseWriter) error {
@@ -3984,7 +3984,7 @@ type GetConflictsResponseObject interface {
 }
 
 type GetConflicts200JSONResponse struct {
-	Conflicts *[]Conflict `json:"conflicts,omitempty"`
+	Conflicts []Conflict `json:"conflicts,omitempty"`
 }
 
 func (response GetConflicts200JSONResponse) VisitGetConflictsResponse(w http.ResponseWriter) error {
@@ -4008,7 +4008,7 @@ type ListContextResponseObject interface {
 }
 
 type ListContext200JSONResponse struct {
-	Entries *[]ContextEntry `json:"entries,omitempty"`
+	Entries []ContextEntry `json:"entries,omitempty"`
 }
 
 func (response ListContext200JSONResponse) VisitListContextResponse(w http.ResponseWriter) error {
@@ -4372,7 +4372,7 @@ type ListRecentMessagesResponseObject interface {
 }
 
 type ListRecentMessages200JSONResponse struct {
-	Messages *[]Message `json:"messages,omitempty"`
+	Messages []Message `json:"messages,omitempty"`
 }
 
 func (response ListRecentMessages200JSONResponse) VisitListRecentMessagesResponse(w http.ResponseWriter) error {
@@ -4452,7 +4452,7 @@ type ListPipelinesResponseObject interface {
 }
 
 type ListPipelines200JSONResponse struct {
-	Pipelines *[]Pipeline `json:"pipelines,omitempty"`
+	Pipelines []Pipeline `json:"pipelines,omitempty"`
 }
 
 func (response ListPipelines200JSONResponse) VisitListPipelinesResponse(w http.ResponseWriter) error {
@@ -4862,7 +4862,7 @@ type PruneWorktreesResponseObject interface {
 }
 
 type PruneWorktrees200JSONResponse struct {
-	Results *[]PruneResult `json:"results,omitempty"`
+	Results []PruneResult `json:"results,omitempty"`
 }
 
 func (response PruneWorktrees200JSONResponse) VisitPruneWorktreesResponse(w http.ResponseWriter) error {
@@ -4935,7 +4935,7 @@ type ListSchedulesResponseObject interface {
 }
 
 type ListSchedules200JSONResponse struct {
-	Schedules *[]Schedule `json:"schedules,omitempty"`
+	Schedules []Schedule `json:"schedules,omitempty"`
 }
 
 func (response ListSchedules200JSONResponse) VisitListSchedulesResponse(w http.ResponseWriter) error {
@@ -5388,7 +5388,7 @@ type GetInboxResponseObject interface {
 }
 
 type GetInbox200JSONResponse struct {
-	Messages *[]Message `json:"messages,omitempty"`
+	Messages []Message `json:"messages,omitempty"`
 }
 
 func (response GetInbox200JSONResponse) VisitGetInboxResponse(w http.ResponseWriter) error {
@@ -5413,8 +5413,8 @@ type SendMessageResponseObject interface {
 }
 
 type SendMessage200JSONResponse struct {
-	Message *Message `json:"message,omitempty"`
-	Woke    *bool    `json:"woke,omitempty"`
+	Message Message `json:"message,omitempty"`
+	Woke    bool    `json:"woke,omitempty"`
 }
 
 func (response SendMessage200JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
@@ -5439,8 +5439,8 @@ type WaitForMessageResponseObject interface {
 }
 
 type WaitForMessage200JSONResponse struct {
-	Found   *bool    `json:"found,omitempty"`
-	Message *Message `json:"message,omitempty"`
+	Found   bool    `json:"found,omitempty"`
+	Message Message `json:"message,omitempty"`
 }
 
 func (response WaitForMessage200JSONResponse) VisitWaitForMessageResponse(w http.ResponseWriter) error {
@@ -5698,7 +5698,7 @@ type ListSnapshotsResponseObject interface {
 }
 
 type ListSnapshots200JSONResponse struct {
-	Snapshots *[]Snapshot `json:"snapshots,omitempty"`
+	Snapshots []Snapshot `json:"snapshots,omitempty"`
 }
 
 func (response ListSnapshots200JSONResponse) VisitListSnapshotsResponse(w http.ResponseWriter) error {
@@ -5873,7 +5873,7 @@ type ListWorktreesResponseObject interface {
 }
 
 type ListWorktrees200JSONResponse struct {
-	Worktrees *[]WorktreeListing `json:"worktrees,omitempty"`
+	Worktrees []WorktreeListing `json:"worktrees,omitempty"`
 }
 
 func (response ListWorktrees200JSONResponse) VisitListWorktreesResponse(w http.ResponseWriter) error {
