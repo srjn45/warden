@@ -151,9 +151,10 @@ kbd {
 /* ── Metrics tab ── */
 /* Responsive chart grid: two columns on wide screens (each per-agent chart sits
    beside its fleet-wide total), collapsing to a single column once a cell can no
-   longer hold ~380px — i.e. on phones. auto-fit handles the breakpoint so no
-   media query is needed. */
-.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; max-width: 1280px; align-items: start; }
+   exactly two equal columns split 50/50 edge-to-edge; the @media block below
+   collapses them to one on phones. minmax(0,1fr) lets each column shrink so a
+   wide chart never blows the track past 50%. */
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
 /* The live-footprint table is not a chart — let it span the full width. */
 .metrics .metrics-wide { grid-column: 1 / -1; }
 .metrics .metrics-card { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; min-width: 0; }
@@ -368,6 +369,7 @@ kbd {
 
   /* Collapse every multi-column grid to a single column. */
   .overview { grid-template-columns: 1fr; }
+  .metrics { grid-template-columns: 1fr; }
   .agent-grid { grid-template-columns: 1fr; }
   .attn-queue { grid-template-columns: 1fr; }
 
