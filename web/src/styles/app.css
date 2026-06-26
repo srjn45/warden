@@ -39,7 +39,10 @@
 :root[data-theme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; }
 body { margin: 0; }
-.layout { display: flex; flex-direction: column; height: 100vh; }
+/* Height tracks the visible viewport: 100vh → 100dvh (excludes mobile browser
+   chrome) → --app-height (set from visualViewport in Dashboard, shrinks for the
+   soft keyboard). Each later value wins where supported. */
+.layout { display: flex; flex-direction: column; height: 100vh; height: 100dvh; height: var(--app-height, 100dvh); }
 .topbar { display: flex; align-items: center; gap: 1rem; padding: .6rem 1rem; border-bottom: 1px solid #8884; }
 .topbar h1 { font-size: 1.1rem; margin: 0; }
 .topbar h1.brand { display: inline-flex; align-items: center; margin: 0; }
@@ -224,7 +227,9 @@ kbd {
 .xterm-wrap { display: flex; flex-direction: column; gap: .35rem; }
 /* pan-y lets us claim vertical swipes for scrollback (handled in JS) while the
    browser keeps pinch-zoom; without it the page would scroll instead. */
-.xterm-host { height: 420px; background: var(--term-bg); border-radius: .4rem; padding: .4rem; touch-action: pan-y; }
+/* touch-action: none lets our swipe→wheel handler own vertical drags (the page
+   never tries to pan first); a tap still fires click, which focuses the term. */
+.xterm-host { height: 420px; background: var(--term-bg); border-radius: .4rem; padding: .4rem; touch-action: none; }
 /* On-screen keys for sequences a phone keyboard can't send (Esc/Tab/Ctrl-C/…). */
 .term-keybar { display: flex; flex-wrap: wrap; gap: .3rem; }
 .term-keybar button {
@@ -369,12 +374,13 @@ kbd {
   .topbar h1.brand img { height: 22px; }
   .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
 
-  /* Tab strip → bottom nav: as the last flex child of the 100vh column it
-     sits below the (flex:1) content. Bigger tap targets; safe-area inset for
-     phones with a home indicator. */
+  /* Tab strip → bottom nav: the last flex child of the column, which is sized to
+     the visible viewport (--app-height), so flex:none keeps it from shrinking and
+     it stays pinned at the visible bottom — above the soft keyboard. Bigger tap
+     targets; safe-area inset for phones with a home indicator. */
   .layout > .tab-content { order: 1; padding: .6rem; }
   .layout > .tabbar {
-    order: 2; border-top: 1px solid #8884; border-bottom: none;
+    order: 2; flex: none; border-top: 1px solid #8884; border-bottom: none;
     padding: 0 .5rem env(safe-area-inset-bottom, 0) .5rem; background: Canvas;
   }
   .tabbar .tab, .tabbar .tab-label { padding: .65rem .7rem; }
@@ -402,4 +408,12 @@ kbd {
   /* Tame fixed heights that would dominate a phone screen. */
   .xterm-host { height: 60vh; }
   .pane { height: 200px; }
+
+  /* Keep the terminal key bar reachable: stick it to the bottom of the scrolling
+     tab content so Esc/Ctrl-C/Bottom stay tappable while the keyboard is open and
+     the view scrolls. A background and top border stop content showing through. */
+  .term-keybar {
+    position: sticky; bottom: 0; z-index: 1;
+    padding: .35rem 0; border-top: 1px solid #8884; background: var(--bg);
+  }
 }

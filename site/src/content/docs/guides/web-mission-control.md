@@ -37,7 +37,7 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 | **Attention queue** | In the **Others** tab: surfaces agents in `waiting_for_input`/`errored`/`orphaned`, with one-click approval buttons. |
 | **Metrics view** | A dedicated `/metrics` tab — see [Metrics view](#metrics-view). |
 | **Context & Messages overlay** | Opened from a small **🗒 header button** as a dismissible overlay (Esc closes); it's no longer a tab. |
-| **Interactive terminal** | Pin an agent to get a live `tmux attach` bridged to the browser over a WebSocket (xterm.js) — type into the agent and watch it respond. **Mobile-friendly:** swipe to scroll the scrollback, plus an on-screen key bar (Esc, Tab, Ctrl-C, ↑/↓, jump-to-bottom) for the keys a phone keyboard lacks. |
+| **Interactive terminal** | Pin an agent to get a live `tmux attach` bridged to the browser over a WebSocket (xterm.js) — type into the agent and watch it respond. **Mobile-friendly:** swipe to scroll back through history (the swipe drives tmux/the agent's scrollback the same way a mouse wheel does), plus a sticky on-screen key bar (Esc, Tab, Ctrl-C, ↑/↓, jump-to-bottom) for the keys a phone keyboard lacks. The layout tracks the visible viewport, so the bottom tab nav and the key bar stay put above the soft keyboard. |
 | **Create agent** | **+ New agent** prompt box with a directory picker (live prefix autocomplete) and a **Supervised** checkbox. |
 | **Terminate with git guard** | Surfaces a 409 → **Force** + optional hard-delete when there's uncommitted/unpushed work. |
 | **Digest panel** | View an agent's completion digest in the browser. |
