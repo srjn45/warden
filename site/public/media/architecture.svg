@@ -1,9 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 560" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="warden architecture: CLI, TUI, Web, MCP and an experimental REPL client talk to a local daemon, which persists to a file store and drives a tmux session running claude per agent, with lifecycle hooks reporting back to the daemon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 560" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="warden architecture: CLI, TUI, Web, MCP and an experimental REPL client talk to a local daemon, which persists to a file store and, per agent, drives a tmux session running claude — the tmux and claude pair together form one agent, spun up and torn down together — with lifecycle hooks reporting back to the daemon">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
     </marker>
   </defs>
+
+  <!-- agent boundary: one tmux + one claude are a single warden "agent",
+       spun up and torn down together (drawn first so arrows pierce it) -->
+  <rect x="438" y="302" width="240" height="230" rx="14" fill="none" stroke="#39c5cf" stroke-width="2" stroke-dasharray="7 4"/>
+  <rect x="442" y="289" width="76" height="26" rx="13" fill="#30363d" stroke="#39c5cf" stroke-width="1.5"/>
+  <text x="480" y="307" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="700">agent</text>
+  <text x="558" y="521" text-anchor="middle" fill="#8b949e" font-size="11.5" font-style="italic">spun up &amp; down together</text>
 
   <!-- connectors (drawn first so boxes sit on top) -->
   <g fill="none" stroke="#8b949e" stroke-width="2">
