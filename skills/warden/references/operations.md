@@ -108,7 +108,7 @@ Notable settings (see the generated file for the full set with defaults):
 - **Boundary guards:** `isolation_guard`, `root_guard`, `git_redirect`,
   `check_redirect`, `git_conventions` (see git-and-checks.md).
 - **Local LLM / orchestrator:** `local_llm` (+ `local_llm_url`/`_model`/`_timeout`),
-  `local_llm_tier`/`_escalate`, `orchestrator`.
+  `local_llm_tier`/`_escalate`/`_classifier`, `orchestrator`.
 - **Misc:** `metrics`, `snapshots`, `insights`, `plugins`/`plugin_registry`,
   `scheduler_enabled`, `api_docs`, `collab_*`, `branch_track_*`, `tutorial`,
   `allow_nonloopback`, `log_level`/`log_format`.

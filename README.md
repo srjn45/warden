@@ -363,7 +363,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `local_llm` (+ `local_llm_url`/`_model`/`_timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden orch` (its `/` commands work without it) |
 | `orchestrator` | `false` | Start the cockpit master pane in `warden orch` mode instead of a plain shell |
 
-`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree_keep_done` / `worktree_auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the orchestrator tier knobs (`local_llm_tier` / `local_llm_escalate`).
+`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree_keep_done` / `worktree_auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the orchestrator tier knobs (`local_llm_tier` / `local_llm_escalate` / `local_llm_classifier`).
 
 > **Legacy env vars:** the old `WARDEN_*` environment variables (e.g. `WARDEN_ADDR`, `WARDEN_NOTIFY`, `WARDEN_TOKEN_*`) are no longer read — the daemon warns once at startup if any are still set. The per-agent IPC vars warden injects into each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration and are unaffected.
 
