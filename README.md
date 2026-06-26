@@ -32,8 +32,14 @@ Capability highlights from the **v5.x** line (full notes on the [releases page](
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
 - **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s, and web batch operations.
 - **Observability** — per-agent metrics & performance history (`warden stats`), crash/anomaly detection, the context-size guard, and webhook/Slack notifications.
+- **Token-savings ledger (`warden savings`)** — a real, append-only ledger of the tokens warden's lifecycle features keep out of agents' context, with an `--benchmark` A/B headline (without-vs-with warden, % reduction, $ saved) you can screenshot.
+- **Native scheduler (`warden schedule`)** — opt-in cron/at triggers that fire an agent or a pipeline on the daemon's own timer; no external crontab.
+- **Snapshots & insights** — `warden snapshot` checkpoints a worktree + transcript for rollback; `warden insights` mines agent history for patterns and parallelization wins.
+- **Branch tracking (`warden branches`)** — opt-in monitor of each agent's CI status and standing vs `origin/main`, with non-blocking inbox/desktop alerts.
+- **Extensibility** — a `warden plugin` system (custom task types + lifecycle hooks over JSON-stdio) and an interactive **OpenAPI/Swagger UI** at `/api/docs`.
 - **Web** — dark-mode theming, global keyboard shortcuts, Cockpit agent grouping, live resource charts, and an Archive tab.
 - **Remote access** — bearer-token auth (`warden token …`) and a Docker/compose deployment.
+- **First-run tutorial (`warden tutorial`)** — a guided walkthrough of the core loop, with a one-line nudge until you've taken (or skipped) the tour.
 
 ---
 
@@ -676,6 +682,18 @@ Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon r
 warden doctor
 ```
 
+### `warden tutorial` (first-run walkthrough)
+
+A guided tour of the core loop (spawn → watch → commit → tear down). Until you've taken or skipped it, warden prints a single non-blocking stderr hint nudging you toward it (suppressed for piped/non-interactive use).
+
+```sh
+warden tutorial                       # run the walkthrough, then mark it complete
+warden tutorial --skip                # mark complete without running it
+warden tutorial --reset               # clear the marker so the tour (and hint) run again
+```
+
+Disable the hint entirely with `tutorial: false` in the config.
+
 ### `warden rotate` (self-rotation)
 
 Run **inside an agent session** to retire a long-lived, context-heavy agent and hand off to a fresh successor in the same workdir/worktree. Phase 1 is driven by the `/warden` skill (the agent writes a handoff file + resume prompt and shows you); on your go-ahead it spawns the successor and reaps itself.
@@ -727,6 +745,27 @@ jobs:
 ```
 
 Jobs can be made conditional with `run_if: success` (default) `| failure | always` — e.g. a `run_if: failure` rollback/notify step that only runs when an upstream job fails. Pipelines have full TUI and web visibility (a ▸ Pipelines section / a Pipelines tab). See [docs/USAGE.md](docs/USAGE.md) for the full authoring guide.
+
+### `warden schedule` (native cron/at)
+
+Fire an agent spawn **or** a pipeline on the daemon's own timer — no external crontab. **Opt-in:** set `scheduler_enabled: true` in the config and keep the daemon running (schedules only fire while it is up).
+
+```sh
+# Recurring agent spawn (5-field cron; @daily etc. supported):
+warden schedule create daily-review --cron "0 9 * * *" \
+  --type pr-review --repo . --prompt "Review yesterday's merged PRs"
+
+# Single-shot spawn (RFC3339 or 2006-01-02T15:04, local time):
+warden schedule create launch --at 2026-06-27T09:00 --prompt "Kick off the release checklist"
+
+# Fire a pipeline on a schedule (each run gets a timestamped name):
+warden schedule create nightly --cron "0 2 * * *" --pipeline ci.yaml
+
+warden schedule list                  # kind, mode, spec, enabled, next run, last error
+warden schedule delete daily-review
+```
+
+Missed runs are **not** backfilled — on daemon startup each next-fire is recomputed from the wall clock. The reconcile loop fails soft (a bad fire is recorded in `last_error`, never crashes the loop). `list_schedules` exposes the same read-only view over MCP.
 
 ### Shared context & messaging — `warden ctx` / `warden msg`
 
@@ -819,6 +858,53 @@ warden stats --history                # per-agent performance history + anomaly 
 warden stats --history --agent PROJ-350
 ```
 
+### `warden savings`
+
+Read back the **token-savings ledger** — the tokens warden's lifecycle features kept out of agents' context windows. A real, append-only record, not an estimate. Gated by the `savings` config setting (default on).
+
+```sh
+warden savings                        # per-feature table (saved/raw tokens, events)
+warden savings --benchmark            # headline A/B: without-vs-with warden, % cut, $ saved, trend sparkline
+warden savings --since 7d             # scope to a window (24h/7d/2w) or a date
+warden savings --json                 # structured summary
+warden savings --audit                # raw-vs-kept provenance samples (needs savings_samples)
+warden savings --calibrate            # measure this workload's bytes/token vs Claude count_tokens (needs ANTHROPIC_API_KEY)
+```
+
+Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, in % and $) and the **offload** axis (Claude work moved off entirely onto the local LLM, in $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`. See [docs/FEATURES.md §29](docs/FEATURES.md).
+
+### `warden branches`
+
+Opt-in, read-only view of each active agent's branch health: its **GitHub CI status** (latest `gh run list` in the worktree) and its **standing vs `origin/main`** (commits behind/ahead, merged?).
+
+```sh
+warden branches                       # table of per-agent CI + base-branch standing
+warden branches --json
+```
+
+The daemon monitor behind it (enable with `branch_track_enabled`) delivers **non-blocking** alerts — an inbox note to the agent (and a desktop ping to you) on a new CI failure, an inbox nudge on a merged or far-behind branch. Every `gh`/git call fails open. Also exposed via `GET /collab/branches` and the `get_branch_status` MCP tool.
+
+### `warden insights`
+
+Mine archived agent history for **patterns** — recurring task shapes, slow/failure-prone work, and parallelization opportunities — as a deterministic report (optionally narrated by the local LLM). Gated by `insights` (default on).
+
+```sh
+warden insights
+warden insights --json
+```
+
+### `warden snapshot`
+
+Checkpoint an agent's **worktree changes + session transcript** and roll back later. Gated by `snapshots` (default on).
+
+```sh
+warden snapshot create [name] -m "before risky refactor"   # capture a checkpoint
+warden snapshot list [name] [--all]                        # list checkpoints
+warden snapshot restore <id> [--force]                     # re-apply onto its worktree
+```
+
+Restore reapplies the captured stash onto the recorded worktree; it refuses a dirty/conflicting tree rather than clobbering, and a failed apply leaves the snapshot intact. Also available as the `snapshot_create`/`snapshot_list`/`snapshot_restore` MCP tools.
+
 ### `warden auto-approve <id> on|off`
 
 Per-agent override of the `auto_approve` config setting — auto-answer recognized yes/no permission prompts by selecting option 1 (multi-select / text-entry / unrecognized prompts always fall back to manual).
@@ -870,6 +956,16 @@ A warden-aware, **local-LLM** conductor REPL that turns natural-language operato
 warden orch                           # alias: warden orchestrator
 ```
 
+### `warden plugin`
+
+Inspect the **plugin** registry — external executables that extend warden with custom agent task types and lifecycle hooks (over a versioned JSON-over-stdio protocol). **Default off** (`plugins: true` to enable, since plugins run external code).
+
+```sh
+warden plugin list                    # registered plugins: paths, custom task types, subscribed hook events, config errors
+```
+
+Hooks (`pre/post-spawn`, `pre/post-commit`, `pre/post-check`) are **advisory and fail-open** — a missing, slow, or crashing plugin is logged and skipped, never blocking an agent. Configure via `plugins` + a `plugin_registry` list in `~/.warden/config.yaml`; a worked example lives under [`examples/plugins/`](examples/plugins/). See [docs/FEATURES.md §26](docs/FEATURES.md).
+
 ### `warden.daemon`
 
 Run the daemon (HTTP API + background poller). Normally managed by launchd; run manually for debugging.
@@ -888,7 +984,7 @@ warden mcp
 warden mcp --addr 127.0.0.1:8765
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`.
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`.
 
 ### `warden completion <shell>`
 

@@ -39,8 +39,12 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `list_approvals` / `approve` | List / answer pending tool-permission prompts |
 | `commit` / `push` / `sync` / `check` | The git + check lifecycle on an agent's branch (warden rails) |
 | `get_collaboration_status` / `who_is_editing_file` | See which agents are editing the same files |
+| `get_branch_status` | Per-agent CI status + standing vs `origin/main` (the branch monitor, read-only) |
 | `create_pipeline` / `start_pipeline` | Author (from YAML or a built-in template) and launch a DAG pipeline |
 | `show_pipeline` / `list_pipelines` / `cancel_pipeline` | Inspect / list / cancel pipelines |
+| `list_schedules` | List the daemon's cron/at schedules (read-only; 403 when the scheduler is disabled) |
+| `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree + transcript checkpoints and rollback |
+| `insights` / `savings` | History-mined patterns / the token-savings ledger |
 
 > Pipelines **can** be driven over MCP: `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, and `cancel_pipeline` are all tools. The finer-grained controls — `pause`/`resume`/`delete`/`edit-job`/`retry` — remain CLI-only (`warden pipeline …`).
 

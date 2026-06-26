@@ -3,7 +3,7 @@ title: CLI command reference
 description: Every warden command and its flags, generated from warden --help.
 ---
 
-> Generated from `warden --help` on 2026-06-25; regenerate when commands change.
+> Generated from `warden --help` on 2026-06-26; regenerate when commands change.
 
 All commands accept `--addr` to point at a non-default daemon (overrides the `addr` config setting) and `--config` to point at a non-default config file (default `~/.warden/config.yaml`). `<TICKET>` is the agent ID — a Jira key for managed agents, or an `agent-xxxx` ID for prompt-spawned ones.
 
@@ -24,6 +24,7 @@ Available Commands:
   attach              Attach to the agent's tmux session
   audit               Inspect the append-only action audit trail
   auto-approve        Enable or disable auto-approval for an agent's prompts
+  branches            Per-agent CI status and standing vs origin/main (opt-in monitor)
   check               Run the project's configured checks and report only failures
   collab              Inter-agent collaboration: see which agents are editing the same files
   commit              Stage and commit the worktree (warden rails + hooks + bookkeeping)
@@ -39,20 +40,25 @@ Available Commands:
   handoff             Delegate a sub-task to another agent — a brand-new one or an existing one (--to)
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
+  insights            Mine agent history for patterns and parallelization wins
   ls                  List all active agent sessions
   mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
   msg                 Send and receive directed messages between agents
   orch                Natural-language conductor for agents, pipelines, and the git/check lifecycle (local LLM)
   pipeline            Define and run DAG pipelines of agent jobs
+  plugin              Inspect the plugin registry (custom task types + lifecycle hooks)
   preset              Save and list named spawn configs (replay with `warden start --preset <name>`)
   prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
   push                Push the current branch to origin (warden rails + bookkeeping)
   remove-worktree     Remove an agent's git worktree + branch (always asks; --force overrides guards)
   restore             Recreate and resume a lost/orphaned agent (claude --resume)
   rotate              Hand this agent's work to a fresh successor in the same workspace, then retire it
+  savings             Show the token reductions warden's lifecycle features have earned
+  schedule            Fire an agent or pipeline on a cron/at timer (opt-in)
   search              Full-text search agents by subject, prompt, type, name, branch, or pane text
   send                Type a message into an agent's claude session and press Enter
   set-permission-mode Set the permission mode for an agent
+  snapshot            Checkpoint a worktree + transcript and roll back later
   start               Spawn an agent — `start "<prompt>"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)
   stats               Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
   status              Show full status for one session
@@ -61,6 +67,7 @@ Available Commands:
   terminate           Stop an agent: kill its tmux+claude session (keeps the record and worktree)
   token               Manage the daemon's remote-access bearer token
   tui                 Live terminal cockpit for agents
+  tutorial            Run the first-run guided walkthrough
   worktree            Inspect warden's git worktrees
 
 Flags:
@@ -223,6 +230,120 @@ Flags:
   -h, --help    help for stats
       --json    output as JSON
       --watch   redraw every 3s until interrupted
+```
+
+## warden savings
+
+```text
+Show the token reductions warden's lifecycle features have earned — a real,
+append-only ledger of output kept out of agents' context windows. Gated by the
+`savings` config setting (default on).
+
+Usage:
+  warden savings [flags]
+
+Flags:
+      --benchmark        headline A/B proof (without-vs-with warden, % cut, $ saved, trend sparkline)
+      --since string     only count savings since this window (24h, 7d, 2w) or a date
+      --json             output the structured summary as JSON
+      --audit            print retained raw-vs-kept provenance samples (requires savings_samples)
+      --calibrate        measure this workload's bytes/token vs Claude count_tokens (needs ANTHROPIC_API_KEY)
+      --calibrate-max int  cap the number of paid count_tokens calls a --calibrate run makes
+```
+
+Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, % and $) and the **offload** axis (Claude work moved off entirely onto the local LLM, $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`.
+
+## warden branches
+
+```text
+Per-agent CI status and standing vs origin/main (opt-in monitor). Reports each
+active agent's latest GitHub CI result (gh run list in its worktree) and whether
+its branch is ahead/behind/merged relative to origin/main.
+
+Usage:
+  warden branches [flags]
+
+Flags:
+      --json   output as JSON
+```
+
+Enable the background monitor with `branch_track_enabled` (tune `branch_track_interval`). Alerts are **non-blocking**: an inbox note (+ desktop ping) on a new CI failure, an inbox nudge on a merged or far-behind branch. Also at `GET /collab/branches` and the `get_branch_status` MCP tool.
+
+## warden insights
+
+```text
+Mine agent history for recurring patterns, slow/failure-prone work, and
+parallelization opportunities — a deterministic report, optionally narrated by the
+local LLM (local_llm). Gated by `insights` (default on).
+
+Usage:
+  warden insights [flags]
+
+Flags:
+      --json   output as JSON
+```
+
+## warden snapshot
+
+```text
+Checkpoint an agent's worktree changes + session transcript and roll back later.
+Gated by `snapshots` (default on).
+
+Usage:
+  warden snapshot [command]
+
+Available Commands:
+  create    Capture a checkpoint (worktree stash + transcript)  [name] [-m msg]
+  list      List checkpoints  [name] [--all]
+  restore   Re-apply a checkpoint onto its recorded worktree  <id> [--force]
+```
+
+Restore refuses a dirty/conflicting tree rather than clobbering, and a failed apply leaves the snapshot intact. Also the `snapshot_create`/`snapshot_list`/`snapshot_restore` MCP tools.
+
+## warden schedule
+
+```text
+Fire an agent or a pipeline on the daemon's own cron/at timer — no external crontab.
+Opt-in: set `scheduler_enabled: true` and keep the daemon running (schedules only
+fire while it is up). Missed runs are not backfilled.
+
+Usage:
+  warden schedule [command]
+
+Available Commands:
+  create    Create a schedule  <name> (--cron "0 9 * * *" | --at 2026-06-27T09:00) (--prompt … | --pipeline spec.yaml)
+  list      List schedules with kind, mode, spec, enabled, next run, last error
+  delete    Remove a schedule  <id>
+```
+
+`list_schedules` exposes the same read-only view over MCP.
+
+## warden plugin
+
+```text
+Inspect the plugin registry — external executables that extend warden with custom
+agent task types and lifecycle hooks over a versioned JSON-over-stdio protocol.
+Default off (set `plugins: true`, since plugins run external code).
+
+Usage:
+  warden plugin [command]
+
+Available Commands:
+  list   Show registered plugins: paths, custom task types, subscribed hook events, config errors
+```
+
+## warden tutorial
+
+```text
+Run the first-run guided walkthrough of the core loop (spawn → watch → commit →
+tear down). Until taken or skipped, warden prints a one-line stderr nudge.
+
+Usage:
+  warden tutorial [flags]
+
+Flags:
+      --skip    mark the tutorial complete without running it
+      --reset   clear the completion marker so the tour and hint return
 ```
 
 ## warden pipeline

@@ -660,3 +660,37 @@ keeping the concern as the default-off gate.
 Persisted atomically to `~/.warden/schedules.json`. Pure next-fire logic lives in
 `internal/schedule` (table-tested); the daemon's reconcile loop is
 `internal/daemon/scheduler.go`.
+
+---
+
+## 29. Token-savings ledger (`wd savings`)
+
+A real, **append-only ledger** of the tokens warden's lifecycle features have kept
+out of agents' context windows — a measured proof point, not an estimate. Each time
+a feature avoids dumping output into the transcript, the saving is recorded; `wd
+savings` reads it back. Config-gated by `savings` (default on); the daemon owns the
+store under `<data_dir>/savings/` and serves it at `GET /savings` (403 when off).
+
+The report keeps two axes honest and **never blends them into one percentage**:
+
+- **Context axis** — how much leaner agent context stayed (raw output that *would
+  have* entered Claude vs. what actually did), reported as a reduction % and dollars.
+- **Offload axis** — Claude work moved off entirely onto the local LLM
+  (classify/summarize), reported as dollars; it keeps nothing in-context, so it is
+  never folded into the context %.
+
+| Feature | Description |
+|---|---|
+| **`wd savings`** (CLI + MCP `savings`) | Per-feature table sorted biggest-win-first: saved tokens, raw tokens, and event count, under the two headline axes. An empty ledger reads as an explicit "nothing recorded yet". |
+| **What records a saving** | `wd check` (raw build/test output kept out of the transcript), `wd commit`/`push`/`sync` (git plumbing output), auto-/`/compact` context reclaim, and local-LLM offload (classify/summarize calls that never hit Claude). |
+| **`--benchmark`** | The headline A/B proof: *without warden* (raw tokens that would have entered Claude) vs. *with warden* (what actually did), the reduction %, the leaner factor, dollars saved, a per-day **saved-tokens sparkline**, and — when transcript spend was observed — the cut as a share of real measured Claude spend. Built to screenshot. |
+| **`--since <window\|date>`** | Scope to a window (`24h`, `7d`, `2w`) or a date. |
+| **`--json`** | Structured summary for tooling. |
+| **`--audit`** | Print a few retained **raw-vs-kept provenance samples** so a skeptic can eyeball the actual bytes behind the counts. Requires `savings_samples` (off by default — samples retain substrings of real build/test/git output, which may be sensitive). |
+| **`--calibrate`** | Measure this workload's true **bytes-per-token** ratio against Claude's `count_tokens` endpoint (needs `ANTHROPIC_API_KEY` + retained samples) and persist it, so figures stop relying on the generic 4-bytes/token heuristic. **Forward-only:** it prices events recorded after calibration; earlier rows keep their heuristic counts. `--calibrate-max` caps the paid calls. |
+
+Every figure states its **basis** — `CALIBRATED` (workload-measured) or `HEURISTIC`
+(4 bytes/token) — so the claim is never ambiguous, and dollars are priced at the
+Opus input/output rates. Self-contained, fully unit-tested `internal/savings`
+package (`store` / `savings` / `calibrate`); the CLI rendering lives in
+`internal/cli/savings.go`.

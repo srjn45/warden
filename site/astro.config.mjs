@@ -42,6 +42,8 @@ export default defineConfig({
           { label: 'Lifecycle commands & rails', slug: 'guides/lifecycle-and-rails' },
           { label: 'Fleet operations', slug: 'guides/fleet-operations' },
           { label: 'Self-rotation & digests', slug: 'guides/rotation-digests' },
+          { label: 'Scheduling agents & pipelines', slug: 'guides/scheduling' },
+          { label: 'Snapshots & rollback', slug: 'guides/snapshots' },
           { label: 'Remote access', slug: 'guides/remote-access' },
         ]},
         { label: 'Multi-agent', items: [
@@ -52,8 +54,12 @@ export default defineConfig({
         ]},
         { label: 'Reference', items: [
           { label: 'CLI command reference', slug: 'reference/cli' },
-          { label: 'Environment variables', slug: 'reference/env-vars' },
+          { label: 'Configuration & environment', slug: 'reference/env-vars' },
           { label: 'Observability & metrics', slug: 'reference/observability' },
+          { label: 'Token-savings ledger', slug: 'reference/savings' },
+          { label: 'Insights', slug: 'reference/insights' },
+          { label: 'Plugins', slug: 'reference/plugins' },
+          { label: 'REST API & OpenAPI', slug: 'reference/api-openapi' },
           { label: 'Troubleshooting', slug: 'reference/troubleshooting' },
         ]},
       ],

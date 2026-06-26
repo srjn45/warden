@@ -600,6 +600,74 @@ warden stats --history            # per-agent history + anomaly warnings
 warden stats --history --agent agent-4f2a
 ```
 
+### `warden savings [--benchmark] [--since W] [--json] [--audit] [--calibrate]`
+Read back the **token-savings ledger** — a real, append-only record of the tokens
+warden's lifecycle features (starting with `wd check`) kept out of agents' context
+windows. Two axes are reported separately and never blended: the **context** axis
+(how much leaner context stayed, % and $) and the **offload** axis (Claude work
+moved off entirely onto the local LLM, $). Gated by the `savings` setting (default
+on); `GET /savings` returns 403 when off. See [FEATURES.md §29](FEATURES.md).
+
+```sh
+warden savings                    # per-feature table (saved/raw tokens, events)
+warden savings --benchmark        # headline A/B: without-vs-with warden, % cut, $ saved, trend sparkline
+warden savings --since 7d         # window (24h/7d/2w) or a date
+warden savings --json             # structured summary
+warden savings --audit            # raw-vs-kept provenance samples (requires savings_samples)
+warden savings --calibrate        # measure this workload's bytes/token vs Claude count_tokens (needs ANTHROPIC_API_KEY)
+```
+
+Every figure states its **basis** — `CALIBRATED` (workload-measured via
+`count_tokens`) or the generic 4-bytes/token `HEURISTIC`. Calibration is
+forward-only: it prices events recorded after it runs.
+
+### `warden branches [--json]`
+Opt-in, read-only view of each active agent's branch health: its **GitHub CI
+status** (latest `gh run list` in the worktree) and its **standing vs `origin/main`**
+(commits behind/ahead, merged?). The daemon monitor behind it (enable with
+`branch_track_enabled`, tune `branch_track_interval`) delivers **non-blocking**
+alerts — an inbox note (+ desktop ping) on a new CI failure, an inbox nudge on a
+merged or far-behind branch. Every `gh`/git call fails open. Also at
+`GET /collab/branches` and the `get_branch_status` MCP tool. See
+[FEATURES.md §6](FEATURES.md).
+
+### `warden insights [--json]`
+Mine archived agent history for **patterns** — recurring task shapes,
+slow/failure-prone work, and parallelization opportunities — as a deterministic
+report, optionally narrated by the local LLM (`local_llm`). Gated by `insights`
+(default on); also the `insights` MCP tool. See [FEATURES.md §25](FEATURES.md).
+
+### `warden snapshot create|list|restore`
+Checkpoint an agent's **worktree changes + session transcript** and roll back
+later. Gated by `snapshots` (default on); also the `snapshot_*` MCP tools.
+
+```sh
+warden snapshot create [name] -m "before risky refactor"   # capture a checkpoint
+warden snapshot list [name] [--all]                        # list checkpoints
+warden snapshot restore <id> [--force]                     # re-apply onto its worktree
+```
+
+Restore reapplies the captured stash onto the recorded worktree; it refuses a
+dirty/conflicting tree rather than clobbering, and a failed apply leaves the
+snapshot intact. See [FEATURES.md §23](FEATURES.md).
+
+### `warden tutorial [--skip] [--reset]`
+A guided first-run walkthrough of the core loop (spawn → watch → commit → tear
+down). Until you've taken or skipped it, warden prints a single non-blocking stderr
+hint (suppressed for piped/non-interactive use). `--skip` marks it complete without
+running; `--reset` clears the marker so the tour and hint return. Disable the hint
+entirely with `tutorial: false`. See [FEATURES.md §24](FEATURES.md).
+
+### `warden plugin list`
+Inspect the **plugin** registry — external executables that extend warden with
+custom agent task types and lifecycle hooks over a versioned JSON-over-stdio
+protocol. **Default off** (`plugins: true` to enable). `list` shows registered
+plugins, their paths, declared custom task types (with isolation policy), subscribed
+hook events, and any config errors. Hooks are advisory and fail-open — a missing,
+slow, or crashing plugin is logged and skipped, never blocking an agent. Configure
+via `plugins` + a `plugin_registry` list; a worked example lives under
+`examples/plugins/`. See [FEATURES.md §26](FEATURES.md).
+
 ### `warden doctor`
 Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon
 reachability, and the data directory.
@@ -1076,6 +1144,17 @@ failed attempts from one source IP are rate-limited (HTTP `429`) — a valid tok
 is never throttled. To bind a non-loopback address *without* auth anyway (not
 recommended), set `allow_nonloopback: true` in the config.
 
+#### API reference (OpenAPI / Swagger UI)
+
+For programmatic or remote consumers, the daemon serves an interactive **Swagger
+UI** at `GET /api/docs` and the raw **OpenAPI 3.x** document at
+`GET /api/docs/openapi.yaml`. The spec is derived from the real routes (a CI drift
+guard fails the build if a route is undocumented) and documents the `bearerAuth`
+scheme that gates every data/action route. Like `/healthz`, the docs page itself is
+unauthenticated (it holds no secrets). Gated by `api_docs` (default on); Swagger UI
+is vendored into the binary, so it works offline and inside the container image.
+See [FEATURES.md §27](FEATURES.md).
+
 ---
 
 ## 11. Configuration
@@ -1104,9 +1183,20 @@ daemon address for a single command.
 | `token_critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
 | `log_level` | `info` | Minimum severity the daemon logs (`debug`/`info`/`warn`/`error`). Overridden by `warden daemon --log-level` |
 | `log_format` | `text` | Daemon log output format: `text` (human-readable) or `json` (structured, one object per line). Overridden by `warden daemon --log-format` |
+| `savings` | `true` | Record the token reductions warden's lifecycle features earn to an append-only ledger, surfaced by `warden savings` and `GET /savings` (403 when off) |
+| `savings_samples` | `false` | Retain opt-in raw-vs-kept **provenance samples** for `warden savings --audit`. WARNING: samples hold substrings of real build/test/git output, which may be sensitive. Requires `savings` |
+| `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`). Off → the schedule routes 403 and the reconcile loop is a no-op |
+| `branch_track_enabled` | `false` | Enable the per-agent branch monitor (`warden branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
+| `branch_track_interval` | `2m` | Poll interval for the branch monitor when `branch_track_enabled` is on |
+| `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden snapshot`) and its `snapshot_*` MCP tools |
+| `insights` | `true` | Enable history-mined insights (`warden insights` + the `insights` MCP tool) |
+| `tutorial` | `true` | Show the first-run walkthrough nudge (`warden tutorial`). Off suppresses the hint entirely |
+| `api_docs` | `true` | Serve the OpenAPI spec + Swagger UI at `/api/docs` |
+| `plugins` | `false` | Enable the plugin system (custom task types + lifecycle hooks). **Default off** — plugins run external code |
+| `plugin_registry` | _(empty)_ | List of registered plugins (name, path, subscribed events, declared task types). Only consulted when `plugins` is on |
 
 `warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`,
-`metrics`, `allow_nonloopback`, `auto_approve`, `pipeline_keep_done` / `pipeline_hint`,
+`metrics`, `allow_nonloopback`, `auto_approve`, `local_llm`, `pipeline_keep_done` / `pipeline_hint`,
 the `auto_restart_*` knobs, the `rate_limit_*` knobs (§12.1), and the
 `log_level` / `log_format` logging knobs.
 
