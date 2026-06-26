@@ -8,10 +8,19 @@ import { attachURL, resizeMessage } from '../lib/attach';
 // over a WebSocket: keystrokes (binary frames) go to the agent, PTY output
 // (binary frames) is rendered, and fit/resize is sent as a text control frame.
 //
-// Mobile: xterm v5's built-in touch scrolling is unreliable on phones and a phone
-// keyboard has no Esc/Tab/Ctrl/arrow keys, so two things make the terminal usable
-// there — we translate vertical swipes into scrollback movement ourselves, and a
-// key bar sends the control sequences a soft keyboard can't.
+// Mobile: the agent's tmux session is attached in its alternate screen with
+// `mouse on`, so xterm's own scrollback is always empty — the real history lives
+// in tmux copy-mode (or the agent's full-screen TUI), both of which scroll on
+// mouse-wheel events. A desktop wheel sends those; a phone doesn't translate a
+// touch-drag into one, so we synthesise the wheel sequences from the swipe. A key
+// bar also sends the control keys (Esc/Tab/Ctrl-C/arrows) a soft keyboard lacks.
+
+// wheelSeq is one SGR mouse-wheel notch (button 64 = up, 65 = down) at a 1-based
+// cell coordinate — exactly what tmux (mouse on) and full-screen TUIs expect from
+// a real wheel, so it drives their native scrollback / copy-mode.
+const wheelSeq = (up: boolean, col: number, row: number) =>
+  `\x1b[<${up ? 64 : 65};${col};${row}M`;
+
 export default function AttachTerminal({ id }: { id: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -66,21 +75,36 @@ export default function AttachTerminal({ id }: { id: string }) {
     const onClick = () => term.focus();
     host.addEventListener('click', onClick);
 
-    // Touch-drag the scrollback: convert the vertical swipe distance into whole
-    // rows and feed it to term.scrollLines, re-anchoring on the remainder so the
-    // motion tracks the finger. preventDefault stops the page from scrolling (and
-    // suppresses the synthetic click, so a drag doesn't pop the keyboard).
+    // Touch-drag → mouse wheel: convert the vertical swipe into wheel notches and
+    // send them to the agent (tmux / its TUI scrolls in response — see wheelSeq).
+    // We anchor the wheel at the cell under the finger so it targets the right
+    // pane. preventDefault stops the page from scrolling and suppresses the
+    // synthetic click, so a drag doesn't pop the keyboard.
+    const cellH = () => host.clientHeight / Math.max(term.rows, 1);
+    const cellW = () => host.clientWidth / Math.max(term.cols, 1);
+    const clamp = (n: number, hi: number) => Math.min(Math.max(n, 1), hi);
     let lastY = 0;
     let acc = 0;
-    const rowHeight = () => host.clientHeight / Math.max(term.rows, 1);
-    const onTouchStart = (e: TouchEvent) => { lastY = e.touches[0].clientY; acc = 0; };
+    let col = 1;
+    let row = 1;
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      const r = host.getBoundingClientRect();
+      lastY = t.clientY;
+      acc = 0;
+      col = clamp(Math.floor((t.clientX - r.left) / cellW()) + 1, term.cols);
+      row = clamp(Math.floor((t.clientY - r.top) / cellH()) + 1, term.rows);
+    };
     const onTouchMove = (e: TouchEvent) => {
       const y = e.touches[0].clientY;
-      acc += lastY - y;
+      acc += y - lastY; // finger moving down (revealing older lines) is positive
       lastY = y;
-      const h = rowHeight();
-      const lines = Math.trunc(acc / h);
-      if (lines !== 0) { term.scrollLines(lines); acc -= lines * h; }
+      const step = cellH() * 2; // one wheel notch per ~2 rows of finger travel
+      while (step > 0 && Math.abs(acc) >= step) {
+        const up = acc > 0;
+        send(wheelSeq(up, col, row));
+        acc += up ? -step : step;
+      }
       e.preventDefault();
     };
     host.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -99,9 +123,10 @@ export default function AttachTerminal({ id }: { id: string }) {
   }, [id]);
 
   // A key bar press sends its sequence, then refocuses the terminal so the soft
-  // keyboard stays up. "Bottom" jumps past the scrollback to the live prompt.
+  // keyboard stays up. "Bottom" walks the view back to the live tail with a burst
+  // of wheel-down notches (which also drops tmux out of copy-mode at the bottom).
   const key = (seq: string) => () => { sendRef.current(seq); termRef.current?.focus(); };
-  const toBottom = () => { termRef.current?.scrollToBottom(); };
+  const toBottom = () => { sendRef.current(wheelSeq(false, 1, 1).repeat(60)); termRef.current?.focus(); };
 
   return (
     <div className="xterm-wrap">

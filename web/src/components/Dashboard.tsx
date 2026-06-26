@@ -132,6 +132,27 @@ export default function Dashboard() {
     return () => clearInterval(h);
   }, []);
 
+  // Keep the app exactly as tall as the *visible* viewport. On phones the soft
+  // keyboard (and the browser's URL bar) shrink the visual viewport; tracking
+  // visualViewport.height into --app-height means the flex column — and so its
+  // bottom nav and the terminal key bar — stay on-screen above the keyboard
+  // instead of being pushed below the fold. CSS falls back to 100dvh/100vh when
+  // the API is unavailable. visualViewport also offsets on iOS when the keyboard
+  // opens; sizing the body to it (no page overflow) keeps that offset at zero.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const apply = () => document.documentElement.style.setProperty('--app-height', `${vv.height}px`);
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+      document.documentElement.style.removeProperty('--app-height');
+    };
+  }, []);
+
   // A 401 from any REST call surfaces the token-entry modal.
   useEffect(() => onAuthRequired(() => setAuthRequired(true)), []);
 
