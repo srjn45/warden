@@ -1,7 +1,7 @@
 # Warden Future Enhancements & Feature Roadmap
 
 **Last Updated:** 2026-06-26
-**Current Version:** v5.1.1
+**Current Version:** v5.20.0
 
 This document tracks **pending** improvements and new features for warden, organized
 by category and priority. Each item includes effort estimates and implementation
@@ -104,13 +104,15 @@ plugins, #48 insights — all in FEATURES.md), the remaining roadmap is mostly
 **usage-gated large bets** and **parked enterprise features** whose necessity is low
 for a single user.
 
-> Tier 1 (Do First) is **cleared** — the orchestrator (#50, `wd orch`) shipped; see
-> [FEATURES.md §17](FEATURES.md#17-orchestrator-wd-orch). The tiers below are the
-> live queue.
+> **Tiers 1–3 are cleared** — the orchestrator (#50, `wd orch`) shipped (see
+> [FEATURES.md §17](FEATURES.md#17-orchestrator-wd-orch)), along with the
+> onboarding / extensibility batch (#42, #43, #46, #47, #48). Only Tiers 4–5
+> remain below, and both are now empty or parked.
 
 ### 🔮 Tier 4 — Future / large bets (usage-gated)
-- **Finish inter-agent collaboration** (#44, 1-2 weeks) — correctly deferred behind
-  real usage; the MVP already covers file-conflict detection.
+- _Empty._ Inter-agent collaboration (#44) is closed: the file-conflict MVP +
+  BranchTracker shipped and the rest was audited and dropped (see §44 above). A
+  fresh demand signal would be needed to reopen any of it.
 
 ### 🧊 Tier 5 — Parked (necessity too low for a solo tool; don't build speculatively)
 Keep on the list for completeness, but these need a concrete demand signal before
@@ -126,9 +128,10 @@ they're worth the effort:
 
 ## 🎬 Recommended Implementation Order
 
-The near-term queue is short — most of the roadmap is parked or usage-gated:
-
-1. **Finish inter-agent collaboration** (#44, 1-2 weeks) — next-gen, foundation already in
+**The near-term queue is clear.** Everything Tier-1-through-Tier-3 has shipped,
+and inter-agent collaboration (#44) is closed (MVP + BranchTracker shipped, the
+rest dropped — see §44). What remains is all Tier 5 (parked): build only on a
+concrete demand signal, not speculatively.
 
 ---
 
@@ -138,8 +141,9 @@ The near-term queue is short — most of the roadmap is parked or usage-gated:
 - **Shipped features** are catalogued in [FEATURES.md](FEATURES.md); usage in
   [USAGE.md](USAGE.md).
 - Effort estimates are approximate.
-- Some features are interdependent (remote access → distributed; metrics →
-  performance history; search ↔ tags ↔ grouping).
+- The remaining (parked) items are largely independent; the one dependency worth
+  noting is that **distributed warden (#14)** builds on the already-shipped
+  remote-access auth.
 - Platform-specific work (macOS/Linux) may need separate implementations.
 
 ---
