@@ -2,13 +2,9 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/schedule"
 )
@@ -16,113 +12,6 @@ import (
 // schedulerDisabledMsg mirrors snapshotsDisabledMsg: a friendly hint when the
 // feature gate is off rather than a bare 403.
 const schedulerDisabledMsg = "scheduler disabled (enable with scheduler_enabled: true in the config file)"
-
-type createScheduleRequest struct {
-	Name   string `json:"name"`
-	Cron   string `json:"cron,omitempty"`
-	At     string `json:"at,omitempty"`
-	Type   string `json:"type,omitempty"`
-	Repo   string `json:"repo,omitempty"`
-	Prompt string `json:"prompt,omitempty"`
-	Agent  string `json:"agent,omitempty"`
-	Branch string `json:"branch,omitempty"`
-	Spec   string `json:"spec,omitempty"` // pipeline YAML; non-empty ⇒ pipeline mode
-}
-
-type schedulesResponse struct {
-	Schedules []*schedule.Schedule `json:"schedules"`
-}
-
-func (s *Server) registerScheduleRoutes(r chi.Router) {
-	r.Post("/schedules", s.handleCreateSchedule)
-	r.Get("/schedules", s.handleListSchedules)
-	r.Delete("/schedules/{id}", s.handleDeleteSchedule)
-}
-
-// schedulerReady reports whether the feature is enabled AND configured, writing
-// the disabled 403 and returning false otherwise.
-func (s *Server) schedulerReady(w http.ResponseWriter) bool {
-	if !s.scheduler || s.schedStore == nil {
-		writeErr(w, http.StatusForbidden, schedulerDisabledMsg)
-		return false
-	}
-	return true
-}
-
-func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
-	if !s.schedulerReady(w) {
-		return
-	}
-	var req createScheduleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
-		return
-	}
-	// A pipeline schedule carries a YAML spec — validate it here (with the pipeline
-	// package) so a malformed spec is rejected at create time, not silently on the
-	// first fire. The schedule package stays dependency-light and only stores it.
-	if req.Spec != "" {
-		if _, err := pipeline.ParseSpec([]byte(req.Spec)); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid pipeline spec: "+err.Error())
-			return
-		}
-	}
-	sc, err := schedule.New(schedule.Params{
-		Name:   req.Name,
-		Cron:   req.Cron,
-		At:     req.At,
-		Type:   req.Type,
-		Repo:   req.Repo,
-		Prompt: req.Prompt,
-		Agent:  req.Agent,
-		Branch: req.Branch,
-		Spec:   req.Spec,
-	}, time.Now())
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := s.schedStore.Create(sc); errors.Is(err, schedule.ErrExists) {
-		writeErr(w, http.StatusConflict, "schedule "+sc.ID+" already exists")
-		return
-	} else if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.recordAudit(r, audit.ActionScheduleCreate, sc.ID, map[string]string{"kind": string(sc.Kind), "mode": string(sc.Mode)})
-	writeJSON(w, http.StatusCreated, sc)
-}
-
-func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
-	if !s.schedulerReady(w) {
-		return
-	}
-	list, err := s.schedStore.List()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if list == nil {
-		list = []*schedule.Schedule{}
-	}
-	writeJSON(w, http.StatusOK, schedulesResponse{Schedules: list})
-}
-
-func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
-	if !s.schedulerReady(w) {
-		return
-	}
-	id := chi.URLParam(r, "id")
-	if err := s.schedStore.Delete(id); errors.Is(err, schedule.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "schedule not found")
-		return
-	} else if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.recordAudit(r, audit.ActionScheduleDelete, id, nil)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-}
 
 // fireSchedule performs the side effect a due schedule decides: either one agent
 // spawn or one pipeline create+start. It reuses the SAME internal seams the HTTP

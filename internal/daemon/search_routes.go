@@ -1,16 +1,10 @@
 package daemon
 
 import (
-	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/srjn45/warden/internal/store"
 )
-
-func (s *Server) registerSearchRoutes(r chi.Router) {
-	r.Get("/search", s.handleSearch)
-}
 
 // sessionHaystack concatenates the searchable text of a session — name, id,
 // ticket, type, subject, tags, prompt, branch, and the last pane excerpt —
@@ -58,31 +52,4 @@ func searchSessions(sessions []*store.Session, query string) []*store.Session {
 		}
 	}
 	return out
-}
-
-// handleSearch runs an in-memory full-text search across sessions: GET
-// /search?q=<query>. By default it searches active sessions; ?closed=true folds
-// in the archived (closed/) store too, so a search can reach finished agents.
-// Read-only; recomputed per request. An empty/blank query returns no matches
-// (400) rather than the whole fleet.
-func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
-	if strings.TrimSpace(query) == "" {
-		writeErr(w, http.StatusBadRequest, "empty search query")
-		return
-	}
-	sessions, err := s.store.List(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if r.URL.Query().Get("closed") == "true" {
-		closed, err := s.store.ListClosed(r.Context())
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		sessions = append(sessions, closed...)
-	}
-	writeJSON(w, http.StatusOK, sessionsResponse{Sessions: searchSessions(sessions, query)})
 }

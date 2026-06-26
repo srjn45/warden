@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,24 @@ import (
 
 	"github.com/srjn45/warden/internal/metrics"
 )
+
+// getJSON drives an authenticated-free GET through the daemon router and returns
+// the raw response body for the caller to unmarshal.
+func getJSON(t *testing.T, s *Server, path string) []byte {
+	t.Helper()
+	ts := httptest.NewServer(s.router())
+	t.Cleanup(ts.Close)
+	resp, err := http.Get(ts.URL + path)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: code=%d body=%s", path, resp.StatusCode, body)
+	}
+	return body
+}
 
 func TestHandleMetricsLive(t *testing.T) {
 	s := &Server{}
@@ -24,14 +43,8 @@ func TestHandleMetricsLive(t *testing.T) {
 		SelfPID:  1,
 		Pressure: func() string { return "normal" },
 	}
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics", nil)
-	s.handleMetrics(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
-	}
 	var got metrics.Sample
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+	if err := json.Unmarshal(getJSON(t, s, "/api/v1/metrics"), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.Daemon.RSSBytes != 1024*1024 {
@@ -44,16 +57,10 @@ func TestHandleMetricsHistory(t *testing.T) {
 	r, _ := metrics.NewRecorder(dir)
 	_ = r.Record(metrics.Sample{TakenAt: time.Now(), System: metrics.SystemStats{AgentCount: 7}})
 	s := &Server{mrecorder: r}
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history?limit=10", nil)
-	s.handleMetricsHistory(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code=%d", rec.Code)
-	}
 	var resp struct {
 		Samples []metrics.Sample `json:"samples"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(getJSON(t, s, "/api/v1/metrics/history?limit=10"), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if len(resp.Samples) != 1 || resp.Samples[0].System.AgentCount != 7 {
@@ -77,16 +84,10 @@ func TestHandleMetricsHistorySummary(t *testing.T) {
 	}})
 	s := &Server{mrecorder: r, mTokenWarn: 200000, mTokenCrit: 400000}
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history?summary=true&agent=a1", nil)
-	s.handleMetricsHistory(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
-	}
 	var resp struct {
 		Summaries []metrics.AgentSummary `json:"summaries"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(getJSON(t, s, "/api/v1/metrics/history?summary=true&agent=a1"), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if len(resp.Summaries) != 1 || resp.Summaries[0].ID != "a1" {
@@ -103,12 +104,7 @@ func TestHandleMetricsHistorySummary(t *testing.T) {
 
 func TestHandleMetricsHistoryNoRecorder(t *testing.T) {
 	s := &Server{} // recorder nil
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history", nil)
-	s.handleMetricsHistory(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code=%d", rec.Code)
-	}
+	getJSON(t, s, "/api/v1/metrics/history")
 }
 
 type staticLister struct{}

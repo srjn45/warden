@@ -2,42 +2,12 @@ package daemon
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"os"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/store"
 )
-
-// handleDigest builds an on-demand completion digest for one agent: deterministic
-// transcript facts ∪ git change stats, enriched with a best-effort LLM summary
-// that degrades to the last assistant message on any narrator failure.
-func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	sess, err := s.store.Get(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "session not found")
-		return
-	}
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// Pipeline jobs capture a digest snapshot at reap time; serve it directly so the
-	// transcript/git rebuild is skipped for reaped agents. A nil snapshot (job not yet
-	// reaped) falls through to the live rebuild below.
-	if s.exec != nil && sess.PipelineID != "" && sess.JobID != "" {
-		if snap := s.exec.JobDigest(sess.PipelineID, sess.JobID); snap != nil {
-			writeJSON(w, http.StatusOK, *snap)
-			return
-		}
-	}
-	d := s.buildDigest(r.Context(), sess)
-	writeJSON(w, http.StatusOK, d)
-}
 
 // BuildDigest is the exported entry point for wiring buildDigest into the executor.
 func (s *Server) BuildDigest(ctx context.Context, sess *store.Session) digest.Digest {

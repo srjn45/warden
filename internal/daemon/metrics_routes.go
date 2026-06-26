@@ -3,8 +3,6 @@ package daemon
 import (
 	"context"
 	"log/slog"
-	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/srjn45/warden/internal/metrics"
@@ -48,74 +46,6 @@ func (s *Server) pressureName() string {
 
 // PressureName returns the cached pressure level name (for the metrics collector).
 func (s *Server) PressureName() string { return s.pressureName() }
-
-func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	if s.mcollector == nil {
-		writeJSON(w, http.StatusOK, metrics.Sample{})
-		return
-	}
-	sample, err := s.mcollector.Sample(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, sample)
-}
-
-func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
-	type historyResponse struct {
-		Samples   []metrics.Sample       `json:"samples,omitempty"`
-		Summaries []metrics.AgentSummary `json:"summaries,omitempty"`
-	}
-	if s.mrecorder == nil {
-		writeJSON(w, http.StatusOK, historyResponse{Samples: []metrics.Sample{}})
-		return
-	}
-	since := time.Now().Add(-metricsHistoryDefaultWindow)
-	if v := r.URL.Query().Get("since"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			since = t
-		}
-	}
-	limit := metricsHistoryMaxSamples
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n < limit {
-			limit = n
-		}
-	}
-	samples, err := s.mrecorder.History(since, limit)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if samples == nil {
-		samples = []metrics.Sample{}
-	}
-	// summary=true rolls the raw samples into per-agent history + anomaly
-	// warnings; agent=<id> narrows it to one agent. Raw samples are the default
-	// so existing /metrics/history callers are unaffected.
-	if r.URL.Query().Get("summary") == "true" {
-		summaries := metrics.SummarizeAgents(samples, metrics.HistoryThresholds{
-			ContextWarn: s.mTokenWarn,
-			ContextCrit: s.mTokenCrit,
-		})
-		if want := r.URL.Query().Get("agent"); want != "" {
-			filtered := summaries[:0]
-			for _, sum := range summaries {
-				if sum.ID == want {
-					filtered = append(filtered, sum)
-				}
-			}
-			summaries = filtered
-		}
-		if summaries == nil {
-			summaries = []metrics.AgentSummary{}
-		}
-		writeJSON(w, http.StatusOK, historyResponse{Summaries: summaries})
-		return
-	}
-	writeJSON(w, http.StatusOK, historyResponse{Samples: samples})
-}
 
 // runMetricsRecorder samples to disk on a ticker until ctx is done. Best-effort:
 // each tick is panic-guarded so a sampling bug can't take down the daemon, and a
