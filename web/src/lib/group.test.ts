@@ -20,12 +20,15 @@ describe('sourceDir', () => {
 });
 
 describe('groupSessions', () => {
-  it('groups by source dir, orders groups by recency, preserves within-group order', () => {
+  it('orders groups and agents by created_at, ignoring updated_at churn', () => {
+    // /b's agents were created first, so /b leads and b1 (newest in /b) tops it —
+    // even though /a has the most-recently *updated* agent. Keying on created_at
+    // (not updated_at) is what stops rows shuffling as agents work.
     const out = groupSessions([
-      sess({ id: 'b1', workdir: '/b', updated_at: '2026-06-03T10:00:00Z' }),
-      sess({ id: 'a1', workdir: '/a', updated_at: '2026-06-03T09:00:00Z' }),
-      sess({ id: 'b2', workdir: '/b', updated_at: '2026-06-03T08:00:00Z' }),
-      sess({ id: 'a2', workdir: '/a', updated_at: '2026-06-03T07:00:00Z' }),
+      sess({ id: 'b1', workdir: '/b', created_at: '2026-06-03T10:00:00Z', updated_at: '2026-06-03T01:00:00Z' }),
+      sess({ id: 'a1', workdir: '/a', created_at: '2026-06-03T09:00:00Z', updated_at: '2026-06-03T23:00:00Z' }),
+      sess({ id: 'b2', workdir: '/b', created_at: '2026-06-03T08:00:00Z', updated_at: '2026-06-03T02:00:00Z' }),
+      sess({ id: 'a2', workdir: '/a', created_at: '2026-06-03T07:00:00Z', updated_at: '2026-06-03T22:00:00Z' }),
     ]);
     expect(out.map((g) => g.dir)).toEqual(['/b', '/a']);
     expect(out[0].sessions.map((s) => s.id)).toEqual(['b1', 'b2']);
@@ -46,9 +49,9 @@ describe('groupSessions', () => {
 describe('groupSessionsBy', () => {
   it('groups by type and falls back to the untyped sentinel', () => {
     const out = groupSessionsBy([
-      sess({ id: 'a', type: 'feature', updated_at: '2026-06-03T10:00:00Z' }),
-      sess({ id: 'b', type: '', updated_at: '2026-06-03T09:00:00Z' }),
-      sess({ id: 'c', type: 'feature', updated_at: '2026-06-03T08:00:00Z' }),
+      sess({ id: 'a', type: 'feature', created_at: '2026-06-03T10:00:00Z' }),
+      sess({ id: 'b', type: '', created_at: '2026-06-03T09:00:00Z' }),
+      sess({ id: 'c', type: 'feature', created_at: '2026-06-03T08:00:00Z' }),
     ], 'type');
     expect(out.map((g) => g.key)).toEqual(['feature', UNTYPED]);
     expect(out[0].label).toBe('feature');
@@ -58,8 +61,8 @@ describe('groupSessionsBy', () => {
 
   it('groups by status and humanizes the label', () => {
     const out = groupSessionsBy([
-      sess({ id: 'a', status: 'working', updated_at: '2026-06-03T10:00:00Z' }),
-      sess({ id: 'b', status: 'waiting_for_input', updated_at: '2026-06-03T11:00:00Z' }),
+      sess({ id: 'a', status: 'working', created_at: '2026-06-03T10:00:00Z' }),
+      sess({ id: 'b', status: 'waiting_for_input', created_at: '2026-06-03T11:00:00Z' }),
     ], 'status');
     expect(out.map((g) => g.key)).toEqual(['waiting_for_input', 'working']);
     expect(out[0].label).toBe('waiting for input');
@@ -67,10 +70,10 @@ describe('groupSessionsBy', () => {
 
   it('groups by tag, places a multi-tagged agent in every group, and buckets untagged', () => {
     const out = groupSessionsBy([
-      sess({ id: 'a', tags: ['backend', 'urgent'], updated_at: '2026-06-03T10:00:00Z' }),
-      sess({ id: 'b', tags: ['backend'], updated_at: '2026-06-03T09:00:00Z' }),
-      sess({ id: 'c', tags: [], updated_at: '2026-06-03T08:00:00Z' }),
-      sess({ id: 'd', updated_at: '2026-06-03T07:00:00Z' }),
+      sess({ id: 'a', tags: ['backend', 'urgent'], created_at: '2026-06-03T10:00:00Z' }),
+      sess({ id: 'b', tags: ['backend'], created_at: '2026-06-03T09:00:00Z' }),
+      sess({ id: 'c', tags: [], created_at: '2026-06-03T08:00:00Z' }),
+      sess({ id: 'd', created_at: '2026-06-03T07:00:00Z' }),
     ], 'tag');
     const byKey = Object.fromEntries(out.map((g) => [g.key, g.sessions.map((s) => s.id)]));
     expect(byKey['backend']).toEqual(['a', 'b']);

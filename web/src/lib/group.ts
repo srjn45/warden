@@ -56,10 +56,13 @@ function keysFor(s: Session, by: GroupBy): string[] {
 }
 
 // groupSessionsBy buckets sessions on the chosen dimension and orders the groups
-// by their most-recently-updated agent (desc). Within each group the input order
-// is preserved (the daemon already returns updated_at-desc). Array sort is stable
-// (ES2019+), so equal-recency groups keep first-seen order. For 'tag', a session
-// may land in several groups; for every other mode each session lands in one.
+// by their newest agent's created_at (desc); within each group agents are ordered
+// by created_at (desc). Ordering keys on the immutable created_at rather than
+// updated_at so an agent's row is fixed at creation and only moves when agents are
+// created/removed — keying on updated_at made the grid churn on every action
+// (updated_at bumps whenever an agent does anything). Array sort is stable
+// (ES2019+), so equal-created_at groups/agents keep first-seen order. For 'tag', a
+// session may land in several groups; for every other mode each session lands in one.
 export function groupSessionsBy(sessions: Session[], by: GroupBy): SessionGroup[] {
   const groups = new Map<string, Session[]>();
   for (const s of sessions) {
@@ -69,11 +72,11 @@ export function groupSessionsBy(sessions: Session[], by: GroupBy): SessionGroup[
       else groups.set(k, [s]);
     }
   }
-  const maxTs = (ss: Session[]) =>
-    ss.reduce((m, s) => Math.max(m, new Date(s.updated_at).getTime() || 0), 0);
+  const createdMs = (s: Session) => new Date(s.created_at).getTime() || 0;
+  const maxCreated = (ss: Session[]) => ss.reduce((m, s) => Math.max(m, createdMs(s)), 0);
   return [...groups.entries()]
-    .map(([key, ss]) => decorate(key, ss, by))
-    .sort((a, b) => maxTs(b.sessions) - maxTs(a.sessions));
+    .map(([key, ss]) => decorate(key, [...ss].sort((a, b) => createdMs(b) - createdMs(a)), by))
+    .sort((a, b) => maxCreated(b.sessions) - maxCreated(a.sessions));
 }
 
 // decorate attaches the display label/sub (and dir, for QuickAddButton) a group
