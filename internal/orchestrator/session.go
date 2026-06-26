@@ -111,7 +111,15 @@ func (s *Session) runPlan(ctx context.Context, calls []ToolCall) string {
 	var b strings.Builder
 	for _, m := range s.msgs[start:] {
 		if m.Role == llm.RoleTool {
-			fmt.Fprintf(&b, "%s: %s\n", m.ToolName, m.Content)
+			// This is the human-facing path (a `/`-command or an escalated plan),
+			// so reshape the model-facing JSON into a readable table; a multi-line
+			// block stands on its own, a scalar keeps the "tool: value" framing.
+			out := present(m.ToolName, m.Content)
+			if strings.Contains(out, "\n") {
+				fmt.Fprintf(&b, "%s\n", out)
+			} else {
+				fmt.Fprintf(&b, "%s: %s\n", m.ToolName, out)
+			}
 		}
 	}
 	if b.Len() == 0 {
