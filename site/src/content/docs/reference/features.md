@@ -161,11 +161,12 @@ own tmux session, most in a git worktree).
 ## 12. Web mission control
 
 The browser GUI (served by the daemon) is a **URL-routed** shell (`/cockpit`
-home · `/others` · `/pipelines` · `/metrics` · `/archive` · `/agent/<id>` —
+home · `/pipelines` · `/metrics` · `/archive` · `/others` · `/agent/<id>` —
 deep-linkable, back/forward, shareable). It provides: the **Cockpit** home
-(Fleet header + agent grid), the **Others** catch-all (attention queue,
-conflicts, activity), a **Pipelines** tab with a live DAG, a **Metrics** tab
-(per-agent CPU/memory/context, fleet size, tokens saved), an **Archive** tab,
+(Fleet header + agent grid), a **Pipelines** tab with a live DAG, a **Metrics**
+tab (per-agent **and** fleet-total CPU/memory, per-agent context, fleet size,
+tokens saved — two-column on desktop, single-column on mobile), an **Archive**
+tab, the **Others** catch-all (attention queue, conflicts, activity; sits last),
 in-browser **attach** terminals, a header-button **Context & Messages** overlay,
 spawn modal, bulk actions, keyboard shortcuts, and theming.
 
@@ -175,7 +176,7 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 | Agent grid + Fleet header / busy-idle badges | Cockpit (`/cockpit`, home) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Attention queue / approvals | Others (`/others`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Pipelines tab + live DAG | Pipelines (`/pipelines`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Metrics: CPU/mem/context per agent, fleet size, tokens saved | Metrics (`/metrics`) | [observability](https://srjn45.github.io/warden/reference/observability/) |
+| Metrics: per-agent + fleet-total CPU/mem, per-agent context, fleet size, tokens saved (2-col responsive) | Metrics (`/metrics`) | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Archive (history) | Archive (`/archive`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | In-browser attach terminal | Agent (`/agent/<id>`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Context & messages | header 🗒 overlay | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |

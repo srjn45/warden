@@ -7,7 +7,7 @@ import type { Route } from './router';
 
 describe('fixed tabs', () => {
   it('is the new route list (no context, no overview)', () => {
-    expect(FIXED_TABS).toEqual(['cockpit', 'others', 'pipelines', 'metrics', 'archive']);
+    expect(FIXED_TABS).toEqual(['cockpit', 'pipelines', 'metrics', 'archive', 'others']);
     expect(isFixedTab('cockpit')).toBe(true);
     expect(isFixedTab('others')).toBe(true);
     expect(isFixedTab('metrics')).toBe(true);
@@ -19,8 +19,8 @@ describe('fixed tabs', () => {
 describe('ordered routes & keyboard navigation', () => {
   it('orderedRoutes is fixed routes followed by pins in open order', () => {
     expect(orderedRoutes(['A-1', 'B-2'])).toEqual([
-      { kind: 'cockpit' }, { kind: 'others' }, { kind: 'pipelines' },
-      { kind: 'metrics' }, { kind: 'archive' },
+      { kind: 'cockpit' }, { kind: 'pipelines' }, { kind: 'metrics' },
+      { kind: 'archive' }, { kind: 'others' },
       { kind: 'agent', id: 'A-1' }, { kind: 'agent', id: 'B-2' },
     ]);
   });
@@ -32,17 +32,17 @@ describe('ordered routes & keyboard navigation', () => {
   });
 
   it('routeIndex finds the current route, -1 when absent', () => {
-    expect(routeIndex(['A-1'], { kind: 'others' })).toBe(1);
+    expect(routeIndex(['A-1'], { kind: 'others' })).toBe(4);
     expect(routeIndex(['A-1'], { kind: 'agent', id: 'A-1' })).toBe(5);
     expect(routeIndex(['A-1'], { kind: 'agent', id: 'ghost' })).toBe(-1);
   });
 
   it('navRoute moves through the list and clamps at the ends', () => {
-    expect(navRoute(['A-1'], { kind: 'cockpit' }, 1)).toEqual({ kind: 'others' });
+    expect(navRoute(['A-1'], { kind: 'cockpit' }, 1)).toEqual({ kind: 'pipelines' });
     expect(navRoute(['A-1'], { kind: 'cockpit' }, -1)).toEqual({ kind: 'cockpit' }); // clamped
     const last: Route = { kind: 'agent', id: 'A-1' };
     expect(navRoute(['A-1'], last, 1)).toEqual(last); // clamped
-    expect(navRoute(['A-1'], last, -1)).toEqual({ kind: 'archive' });
+    expect(navRoute(['A-1'], last, -1)).toEqual({ kind: 'others' });
   });
 
   it('navRoute falls back to the current route when it is not in the list', () => {

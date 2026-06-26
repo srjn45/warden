@@ -1036,8 +1036,8 @@ open http://localhost:8765
 
 It's a **URL-routed mission-control shell**: tabs are real URLs (back/forward,
 refresh, and shareable deep links all work). The routes are `/cockpit` (the
-home — `/` redirects here), `/others`, `/pipelines`, `/metrics`, `/archive`, and
-`/agent/<id>` for each pinned agent.
+home — `/` redirects here), `/pipelines`, `/metrics`, `/archive`, `/others`
+(the catch-all, which sits last), and `/agent/<id>` for each pinned agent.
 
 **Cockpit** (`/cockpit`) is the home view: a slim **Fleet** header (totals,
 busy/waiting/errored, pressure, per-dir counts) above the live SSE agent grid
@@ -1053,13 +1053,15 @@ surfaces the same git guard (with **Force** and an optional hard-delete) when
 there's unsaved work. Opt in to **browser notifications** to be pinged when an
 agent needs input while the tab is hidden.
 
-**Metrics tab** (`/metrics`): a scrollable column of charts — **CPU per agent**,
-**Memory per agent**, **Context per agent** (a live, in-session time series of
-each agent's context fill, coloured by `ok`/`warning`/`critical`; it resets on a
-full page reload), **Number of agents** over time, and **Tokens saved** (daily
-bars from the savings ledger plus a headline saved-tokens/$ figure — a "set
-`savings: true`" hint shows when the ledger is disabled), plus a **Live
-footprint** card with the live resource charts.
+**Metrics tab** (`/metrics`): a responsive grid of charts — two columns on wide
+screens (each per-agent chart beside its fleet-wide total), one column on mobile.
+**CPU per agent** + **Total CPU**, **Memory per agent** + **Total memory**,
+**Context per agent** (a live, in-session time series of each agent's context
+fill, coloured by `ok`/`warning`/`critical`; it resets on a full page reload),
+**Number of agents** over time, and **Tokens saved** (daily bars from the savings
+ledger plus a headline saved-tokens/$ figure — a "set `savings: true`" hint shows
+when the ledger is disabled), plus a full-width **Live footprint** card with the
+live resource charts.
 
 The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a
 selected pipeline's jobs as status-colored cards with dependency chips, and a

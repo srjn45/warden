@@ -3,6 +3,7 @@ import type { MetricsSample, AgentStat } from './metrics';
 import type { DayBucket } from './savings';
 import {
   cpuSeries, rssSeries, fleetSizeSeries, tokensSavedSeries,
+  totalCpuSeries, totalRssSeries,
   appendContextPoint, contextSeries, perAgentSeries,
   type ContextPoint,
 } from './metricsSeries';
@@ -52,6 +53,26 @@ describe('rssSeries', () => {
   it('converts rss_bytes to GiB', () => {
     const s = rssSeries([sample('2026-06-26T10:00:00Z', [agent('a', 0, 2 ** 30)])]);
     expect(s.series[0].values[0]).toBeCloseTo(1);
+  });
+});
+
+describe('totalCpuSeries / totalRssSeries', () => {
+  it('sums each scalar across agents per sample, oldest-first', () => {
+    const history = [
+      sample('2026-06-26T10:00:05Z', [agent('a', 20, 2 ** 30), agent('b', 50, 2 ** 30)]),
+      sample('2026-06-26T10:00:00Z', [agent('a', 10, 2 ** 30)]),
+    ];
+    const cpu = totalCpuSeries(history);
+    expect(cpu.t[0]).toBeLessThan(cpu.t[1]); // oldest first
+    expect(cpu.values).toEqual([10, 70]); // 10, then 20+50
+    const rss = totalRssSeries(history);
+    expect(rss.values[0]).toBeCloseTo(1); // one agent at 1 GiB
+    expect(rss.values[1]).toBeCloseTo(2); // two agents at 1 GiB each
+  });
+
+  it('returns empty arrays for empty input', () => {
+    expect(totalCpuSeries([])).toEqual({ t: [], values: [] });
+    expect(totalRssSeries([])).toEqual({ t: [], values: [] });
   });
 });
 

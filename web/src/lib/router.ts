@@ -4,7 +4,7 @@
 // working Back/Forward.
 //
 // Routes:
-//   /cockpit /others /pipelines /metrics /archive  → fixed tabs
+//   /cockpit /pipelines /metrics /archive /others  → fixed tabs
 //   /agent/<id>                                     → a pinned agent pane
 //   anything else                                   → cockpit (default)
 //   /                                               → redirects to /cockpit
@@ -16,7 +16,8 @@ import { useEffect, useState } from 'react';
 
 // FIXED_ROUTE_KINDS is the canonical left-to-right order of the always-present
 // tabs. Mirrored by FIXED_TABS in lib/tabs.ts (kept in sync deliberately).
-export const FIXED_ROUTE_KINDS = ['cockpit', 'others', 'pipelines', 'metrics', 'archive'] as const;
+// Others is the catch-all and sits last, after the purpose-built tabs.
+export const FIXED_ROUTE_KINDS = ['cockpit', 'pipelines', 'metrics', 'archive', 'others'] as const;
 export type FixedRouteKind = (typeof FIXED_ROUTE_KINDS)[number];
 
 export type Route =

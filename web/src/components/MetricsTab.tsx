@@ -5,18 +5,22 @@ import { ApiError, getMetricsHistory, getSavings } from '../lib/api';
 import type { MetricsSample } from '../lib/metrics';
 import type { Summary } from '../lib/savings';
 import {
-  cpuSeries, rssSeries, fleetSizeSeries, contextSeries, tokensSavedSeries,
-  type AgentSeries, type ContextPoint,
+  cpuSeries, rssSeries, totalCpuSeries, totalRssSeries,
+  fleetSizeSeries, contextSeries, tokensSavedSeries,
+  type AgentSeries, type TotalSeries, type ContextPoint,
 } from '../lib/metricsSeries';
 import { axis, agentColor, contextStateColor, useUplot } from '../lib/uplot';
 import ResourcesPanel from './ResourcesPanel';
 
-// MetricsTab is a scrollable column of self-contained uPlot chart cards (spec
-// §4.4): per-agent CPU / memory / context, fleet size, and tokens saved, plus
-// the live footprint table folded over from the old Overview ResourcesPanel.
-// It polls /metrics/history on the existing 5s cadence and /savings on a slower
-// 30s cadence; the context series is client-accumulated above the tab and
-// passed in (contextHistory) so it survives tab switches.
+// MetricsTab is a responsive grid of self-contained uPlot chart cards (spec
+// §4.4): per-agent CPU / memory each paired with their fleet-wide total, then
+// per-agent context, fleet size, and tokens saved, plus the live footprint table
+// folded over from the old Overview ResourcesPanel. The grid is two columns on
+// wide screens (so each per-agent chart sits beside its total) and a single
+// column on narrow/mobile screens. It polls /metrics/history on the existing 5s
+// cadence and /savings on a slower 30s cadence; the context series is
+// client-accumulated above the tab and passed in (contextHistory) so it survives
+// tab switches.
 export default function MetricsTab({ contextHistory }: { contextHistory: ContextPoint[] }) {
   const [history, setHistory] = useState<MetricsSample[]>([]);
   const [savings, setSavings] = useState<Summary | null>(null);
@@ -48,7 +52,9 @@ export default function MetricsTab({ contextHistory }: { contextHistory: Context
   return (
     <div className="metrics">
       <MultiSeriesCard title="CPU per agent" unit="%" series={cpuSeries(history)} />
+      <TotalSeriesCard title="Total CPU" unit="%" series={totalCpuSeries(history)} color="#4ea1ff" />
       <MultiSeriesCard title="Memory per agent" unit="GiB" series={rssSeries(history)} digits={2} />
+      <TotalSeriesCard title="Total memory" unit="GiB" series={totalRssSeries(history)} color="#d2a8ff" digits={2} />
       <ContextCard points={contextHistory} />
       <FleetSizeCard history={history} />
       <SavingsCard summary={savings} err={savingsErr} />
@@ -97,6 +103,48 @@ function MultiSeriesCard({ title, unit, series, digits }: {
     }),
   });
   if (series.t.length === 0 || series.series.length === 0) {
+    return <EmptyCard title={title} msg="No samples yet." />;
+  }
+  return (
+    <section className="card metrics-card">
+      <h3>{title}</h3>
+      <div ref={ref} className="metrics-chart" />
+    </section>
+  );
+}
+
+// TotalSeriesCard draws a single fleet-wide aggregate line (Total CPU / memory),
+// meant to sit beside its per-agent breakdown card in the grid.
+function TotalSeriesCard({ title, unit, series, color, digits }: {
+  title: string;
+  unit: string;
+  series: TotalSeries;
+  color: string;
+  digits?: number;
+}) {
+  const data: uPlot.AlignedData = [series.t, series.values];
+  const ref = useUplot({
+    sig: `total-${title}`,
+    data,
+    options: (width) => ({
+      width,
+      height: 200,
+      scales: { x: { time: true } },
+      series: [
+        {},
+        {
+          label: `total ${unit}`,
+          stroke: color,
+          fill: `${color}22`,
+          width: 2,
+          points: { show: false },
+          value: (_u: uPlot, v: number | null) => (v == null ? '—' : v.toFixed(digits ?? 1)),
+        },
+      ],
+      axes: [axis(), axis({ label: unit })],
+    }),
+  });
+  if (series.t.length === 0) {
     return <EmptyCard title={title} msg="No samples yet." />;
   }
   return (
@@ -230,7 +278,7 @@ function SavingsCard({ summary, err }: { summary: Summary | null; err: ApiError 
 // per-agent RSS/CPU table + attributed-RSS history) into the Metrics tab.
 function ResourcesCard() {
   return (
-    <section className="card metrics-card">
+    <section className="card metrics-card metrics-wide">
       <h3>Live footprint</h3>
       <ResourcesPanel />
     </section>
