@@ -9,6 +9,10 @@ generate:
   strict-server: true
 output-options:
   skip-prune: false
+  # Generate optional fields as plain values (not pointers), matching the daemon's
+  # existing value-typed DTOs and keeping handler code free of pointer juggling.
+  prefer-skip-optional-pointer: true
+  prefer-skip-optional-pointer-on-container-types: true
   # These routes are non-JSON / streaming / public and are registered by hand on
   # the chi mux (see daemon router): SSE, WebSocket attach, the liveness probe,
   # and the two public docs routes. They stay documented in the spec but are
