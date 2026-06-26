@@ -22,6 +22,7 @@ import (
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -957,6 +958,44 @@ func (c *Client) PipelineRetry(ctx context.Context, pid, job string) error {
 	path := "/pipelines/" + url.PathEscape(pid) + "/jobs/" + url.PathEscape(job) + "/retry"
 	// longTimeout: retry reconciles and may spawn a worktree job.
 	return c.doT(ctx, longTimeout, http.MethodPost, path, nil, nil)
+}
+
+// ScheduleCreate registers a recurring (cron) or single-shot (at) schedule that
+// fires an agent spawn or a pipeline. The daemon validates the timing spec and
+// (for pipeline mode) the YAML payload, and returns the stored schedule.
+func (c *Client) ScheduleCreate(ctx context.Context, req ScheduleCreateRequest) (*schedule.Schedule, error) {
+	var sc schedule.Schedule
+	if err := c.do(ctx, http.MethodPost, "/schedules", req, &sc); err != nil {
+		return nil, err
+	}
+	return &sc, nil
+}
+
+// ScheduleCreateRequest is the JSON body for POST /schedules.
+type ScheduleCreateRequest struct {
+	Name   string `json:"name"`
+	Cron   string `json:"cron,omitempty"`
+	At     string `json:"at,omitempty"`
+	Type   string `json:"type,omitempty"`
+	Repo   string `json:"repo,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
+	Agent  string `json:"agent,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	Spec   string `json:"spec,omitempty"`
+}
+
+func (c *Client) ScheduleList(ctx context.Context) ([]*schedule.Schedule, error) {
+	var resp struct {
+		Schedules []*schedule.Schedule `json:"schedules"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/schedules", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Schedules, nil
+}
+
+func (c *Client) ScheduleDelete(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/schedules/"+url.PathEscape(id), nil, nil)
 }
 
 // GetMetrics fetches the live resource snapshot (GET /metrics).

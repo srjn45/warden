@@ -34,28 +34,6 @@ parked until there's a second machine in play.**
 
 ---
 
-## ⏰ Scheduling & Automation
-
-#### 15. Scheduled agents/tasks ⭐ AUTOMATION — *not started*
-**Effort:** 1-2 days
-**Value:** Unattended, recurring runs
-
-**Decision doc:** `docs/superpowers/specs/2026-06-10-warden-scheduled-pipelines-decision.md`
-
-```bash
-warden schedule create "Review pending PRs" --cron "0 9 * * *" --type pr-review
-warden schedule create "Deploy" --at "2026-06-15 14:00"
-warden schedule list / delete <id>
-```
-
-Store in `~/.warden/schedules.json`; daemon scheduler loop (check each minute);
-`github.com/robfig/cron`. Note the existing "cron" hits in `internal/` are
-rate-limit reset-time parsing, not a scheduler. **Necessity nudged down** — the
-Claude Code harness now offers external cron/scheduling, so in-daemon scheduling is
-convenience rather than a blocker.
-
----
-
 ## 🔐 Security & Permissions
 
 #### 31. Multi-user support — *not started* (complex)
@@ -130,11 +108,6 @@ for a single user.
 > [FEATURES.md §17](FEATURES.md#17-orchestrator-wd-orch). The tiers below are the
 > live queue.
 
-### ⭐ Tier 2 — Do Next
-- **Scheduled agents/tasks** (#15, 1-2 days) — decision doc + `robfig/cron`.
-  Necessity nudged *down*: the Claude Code harness now offers external cron/schedule,
-  so in-daemon scheduling is convenience, not a blocker. **F: medium · N: medium.**
-
 ### 🔮 Tier 4 — Future / large bets (usage-gated)
 - **Finish inter-agent collaboration** (#44, 1-2 weeks) — correctly deferred behind
   real usage; the MVP already covers file-conflict detection.
@@ -155,8 +128,7 @@ they're worth the effort:
 
 The near-term queue is short — most of the roadmap is parked or usage-gated:
 
-1. **Scheduled agents/tasks** (#15, 1-2 days) — recurring automation (convenience-tier now)
-2. **Finish inter-agent collaboration** (#44, 1-2 weeks) — next-gen, foundation already in
+1. **Finish inter-agent collaboration** (#44, 1-2 weeks) — next-gen, foundation already in
 
 ---
 

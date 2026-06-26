@@ -22,6 +22,7 @@ import (
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -193,6 +194,25 @@ type Server struct {
 	// Default false on a bare Server literal; the daemon sets it from the
 	// `api_docs` config setting (default on). See apidocs_routes.go.
 	apiDocs bool
+	// scheduler gates the native cron/at scheduler (#15) — its CRUD routes return
+	// 403 and its reconcile loop is a no-op when off. Default false (opt-in via the
+	// `scheduler_enabled` config setting). schedStore persists the schedules and
+	// schedInterval is the reconcile tick. See schedule_routes.go / scheduler.go.
+	scheduler     bool
+	schedStore    *schedule.Store
+	schedInterval time.Duration
+}
+
+// SetScheduler wires the native scheduler (#15) and its config gate.
+// enabled=false (or a nil store) makes the schedule endpoints return 403 and the
+// reconcile loop a no-op. interval is the tick cadence (clamped to >=1s).
+func (s *Server) SetScheduler(enabled bool, store *schedule.Store, interval time.Duration) {
+	s.scheduler = enabled
+	s.schedStore = store
+	if interval < time.Second {
+		interval = time.Minute
+	}
+	s.schedInterval = interval
 }
 
 // SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
@@ -371,6 +391,7 @@ func (s *Server) router() http.Handler {
 		s.registerCollabRoutes(ar)
 		s.registerBranchRoutes(ar)
 		s.registerPipelineRoutes(ar)
+		s.registerScheduleRoutes(ar)
 		s.registerHistoryRoutes(ar)
 		s.registerSearchRoutes(ar)
 		s.registerImportRoutes(ar)

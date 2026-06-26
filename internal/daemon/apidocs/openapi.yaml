@@ -53,6 +53,8 @@ tags:
     description: Multi-stage DAG pipelines of dependent jobs
   - name: Snapshots
     description: Worktree + transcript checkpoints
+  - name: Schedules
+    description: Recurring (cron) and single-shot (at) agent/pipeline triggers
   - name: Observability
     description: Memory pressure, metrics, history, search
   - name: Filesystem
@@ -1140,6 +1142,67 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /schedules:
+    get:
+      tags: [Schedules]
+      summary: List schedules
+      description: Gated by the `scheduler_enabled` config setting; returns 403 when disabled.
+      responses:
+        "200":
+          description: All schedules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items: { $ref: "#/components/schemas/Schedule" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [Schedules]
+      summary: Create a recurring (cron) or single-shot (at) schedule
+      description: >
+        Fires either an agent spawn (type/repo/prompt/agent/branch) or a pipeline
+        (spec). Provide exactly one of cron/at and exactly one fire mode. Gated by
+        the `scheduler_enabled` config setting; returns 403 when disabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleCreateRequest" }
+      responses:
+        "201":
+          description: The created schedule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /schedules/{id}:
+    delete:
+      tags: [Schedules]
+      summary: Delete a schedule
+      description: Gated by the `scheduler_enabled` config setting; returns 403 when disabled.
+      parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1178,6 +1241,12 @@ components:
       in: path
       required: true
       description: Snapshot id (snap-<8hex>)
+      schema: { type: string }
+    ScheduleId:
+      name: id
+      in: path
+      required: true
+      description: Schedule id (== its name)
       schema: { type: string }
 
   responses:
@@ -1687,3 +1756,38 @@ components:
         conflicts: { type: array, items: { type: string } }
         transcript_path: { type: string }
         message: { type: string }
+
+    ScheduleCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: "schedule id (== name)" }
+        cron: { type: string, description: "recurring cron spec (mutually exclusive with at)" }
+        at: { type: string, description: "single-shot time, RFC3339 or 2006-01-02T15:04 (mutually exclusive with cron)" }
+        type: { type: string, description: "agent task type (agent mode)" }
+        repo: { type: string, description: "repo path (required for a typed agent)" }
+        prompt: { type: string, description: "agent prompt (agent mode)" }
+        agent: { type: string, description: "optional name for the spawned agent" }
+        branch: { type: string, description: "optional development branch / pr-review checkout" }
+        spec: { type: string, description: "pipeline YAML; non-empty selects pipeline mode" }
+
+    Schedule:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [cron, at] }
+        mode: { type: string, enum: [agent, pipeline] }
+        cron: { type: string }
+        at: { type: string }
+        enabled: { type: boolean }
+        type: { type: string }
+        repo: { type: string }
+        prompt: { type: string }
+        agent: { type: string }
+        branch: { type: string }
+        spec: { type: string }
+        created_at: { type: string, format: date-time }
+        last_run: { type: string, format: date-time }
+        next_run: { type: string, format: date-time }
+        last_error: { type: string }

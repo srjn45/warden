@@ -1,11 +1,17 @@
 # Warden Scheduled / Cron Pipelines — Decision Record
 
 **Date:** 2026-06-10  
-**Status:** Deferred — not building a native scheduler. Decision recorded here for future reference.
+**Status:** **Reversed 2026-06-26** — a native scheduler (#15) was built per operator decision, gated behind a default-OFF `scheduler_enabled` config setting so it stays opt-in. The original "deferred" rationale below is kept as history and informed the opt-in design. See FEATURES.md §18 (Native scheduler) and `internal/schedule`.
 
 ---
 
-## Decision
+## 2026-06-26 reversal
+
+The operator chose to build the native scheduler after all, with one concession to the original concern: the whole feature is **opt-in behind `scheduler_enabled` (default false)**. The daemon must be running for schedules to fire, and the routes + reconcile loop are no-ops until the gate is turned on. A schedule fires either a single agent spawn (`--type/--repo/--prompt`) or a pipeline (`--pipeline <spec.yaml>`); `--cron` is recurring, `--at` is single-shot. Persistence is `~/.warden/schedules.json`; the reconcile loop ticks once a minute and never backfills missed cron occurrences. This buys the single-pane discoverability and in-app visibility listed under "the arguments we're not taking" below, while the default-off gate honors the original "OS already solves this" caution for anyone who doesn't want it.
+
+---
+
+## Decision (original, 2026-06-10 — now superseded)
 
 Do not add a native cron/scheduled pipeline runner to the warden daemon. Use OS-native scheduling (cron / launchd / systemd timers) + the existing `warden pipeline create` CLI instead.
 

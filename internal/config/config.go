@@ -67,6 +67,7 @@ type Config struct {
 	Tutorial               bool          `yaml:"tutorial"`
 	Insights               bool          `yaml:"insights"`
 	ApiDocs                bool          `yaml:"api_docs"`
+	SchedulerEnabled       bool          `yaml:"scheduler_enabled"`
 	LocalLLM               bool          `yaml:"local_llm"`
 	LocalLLMURL            string        `yaml:"local_llm_url"`
 	LocalLLMModel          string        `yaml:"local_llm_model"`
@@ -140,6 +141,7 @@ var schema = []setting{
 	{"tutorial", "Print a one-line first-run hint pointing at `wd tutorial` until the walkthrough is completed (it writes a tutorial-complete marker in data_dir). The hint is non-blocking and only shown on an interactive TTY; this gate disables it. Values: true | false"},
 	{"insights", "Enable the AI-powered insights engine (wd insights + MCP insights): mine agent history for duration outliers, co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could run in parallel. Deterministic by default; narrated by the local model when local_llm is on. Values: true | false"},
 	{"api_docs", "Serve the OpenAPI spec + interactive Swagger UI at /api/docs (public, like the static UI shell; the spec describes the API shape but holds no secrets). Values: true | false"},
+	{"scheduler_enabled", "Enable the native scheduler (#15): recurring (--cron) and single-shot (--at) triggers that fire an agent spawn or a pipeline on a daemon-owned timer (wd schedule create/list/delete). OFF by default — the daemon must be running for schedules to fire, so this is deliberately opt-in. Values: true | false"},
 	{"local_llm", "Route fuzzy-but-cheap tasks (task classification) to a local model instead of warden's own headless Claude. Off by default; every step falls back to Claude on any error. Values: true | false"},
 	{"local_llm_url", "Base URL of the local Ollama-compatible server used when local_llm is on. Values: http(s) URL (default http://localhost:11434)"},
 	{"local_llm_model", "Model name the local server should run for warden's tasks. Values: an Ollama model tag (e.g. qwen2.5-coder:7b)"},
@@ -207,6 +209,7 @@ func defaults() Config {
 		Tutorial:               true,
 		Insights:               true,
 		ApiDocs:                true,
+		SchedulerEnabled:       false,
 		LocalLLM:               false,
 		LocalLLMURL:            "http://localhost:11434",
 		LocalLLMModel:          "qwen2.5-coder:7b",
@@ -704,6 +707,10 @@ func (c Config) GetInsights() bool { return c.Insights }
 // GetApiDocs reports whether the public OpenAPI docs surface (/api/docs + the
 // raw openapi.yaml) is served.
 func (c Config) GetApiDocs() bool { return c.ApiDocs }
+
+// GetSchedulerEnabled reports whether the native cron/at scheduler (#15) is
+// enabled (the daemon gates the schedule endpoints and the reconcile loop on it).
+func (c Config) GetSchedulerEnabled() bool { return c.SchedulerEnabled }
 
 // GetLocalLLM reports whether warden routes its fuzzy-but-cheap tasks (task
 // classification) to a local model instead of headless Claude.

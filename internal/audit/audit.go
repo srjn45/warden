@@ -26,6 +26,8 @@ const (
 	ActionApprove        = "approve"
 	ActionPipelineStart  = "pipeline_start"
 	ActionPipelineCancel = "pipeline_cancel"
+	ActionScheduleCreate = "schedule_create"
+	ActionScheduleDelete = "schedule_delete"
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which
