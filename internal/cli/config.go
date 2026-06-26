@@ -112,6 +112,8 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"collab_enabled", fmt.Sprintf("%t", cfg.CollabEnabled)},
 			{"collab_interval", cfg.CollabInterval},
 			{"collab_hint", fmt.Sprintf("%t", cfg.CollabHint)},
+			{"branch_track_enabled", fmt.Sprintf("%t", cfg.BranchTrackEnabled)},
+			{"branch_track_interval", cfg.BranchTrackInterval},
 		}},
 	}
 	for _, g := range groups {

@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/snapshot"
@@ -24,12 +26,28 @@ func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.D
 		store: st, life: life, poller: p, pollInterval: interval,
 		hub: h, done: make(chan struct{}), approvals: approvals, cstore: cstore, mbox: mbox, exec: exec,
 		collab: collab.NewMonitor(st, mbox), collabInterval: 10 * time.Second,
+		// branchTracker is opt-in (outward GitHub integration): constructed with a
+		// log-only notifier and a zero interval (disabled) until the daemon wires
+		// the real notifier + interval from config.
+		branchTracker: branchtrack.NewTracker(st, mbox, notify.New(false)),
 	}
 }
 
 // SetCollabInterval sets the file-conflict poll interval. A non-positive value
 // disables the collaboration monitor.
 func (s *Server) SetCollabInterval(d time.Duration) { s.collabInterval = d }
+
+// SetBranchTrackInterval sets the branch-tracker poll interval. A non-positive
+// value disables the tracker (Run returns immediately).
+func (s *Server) SetBranchTrackInterval(d time.Duration) { s.branchTrackInterval = d }
+
+// SetBranchTrackNotifier wires the operator notifier the branch tracker fans CI
+// failures out to. No-op if the tracker was never constructed.
+func (s *Server) SetBranchTrackNotifier(n notify.Notifier) {
+	if s.branchTracker != nil {
+		s.branchTracker.SetNotifier(n)
+	}
+}
 
 // SetSnapshots wires the snapshot manager (#46) and the config gate. enabled=false
 // (or a nil manager) makes the snapshot endpoints return 403.
@@ -85,6 +103,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	go s.runMetricsRecorder(runCtx)
 	if s.collab != nil && s.collabInterval > 0 {
 		go s.collab.Run(runCtx, s.collabInterval)
+	}
+	if s.branchTracker != nil && s.branchTrackInterval > 0 {
+		go s.branchTracker.Run(runCtx, s.branchTrackInterval)
 	}
 
 	httpSrv := &http.Server{

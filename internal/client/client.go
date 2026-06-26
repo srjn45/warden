@@ -770,6 +770,36 @@ func (c *Client) CollabConflicts(ctx context.Context) ([]Conflict, error) {
 	return resp.Conflicts, nil
 }
 
+// CIStatus is the latest CI run observed for an agent's branch.
+type CIStatus struct {
+	State    string `json:"state"` // success | failure | pending | none
+	Workflow string `json:"workflow,omitempty"`
+	URL      string `json:"url,omitempty"`
+}
+
+// BranchStatus is one agent's branch+CI snapshot (branch-tracker view).
+type BranchStatus struct {
+	AgentID string   `json:"agent_id"`
+	Name    string   `json:"name,omitempty"`
+	Branch  string   `json:"branch"`
+	CI      CIStatus `json:"ci"`
+	Behind  int      `json:"behind"`
+	Ahead   int      `json:"ahead"`
+	Merged  bool     `json:"merged"`
+}
+
+// BranchStatuses returns each tracked agent's CI + branch-vs-main status. An
+// empty list means no tracked branches (or the tracker is disabled).
+func (c *Client) BranchStatuses(ctx context.Context) ([]BranchStatus, error) {
+	var resp struct {
+		Branches []BranchStatus `json:"branches"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/collab/branches", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Branches, nil
+}
+
 // Message mirrors the daemon's mailbox message (directed messages).
 type Message struct {
 	ID   string    `json:"id"`

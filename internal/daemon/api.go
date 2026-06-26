@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/srjn45/warden/internal/audit"
+	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/digest"
@@ -141,6 +142,10 @@ type Server struct {
 	collab *collab.Monitor
 	// collabInterval is the file-conflict poll interval; <=0 disables the monitor.
 	collabInterval time.Duration
+	// branchTracker reports each agent's CI status + branch-vs-main state (#44).
+	branchTracker *branchtrack.Tracker
+	// branchTrackInterval is the branch-tracker poll interval; <=0 disables it.
+	branchTrackInterval time.Duration
 	// narrator produces the digest's LLM summary (nil ⇒ degrade to LastMessage).
 	narrator digest.Narrator
 	// pressure caching for the spawn gate + GET /pressure. Sampled by a
@@ -364,6 +369,7 @@ func (s *Server) router() http.Handler {
 		s.registerContextRoutes(ar)
 		s.registerMessageRoutes(ar)
 		s.registerCollabRoutes(ar)
+		s.registerBranchRoutes(ar)
 		s.registerPipelineRoutes(ar)
 		s.registerHistoryRoutes(ar)
 		s.registerSearchRoutes(ar)

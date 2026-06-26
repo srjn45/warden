@@ -94,17 +94,23 @@ parallel independent-job execution in the pipeline executor, load testing with
 
 ## 🚀 Advanced Features
 
-#### 44. Intelligent inter-agent collaboration ⭐ NEXT-GEN — *MVP shipped; advanced deferred*
+#### 44. Intelligent inter-agent collaboration ⭐ NEXT-GEN — *MVP + BranchTracker shipped; rest dropped*
 **Design:** `docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md`
 
 The file-conflict-detection MVP (shared context, mailbox, detection engine, web
-card, conflict-check prompt hint) and FSNotify real-time detection are
-**shipped — see FEATURES.md §6**. Only the advanced layers below remain.
+card, conflict-check prompt hint), FSNotify real-time detection, and **GitHub
+branch/CI tracking (BranchTracker)** are **shipped — see FEATURES.md §6**.
 
-**Still deferred behind real usage** (see the spec's Appendix A):
-work-overlap/dedup detection (OverlapDetector — its plan-file signal is dead
-under current naming and needs redesign), GitHub branch/CI tracking
-(BranchTracker), collaboration groups, SSE replay + multi-cache layer.
+**Audited and dropped** (see the spec's Appendix A) — these were the rest of the
+"advanced collaboration" bucket, and on inspection none earns its complexity at
+warden's ≤10-agent scale:
+- **OverlapDetector** — its only signal was an agent's plan file, which no longer
+  exists under current naming; the idea overlaps the shipped file-conflict
+  detector. Dead as designed; would need a fresh signal to be worth anything.
+- **Collaboration groups** — redundant with the pipeline subsystem (dependencies,
+  handoffs, shared context already express grouped work).
+- **SSE replay + multi-cache layer** — an optimization for a load (100+ agents)
+  warden doesn't carry; straight serial recomputation is correct at this scale.
 
 ---
 
