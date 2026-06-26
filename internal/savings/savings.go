@@ -56,8 +56,13 @@ func featureAxis(feature string) string {
 
 // Event is one recorded saving. RawTokens is the counterfactual (what the
 // feature avoided putting in context); KeptTokens is what actually entered it
-// (0 for an offload, where the whole call left Claude entirely). Saved is
-// RawTokens-KeptTokens, never negative.
+// (0 for an offload, where the whole call left Claude entirely). CostTokens is
+// the one-time billed token cost warden's own action incurred to earn the
+// saving — non-zero only for compact, where generating the summary bills output
+// tokens once (not reflected in the kept-context side). For the local-model
+// features (check, llm_offload) the work runs off Claude entirely, so the saving
+// is already net and CostTokens is 0. Saved is RawTokens-KeptTokens-CostTokens,
+// never negative — the true NET tokens warden kept off Claude's bill.
 //
 // One Event is one line of the on-disk ledger and the wire shape for GET /savings.
 type Event struct {
@@ -66,14 +71,20 @@ type Event struct {
 	Agent      string    `json:"agent,omitempty"`
 	RawTokens  int       `json:"raw_tokens"`
 	KeptTokens int       `json:"kept_tokens"`
+	CostTokens int       `json:"cost_tokens,omitempty"`
 	Saved      int       `json:"saved"`
 }
 
-// NewEvent builds an Event, deriving Saved and clamping it at 0 so a feature that
-// happened to grow the output (KeptTokens > RawTokens — never expected, but cheap
-// to guard) can never record a negative "saving" that would poison the totals.
-func NewEvent(feature, agent string, rawTokens, keptTokens int) Event {
-	saved := rawTokens - keptTokens
+// NewEvent builds an Event, deriving the NET Saved as RawTokens-KeptTokens-
+// CostTokens and clamping it at 0. The clamp guards two ways: a feature that
+// happened to grow the output (KeptTokens > RawTokens — never expected) and a
+// generation cost that exceeded the gross saving (a compaction that reclaimed
+// less context than the summary cost to produce) can never record a negative
+// "saving" that would poison the totals. costTokens must be a measured figure;
+// callers that cannot measure the cost pass 0 (conservative — warden never
+// guesses the cost upward, which could only shrink a real saving it earned).
+func NewEvent(feature, agent string, rawTokens, keptTokens, costTokens int) Event {
+	saved := rawTokens - keptTokens - costTokens
 	if saved < 0 {
 		saved = 0
 	}
@@ -83,6 +94,7 @@ func NewEvent(feature, agent string, rawTokens, keptTokens int) Event {
 		Agent:      agent,
 		RawTokens:  rawTokens,
 		KeptTokens: keptTokens,
+		CostTokens: costTokens,
 		Saved:      saved,
 	}
 }
@@ -147,6 +159,16 @@ type Summary struct {
 	OffloadedTokens  int     `json:"offloaded_tokens"`
 	OffloadedDollars float64 `json:"offloaded_dollars"`
 	OffloadedEvents  int     `json:"offloaded_events"`
+
+	// MeasuredSpend is the cumulative input+output tokens warden actually
+	// observed billed to Claude across all agents' transcripts (the spend
+	// tracker's grand total). It is a REAL denominator — distinct from the
+	// counterfactual RawTokens — used to express the saving as a share of true
+	// measured spend (SavedTokens / (SavedTokens+MeasuredSpend)). 0 ⇒ no spend
+	// data available (no readable transcript usage yet); the CLI falls back to
+	// the context-reduction wording. Populated by the daemon at report time, not
+	// by Summarize, since it is sourced outside the event ledger.
+	MeasuredSpend int `json:"measured_spend,omitempty"`
 }
 
 // dollarsPerToken is the price warden attributes to a saved input token when

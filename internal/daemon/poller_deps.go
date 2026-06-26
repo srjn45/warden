@@ -8,6 +8,7 @@ import (
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -66,6 +67,24 @@ func (d *pollerDeps) ContextTokens(_ context.Context, s *store.Session) (int, bo
 	}
 	defer f.Close()
 	return ctxtokens.LatestContextTokens(f)
+}
+
+// TranscriptUsage reads the agent's cumulative billed token usage (input+output
+// summed over every assistant turn) from its transcript JSONL. ok=false when the
+// transcript is missing or carries no usage yet — fail-open like ContextTokens,
+// so spend tracking degrades to "unknown" rather than breaking the tick.
+func (d *pollerDeps) TranscriptUsage(_ context.Context, s *store.Session) (int, int, bool) {
+	path := d.lc.TranscriptPath(s)
+	if path == "" {
+		return 0, 0, false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	defer f.Close()
+	u, ok := spend.ParseUsage(f)
+	return u.InputTokens, u.OutputTokens, ok
 }
 
 func (d *pollerDeps) UpdateContext(ctx context.Context, id string, tokens int, state string) error {

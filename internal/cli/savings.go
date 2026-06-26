@@ -83,6 +83,14 @@ func formatBenchmark(sum *savings.Summary, sinceStr string) string {
 		fmt.Fprintf(&b, "  + $%.2f of Claude work offloaded entirely (%d calls, %s input tokens; output volume assumed, not measured)\n",
 			sum.OffloadedDollars, sum.OffloadedEvents, humanCount(sum.OffloadedTokens))
 	}
+	// When real spend has been measured, lead with the most persuasive framing: the
+	// saving as a share of what agents ACTUALLY billed Claude (saved ÷ (saved+spend)),
+	// grounded in observed transcript usage rather than only the counterfactual. No
+	// spend data ⇒ this line is omitted and the context-reduction verdict stands.
+	if pct, ok := spendCutPct(sum.SavedTokens, sum.MeasuredSpend); ok {
+		fmt.Fprintf(&b, "  cut measured Claude spend ~%.1f%% (saved %s of %s billed+saved tokens)\n",
+			pct, humanCount(sum.SavedTokens), humanCount(sum.SavedTokens+sum.MeasuredSpend))
+	}
 	if len(sum.Features) > 0 {
 		fmt.Fprintf(&b, "\ndriven by:\n")
 		for _, f := range sum.Features {
@@ -94,6 +102,20 @@ func formatBenchmark(sum *savings.Summary, sinceStr string) string {
 		}
 	}
 	return b.String()
+}
+
+// spendCutPct expresses the saving as a share of real measured spend:
+// saved ÷ (saved + measuredSpend) × 100 — the portion of what agents would
+// otherwise have billed Claude (the saved tokens plus the spend that still
+// landed) that warden eliminated. ok=false when no spend was measured
+// (measuredSpend <= 0) or nothing was saved, so the caller falls back to the
+// context-reduction wording rather than printing a 0% or divide-by-zero figure.
+func spendCutPct(saved, measuredSpend int) (float64, bool) {
+	if measuredSpend <= 0 || saved <= 0 {
+		return 0, false
+	}
+	denom := saved + measuredSpend
+	return float64(saved) / float64(denom) * 100, true
 }
 
 // dollarsFor prices a token count at the same input rate the ledger uses, so the

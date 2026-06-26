@@ -97,6 +97,11 @@ func TestFormatBenchmark(t *testing.T) {
 	if strings.Contains(out, "5.2k tokens") {
 		t.Errorf("benchmark A/B leaked the blended raw total, got:\n%s", out)
 	}
+
+	// No measured spend on this summary → the spend-cut line is omitted (graceful fallback).
+	if strings.Contains(out, "measured Claude spend") {
+		t.Errorf("benchmark must omit the spend line without spend data, got:\n%s", out)
+	}
 }
 
 func TestFormatSavingsTwoAxes(t *testing.T) {
@@ -120,5 +125,36 @@ func TestFormatSavingsEmpty(t *testing.T) {
 	out := formatSavings(&savings.Summary{}, "")
 	if !strings.Contains(out, "no savings recorded yet (all time)") {
 		t.Fatalf("empty savings missing guidance, got:\n%s", out)
+	}
+}
+
+func TestSpendCutPct(t *testing.T) {
+	// saved 1600, measured spend 6400 → 1600/(1600+6400) = 20%.
+	if pct, ok := spendCutPct(1600, 6400); !ok || pct < 19.9 || pct > 20.1 {
+		t.Errorf("spendCutPct(1600,6400)=%.2f ok=%v, want ~20 true", pct, ok)
+	}
+	// No spend measured → fall back (not ok).
+	if _, ok := spendCutPct(1600, 0); ok {
+		t.Error("spendCutPct with zero spend must be ok=false (fallback)")
+	}
+	// Nothing saved → no claim to make.
+	if _, ok := spendCutPct(0, 5000); ok {
+		t.Error("spendCutPct with zero saved must be ok=false")
+	}
+}
+
+func TestFormatBenchmarkWithMeasuredSpend(t *testing.T) {
+	sum := &savings.Summary{
+		Events:        3,
+		RawTokens:     4200,
+		KeptTokens:    2600,
+		SavedTokens:   1600,
+		MeasuredSpend: 6400,
+		ReductionPct:  38.1,
+	}
+	out := formatBenchmark(sum, "")
+	// 1600/(1600+6400) = 20.0% of real measured spend cut.
+	if !strings.Contains(out, "cut measured Claude spend ~20.0%") {
+		t.Errorf("benchmark missing measured-spend line, got:\n%s", out)
 	}
 }

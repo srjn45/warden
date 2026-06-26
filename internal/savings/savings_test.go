@@ -28,7 +28,7 @@ func TestEstimateTokens(t *testing.T) {
 }
 
 func TestNewEventClampsSaved(t *testing.T) {
-	ev := NewEvent(FeatureCheck, "a1", 1000, 40)
+	ev := NewEvent(FeatureCheck, "a1", 1000, 40, 0)
 	if ev.Saved != 960 {
 		t.Errorf("Saved = %d, want 960", ev.Saved)
 	}
@@ -36,18 +36,35 @@ func TestNewEventClampsSaved(t *testing.T) {
 		t.Error("NewEvent did not stamp TS")
 	}
 	// kept > raw must never produce a negative saving.
-	neg := NewEvent(FeatureCommit, "a1", 10, 50)
+	neg := NewEvent(FeatureCommit, "a1", 10, 50, 0)
 	if neg.Saved != 0 {
 		t.Errorf("Saved = %d, want 0 (clamped)", neg.Saved)
 	}
 }
 
+func TestNewEventNetsCost(t *testing.T) {
+	// Compact: raw 270000 reclaimed context, kept 0 on this axis, minus a measured
+	// 1200-token summary-generation cost → NET saved 268800.
+	ev := NewEvent(FeatureCompact, "a1", 270000, 0, 1200)
+	if ev.Saved != 268800 {
+		t.Errorf("Saved = %d, want 268800 (raw-kept-cost)", ev.Saved)
+	}
+	if ev.CostTokens != 1200 {
+		t.Errorf("CostTokens = %d, want 1200", ev.CostTokens)
+	}
+	// A cost that exceeds the gross saving clamps to 0, never negative.
+	over := NewEvent(FeatureCompact, "a1", 100, 0, 500)
+	if over.Saved != 0 {
+		t.Errorf("Saved = %d, want 0 (cost > gross, clamped)", over.Saved)
+	}
+}
+
 func TestSummarize(t *testing.T) {
 	evs := []Event{
-		NewEvent(FeatureCheck, "a1", 1000, 100),   // saved 900
-		NewEvent(FeatureCheck, "a2", 500, 0),      // saved 500
-		NewEvent(FeatureCommit, "a1", 200, 20),    // saved 180
-		NewEvent(FeatureLLMOffload, "a1", 300, 0), // saved 300
+		NewEvent(FeatureCheck, "a1", 1000, 100, 0),   // saved 900
+		NewEvent(FeatureCheck, "a2", 500, 0, 0),      // saved 500
+		NewEvent(FeatureCommit, "a1", 200, 20, 0),    // saved 180
+		NewEvent(FeatureLLMOffload, "a1", 300, 0, 0), // saved 300
 	}
 	sum := Summarize(evs, time.Time{})
 
@@ -103,11 +120,11 @@ func TestFeatureAxis(t *testing.T) {
 
 func TestSummarizeAxes(t *testing.T) {
 	evs := []Event{
-		NewEvent(FeatureCheck, "a1", 1000, 100),   // context: saved 900
-		NewEvent(FeatureCheck, "a2", 500, 0),      // context: saved 500
-		NewEvent(FeatureCommit, "a1", 200, 20),    // context: saved 180
-		NewEvent(FeatureLLMOffload, "a1", 300, 0), // offload: 300 input, 1 event
-		NewEvent(FeatureLLMOffload, "a2", 700, 0), // offload: 700 input, 1 event
+		NewEvent(FeatureCheck, "a1", 1000, 100, 0),   // context: saved 900
+		NewEvent(FeatureCheck, "a2", 500, 0, 0),      // context: saved 500
+		NewEvent(FeatureCommit, "a1", 200, 20, 0),    // context: saved 180
+		NewEvent(FeatureLLMOffload, "a1", 300, 0, 0), // offload: 300 input, 1 event
+		NewEvent(FeatureLLMOffload, "a2", 700, 0, 0), // offload: 700 input, 1 event
 	}
 	sum := Summarize(evs, time.Time{})
 

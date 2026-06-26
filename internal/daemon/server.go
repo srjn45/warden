@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/snapshot"
+	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -67,6 +68,12 @@ func (s *Server) SetSavings(enabled bool, store *savings.Store) {
 	s.savingsOn = enabled
 	s.savings = store
 }
+
+// SetSpend wires the per-session real-spend tracker that feeds the savings
+// report's measured-spend denominator. A nil store makes RecordSpend a no-op and
+// leaves the report's MeasuredSpend at 0 (the CLI then falls back to the
+// context-reduction wording). Gated by the same savings switch as the ledger.
+func (s *Server) SetSpend(store *spend.Store) { s.spend = store }
 
 // shutdownGrace bounds how long Shutdown waits for in-flight requests to drain
 // before returning (after which the process exits and any stragglers are cut).
