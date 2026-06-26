@@ -60,20 +60,30 @@ func TestGuardDecision(t *testing.T) {
 	}
 }
 
-func postGuard(t *testing.T, s *Server, body GuardRequest) GuardResponse {
+type guardResult struct {
+	Decision string `json:"decision"`
+	Reason   string `json:"reason"`
+}
+
+func postGuard(t *testing.T, s *Server, session, tool, path string) guardResult {
 	t.Helper()
-	b, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/hooks/guard", bytes.NewReader(b))
-	rec := httptest.NewRecorder()
-	s.handleGuard(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	ts := httptest.NewServer(s.router())
+	defer ts.Close()
+
+	b, _ := json.Marshal(map[string]string{"session": session, "tool": tool, "path": path})
+	resp, err := http.Post(ts.URL+"/api/v1/hooks/guard", "application/json", bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
 	}
-	var resp GuardResponse
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var out guardResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	return resp
+	return out
 }
 
 func TestHandleGuardDeniesEscape(t *testing.T) {
@@ -83,7 +93,7 @@ func TestHandleGuardDeniesEscape(t *testing.T) {
 		Worktree: ".worktrees/code-1", Workdir: "/repo/.worktrees/code-1",
 	})
 	s := &Server{store: fs}
-	resp := postGuard(t, s, GuardRequest{Session: "code-1", Tool: "Edit", Path: "/repo/main.go"})
+	resp := postGuard(t, s, "code-1", "Edit", "/repo/main.go")
 	if resp.Decision != "deny" || resp.Reason == "" {
 		t.Fatalf("want deny+reason, got %+v", resp)
 	}
@@ -91,7 +101,7 @@ func TestHandleGuardDeniesEscape(t *testing.T) {
 
 func TestHandleGuardUnknownSessionFailsOpen(t *testing.T) {
 	s := &Server{store: newFakeStore()}
-	resp := postGuard(t, s, GuardRequest{Session: "ghost", Tool: "Edit", Path: "/repo/main.go"})
+	resp := postGuard(t, s, "ghost", "Edit", "/repo/main.go")
 	if resp.Decision != "allow" {
 		t.Fatalf("unknown session must fail open (allow), got %+v", resp)
 	}

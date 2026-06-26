@@ -4,11 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
-
-	"github.com/go-chi/chi/v5"
 
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/savings"
@@ -17,10 +14,6 @@ import (
 
 // errBadSince is the operator-facing message for an unparseable ?since value.
 var errBadSince = errors.New("invalid since value — use a duration (168h) or an RFC3339 timestamp")
-
-func (s *Server) registerSavingsRoutes(r chi.Router) {
-	r.Get("/savings", s.handleSavings)
-}
 
 // parseSinceParam resolves the ?since query value to an absolute time. The CLI
 // already expands human windows ("7d"/"2w") to an RFC3339 timestamp before
@@ -36,67 +29,6 @@ func parseSinceParam(q string) (time.Time, error) {
 		return time.Time{}, errBadSince
 	}
 	return time.Now().Add(-d), nil
-}
-
-// handleSavings returns the aggregated savings summary over an optional ?since
-// window (a duration like "7d"/"24h" or an RFC3339 timestamp; absent ⇒ all time).
-// Gated by the `savings` config setting: when off (or the store is unconfigured)
-// it returns 403 so the CLI can print a friendly "enable savings" message rather
-// than an empty report that looks like zero savings.
-func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
-	if !s.savingsOn || s.savings == nil {
-		writeErr(w, http.StatusForbidden, "savings ledger disabled (set savings: true in the config file)")
-		return
-	}
-	var since time.Time
-	if q := r.URL.Query().Get("since"); q != "" {
-		t, err := parseSinceParam(q)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		since = t
-	}
-	// Optional projections, off by default so the common report is unchanged:
-	// ?bucket=day|hour attaches the zero-filled saved-tokens trend at that
-	// granularity (an unknown value yields no trend, not a 400), ?samples=1
-	// attaches the retained provenance pairs (wd savings --audit).
-	bucket := r.URL.Query().Get("bucket")
-	if bucket != savings.GranularityHour && bucket != savings.GranularityDay {
-		bucket = ""
-	}
-	samples := r.URL.Query().Get("samples") == "1"
-	sum, err := s.savings.Report(since, bucket, samples)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "read savings ledger: "+err.Error())
-		return
-	}
-	// Stamp the real measured-spend denominator (cumulative billed input+output
-	// across agents' transcripts) onto the summary so the CLI benchmark can frame
-	// savings as a share of true spend. Best-effort: a nil tracker or read error
-	// leaves MeasuredSpend at 0 and the report falls back to the context-reduction
-	// wording rather than failing.
-	if s.spend != nil {
-		if total, terr := s.spend.Total(); terr != nil {
-			slog.Warn("savings: read spend total failed", "err", terr)
-		} else {
-			sum.MeasuredSpend = total
-		}
-	}
-	// Stamp the calibration basis so the report can state CALIBRATED vs HEURISTIC.
-	// `wd savings --calibrate` writes the sidecar from a separate process, so we
-	// re-read it here and also refresh the live estimation factor — that way a
-	// calibration picked up by any report is in force for events recorded next,
-	// without waiting for a daemon restart. Best-effort: a read error just logs.
-	if cal, ok, cerr := s.savings.Calibration(); cerr != nil {
-		slog.Warn("savings: read calibration failed", "err", cerr)
-	} else if ok {
-		sum.Calibrated = true
-		sum.CalibratedBytesPerToken = cal.BytesPerToken
-		sum.CalibrationSamples = cal.Samples
-		savings.SetCalibration(cal.BytesPerToken)
-	}
-	writeJSON(w, http.StatusOK, sum)
 }
 
 // recordCheckSavings records one savings event for a completed `wd check` run:

@@ -1,8 +1,6 @@
 package daemon
 
 import (
-	"encoding/json"
-	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -17,42 +15,6 @@ var guardTools = map[string]bool{
 	"Write":        true,
 	"MultiEdit":    true,
 	"NotebookEdit": true,
-}
-
-// GuardRequest is the body for POST /hooks/guard, sent by `warden hook guard`.
-type GuardRequest struct {
-	Session string `json:"session"` // tmux session name == agent id
-	Tool    string `json:"tool"`    // Claude tool name (Edit/Write/MultiEdit/NotebookEdit)
-	Path    string `json:"path"`    // target file path from the tool input
-}
-
-// GuardResponse tells the hook whether to allow or deny the tool call. Reason is
-// the redirect message fed back to Claude on a deny.
-type GuardResponse struct {
-	Decision string `json:"decision"`         // "allow" | "deny"
-	Reason   string `json:"reason,omitempty"` // populated on deny
-}
-
-// handleGuard evaluates the isolation policy for one file-mutating tool call.
-// It fails soft in every direction the guard is not certain about: an unknown
-// session (already gone, or never warden-spawned) returns allow, so the backstop
-// can never wedge an agent's edits.
-func (s *Server) handleGuard(w http.ResponseWriter, r *http.Request) {
-	var req GuardRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad json")
-		return
-	}
-	sess, err := s.store.Get(r.Context(), req.Session)
-	if err != nil {
-		writeJSON(w, http.StatusOK, GuardResponse{Decision: "allow"})
-		return
-	}
-	if deny, reason := guardDecision(sess, req.Tool, req.Path); deny {
-		writeJSON(w, http.StatusOK, GuardResponse{Decision: "deny", Reason: reason})
-		return
-	}
-	writeJSON(w, http.StatusOK, GuardResponse{Decision: "allow"})
 }
 
 // guardDecision is the pure isolation policy. An isolated agent (one that owns a

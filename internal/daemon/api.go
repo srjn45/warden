@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -30,13 +29,6 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// EventRequest is the body for POST /events (sent by hooks).
-type EventRequest struct {
-	Session string `json:"session"` // tmux session name == session id
-	Type    string `json:"type"`
-	Detail  string `json:"detail"`
-}
-
 // SpawnRequest is the body for POST /spawn.
 type SpawnRequest struct {
 	Type           string   `json:"type"`            // typed mode: task type (normalized); empty = free-form
@@ -56,62 +48,12 @@ type SpawnRequest struct {
 	Tags           []string `json:"tags"`            // optional free-form labels for grouping/filtering (#30)
 }
 
-// confirmationResponse is the 428 body when the spawn gate warns. The client
-// turns confirmation_required into ErrConfirmationRequired so surfaces can
-// re-spawn with force=true.
-type confirmationResponse struct {
-	ConfirmationRequired bool             `json:"confirmation_required"`
-	Verdict              pressure.Verdict `json:"verdict"`
-}
-
-// AdoptRequest is the body for POST /adopt.
-type AdoptRequest struct {
-	Cwd         string `json:"cwd"`          // required; dir whose claude session to adopt
-	SessionID   string `json:"session_id"`   // optional claude uuid override
-	TmuxSession string `json:"tmux_session"` // non-empty ⇒ live-register an existing tmux session
-}
-
 // AdoptParams are the resolved inputs the handler passes to Lifecycle.Adopt.
 type AdoptParams struct {
 	ID              string // chosen id; "" ⇒ Lifecycle generates one
 	Cwd             string
 	ClaudeSessionID string // may be "" in live mode
 	TmuxSession     string // "" ⇒ resume mode
-}
-
-// adoptResponse is the body for POST /adopt: the new session plus an optional
-// non-fatal warning (e.g. live-registered without a resolvable claude id).
-type adoptResponse struct {
-	Session *store.Session `json:"session"`
-	Warning string         `json:"warning,omitempty"`
-}
-
-type deleteRequest struct {
-	Hard bool `json:"hard"`
-}
-type removeWorktreeRequest struct {
-	Force bool `json:"force"`
-	// DeleteAdoptedBranch overrides the BranchCreated gate so an adopted
-	// (human-created) branch is git branch -D'd too. Off by default.
-	DeleteAdoptedBranch bool `json:"delete_adopted_branch"`
-}
-
-// pruneRequest is the body for POST /prune.
-type pruneRequest struct {
-	Repo            string `json:"repo"`
-	DryRun          bool   `json:"dry_run"`
-	Force           bool   `json:"force"`
-	IncludeArchived bool   `json:"include_archived"`
-}
-
-// InputRequest is the body for POST /sessions/{id}/input.
-type InputRequest struct {
-	Text string `json:"text"`
-}
-
-// OutputResponse is the body for GET /sessions/{id}/output.
-type OutputResponse struct {
-	Output string `json:"output"`
 }
 
 // errorResponse is the standard error envelope.
@@ -432,32 +374,6 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := s.store.List(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if sessions == nil {
-		sessions = []*store.Session{}
-	}
-	writeJSON(w, http.StatusOK, sessionsResponse{Sessions: sessions})
-}
-
-func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	sess, err := s.store.GetByNameOrID(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "session not found")
-		return
-	}
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, sess)
-}
-
 // statusForHook maps a Claude hook event type to a status (design §6 table).
 // An empty status means "log the event but do not change status".
 func statusForHook(t string) store.Status {
@@ -488,35 +404,4 @@ func (s *Server) reconcileJobOnTerminal(sess *store.Session, to store.Status) {
 	if s.exec != nil && sess != nil && sess.PipelineID != "" {
 		s.exec.OnTransition(sess, sess.Status, to)
 	}
-}
-
-func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
-	var req EventRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad json")
-		return
-	}
-	ctx := r.Context()
-	ev := store.Event{Type: req.Type, Detail: req.Detail}
-	to := statusForHook(req.Type)
-	// Append the event and apply any status transition in one atomic write so a
-	// crash can't log the event without the status change (or vice versa).
-	if err := s.store.AppendEventStatus(ctx, req.Session, ev, to); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			// Fail soft: never error a hook for an unknown session.
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.notify()
-	// The SessionEnd hook moves a session to a terminal status (done) — reconcile
-	// the owning pipeline job (see reconcileJobOnTerminal).
-	if to == store.StatusDone {
-		if sess, gerr := s.store.Get(ctx, req.Session); gerr == nil {
-			s.reconcileJobOnTerminal(sess, to)
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

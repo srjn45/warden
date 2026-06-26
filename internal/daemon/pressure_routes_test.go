@@ -13,24 +13,34 @@ func TestHandlePressure(t *testing.T) {
 	fs := newFakeStore()
 	s := &Server{store: fs, spawnGate: true, spawnGateMax: 5, pressLevel: pressure.Warn}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/pressure", nil)
-	rec := httptest.NewRecorder()
-	s.handlePressure(rec, req)
+	ts := httptest.NewServer(s.router())
+	defer ts.Close()
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	var resp pressureResponse
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+	resp, err := http.Get(ts.URL + "/api/v1/pressure")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Level != int(pressure.Warn) || resp.LevelName != "warn" {
-		t.Errorf("level = %d/%s, want 2/warn", resp.Level, resp.LevelName)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if !resp.Elevated {
+	var got struct {
+		Level       int    `json:"level"`
+		LevelName   string `json:"level_name"`
+		MaxAgents   int    `json:"max_agents"`
+		Elevated    bool   `json:"elevated"`
+		GateEnabled bool   `json:"gate_enabled"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Level != int(pressure.Warn) || got.LevelName != "warn" {
+		t.Errorf("level = %d/%s, want 2/warn", got.Level, got.LevelName)
+	}
+	if !got.Elevated {
 		t.Error("warn level should report elevated")
 	}
-	if !resp.GateEnabled || resp.MaxAgents != 5 {
-		t.Errorf("gate flags wrong: enabled=%v max=%d", resp.GateEnabled, resp.MaxAgents)
+	if !got.GateEnabled || got.MaxAgents != 5 {
+		t.Errorf("gate flags wrong: enabled=%v max=%d", got.GateEnabled, got.MaxAgents)
 	}
 }
