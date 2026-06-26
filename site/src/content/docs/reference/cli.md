@@ -41,6 +41,7 @@ Available Commands:
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
   insights            Mine agent history for patterns and parallelization wins
+  llm                 Local-LLM helpers for the orchestrator (wd orch)
   ls                  List all active agent sessions
   mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
   msg                 Send and receive directed messages between agents
@@ -216,6 +217,37 @@ Run preflight checks (required binaries, daemon, data dir)
 
 Usage:
   warden doctor [flags]
+```
+
+## warden llm suggest
+
+```text
+Suggest local LLM models for warden's orchestrator (wd orch), ranked against
+this machine's memory.
+
+warden auto-detects two figures: total memory (GPU VRAM, Apple unified memory, or
+system RAM — whichever bounds a usable model) and average free memory (sampled a
+few times to smooth out spikes). Each candidate is then marked:
+
+  fits now           runnable right now within free memory
+  free memory first  fits the machine, but you'd need to close apps first
+  too large          won't fit this machine
+
+Models are scored by suitability for the conductor role — reliable tool/function
+calling, not coding or raw size. The recommendation (★) is the best-scoring model
+that runs comfortably now while leaving headroom for your real workload (Docker,
+DBs, IDE, Claude sessions, the warden daemon). warden only ever recommends — you
+set local_llm_model yourself.
+
+Usage:
+  warden llm suggest [flags]
+
+Flags:
+      --free-gb float    override detected free memory (GB)
+  -h, --help             help for suggest
+      --json             output as JSON
+      --samples int      free-memory samples to average (default 5)
+      --total-gb float   override detected total memory (GB)
 ```
 
 ## warden stats

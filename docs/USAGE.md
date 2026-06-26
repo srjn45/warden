@@ -996,6 +996,11 @@ local_llm_model: qwen2.5-coder:7b
 local_llm_timeout: 20s                # hard per-call cap
 ```
 
+> Not sure which `local_llm_model` to set? Run **`wd llm suggest`** — it detects
+> this machine's total and average-free memory (same pool) and prints a
+> memory-ranked, conductor-suitability-scored shortlist, starring the best model
+> that runs comfortably now. `wd doctor` gives the one-line version.
+
 With `local_llm` on, the daemon routes three fuzzy-but-cheap responsibilities at
 the configured Ollama endpoint:
 

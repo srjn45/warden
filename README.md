@@ -676,10 +676,21 @@ Unrecognized prompts always fall back to attach. Also surfaced in the web Attent
 
 ### `warden doctor`
 
-Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon reachability, and the data directory.
+Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon reachability, and the data directory. It also prints a one-line hardware-aware `local_llm_model` recommendation for the orchestrator.
 
 ```sh
 warden doctor
+```
+
+### `warden llm suggest` (memory-ranked model picker)
+
+Recommends local models for the orchestrator (`warden orch`), sized to this machine. It auto-detects **two** figures from the *same* memory pool — **total** memory (the bound) and **average free** memory (sampled to smooth spikes) — using NVIDIA VRAM (`nvidia-smi`), Apple unified memory, or Linux `MemAvailable`. It scores a curated, **tool-calling-forward** catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — not raw size or coding skill, since the orchestrator routes tool calls and never writes code — and marks each model `fits now` / `free memory first` / `too large`. The ★ pick is the best-scoring model that runs *comfortably now* with headroom for your real workload (Docker, DBs, IDE, Claude sessions, the daemon). It only ever recommends — you set `local_llm_model` yourself.
+
+```sh
+warden llm suggest                    # auto-detect and rank
+warden llm suggest --samples 8        # average more free-memory samples
+warden llm suggest --total-gb 48 --free-gb 30   # what-if for another machine
+warden llm suggest --json
 ```
 
 ### `warden tutorial` (first-run walkthrough)

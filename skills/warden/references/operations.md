@@ -163,6 +163,17 @@ half needs `local_llm: true`. `!`-prefixed lines run in a persistent embedded sh
 reported verbatim (no auto-action). Run standalone or as the cockpit master pane
 (`orchestrator` config / `--orch`).
 
+**Picking the local model — `wd llm suggest`.** Auto-detects the machine's **total**
+and **average free** memory (same pool: NVIDIA VRAM / Apple unified / Linux
+`MemAvailable`, free sampled a few times) and prints a memory-ranked shortlist,
+marking each `fits now` / `free memory first` / `too large`. It scores a
+tool-calling-forward catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by
+**conductor suitability** — the orchestrator routes tool calls, never writes code,
+so size/coding skill is the wrong axis — and stars the best model that runs
+comfortably now with headroom. Flags: `--samples`, `--total-gb`/`--free-gb`
+overrides, `--json`. `wd doctor` prints the one-line version. Recommendation only —
+set `local_llm_model` by hand (no `config set`; `wd config path` locates the YAML).
+
 ## Export / import & plugins
 
 - **Export/import:** MCP `export_sessions {all?}` / `import_sessions {data, merge?}`
