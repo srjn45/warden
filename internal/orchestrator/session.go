@@ -95,6 +95,15 @@ func (s *Session) Handle(ctx context.Context, line string) string {
 	for turn := 0; turn < maxTurns; turn++ {
 		reply, err := s.chat.Chat(ctx, s.withContext(ctx), s.reg.ToolSchemas())
 		if err != nil {
+			var tae *llm.ToolArgError
+			if errors.As(err, &tae) {
+				// A malformed tool call is a recoverable per-turn hiccup, not the
+				// model being down. Nudge the model with what went wrong and let the
+				// loop retry within the budget instead of surfacing a fatal error.
+				s.msgs = append(s.msgs, llm.Message{Role: llm.RoleUser,
+					Content: "(warden) your last " + tae.Tool + " call had malformed arguments — re-issue it with a valid JSON arguments object, or just answer in prose."})
+				continue
+			}
 			return s.surface(err)
 		}
 		s.msgs = append(s.msgs, assistantMsg(reply))
@@ -183,6 +192,14 @@ func (s *Session) runCalls(ctx context.Context, calls []ToolCall, done map[strin
 			s.recordTool(c.Name, "this exact call was already handled earlier this turn — its outcome is above; report that, do not propose it again")
 			continue
 		}
+		if miss := missingRequired(tl, c.Args); len(miss) > 0 {
+			// Catch a doomed call before the gate: asking the operator to approve a
+			// spawn that's missing its required field only to fail at the daemon is
+			// pure friction. Feed the gap back so the model fills it in next turn.
+			s.recordTool(c.Name, "missing required argument(s): "+strings.Join(miss, ", ")+" — re-issue the call with them filled in")
+			progressed = true // a fresh, actionable error the model can fix
+			continue
+		}
 		mutating = append(mutating, c)
 	}
 	if len(mutating) == 0 {
@@ -214,6 +231,21 @@ func callSig(c ToolCall) string {
 		b = []byte(fmt.Sprintf("%#v", c.Args)) // never collide silently on a weird arg
 	}
 	return c.Name + "\x00" + string(b)
+}
+
+// missingRequired returns the tool's required argument names that the call left
+// empty, read from the tool's own JSON schema (objSchema stores `required` as a
+// []string). It's the pre-gate guard for mutations; reads already self-report a
+// missing arg through their invoke's requireStr.
+func missingRequired(tl Tool, args map[string]any) []string {
+	req, _ := tl.Schema.Parameters["required"].([]string)
+	var missing []string
+	for _, k := range req {
+		if strings.TrimSpace(argStr(args, k)) == "" {
+			missing = append(missing, k)
+		}
+	}
+	return missing
 }
 
 func (s *Session) dispatch(ctx context.Context, c ToolCall) {

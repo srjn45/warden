@@ -168,6 +168,47 @@ func TestSession_DistinctMutationsBothGate(t *testing.T) {
 	require.Equal(t, 2, fd.spawnCalls)
 }
 
+func TestSession_MalformedToolCallRetries(t *testing.T) {
+	// A malformed-args tool call (a ToolArgError) is a recoverable hiccup: the
+	// loop nudges the model and retries instead of surfacing "model unavailable".
+	chat := &seqErrChatter{
+		errs:    []error{&llm.ToolArgError{Tool: "spawn_agent", Err: errors.New("invalid character 'n'")}, nil},
+		replies: []llm.Reply{{}, {Text: "recovered — answering in prose"}},
+	}
+	s := newTestSession(chat, &fakeDaemon{}, alwaysReject())
+	out := s.Handle(context.Background(), "do a thing")
+	require.Contains(t, out, "recovered", "the bad-args turn was retried, not surfaced as fatal")
+	require.Equal(t, 2, chat.calls, "exactly one retry after the malformed call")
+}
+
+func TestSession_NonRecoverableChatErrorStillSurfaces(t *testing.T) {
+	// A plain transport error (not a ToolArgError) is still fatal: the model is
+	// genuinely unavailable and retrying would spin.
+	chat := &seqErrChatter{errs: []error{errors.New("connection refused")}}
+	s := newTestSession(chat, &fakeDaemon{}, alwaysReject())
+	out := s.Handle(context.Background(), "anything")
+	require.Contains(t, out, "local model is unavailable")
+	require.Equal(t, 1, chat.calls, "a transport error is not retried")
+}
+
+func TestSession_MissingRequiredArgNotGated(t *testing.T) {
+	// send_to_agent requires `text`; the model proposes it without one. We must
+	// not ask the operator to approve a call that would fail at the daemon — feed
+	// the gap back so the model fixes it.
+	chat := &scriptChatter{replies: []llm.Reply{
+		{ToolCalls: []ToolCall{{Name: "send_to_agent", Args: map[string]any{"ticket": "a1"}}}},
+		{Text: "right, I needed the message text."},
+	}}
+	fd := &fakeDaemon{}
+	gate := alwaysApprove()
+	s := newTestSession(chat, fd, gate)
+	s.Handle(context.Background(), "tell a1 something")
+	require.Zero(t, gate.confirmCalls, "a call missing a required arg never reaches the gate")
+	require.Zero(t, fd.inputCalls, "and never reaches the daemon")
+	last := chat.gotMsgs[len(chat.gotMsgs)-1]
+	require.Contains(t, lastToolContent(last), "missing required argument", "the gap is fed back to the model")
+}
+
 func TestSession_ChatErrorSurfaces(t *testing.T) {
 	s := newTestSession(errChatter{err: errors.New("connection refused")}, &fakeDaemon{}, alwaysReject())
 	out := s.Handle(context.Background(), "anything")

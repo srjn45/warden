@@ -97,13 +97,16 @@ func TestOllamaChat_BadArgsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(ollamaChatResponse{Message: ollamaChatMessage{
 			ToolCalls: []ollamaToolCall{{Function: ollamaToolCallFunction{
-				Name: "x", Arguments: json.RawMessage(`{nope`),
+				Name: "x", Arguments: json.RawMessage(`123`), // valid JSON, but not an args object
 			}}},
 		}})
 	}))
 	defer srv.Close()
 	_, err := NewOllama(srv.URL, "m", time.Second).Chat(context.Background(), nil, nil)
 	require.Error(t, err, "un-parseable tool args must surface as an error, not a silent empty call")
+	var tae *ToolArgError
+	require.ErrorAs(t, err, &tae, "a malformed-args error is typed so the caller can retry it")
+	require.Equal(t, "x", tae.Tool)
 }
 
 func TestOllamaChat_Non200IsError(t *testing.T) {

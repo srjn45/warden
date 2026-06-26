@@ -98,7 +98,9 @@ func (o *Ollama) Chat(ctx context.Context, msgs []Message, tools []ToolSchema) (
 	for _, tc := range out.Message.ToolCalls {
 		args, err := decodeArgs(tc.Function.Arguments)
 		if err != nil {
-			return Reply{}, fmt.Errorf("tool call %q: %w", tc.Function.Name, err)
+			// Recoverable: a malformed-args call is a per-turn hiccup, not the
+			// model being down. A typed error lets the session retry the turn.
+			return Reply{}, &ToolArgError{Tool: tc.Function.Name, Err: err}
 		}
 		reply.ToolCalls = append(reply.ToolCalls, ToolCall{Name: tc.Function.Name, Args: args})
 	}
