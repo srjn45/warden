@@ -328,11 +328,16 @@ func TestReconcileRegeneratesEmptyFile(t *testing.T) {
 // TestSchemaMatchesStructTags is the drift guard: the set of yaml tags on
 // Config must equal the set of keys in the schema table, both directions.
 func TestSchemaMatchesStructTags(t *testing.T) {
+	// Deprecated back-compat aliases: read at Load time for old configs but
+	// intentionally NOT emitted into freshly generated files, so they have a
+	// struct field (yaml tag) without a schema entry.
+	legacyAliases := map[string]bool{"orchestrator": true} // pre-rename of `repl`
+
 	tags := map[string]bool{}
 	tp := reflect.TypeOf(Config{})
 	for i := 0; i < tp.NumField(); i++ {
 		tag := strings.Split(tp.Field(i).Tag.Get("yaml"), ",")[0]
-		if tag == "" || tag == "-" {
+		if tag == "" || tag == "-" || legacyAliases[tag] {
 			continue
 		}
 		tags[tag] = true

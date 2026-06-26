@@ -52,7 +52,7 @@ func TestShouldHintTutorial(t *testing.T) {
 
 	// Machine / full-screen / self-referential commands never carry the hint,
 	// even when fresh + TTY + gate on.
-	for _, name := range []string{"warden", "tui", "tutorial", "daemon", "mcp", "hook", "guard", "completion", "orch"} {
+	for _, name := range []string{"warden", "tui", "tutorial", "daemon", "mcp", "hook", "guard", "completion", "repl"} {
 		require.False(t, shouldHintTutorial(false, true, true, name), "%s must be suppressed", name)
 	}
 }

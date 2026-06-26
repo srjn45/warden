@@ -49,36 +49,40 @@ type Config struct {
 	TokenCritical         int             `yaml:"token_critical"`
 
 	// Migrated from previously-scattered os.Getenv reads.
-	PipelineKeepDone       bool          `yaml:"pipeline_keep_done"`
-	ModelDefault           string        `yaml:"model_default"`
-	PipelineHint           bool          `yaml:"pipeline_hint"`
-	AutoRestartMax         int           `yaml:"auto_restart_max"`
-	AutoRestartReset       string        `yaml:"auto_restart_reset"`
-	CollabEnabled          bool          `yaml:"collab_enabled"`
-	CollabInterval         string        `yaml:"collab_interval"`
-	CollabHint             bool          `yaml:"collab_hint"`
-	BranchTrackEnabled     bool          `yaml:"branch_track_enabled"`
-	BranchTrackInterval    string        `yaml:"branch_track_interval"`
-	IsolationGuard         bool          `yaml:"isolation_guard"`
-	GitConventions         bool          `yaml:"git_conventions"`
-	GitRedirect            bool          `yaml:"git_redirect"`
-	CheckRedirect          bool          `yaml:"check_redirect"`
-	RootGuard              bool          `yaml:"root_guard"`
-	Snapshots              bool          `yaml:"snapshots"`
-	Savings                bool          `yaml:"savings"`
-	SavingsSamples         bool          `yaml:"savings_samples"`
-	Tutorial               bool          `yaml:"tutorial"`
-	Insights               bool          `yaml:"insights"`
-	ApiDocs                bool          `yaml:"api_docs"`
-	SchedulerEnabled       bool          `yaml:"scheduler_enabled"`
-	LocalLLM               bool          `yaml:"local_llm"`
-	LocalLLMURL            string        `yaml:"local_llm_url"`
-	LocalLLMModel          string        `yaml:"local_llm_model"`
-	LocalLLMTimeout        string        `yaml:"local_llm_timeout"`
-	LocalLLMEscalate       bool          `yaml:"local_llm_escalate"`
-	LocalLLMTier           string        `yaml:"local_llm_tier"`
-	LocalLLMClassifier     string        `yaml:"local_llm_classifier"`
-	Orchestrator           bool          `yaml:"orchestrator"`
+	PipelineKeepDone    bool   `yaml:"pipeline_keep_done"`
+	ModelDefault        string `yaml:"model_default"`
+	PipelineHint        bool   `yaml:"pipeline_hint"`
+	AutoRestartMax      int    `yaml:"auto_restart_max"`
+	AutoRestartReset    string `yaml:"auto_restart_reset"`
+	CollabEnabled       bool   `yaml:"collab_enabled"`
+	CollabInterval      string `yaml:"collab_interval"`
+	CollabHint          bool   `yaml:"collab_hint"`
+	BranchTrackEnabled  bool   `yaml:"branch_track_enabled"`
+	BranchTrackInterval string `yaml:"branch_track_interval"`
+	IsolationGuard      bool   `yaml:"isolation_guard"`
+	GitConventions      bool   `yaml:"git_conventions"`
+	GitRedirect         bool   `yaml:"git_redirect"`
+	CheckRedirect       bool   `yaml:"check_redirect"`
+	RootGuard           bool   `yaml:"root_guard"`
+	Snapshots           bool   `yaml:"snapshots"`
+	Savings             bool   `yaml:"savings"`
+	SavingsSamples      bool   `yaml:"savings_samples"`
+	Tutorial            bool   `yaml:"tutorial"`
+	Insights            bool   `yaml:"insights"`
+	ApiDocs             bool   `yaml:"api_docs"`
+	SchedulerEnabled    bool   `yaml:"scheduler_enabled"`
+	LocalLLM            bool   `yaml:"local_llm"`
+	LocalLLMURL         string `yaml:"local_llm_url"`
+	LocalLLMModel       string `yaml:"local_llm_model"`
+	LocalLLMTimeout     string `yaml:"local_llm_timeout"`
+	LocalLLMEscalate    bool   `yaml:"local_llm_escalate"`
+	LocalLLMTier        string `yaml:"local_llm_tier"`
+	LocalLLMClassifier  string `yaml:"local_llm_classifier"`
+	Repl                bool   `yaml:"repl"`
+	// OrchestratorLegacy reads the pre-rename `orchestrator:` key so existing
+	// configs keep working after the `wd orch` command became `wd repl`. GetRepl
+	// ORs it in.
+	OrchestratorLegacy     bool          `yaml:"orchestrator"`
 	PluginsEnabled         bool          `yaml:"plugins"`
 	Plugins                []plugin.Spec `yaml:"plugin_registry"`
 	RateLimitRetryInterval string        `yaml:"rate_limit_retry_interval"`
@@ -153,10 +157,10 @@ var schema = []setting{
 	{"local_llm_url", "Base URL of the local Ollama-compatible server used when local_llm is on. Values: http(s) URL (default http://localhost:11434)"},
 	{"local_llm_model", "Model name the local server should run for warden's tasks. Values: an Ollama model tag (e.g. qwen2.5-coder:7b)"},
 	{"local_llm_timeout", "Hard timeout for each local-model call before falling back to Claude. Values: Go duration (e.g. 20s, 1m)"},
-	{"local_llm_escalate", "Let the orchestrator escalate an over-tier planning step to headless Claude (one bounded `claude -p`); off ⇒ degrade honestly instead. Execution stays token-free warden calls either way. Values: true | false"},
-	{"local_llm_tier", "Explicit orchestrator planning-tier override for the local model. auto derives the tier from the model name. Values: auto | t0 | t1 | t2"},
-	{"local_llm_classifier", "How the orchestrator buckets a request's needed planning tier. heuristic uses cheap surface signals (no model call); model adds a one-shot local-model classification (more accurate, one extra round-trip) and falls back to the heuristic on any error. Values: heuristic | model"},
-	{"orchestrator", "Start the cockpit master pane in orchestrator mode (the natural-language conductor) instead of a plain shell. Values: true | false"},
+	{"local_llm_escalate", "Let the REPL escalate an over-tier planning step to headless Claude (one bounded `claude -p`); off ⇒ degrade honestly instead. Execution stays token-free warden calls either way. Values: true | false"},
+	{"local_llm_tier", "Explicit REPL planning-tier override for the local model. auto derives the tier from the model name. Values: auto | t0 | t1 | t2"},
+	{"local_llm_classifier", "How the REPL buckets a request's needed planning tier. heuristic uses cheap surface signals (no model call); model adds a one-shot local-model classification (more accurate, one extra round-trip) and falls back to the heuristic on any error. Values: heuristic | model"},
+	{"repl", "Start the cockpit master pane in REPL mode (the natural-language interactive shell) instead of a plain shell. Also accepts the deprecated key `orchestrator`. Values: true | false"},
 	{"plugins", "Enable the plugin system (#47): load the external plugin executables in plugin_registry, register their custom agent task types, and invoke their subscribed lifecycle hooks over a JSON-over-stdio protocol. OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Values: true | false"},
 	{"plugin_registry", "Plugins loaded when `plugins` is true. A list of entries, each with: name, path (the plugin executable), events (subscribed lifecycle hooks; any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree}). Empty by default. Values: list"},
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
@@ -228,7 +232,7 @@ func defaults() Config {
 		LocalLLMEscalate:       true,
 		LocalLLMTier:           "auto",
 		LocalLLMClassifier:     "heuristic",
-		Orchestrator:           false,
+		Repl:                   false,
 		PluginsEnabled:         false,
 		Plugins:                []plugin.Spec{},
 		RateLimitRetryInterval: "30m",
@@ -749,15 +753,15 @@ func (c Config) LocalLLMTimeoutDuration() time.Duration {
 	return durOr(c.LocalLLMTimeout, 20*time.Second)
 }
 
-// GetLocalLLMEscalate reports whether the orchestrator may escalate an over-tier
+// GetLocalLLMEscalate reports whether the REPL may escalate an over-tier
 // planning step to headless Claude (vs. degrading honestly).
 func (c Config) GetLocalLLMEscalate() bool { return c.LocalLLMEscalate }
 
-// GetLocalLLMTier returns the explicit orchestrator planning-tier override
+// GetLocalLLMTier returns the explicit REPL planning-tier override
 // ("auto"|"t0"|"t1"|"t2"); "auto" derives the tier from the model name.
 func (c Config) GetLocalLLMTier() string { return c.LocalLLMTier }
 
-// GetLocalLLMClassifier returns how the orchestrator buckets a request's needed
+// GetLocalLLMClassifier returns how the REPL buckets a request's needed
 // planning tier: "heuristic" (cheap surface signals, no model call — the
 // default) or "model" (a one-shot local-model classification that falls back to
 // the heuristic on any error). Empty normalises to "heuristic".
@@ -768,9 +772,10 @@ func (c Config) GetLocalLLMClassifier() string {
 	return c.LocalLLMClassifier
 }
 
-// GetOrchestrator reports whether the cockpit master pane starts in orchestrator
-// mode instead of a plain shell.
-func (c Config) GetOrchestrator() bool { return c.Orchestrator }
+// GetRepl reports whether the cockpit master pane starts in REPL mode instead of
+// a plain shell. It honours both the `repl:` key and the deprecated
+// `orchestrator:` key (pre-rename) so old configs keep working.
+func (c Config) GetRepl() bool { return c.Repl || c.OrchestratorLegacy }
 
 // GetPluginsEnabled reports whether the plugin system (#47) is enabled (the
 // daemon loads plugin_registry, registers custom task types, and wires the

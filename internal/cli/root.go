@@ -59,17 +59,17 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newScheduleCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newTUICmd())
-	root.AddCommand(newOrchCmd())
+	root.AddCommand(newReplCmd())
 	root.AddCommand(newLLMCmd())
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newTutorialCmd())
 	root.AddCommand(newCompletionCmd())
 	root.AddCommand(newVersionCmd())
 	root.Args = cobra.NoArgs
-	var rootOrch bool
-	root.Flags().BoolVar(&rootOrch, "orch", false, "run the orchestrator REPL (wd orch) in the cockpit master pane instead of a shell (default: orchestrator config setting)")
+	var rootRepl bool
+	root.Flags().BoolVar(&rootRepl, "repl", false, "run the REPL (wd repl) in the cockpit master pane instead of a shell (default: repl config setting)")
 	root.RunE = func(cmd *cobra.Command, args []string) error {
-		return runCockpit(clientFor(cmd), cockpitUsesOrch(cmd, rootOrch))
+		return runCockpit(clientFor(cmd), cockpitUsesRepl(cmd, rootRepl))
 	}
 	return root
 }

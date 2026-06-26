@@ -149,7 +149,7 @@ var tutorialHintSuppressedCmds = map[string]bool{
 	"hook":       true,
 	"guard":      true,
 	"completion": true,
-	"orch":       true, // orchestrator REPL
+	"repl":       true, // interactive REPL
 }
 
 // shouldHintTutorial decides whether to emit the first-run hint. It shows ONLY
