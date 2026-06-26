@@ -100,7 +100,7 @@ func localLLMAdvice(cfg config.Config, mem memProbe) checkResult {
 			detail: "hardware undetected → recommend qwen2.5-coder:1.5b (conservative floor); override by setting local_llm_model in your config file (`wd config path`)"}
 	}
 	rec := recommendModel(mem.gb)
-	detail := fmt.Sprintf("detected ~%.0f GB %s → recommend %s", mem.gb, mem.source, rec)
+	detail := fmt.Sprintf("detected ~%.0f GB %s → recommend %s (run `wd llm suggest` for memory-ranked options)", mem.gb, mem.source, rec)
 	switch {
 	case !cfg.GetLocalLLM():
 		detail += "; enable the local model by setting local_llm: true in your config file (the orchestrator needs it; `wd config path`)"

@@ -60,6 +60,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newTUICmd())
 	root.AddCommand(newOrchCmd())
+	root.AddCommand(newLLMCmd())
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newTutorialCmd())
 	root.AddCommand(newCompletionCmd())
