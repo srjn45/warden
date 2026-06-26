@@ -22,6 +22,7 @@ import (
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
@@ -551,6 +552,22 @@ func (c *Client) SnapshotRestore(ctx context.Context, id string, force bool) (*s
 		return nil, err
 	}
 	return &res, nil
+}
+
+// Savings fetches the aggregated token-savings summary. A non-zero since limits
+// the window; the zero time requests all-time. The daemon returns 403 (a
+// StatusError with Code 403) when the savings ledger is disabled, which the CLI
+// turns into a friendly enable hint.
+func (c *Client) Savings(ctx context.Context, since time.Time) (*savings.Summary, error) {
+	q := "/savings"
+	if !since.IsZero() {
+		q += "?since=" + url.QueryEscape(since.UTC().Format(time.RFC3339))
+	}
+	var sum savings.Summary
+	if err := c.do(ctx, http.MethodGet, q, nil, &sum); err != nil {
+		return nil, err
+	}
+	return &sum, nil
 }
 
 // Approvals fetches the live approval queue. Returns (enabled, views, err);

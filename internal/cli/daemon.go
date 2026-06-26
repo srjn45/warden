@@ -28,6 +28,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
@@ -143,6 +144,14 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			srv.SetSnapshots(cfg.Snapshots, snapshot.New(runner, snapStore))
+			// Token-savings ledger: the store is created regardless of the gate so
+			// toggling savings on later doesn't lose prior data; the gate decides
+			// whether features record and GET /savings serves.
+			savStore, err := savings.NewStore(filepath.Join(cfg.DataDir, "savings"))
+			if err != nil {
+				return err
+			}
+			srv.SetSavings(cfg.Savings, savStore)
 			// Native scheduler (#15): opt-in (scheduler_enabled, default off). The
 			// store file is created regardless so toggling the gate on doesn't lose a
 			// prior schedules.json; the gate decides whether the routes + loop run.

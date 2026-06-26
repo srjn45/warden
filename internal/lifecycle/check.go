@@ -59,6 +59,13 @@ type CheckOutcome struct {
 	Passed   bool   `json:"passed"`
 	ExitCode int    `json:"exit_code"`
 	Output   string `json:"output,omitempty"`
+	// RawBytes is the size of the command's full combined stdout+stderr before
+	// truncation/condensation — what a raw test run would have spilled into the
+	// agent's transcript. It is accounting-only (json:"-", never sent to the
+	// agent or MCP caller): the daemon subtracts len(Output) from it to record
+	// the tokens `wd check` saved. Captured on pass too, where Output is empty
+	// and the whole raw log is the saving.
+	RawBytes int `json:"-"`
 }
 
 // CheckResult aggregates the checks `wd check` / `mcp__warden__check` ran — a
@@ -108,7 +115,7 @@ func (l *Lifecycle) runCheck(ctx context.Context, dir, name string, entry CheckE
 		runDir = filepath.Join(dir, entry.Dir)
 	}
 	out, err := l.run.Run(ctx, runDir, "sh", "-c", entry.Cmd)
-	outcome := CheckOutcome{Name: name, Cmd: entry.Cmd, Passed: err == nil}
+	outcome := CheckOutcome{Name: name, Cmd: entry.Cmd, Passed: err == nil, RawBytes: len(out)}
 	if err != nil {
 		outcome.ExitCode = exitCode(err)
 		outcome.Output = l.summarizeCheckOutput(ctx, name, out)

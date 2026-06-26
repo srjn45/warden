@@ -53,6 +53,8 @@ tags:
     description: Multi-stage DAG pipelines of dependent jobs
   - name: Snapshots
     description: Worktree + transcript checkpoints
+  - name: Savings
+    description: Measured token reductions earned by lifecycle features
   - name: Schedules
     description: Recurring (cron) and single-shot (at) agent/pipeline triggers
   - name: Observability
@@ -1142,6 +1144,38 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /savings:
+    get:
+      tags: [Savings]
+      summary: Aggregated token-savings summary
+      description: >
+        The measured token reductions warden's lifecycle features have earned
+        (raw output kept out of agents' context), as a per-feature breakdown plus
+        cumulative tokens, an estimated dollar figure, and the percentage of
+        would-be context spend eliminated. Gated by the `savings` config setting;
+        returns 403 when disabled.
+      parameters:
+        - name: since
+          in: query
+          description: Only count savings since this window (a Go duration like `168h`, or an RFC3339 timestamp). Absent ⇒ all time.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The savings summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavingsSummary" }
+        "400":
+          description: Invalid since value
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Savings ledger disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /schedules:
     get:
       tags: [Schedules]
@@ -1275,6 +1309,35 @@ components:
       properties:
         error: { type: string }
       required: [error]
+
+    SavingsFeature:
+      type: object
+      description: Rolled-up token saving for one lifecycle feature.
+      properties:
+        feature: { type: string, example: check }
+        events: { type: integer }
+        raw_tokens: { type: integer, description: Counterfactual tokens (what would have entered context) }
+        kept_tokens: { type: integer, description: Tokens that actually entered context }
+        saved_tokens: { type: integer }
+        saved_dollars: { type: number, format: double }
+
+    SavingsSummary:
+      type: object
+      description: Aggregated token savings over the requested window.
+      properties:
+        since: { type: string, format: date-time }
+        events: { type: integer }
+        raw_tokens: { type: integer }
+        kept_tokens: { type: integer }
+        saved_tokens: { type: integer }
+        saved_dollars: { type: number, format: double }
+        reduction_pct:
+          type: number
+          format: double
+          description: saved ÷ (saved + kept), as a percentage
+        features:
+          type: array
+          items: { $ref: "#/components/schemas/SavingsFeature" }
 
     HealthResponse:
       type: object
