@@ -859,6 +859,17 @@ warden start "quick fix" --preset fast            # explicit flags still overrid
 
 `--type`/`--model`/`--permission-mode`/`--auto-restart`/`--worktree`/`--in-repo` are persisted to `~/.warden/presets.yaml`; per-invocation inputs (ticket, branch, PR, dir) are not.
 
+### `warden library list|save-preset`
+
+One umbrella over both kinds of reusable launch config — saved spawn **presets** and the built-in pipeline **templates**.
+
+```sh
+warden library list                               # presets + pipeline templates, two labeled sections (alias: wd lib list)
+warden library save-preset fast --model haiku     # delegates to `warden preset save`
+```
+
+Purely additive: it reuses the existing preset store and the embedded template catalog, so `warden preset` and `warden pipeline list-templates` keep working unchanged. Pipeline templates are embedded/read-only (no `save-template`; author one with `warden pipeline create -f <spec.yaml>`). Also exposed over MCP as `library_list`.
+
 ### `warden stats`
 
 CLI view of the resource metrics (per-agent process-tree RSS/CPU, system memory/pressure, daemon self-stats).

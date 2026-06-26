@@ -37,6 +37,15 @@ warden preset list
 warden start --preset backend-dev "implement the rate limiter"   # explicit flags still override
 ```
 
+`warden library` (alias `wd lib`) is one umbrella over both reusable launch-config kinds — saved spawn presets **and** the built-in pipeline templates:
+
+```sh
+warden library list                            # presets + pipeline templates in two labeled sections
+warden library save-preset backend-dev --type code --model opus   # delegates to `preset save`
+```
+
+It adds no new storage — it reuses the preset store and the embedded template catalog (also over MCP as `library_list`), and `warden preset` / `warden pipeline list-templates` keep working unchanged.
+
 ## Batch operations (web)
 
 The Cockpit grid has per-tile checkboxes (with Shift-click range select). While ≥1 agent is selected a floating bar offers bulk **Message…**, **Terminate**, and **Delete** (destructive ones need a second click). Actions fan out one agent at a time and report partial success, keeping failures selected for retry.

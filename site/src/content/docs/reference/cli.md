@@ -41,6 +41,7 @@ Available Commands:
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
   insights            Mine agent history for patterns and parallelization wins
+  library             Browse saved spawn presets and pipeline templates in one place
   llm                 Local-LLM helpers for the REPL (wd repl)
   ls                  List all active agent sessions
   mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
@@ -526,6 +527,25 @@ Usage:
 Available Commands:
   list   List saved presets and their defaults
   save   Save the given spawn flags as a named preset
+```
+
+## warden library
+
+```text
+Browse saved spawn presets and pipeline templates in one place. One umbrella over
+warden's reusable launch configs: spawn PRESETS (named `warden start` defaults) and
+the built-in pipeline TEMPLATES (read-only). Purely additive — the `preset` and
+`pipeline list-templates` commands keep working unchanged.
+
+Usage:
+  warden library [command]
+
+Aliases:
+  library, lib
+
+Available Commands:
+  list          List saved spawn presets and built-in pipeline templates
+  save-preset   Save the given spawn flags as a named preset (same as `warden preset save`)
 ```
 
 ## warden token

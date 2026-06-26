@@ -40,6 +40,7 @@ on-disk state:
 | **Configurable permission mode** | Per-agent and global control over Claude permission level. CLI flag: `--permission-mode <mode>` (values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`). Legacy alias: `--supervised` (equivalent to `--permission-mode acceptEdits`). Global default: the `default_permission_mode` config setting (defaults to `auto`). Runtime change: `warden set-permission-mode <id> <mode>`. Display: PERMISSION_MODE column in `warden ls`, permission_mode field in `warden status`. Stored in session: mode preserved on restore/resume. Empty mode means "use global default" and displays as `default`. |
 | **Model selection** | Per-agent model selection via `--model` flag (CLI and MCP). Short aliases for common models: `opus`, `sonnet`, `haiku`, `fable`. Config default: the `model_default` setting. Fallback: `claude-sonnet-4-6` if not specified. Display: MODEL column in `warden ls`, model field in `warden status`. Stored in session: model preserved on restore/resume. |
 | **Spawn presets** | Save reusable spawn defaults under a name and replay them. `warden preset save <name> [spawn flags]` persists `--type`/`--model`/`--permission-mode` (`--supervised`)/`--auto-restart`/`--worktree`/`--in-repo` to `~/.warden/presets.yaml`; `warden preset list` shows them. `warden start --preset <name>` seeds those defaults, and any explicit CLI flag still overrides the preset. Per-invocation inputs (ticket, branch, PR, dir) are not stored. |
+| **Library umbrella** (`warden library`, alias `lib`) | One discoverable entry point over both kinds of reusable launch config: spawn **presets** and the built-in pipeline **templates**. `warden library list` shows both in two labeled sections (presets + their stored defaults, and templates + a short description); `warden library save-preset <name> [spawn flags]` is a thin delegate to `warden preset save`. Purely additive — no new storage or format: it reuses the existing preset store and the embedded template catalog, and the standalone `preset` and `pipeline list-templates` commands keep working unchanged. Pipeline templates are embedded/read-only, so there is no `save-template` (author a pipeline from a YAML spec with `pipeline create -f`). Also exposed over MCP as `library_list`. |
 
 ### Task types (`--type`)
 
@@ -218,7 +219,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator Claude session can manage
-the fleet through tool calls. **63 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **64 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:
@@ -246,6 +247,7 @@ stay CLI-only). Tools exposed:
 | `start_pipeline` / `cancel_pipeline` / `pause_pipeline` / `resume_pipeline` | Run / cancel / pause / resume a pipeline |
 | `retry_pipeline_job` / `edit_pipeline_job` / `emit_pipeline_output` / `delete_pipeline` | Per-job retry / edit a pending job / set handoff output / delete a pipeline |
 | `validate_pipeline` / `list_pipeline_templates` | Local spec validation / built-in templates (no daemon) |
+| `library_list` | Browse both saved spawn presets and built-in pipeline templates in one call (no daemon) |
 | `list_schedules` / `create_schedule` / `delete_schedule` | List / create / delete daemon cron/at schedules (see §28) |
 | `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree+transcript checkpoints & rollback (see §23) |
 | `insights` | Mine fleet history for patterns & parallelization wins (see §25) |

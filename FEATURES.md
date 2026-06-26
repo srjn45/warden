@@ -158,8 +158,9 @@ own tmux session, most in a git worktree).
 |---|---|---|---|---|---|---|
 | Export session metadata | `export` | `export_sessions` | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | Import session metadata | `import` | `import_sessions` | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
-| Save a spawn preset | `preset save` | **CLI-only** (local config authoring) | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
+| Save a spawn preset | `preset save` / `library save-preset` | **CLI-only** (local config authoring) | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | List presets | `preset list` | **CLI-only** | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
+| Browse presets + pipeline templates (one umbrella) | `library list` | `library_list` | ✓ | — | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 
 ## 11. Plugins (custom task types & hooks)
 
@@ -247,7 +248,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**63 tools**). The only
+Every fleet/data feature is reachable over MCP (**64 tools**). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §15 (plus interactive `attach`/`repl` and local-config `preset`), which are
 CLI-only **by design**. New parity tools added for full coverage: `digest`,
@@ -256,5 +257,5 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `prune_worktrees`, `export_sessions`, `import_sessions`, `rotate_agent`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
-`validate_pipeline`, `list_pipeline_templates`, `create_schedule`,
-`delete_schedule`.
+`validate_pipeline`, `list_pipeline_templates`, `library_list`,
+`create_schedule`, `delete_schedule`.

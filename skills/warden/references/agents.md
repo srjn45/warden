@@ -55,6 +55,11 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `--type`/`--model`/`--permission-mode`/`--auto-restart`/`--worktree`/`--in-repo`;
   `warden preset list`; `warden start --preset <name>` (explicit flags still
   override). CLI-only.
+- **Library** — `warden library list` (alias `lib`) is one umbrella that browses
+  BOTH saved spawn presets AND the built-in pipeline templates in two labeled
+  sections; `warden library save-preset <name> [spawn flags]` delegates to
+  `preset save`. Also over MCP as `library_list` (returns `{presets, templates}`).
+  Presets/templates surfaces are otherwise unchanged.
 - **Tags** — `warden start --tags backend,urgent` (lowercased, deduped). Part of
   the search haystack; filter with `warden ls --tag …`.
 - **Task types (`--type`)** — `development`/`code`/`docs`/`website`/`debug-ci`/`tests`
