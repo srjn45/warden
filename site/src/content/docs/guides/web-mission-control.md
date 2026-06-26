@@ -74,4 +74,4 @@ warden daemon    # start the daemon as usual
 
 Then open `http://localhost:8765` in a browser.
 
-> The UI is baked into the binary at build time. After changing anything under `web/`, rebuild (`make release`, or `make ui` for the frontend only) and restart the daemon. For live UI iteration, run `warden daemon` and `make ui-dev` in parallel and open `http://localhost:4321` — the Astro dev server proxies `/sessions` (incl. the `/attach` WebSocket), `/spawn`, `/events`, and `/healthz` to `:8765`, so SSE and all REST calls work without CORS configuration.
+> The UI is baked into the binary at build time. After changing anything under `web/`, rebuild (`make release`, or `make ui` for the frontend only) and restart the daemon. For live UI iteration, run `warden daemon` and `make ui-dev` in parallel and open `http://localhost:4321` — the Astro dev server proxies `/api/*` (the whole REST surface, incl. the `/api/v1/sessions/{id}/attach` WebSocket and `/api/v1/events/stream` SSE) and `/healthz` to `:8765`, so SSE and all REST calls work without CORS configuration.

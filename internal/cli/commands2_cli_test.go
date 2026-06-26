@@ -19,8 +19,8 @@ func TestRestoreCmd(t *testing.T) {
 	if !strings.Contains(out, "restoring A-1") {
 		t.Fatalf("restore output: %q", out)
 	}
-	if method["/sessions/A-1/restore"] != http.MethodPost {
-		t.Fatalf("expected POST restore, got %q", method["/sessions/A-1/restore"])
+	if method["/api/v1/sessions/A-1/restore"] != http.MethodPost {
+		t.Fatalf("expected POST restore, got %q", method["/api/v1/sessions/A-1/restore"])
 	}
 }
 
@@ -34,8 +34,8 @@ func TestTerminateCmd(t *testing.T) {
 	if !strings.Contains(out, "terminated A-1") {
 		t.Fatalf("terminate output: %q", out)
 	}
-	if method["/sessions/A-1/terminate"] != http.MethodPost {
-		t.Fatalf("expected POST terminate, got %q", method["/sessions/A-1/terminate"])
+	if method["/api/v1/sessions/A-1/terminate"] != http.MethodPost {
+		t.Fatalf("expected POST terminate, got %q", method["/api/v1/sessions/A-1/terminate"])
 	}
 }
 
@@ -49,8 +49,8 @@ func TestDeleteCmdHard(t *testing.T) {
 	if !strings.Contains(out, "deleted A-1") {
 		t.Fatalf("delete output: %q", out)
 	}
-	if !strings.Contains(body["/sessions/A-1/delete"], `"hard":true`) {
-		t.Fatalf("--hard not forwarded: %q", body["/sessions/A-1/delete"])
+	if !strings.Contains(body["/api/v1/sessions/A-1/delete"], `"hard":true`) {
+		t.Fatalf("--hard not forwarded: %q", body["/api/v1/sessions/A-1/delete"])
 	}
 }
 
@@ -64,8 +64,8 @@ func TestRemoveWorktreeCmdYes(t *testing.T) {
 	if !strings.Contains(out, "removed worktree for A-1") {
 		t.Fatalf("remove-worktree output: %q", out)
 	}
-	if !strings.Contains(body["/sessions/A-1/remove-worktree"], `"force":true`) {
-		t.Fatalf("--force not forwarded: %q", body["/sessions/A-1/remove-worktree"])
+	if !strings.Contains(body["/api/v1/sessions/A-1/remove-worktree"], `"force":true`) {
+		t.Fatalf("--force not forwarded: %q", body["/api/v1/sessions/A-1/remove-worktree"])
 	}
 }
 
@@ -96,7 +96,7 @@ func TestRemoveWorktreeCmdAbortsWithoutYes(t *testing.T) {
 func TestAdoptCmd(t *testing.T) {
 	t.Setenv("TMUX", "") // force resume mode (not live)
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /adopt": `{"session":{"id":"adopted-1","status":"working"},"warning":"heads up"}`,
+		"POST /api/v1/adopt": `{"session":{"id":"adopted-1","status":"working"},"warning":"heads up"}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "adopt", "--dir", "/work/proj")
 	if err != nil {
@@ -111,7 +111,7 @@ func TestAdoptCmd(t *testing.T) {
 
 func TestWorktreeLsCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /worktrees": `{"worktrees":[{"path":".worktrees/A-1","branch":"feat","owner":"A-1","lifecycle":"live","state":"clean"}]}`,
+		"GET /api/v1/worktrees": `{"worktrees":[{"path":".worktrees/A-1","branch":"feat","owner":"A-1","lifecycle":"live","state":"clean"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "worktree", "ls", "--repo", "/repo")
 	if err != nil {
@@ -126,7 +126,7 @@ func TestWorktreeLsCmd(t *testing.T) {
 
 func TestWorktreeLsCmdJSON(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /worktrees": `{"worktrees":[{"path":".worktrees/A-1","branch":"feat"}]}`,
+		"GET /api/v1/worktrees": `{"worktrees":[{"path":".worktrees/A-1","branch":"feat"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "worktree", "ls", "--repo", "/repo", "--json")
 	if err != nil {
@@ -143,7 +143,7 @@ func TestWorktreeLsCmdJSON(t *testing.T) {
 
 func TestPruneCmdDryRun(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /prune": `{"results":[{"path":".worktrees/A-1","branch":"feat","owner":"","lifecycle":"","action":"remove","state":"clean"}]}`,
+		"POST /api/v1/prune": `{"results":[{"path":".worktrees/A-1","branch":"feat","owner":"","lifecycle":"","action":"remove","state":"clean"}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "prune", "--repo", "/repo", "--dry-run")
 	if err != nil {
@@ -175,8 +175,8 @@ func TestAutoApproveCmd(t *testing.T) {
 			t.Fatalf("auto-approve %s output: %q", tc.mode, out)
 		}
 		wantEnabled := tc.mode == "on"
-		if wantEnabled && !strings.Contains(body["/sessions/A-1/auto-approve"], `"enabled":true`) {
-			t.Fatalf("enabled flag not forwarded: %q", body["/sessions/A-1/auto-approve"])
+		if wantEnabled && !strings.Contains(body["/api/v1/sessions/A-1/auto-approve"], `"enabled":true`) {
+			t.Fatalf("enabled flag not forwarded: %q", body["/api/v1/sessions/A-1/auto-approve"])
 		}
 	}
 }
@@ -197,8 +197,8 @@ func TestSetPermissionModeCmd(t *testing.T) {
 	if !strings.Contains(out, `permission mode set to "acceptEdits" for A-1`) {
 		t.Fatalf("set-permission-mode output: %q", out)
 	}
-	if !strings.Contains(body["/sessions/A-1/permission-mode"], `"permission_mode":"acceptEdits"`) {
-		t.Fatalf("mode not forwarded: %q", body["/sessions/A-1/permission-mode"])
+	if !strings.Contains(body["/api/v1/sessions/A-1/permission-mode"], `"permission_mode":"acceptEdits"`) {
+		t.Fatalf("mode not forwarded: %q", body["/api/v1/sessions/A-1/permission-mode"])
 	}
 }
 
@@ -220,14 +220,14 @@ func TestSendCmd(t *testing.T) {
 	if !strings.Contains(out, "sent to A-1") {
 		t.Fatalf("send output: %q", out)
 	}
-	if !strings.Contains(body["/sessions/A-1/input"], `"text":"hello world"`) {
-		t.Fatalf("send text not joined/forwarded: %q", body["/sessions/A-1/input"])
+	if !strings.Contains(body["/api/v1/sessions/A-1/input"], `"text":"hello world"`) {
+		t.Fatalf("send text not joined/forwarded: %q", body["/api/v1/sessions/A-1/input"])
 	}
 }
 
 func TestTailCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions/A-1/output": `{"output":"pane line one\npane line two"}`,
+		"GET /api/v1/sessions/A-1/output": `{"output":"pane line one\npane line two"}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "tail", "A-1", "--lines", "20")
 	if err != nil {
@@ -240,7 +240,7 @@ func TestTailCmd(t *testing.T) {
 
 func TestDigestCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /sessions/A-1/digest": `{"summary":"did stuff","branch":"feat","turns":7,"status":"done","files":[{"path":"a.go","added":10,"removed":2,"edited":true}]}`,
+		"GET /api/v1/sessions/A-1/digest": `{"summary":"did stuff","branch":"feat","turns":7,"status":"done","files":[{"path":"a.go","added":10,"removed":2,"edited":true}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "digest", "A-1")
 	if err != nil {
@@ -257,7 +257,7 @@ func TestDigestCmd(t *testing.T) {
 
 func TestApprovalsCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /approvals": `{"enabled":true,"approvals":[{"id":"A-1","question":"Run rm?","options":["Yes","No"],"fingerprint":"ff","recognized":true}]}`,
+		"GET /api/v1/approvals": `{"enabled":true,"approvals":[{"id":"A-1","question":"Run rm?","options":["Yes","No"],"fingerprint":"ff","recognized":true}]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "approvals")
 	if err != nil {
@@ -272,7 +272,7 @@ func TestApprovalsCmd(t *testing.T) {
 
 func TestApprovalsCmdDisabled(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /approvals": `{"enabled":false,"approvals":[]}`,
+		"GET /api/v1/approvals": `{"enabled":false,"approvals":[]}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "approvals")
 	if err != nil {
@@ -286,7 +286,7 @@ func TestApprovalsCmdDisabled(t *testing.T) {
 func TestApproveCmd(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /approvals": `{"enabled":true,"approvals":[{"id":"A-1","question":"Run rm?","options":["Yes","No"],"fingerprint":"ff","recognized":true}]}`,
+		"GET /api/v1/approvals": `{"enabled":true,"approvals":[{"id":"A-1","question":"Run rm?","options":["Yes","No"],"fingerprint":"ff","recognized":true}]}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "approve", "A-1", "1")
 	if err != nil {
@@ -295,8 +295,8 @@ func TestApproveCmd(t *testing.T) {
 	if !strings.Contains(out, "approved A-1 → 1. Yes") {
 		t.Fatalf("approve output: %q", out)
 	}
-	if !strings.Contains(body["/sessions/A-1/approve"], `"fingerprint":"ff"`) {
-		t.Fatalf("fingerprint not forwarded: %q", body["/sessions/A-1/approve"])
+	if !strings.Contains(body["/api/v1/sessions/A-1/approve"], `"fingerprint":"ff"`) {
+		t.Fatalf("fingerprint not forwarded: %q", body["/api/v1/sessions/A-1/approve"])
 	}
 }
 
@@ -308,7 +308,7 @@ func TestApproveCmdBadOption(t *testing.T) {
 
 func TestApproveCmdOutOfRange(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /approvals": `{"enabled":true,"approvals":[{"id":"A-1","options":["Yes","No"],"fingerprint":"ff","recognized":true}]}`,
+		"GET /api/v1/approvals": `{"enabled":true,"approvals":[{"id":"A-1","options":["Yes","No"],"fingerprint":"ff","recognized":true}]}`,
 	}, nil, nil))
 	if _, err := runCLI(t, addr, "approve", "A-1", "9"); err == nil {
 		t.Fatal("expected an out-of-range error")

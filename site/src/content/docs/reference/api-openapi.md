@@ -19,6 +19,23 @@ handler, with schemas modelled off the actual Go types. A CI **drift guard**
 (`TestSpecMatchesRoutes`) walks the live router and fails the build if a route is
 undocumented or a spec entry is stale — so the reference can't rot.
 
+## Base path
+
+Every data/action endpoint is served under a versioned prefix: **`/api/v1`**
+(e.g. `GET /api/v1/sessions`, `GET /api/v1/metrics`, `POST /api/v1/spawn`). The
+version segment leaves room for a future breaking revision under `/api/v2`
+without disturbing existing clients. Only three surfaces live at the **root**:
+`GET /healthz` (liveness probe), `GET /api/docs*` (the Swagger UI + spec), and
+the static SPA shell. Keeping the API off the root is what lets the dashboard
+own bare client-route URLs like `/metrics` and `/pipelines` — a browser
+navigation to one of those loads the app, while the JSON lives at
+`/api/v1/metrics`, `/api/v1/pipelines`.
+
+> **Breaking change (v5.22+):** the data API moved from the root to `/api/v1`.
+> The bundled CLI, MCP server, and web UI were updated in lockstep; only
+> third-party scripts that hit the raw HTTP API need their paths prefixed
+> (`/sessions` → `/api/v1/sessions`). `/healthz` is unchanged.
+
 ## Authentication
 
 Like `/healthz` and the static SPA shell, the docs page itself is **unauthenticated**

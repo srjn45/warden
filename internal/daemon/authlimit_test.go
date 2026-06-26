@@ -35,7 +35,7 @@ func TestAuthLimiter(t *testing.T) {
 }
 
 func TestClientIP(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/x", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/x", nil)
 	r.RemoteAddr = "203.0.113.7:54321"
 	require.Equal(t, "203.0.113.7", clientIP(r))
 
@@ -51,7 +51,7 @@ func TestAuthMiddlewareThrottles(t *testing.T) {
 
 	do := func(token string) int {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
 		req.RemoteAddr = "9.9.9.9:1111"
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)

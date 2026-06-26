@@ -43,7 +43,7 @@ func TestSnapshotCreatePinsToSessionWorktreeAndTmux(t *testing.T) {
 
 	// A spoofed dir must be ignored in favour of the agent's own worktree.
 	body, _ := json.Marshal(GitRequest{Session: "A-1", Dir: "/repo/.worktrees/OTHER", Message: "checkpoint"})
-	resp, err := http.Post(ts.URL+"/snapshots", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/snapshots", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -65,7 +65,7 @@ func TestSnapshotDisabledReturns403(t *testing.T) {
 	ts := snapServer(t, newFakeStore(), &lifecycle.FakeRunner{}, false)
 	defer ts.Close()
 	body, _ := json.Marshal(GitRequest{Dir: "/wt"})
-	resp, err := http.Post(ts.URL+"/snapshots", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/snapshots", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
@@ -74,7 +74,7 @@ func TestSnapshotDisabledReturns403(t *testing.T) {
 func TestSnapshotRestoreMissingIs404(t *testing.T) {
 	ts := snapServer(t, newFakeStore(), &lifecycle.FakeRunner{}, true)
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/snapshots/snap-nope/restore", "application/json", bytes.NewReader([]byte(`{}`)))
+	resp, err := http.Post(ts.URL+"/api/v1/snapshots/snap-nope/restore", "application/json", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -92,12 +92,12 @@ func TestSnapshotListFiltersBySession(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(GitRequest{Session: "A-1"})
-	resp, err := http.Post(ts.URL+"/snapshots", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/snapshots", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	listResp, err := http.Get(ts.URL + "/snapshots?session=A-1")
+	listResp, err := http.Get(ts.URL + "/api/v1/snapshots?session=A-1")
 	require.NoError(t, err)
 	defer listResp.Body.Close()
 	var got snapshotListResponse
@@ -106,7 +106,7 @@ func TestSnapshotListFiltersBySession(t *testing.T) {
 	require.Equal(t, "A-1", got.Snapshots[0].SessionID)
 
 	// A different session has none.
-	otherResp, err := http.Get(ts.URL + "/snapshots?session=B-2")
+	otherResp, err := http.Get(ts.URL + "/api/v1/snapshots?session=B-2")
 	require.NoError(t, err)
 	defer otherResp.Body.Close()
 	var other snapshotListResponse

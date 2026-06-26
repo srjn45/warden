@@ -385,7 +385,11 @@ func (s *Server) router() http.Handler {
 	// action-bearing routes live in the authenticated group below.
 	r.Get("/healthz", s.handleHealthz)
 
-	r.Group(func(ar chi.Router) {
+	// The data/action API lives under /api/v1 so its paths never collide with the
+	// SPA's client-side routes (/metrics, /pipelines, … are real browser URLs the
+	// static catch-all must be free to serve). The version segment lets a future
+	// breaking change land under /api/v2 without disturbing existing clients.
+	r.Route("/api/v1", func(ar chi.Router) {
 		ar.Use(s.authMiddleware) // bearer-token gate for the API, SSE, and WS
 		ar.Get("/sessions", s.handleListSessions)
 		ar.Get("/sessions/{id}", s.handleGetSession)

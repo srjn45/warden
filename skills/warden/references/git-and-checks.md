@@ -64,7 +64,7 @@ tool it names** — don't work around it.
 | **Prompt steer** (`git_conventions`) | A system-prompt hint steering agents toward `wd commit`/`push`/`sync` (and `wd check`) over raw git/test Bash — the gentle first layer. |
 | **Git-guard** (`git_redirect`) | Deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed), naming the exact replacement. Static verdict, no daemon round-trip. |
 | **Check-guard** (`check_redirect`) | Deny-redirects a raw test/lint/build command registered in `.warden/check.yml` to `wd check`, matching on leading token (broad runs redirect; focused `-run` runs pass through). No-config repos redirect nothing. |
-| **Isolation guard** (`isolation_guard`) | Denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (daemon round-trip: `POST /hooks/guard`). |
+| **Isolation guard** (`isolation_guard`) | Denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (daemon round-trip: `POST /api/v1/hooks/guard`). |
 | **Root guard** (`root_guard`) | Denies any file-mutating tool whose target is in the **main** repo working tree (the shared project root), decided locally from the target path + `git rev-parse` — the backstop for free-form and `--in-repo` agents the isolation guard exempts. Operators who genuinely want an in-place agent set `root_guard: false` in the config file. |
 
 **Default-isolated write agents:** every write-type agent

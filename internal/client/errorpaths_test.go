@@ -54,7 +54,7 @@ func TestMethodsSurfaceStatusErrors(t *testing.T) {
 func TestGetMetricsHistoryForwardsFilters(t *testing.T) {
 	var rawQ string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/metrics/history", r.URL.Path)
+		require.Equal(t, "/api/v1/metrics/history", r.URL.Path)
 		rawQ = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"samples":[{}]}`)
@@ -73,13 +73,13 @@ func TestInsightsRecoversFilesFromDigest(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/sessions":
+		case "/api/v1/sessions":
 			_, _ = io.WriteString(w, `{"sessions":[{"id":"A-1","status":"working","repo":"/r"}]}`)
-		case "/history":
+		case "/api/v1/history":
 			_, _ = io.WriteString(w, `{"sessions":[]}`)
-		case "/metrics/history":
+		case "/api/v1/metrics/history":
 			_, _ = io.WriteString(w, `{"summaries":[]}`)
-		case "/sessions/A-1/digest":
+		case "/api/v1/sessions/A-1/digest":
 			_, _ = io.WriteString(w, `{"files":[{"path":"a.go"},{"path":"b.go"}]}`)
 		default:
 			_, _ = io.WriteString(w, `{}`)

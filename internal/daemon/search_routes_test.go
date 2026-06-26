@@ -14,7 +14,7 @@ func getSearch(t *testing.T, srv *Server, query string) (int, sessionsResponse) 
 	t.Helper()
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/search" + query)
+	resp, err := http.Get(ts.URL + "/api/v1/search" + query)
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}

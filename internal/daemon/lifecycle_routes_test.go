@@ -268,7 +268,7 @@ func TestPostSpawn(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), fl)
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	require.Equal(t, "A-1", fl.spawned.ID)
@@ -285,7 +285,7 @@ func TestPostSpawnRejectsUnsafeTicket(t *testing.T) {
 		fl := &fakeLife{}
 		ts := lifeServer(t, newFakeStore(), fl)
 		body, _ := json.Marshal(SpawnRequest{Prompt: "do x", Cwd: "/tmp", Ticket: bad})
-		resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+		resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 		require.NoError(t, err)
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, "ticket %q must be rejected", bad)
 		require.Nil(t, fl.spawned, "Spawn must not run for unsafe ticket %q", bad)
@@ -301,7 +301,7 @@ func TestPostSpawnRollsBackWhenInsertFails(t *testing.T) {
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	require.Equal(t, "A-1", fl.tornDown, "tmux/worktree must be torn down when the doc can't be persisted")
@@ -322,7 +322,7 @@ func TestHandleSetName(t *testing.T) {
 	fs := newFakeStore()
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
-	resp := patchJSON(t, srv.URL+"/sessions/A-1/name", `{"name":"order-api"}`)
+	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":"order-api"}`)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	got, _ := fs.Get(context.Background(), "A-1")
@@ -333,7 +333,7 @@ func TestHandleSetNameRejectsInvalid(t *testing.T) {
 	fs := newFakeStore()
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
-	resp := patchJSON(t, srv.URL+"/sessions/A-1/name", `{"name":"bad name!"}`)
+	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":"bad name!"}`)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
@@ -343,7 +343,7 @@ func TestHandleSetNameRejectsDuplicate(t *testing.T) {
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "taken", Status: store.StatusWorking})
 	_ = fs.Insert(context.Background(), &store.Session{ID: "B-2", TmuxSession: "B-2", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
-	resp := patchJSON(t, srv.URL+"/sessions/B-2/name", `{"name":"taken"}`)
+	resp := patchJSON(t, srv.URL+"/api/v1/sessions/B-2/name", `{"name":"taken"}`)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
 }
@@ -352,7 +352,7 @@ func TestHandleSetNameAllowsKeepingOwnName(t *testing.T) {
 	fs := newFakeStore()
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
-	resp := patchJSON(t, srv.URL+"/sessions/A-1/name", `{"name":"mine"}`)
+	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":"mine"}`)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "renaming to the same name must not collide with itself")
 }
@@ -361,7 +361,7 @@ func TestHandleSetNameClearsWhenBlank(t *testing.T) {
 	fs := newFakeStore()
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
-	resp := patchJSON(t, srv.URL+"/sessions/A-1/name", `{"name":""}`)
+	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":""}`)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	got, _ := fs.Get(context.Background(), "A-1")
@@ -370,7 +370,7 @@ func TestHandleSetNameClearsWhenBlank(t *testing.T) {
 
 func TestHandleSetNameUnknownSession(t *testing.T) {
 	srv := lifeServer(t, newFakeStore(), &fakeLife{})
-	resp := patchJSON(t, srv.URL+"/sessions/nope/name", `{"name":"x"}`)
+	resp := patchJSON(t, srv.URL+"/api/v1/sessions/nope/name", `{"name":"x"}`)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -380,7 +380,7 @@ func TestHandleTerminate(t *testing.T) {
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
-	resp, err := http.Post(srv.URL+"/sessions/A-1/terminate", "application/json", nil)
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/terminate", "application/json", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -393,7 +393,7 @@ func TestHandleDeleteArchivesByDefault(t *testing.T) {
 	fs := newFakeStore()
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
 	srv := lifeServer(t, fs, &fakeLife{})
-	resp, err := http.Post(srv.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -410,7 +410,7 @@ func TestHandleDeleteHardClearsMailbox(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{"hard":true}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/delete", "application/json", strings.NewReader(`{"hard":true}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -430,7 +430,7 @@ func TestHandleDeleteSoftKeepsMailbox(t *testing.T) {
 	defer ts.Close()
 
 	// Default (archive) delete must NOT touch the inbox.
-	resp, err := http.Post(ts.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -445,7 +445,7 @@ func TestHandleRemoveWorktreeGuardConflict(t *testing.T) {
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Worktree: ".worktrees/A-1", Repo: "/repo", Status: store.StatusDone})
 	fl := &fakeLife{removeWTErr: lifecycle.ErrWorktreeAgentAlive}
 	srv := lifeServer(t, fs, fl)
-	resp, err := http.Post(srv.URL+"/sessions/A-1/remove-worktree", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/remove-worktree", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
@@ -456,7 +456,7 @@ func TestHandleRemoveWorktreeClearsRecord(t *testing.T) {
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Worktree: ".worktrees/A-1", Branch: "A-1", Repo: "/repo", Status: store.StatusDone})
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
-	resp, err := http.Post(srv.URL+"/sessions/A-1/remove-worktree", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/remove-worktree", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -468,7 +468,7 @@ func TestHandleRemoveWorktreeClearsRecord(t *testing.T) {
 func TestHandlePruneMissingRepo(t *testing.T) {
 	srv := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer srv.Close()
-	resp, err := http.Post(srv.URL+"/prune", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(srv.URL+"/api/v1/prune", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "a missing repo is an HTTP error")
@@ -481,7 +481,7 @@ func TestHandlePruneReturnsSkipsNotErrors(t *testing.T) {
 	}}
 	srv := lifeServer(t, newFakeStore(), fl)
 	defer srv.Close()
-	resp, err := http.Post(srv.URL+"/prune", "application/json", strings.NewReader(`{"repo":"/repo","force":true,"include_archived":true}`))
+	resp, err := http.Post(srv.URL+"/api/v1/prune", "application/json", strings.NewReader(`{"repo":"/repo","force":true,"include_archived":true}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "dirty/unpushed skips are results, not HTTP errors")
@@ -502,7 +502,7 @@ func TestHandleListWorktrees(t *testing.T) {
 	}}
 	srv := lifeServer(t, newFakeStore(), fl)
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/worktrees?repo=/repo")
+	resp, err := http.Get(srv.URL + "/api/v1/worktrees?repo=/repo")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -517,7 +517,7 @@ func TestHandleListWorktrees(t *testing.T) {
 func TestHandleListWorktreesMissingRepo(t *testing.T) {
 	srv := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/worktrees")
+	resp, err := http.Get(srv.URL + "/api/v1/worktrees")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -527,7 +527,7 @@ func TestPostSpawnRequiresTypeAndRepo(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Ticket: "A-1"}) // no type, no repo
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
@@ -536,7 +536,7 @@ func TestPostSpawnRejectsUnknownType(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Type: "bogus", Repo: "/repo"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "unknown types are rejected, not collapsed to other")
 }
@@ -547,7 +547,7 @@ func TestPostSpawnRejectsInvalidPermissionMode(t *testing.T) {
 	// A permission_mode carrying shell syntax must be rejected at the boundary,
 	// not concatenated into the claude launch line typed into the tmux pane.
 	body, _ := json.Marshal(SpawnRequest{Type: "debug-ci", Repo: "/repo", PermissionMode: "auto; rm -rf ~"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "an unknown permission mode is rejected")
 }
@@ -557,7 +557,7 @@ func TestPostSpawnNoTicketIsAllowed(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), fl)
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Type: "debug-ci", Repo: "/repo"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	require.NotEmpty(t, fl.spawned.ID)
@@ -570,7 +570,7 @@ func TestPostInput(t *testing.T) {
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
 	body, _ := json.Marshal(InputRequest{Text: "hello agent"})
-	resp, err := http.Post(ts.URL+"/sessions/A-1/input", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/input", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Equal(t, "hello agent", fl.lastInput)
@@ -582,7 +582,7 @@ func TestGetOutput(t *testing.T) {
 	fs.data["A-1"] = &store.Session{ID: "A-1", TmuxSession: "A-1"}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/sessions/A-1/output")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/A-1/output")
 	require.NoError(t, err)
 	var out OutputResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
@@ -598,7 +598,7 @@ func TestGetOutputUncapturablePaneReturnsEmpty200(t *testing.T) {
 	fs.data["A-1"] = &store.Session{ID: "A-1", TmuxSession: "A-1"}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/sessions/A-1/output")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/A-1/output")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var out OutputResponse
@@ -610,7 +610,7 @@ func TestPostInputNotFound(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer ts.Close()
 	body, _ := json.Marshal(InputRequest{Text: "hi"})
-	resp, err := http.Post(ts.URL+"/sessions/ghost/input", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/ghost/input", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -618,7 +618,7 @@ func TestPostInputNotFound(t *testing.T) {
 func TestGetOutputNotFound(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/sessions/ghost/output")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/ghost/output")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -629,7 +629,7 @@ func TestPostSpawnDuplicateConflict(t *testing.T) {
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
 }
@@ -643,7 +643,7 @@ func TestSpawnNotifiesSubscribers(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -667,7 +667,7 @@ func TestPostSpawnPromptMode(t *testing.T) {
 
 	dir := t.TempDir()
 	body, _ := json.Marshal(SpawnRequest{Prompt: "research SSE reconnection", Cwd: dir})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -687,7 +687,7 @@ func TestPostSpawnPromptThenClassifies(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(SpawnRequest{Prompt: "investigate flaky test", Cwd: t.TempDir()})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var created store.Session
@@ -709,7 +709,7 @@ func TestPostSpawnAutoNamesWhenUnnamed(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(SpawnRequest{Prompt: "investigate flaky test", Cwd: t.TempDir()})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var created store.Session
@@ -731,7 +731,7 @@ func TestPostSpawnKeepsExplicitName(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(SpawnRequest{Prompt: "do the thing", Name: "my-name", Cwd: t.TempDir()})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var created store.Session
@@ -751,7 +751,7 @@ func TestPostSpawnRejectsEmptyRequest(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{}) // no type, no repo, no cwd → no launch dir
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
@@ -762,7 +762,7 @@ func TestHandleRestoreSucceeds(t *testing.T) {
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
 
-	resp, err := http.Post(srv.URL+"/sessions/A-1/restore", "application/json", nil)
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/restore", "application/json", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -777,7 +777,7 @@ func TestHandleRestoreMapsPreconditionErrors(t *testing.T) {
 	fl := &fakeLife{restoreErr: lifecycle.ErrAlreadyRunning}
 	srv := lifeServer(t, fs, fl)
 
-	resp, err := http.Post(srv.URL+"/sessions/A-1/restore", "application/json", nil)
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/restore", "application/json", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
@@ -789,7 +789,7 @@ func TestPostSpawnForwardsCwd(t *testing.T) {
 	defer ts.Close()
 	dir := t.TempDir()
 	body, _ := json.Marshal(SpawnRequest{Prompt: "do X", Cwd: dir})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	require.Equal(t, dir, fl.spawnedCwd, "cwd is forwarded to the lifecycle")
@@ -799,7 +799,7 @@ func TestPostSpawnRejectsMissingCwd(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), &fakeLife{})
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Prompt: "do X", Cwd: "/no/such/dir/xyz123"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "a cwd that isn't an existing dir is rejected")
 }
@@ -816,7 +816,7 @@ func TestAdoptResumeHappyPath(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(AdoptRequest{Cwd: dir}) // resume mode (no tmux_session)
-	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/adopt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -836,7 +836,7 @@ func TestAdoptResumeNoClaudeSession(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(AdoptRequest{Cwd: dir})
-	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/adopt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -846,7 +846,7 @@ func TestAdoptCwdMissing(t *testing.T) {
 	ts := adoptServer(&fakeLife{}, newFakeStore())
 	defer ts.Close()
 	body, _ := json.Marshal(AdoptRequest{Cwd: "/no/such/dir/xyz"})
-	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/adopt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -864,7 +864,7 @@ func TestAdoptDuplicateClaudeSession(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(AdoptRequest{Cwd: dir})
-	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/adopt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
@@ -877,7 +877,7 @@ func TestAdoptLiveTmuxGone(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(AdoptRequest{Cwd: dir, TmuxSession: "ghost"})
-	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/adopt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -892,7 +892,7 @@ func TestAdoptLiveInsertFailureDoesNotTeardown(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(AdoptRequest{Cwd: dir, TmuxSession: "work", SessionID: "zzz"})
-	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/adopt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
@@ -906,7 +906,7 @@ func TestAdoptLiveHappyPath(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(AdoptRequest{Cwd: dir, TmuxSession: "mysess"})
-	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/adopt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -925,7 +925,7 @@ func TestAdoptLiveNoClaudeIDWarns(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(AdoptRequest{Cwd: dir, TmuxSession: "mysess2"})
-	resp, err := http.Post(ts.URL+"/adopt", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/adopt", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -942,7 +942,7 @@ func TestPostSpawnInteractiveNoPrompt(t *testing.T) {
 	defer ts.Close()
 	dir := t.TempDir() // cwd must be an existing directory
 	body, _ := json.Marshal(SpawnRequest{Cwd: dir})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "empty prompt + cwd is a valid interactive spawn")
 	require.Equal(t, dir, fl.spawnedCwd)
@@ -954,7 +954,7 @@ func TestPostSpawnWithPermissionMode(t *testing.T) {
 	ts := lifeServer(t, newFakeStore(), fl)
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo", PermissionMode: "acceptEdits"})
-	resp, err := http.Post(ts.URL+"/spawn", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	require.Equal(t, "acceptEdits", fl.spawned.PermissionMode)
@@ -966,7 +966,7 @@ func TestPatchPermissionMode(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]string{"permission_mode": "acceptEdits"})
-	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/sessions/abc123/permission-mode", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/sessions/abc123/permission-mode", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -984,7 +984,7 @@ func TestPatchPermissionModeInvalidMode(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]string{"permission_mode": "invalid"})
-	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/sessions/abc123/permission-mode", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/sessions/abc123/permission-mode", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -997,7 +997,7 @@ func TestPatchPermissionModeNotFound(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]string{"permission_mode": "acceptEdits"})
-	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/sessions/missing/permission-mode", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/sessions/missing/permission-mode", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

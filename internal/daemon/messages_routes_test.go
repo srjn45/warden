@@ -34,7 +34,7 @@ func TestSendMessageStoresAndWakesParked(t *testing.T) {
 	defer ts.Close()
 
 	body := strings.NewReader(`{"from":"agent-2","body":"need a hand"}`)
-	resp, err := http.Post(ts.URL+"/sessions/agent-1/messages", "application/json", body)
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/agent-1/messages", "application/json", body)
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestSendMessageWorkingRecipientNotWoken(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/sessions/busy/messages", "application/json", strings.NewReader(`{"from":"x","body":"hi"}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/busy/messages", "application/json", strings.NewReader(`{"from":"x","body":"hi"}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestSendMessageReservedSenderForbidden(t *testing.T) {
 	defer ts.Close()
 
 	// An agent must not be able to forge a daemon-originated message.
-	resp, err := http.Post(ts.URL+"/sessions/agent-1/messages", "application/json",
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/agent-1/messages", "application/json",
 		strings.NewReader(`{"from":"daemon","body":"impersonation"}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
@@ -108,7 +108,7 @@ func TestSendMessageEmptyFromDefaultsToHuman(t *testing.T) {
 	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/sessions/agent-1/messages", "application/json",
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/agent-1/messages", "application/json",
 		strings.NewReader(`{"body":"hi"}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
@@ -127,7 +127,7 @@ func TestSendMessageUnknownRecipient404(t *testing.T) {
 	srv, _, _ := newMsgServer(t)
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/sessions/ghost/messages", "application/json", strings.NewReader(`{"body":"hi"}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/ghost/messages", "application/json", strings.NewReader(`{"body":"hi"}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestSendMessageEmptyBody400(t *testing.T) {
 	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, err := http.Post(ts.URL+"/sessions/agent-1/messages", "application/json", bytes.NewBufferString(`{"from":"x","body":""}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/agent-1/messages", "application/json", bytes.NewBufferString(`{"from":"x","body":""}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestInboxListsAndMarksRead(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, _ := http.Get(ts.URL + "/sessions/agent-1/messages")
+	resp, _ := http.Get(ts.URL + "/api/v1/sessions/agent-1/messages")
 	var ir struct {
 		Messages []mailbox.Message `json:"messages"`
 	}
@@ -171,7 +171,7 @@ func TestInboxListsAndMarksRead(t *testing.T) {
 	}
 
 	// after reading, ?unread=true returns none
-	resp, _ = http.Get(ts.URL + "/sessions/agent-1/messages?unread=true")
+	resp, _ = http.Get(ts.URL + "/api/v1/sessions/agent-1/messages?unread=true")
 	var ir2 struct {
 		Messages []mailbox.Message `json:"messages"`
 	}
@@ -218,7 +218,7 @@ func TestRecentMessagesRouteAcrossInboxes(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/messages")
+	resp, err := http.Get(ts.URL + "/api/v1/messages")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestRecentMessagesRouteIsReadOnly(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, _ := http.Get(ts.URL + "/messages")
+	resp, _ := http.Get(ts.URL + "/api/v1/messages")
 	resp.Body.Close()
 
 	// The global view must NOT mark messages read (unlike the per-agent inbox).

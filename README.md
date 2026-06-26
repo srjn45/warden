@@ -893,7 +893,7 @@ warden branches                       # table of per-agent CI + base-branch stan
 warden branches --json
 ```
 
-The daemon monitor behind it (enable with `branch_track_enabled`) delivers **non-blocking** alerts — an inbox note to the agent (and a desktop ping to you) on a new CI failure, an inbox nudge on a merged or far-behind branch. Every `gh`/git call fails open. Also exposed via `GET /collab/branches` and the `get_branch_status` MCP tool.
+The daemon monitor behind it (enable with `branch_track_enabled`) delivers **non-blocking** alerts — an inbox note to the agent (and a desktop ping to you) on a new CI failure, an inbox nudge on a merged or far-behind branch. Every `gh`/git call fails open. Also exposed via `GET /api/v1/collab/branches` and the `get_branch_status` MCP tool.
 
 ### `warden insights`
 
@@ -1228,7 +1228,7 @@ Run two terminals in parallel — no rebuild loop needed while iterating on the 
 # Terminal 1 — daemon (REST API + SSE on :8765)
 warden.daemon
 
-# Terminal 2 — Astro dev server (:4321, proxies /sessions (incl. the /attach WebSocket) /spawn /events /healthz to :8765)
+# Terminal 2 — Astro dev server (:4321, proxies /api/* (REST + /api/v1/.../attach WS + /api/v1/events SSE) and /healthz to :8765)
 make ui-dev
 ```
 

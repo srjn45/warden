@@ -21,7 +21,7 @@ func TestHandleSpawnGateWarns(t *testing.T) {
 	fs.Insert(context.Background(), &store.Session{ID: "live1", Status: store.StatusWorking})
 
 	body, _ := json.Marshal(SpawnRequest{Prompt: "do x", Cwd: t.TempDir()})
-	req := httptest.NewRequest(http.MethodPost, "/spawn", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spawn", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	s.handleSpawn(rec, req)
 
@@ -41,7 +41,7 @@ func TestHandleSpawnGateForceBypasses(t *testing.T) {
 	fs.Insert(context.Background(), &store.Session{ID: "live1", Status: store.StatusWorking})
 
 	body, _ := json.Marshal(SpawnRequest{Prompt: "do x", Cwd: t.TempDir(), Force: true})
-	req := httptest.NewRequest(http.MethodPost, "/spawn", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spawn", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	s.handleSpawn(rec, req)
 
@@ -56,7 +56,7 @@ func TestHandleSpawnGateDisabledProceeds(t *testing.T) {
 	fs.Insert(context.Background(), &store.Session{ID: "live1", Status: store.StatusWorking})
 
 	body, _ := json.Marshal(SpawnRequest{Prompt: "do x", Cwd: t.TempDir()})
-	req := httptest.NewRequest(http.MethodPost, "/spawn", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spawn", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	s.handleSpawn(rec, req)
 

@@ -141,8 +141,8 @@ warden auto-approve abc123 off  # disable for agent abc123
 | **Conditional steps** (`run_if`) | Per-job `run_if: success\|failure\|always` (default `success`). A job runs only when its dependencies settled the right way — `failure`/`always` handlers let a pipeline route around a failed upstream and still complete, and the handler's prompt is told which upstream failed. |
 | **Shared context** (`warden ctx`) | A namespaced key/value blackboard all agents can read/write: `ctx set`/`get`/`list`. |
 | **Directed messages** (`warden msg`) | Per-agent inbox: `msg send` (wakes a parked idle/waiting agent), `msg inbox`, `msg wait` (blocks in the daemon until a message arrives). |
-| **File-conflict detection** (`warden collab`) | The daemon watches each active agent's worktree and warns (via the inbox, deduplicated) when two agents are editing the same file. Detection is **real-time**: an fsnotify watcher reacts to edits in subseconds (a burst of saves is debounced into one scan), while a slower `git diff` poll reconciles the watch set against the active-session view and acts as a safety net — degrading cleanly to pure polling if fsnotify is unavailable or the inotify watch budget (80% of the per-user limit) is exhausted. Inspect with `collab conflicts` / `collab who-is-editing <file>`, `GET /collab/conflicts`, the `get_collaboration_status` / `who_is_editing_file` MCP tools, or the **File conflicts** card on the dashboard's Others tab. Spawned agents also get a system-prompt hint to check `who_is_editing_file` and their inbox before editing shared files, so they coordinate rather than overwrite. Tunable via `collab_enabled` / `collab_interval` / `collab_hint`. |
-| **Branch tracking** (`warden branches`) | Opt-in daemon monitor that reports, per active agent with a branch, its **GitHub CI status** (latest `gh run list` inside the worktree → success/failure/pending/none) and its **standing vs `origin/main`** (commits behind/ahead, and whether already merged). Alerts are **informational, never blocking**: a newly-observed CI failure delivers an inbox note to the agent **and** a desktop notification to the operator (desktop is reserved for CI failures); a merged branch or one fallen >10 commits behind delivers an inbox nudge. A 5-minute dedup window keyed on `(branch, signal-state)` suppresses repeats but re-alerts on a state change (pending→failure). Every subprocess **fails open** — a missing/unauthenticated `gh`, a timeout, or a non-repo worktree simply skips that branch for the tick. Inspect read-only via `warden branches` (`--json`), `GET /collab/branches`, or the `get_branch_status` MCP tool. Off by default; enable with `branch_track_enabled` / tune `branch_track_interval` (default `2m`). |
+| **File-conflict detection** (`warden collab`) | The daemon watches each active agent's worktree and warns (via the inbox, deduplicated) when two agents are editing the same file. Detection is **real-time**: an fsnotify watcher reacts to edits in subseconds (a burst of saves is debounced into one scan), while a slower `git diff` poll reconciles the watch set against the active-session view and acts as a safety net — degrading cleanly to pure polling if fsnotify is unavailable or the inotify watch budget (80% of the per-user limit) is exhausted. Inspect with `collab conflicts` / `collab who-is-editing <file>`, `GET /api/v1/collab/conflicts`, the `get_collaboration_status` / `who_is_editing_file` MCP tools, or the **File conflicts** card on the dashboard's Others tab. Spawned agents also get a system-prompt hint to check `who_is_editing_file` and their inbox before editing shared files, so they coordinate rather than overwrite. Tunable via `collab_enabled` / `collab_interval` / `collab_hint`. |
+| **Branch tracking** (`warden branches`) | Opt-in daemon monitor that reports, per active agent with a branch, its **GitHub CI status** (latest `gh run list` inside the worktree → success/failure/pending/none) and its **standing vs `origin/main`** (commits behind/ahead, and whether already merged). Alerts are **informational, never blocking**: a newly-observed CI failure delivers an inbox note to the agent **and** a desktop notification to the operator (desktop is reserved for CI failures); a merged branch or one fallen >10 commits behind delivers an inbox nudge. A 5-minute dedup window keyed on `(branch, signal-state)` suppresses repeats but re-alerts on a state change (pending→failure). Every subprocess **fails open** — a missing/unauthenticated `gh`, a timeout, or a non-repo worktree simply skips that branch for the tick. Inspect read-only via `warden branches` (`--json`), `GET /api/v1/collab/branches`, or the `get_branch_status` MCP tool. Off by default; enable with `branch_track_enabled` / tune `branch_track_interval` (default `2m`). |
 
 ---
 
@@ -274,10 +274,10 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 
 | Feature | Description |
 |---|---|
-| **Resource metrics** | `internal/metrics` collects per-agent process-tree RSS/CPU, system memory/swap/pressure, and daemon self-stats. Exposed via `/metrics` + `/metrics/history`. |
+| **Resource metrics** | `internal/metrics` collects per-agent process-tree RSS/CPU, system memory/swap/pressure, and daemon self-stats. Exposed via `GET /api/v1/metrics` + `GET /api/v1/metrics/history`. |
 | **`warden stats`** | CLI view of the resource metrics. |
 | **Metrics recorder** | Optional 15s JSONL recorder (the `metrics` setting). |
-| **Agent performance history** | The recorder's samples roll up per agent into runtime, peak/latest/trend RSS, avg/peak CPU, context-token trend, and changed-file count, plus conservative anomaly warnings (climbing memory, climbing/critical context, pinned CPU). Surfaced via `warden stats --history [--agent ID]` and `GET /metrics/history?summary=true[&agent=ID]`. |
+| **Agent performance history** | The recorder's samples roll up per agent into runtime, peak/latest/trend RSS, avg/peak CPU, context-token trend, and changed-file count, plus conservative anomaly warnings (climbing memory, climbing/critical context, pinned CPU). Surfaced via `warden stats --history [--agent ID]` and `GET /api/v1/metrics/history?summary=true[&agent=ID]`. |
 | **Crash & anomaly detection** | Beyond stuck-state reclassification, the poller flags an **OOM kill** (SIGKILL/exit 137), an **infinite loop** (a churning pane cycling through a few states, distinct from the stuck timer's stale pane), and a **pre-crash context** condition (a critical-but-still-working agent that can't be auto-compacted). Each records a durable `anomaly` event and fires a best-effort notification through the `OnAnomaly` seam (once per episode). |
 | **Desktop notifications** | The `notify` setting posts a desktop notification (macOS `osascript` / Linux `notify-send`, log fallback) when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
 | **Webhook / Slack notifications** | When `webhook_enabled` is on, warden also POSTs a JSON payload to `webhook_url` for every alert that goes to desktop notifications — attention-needed transitions (`waiting_for_input`, `errored`, `orphaned`) and context-size warning/critical alerts. A **Slack incoming-webhook URL works out of the box** (the payload's `text` field is what Slack renders); generic consumers get `{text, title, body}`. Best-effort and non-blocking: a short timeout bounds each POST and failures are logged, never propagated. Runs alongside (not instead of) desktop notifications via the same notifier seam — this is what makes "watch from your phone" push real. |
@@ -360,7 +360,7 @@ branch, tags, and last-pane excerpt.
 | Feature | Description |
 |---|---|
 | **`warden search <query…>`** | CLI search over active sessions; multiple words are ANDed. `--closed` folds in the archived (`closed/`) store too, `--json` prints raw records. Renders with the same table as `warden ls`. |
-| **`GET /search?q=&closed=`** | Daemon endpoint (`internal/daemon/search_routes.go`); a blank `q` is a `400`. Returns the standard `{sessions:[…]}` shape. |
+| **`GET /api/v1/search?q=&closed=`** | Daemon endpoint (`internal/daemon/search_routes.go`); a blank `q` is a `400`. Returns the standard `{sessions:[…]}` shape. |
 | **Web search bar** | The dashboard carries a search box that filters the agent grid live, client-side, mirroring the backend matcher (`web/src/lib/search.ts`) for instant feedback. |
 
 **Tags.** Sessions carry an optional `Tags []string` (`warden start --tags backend,urgent`),
@@ -380,7 +380,7 @@ session to the `closed/` store (newest-first), and this surfaces it.
 | Feature | Description |
 |---|---|
 | **`warden history`** | Lists archived sessions. `--since` accepts a duration (`24h`, `90m`, `7d`, `2w`), a date, or an RFC3339 timestamp; `--type` filters by normalized task type; `--limit` caps the count; `--json` prints raw records. |
-| **`GET /history?since=&type=&limit=`** | Daemon endpoint (`internal/daemon/history_routes.go`); `since` is RFC3339 (`400` on a bad value), `type` is normalized, `limit` caps the result. |
+| **`GET /api/v1/history?since=&type=&limit=`** | Daemon endpoint (`internal/daemon/history_routes.go`); `since` is RFC3339 (`400` on a bad value), `type` is normalized, `limit` caps the result. |
 | **Web Archive tab** | A 🗄 Archive tab fetches history with since (all / 24h / 7d / 30d) and type selectors, plus a client-side text filter, rendering a table of ID / Name / Type / Status / Branch / Updated / Subject. |
 
 ---
@@ -393,7 +393,7 @@ Act on many agents at once from the web cockpit instead of one tile at a time.
 |---|---|
 | **Multi-select** | Per-tile checkboxes on the Cockpit grid, with Shift-click range selection. Selections are pruned automatically when an agent ends. |
 | **Bulk action bar** | A floating bar appears while ≥1 agent is selected, offering bulk **Message…**, **Terminate**, and **Delete** (the destructive ones need a second click to confirm). |
-| **Sequential fan-out** | Actions reuse the existing per-agent endpoints (`POST /sessions/{id}/terminate`/`delete`/`messages`) one at a time (`web/src/lib/batch.ts`); the bar reports partial success and keeps failures selected for retry. (Goroutine-parallel fan-out is parked as #36.) |
+| **Sequential fan-out** | Actions reuse the existing per-agent endpoints (`POST /api/v1/sessions/{id}/terminate`/`delete`/`messages`) one at a time (`web/src/lib/batch.ts`); the bar reports partial success and keeps failures selected for retry. (Goroutine-parallel fan-out is parked as #36.) |
 
 ---
 
@@ -457,7 +457,7 @@ imported record simply remembers where its (now absent) worktree used to live.
 |---|---|
 | **`warden export`** | Dumps active agent records as a versioned JSON envelope (`{version, exported_at, sessions}`) on stdout. `--all` folds in the archived (`closed/`) store too. Reuses the existing `/sessions` + `/history` reads — no new export endpoint. |
 | **`warden import`** | Reads an export envelope from stdin and inserts its records. **Idempotent by id**: a record whose id already exists is skipped, so re-importing the same dump is a no-op. `--merge` overwrites colliding records with the imported data instead; `--json` prints the per-id result. A new id whose name collides with a different record is imported with the alias dropped (reported under `renamed`). |
-| **`POST /import?merge=`** | Daemon endpoint (`internal/daemon/import_routes.go`); decodes the envelope and inserts each record keyed on id (`400` on a bad body, `422` on a store error). The `store.Export` / `store.ImportResult` envelope types live in `internal/store/portability.go`. |
+| **`POST /api/v1/import?merge=`** | Daemon endpoint (`internal/daemon/import_routes.go`); decodes the envelope and inserts each record keyed on id (`400` on a bad body, `422` on a store error). The `store.Export` / `store.ImportResult` envelope types live in `internal/store/portability.go`. |
 
 ---
 
@@ -511,7 +511,7 @@ Most of this needs no LLM.
 | **`wd commit` / `push` / `sync` (CLI + MCP)** | Git lifecycle on the agent's pinned worktree via the `lifecycle` runner, returning compact structs in place of git tool-spam. Rails: no commit/push on main/master, no dirty-tree sync, pre-commit-hook failure surfaced as a result; `sync` leaves conflicts in progress carrying only the conflicting files. Commit message is auto-filled when `-m` is omitted (§21). |
 | **`wd check [name]` (CLI + MCP)** | Runs the per-project `.warden/check.yml` command(s) and returns pass/fail with output for only the **failing** checks (tail-truncated, oversized logs condensed per §21). Per-entry `dir:` for monorepos; config is the single source of truth; no-config / unknown-name return friendly errors. The biggest raw-token win. |
 | **Default-isolated write agents** | Every write-type agent (`code`/`docs`/`website`/`debug-ci`/`tests`) gets its own worktree unless `--in-repo`; `pr-review` is exempt (see §2). This is what makes the isolation guard meaningful and fixes parallel-agent collisions. |
-| **Isolation guard** (`isolation_guard`) | A PreToolUse hook denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (`warden hook guard` → `POST /hooks/guard`). |
+| **Isolation guard** (`isolation_guard`) | A PreToolUse hook denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (`warden hook guard` → `POST /api/v1/hooks/guard`). |
 | **Git-guard** (`git_redirect`) | A PreToolUse Bash hook quote-aware argv-parses each command and deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed), the deny message naming the exact replacement. Static verdict, no daemon round-trip. |
 | **Check-guard** (`check_redirect`) | A PreToolUse Bash hook deny-redirects a raw test/lint/build command the project's `.warden/check.yml` registers to `wd check`, matching on leading-token prefix (broad runs redirect; focused `-run` runs pass through). No-config repos redirect nothing. |
 | **Prompt steer** (`git_conventions`) | A Layer-1 system-prompt hint steering agents toward `wd commit`/`push`/`sync` (and `wd check`) over raw git/test Bash — the gentle first layer before the deny hooks. |
@@ -698,7 +698,7 @@ A real, **append-only ledger** of the tokens warden's lifecycle features have ke
 out of agents' context windows — a measured proof point, not an estimate. Each time
 a feature avoids dumping output into the transcript, the saving is recorded; `wd
 savings` reads it back. Config-gated by `savings` (default on); the daemon owns the
-store under `<data_dir>/savings/` and serves it at `GET /savings` (403 when off).
+store under `<data_dir>/savings/` and serves it at `GET /api/v1/savings` (403 when off).
 
 The report keeps two axes honest and **never blends them into one percentage**:
 

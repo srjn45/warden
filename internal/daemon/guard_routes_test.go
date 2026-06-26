@@ -63,7 +63,7 @@ func TestGuardDecision(t *testing.T) {
 func postGuard(t *testing.T, s *Server, body GuardRequest) GuardResponse {
 	t.Helper()
 	b, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/hooks/guard", bytes.NewReader(b))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hooks/guard", bytes.NewReader(b))
 	rec := httptest.NewRecorder()
 	s.handleGuard(rec, req)
 	if rec.Code != http.StatusOK {

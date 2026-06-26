@@ -27,7 +27,7 @@ func getConflicts(t *testing.T, srv *Server) (int, conflictsResponse) {
 	t.Helper()
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/collab/conflicts")
+	resp, err := http.Get(ts.URL + "/api/v1/collab/conflicts")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}

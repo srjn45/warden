@@ -93,7 +93,7 @@ const digestTranscript = `{"type":"user","message":{"role":"user","content":"Edi
 
 func getDigest(t *testing.T, ts *httptest.Server, id string) (*digest.Digest, int) {
 	t.Helper()
-	resp, err := http.Get(ts.URL + "/sessions/" + id + "/digest")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/" + id + "/digest")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestHandleDigestServesPipelineSnapshot(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/sessions/p-a/digest")
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/p-a/digest")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

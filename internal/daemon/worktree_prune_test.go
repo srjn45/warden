@@ -33,7 +33,7 @@ func TestKeepDoneFalse_RemovesCleanWorktreeOnArchive(t *testing.T) {
 	ts := retentionServer(t, fs, fl, false, false)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -57,7 +57,7 @@ func TestKeepDoneFalse_KeepsDirtyWorktreeButArchiveSucceeds(t *testing.T) {
 	ts := retentionServer(t, fs, fl, false, false)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "archive succeeds despite the guard refusal")
@@ -77,7 +77,7 @@ func TestKeepDoneTrue_LeavesWorktreeOnArchive(t *testing.T) {
 	ts := retentionServer(t, fs, fl, true, false)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -96,7 +96,7 @@ func TestKeepDoneFalse_HardDeleteSkipsRemoval(t *testing.T) {
 	ts := retentionServer(t, fs, fl, false, false)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/sessions/A-1/delete", "application/json", strings.NewReader(`{"hard":true}`))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/delete", "application/json", strings.NewReader(`{"hard":true}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

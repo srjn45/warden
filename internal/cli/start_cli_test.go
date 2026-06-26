@@ -14,7 +14,7 @@ func TestStartFreeFormPrompt(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "")
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /spawn": `{"id":"code-1","name":"scout","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"code-1","name":"scout","status":"spawning"}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "start", "research SSE reconnection", "--name", "scout")
 	if err != nil {
@@ -23,8 +23,8 @@ func TestStartFreeFormPrompt(t *testing.T) {
 	if !strings.Contains(out, "spawned code-1 (scout) (classifying…)") {
 		t.Fatalf("start output: %q", out)
 	}
-	if !strings.Contains(body["/spawn"], `"prompt":"research SSE reconnection"`) {
-		t.Fatalf("prompt not forwarded: %q", body["/spawn"])
+	if !strings.Contains(body["/api/v1/spawn"], `"prompt":"research SSE reconnection"`) {
+		t.Fatalf("prompt not forwarded: %q", body["/api/v1/spawn"])
 	}
 }
 
@@ -33,7 +33,7 @@ func TestStartFreeFormPrompt(t *testing.T) {
 func TestStartInteractiveNoPrompt(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "")
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /spawn": `{"id":"code-2","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"code-2","status":"spawning"}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "start", "--dir", t.TempDir())
 	if err != nil {
@@ -48,7 +48,7 @@ func TestStartInteractiveNoPrompt(t *testing.T) {
 func TestStartTypedManaged(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /spawn": `{"id":"DEV-1","type":"development","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"DEV-1","type":"development","status":"spawning"}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "start", "DEV-1", "--type", "development", "--repo", t.TempDir(), "--tags", "backend, urgent")
 	if err != nil {
@@ -58,7 +58,7 @@ func TestStartTypedManaged(t *testing.T) {
 		t.Fatalf("start typed output: %q", out)
 	}
 	var sent map[string]any
-	if err := json.Unmarshal([]byte(body["/spawn"]), &sent); err != nil {
+	if err := json.Unmarshal([]byte(body["/api/v1/spawn"]), &sent); err != nil {
 		t.Fatalf("spawn body not JSON: %v", err)
 	}
 	if sent["type"] != "development" || sent["ticket"] != "DEV-1" {

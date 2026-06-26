@@ -36,7 +36,7 @@ func TestScheduleCreateThenList(t *testing.T) {
 	defer ts.Close()
 
 	body := `{"name":"daily","cron":"0 9 * * *","type":"development","repo":"/r","prompt":"do it"}`
-	resp, err := http.Post(ts.URL+"/schedules", "application/json", strings.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -46,7 +46,7 @@ func TestScheduleCreateThenList(t *testing.T) {
 	require.Equal(t, schedule.KindCron, sc.Kind)
 	require.Equal(t, schedule.ModeAgent, sc.Mode)
 
-	resp2, err := http.Get(ts.URL + "/schedules")
+	resp2, err := http.Get(ts.URL + "/api/v1/schedules")
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 	var lr struct {
@@ -60,7 +60,7 @@ func TestScheduleCreateBothCronAndAt400(t *testing.T) {
 	ts, _, _ := newSchedServer(t)
 	defer ts.Close()
 	body := `{"name":"bad","cron":"0 9 * * *","at":"2026-06-27T09:00:00Z","prompt":"x"}`
-	resp, err := http.Post(ts.URL+"/schedules", "application/json", strings.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -71,7 +71,7 @@ func TestScheduleCreateBadPipelineSpec400(t *testing.T) {
 	defer ts.Close()
 	// depends_on references a non-existent job → ParseSpec rejects it.
 	body := `{"name":"p","cron":"0 9 * * *","spec":"name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    depends_on: [ghost]\n"}`
-	resp, err := http.Post(ts.URL+"/schedules", "application/json", strings.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -81,8 +81,8 @@ func TestScheduleCreateDuplicate409(t *testing.T) {
 	ts, _, _ := newSchedServer(t)
 	defer ts.Close()
 	body := `{"name":"dup","cron":"0 9 * * *","prompt":"x"}`
-	http.Post(ts.URL+"/schedules", "application/json", strings.NewReader(body)) //nolint:errcheck
-	resp, err := http.Post(ts.URL+"/schedules", "application/json", strings.NewReader(body))
+	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(body)) //nolint:errcheck
+	resp, err := http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
@@ -91,16 +91,16 @@ func TestScheduleCreateDuplicate409(t *testing.T) {
 func TestScheduleDelete(t *testing.T) {
 	ts, _, _ := newSchedServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"0 9 * * *","prompt":"x"}`)) //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"0 9 * * *","prompt":"x"}`)) //nolint:errcheck
 
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/schedules/s", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/schedules/s", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Second delete → 404.
-	req2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/schedules/s", nil)
+	req2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/schedules/s", nil)
 	resp2, err := http.DefaultClient.Do(req2)
 	require.NoError(t, err)
 	defer resp2.Body.Close()
@@ -118,12 +118,12 @@ func TestScheduleGatedOff403(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/schedules")
+	resp, err := http.Get(ts.URL + "/api/v1/schedules")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 
-	resp2, err := http.Post(ts.URL+"/schedules", "application/json", strings.NewReader(`{"name":"x","cron":"0 9 * * *","prompt":"p"}`))
+	resp2, err := http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"x","cron":"0 9 * * *","prompt":"p"}`))
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 	require.Equal(t, http.StatusForbidden, resp2.StatusCode)

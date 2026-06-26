@@ -35,11 +35,11 @@ func portabilityStub(t *testing.T, active, closed []*store.Session) (addr string
 	imported = &got
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/sessions":
+		case r.URL.Path == "/api/v1/sessions":
 			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": active})
-		case r.URL.Path == "/history":
+		case r.URL.Path == "/api/v1/history":
 			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": closed})
-		case r.URL.Path == "/import":
+		case r.URL.Path == "/api/v1/import":
 			_ = json.NewDecoder(r.Body).Decode(&got)
 			res := store.ImportResult{}
 			for _, s := range got.Sessions {

@@ -28,6 +28,11 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
+// apiPrefix is the versioned base path every data/action route hangs off of on
+// the daemon (mirrors r.Route("/api/v1") in internal/daemon). It is prepended to
+// every request path here, so handler-relative paths elsewhere stay unprefixed.
+const apiPrefix = "/api/v1"
+
 // ErrDaemonDown signals the daemon is unreachable (connection refused / timeout).
 var ErrDaemonDown = errors.New("daemon not running\n\nRun: warden daemon\nOr install as a service: ./scripts/install.sh")
 
@@ -104,7 +109,7 @@ func (c *Client) doT(ctx context.Context, timeout time.Duration, method, path st
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.base+apiPrefix+path, body)
 	if err != nil {
 		return err
 	}
@@ -238,7 +243,7 @@ func (c *Client) Import(ctx context.Context, env *store.Export, merge bool) (*st
 // context.Canceled as a clean stop.
 func (c *Client) Watch(ctx context.Context, onSnapshot func([]*store.Session) error) error {
 	// No per-call deadline: this is a long-lived stream, not a request/response.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/events/stream", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+apiPrefix+"/events/stream", nil)
 	if err != nil {
 		return err
 	}

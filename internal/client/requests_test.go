@@ -54,7 +54,7 @@ func TestGet(t *testing.T) {
 	s, err := New(ts.URL).Get(context.Background(), "A-1")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodGet, c.method)
-	require.Equal(t, "/sessions/A-1", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1", c.path)
 	require.Equal(t, "A-1", s.ID)
 }
 
@@ -84,7 +84,7 @@ func TestSearch(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"sessions":[{"id":"A-1"},{"id":"B-2"}]}`)
 	got, err := New(ts.URL).Search(context.Background(), SearchParams{Query: "foo bar", Closed: true})
 	require.NoError(t, err)
-	require.Equal(t, "/search", c.path)
+	require.Equal(t, "/api/v1/search", c.path)
 	require.Equal(t, "foo bar", queryParam(c.rawQ, "q"))
 	require.Equal(t, "true", queryParam(c.rawQ, "closed"))
 	require.Len(t, got, 2)
@@ -104,7 +104,7 @@ func TestHistoryForwardsFilters(t *testing.T) {
 	since := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	got, err := New(ts.URL).History(context.Background(), HistoryParams{Since: since, Type: "development", Limit: 10})
 	require.NoError(t, err)
-	require.Equal(t, "/history", c.path)
+	require.Equal(t, "/api/v1/history", c.path)
 	require.Equal(t, "2026-01-02T03:04:05Z", queryParam(c.rawQ, "since"))
 	require.Equal(t, "development", queryParam(c.rawQ, "type"))
 	require.Equal(t, "10", queryParam(c.rawQ, "limit"))
@@ -126,7 +126,7 @@ func TestImportSendsEnvelopeAndMergeFlag(t *testing.T) {
 	res, err := New(ts.URL).Import(context.Background(), env, true)
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/import", c.path)
+	require.Equal(t, "/api/v1/import", c.path)
 	require.Equal(t, "merge=true", c.rawQ)
 	require.Equal(t, []string{"A-1"}, res.Imported)
 	require.Equal(t, []string{"B-2"}, res.Merged)
@@ -138,7 +138,7 @@ func TestGuardSendsBodyAndParsesVerdict(t *testing.T) {
 	v, err := New(ts.URL).Guard(context.Background(), "A-1", "Edit", "/etc/passwd")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/hooks/guard", c.path)
+	require.Equal(t, "/api/v1/hooks/guard", c.path)
 	require.Equal(t, "A-1", c.body["session"])
 	require.Equal(t, "Edit", c.body["tool"])
 	require.Equal(t, "/etc/passwd", c.body["path"])
@@ -152,7 +152,7 @@ func TestGitCommit(t *testing.T) {
 	res, err := New(ts.URL).GitCommit(context.Background(), "A-1", "/repo", "msg")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/git/commit", c.path)
+	require.Equal(t, "/api/v1/git/commit", c.path)
 	require.Equal(t, "A-1", c.body["session"])
 	require.Equal(t, "/repo", c.body["dir"])
 	require.Equal(t, "msg", c.body["message"])
@@ -166,7 +166,7 @@ func TestGitPush(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"branch":"feat","remote":"origin","pushed":true}`)
 	res, err := New(ts.URL).GitPush(context.Background(), "A-1", "/repo")
 	require.NoError(t, err)
-	require.Equal(t, "/git/push", c.path)
+	require.Equal(t, "/api/v1/git/push", c.path)
 	require.Equal(t, "A-1", c.body["session"])
 	require.True(t, res.Pushed)
 	require.Equal(t, "origin", res.Remote)
@@ -177,7 +177,7 @@ func TestGitSync(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"branch":"feat","base":"main","updated":false,"conflicts":["a.go","b.go"]}`)
 	res, err := New(ts.URL).GitSync(context.Background(), "A-1", "/repo", "main")
 	require.NoError(t, err)
-	require.Equal(t, "/git/sync", c.path)
+	require.Equal(t, "/api/v1/git/sync", c.path)
 	require.Equal(t, "main", c.body["base"])
 	require.False(t, res.Updated)
 	require.Equal(t, []string{"a.go", "b.go"}, res.Conflicts)
@@ -188,7 +188,7 @@ func TestCheck(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"passed":false,"checks":[{"name":"test","passed":false}]}`)
 	res, err := New(ts.URL).Check(context.Background(), "A-1", "/repo", "test")
 	require.NoError(t, err)
-	require.Equal(t, "/check", c.path)
+	require.Equal(t, "/api/v1/check", c.path)
 	require.Equal(t, "test", c.body["name"])
 	require.False(t, res.Passed)
 	require.Len(t, res.Checks, 1)
@@ -199,7 +199,7 @@ func TestTerminate(t *testing.T) {
 	ts := jsonServer(t, &c, 0, ``)
 	require.NoError(t, New(ts.URL).Terminate(context.Background(), "A-1"))
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/sessions/A-1/terminate", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1/terminate", c.path)
 }
 
 func TestDeleteSendsHardFlag(t *testing.T) {
@@ -207,7 +207,7 @@ func TestDeleteSendsHardFlag(t *testing.T) {
 	ts := jsonServer(t, &c, 0, ``)
 	require.NoError(t, New(ts.URL).Delete(context.Background(), "A-1", true))
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/sessions/A-1/delete", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1/delete", c.path)
 	require.Equal(t, true, c.body["hard"])
 }
 
@@ -215,7 +215,7 @@ func TestInput(t *testing.T) {
 	var c capture
 	ts := jsonServer(t, &c, 0, ``)
 	require.NoError(t, New(ts.URL).Input(context.Background(), "A-1", "hello"))
-	require.Equal(t, "/sessions/A-1/input", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1/input", c.path)
 	require.Equal(t, "hello", c.body["text"])
 }
 
@@ -224,7 +224,7 @@ func TestRestore(t *testing.T) {
 	ts := jsonServer(t, &c, 0, ``)
 	require.NoError(t, New(ts.URL).Restore(context.Background(), "A-1"))
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/sessions/A-1/restore", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1/restore", c.path)
 }
 
 func TestListWorktrees(t *testing.T) {
@@ -232,7 +232,7 @@ func TestListWorktrees(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"worktrees":[{"path":".worktrees/A-1","branch":"feat","owner":"A-1","state":"clean"}]}`)
 	got, err := New(ts.URL).ListWorktrees(context.Background(), "/repo")
 	require.NoError(t, err)
-	require.Equal(t, "/worktrees", c.path)
+	require.Equal(t, "/api/v1/worktrees", c.path)
 	require.Equal(t, "/repo", queryParam(c.rawQ, "repo"))
 	require.Len(t, got, 1)
 	require.Equal(t, ".worktrees/A-1", got[0].Path)
@@ -245,7 +245,7 @@ func TestPrune(t *testing.T) {
 	got, err := New(ts.URL).Prune(context.Background(), PruneParams{Repo: "/repo", DryRun: true, Force: true, IncludeArchived: true})
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/prune", c.path)
+	require.Equal(t, "/api/v1/prune", c.path)
 	require.Equal(t, "/repo", c.body["repo"])
 	require.Equal(t, true, c.body["dry_run"])
 	require.Equal(t, true, c.body["force"])
@@ -260,7 +260,7 @@ func TestSnapshotCreate(t *testing.T) {
 	snap, err := New(ts.URL).SnapshotCreate(context.Background(), "A-1", "/repo", "good point")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/snapshots", c.path)
+	require.Equal(t, "/api/v1/snapshots", c.path)
 	require.Equal(t, "good point", c.body["message"])
 	require.Equal(t, "snap-1", snap.ID)
 }
@@ -270,7 +270,7 @@ func TestSnapshotListFiltersBySession(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"snapshots":[{"id":"snap-1"}]}`)
 	got, err := New(ts.URL).SnapshotList(context.Background(), "A-1")
 	require.NoError(t, err)
-	require.Equal(t, "/snapshots", c.path)
+	require.Equal(t, "/api/v1/snapshots", c.path)
 	require.Equal(t, "A-1", queryParam(c.rawQ, "session"))
 	require.Len(t, got, 1)
 }
@@ -289,7 +289,7 @@ func TestSnapshotRestore(t *testing.T) {
 	_, err := New(ts.URL).SnapshotRestore(context.Background(), "snap-1", true)
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/snapshots/snap-1/restore", c.path)
+	require.Equal(t, "/api/v1/snapshots/snap-1/restore", c.path)
 	require.Equal(t, true, c.body["force"])
 }
 
@@ -299,7 +299,7 @@ func TestCreatePR(t *testing.T) {
 	res, err := New(ts.URL).CreatePR(context.Background(), "A-1", "main")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/sessions/A-1/create-pr", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1/create-pr", c.path)
 	require.Equal(t, "main", c.body["base"])
 	require.True(t, res.Created)
 	require.Equal(t, "http://gh/pr/1", res.URL)
@@ -311,7 +311,7 @@ func TestOutput(t *testing.T) {
 	out, err := New(ts.URL).Output(context.Background(), "A-1", 50)
 	require.NoError(t, err)
 	require.Equal(t, http.MethodGet, c.method)
-	require.Equal(t, "/sessions/A-1/output", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1/output", c.path)
 	require.Equal(t, "lines=50", c.rawQ)
 	require.Equal(t, "line1\nline2", out)
 }
@@ -322,7 +322,7 @@ func TestCtxCAS(t *testing.T) {
 	e, err := New(ts.URL).CtxCAS(context.Background(), "global.k", "old", "new", "A")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/context/global.k/cas", c.path)
+	require.Equal(t, "/api/v1/context/global.k/cas", c.path)
 	require.Equal(t, "old", c.body["expected"])
 	require.Equal(t, "new", c.body["value"])
 	require.Equal(t, "A", c.body["by"])
@@ -342,7 +342,7 @@ func TestCtxAppend(t *testing.T) {
 	e, err := New(ts.URL).CtxAppend(context.Background(), "log", "b", ",", "A")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/context/log/append", c.path)
+	require.Equal(t, "/api/v1/context/log/append", c.path)
 	require.Equal(t, "b", c.body["value"])
 	require.Equal(t, ",", c.body["sep"])
 	require.Equal(t, "a,b", e.Value)
@@ -354,7 +354,7 @@ func TestCtxGet(t *testing.T) {
 	e, err := New(ts.URL).CtxGet(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodGet, c.method)
-	require.Equal(t, "/context/k", c.path)
+	require.Equal(t, "/api/v1/context/k", c.path)
 	require.Equal(t, "v", e.Value)
 }
 
@@ -376,7 +376,7 @@ func TestCollabConflicts(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"conflicts":[{"file":"a.go","agents":[{"id":"A-1"},{"id":"B-2"}]}]}`)
 	got, err := New(ts.URL).CollabConflicts(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "/collab/conflicts", c.path)
+	require.Equal(t, "/api/v1/collab/conflicts", c.path)
 	require.Len(t, got, 1)
 	require.Equal(t, "a.go", got[0].File)
 	require.Len(t, got[0].Agents, 2)
@@ -387,7 +387,7 @@ func TestBranchStatuses(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"branches":[{"agent_id":"A-1","branch":"feat","ci":{"state":"success"},"ahead":2,"behind":1,"merged":false}]}`)
 	got, err := New(ts.URL).BranchStatuses(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "/collab/branches", c.path)
+	require.Equal(t, "/api/v1/collab/branches", c.path)
 	require.Len(t, got, 1)
 	require.Equal(t, "A-1", got[0].AgentID)
 	require.Equal(t, "success", got[0].CI.State)
@@ -400,7 +400,7 @@ func TestPipelineList(t *testing.T) {
 	got, err := New(ts.URL).PipelineList(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, http.MethodGet, c.method)
-	require.Equal(t, "/pipelines", c.path)
+	require.Equal(t, "/api/v1/pipelines", c.path)
 	require.Len(t, got, 1)
 	require.Equal(t, "p1", got[0].ID)
 }
@@ -410,7 +410,7 @@ func TestPipelineGet(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"id":"p1","name":"demo"}`)
 	got, err := New(ts.URL).PipelineGet(context.Background(), "p1")
 	require.NoError(t, err)
-	require.Equal(t, "/pipelines/p1", c.path)
+	require.Equal(t, "/api/v1/pipelines/p1", c.path)
 	require.Equal(t, "p1", got.ID)
 }
 
@@ -421,11 +421,11 @@ func TestPipelineLifecycleActions(t *testing.T) {
 		wantMethod string
 		wantPath   string
 	}{
-		{"start", func(c *Client) error { return c.PipelineStart(context.Background(), "p1") }, http.MethodPost, "/pipelines/p1/start"},
-		{"pause", func(c *Client) error { return c.PipelinePause(context.Background(), "p1") }, http.MethodPost, "/pipelines/p1/pause"},
-		{"resume", func(c *Client) error { return c.PipelineResume(context.Background(), "p1") }, http.MethodPost, "/pipelines/p1/resume"},
-		{"cancel", func(c *Client) error { return c.PipelineCancel(context.Background(), "p1") }, http.MethodPost, "/pipelines/p1/cancel"},
-		{"delete", func(c *Client) error { return c.PipelineDelete(context.Background(), "p1") }, http.MethodDelete, "/pipelines/p1"},
+		{"start", func(c *Client) error { return c.PipelineStart(context.Background(), "p1") }, http.MethodPost, "/api/v1/pipelines/p1/start"},
+		{"pause", func(c *Client) error { return c.PipelinePause(context.Background(), "p1") }, http.MethodPost, "/api/v1/pipelines/p1/pause"},
+		{"resume", func(c *Client) error { return c.PipelineResume(context.Background(), "p1") }, http.MethodPost, "/api/v1/pipelines/p1/resume"},
+		{"cancel", func(c *Client) error { return c.PipelineCancel(context.Background(), "p1") }, http.MethodPost, "/api/v1/pipelines/p1/cancel"},
+		{"delete", func(c *Client) error { return c.PipelineDelete(context.Background(), "p1") }, http.MethodDelete, "/api/v1/pipelines/p1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -446,7 +446,7 @@ func TestScheduleCreate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, c.method)
-	require.Equal(t, "/schedules", c.path)
+	require.Equal(t, "/api/v1/schedules", c.path)
 	require.Equal(t, "nightly", c.body["name"])
 	require.Equal(t, "0 0 * * *", c.body["cron"])
 	require.Equal(t, "nightly", sc.ID)
@@ -457,7 +457,7 @@ func TestScheduleList(t *testing.T) {
 	ts := jsonServer(t, &c, 0, `{"schedules":[{"id":"nightly","name":"nightly"}]}`)
 	got, err := New(ts.URL).ScheduleList(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "/schedules", c.path)
+	require.Equal(t, "/api/v1/schedules", c.path)
 	require.Len(t, got, 1)
 	require.Equal(t, "nightly", got[0].ID)
 }
@@ -467,7 +467,7 @@ func TestScheduleDelete(t *testing.T) {
 	ts := jsonServer(t, &c, 0, ``)
 	require.NoError(t, New(ts.URL).ScheduleDelete(context.Background(), "nightly"))
 	require.Equal(t, http.MethodDelete, c.method)
-	require.Equal(t, "/schedules/nightly", c.path)
+	require.Equal(t, "/api/v1/schedules/nightly", c.path)
 }
 
 func TestGetAgentHistory(t *testing.T) {
@@ -476,7 +476,7 @@ func TestGetAgentHistory(t *testing.T) {
 	since := "2026-01-01T00:00:00Z"
 	got, err := New(ts.URL).GetAgentHistory(context.Background(), since, "A-1")
 	require.NoError(t, err)
-	require.Equal(t, "/metrics/history", c.path)
+	require.Equal(t, "/api/v1/metrics/history", c.path)
 	require.Equal(t, "true", queryParam(c.rawQ, "summary"))
 	require.Equal(t, since, queryParam(c.rawQ, "since"))
 	require.Equal(t, "A-1", queryParam(c.rawQ, "agent"))
@@ -490,7 +490,7 @@ func TestSetAutoApprove(t *testing.T) {
 	ts := jsonServer(t, &c, 0, ``)
 	require.NoError(t, New(ts.URL).SetAutoApprove(context.Background(), "A-1", true))
 	require.Equal(t, http.MethodPatch, c.method)
-	require.Equal(t, "/sessions/A-1/auto-approve", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1/auto-approve", c.path)
 	require.Equal(t, true, c.body["enabled"])
 }
 
@@ -499,7 +499,7 @@ func TestSetName(t *testing.T) {
 	ts := jsonServer(t, &c, 0, ``)
 	require.NoError(t, New(ts.URL).SetName(context.Background(), "A-1", "scout"))
 	require.Equal(t, http.MethodPatch, c.method)
-	require.Equal(t, "/sessions/A-1/name", c.path)
+	require.Equal(t, "/api/v1/sessions/A-1/name", c.path)
 	require.Equal(t, "scout", c.body["name"])
 }
 
@@ -512,11 +512,11 @@ func TestInsightsAggregatesReadEndpoints(t *testing.T) {
 		hits = append(hits, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/sessions":
+		case r.URL.Path == "/api/v1/sessions":
 			_, _ = io.WriteString(w, `{"sessions":[]}`)
-		case r.URL.Path == "/history":
+		case r.URL.Path == "/api/v1/history":
 			_, _ = io.WriteString(w, `{"sessions":[{"id":"A-1","status":"done"}]}`)
-		case r.URL.Path == "/metrics/history":
+		case r.URL.Path == "/api/v1/metrics/history":
 			_, _ = io.WriteString(w, `{"summaries":[{"id":"A-1"}]}`)
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -527,9 +527,9 @@ func TestInsightsAggregatesReadEndpoints(t *testing.T) {
 	rep, err := New(ts.URL).Insights(context.Background(), InsightsParams{})
 	require.NoError(t, err)
 	require.NotNil(t, rep)
-	require.Contains(t, hits, "/sessions")
-	require.Contains(t, hits, "/history")
-	require.Contains(t, hits, "/metrics/history")
+	require.Contains(t, hits, "/api/v1/sessions")
+	require.Contains(t, hits, "/api/v1/history")
+	require.Contains(t, hits, "/api/v1/metrics/history")
 }
 
 func TestInsightsPropagatesListError(t *testing.T) {

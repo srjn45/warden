@@ -28,7 +28,7 @@ func runHookGuard(t *testing.T, addr, stdin string) string {
 func stubGuard(t *testing.T, decision, reason string) (addr string) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/hooks/guard", r.URL.Path)
+		require.Equal(t, "/api/v1/hooks/guard", r.URL.Path)
 		json.NewEncoder(w).Encode(map[string]string{"decision": decision, "reason": reason})
 	}))
 	t.Cleanup(srv.Close)

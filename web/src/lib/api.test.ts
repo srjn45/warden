@@ -20,7 +20,7 @@ describe('api', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ sessions: [{ id: 'A-1' }] }));
     vi.stubGlobal('fetch', fetchMock);
     const out = await listSessions();
-    expect(fetchMock.mock.calls[0][0]).toBe('/sessions');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/sessions');
     expect(out).toHaveLength(1);
     expect(out[0].id).toBe('A-1');
   });
@@ -30,7 +30,7 @@ describe('api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await spawn({ type: 'development', repo: '/r', ticket: 'A-1' });
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/spawn');
+    expect(url).toBe('/api/v1/spawn');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({
       type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false, prompt: '', cwd: '', supervised: false, force: false,
@@ -51,7 +51,7 @@ describe('api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await terminate('A-1');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/sessions/A-1/terminate');
+    expect(url).toBe('/api/v1/sessions/A-1/terminate');
     expect(opts.method).toBe('POST');
   });
 
@@ -60,7 +60,7 @@ describe('api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await removeWorktree('A-1', true);
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/sessions/A-1/remove-worktree');
+    expect(url).toBe('/api/v1/sessions/A-1/remove-worktree');
     expect(JSON.parse(opts.body)).toEqual({ force: true });
   });
 
@@ -69,7 +69,7 @@ describe('api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await deleteSession('A-1', true);
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/sessions/A-1/delete');
+    expect(url).toBe('/api/v1/sessions/A-1/delete');
     expect(JSON.parse(opts.body)).toEqual({ hard: true });
   });
 
@@ -85,7 +85,7 @@ describe('api', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(listing));
     vi.stubGlobal('fetch', fetchMock);
     const out = await listDirs('/work');
-    expect(fetchMock.mock.calls[0][0]).toBe('/fs/dirs?path=%2Fwork');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/fs/dirs?path=%2Fwork');
     expect(out.entries[0].path).toBe('/work/project');
   });
 
@@ -112,7 +112,7 @@ describe('api', () => {
     const f = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'answered' }) });
     globalThis.fetch = f as any;
     await approve('a1', 2, 'ff');
-    expect(f).toHaveBeenCalledWith('/sessions/a1/approve', expect.objectContaining({ method: 'POST' }));
+    expect(f).toHaveBeenCalledWith('/api/v1/sessions/a1/approve', expect.objectContaining({ method: 'POST' }));
     const body = JSON.parse((f.mock.calls[0][1] as any).body);
     expect(body).toEqual({ option: 2, fingerprint: 'ff' });
   });
@@ -172,7 +172,7 @@ describe('collab api', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     const out = await listConflicts();
-    expect(fetchMock.mock.calls[0][0]).toBe('/collab/conflicts');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/collab/conflicts');
     expect(out).toHaveLength(1);
     expect(out[0].file).toBe('internal/auth.go');
     expect(out[0].agents).toHaveLength(2);
@@ -189,7 +189,7 @@ describe('pipelines api', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ pipelines: [{ id: 'demo', jobs: [] }] }));
     vi.stubGlobal('fetch', fetchMock);
     const out = await listPipelines();
-    expect(fetchMock.mock.calls[0][0]).toBe('/pipelines');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/pipelines');
     expect(out).toHaveLength(1);
     expect(out[0].id).toBe('demo');
   });
@@ -204,7 +204,7 @@ describe('pipelines api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await cancelPipeline('demo');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/pipelines/demo/cancel');
+    expect(url).toBe('/api/v1/pipelines/demo/cancel');
     expect(opts.method).toBe('POST');
   });
 
@@ -213,7 +213,7 @@ describe('pipelines api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await pausePipeline('demo');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/pipelines/demo/pause');
+    expect(url).toBe('/api/v1/pipelines/demo/pause');
     expect(opts.method).toBe('POST');
   });
 
@@ -222,7 +222,7 @@ describe('pipelines api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await resumePipeline('demo');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/pipelines/demo/resume');
+    expect(url).toBe('/api/v1/pipelines/demo/resume');
     expect(opts.method).toBe('POST');
   });
 
@@ -238,7 +238,7 @@ describe('pipelines api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await deletePipeline('demo');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/pipelines/demo');
+    expect(url).toBe('/api/v1/pipelines/demo');
     expect(opts.method).toBe('DELETE');
   });
 
@@ -253,7 +253,7 @@ describe('pipelines api', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'retrying' }));
     vi.stubGlobal('fetch', fetchMock);
     await retryJob('demo', 'a');
-    expect(fetchMock.mock.calls[0][0]).toBe('/pipelines/demo/jobs/a/retry');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/pipelines/demo/jobs/a/retry');
     expect(fetchMock.mock.calls[0][1].method).toBe('POST');
   });
 
@@ -262,7 +262,7 @@ describe('pipelines api', () => {
     vi.stubGlobal('fetch', fetchMock);
     const out = await createPipeline('{"name":"demo"}');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/pipelines');
+    expect(url).toBe('/api/v1/pipelines');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({ spec: '{"name":"demo"}' });
     expect(out.id).toBe('demo');
@@ -278,7 +278,7 @@ describe('pipelines api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await startPipeline('demo');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/pipelines/demo/start');
+    expect(url).toBe('/api/v1/pipelines/demo/start');
     expect(opts.method).toBe('POST');
   });
 });

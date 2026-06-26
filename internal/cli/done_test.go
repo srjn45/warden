@@ -46,9 +46,9 @@ func TestDoneCreatePROpensThenFinishes(t *testing.T) {
 	require.Contains(t, out, "done A-1")
 	// PR creation must run before terminate/delete.
 	require.Equal(t, []string{
-		"/sessions/A-1/create-pr",
-		"/sessions/A-1/terminate",
-		"/sessions/A-1/delete",
+		"/api/v1/sessions/A-1/create-pr",
+		"/api/v1/sessions/A-1/terminate",
+		"/api/v1/sessions/A-1/delete",
 	}, *hits)
 }
 
@@ -65,7 +65,7 @@ func TestDoneCreatePRFailureLeavesAgentRunning(t *testing.T) {
 	require.Error(t, err, "a PR failure aborts done")
 	require.Contains(t, err.Error(), "create PR")
 	// Terminate/delete must NOT have run.
-	require.Equal(t, []string{"/sessions/A-1/create-pr"}, *hits)
+	require.Equal(t, []string{"/api/v1/sessions/A-1/create-pr"}, *hits)
 }
 
 func TestDoneWithoutCreatePRSkipsPR(t *testing.T) {
@@ -73,5 +73,5 @@ func TestDoneWithoutCreatePRSkipsPR(t *testing.T) {
 	out, err := runGit(t, addr, "done", "A-1")
 	require.NoError(t, err)
 	require.Contains(t, out, "done A-1")
-	require.Equal(t, []string{"/sessions/A-1/terminate", "/sessions/A-1/delete"}, *hits)
+	require.Equal(t, []string{"/api/v1/sessions/A-1/terminate", "/api/v1/sessions/A-1/delete"}, *hits)
 }

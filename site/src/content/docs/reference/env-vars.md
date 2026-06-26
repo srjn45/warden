@@ -50,7 +50,7 @@ Common settings (run `warden config` for the complete, live list):
 | `metrics` | `true` | Record per-agent performance history for `warden stats --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate and a hard cap on concurrent agents (0 = no cap) |
 | `pipeline_keep_done` / `pipeline_hint` | — | Pipeline retention + the decomposition nudge |
-| `savings` | `true` | Record the token-savings ledger (`warden savings`, `GET /savings`) |
+| `savings` | `true` | Record the token-savings ledger (`warden savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden savings --audit` (may hold sensitive output) |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`) |
 | `branch_track_enabled` | `false` | Enable the per-agent branch monitor (`warden branches`) |

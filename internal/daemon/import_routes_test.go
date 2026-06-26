@@ -140,7 +140,7 @@ func TestHandleImportHTTP(t *testing.T) {
 		t.Helper()
 		blob, err := json.Marshal(env)
 		require.NoError(t, err)
-		url := ts.URL + "/import"
+		url := ts.URL + "/api/v1/import"
 		if merge {
 			url += "?merge=true"
 		}
@@ -167,7 +167,7 @@ func TestHandleImportHTTP(t *testing.T) {
 	require.Equal(t, "v2", got.Subject)
 
 	// A malformed body is a 400.
-	resp, err := http.Post(ts.URL+"/import", "application/json", bytes.NewReader([]byte("{bad")))
+	resp, err := http.Post(ts.URL+"/api/v1/import", "application/json", bytes.NewReader([]byte("{bad")))
 	require.NoError(t, err)
 	resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
