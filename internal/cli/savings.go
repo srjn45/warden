@@ -329,7 +329,11 @@ func newSavingsCmd() *cobra.Command {
 			// Ask the daemon for the day buckets (sparkline) only when benchmarking,
 			// and the provenance samples only when auditing — the common report and
 			// plain --json stay byte-for-byte unchanged.
-			sum, err := clientFor(cmd).Savings(cmd.Context(), since, bench, audit)
+			bucket := ""
+			if bench {
+				bucket = savings.GranularityDay
+			}
+			sum, err := clientFor(cmd).Savings(cmd.Context(), since, bucket, audit)
 			if err != nil {
 				// A disabled ledger (403) is operator config, not a failure — point
 				// at the switch rather than dumping a raw HTTP error.

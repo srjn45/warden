@@ -55,7 +55,7 @@ func TestSparkline(t *testing.T) {
 func TestFormatBenchmarkTrend(t *testing.T) {
 	sum := &savings.Summary{
 		Events: 3, RawTokens: 4200, KeptTokens: 2600, SavedTokens: 1600,
-		Buckets: []savings.DayBucket{
+		Buckets: []savings.Bucket{
 			{Date: "2026-06-01", SavedTokens: 100, Events: 1},
 			{Date: "2026-06-02", SavedTokens: 800, Events: 2},
 		},

@@ -37,7 +37,7 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 | **Attention queue** | In the **Others** tab: surfaces agents in `waiting_for_input`/`errored`/`orphaned`, with one-click approval buttons. |
 | **Metrics view** | A dedicated `/metrics` tab — see [Metrics view](#metrics-view). |
 | **Context & Messages overlay** | Opened from a small **🗒 header button** as a dismissible overlay (Esc closes); it's no longer a tab. |
-| **Interactive terminal** | Pin an agent to get a live `tmux attach` bridged to the browser over a WebSocket (xterm.js) — type into the agent and watch it respond. **Mobile-friendly:** swipe to scroll the scrollback, plus an on-screen key bar (Esc, Tab, Ctrl-C, ↑/↓, jump-to-bottom) for the keys a phone keyboard lacks. |
+| **Interactive terminal** | Pin an agent to get a live `tmux attach` bridged to the browser over a WebSocket (xterm.js) — type into the agent and watch it respond. **Mobile-friendly:** swipe to scroll back through history (the swipe drives tmux/the agent's scrollback the same way a mouse wheel does), plus a sticky on-screen key bar (Esc, Tab, Ctrl-C, ↑/↓, jump-to-bottom) for the keys a phone keyboard lacks. The layout tracks the visible viewport, so the bottom tab nav and the key bar stay put above the soft keyboard. |
 | **Create agent** | **+ New agent** prompt box with a directory picker (live prefix autocomplete) and a **Supervised** checkbox. |
 | **Terminate with git guard** | Surfaces a 409 → **Force** + optional hard-delete when there's uncommitted/unpushed work. |
 | **Digest panel** | View an agent's completion digest in the browser. |
@@ -62,7 +62,8 @@ The **Metrics** tab (`/metrics`) is a responsive grid of self-contained uPlot ch
 | **Total memory** | A single fleet-wide line: resident memory (GiB) summed across all agents. Sits beside *Memory per agent*. |
 | **Context per agent** | One line series per agent of its live context-window fill over time, with the legend dot coloured by `ok`/`warning`/`critical`. This series is **accumulated client-side** (a ring buffer over the live SSE feed) — it survives tab switches but **starts fresh on a full page reload** (a persisted history is a tracked daemon follow-up). |
 | **Number of agents** | Fleet size (`agent_count`) over time. |
-| **Tokens saved** | Daily bars of tokens kept out of agents' context (from the [savings ledger](/warden/reference/savings/)), plus a headline saved-tokens / dollars figure. If the ledger is disabled (`savings: false`) the card shows a "set `savings: true`" hint instead of an empty chart. |
+| **Tokens saved** | The saved-tokens trend (from the [savings ledger](/warden/reference/savings/)) with a **window picker** — `24h`/`48h` bucket by **hour**, `7d`/`30d`/`All` by **day** — so a fresh ledger still plots a real curve instead of a single point. A filled area shows tokens saved per bucket against a left axis, and a dashed line shows the **running cumulative** against the right axis, plus a headline saved-tokens / dollars figure. The trend is zero-filled, so idle intervals read as real zeros rather than gaps. If the ledger is disabled (`savings: false`) the card shows a "set `savings: true`" hint instead of an empty chart. |
+| **Savings by feature** | A per-feature **stacked-area** breakdown of the same trend — which lifecycle feature (`llm_offload`, `commit`, `check`, `compact`) drove the savings — over the selected window. |
 | **Live footprint** | The former Resources panel — live per-agent + system resource charts. |
 
 ## Build & run

@@ -147,11 +147,21 @@ Charts (each its own `<section className="card">`):
    (ok/warning/critical) colors the latest point / legend so pressure is visible.
 4. **Number of agents** — single-series area/line, y = `system.agent_count`,
    x = time. Source: `getMetricsHistory()` → `sample.system.agent_count`.
-5. **Tokens saved** — single-series bar/line of daily saved tokens. Source:
-   `GET /savings?bucket=day` → `Summary.Buckets[].SavedTokens`, plus a headline
-   number (`Summary.SavedTokens`, `SavedDollars`). Gated: if savings is disabled
-   the daemon returns **403** — the card shows a friendly "enable `savings: true`
-   in the config" message instead of an empty chart.
+5. **Tokens saved** — the saved-tokens trend with a window picker. Source:
+   `GET /savings?bucket=day|hour` → zero-filled `Summary.Buckets[]` (each with
+   `ts`, `saved_tokens`, `cumulative`, `by_feature`), plus a headline number
+   (`Summary.SavedTokens`, `SavedDollars`). Short windows (`24h`/`48h`) bucket by
+   **hour**, longer ones by **day**, so a fresh ledger plots a real curve, not a
+   single point. The card draws per-bucket saved tokens (area, left axis) + a
+   running cumulative (line, right axis); a sibling **Savings by feature** card
+   draws the per-feature stacked breakdown. Gated: if savings is disabled the
+   daemon returns **403** — the card shows a friendly "enable `savings: true` in
+   the config" message instead of an empty chart.
+
+   > **Update (post-rewamp):** the original single daily bar series was replaced
+   > by the hourly/daily window picker, cumulative line, and per-feature stack
+   > described above — a fresh, single-day ledger otherwise rolled up to one
+   > bucket and plotted as a lone point.
 
 Each per-agent multi-series chart gets a stable color per agent id and a compact
 legend. Empty/auth/disabled states render inline (no blank canvases).

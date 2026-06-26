@@ -57,3 +57,23 @@ spend was observed — the cut as a share of real measured Claude spend.
 
 Dollars are priced at the Opus input/output rates. Also exposed as the `savings`
 MCP tool.
+
+## API: the saved-tokens trend
+
+`GET /api/v1/savings` accepts:
+
+- `since` — a window (`24h`/`7d`/`2w`) or an RFC3339 timestamp; absent ⇒ all time.
+- `bucket` — `day` or `hour`. Attaches a **zero-filled, contiguous** saved-tokens
+  trend (`buckets[]`) at that granularity, oldest first. Each bucket carries `ts`
+  (unix seconds at the interval start), a `date` label, `saved_tokens`, `events`,
+  the running `cumulative`, and a per-feature `by_feature` split. Because the trend
+  is zero-filled up to *now*, an idle interval is a real zero and the line stays
+  continuous — so even a ledger only hours old plots a curve rather than a single
+  point. `bucket_granularity` echoes the chosen width. An unknown `bucket` value
+  yields no trend (not an error).
+- `samples=1` — attaches retained provenance pairs (needs `savings_samples`).
+
+The web **Metrics** tab uses this: short windows (`24h`/`48h`) request `bucket=hour`,
+longer ones `bucket=day`, and the card plots per-bucket saved tokens, the cumulative
+line, and a per-feature stacked breakdown. `warden savings --benchmark` requests the
+daily buckets for its sparkline.

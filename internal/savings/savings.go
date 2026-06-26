@@ -279,22 +279,85 @@ type Summary struct {
 	CalibratedBytesPerToken float64 `json:"calibrated_bytes_per_token,omitempty"`
 	CalibrationSamples      int     `json:"calibration_samples,omitempty"`
 
-	// Buckets is the per-day saved-tokens trend over the window, oldest day first.
-	// Populated only when the caller asks for it (GET /savings?bucket=day); nil/
-	// omitted otherwise so the common report stays unchanged. Drives the sparkline.
-	Buckets []DayBucket `json:"buckets,omitempty"`
+	// Buckets is the saved-tokens trend over the window, oldest bucket first,
+	// zero-filled and contiguous so it reads as a real timeseries (not a sparse
+	// scatter). Populated only when the caller asks for it (GET /savings?bucket=
+	// day|hour); nil/omitted otherwise so the common report stays unchanged. Drives
+	// the Metrics-tab trend chart and the CLI sparkline. BucketGranularity names the
+	// bucket width the trend was built at.
+	Buckets           []Bucket `json:"buckets,omitempty"`
+	BucketGranularity string   `json:"bucket_granularity,omitempty"`
 	// Samples is a handful of retained provenance pairs (newest first) for the
 	// audit view. Populated only when the caller asks (GET /savings?samples=1) and
 	// only ever holds events whose samples were retained at record time. omitempty.
 	Samples []SamplePair `json:"samples,omitempty"`
 }
 
-// DayBucket is one UTC calendar day's rolled-up saving — the unit the trend
-// sparkline plots. Date is YYYY-MM-DD (UTC).
-type DayBucket struct {
-	Date        string `json:"date"`
-	SavedTokens int    `json:"saved_tokens"`
-	Events      int    `json:"events"`
+// Granularity selects the trend's bucket width. The events carry a precise TS,
+// so the same ledger can be rolled up by hour (rich intraday detail, the default
+// for short windows) or by day (a longer span), without losing resolution the way
+// a day-only roll-up does on a fresh install.
+const (
+	GranularityHour = "hour"
+	GranularityDay  = "day"
+)
+
+// maxBuckets caps the zero-filled trend so a pathological window (e.g. hour
+// granularity over a year) can't allocate an unbounded slice. When the span from
+// the first bucket to `until` exceeds the cap, the fill starts at the most recent
+// maxBuckets intervals instead of the earliest event.
+const maxBuckets = 1500
+
+// Bucket is one interval of the saved-tokens trend (a UTC day or hour) with the
+// net tokens saved and event count inside it, the running cumulative saved
+// through this bucket (within the window), and the per-feature split. TS is the
+// bucket start as unix seconds — the chart x-axis; Date is the human label
+// ("2006-01-02" for a day, "2006-01-02 15:00" for an hour). The trend is
+// zero-filled across the window, so an idle interval is a real zero, not a gap.
+type Bucket struct {
+	TS          int64          `json:"ts"`
+	Date        string         `json:"date"`
+	SavedTokens int            `json:"saved_tokens"`
+	Events      int            `json:"events"`
+	Cumulative  int            `json:"cumulative"`
+	ByFeature   map[string]int `json:"by_feature,omitempty"`
+}
+
+// normalizeGranularity coerces an arbitrary bucket value to a known granularity,
+// defaulting to day. Empty stays empty (the caller asked for no buckets).
+func normalizeGranularity(gran string) string {
+	switch gran {
+	case GranularityHour:
+		return GranularityHour
+	default:
+		return GranularityDay
+	}
+}
+
+// bucketStart truncates t to the start of its bucket (UTC) for the granularity.
+func bucketStart(t time.Time, gran string) time.Time {
+	t = t.UTC()
+	if gran == GranularityHour {
+		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, time.UTC)
+	}
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// bucketStep is the interval between consecutive bucket starts (UTC has no DST,
+// so a day is exactly 24h).
+func bucketStep(gran string) time.Duration {
+	if gran == GranularityHour {
+		return time.Hour
+	}
+	return 24 * time.Hour
+}
+
+// bucketLabel formats a bucket start for display.
+func bucketLabel(t time.Time, gran string) string {
+	if gran == GranularityHour {
+		return t.UTC().Format("2006-01-02 15:00")
+	}
+	return t.UTC().Format("2006-01-02")
 }
 
 // SamplePair is one retained raw-vs-kept provenance sample for the audit view:
@@ -307,25 +370,106 @@ type SamplePair struct {
 
 // BucketByDay rolls events into per-UTC-day buckets (saved tokens + event count),
 // returned oldest day first. Pure — the caller supplies the windowed events. Days
-// with no events are absent (the ledger is sparse); the sparkline plots whatever
-// days are present in order.
-func BucketByDay(events []Event) []DayBucket {
-	byDay := map[string]*DayBucket{}
+// with no events are absent (the ledger is sparse). Retained for the raw daily
+// roll-up; the trend chart uses BucketBy, which zero-fills and accumulates.
+func BucketByDay(events []Event) []Bucket {
+	byDay := map[string]*Bucket{}
 	for _, e := range events {
-		day := e.TS.UTC().Format("2006-01-02")
+		start := bucketStart(e.TS, GranularityDay)
+		day := start.Format("2006-01-02")
 		b := byDay[day]
 		if b == nil {
-			b = &DayBucket{Date: day}
+			b = &Bucket{TS: start.Unix(), Date: day}
 			byDay[day] = b
 		}
 		b.SavedTokens += e.Saved
 		b.Events++
 	}
-	out := make([]DayBucket, 0, len(byDay))
+	out := make([]Bucket, 0, len(byDay))
 	for _, b := range byDay {
 		out = append(out, *b)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out
+}
+
+// BucketBy rolls events into contiguous, zero-filled buckets of the given
+// granularity ("hour" or "day"; anything else is treated as day), oldest first.
+// Each bucket carries its net saved tokens, event count, the running cumulative
+// saved through it, and the per-feature split (for the stacked breakdown). The
+// trend spans [start, until]: start is the bucket containing `since`, or the
+// first event's bucket when since is zero (all-time); until defaults to now.
+// Empty intervals are emitted as real zeros so the line is continuous rather than
+// a sparse scatter — the fix for a fresh ledger plotting as a single point. Pure:
+// the caller supplies the windowed events and the clock (until), so it is
+// unit-testable without wall-clock dependence.
+func BucketBy(events []Event, gran string, since, until time.Time) []Bucket {
+	gran = normalizeGranularity(gran)
+	if until.IsZero() {
+		until = time.Now()
+	}
+	until = until.UTC()
+
+	// Tally events into their bucket-start keys (unix seconds).
+	type tally struct {
+		saved   int
+		events  int
+		feature map[string]int
+	}
+	byStart := map[int64]*tally{}
+	var earliest time.Time
+	for _, e := range events {
+		bs := bucketStart(e.TS, gran)
+		if earliest.IsZero() || bs.Before(earliest) {
+			earliest = bs
+		}
+		key := bs.Unix()
+		tl := byStart[key]
+		if tl == nil {
+			tl = &tally{feature: map[string]int{}}
+			byStart[key] = tl
+		}
+		tl.saved += e.Saved
+		tl.events++
+		tl.feature[e.Feature] += e.Saved
+	}
+
+	// Resolve the fill window. An explicit `since` floors it; otherwise the first
+	// event does. With neither (no events, all-time) there is nothing to plot.
+	var start time.Time
+	switch {
+	case !since.IsZero():
+		start = bucketStart(since, gran)
+	case !earliest.IsZero():
+		start = earliest
+	default:
+		return nil
+	}
+	end := bucketStart(until, gran)
+	if end.Before(start) {
+		end = start
+	}
+	step := bucketStep(gran)
+
+	// Bound the slice: slide the start up to show the most recent maxBuckets
+	// intervals when the span is too wide.
+	if n := int(end.Sub(start)/step) + 1; n > maxBuckets {
+		start = end.Add(-time.Duration(maxBuckets-1) * step)
+	}
+
+	out := make([]Bucket, 0)
+	cum := 0
+	for t := start; !t.After(end); t = t.Add(step) {
+		b := Bucket{TS: t.Unix(), Date: bucketLabel(t, gran)}
+		if tl := byStart[t.Unix()]; tl != nil {
+			b.SavedTokens = tl.saved
+			b.Events = tl.events
+			b.ByFeature = tl.feature
+		}
+		cum += b.SavedTokens
+		b.Cumulative = cum
+		out = append(out, b)
+	}
 	return out
 }
 

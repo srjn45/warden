@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { MetricsSample, AgentStat } from './metrics';
-import type { DayBucket } from './savings';
+import type { Bucket } from './savings';
 import {
-  cpuSeries, rssSeries, fleetSizeSeries, tokensSavedSeries,
+  cpuSeries, rssSeries, fleetSizeSeries, tokensSavedSeries, featureStackSeries,
   totalCpuSeries, totalRssSeries,
   appendContextPoint, contextSeries, perAgentSeries,
   type ContextPoint,
@@ -91,20 +91,43 @@ describe('fleetSizeSeries', () => {
 });
 
 describe('tokensSavedSeries', () => {
-  it('maps buckets to x/saved/dates', () => {
-    const buckets: DayBucket[] = [
-      { date: '2026-06-25', saved_tokens: 100, events: 2 },
-      { date: '2026-06-26', saved_tokens: 250, events: 5 },
+  it('maps buckets to x(ts)/saved/cumulative/dates', () => {
+    const t0 = Date.parse('2026-06-25T00:00:00Z') / 1000;
+    const buckets: Bucket[] = [
+      { ts: t0, date: '2026-06-25', saved_tokens: 100, events: 2, cumulative: 100 },
+      { ts: t0 + 86400, date: '2026-06-26', saved_tokens: 250, events: 5, cumulative: 350 },
     ];
     const s = tokensSavedSeries(buckets);
     expect(s.saved).toEqual([100, 250]);
+    expect(s.cumulative).toEqual([100, 350]);
     expect(s.dates).toEqual(['2026-06-25', '2026-06-26']);
-    expect(s.x[0]).toBe(Date.parse('2026-06-25T00:00:00Z') / 1000);
+    expect(s.x[0]).toBe(t0);
   });
 
   it('handles null/undefined buckets', () => {
-    expect(tokensSavedSeries(null)).toEqual({ x: [], saved: [], dates: [] });
-    expect(tokensSavedSeries(undefined)).toEqual({ x: [], saved: [], dates: [] });
+    expect(tokensSavedSeries(null)).toEqual({ x: [], saved: [], cumulative: [], dates: [] });
+    expect(tokensSavedSeries(undefined)).toEqual({ x: [], saved: [], cumulative: [], dates: [] });
+  });
+});
+
+describe('featureStackSeries', () => {
+  it('orders features by total saved and accumulates top edges per bucket', () => {
+    const buckets: Bucket[] = [
+      { ts: 1, date: 'h1', saved_tokens: 140, events: 2, cumulative: 140, by_feature: { llm_offload: 100, commit: 40 } },
+      { ts: 2, date: 'h2', saved_tokens: 0, events: 0, cumulative: 140 }, // idle hour
+      { ts: 3, date: 'h3', saved_tokens: 60, events: 1, cumulative: 200, by_feature: { llm_offload: 60 } },
+    ];
+    const fs = featureStackSeries(buckets);
+    expect(fs.features).toEqual(['llm_offload', 'commit']); // 160 vs 40
+    expect(fs.t).toEqual([1, 2, 3]);
+    // Top edges: offload alone, then offload+commit stacked.
+    expect(fs.tops.llm_offload).toEqual([100, null, 60]);
+    expect(fs.tops.commit).toEqual([140, null, 60]);
+  });
+
+  it('handles empty/absent buckets', () => {
+    expect(featureStackSeries(null)).toEqual({ t: [], features: [], tops: {} });
+    expect(featureStackSeries([])).toEqual({ t: [], features: [], tops: {} });
   });
 });
 
