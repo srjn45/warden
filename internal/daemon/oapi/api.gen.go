@@ -235,6 +235,30 @@ type ApprovalsResponse struct {
 	Enabled   bool           `json:"enabled"`
 }
 
+// AutoApprovePolicy The auto-approve policy: a default allow/deny policy plus optional per-agent overrides. With no rules it is the simple on/off toggle.
+type AutoApprovePolicy = approval.Policy
+
+// AutoApproveRule A rule matched against a parsed prompt. Each present field must match; an absent field is a wildcard, so an empty rule matches everything. tool and pattern are case-insensitive; regex is a Go regular expression; paths are globs against the action target.
+type AutoApproveRule struct {
+	// Paths globs against path tokens in the action argument
+	Paths []string `json:"paths,omitempty"`
+
+	// Pattern case-insensitive glob/substring over the action + question
+	Pattern string `json:"pattern,omitempty"`
+
+	// Regex Go regexp over the action + question
+	Regex string `json:"regex,omitempty"`
+
+	// Tool exact tool name
+	Tool string `json:"tool,omitempty"`
+}
+
+// AutoApproveRules defines model for AutoApproveRules.
+type AutoApproveRules struct {
+	Allow []AutoApproveRule `json:"allow,omitempty"`
+	Deny  []AutoApproveRule `json:"deny,omitempty"`
+}
+
 // BranchStatus defines model for BranchStatus.
 type BranchStatus = branchtrack.BranchStatus
 
@@ -805,6 +829,9 @@ type ListWorktreesParams struct {
 // AdoptSessionJSONRequestBody defines body for AdoptSession for application/json ContentType.
 type AdoptSessionJSONRequestBody = AdoptRequest
 
+// SetAutoApprovePolicyJSONRequestBody defines body for SetAutoApprovePolicy for application/json ContentType.
+type SetAutoApprovePolicyJSONRequestBody = AutoApprovePolicy
+
 // RunCheckJSONRequestBody defines body for RunCheck for application/json ContentType.
 type RunCheckJSONRequestBody = CheckRequest
 
@@ -894,6 +921,12 @@ type ServerInterface interface {
 	// Live approval queue
 	// (GET /api/v1/approvals)
 	ListApprovals(w http.ResponseWriter, r *http.Request)
+	// Read the live auto-approve policy
+	// (GET /api/v1/auto-approve/policy)
+	GetAutoApprovePolicy(w http.ResponseWriter, r *http.Request)
+	// Replace the live auto-approve policy
+	// (PUT /api/v1/auto-approve/policy)
+	SetAutoApprovePolicy(w http.ResponseWriter, r *http.Request)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(w http.ResponseWriter, r *http.Request)
@@ -1092,6 +1125,18 @@ func (_ Unimplemented) AdoptSession(w http.ResponseWriter, r *http.Request) {
 // Live approval queue
 // (GET /api/v1/approvals)
 func (_ Unimplemented) ListApprovals(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read the live auto-approve policy
+// (GET /api/v1/auto-approve/policy)
+func (_ Unimplemented) GetAutoApprovePolicy(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Replace the live auto-approve policy
+// (PUT /api/v1/auto-approve/policy)
+func (_ Unimplemented) SetAutoApprovePolicy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1501,6 +1546,46 @@ func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListApprovals(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAutoApprovePolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetAutoApprovePolicy(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAutoApprovePolicy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAutoApprovePolicy operation middleware
+func (siw *ServerInterfaceWrapper) SetAutoApprovePolicy(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAutoApprovePolicy(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3616,6 +3701,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/approvals", wrapper.ListApprovals)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/auto-approve/policy", wrapper.GetAutoApprovePolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/auto-approve/policy", wrapper.SetAutoApprovePolicy)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/check", wrapper.RunCheck)
 	})
 	r.Group(func(r chi.Router) {
@@ -3849,6 +3940,63 @@ func (response ListApprovals200JSONResponse) VisitListApprovalsResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAutoApprovePolicyRequestObject struct {
+}
+
+type GetAutoApprovePolicyResponseObject interface {
+	VisitGetAutoApprovePolicyResponse(w http.ResponseWriter) error
+}
+
+type GetAutoApprovePolicy200JSONResponse AutoApprovePolicy
+
+func (response GetAutoApprovePolicy200JSONResponse) VisitGetAutoApprovePolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAutoApprovePolicyRequestObject struct {
+	Body *SetAutoApprovePolicyJSONRequestBody
+}
+
+type SetAutoApprovePolicyResponseObject interface {
+	VisitSetAutoApprovePolicyResponse(w http.ResponseWriter) error
+}
+
+type SetAutoApprovePolicy200JSONResponse AutoApprovePolicy
+
+func (response SetAutoApprovePolicy200JSONResponse) VisitSetAutoApprovePolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAutoApprovePolicy400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetAutoApprovePolicy400JSONResponse) VisitSetAutoApprovePolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5879,6 +6027,12 @@ type StrictServerInterface interface {
 	// Live approval queue
 	// (GET /api/v1/approvals)
 	ListApprovals(ctx context.Context, request ListApprovalsRequestObject) (ListApprovalsResponseObject, error)
+	// Read the live auto-approve policy
+	// (GET /api/v1/auto-approve/policy)
+	GetAutoApprovePolicy(ctx context.Context, request GetAutoApprovePolicyRequestObject) (GetAutoApprovePolicyResponseObject, error)
+	// Replace the live auto-approve policy
+	// (PUT /api/v1/auto-approve/policy)
+	SetAutoApprovePolicy(ctx context.Context, request SetAutoApprovePolicyRequestObject) (SetAutoApprovePolicyResponseObject, error)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(ctx context.Context, request RunCheckRequestObject) (RunCheckResponseObject, error)
@@ -6141,6 +6295,61 @@ func (sh *strictHandler) ListApprovals(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListApprovalsResponseObject); ok {
 		if err := validResponse.VisitListApprovalsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAutoApprovePolicy operation middleware
+func (sh *strictHandler) GetAutoApprovePolicy(w http.ResponseWriter, r *http.Request) {
+	var request GetAutoApprovePolicyRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAutoApprovePolicy(ctx, request.(GetAutoApprovePolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAutoApprovePolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAutoApprovePolicyResponseObject); ok {
+		if err := validResponse.VisitGetAutoApprovePolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetAutoApprovePolicy operation middleware
+func (sh *strictHandler) SetAutoApprovePolicy(w http.ResponseWriter, r *http.Request) {
+	var request SetAutoApprovePolicyRequestObject
+
+	var body SetAutoApprovePolicyJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAutoApprovePolicy(ctx, request.(SetAutoApprovePolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAutoApprovePolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAutoApprovePolicyResponseObject); ok {
+		if err := validResponse.VisitSetAutoApprovePolicyResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

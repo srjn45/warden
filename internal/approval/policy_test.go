@@ -175,6 +175,142 @@ func TestDecide(t *testing.T) {
 	}
 }
 
+func TestDecideRegex(t *testing.T) {
+	bashGitStatus := Approval{Action: "Bash(git status)", Question: "Do you want to proceed?"}
+	bashGitPush := Approval{Action: "Bash(git push origin main)", Question: "Do you want to proceed?"}
+
+	tests := []struct {
+		name        string
+		policy      Policy
+		a           Approval
+		wantApprove bool
+	}{
+		{
+			name:        "regex matches read-only git verbs",
+			policy:      Policy{Rules: Rules{Allow: []Rule{{Regex: `^Bash\(git (status|diff|log)\)$`}}}},
+			a:           bashGitStatus,
+			wantApprove: true,
+		},
+		{
+			name:        "regex anchored miss",
+			policy:      Policy{Rules: Rules{Allow: []Rule{{Regex: `^Bash\(git (status|diff|log)\)$`}}}},
+			a:           bashGitPush,
+			wantApprove: false,
+		},
+		{
+			name:        "regex on question text",
+			policy:      Policy{Rules: Rules{Allow: []Rule{{Regex: `(?i)do you want to proceed`}}}},
+			a:           bashGitStatus,
+			wantApprove: true,
+		},
+		{
+			name:        "tool + regex must both match",
+			policy:      Policy{Rules: Rules{Allow: []Rule{{Tool: "Edit", Regex: `git status`}}}},
+			a:           bashGitStatus,
+			wantApprove: false,
+		},
+		{
+			name:        "malformed regex never approves",
+			policy:      Policy{Rules: Rules{Allow: []Rule{{Regex: `(unterminated`}}}},
+			a:           bashGitStatus,
+			wantApprove: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.policy.Decide(tt.a).Approve; got != tt.wantApprove {
+				t.Errorf("Decide().Approve = %v, want %v", got, tt.wantApprove)
+			}
+		})
+	}
+}
+
+func TestHasRules(t *testing.T) {
+	if (Policy{Enabled: true}).HasRules() {
+		t.Errorf("bare enabled policy should report no rules")
+	}
+	if !(Policy{Rules: Rules{Allow: []Rule{{Tool: "Read"}}}}).HasRules() {
+		t.Errorf("policy with an allow rule should report rules")
+	}
+	if !(Policy{Rules: Rules{Deny: []Rule{{Tool: "Bash"}}}}).HasRules() {
+		t.Errorf("policy with a deny rule should report rules")
+	}
+}
+
+func TestPolicyFor(t *testing.T) {
+	base := Policy{
+		Enabled:     false,
+		AllowSticky: false,
+		Rules:       Rules{Allow: []Rule{{Tool: "Read"}}},
+		Agents: map[string]Policy{
+			"reviewer": {Enabled: true, AllowSticky: true, Rules: Rules{Allow: []Rule{{Tool: "Bash"}}}},
+			"abc123":   {Rules: Rules{Allow: []Rule{{Tool: "Grep"}}}},
+		},
+	}
+
+	t.Run("no match returns default sans agents", func(t *testing.T) {
+		got := base.For("unknown")
+		if got.Agents != nil {
+			t.Errorf("resolved policy should drop Agents map")
+		}
+		if len(got.Rules.Allow) != 1 || got.Rules.Allow[0].Tool != "Read" {
+			t.Errorf("expected default Read rule, got %+v", got.Rules.Allow)
+		}
+	})
+
+	t.Run("override replaces rules and can self-enable", func(t *testing.T) {
+		got := base.For("reviewer")
+		if !got.Enabled || !got.AllowSticky {
+			t.Errorf("override should enable + allow_sticky for the agent, got enabled=%v sticky=%v", got.Enabled, got.AllowSticky)
+		}
+		if len(got.Rules.Allow) != 1 || got.Rules.Allow[0].Tool != "Bash" {
+			t.Errorf("expected override Bash rule, got %+v", got.Rules.Allow)
+		}
+	})
+
+	t.Run("master enabled is inherited (OR'd) into override", func(t *testing.T) {
+		on := base
+		on.Enabled = true
+		got := on.For("abc123") // override has no Enabled of its own
+		if !got.Enabled {
+			t.Errorf("override should inherit the global Enabled switch")
+		}
+	})
+
+	t.Run("first matching name wins (name before id)", func(t *testing.T) {
+		got := base.For("reviewer", "abc123")
+		if len(got.Rules.Allow) != 1 || got.Rules.Allow[0].Tool != "Bash" {
+			t.Errorf("expected reviewer override to win, got %+v", got.Rules.Allow)
+		}
+	})
+}
+
+func TestPolicyUnmarshalAgents(t *testing.T) {
+	src := `
+enabled: true
+rules:
+  allow:
+    - tool: Read
+agents:
+  reviewer:
+    allow_sticky: true
+    rules:
+      allow:
+        - regex: '^Bash\(git (status|diff)\)$'
+`
+	var p Policy
+	if err := yaml.Unmarshal([]byte(src), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	ov, ok := p.Agents["reviewer"]
+	if !ok {
+		t.Fatalf("expected a reviewer override, agents=%+v", p.Agents)
+	}
+	if !ov.AllowSticky || len(ov.Rules.Allow) != 1 || ov.Rules.Allow[0].Regex == "" {
+		t.Errorf("reviewer override decoded wrong: %+v", ov)
+	}
+}
+
 func TestPolicyUnmarshalYAML(t *testing.T) {
 	t.Run("scalar true sets Enabled", func(t *testing.T) {
 		var p Policy

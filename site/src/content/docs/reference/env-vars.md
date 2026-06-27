@@ -40,7 +40,7 @@ Common settings (run `warden config` for the complete, live list):
 | `notify` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
 | `webhook_enabled` / `webhook_url` | `false` / _(empty)_ | POST notifications to a webhook (a Slack incoming-webhook URL works out of the box) |
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers |
-| `auto_approve` | `false` | Auto-answer recognized yes/no permission prompts (global default; per-agent override via `warden auto-approve`) |
+| `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (by tool / glob / regex / paths, with per-agent overrides); manage with `warden auto-approve` |
 | `token_guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
 | `token_warn_alert` | `true` | Fire a desktop notification once per upward crossing into warning/critical |
 | `token_auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting |

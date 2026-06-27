@@ -160,9 +160,14 @@ type Poller struct {
 	// goroutine only), so the nudge fires once per episode, not per tick.
 	preCrashFlagged map[string]bool
 
-	// AutoApprovePolicy is the global allow/deny policy (from config). Per-session
-	// Session.AutoApprove opts an agent into evaluation against this policy.
+	// AutoApprovePolicy is the auto-approve policy (from config): a default
+	// allow/deny policy plus optional per-agent overrides (see approval.Policy).
+	// Per-session Session.AutoApprove opts an agent into evaluation even when the
+	// global master switch is off. Guarded by policyMu so the daemon's PUT
+	// /auto-approve/policy handler can swap rules at runtime; read it through
+	// autoApprovePolicy and write it through SetAutoApprovePolicy.
 	AutoApprovePolicy approval.Policy
+	policyMu          sync.RWMutex
 
 	// ApprovalEvents is a buffered channel for approval opportunities.
 	// Published when: (1) status transitions to waiting_for_input, OR
@@ -230,23 +235,53 @@ func isTerminal(s store.Status) bool {
 	return false
 }
 
+// autoApprovePolicy returns the live auto-approve policy under the read lock.
+func (p *Poller) autoApprovePolicy() approval.Policy {
+	p.policyMu.RLock()
+	defer p.policyMu.RUnlock()
+	return p.AutoApprovePolicy
+}
+
+// AutoApprovePolicySnapshot returns the live auto-approve policy (default +
+// per-agent overrides). Used by the daemon's GET /auto-approve/policy handler.
+func (p *Poller) AutoApprovePolicySnapshot() approval.Policy {
+	return p.autoApprovePolicy()
+}
+
+// SetAutoApprovePolicy atomically swaps the live auto-approve policy so the
+// daemon's PUT /auto-approve/policy handler can change rules without a restart.
+func (p *Poller) SetAutoApprovePolicy(pol approval.Policy) {
+	p.policyMu.Lock()
+	p.AutoApprovePolicy = pol
+	p.policyMu.Unlock()
+}
+
 // tryAutoApprove attempts to auto-approve a recognized prompt by pressing its
 // least-privilege affirmative ("yes") option. Only attempts auto-approval if:
-//   - AutoApprovePolicy.Enabled OR session.AutoApprove is true (the participate-gate)
+//   - the effective policy is enabled OR session.AutoApprove is true (the
+//     participate-gate). The effective policy is resolved per-agent: a per-agent
+//     override (keyed by agent name or id) replaces the default's rules.
 //   - The pane content parses as a recognized prompt (approval.Parse ok=true)
 //
 // A recognized prompt naming a destructive/irreversible action is blocked
 // unconditionally (the destructive guard runs first and is not configurable).
-// The prompt must then match the allow/deny policy (AutoApprovePolicy.Decide):
-// deny wins over allow, and an empty allow list approves nothing. Prompts with no
+//
+// Rule evaluation is backward-compatible: when the effective policy has NO allow
+// or deny rules, the legacy on/off behavior applies (approve every recognized,
+// non-destructive prompt) so a bare `auto_approve: true` keeps working. When any
+// rule is present the prompt must match the allow/deny policy (Decide): deny wins
+// over allow, and an empty allow list approves nothing. Prompts with no
 // affirmative option are skipped, as are sticky-only "don't ask again"
-// affirmatives unless AutoApprovePolicy.AllowSticky is set.
+// affirmatives unless the effective policy's AllowSticky is set.
 //
 // Idempotent and safe to call repeatedly on the same prompt: an unrecognized or
 // already-dismissed prompt is a logged no-op.
 func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane string) {
-	// participate-gate: global master switch OR per-session opt-in.
-	if !p.AutoApprovePolicy.Enabled && !s.AutoApprove {
+	// Resolve the effective policy for this agent (per-agent override or default).
+	pol := p.autoApprovePolicy().For(s.Name, s.ID)
+
+	// participate-gate: master switch (default or per-agent) OR per-session opt-in.
+	if !pol.Enabled && !s.AutoApprove {
 		return
 	}
 
@@ -263,16 +298,20 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 		slog.Warn("auto-approve BLOCKED: destructive action", "agent", s.ID, "marker", marker)
 		return
 	}
-	// Evaluate against the allow/deny policy (deny wins; empty allow approves nothing).
-	if d := p.AutoApprovePolicy.Decide(a); !d.Approve {
-		slog.Debug("auto-approve skipped by policy", "agent", s.ID, "reason", d.Reason)
-		return
+	// Evaluate against the allow/deny policy only when rules are configured. With
+	// no rules the legacy on/off behavior stands (approve any recognized,
+	// non-destructive prompt), keeping `auto_approve: true` backward-compatible.
+	if pol.HasRules() {
+		if d := pol.Decide(a); !d.Approve {
+			slog.Debug("auto-approve skipped by policy", "agent", s.ID, "reason", d.Reason)
+			return
+		}
 	}
 	if a.AffirmativeIdx == 0 {
 		slog.Debug("auto-approve skipped: no affirmative option", "agent", s.ID)
 		return
 	}
-	if a.AffirmativeSticky && !p.AutoApprovePolicy.AllowSticky {
+	if a.AffirmativeSticky && !pol.AllowSticky {
 		slog.Debug("auto-approve skipped: only a sticky affirmative (allow_sticky off)", "agent", s.ID)
 		return
 	}

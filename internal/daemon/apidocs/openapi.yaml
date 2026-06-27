@@ -700,6 +700,40 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApprovalsResponse" }
 
+  /api/v1/auto-approve/policy:
+    get:
+      operationId: getAutoApprovePolicy
+      tags: [Approvals]
+      summary: Read the live auto-approve policy
+      description: >
+        The effective auto-approve policy the poller is running: the default
+        allow/deny rules plus any per-agent overrides.
+      responses:
+        "200":
+          description: The current policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoApprovePolicy" }
+    put:
+      operationId: setAutoApprovePolicy
+      tags: [Approvals]
+      summary: Replace the live auto-approve policy
+      description: >
+        Atomically swaps the policy the poller runs (effective immediately, no
+        restart) and persists it to the config file's auto_approve block.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutoApprovePolicy" }
+      responses:
+        "200":
+          description: The stored policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoApprovePolicy" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
   /api/v1/context:
     get:
       operationId: listContext
@@ -1779,6 +1813,50 @@ components:
         approvals:
           type: array
           items: { $ref: "#/components/schemas/ApprovalView" }
+
+    AutoApproveRule:
+      type: object
+      description: >
+        A rule matched against a parsed prompt. Each present field must match; an
+        absent field is a wildcard, so an empty rule matches everything. tool and
+        pattern are case-insensitive; regex is a Go regular expression; paths are
+        globs against the action target.
+      properties:
+        tool: { type: string, description: exact tool name, e.g. Read, Bash }
+        pattern: { type: string, description: case-insensitive glob/substring over the action + question }
+        regex: { type: string, description: Go regexp over the action + question }
+        paths:
+          type: array
+          items: { type: string }
+          description: globs against path tokens in the action argument
+
+    AutoApproveRules:
+      type: object
+      properties:
+        allow:
+          type: array
+          items: { $ref: "#/components/schemas/AutoApproveRule" }
+        deny:
+          type: array
+          items: { $ref: "#/components/schemas/AutoApproveRule" }
+
+    AutoApprovePolicy:
+      x-go-type: approval.Policy
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/approval
+        name: approval
+      type: object
+      description: >
+        The auto-approve policy: a default allow/deny policy plus optional
+        per-agent overrides. With no rules it is the simple on/off toggle.
+      properties:
+        enabled: { type: boolean }
+        allow_sticky: { type: boolean }
+        rules: { $ref: "#/components/schemas/AutoApproveRules" }
+        agents:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/AutoApprovePolicy" }
+          description: per-agent overrides keyed by agent name or id
 
     ContextEntry:
       x-go-type: ctxstore.Entry

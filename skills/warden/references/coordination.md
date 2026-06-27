@@ -79,8 +79,20 @@ attaching. Config-gated by `approvals` (on by default).
 - A TOCTOU re-capture + fingerprint re-verify guards each answer; unrecognized
   prompts fall back to attach.
 
-**Auto-approve** (off by default): auto-answers recognized yes/no prompts by always
-selecting option 1. Enable globally via `auto_approve` or per-agent with MCP
-`set_auto_approve {ticket, enabled}` / `warden auto-approve <id> on|off`. Only recognized yes/no prompts; skips
+**Auto-approve** (off by default): auto-answers recognized yes/no prompts. Two layers:
+
+- **Per-agent toggle** — opt one agent in even when the global policy is off:
+  MCP `set_auto_approve {ticket, enabled}` / `warden auto-approve <id> on|off`.
+- **Rule policy** — an allow/deny engine: a prompt is answered only when it matches
+  an allow rule, matches no deny rule, and isn't on warden's built-in destructive
+  deny-list (always wins). Rules match by `tool`, a case-insensitive glob
+  (`pattern`), a Go `regex`, and/or `paths`; per-agent overrides (keyed by agent
+  name/id) replace the default for that agent. Manage with MCP
+  `set_auto_approve_policy {action: show|allow|deny|clear|enable|disable, agent?,
+  tool?, pattern?, regex?, paths?}` / `warden auto-approve rules|allow|deny|clear|enable|disable`.
+  Changes are live (no restart) and persisted to config.
+
+With **no rules** an enabled policy is the simple legacy toggle (approve every
+recognized, non-destructive prompt — `auto_approve: true` still works). Skips
 multi-select/text-entry/unrecognized (falls back to manual); never retries on
 failure; logs every attempt.
