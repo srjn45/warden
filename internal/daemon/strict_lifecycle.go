@@ -193,6 +193,25 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	return oapi.TerminateSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "terminated"}}, nil
 }
 
+// liveChildren returns the direct children of parent id whose status implies a
+// still-running agent. Direct children suffice to anchor the sub-tree: a live
+// grandchild implies its own parent is itself a live (or tombstoned) child, so
+// the chain stays rooted. A store error yields nil (treated as "no live
+// children" — delete falls through to its normal hard/archive path).
+func (s *Server) liveChildren(ctx context.Context, id string) []*store.Session {
+	all, err := s.store.List(ctx)
+	if err != nil {
+		return nil
+	}
+	var kids []*store.Session
+	for _, c := range all {
+		if c.ParentID == id && liveStatus(c.Status) {
+			kids = append(kids, c)
+		}
+	}
+	return kids
+}
+
 // DeleteSession implements POST /api/v1/sessions/{id}/delete.
 func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionRequestObject) (oapi.DeleteSessionResponseObject, error) {
 	hard := false
@@ -205,6 +224,31 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	}
 	if err != nil {
 		return nil, err
+	}
+	// A parent that still has live children is tombstoned rather than removed:
+	// tear down its tmux so no live pane remains, but keep the record active and
+	// terminal so the children stay anchored under it in the sub-tree view
+	// (design §6). It is reaped once its last live child ends (Phase 3). Silent —
+	// no confirmation; the live-child count surfaces in the TUI header (Phase 4).
+	if kids := s.liveChildren(ctx, req.Id); len(kids) > 0 {
+		if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
+			return nil, err
+		}
+		term := store.StatusDone
+		if hard {
+			term = store.StatusOrphaned // force-kill semantics
+		}
+		if err := s.store.UpdateStatus(ctx, req.Id, term); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
+		s.notify()
+		s.reconcileJobOnTerminal(sess, term)
+		s.recordAuditCtx(ctx, audit.ActionDelete, req.Id, map[string]string{
+			"tombstoned":    "true",
+			"hard":          strconv.FormatBool(hard),
+			"live_children": strconv.Itoa(len(kids)),
+		})
+		return oapi.DeleteSession200JSONResponse{Status: "tombstoned"}, nil
 	}
 	warn := ""
 	if liveStatus(sess.Status) {
