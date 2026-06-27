@@ -71,7 +71,7 @@ on-disk state:
 | `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. Alias for `stop --keep-worktree` (record only). |
 | `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. Alias for `stop --keep-record` (worktree only); always asks unless `--yes`. |
 | `worktree ls` | List warden-owned worktrees under `.worktrees`, joined to active/archived records (provenance-tracked). |
-| `prune` | Reclaim orphaned warden worktrees (always prompts; `--force` overrides guards, `--include-archived` widens scope). Retention is policy-driven via the `worktree_keep_done` / `worktree_auto_prune` config settings. |
+| `prune` | Reclaim orphaned warden worktrees (always prompts; `--force` overrides guards, `--include-archived` widens scope). Retention is policy-driven via the `worktree.keep_done` / `worktree.auto_prune` config settings. |
 | `adopt` | Register an existing Claude session — resume newest-for-dir under tmux, or live-register a running tmux session. |
 | **Cascade cleanup** | Deleting a pipeline/agent cascades cleanup of its shared-context keys and (on hard-delete) its mailbox inbox. |
 
@@ -339,10 +339,10 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 | **Metrics recorder** | Optional 15s JSONL recorder (the `metrics` setting). |
 | **Agent performance history** | The recorder's samples roll up per agent into runtime, peak/latest/trend RSS, avg/peak CPU, context-token trend, and changed-file count, plus conservative anomaly warnings (climbing memory, climbing/critical context, pinned CPU). Surfaced via `warden stats --history [--agent ID]` and `GET /api/v1/metrics/history?summary=true[&agent=ID]`. |
 | **Crash & anomaly detection** | Beyond stuck-state reclassification, the poller flags an **OOM kill** (SIGKILL/exit 137), an **infinite loop** (a churning pane cycling through a few states, distinct from the stuck timer's stale pane), and a **pre-crash context** condition (a critical-but-still-working agent that can't be auto-compacted). Each records a durable `anomaly` event and fires a best-effort notification through the `OnAnomaly` seam (once per episode). |
-| **Desktop notifications** | The `notify` setting posts a desktop notification (macOS `osascript` / Linux `notify-send`, log fallback) when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
-| **Webhook / Slack notifications** | When `webhook_enabled` is on, warden also POSTs a JSON payload to `webhook_url` for every alert that goes to desktop notifications — attention-needed transitions (`waiting_for_input`, `errored`, `orphaned`) and context-size warning/critical alerts. A **Slack incoming-webhook URL works out of the box** (the payload's `text` field is what Slack renders); generic consumers get `{text, title, body}`. Best-effort and non-blocking: a short timeout bounds each POST and failures are logged, never propagated. Runs alongside (not instead of) desktop notifications via the same notifier seam — this is what makes "watch from your phone" push real. |
-| **Context-size guard** | `internal/ctxtokens` reads each live agent's context-window fill from its transcript and classifies it `ok`/`warning`/`critical`. The poller shows a state-colored token figure in `ls`/TUI/web, alerts once per upward crossing (`token_warn_alert`), and auto-sends `/compact` at `critical` when the agent is idle (`token_auto_compact`, cooldown-guarded). Master switch `token_guard`; thresholds `token_warn`/`token_critical`. |
-| **Force-compact (busy agents)** | Opt-in (`token_force_compact`, off by default; per-agent override via `warden force-compact <id> on\|off\|inherit`). When an agent goes `critical` while **still working** — the case `token_auto_compact` can't touch — the poller runs a small state machine that mirrors the manual fix: interrupt the agent (Escape), `/compact` once it idles, then send `token_compact_resume_prompt` so it resumes the discarded work. **Destructive**: the in-flight turn is lost. An interrupt that doesn't take within ~45s is abandoned, falling back to the pre-crash nudge. Drivable via the `set_force_compact` MCP tool. |
+| **Desktop notifications** | The `notify.enabled` setting posts a desktop notification (macOS `osascript` / Linux `notify-send`, log fallback) when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
+| **Webhook / Slack notifications** | When `notify.webhook_enabled` is on, warden also POSTs a JSON payload to `notify.webhook_url` for every alert that goes to desktop notifications — attention-needed transitions (`waiting_for_input`, `errored`, `orphaned`) and context-size warning/critical alerts. A **Slack incoming-webhook URL works out of the box** (the payload's `text` field is what Slack renders); generic consumers get `{text, title, body}`. Best-effort and non-blocking: a short timeout bounds each POST and failures are logged, never propagated. Runs alongside (not instead of) desktop notifications via the same notifier seam — this is what makes "watch from your phone" push real. |
+| **Context-size guard** | `internal/ctxtokens` reads each live agent's context-window fill from its transcript and classifies it `ok`/`warning`/`critical`. The poller shows a state-colored token figure in `ls`/TUI/web, alerts once per upward crossing (`tokens.warn_alert`), and auto-sends `/compact` at `critical` when the agent is idle (`tokens.auto_compact`, cooldown-guarded). Master switch `tokens.guard`; thresholds `tokens.warn`/`tokens.critical`. |
+| **Force-compact (busy agents)** | Opt-in (`tokens.force_compact`, off by default; per-agent override via `warden force-compact <id> on\|off\|inherit`). When an agent goes `critical` while **still working** — the case `tokens.auto_compact` can't touch — the poller runs a small state machine that mirrors the manual fix: interrupt the agent (Escape), `/compact` once it idles, then send `tokens.compact_resume_prompt` so it resumes the discarded work. **Destructive**: the in-flight turn is lost. An interrupt that doesn't take within ~45s is abandoned, falling back to the pre-crash nudge. Drivable via the `set_force_compact` MCP tool. |
 | **Structured logging** | `internal/logging` installs a `log/slog` logger (also bridging the standard `log` package) so daemon logs carry structured fields. Level (`log_level`: `debug`/`info`/`warn`/`error`) and format (`log_format`: `text`/`json`) are configurable; `warden daemon --log-level`/`--log-format` override them. |
 
 ---
@@ -361,37 +361,39 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript dirs (poller reads these) |
 | `model_default` | `claude-sonnet-4-6` | Default model for spawned agents (id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
 | `default_permission_mode` | `auto` | Default permission mode (valid: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`) |
-| `notify` | `false` | Desktop notifications |
-| `webhook_enabled` | `false` | POST notifications to `webhook_url` on attention transitions (runs alongside `notify`) |
-| `webhook_url` | _(empty)_ | Webhook endpoint; a Slack incoming-webhook URL works out of the box |
+| `notify.enabled` | `false` | Desktop notifications |
+| `notify.webhook_enabled` | `false` | POST notifications to `notify.webhook_url` on attention transitions (runs alongside `notify.enabled`) |
+| `notify.webhook_url` | _(empty)_ | Webhook endpoint; a Slack incoming-webhook URL works out of the box |
 | `approvals` | `true` | The approvals inbox |
 | `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (tool/glob/regex/paths + per-agent overrides) |
-| `token_guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
-| `token_warn_alert` | `true` | Notify once per upward crossing into warning/critical (needs `notify`) |
-| `token_auto_compact` | `true` | Auto-`/compact` at `critical` when the agent is idle (cooldown-guarded) |
-| `token_force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it. Destructive; per-agent override via `warden force-compact` |
-| `token_compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
-| `token_warn` | `200000` | Warning threshold in context tokens (resets with critical if critical ≤ warn) |
-| `token_critical` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
+| `tokens.guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
+| `tokens.warn_alert` | `true` | Notify once per upward crossing into warning/critical (needs `notify.enabled`) |
+| `tokens.auto_compact` | `true` | Auto-`/compact` at `critical` when the agent is idle (cooldown-guarded) |
+| `tokens.force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it. Destructive; per-agent override via `warden force-compact` |
+| `tokens.compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
+| `tokens.warn` | `200000` | Warning threshold in context tokens (resets with critical if critical ≤ warn) |
+| `tokens.critical` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
 | `allow_nonloopback` | `false` | Allow binding the auth-less daemon to a non-loopback address |
-| `spawn_gate` / `spawn_gate_max_agents` | `true` / `5` | Soft warning before spawning when many agents are live |
-| `budget_gate` / `budget_daily_usd` / `budget_weekly_usd` | `false` / `0` / `0` | Soft warning before spawning when measured Claude spend has reached a $ cap (see §30) |
+| `worktree.spawn_gate` / `worktree.spawn_gate_max_agents` | `true` / `5` | Soft warning before spawning when many agents are live |
+| `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd` | `false` / `0` / `0` | Soft warning before spawning when measured Claude spend has reached a $ cap (see §30) |
 | `metrics` | `true` | Record per-agent metrics to disk |
 | `pipeline_keep_done` / `pipeline_hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |
-| `worktree_keep_done` / `worktree_auto_prune` | `false` / `false` | Keep a worktree after its agent is done / auto-reclaim orphaned worktrees |
+| `worktree.keep_done` / `worktree.auto_prune` | `true` / `false` | Keep a worktree after its agent is done / auto-reclaim orphaned worktrees |
 | `auto_restart_max` / `auto_restart_reset` | `3` / `5m` | Auto-restart attempts for an errored opted-in agent / health window that resets the counter |
 | `rate_limit_auto_resume` | `true` | Auto-resume agents after a rate limit clears (`rate_limit_retry_interval`, `rate_limit_buffer` tune timing) |
 | `log_level` / `log_format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
-| `isolation_guard` | `true` | PreToolUse hook blocking an isolated agent from editing files outside its worktree (§22) |
-| `git_conventions` | `true` | Append the prompt steer toward `wd commit`/`push`/`sync` over raw git Bash (§22) |
-| `git_redirect` | `true` | PreToolUse hook denying raw `git commit`/`push`/`pull`/`rebase`, redirecting to the warden tools (reads stay allowed) (§22) |
-| `check_redirect` | `true` | PreToolUse hook redirecting a raw test/lint/build command registered in `.warden/check.yml` to `wd check` (§22) |
-| `local_llm` | `false` | Route fuzzy-cheap tasks (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error (§21) |
-| `local_llm_url` / `local_llm_model` / `local_llm_timeout` | `http://localhost:11434` / `qwen2.5-coder:7b` / `20s` | Local Ollama server URL, model tag, and per-call hard timeout (§21) |
-| `local_llm_tier` / `local_llm_escalate` | `auto` / `true` | Orchestrator planning-tier override (`auto`/`t0`/`t1`/`t2`) / allow one over-tier planning step to escalate to headless Claude (§17) |
-| `local_llm_classifier` | `heuristic` | How the REPL buckets a request's needed planning tier: `heuristic` (cheap surface signals, no model call) or `model` (a one-shot local-model classification, one extra round-trip, falls back to the heuristic on any error) (§17) |
-| `repl` | `false` | Start the cockpit master pane in `wd repl` mode instead of a plain shell (§17) |
+| `rails.isolation_guard` | `true` | PreToolUse hook blocking an isolated agent from editing files outside its worktree (§22) |
+| `rails.git_conventions` | `true` | Append the prompt steer toward `wd commit`/`push`/`sync` over raw git Bash (§22) |
+| `rails.git_redirect` | `true` | PreToolUse hook denying raw `git commit`/`push`/`pull`/`rebase`, redirecting to the warden tools (reads stay allowed) (§22) |
+| `rails.check_redirect` | `true` | PreToolUse hook redirecting a raw test/lint/build command registered in `.warden/check.yml` to `wd check` (§22) |
+| `local_llm.enabled` | `false` | Route fuzzy-cheap tasks (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error (§21) |
+| `local_llm.url` / `local_llm.model` / `local_llm.timeout` | `http://localhost:11434` / `qwen2.5-coder:7b` / `20s` | Local Ollama server URL, model tag, and per-call hard timeout (§21) |
+| `local_llm.tier` / `local_llm.escalate` | `auto` / `true` | Orchestrator planning-tier override (`auto`/`t0`/`t1`/`t2`) / allow one over-tier planning step to escalate to headless Claude (§17) |
+| `local_llm.classifier` | `heuristic` | How the REPL buckets a request's needed planning tier: `heuristic` (cheap surface signals, no model call) or `model` (a one-shot local-model classification, one extra round-trip, falls back to the heuristic on any error) (§17) |
+| `local_llm.repl` | `false` | Start the cockpit master pane in `wd repl` mode instead of a plain shell (§17) |
 
+> **Config namespacing:** Settings are organized into five YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`. Old flat keys (`token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, etc.) are deprecated aliases — they still work and migrate to the namespaced form when `warden config init` is re-run.
+>
 > The old `WARDEN_*` environment variables are no longer read — the daemon warns
 > once at startup if any are still set. The per-agent IPC vars warden injects
 > (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration.
@@ -551,14 +553,14 @@ that *requires* it; everything below degrades silently to prior behavior.
 
 | Feature | Description |
 |---|---|
-| **Provider seam** | `internal/llm` exposes one-method `Completer` / `Chatter` interfaces over a small non-streaming Ollama client (`/api/generate`, `/api/chat`) with a hard timeout, response byte cap, and an error-so-the-caller-falls-back contract. The daemon builds the provider only when `local_llm` is on. |
+| **Provider seam** | `internal/llm` exposes one-method `Completer` / `Chatter` interfaces over a small non-streaming Ollama client (`/api/generate`, `/api/chat`) with a hard timeout, response byte cap, and an error-so-the-caller-falls-back contract. The daemon builds the provider only when `local_llm.enabled` is on. |
 | **Task classification** | `lifecycle.Classify` routes a prompt-spawned agent's type guess through the local model first, falling back to headless Claude, then `other`, on any error. |
 | **Activity summaries** | The ≤8-word agent subject (`Summarize`) routes through the same seam, falling back to headless Claude on any error *or empty reply* (an empty summary carries no signal, so unlike `Classify` it is not trusted). |
 | **Check-failure condensation** | An **oversized** check-failure log (output past the line cap) is condensed by the local model into its distinct failures; deterministic tail-truncation is the fallback. Within-cap failures skip the model entirely. |
 | **Headless commit messages** | `wd commit` / MCP `commit` no longer require `-m`: a missing message is distilled by the local model from the staged diff (`git diff --cached`, capped to 16 KiB) into a Conventional-Commits subject, with a path-derived conventional-commit floor as the guaranteed fallback — a blank commit is impossible. |
 
-Gated by `local_llm` (+ `local_llm_url` / `_model` / `_timeout`); the REPL's
-tier knobs (`local_llm_tier` / `_escalate`) live in §17.
+Gated by `local_llm.enabled` (+ `local_llm.url` / `.model` / `.timeout`); the REPL's
+tier knobs (`local_llm.tier` / `.escalate`) live in §17.
 
 ---
 
@@ -576,10 +578,10 @@ Most of this needs no LLM.
 | **`wd commit` / `push` / `sync` (CLI + MCP)** | Git lifecycle on the agent's pinned worktree via the `lifecycle` runner, returning compact structs in place of git tool-spam. Rails: no commit/push on main/master, no dirty-tree sync, pre-commit-hook failure surfaced as a result; `sync` leaves conflicts in progress carrying only the conflicting files. Commit message is auto-filled when `-m` is omitted (§21). |
 | **`wd check [name]` (CLI + MCP)** | Runs the per-project `.warden/check.yml` command(s) and returns pass/fail with output for only the **failing** checks (tail-truncated, oversized logs condensed per §21). Per-entry `dir:` for monorepos; config is the single source of truth; no-config / unknown-name return friendly errors. The biggest raw-token win. |
 | **Default-isolated write agents** | Every write-type agent (`code`/`docs`/`website`/`debug-ci`/`tests`) gets its own worktree unless `--in-repo`; `pr-review` is exempt (see §2). This is what makes the isolation guard meaningful and fixes parallel-agent collisions. |
-| **Isolation guard** (`isolation_guard`) | A PreToolUse hook denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (`warden hook guard` → `POST /api/v1/hooks/guard`). |
-| **Git-guard** (`git_redirect`) | A PreToolUse Bash hook quote-aware argv-parses each command and deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed), the deny message naming the exact replacement. Static verdict, no daemon round-trip. |
-| **Check-guard** (`check_redirect`) | A PreToolUse Bash hook deny-redirects a raw test/lint/build command the project's `.warden/check.yml` registers to `wd check`, matching on leading-token prefix (broad runs redirect; focused `-run` runs pass through). No-config repos redirect nothing. |
-| **Prompt steer** (`git_conventions`) | A Layer-1 system-prompt hint steering agents toward `wd commit`/`push`/`sync` (and `wd check`) over raw git/test Bash — the gentle first layer before the deny hooks. |
+| **Isolation guard** (`rails.isolation_guard`) | A PreToolUse hook denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (`warden hook guard` → `POST /api/v1/hooks/guard`). |
+| **Git-guard** (`rails.git_redirect`) | A PreToolUse Bash hook quote-aware argv-parses each command and deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed), the deny message naming the exact replacement. Static verdict, no daemon round-trip. |
+| **Check-guard** (`rails.check_redirect`) | A PreToolUse Bash hook deny-redirects a raw test/lint/build command the project's `.warden/check.yml` registers to `wd check`, matching on leading-token prefix (broad runs redirect; focused `-run` runs pass through). No-config repos redirect nothing. |
+| **Prompt steer** (`rails.git_conventions`) | A Layer-1 system-prompt hint steering agents toward `wd commit`/`push`/`sync` (and `wd check`) over raw git/test Bash — the gentle first layer before the deny hooks. |
 
 ---
 
@@ -802,7 +804,7 @@ measured data); the daemon serves it at `GET /api/v1/spend` (403 when off).
 |---|---|
 | **`wd spend`** (CLI + MCP `spend`) | The measured spend priced per model and rolled up three ways — **per agent**, **per repo**, **per day** — with a headline `total / today / this week`. `--by agent\|repo\|day` shows one rollup; `--json` for tooling. An empty meter reads as "nothing measured yet". |
 | **Per-model pricing** | A small `$/Mtok` table (`internal/spend/pricing.go`): Opus `$5/$25`, Sonnet `$3/$15`, Haiku `$0.8/$4` (in/out); an unrecognized model is priced at the Opus tier so spend is never silently under-counted. Opus rates are kept in sync with the savings ledger. |
-| **Budget gate** | A **soft** spawn gate, sibling to the memory-pressure gate: when today's or the trailing-week's measured spend reaches a configured cap, a non-forced spawn returns `428` with a confirmation payload; re-run with `--force` to proceed. Off by default. Tunable via `budget_gate` / `budget_daily_usd` / `budget_weekly_usd` (a `0` cap disables that axis). |
+| **Budget gate** | A **soft** spawn gate, sibling to the memory-pressure gate: when today's or the trailing-week's measured spend reaches a configured cap, a non-forced spawn returns `428` with a confirmation payload; re-run with `--force` to proceed. Off by default. Tunable via `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd` (a `0` cap disables that axis). |
 | **`$` in `wd ls`** | A **COST** column shows each agent's measured spend beside its context fill (best-effort — `—` when the feature is off). Also surfaced in `wd search` / `wd history`. |
 | **Web Metrics tab** | A **Cost per agent** card: the `total / today / this week` headline plus a live per-agent cost table beside the RSS/CPU charts. |
 

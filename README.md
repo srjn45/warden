@@ -199,7 +199,7 @@ Logs:
 - stdout: `/tmp/warden.daemon.log`
 - stderr: `/tmp/warden.daemon.err`
 
-> **Notifications:** off by default. When enabled (set `notify: true` in the config file), the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
+> **Notifications:** off by default. When enabled (set `notify.enabled: true` in the config file, or the deprecated `notify: true`), the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
 
 ---
 
@@ -245,7 +245,7 @@ Logs:
 - stderr: `/tmp/warden.daemon.err`
 - or live: `journalctl --user -u warden -f`
 
-> **Notifications:** off by default. Set `notify: true` in the config file to enable. The
+> **Notifications:** off by default. Set `notify.enabled: true` in the config file to enable (the deprecated `notify: true` also works). The
 > daemon calls `notify-send` (libnotify) when it's on `PATH`; install it with
 > `apt install libnotify-bin` (Debian/Ubuntu) or `dnf install libnotify`
 > (Fedora). Degrades to log-only if `notify-send` is not found.
@@ -349,24 +349,26 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript directories; the poller reads agent transcripts here to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
-| `notify` | `false` | Desktop notifications when an agent needs attention |
+| `notify.enabled` | `false` | Desktop notifications when an agent needs attention |
 | `approvals` | `true` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approvals`/`warden approve`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approve`. Unrecognized prompts always fall back to attach |
-| `token_guard` | `true` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch for the whole guard (gauge, alert, auto-compact) |
-| `token_warn_alert` | `true` | Fire a desktop notification (when `notify` is on) once per upward crossing into the warning or critical band |
-| `token_auto_compact` | `true` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded) |
-| `token_force_compact` | `false` | When an agent goes `critical` **while still working**, interrupt it (Escape), `/compact` once it idles, then send the resume prompt. **Destructive** — discards the in-flight turn — so off by default. Per-agent override via `warden force-compact <id> on\|off\|inherit` |
-| `token_compact_resume_prompt` | _(built-in)_ | Message sent to a force-compacted agent once compaction lands so it resumes its work |
-| `token_warn` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `token_critical` is not greater than this, both reset to the defaults |
-| `token_critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
+| `tokens.guard` | `true` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch for the whole guard (gauge, alert, auto-compact) |
+| `tokens.warn_alert` | `true` | Fire a desktop notification (when `notify.enabled` is on) once per upward crossing into the warning or critical band |
+| `tokens.auto_compact` | `true` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded) |
+| `tokens.force_compact` | `false` | When an agent goes `critical` **while still working**, interrupt it (Escape), `/compact` once it idles, then send the resume prompt. **Destructive** — discards the in-flight turn — so off by default. Per-agent override via `warden force-compact <id> on\|off\|inherit` |
+| `tokens.compact_resume_prompt` | _(built-in)_ | Message sent to a force-compacted agent once compaction lands so it resumes its work |
+| `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `tokens.critical` is not greater than this, both reset to the defaults |
+| `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
 | `auto_approve` | `false` | Auto-answer recognized permission prompts. Bare on/off, or an allow/deny **rule policy** (by tool / glob / regex / paths, with per-agent overrides) — see `warden auto-approve` |
-| `webhook_enabled` / `webhook_url` | `false` / _(empty)_ | POST a JSON payload to `webhook_url` on attention + context-size alerts (a Slack incoming-webhook URL works out of the box); runs alongside `notify` |
+| `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST a JSON payload to `webhook_url` on attention + context-size alerts (a Slack incoming-webhook URL works out of the box); runs alongside `notify.enabled` |
 | `collab_enabled` / `collab_interval` / `collab_hint` | `true` / … / `true` | File-conflict detection across worktrees, scan interval, and the spawn-time coordination hint |
-| `isolation_guard` / `git_redirect` / `check_redirect` / `git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
+| `rails.isolation_guard` / `rails.git_redirect` / `rails.check_redirect` / `rails.git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
 | `log_level` / `log_format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
-| `local_llm` (+ `local_llm_url`/`_model`/`_timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden repl` (its `/` commands work without it) |
-| `repl` | `false` | Start the cockpit master pane in `warden repl` mode instead of a plain shell |
+| `local_llm.enabled` (+ `.url`/`.model`/`.timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden repl` (its `/` commands work without it) |
+| `local_llm.repl` | `false` | Start the cockpit master pane in `warden repl` mode instead of a plain shell |
 
-`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `budget_gate` / `budget_daily_usd` / `budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree_keep_done` / `worktree_auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the REPL tier knobs (`local_llm_tier` / `local_llm_escalate` / `local_llm_classifier`).
+`warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`, `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree.keep_done` / `worktree.auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the REPL tier knobs (`local_llm.tier` / `local_llm.escalate` / `local_llm.classifier`).
+
+> **Config namespacing:** Settings are grouped into five YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`) are still accepted as deprecated aliases and migrate to the namespaced form automatically when `warden config init` is re-run.
 
 > **Legacy env vars:** the old `WARDEN_*` environment variables (e.g. `WARDEN_ADDR`, `WARDEN_NOTIFY`, `WARDEN_TOKEN_*`) are no longer read — the daemon warns once at startup if any are still set. The per-agent IPC vars warden injects into each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration and are unaffected.
 

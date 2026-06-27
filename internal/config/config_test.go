@@ -29,7 +29,7 @@ func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
 	require.False(t, c.AutoApprove.Enabled)
 	require.False(t, c.AutoApprove.AllowSticky)
 	require.Equal(t, "auto", c.DefaultPermissionMode)
-	require.Equal(t, 5, c.SpawnGateMaxAgents)
+	require.Equal(t, 5, c.Worktree.SpawnGateMax)
 	require.Equal(t, "claude-sonnet-4-6", c.ModelDefault)
 	require.True(t, c.PipelineHint)
 }
@@ -39,16 +39,17 @@ func TestLoadReadsFileValues(t *testing.T) {
 addr: 127.0.0.1:9999
 approvals: false
 auto_approve: true
-spawn_gate_max_agents: 8
 model_default: opus
 auto_restart_max: 7
 auto_restart_reset: 10m
+worktree:
+  spawn_gate_max_agents: 8
 `)
 	c := Load(path)
 	require.Equal(t, "127.0.0.1:9999", c.Addr)
 	require.False(t, c.ApprovalsEnabled)
 	require.True(t, c.AutoApprove.Enabled)
-	require.Equal(t, 8, c.SpawnGateMaxAgents)
+	require.Equal(t, 8, c.Worktree.SpawnGateMax)
 	require.Equal(t, "opus", c.ModelDefault)
 	require.Equal(t, 7, c.AutoRestartMax)
 	require.Equal(t, "10m", c.AutoRestartReset)
@@ -68,29 +69,213 @@ func TestLoad_RateLimitResumePrompt_Set(t *testing.T) {
 	require.Equal(t, "continue", c.RateLimitResumePrompt)
 }
 
+// ---------------------------------------------------------------------------
+// Namespaced: worktree group
+// ---------------------------------------------------------------------------
+
 func TestLoad_WorktreeRetention_Defaults(t *testing.T) {
 	c := Load(tmpConfig(t, "")) // empty file → all defaults
-	require.True(t, c.WorktreeKeepDone, "worktree_keep_done defaults to true (today's keep behavior)")
-	require.False(t, c.WorktreeAutoPrune, "worktree_auto_prune defaults to false (opt-in)")
+	require.True(t, c.Worktree.KeepDone, "worktree.keep_done defaults to true")
+	require.False(t, c.Worktree.AutoPrune, "worktree.auto_prune defaults to false (opt-in)")
 }
 
-func TestLoad_WorktreeRetention_Set(t *testing.T) {
-	c := Load(tmpConfig(t, "worktree_keep_done: false\nworktree_auto_prune: true\n"))
-	require.False(t, c.WorktreeKeepDone)
-	require.True(t, c.WorktreeAutoPrune)
+func TestLoad_WorktreeRetention_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "worktree:\n  keep_done: false\n  auto_prune: true\n"))
+	require.False(t, c.Worktree.KeepDone)
+	require.True(t, c.Worktree.AutoPrune)
 }
+
+func TestLoad_WorktreeRetention_FlatDeprecated(t *testing.T) {
+	// Old flat keys must still load via in-memory migration.
+	c := Load(tmpConfig(t, "worktree_keep_done: false\nworktree_auto_prune: true\n"))
+	require.False(t, c.Worktree.KeepDone)
+	require.True(t, c.Worktree.AutoPrune)
+}
+
+func TestLoad_SpawnGate_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "worktree:\n  spawn_gate: false\n  spawn_gate_max_agents: 3\n"))
+	require.False(t, c.Worktree.SpawnGate)
+	require.Equal(t, 3, c.Worktree.SpawnGateMax)
+}
+
+func TestLoad_SpawnGate_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "spawn_gate: false\nspawn_gate_max_agents: 3\n"))
+	require.False(t, c.Worktree.SpawnGate)
+	require.Equal(t, 3, c.Worktree.SpawnGateMax)
+}
+
+// ---------------------------------------------------------------------------
+// Namespaced: notify group
+// ---------------------------------------------------------------------------
 
 func TestLoad_Webhook_Defaults(t *testing.T) {
 	c := Load(tmpConfig(t, "")) // empty file → all defaults
-	require.False(t, c.WebhookEnabled, "webhook_enabled defaults to false (opt-in)")
-	require.Equal(t, "", c.WebhookURL, "webhook_url defaults to empty")
+	require.False(t, c.Notify.WebhookEnabled, "notify.webhook_enabled defaults to false (opt-in)")
+	require.Equal(t, "", c.Notify.WebhookURL, "notify.webhook_url defaults to empty")
 }
 
-func TestLoad_Webhook_Set(t *testing.T) {
-	c := Load(tmpConfig(t, "webhook_enabled: true\nwebhook_url: https://hooks.slack.com/services/T/B/xyz\n"))
-	require.True(t, c.WebhookEnabled)
-	require.Equal(t, "https://hooks.slack.com/services/T/B/xyz", c.WebhookURL)
+func TestLoad_Webhook_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "notify:\n  webhook_enabled: true\n  webhook_url: https://hooks.slack.com/services/T/B/xyz\n"))
+	require.True(t, c.Notify.WebhookEnabled)
+	require.Equal(t, "https://hooks.slack.com/services/T/B/xyz", c.Notify.WebhookURL)
 }
+
+func TestLoad_Webhook_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "webhook_enabled: true\nwebhook_url: https://hooks.slack.com/services/T/B/xyz\n"))
+	require.True(t, c.Notify.WebhookEnabled)
+	require.Equal(t, "https://hooks.slack.com/services/T/B/xyz", c.Notify.WebhookURL)
+}
+
+func TestLoad_Notify_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "notify: true\n"))
+	require.True(t, c.Notify.Enabled)
+}
+
+// ---------------------------------------------------------------------------
+// Namespaced: tokens group
+// ---------------------------------------------------------------------------
+
+func TestLoad_Tokens_Defaults(t *testing.T) {
+	c := Load(tmpConfig(t, ""))
+	require.True(t, c.Tokens.Guard)
+	require.Equal(t, 200000, c.Tokens.Warn)
+	require.Equal(t, 400000, c.Tokens.Critical)
+	require.True(t, c.Tokens.Savings)
+	require.False(t, c.Tokens.SavingsSamples)
+	require.False(t, c.Tokens.BudgetGate)
+}
+
+func TestLoad_Tokens_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "tokens:\n  guard: false\n  warn: 100000\n  critical: 300000\n  savings: false\n"))
+	require.False(t, c.Tokens.Guard)
+	require.Equal(t, 100000, c.Tokens.Warn)
+	require.Equal(t, 300000, c.Tokens.Critical)
+	require.False(t, c.Tokens.Savings)
+}
+
+func TestLoad_Tokens_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "token_guard: false\ntoken_warn: 100000\ntoken_critical: 300000\nsavings: false\n"))
+	require.False(t, c.Tokens.Guard)
+	require.Equal(t, 100000, c.Tokens.Warn)
+	require.Equal(t, 300000, c.Tokens.Critical)
+	require.False(t, c.Tokens.Savings)
+}
+
+func TestLoad_Budget_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "tokens:\n  budget_gate: true\n  budget_daily_usd: 25\n  budget_weekly_usd: 100\n"))
+	require.True(t, c.Tokens.BudgetGate)
+	require.Equal(t, 25.0, c.Tokens.BudgetDailyUSD)
+	require.Equal(t, 100.0, c.Tokens.BudgetWeeklyUSD)
+}
+
+func TestLoad_Budget_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "budget_gate: true\nbudget_daily_usd: 25\nbudget_weekly_usd: 100\n"))
+	require.True(t, c.Tokens.BudgetGate)
+	require.Equal(t, 25.0, c.Tokens.BudgetDailyUSD)
+	require.Equal(t, 100.0, c.Tokens.BudgetWeeklyUSD)
+}
+
+func TestLoadTokenThresholdsResetWhenInverted(t *testing.T) {
+	path := tmpConfig(t, "tokens:\n  warn: 500000\n  critical: 400000\n")
+	c := Load(path)
+	require.Equal(t, 200000, c.Tokens.Warn)
+	require.Equal(t, 400000, c.Tokens.Critical)
+}
+
+func TestLoadTokenThresholdsResetWhenInverted_FlatDeprecated(t *testing.T) {
+	path := tmpConfig(t, "token_warn: 500000\ntoken_critical: 400000\n")
+	c := Load(path)
+	require.Equal(t, 200000, c.Tokens.Warn)
+	require.Equal(t, 400000, c.Tokens.Critical)
+}
+
+// ---------------------------------------------------------------------------
+// Namespaced: rails group
+// ---------------------------------------------------------------------------
+
+func TestLoad_Rails_Defaults(t *testing.T) {
+	c := Load(tmpConfig(t, ""))
+	require.True(t, c.Rails.GitConventions)
+	require.True(t, c.Rails.GitRedirect)
+	require.True(t, c.Rails.CheckRedirect)
+	require.True(t, c.Rails.RootGuard)
+	require.True(t, c.Rails.IsolationGuard)
+}
+
+func TestLoad_Rails_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "rails:\n  git_redirect: false\n  root_guard: false\n"))
+	require.False(t, c.Rails.GitRedirect)
+	require.False(t, c.Rails.RootGuard)
+	// Other rails defaults still apply.
+	require.True(t, c.Rails.GitConventions)
+	require.True(t, c.Rails.IsolationGuard)
+}
+
+func TestLoad_Rails_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "git_redirect: false\nroot_guard: false\nisolation_guard: false\n"))
+	require.False(t, c.Rails.GitRedirect)
+	require.False(t, c.Rails.RootGuard)
+	require.False(t, c.Rails.IsolationGuard)
+	require.True(t, c.Rails.GitConventions) // default
+}
+
+// ---------------------------------------------------------------------------
+// Namespaced: local_llm group
+// ---------------------------------------------------------------------------
+
+func TestLoad_LocalLLM_Defaults(t *testing.T) {
+	c := Load(tmpConfig(t, ""))
+	require.False(t, c.LocalLLM.Enabled)
+	require.Equal(t, "http://localhost:11434", c.LocalLLM.URL)
+	require.Equal(t, "qwen2.5-coder:7b", c.LocalLLM.Model)
+	require.False(t, c.LocalLLM.Repl)
+}
+
+func TestLoad_LocalLLM_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "local_llm:\n  enabled: true\n  url: http://myserver:11434\n  model: llama3\n  repl: true\n"))
+	require.True(t, c.LocalLLM.Enabled)
+	require.Equal(t, "http://myserver:11434", c.LocalLLM.URL)
+	require.Equal(t, "llama3", c.LocalLLM.Model)
+	require.True(t, c.LocalLLM.Repl)
+}
+
+func TestLoad_LocalLLM_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "local_llm: true\nlocal_llm_url: http://myserver:11434\nlocal_llm_model: llama3\n"))
+	require.True(t, c.LocalLLM.Enabled)
+	require.Equal(t, "http://myserver:11434", c.LocalLLM.URL)
+	require.Equal(t, "llama3", c.LocalLLM.Model)
+}
+
+func TestLoad_Repl_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "repl: true\n"))
+	require.True(t, c.LocalLLM.Repl)
+	require.True(t, c.GetRepl())
+}
+
+func TestLoad_Orchestrator_LegacyAlias(t *testing.T) {
+	// The pre-rename `orchestrator` key migrates to local_llm.repl.
+	c := Load(tmpConfig(t, "orchestrator: true\n"))
+	require.True(t, c.LocalLLM.Repl)
+	require.True(t, c.GetRepl())
+}
+
+// ---------------------------------------------------------------------------
+// Both flat and namespaced present: namespaced wins
+// ---------------------------------------------------------------------------
+
+func TestLoad_NamespacedWinsOverFlat(t *testing.T) {
+	// When both forms are present, the namespaced value wins (it's processed after
+	// migration folds the flat key into the block, and the pre-existing namespaced
+	// sub-key takes precedence over the migrated flat alias).
+	c := Load(tmpConfig(t, "tokens:\n  guard: false\ntoken_guard: true\n"))
+	// The block was present; migration sees token_guard flat key, but tokens.guard
+	// is already set in the block → flat value is NOT folded in.
+	require.False(t, c.Tokens.Guard)
+}
+
+// ---------------------------------------------------------------------------
+// Permission mode
+// ---------------------------------------------------------------------------
 
 func TestLoadInvalidPermissionModeFallsBack(t *testing.T) {
 	path := tmpConfig(t, "default_permission_mode: nonsense\n")
@@ -103,6 +288,10 @@ func TestLoadValidPermissionModes(t *testing.T) {
 		require.Equal(t, mode, Load(path).DefaultPermissionMode)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Log settings
+// ---------------------------------------------------------------------------
 
 func TestLoadLogDefaults(t *testing.T) {
 	c := Load(filepath.Join(t.TempDir(), "absent.yaml"))
@@ -131,12 +320,9 @@ func TestLoadLogLevelNormalizesCase(t *testing.T) {
 	require.Equal(t, "json", c.LogFormat)
 }
 
-func TestLoadTokenThresholdsResetWhenInverted(t *testing.T) {
-	path := tmpConfig(t, "token_warn: 500000\ntoken_critical: 400000\n")
-	c := Load(path)
-	require.Equal(t, 200000, c.TokenWarn)
-	require.Equal(t, 400000, c.TokenCritical)
-}
+// ---------------------------------------------------------------------------
+// Duration / string fallbacks
+// ---------------------------------------------------------------------------
 
 func TestLoadBadDurationFallsBack(t *testing.T) {
 	path := tmpConfig(t, "auto_restart_reset: not-a-duration\nrate_limit_buffer: 0s\n")
@@ -157,6 +343,10 @@ func TestLoadGarbledFileFallsBackToDefaults(t *testing.T) {
 	require.Equal(t, defaults().Addr, Load(path).Addr)
 }
 
+// ---------------------------------------------------------------------------
+// Reconcile: full generation and idempotence
+// ---------------------------------------------------------------------------
+
 func TestReconcileCreatesFullFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, Reconcile(path))
@@ -172,11 +362,22 @@ func TestReconcileCreatesFullFile(t *testing.T) {
 		require.Contains(t, text, s.Key+":", "missing key %q", s.Key)
 	}
 	require.Contains(t, text, "Default permission mode for new agents")
+	// Namespaced blocks are present with sub-keys.
+	require.Contains(t, text, "rails:")
+	require.Contains(t, text, "tokens:")
+	require.Contains(t, text, "notify:")
+	require.Contains(t, text, "worktree:")
+	require.Contains(t, text, "local_llm:")
 
 	// The generated file round-trips into a valid Config.
 	c := Load(path)
 	require.Equal(t, defaults().Addr, c.Addr)
 	require.Equal(t, "auto", c.DefaultPermissionMode)
+	require.True(t, c.Rails.GitConventions)
+	require.True(t, c.Tokens.Guard)
+	require.False(t, c.Notify.Enabled)
+	require.True(t, c.Worktree.SpawnGate)
+	require.False(t, c.LocalLLM.Enabled)
 }
 
 func TestReconcileAddsOnlyMissingKeys(t *testing.T) {
@@ -211,6 +412,174 @@ some_unknown_key: keep-me
 	}
 	require.Equal(t, "keep-me", m["some_unknown_key"])
 }
+
+func TestReconcileIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, Reconcile(path))
+	first, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	require.NoError(t, Reconcile(path))
+	second, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	require.Equal(t, string(first), string(second), "second reconcile must be a no-op")
+}
+
+func TestReconcileRegeneratesEmptyFile(t *testing.T) {
+	path := tmpConfig(t, "")
+	require.NoError(t, Reconcile(path))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "addr:")
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile: flat→namespaced migration (written to disk)
+// ---------------------------------------------------------------------------
+
+func TestReconcileMigratesFlatTokenKeys(t *testing.T) {
+	path := tmpConfig(t, `# my note
+addr: 127.0.0.1:7777
+token_guard: false
+token_warn: 100000
+token_critical: 300000
+savings: false
+budget_gate: true
+budget_daily_usd: 25
+`)
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	// Flat ROOT-LEVEL keys removed (appear as "\nkey:" at column 0).
+	// Sub-keys inside the tokens: block are indented and still present.
+	require.NotContains(t, text, "\ntoken_guard:")
+	require.NotContains(t, text, "\ntoken_warn:")
+	require.NotContains(t, text, "\ntoken_critical:")
+	require.NotContains(t, text, "\nbudget_gate:")
+	require.Contains(t, text, "tokens:")
+
+	// Values round-trip.
+	c := Load(path)
+	require.False(t, c.Tokens.Guard)
+	require.Equal(t, 100000, c.Tokens.Warn)
+	require.Equal(t, 300000, c.Tokens.Critical)
+	require.False(t, c.Tokens.Savings)
+	require.True(t, c.Tokens.BudgetGate)
+	require.Equal(t, 25.0, c.Tokens.BudgetDailyUSD)
+
+	// Surrounding content preserved.
+	require.Contains(t, text, "my note")
+	require.Contains(t, text, "127.0.0.1:7777")
+
+	// Second reconcile is a no-op.
+	before := text
+	require.NoError(t, Reconcile(path))
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, string(after))
+}
+
+func TestReconcileMigratesFlatNotifyKeys(t *testing.T) {
+	path := tmpConfig(t, "notify: true\nwebhook_enabled: true\nwebhook_url: https://hooks.slack.com/T/B/xyz\n")
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	// Flat scalar `notify: true` is gone; only the block `notify:` remains.
+	require.NotContains(t, text, "notify: true")       // scalar flat key gone
+	require.NotContains(t, text, "\nwebhook_enabled:") // root-level flat key gone (sub-key is indented)
+	require.Contains(t, text, "notify:")               // block present
+
+	c := Load(path)
+	require.True(t, c.Notify.Enabled)
+	require.True(t, c.Notify.WebhookEnabled)
+	require.Equal(t, "https://hooks.slack.com/T/B/xyz", c.Notify.WebhookURL)
+}
+
+func TestReconcileMigratesFlatRailsKeys(t *testing.T) {
+	path := tmpConfig(t, "git_redirect: false\nroot_guard: false\nisolation_guard: false\n")
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	// Root-level flat keys gone; sub-keys are inside the rails: block (indented).
+	require.NotContains(t, text, "\ngit_redirect:")
+	require.NotContains(t, text, "\nroot_guard:")
+	require.NotContains(t, text, "\nisolation_guard:")
+	require.Contains(t, text, "rails:")
+
+	c := Load(path)
+	require.False(t, c.Rails.GitRedirect)
+	require.False(t, c.Rails.RootGuard)
+	require.False(t, c.Rails.IsolationGuard)
+}
+
+func TestReconcileMigratesFlatWorktreeKeys(t *testing.T) {
+	path := tmpConfig(t, "spawn_gate: false\nspawn_gate_max_agents: 3\nworktree_keep_done: false\nworktree_auto_prune: true\n")
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	// Root-level flat keys gone; sub-keys are indented inside the worktree: block.
+	require.NotContains(t, text, "\nspawn_gate:")
+	require.NotContains(t, text, "\nworktree_keep_done:")
+	require.NotContains(t, text, "\nworktree_auto_prune:")
+	require.Contains(t, text, "worktree:")
+
+	c := Load(path)
+	require.False(t, c.Worktree.SpawnGate)
+	require.Equal(t, 3, c.Worktree.SpawnGateMax)
+	require.False(t, c.Worktree.KeepDone)
+	require.True(t, c.Worktree.AutoPrune)
+}
+
+func TestReconcileMigratesFlatLocalLLMKeys(t *testing.T) {
+	path := tmpConfig(t, "local_llm: true\nlocal_llm_url: http://myserver:11434\nlocal_llm_model: llama3\nrepl: true\n")
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	require.NotContains(t, text, "\nrepl: true")
+	require.Contains(t, text, "local_llm:")
+
+	c := Load(path)
+	require.True(t, c.LocalLLM.Enabled)
+	require.Equal(t, "http://myserver:11434", c.LocalLLM.URL)
+	require.Equal(t, "llama3", c.LocalLLM.Model)
+	require.True(t, c.LocalLLM.Repl)
+}
+
+func TestReconcileMigratesOrchestratorLegacyKey(t *testing.T) {
+	path := tmpConfig(t, "orchestrator: true\n")
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	require.NotContains(t, text, "orchestrator:")
+	require.Contains(t, text, "local_llm:")
+
+	c := Load(path)
+	require.True(t, c.LocalLLM.Repl)
+	require.True(t, c.GetRepl())
+}
+
+// ---------------------------------------------------------------------------
+// auto_approve migration
+// ---------------------------------------------------------------------------
 
 func TestLoadLegacyFlatAutoApprove(t *testing.T) {
 	// A flat `auto_approve: true` must still load (via the Policy UnmarshalYAML
@@ -345,40 +714,22 @@ func TestReconcileGeneratesNestedAutoApprove(t *testing.T) {
 	require.NotNil(t, c.AutoApprove.Rules.Deny)
 }
 
-func TestReconcileIsIdempotent(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	require.NoError(t, Reconcile(path))
-	first, err := os.ReadFile(path)
-	require.NoError(t, err)
-
-	require.NoError(t, Reconcile(path))
-	second, err := os.ReadFile(path)
-	require.NoError(t, err)
-
-	require.Equal(t, string(first), string(second), "second reconcile must be a no-op")
-}
-
-func TestReconcileRegeneratesEmptyFile(t *testing.T) {
-	path := tmpConfig(t, "")
-	require.NoError(t, Reconcile(path))
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	require.Contains(t, string(data), "addr:")
-}
+// ---------------------------------------------------------------------------
+// Drift guard and defaults coverage
+// ---------------------------------------------------------------------------
 
 // TestSchemaMatchesStructTags is the drift guard: the set of yaml tags on
 // Config must equal the set of keys in the schema table, both directions.
 func TestSchemaMatchesStructTags(t *testing.T) {
-	// Deprecated back-compat aliases: read at Load time for old configs but
-	// intentionally NOT emitted into freshly generated files, so they have a
-	// struct field (yaml tag) without a schema entry.
-	legacyAliases := map[string]bool{"orchestrator": true} // pre-rename of `repl`
-
+	// Sub-struct types (RailsConfig, TokensConfig, etc.) are embedded via fields
+	// on Config (rails, tokens, notify, worktree, local_llm). Their internal
+	// sub-keys are NOT top-level Config yaml tags — only the block key is.
+	// The drift guard only needs to check top-level Config yaml tags vs schema.
 	tags := map[string]bool{}
 	tp := reflect.TypeOf(Config{})
 	for i := 0; i < tp.NumField(); i++ {
 		tag := strings.Split(tp.Field(i).Tag.Get("yaml"), ",")[0]
-		if tag == "" || tag == "-" || legacyAliases[tag] {
+		if tag == "" || tag == "-" {
 			continue
 		}
 		tags[tag] = true
@@ -423,6 +774,12 @@ func TestConfigImplementsProviderAccessors(t *testing.T) {
 	require.Equal(t, "auto", c.GetDefaultPermissionMode())
 	require.Equal(t, "claude-sonnet-4-6", c.GetModelDefault())
 	require.True(t, c.GetPipelineHint())
+	require.True(t, c.GetIsolationGuard())
+	require.True(t, c.GetGitConventions())
+	require.True(t, c.GetRootGuard())
+	require.True(t, c.GetSavings())
+	require.False(t, c.GetLocalLLM())
+	require.False(t, c.GetRepl())
 }
 
 func TestDefaultPath(t *testing.T) {

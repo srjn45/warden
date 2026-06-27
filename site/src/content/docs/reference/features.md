@@ -136,14 +136,14 @@ own tmux session, most in a git worktree).
 | Fleet insights (parallelizable pairs, etc.) | `insights` | `insights` | ✓ | — | — | [insights](https://srjn45.github.io/warden/reference/insights/) |
 | Token-savings ledger | `savings` | `savings` | ✓ | — | — | [savings](https://srjn45.github.io/warden/reference/savings/) |
 | Cost governance ($ spend rollup) | `spend` | `spend` | ✓ | ✓ | $ in `ls` | [savings](https://srjn45.github.io/warden/reference/savings/) |
-| Budget gate (soft $ cap on spawn) | config (`budget_gate`) / spawn gate | automatic | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
+| Budget gate (soft $ cap on spawn) | config (`tokens.budget_gate`) / spawn gate | automatic | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Full-text search | `search` | `search` | ✓ | ✓ | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | Browse archived agents | `history` | `history` | ✓ | ✓ (archive) | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | Action audit trail | `audit log` | `audit_log` | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Event stream (SSE) | — | — | — | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
-| Desktop / webhook / Slack notifications | config (`notify`, `webhook_*`) | automatic | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
-| Context/token guard (gauge, alert, auto-`/compact`) | config (`token_guard`) | automatic | ✓ | ✓ | gauge | [observability](https://srjn45.github.io/warden/reference/observability/) |
-| Force-compact a busy critical agent (interrupt→`/compact`→resume) | `force-compact` (config `token_force_compact`) | `set_force_compact` | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
+| Desktop / webhook / Slack notifications | config (`notify.enabled`, `notify.webhook_*`) | automatic | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
+| Context/token guard (gauge, alert, auto-`/compact`) | config (`tokens.guard`) | automatic | ✓ | ✓ | gauge | [observability](https://srjn45.github.io/warden/reference/observability/) |
+| Force-compact a busy critical agent (interrupt→`/compact`→resume) | `force-compact` (config `tokens.force_compact`) | `set_force_compact` | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Crash / anomaly detection (OOM, loop, pre-crash) | config | automatic | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 
 ## 10. Portability & presets

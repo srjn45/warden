@@ -388,7 +388,7 @@ func runLLMSuggest(cmd *cobra.Command, _ []string) error {
 	totalOverride, _ := cmd.Flags().GetFloat64("total-gb")
 	freeOverride, _ := cmd.Flags().GetFloat64("free-gb")
 
-	report := llmSuggestReport{Configured: strings.TrimSpace(cfg.LocalLLMModel)}
+	report := llmSuggestReport{Configured: strings.TrimSpace(cfg.LocalLLM.Model)}
 
 	total := detectMemoryGB(runCmdOutput, goosName(), systemRAMGB)
 	report.TotalGB, report.TotalSource, report.Detected = total.gb, total.source, total.ok

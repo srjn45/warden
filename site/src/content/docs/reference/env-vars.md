@@ -37,18 +37,18 @@ Common settings (run `warden config` for the complete, live list):
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
-| `notify` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
-| `webhook_enabled` / `webhook_url` | `false` / _(empty)_ | POST notifications to a webhook (a Slack incoming-webhook URL works out of the box) |
+| `notify.enabled` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
+| `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST notifications to a webhook (a Slack incoming-webhook URL works out of the box) |
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers |
 | `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (by tool / glob / regex / paths, with per-agent overrides); manage with `warden auto-approve` |
-| `token_guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
-| `token_warn_alert` | `true` | Fire a desktop notification once per upward crossing into warning/critical |
-| `token_auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting |
-| `token_force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it (destructive). Per-agent override via `warden force-compact` |
-| `token_compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
-| `token_warn` | `200000` | Warning threshold in context tokens (inclusive) |
-| `token_critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |
-| `local_llm` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
+| `tokens.guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
+| `tokens.warn_alert` | `true` | Fire a desktop notification once per upward crossing into warning/critical |
+| `tokens.auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting |
+| `tokens.force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it (destructive). Per-agent override via `warden force-compact` |
+| `tokens.compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
+| `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive) |
+| `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |
+| `local_llm.enabled` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
 | `metrics` | `true` | Record per-agent performance history for `warden stats --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate and a hard cap on concurrent agents (0 = no cap) |
 | `pipeline_keep_done` / `pipeline_hint` | — | Pipeline retention + the decomposition nudge |
