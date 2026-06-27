@@ -613,10 +613,13 @@ type SpawnRequest struct {
 	Cwd         string `json:"cwd,omitempty"`
 
 	// Force bypass the memory-pressure spawn gate
-	Force          bool   `json:"force,omitempty"`
-	InRepo         bool   `json:"in_repo,omitempty"`
-	Model          string `json:"model,omitempty"`
-	Name           string `json:"name,omitempty"`
+	Force  bool   `json:"force,omitempty"`
+	InRepo bool   `json:"in_repo,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Name   string `json:"name,omitempty"`
+
+	// ParentId id of the agent that spawned this one; empty = root
+	ParentId       string `json:"parent_id,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
 	Pr             string `json:"pr,omitempty"`
 	Prompt         string `json:"prompt,omitempty"`

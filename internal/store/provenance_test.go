@@ -49,6 +49,34 @@ func TestProvenanceAdoptedRoundTrip(t *testing.T) {
 	require.False(t, got.BranchCreated)
 }
 
+// TestParentIDRoundTrip verifies an agent's ParentID provenance survives
+// create → read → list, and that an unset ParentID stays empty (root).
+func TestParentIDRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+
+	child := sample()
+	child.ParentID = "orchestrator-1"
+	require.NoError(t, st.Insert(ctx, child))
+
+	root := sample()
+	root.ID = child.ID + "-root"
+	root.TmuxSession = root.ID
+	require.NoError(t, st.Insert(ctx, root))
+
+	gotChild, err := st.Get(ctx, child.ID)
+	require.NoError(t, err)
+	require.Equal(t, "orchestrator-1", gotChild.ParentID)
+
+	gotRoot, err := st.Get(ctx, root.ID)
+	require.NoError(t, err)
+	require.Empty(t, gotRoot.ParentID, "an operator/CLI spawn has no parent")
+
+	list, err := st.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+}
+
 // TestListClosed verifies archived records are readable via ListClosed and are
 // absent from the active List.
 func TestListClosed(t *testing.T) {

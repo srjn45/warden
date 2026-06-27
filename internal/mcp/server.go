@@ -276,7 +276,7 @@ func NewServer(daemonBase string) *Server {
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree, InRepo: a.InRepo,
 			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
-			Name: a.Name, Model: a.Model, Tags: a.Tags,
+			Name: a.Name, Model: a.Model, Tags: a.Tags, ParentID: sessionID(),
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired
