@@ -3,6 +3,15 @@
 **Date:** 2026-06-21
 **Status:** Approved (brainstorming → spec)
 
+> **Command-surface update (post-implementation):** the two commands this spec
+> introduces have since been folded under a `worktree` umbrella. `warden prune`
+> is now `warden worktree prune` (the top-level `warden prune` is kept as an
+> unchanged alias), and `warden worktree ls` is now `warden worktree list`
+> (`ls` kept as an alias; bare `warden worktree` prints the list). Flags,
+> prompts, retention policy, and behavior are identical — only the command path
+> changed. References below to `warden prune` / `warden worktree ls` read as
+> those new paths.
+
 ## Problem
 
 warden spawns most agents into a dedicated git worktree under

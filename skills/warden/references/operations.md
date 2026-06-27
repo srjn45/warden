@@ -247,5 +247,7 @@ Read verbs for catching up on the fleet, all MCP-first:
 - `spend` (CLI `wd spend`) — measured Claude spend in $, per agent / repo / day (see
   the cost-governance section above); `savings` is its keep-out-of-context twin.
 - `list_worktrees {repo?}` / `prune_worktrees {repo?, dry_run?, force?}` (CLI
-  `wd worktree ls` / `wd prune`) — list / reconcile a repo's worktrees.
+  `wd worktree list` / `wd worktree prune`, both under the `wd worktree` umbrella;
+  `wd worktree ls` and the top-level `wd prune` remain as aliases) — list /
+  reconcile a repo's worktrees.
 - `digest {ticket}` (CLI `wd digest`) — a compact catch-up summary of one agent.

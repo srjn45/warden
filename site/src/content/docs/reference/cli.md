@@ -75,7 +75,7 @@ Available Commands:
   token               Manage the daemon's remote-access bearer token
   tui                 Live terminal cockpit for agents
   tutorial            Run the first-run guided walkthrough
-  worktree            Inspect warden's git worktrees
+  worktree            Inspect and reclaim warden's git worktrees: list and prune, in one place
 
 Flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -756,12 +756,26 @@ With no rules configured, an enabled policy keeps the simple legacy behavior
 destructive deny-list always wins, so no rule can auto-approve a destructive
 action.
 
-## warden worktree / prune
+## warden worktree
+
+The umbrella for warden's worktree operations — **list** and **prune**. Bare
+`warden worktree` prints the list (same as `warden worktree list`).
 
 ```text
-warden worktree ls            List warden worktrees under .worktrees, joined to active/archived records
-warden prune [--force]        Reclaim orphaned warden worktrees under .worktrees (always asks)
+warden worktree                   List warden worktrees (same as `worktree list`)
+warden worktree list              List warden worktrees under .worktrees, joined to active/archived records (alias: ls)
+warden worktree prune [--force]   Reclaim orphaned warden worktrees under .worktrees (always asks)
 ```
+
+`warden prune` remains available, unchanged, as a top-level alias for
+`warden worktree prune` (same flags, prompts, and output):
+
+```text
+warden prune [--force]            Alias for `warden worktree prune`
+```
+
+Pruning whole orphaned worktrees is distinct from `warden remove-worktree`,
+which tears down one specific agent's worktree.
 
 ## warden config
 
