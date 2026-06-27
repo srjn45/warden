@@ -55,6 +55,25 @@ func TestCheckBinaries(t *testing.T) {
 	}
 }
 
+// ollama is documented as a dependency (local_llm / `wd repl`) and must be
+// probed by doctor as a warn-only optional binary.
+func TestOllamaIsOptionalBinary(t *testing.T) {
+	found := false
+	for _, b := range optionalBinaries {
+		if b == "ollama" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ollama should be in optionalBinaries, got %v", optionalBinaries)
+	}
+	for _, b := range requiredBinaries {
+		if b == "ollama" {
+			t.Fatalf("ollama must be optional (warn-only), not required")
+		}
+	}
+}
+
 func TestCheckDataDir(t *testing.T) {
 	dir := t.TempDir()
 	if r := checkDataDir(dir); !r.ok || !r.required {
