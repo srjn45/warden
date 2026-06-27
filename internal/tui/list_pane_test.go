@@ -135,26 +135,14 @@ func TestListPaneEnterOpensDetail(t *testing.T) {
 	require.NotNil(t, cmd, "Enter on a selected agent opens it in the detail pane")
 }
 
-func TestListPaneWebQuitDoesNotKillSession(t *testing.T) {
-	// In the web cockpit `q` must only quit this bubbletea program (dropping the
-	// pane to the wrapping shell); it must NOT kill the shared, browser-bridged
-	// tmux session. So quitCmd is a plain tea.Quit, not the kill+quit sequence.
-	m := newListPane(&fakeAPI{}, "%9")
-	m.web = true
-	_, cmd := m.Update(key("q"))
-	require.NotNil(t, cmd, "q still quits the program in web mode")
-	// Safe to execute: web quit is tea.Quit (no tmux), so it can't tear anything
-	// down. (The foreground branch runs `tmux kill-session` and must never be
-	// executed in a test — it would kill the developer's own session.)
-	require.IsType(t, tea.QuitMsg{}, cmd(), "web q is a bare quit, not killCockpit")
-}
-
-func TestListPaneForegroundQuitReturnsCommand(t *testing.T) {
-	// Foreground (web=false): q returns a non-nil cmd (the killCockpit+quit
-	// sequence). Deliberately NOT executed — running it would `tmux kill-session`.
+func TestListPaneQuitReturnsCommand(t *testing.T) {
+	// `q` tears the cockpit down and quits — both locally and on the web (where the
+	// daemon notices the session vanish and tells the browser to leave). It returns
+	// a non-nil cmd (killCockpit+quit sequence), deliberately NOT executed here —
+	// running it would `tmux kill-session` and kill the developer's own session.
 	m := newListPane(&fakeAPI{}, "%9")
 	_, cmd := m.Update(key("q"))
-	require.NotNil(t, cmd, "q quits the foreground cockpit too")
+	require.NotNil(t, cmd, "q quits the cockpit")
 }
 
 func TestListPaneEnterNoopWithoutSelection(t *testing.T) {
