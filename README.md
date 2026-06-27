@@ -53,12 +53,12 @@ warden tui              # open the cockpit
 <table>
   <tr>
     <td width="50%">
-      <a href="https://srjn45.github.io/warden/guides/tui-cockpit/"><img src="site/public/media/cockpit.png" alt="The warden TUI cockpit: a live agents list, a shell, and the selected agent's session in the full-height detail pane."></a>
+      <a href="https://srjn45.github.io/warden/guides/tui-cockpit/"><img src="site/public/media/tui-cockpit.gif" alt="The warden TUI cockpit in motion: a live agents list grouped by directory, an Approvals row, a shell, and the selected agent's session in the full-height detail pane."></a>
       <p align="center"><strong>TUI cockpit</strong> — agents list, shell, and the selected agent's live session, side by side in tmux.</p>
     </td>
     <td width="50%">
-      <a href="https://srjn45.github.io/warden/guides/web-mission-control/"><img src="site/public/media/web-cockpit.png" alt="The warden web dashboard Cockpit home with a Fleet summary header and agents grouped by directory."></a>
-      <p align="center"><strong>Web dashboard</strong> — mission control with a Fleet header, grouped agents, and Pipelines / Metrics / Archive tabs.</p>
+      <a href="https://srjn45.github.io/warden/guides/web-mission-control/"><img src="site/public/media/web-monitor.gif" alt="The warden web dashboard in motion: the Cockpit home with a Fleet summary and grouped agents, then the Metrics tab with per-agent and fleet-total CPU/memory charts."></a>
+      <p align="center"><strong>Web dashboard</strong> — mission control: Fleet header and grouped agents, then a live walk to the Metrics tab.</p>
     </td>
   </tr>
   <tr>
