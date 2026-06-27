@@ -37,6 +37,9 @@ export interface Session {
   id: string;
   name?: string;
   type: string;
+  // backend is the AI agent that drives this session (claude, aider, …). It is
+  // json `omitempty`, so pre-#52 Claude agents omit it — treat empty as 'claude'.
+  backend?: string;
   ticket: string;
   tmux_session: string;
   repo: string;

@@ -50,6 +50,29 @@ func TestRenderListRowShowsFullUntrimmedID(t *testing.T) {
 	require.NotContains(t, out, "…", "the id must not be ellipsis-truncated")
 }
 
+func TestRenderListRowShowsBackend(t *testing.T) {
+	sessions := []*store.Session{
+		{ID: "agent-aider", Status: store.StatusWorking, Backend: "aider", UpdatedAt: time.Now()},
+	}
+	out := renderList(buildItems(sessions, nil, nil), 0, 120, 10)
+	require.Contains(t, out, "aider", "row should show the agent backend")
+}
+
+func TestRenderListRowEmptyBackendDefaultsToClaude(t *testing.T) {
+	// Backend is omitempty: pre-#52 Claude agents carry no value and must render
+	// as "claude" rather than a blank column.
+	sessions := []*store.Session{
+		{ID: "agent-legacy", Status: store.StatusWorking, UpdatedAt: time.Now()},
+	}
+	out := renderList(buildItems(sessions, nil, nil), 0, 120, 10)
+	require.Contains(t, out, "claude", "an empty backend must render as claude")
+}
+
+func TestBackendOrDefaultsToClaude(t *testing.T) {
+	require.Equal(t, "claude", backendOr(&store.Session{}), "empty backend → claude")
+	require.Equal(t, "aider", backendOr(&store.Session{Backend: "aider"}), "explicit backend preserved")
+}
+
 func TestRenderListRowDoesNotClipAtNarrowWidth(t *testing.T) {
 	sessions := []*store.Session{
 		{

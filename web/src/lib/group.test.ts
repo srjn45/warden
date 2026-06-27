@@ -81,6 +81,19 @@ describe('groupSessionsBy', () => {
     expect(byKey[UNTAGGED]).toEqual(['c', 'd']);
   });
 
+  it('groups by backend and defaults a missing backend to claude', () => {
+    const out = groupSessionsBy([
+      sess({ id: 'a', backend: 'aider', created_at: '2026-06-03T10:00:00Z' }),
+      sess({ id: 'b', created_at: '2026-06-03T09:00:00Z' }), // omitempty → claude
+      sess({ id: 'c', backend: 'claude', created_at: '2026-06-03T08:00:00Z' }),
+    ], 'backend');
+    const byKey = Object.fromEntries(out.map((g) => [g.key, g.sessions.map((s) => s.id)]));
+    expect(byKey['aider']).toEqual(['a']);
+    expect(byKey['claude']).toEqual(['b', 'c']);
+    // header label is the backend id
+    expect(out.find((g) => g.key === 'claude')?.label).toBe('claude');
+  });
+
   it('decorates dir groups with label/sub/dir for the quick-add button', () => {
     const out = groupSessionsBy([
       sess({ id: 'a', repo: '/Users/x/warden', updated_at: '2026-06-03T10:00:00Z' }),

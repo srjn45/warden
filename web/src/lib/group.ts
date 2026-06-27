@@ -13,17 +13,23 @@ export interface SessionGroup {
 
 // GroupBy is the dimension AgentGrid buckets agents on. 'dir' is the historical
 // default (directory the command ran from). 'type' / 'status' / 'tag' were added
-// for #20 (agent grouping/filtering).
-export type GroupBy = 'dir' | 'type' | 'status' | 'tag';
+// for #20 (agent grouping/filtering). 'backend' (#52) buckets by the AI agent
+// driving each session and is labelled "Agent" in the UI.
+export type GroupBy = 'dir' | 'type' | 'status' | 'tag' | 'backend';
 
-export const GROUP_BY_VALUES: GroupBy[] = ['dir', 'type', 'status', 'tag'];
+export const GROUP_BY_VALUES: GroupBy[] = ['dir', 'type', 'status', 'tag', 'backend'];
 
 export const GROUP_BY_LABELS: Record<GroupBy, string> = {
   dir: 'Directory',
   type: 'Type',
   status: 'Status',
   tag: 'Tag',
+  backend: 'Agent',
 };
+
+// DEFAULT_BACKEND is what an agent with no recorded backend (omitempty JSON for
+// pre-#52 Claude agents) groups and renders under.
+export const DEFAULT_BACKEND = 'claude';
 
 // UNKNOWN_DIR is the sentinel value used when neither repo nor workdir is set.
 export const UNKNOWN_DIR = '—';
@@ -45,6 +51,7 @@ export function sourceDir(s: Session): string {
 function keysFor(s: Session, by: GroupBy): string[] {
   switch (by) {
     case 'type': return [s.type || UNTYPED];
+    case 'backend': return [s.backend || DEFAULT_BACKEND];
     case 'status': return [s.status];
     case 'tag': {
       const tags = (s.tags ?? []).filter((t) => t.trim() !== '');

@@ -222,6 +222,20 @@ func TestDetailBodyHandlesNil(t *testing.T) {
 	}
 }
 
+func TestDetailBodyShowsBackend(t *testing.T) {
+	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, Backend: "aider"}
+	if out := detailBody(s, 80); !strings.Contains(out, "backend") || !strings.Contains(out, "aider") {
+		t.Errorf("detailBody() should show the backend line with 'aider':\n%s", out)
+	}
+}
+
+func TestDetailBodyEmptyBackendDefaultsToClaude(t *testing.T) {
+	s := &store.Session{ID: "agent-1", Status: store.StatusWorking}
+	if out := detailBody(s, 80); !strings.Contains(out, "backend") || !strings.Contains(out, "claude") {
+		t.Errorf("detailBody() should default an empty backend to claude:\n%s", out)
+	}
+}
+
 func TestKeyIOnAgentEntersDetailsMode(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "")
 	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24}) // size the viewport (the real cockpit always does)
