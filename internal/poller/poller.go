@@ -81,6 +81,13 @@ type Deps interface {
 	UpdateContext(ctx context.Context, id string, tokens int, state string) error
 	// Compact sends "/compact" to the agent (only called when it is idle/waiting).
 	Compact(ctx context.Context, s *store.Session) error
+	// Interrupt sends an Escape keystroke to the agent's pane, cancelling the
+	// in-flight turn so a busy agent drops to idle and can be /compact-ed. Used
+	// only by the force-compact path (it discards the running turn's work).
+	Interrupt(ctx context.Context, s *store.Session) error
+	// Resume sends a prompt to a force-compacted agent so it picks its work back
+	// up after the interrupt+compaction.
+	Resume(ctx context.Context, s *store.Session, prompt string) error
 	// StampCompact records that /compact was just sent (cooldown guard).
 	StampCompact(ctx context.Context, id string) error
 	// SendKeys sends a single key (e.g. numbered menu option) to the agent's tmux pane.
@@ -115,13 +122,19 @@ type Poller struct {
 	// Context-size guard config + hooks (set by the daemon after New). When
 	// TokenGuard is false the whole check is skipped. CompactCooldown bounds how
 	// often /compact may be auto-sent to one agent.
-	TokenGuard      bool
-	TokenWarn       int
-	TokenCrit       int
-	WarnAlert       bool
-	AutoCompact     bool
-	CompactCooldown time.Duration
-	CheckEvery      time.Duration // throttle for the per-agent transcript read
+	TokenGuard  bool
+	TokenWarn   int
+	TokenCrit   int
+	WarnAlert   bool
+	AutoCompact bool
+	// ForceCompact is the global default for the destructive force-compact path:
+	// interrupt a busy critical agent (Escape), /compact it once idle, then send
+	// CompactResumePrompt. Per-agent Session.ForceCompact overrides this. Off by
+	// default — it discards the agent's in-flight turn.
+	ForceCompact        bool
+	CompactResumePrompt string
+	CompactCooldown     time.Duration
+	CheckEvery          time.Duration // throttle for the per-agent transcript read
 	// OnContextAlert, if set, fires once per upward threshold crossing.
 	OnContextAlert func(sess *store.Session, state ctxtokens.State, tokens int)
 
@@ -159,6 +172,11 @@ type Poller struct {
 	// already raised for a session's current critical-context episode (tick
 	// goroutine only), so the nudge fires once per episode, not per tick.
 	preCrashFlagged map[string]bool
+
+	// forceCompact tracks the per-agent force-compact state machine (interrupt →
+	// await idle → /compact → await land → resume) for agents the force path is
+	// driving this critical episode. Tick goroutine only.
+	forceCompact map[string]fcState
 
 	// AutoApprovePolicy is the auto-approve policy (from config): a default
 	// allow/deny policy plus optional per-agent overrides (see approval.Policy).
@@ -203,6 +221,25 @@ type compactPending struct {
 	at     time.Time
 }
 
+// fcPhase is the stage of the force-compact state machine for one agent.
+type fcPhase int
+
+const (
+	// fcInterrupting: warden sent Escape and is waiting for the busy agent to drop
+	// to idle/waiting so it can be /compact-ed.
+	fcInterrupting fcPhase = iota
+	// fcAwaitLand: /compact was sent (parked in pendingCompact); warden is waiting
+	// for the compaction to land before sending the resume prompt.
+	fcAwaitLand
+)
+
+// fcState is one agent's position in the force-compact machine. at is when the
+// current phase began (used to abandon an interrupt that never takes).
+type fcState struct {
+	phase fcPhase
+	at    time.Time
+}
+
 func New(d Deps, stuckAfter time.Duration) *Poller {
 	return &Poller{
 		deps:            d,
@@ -215,6 +252,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		paneHistory:     map[string][]string{},
 		loopFlagged:     map[string]bool{},
 		preCrashFlagged: map[string]bool{},
+		forceCompact:    map[string]fcState{},
 		CheckEvery:      20 * time.Second,
 		CompactCooldown: 2 * time.Minute,
 		ApprovalEvents:  make(chan ApprovalEvent, 100),
@@ -460,7 +498,8 @@ func (p *Poller) tick(ctx context.Context) error {
 func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 &&
 		len(p.pendingCompact) == 0 && len(p.paneHistory) == 0 &&
-		len(p.loopFlagged) == 0 && len(p.preCrashFlagged) == 0 {
+		len(p.loopFlagged) == 0 && len(p.preCrashFlagged) == 0 &&
+		len(p.forceCompact) == 0 {
 		return
 	}
 	live := make(map[string]struct{}, len(sessions))
@@ -495,6 +534,11 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	for id := range p.preCrashFlagged {
 		if _, ok := live[id]; !ok {
 			delete(p.preCrashFlagged, id)
+		}
+	}
+	for id := range p.forceCompact {
+		if _, ok := live[id]; !ok {
+			delete(p.forceCompact, id)
 		}
 	}
 }

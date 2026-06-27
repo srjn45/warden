@@ -126,6 +126,8 @@ func newDaemonCmd() *cobra.Command {
 			pl.TokenCrit = cfg.TokenCritical
 			pl.WarnAlert = cfg.TokenWarnAlert
 			pl.AutoCompact = cfg.TokenAutoCompact
+			pl.ForceCompact = cfg.TokenForceCompact
+			pl.CompactResumePrompt = cfg.TokenCompactResumePrompt
 			pl.AutoApprovePolicy = cfg.AutoApprove
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {

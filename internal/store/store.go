@@ -61,6 +61,9 @@ type Store interface {
 	StampCompact(ctx context.Context, id string) error
 	// UpdateAutoApprove sets the AutoApprove flag for a session.
 	UpdateAutoApprove(ctx context.Context, id string, enabled bool) error
+	// SetForceCompact sets the per-agent force-compact override (nil = inherit the
+	// global token_force_compact; non-nil pins the agent on/off).
+	SetForceCompact(ctx context.Context, id string, v *bool) error
 	// UpdatePermissionMode sets the permission mode for a session.
 	UpdatePermissionMode(ctx context.Context, id string, mode string) error
 	// ClearWorktree blanks the Worktree and Branch fields (after the worktree is

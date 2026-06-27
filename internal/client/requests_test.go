@@ -494,6 +494,15 @@ func TestSetAutoApprove(t *testing.T) {
 	require.Equal(t, true, c.body["enabled"])
 }
 
+func TestSetForceCompact(t *testing.T) {
+	var c capture
+	ts := jsonServer(t, &c, 0, ``)
+	require.NoError(t, New(ts.URL).SetForceCompact(context.Background(), "A-1", "on"))
+	require.Equal(t, http.MethodPatch, c.method)
+	require.Equal(t, "/api/v1/sessions/A-1/force-compact", c.path)
+	require.Equal(t, "on", c.body["state"])
+}
+
 func TestSetName(t *testing.T) {
 	var c capture
 	ts := jsonServer(t, &c, 0, ``)

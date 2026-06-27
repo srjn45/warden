@@ -411,6 +411,36 @@ func (s *Server) SetAutoApprove(ctx context.Context, req oapi.SetAutoApproveRequ
 	return oapi.SetAutoApprove200JSONResponse{AutoApprove: enabled}, nil
 }
 
+// SetForceCompact implements PATCH /api/v1/sessions/{id}/force-compact. It sets
+// the per-agent force-compact override: "on"/"off" pin the agent, "inherit"
+// clears the override so it follows the global token_force_compact.
+func (s *Server) SetForceCompact(ctx context.Context, req oapi.SetForceCompactRequestObject) (oapi.SetForceCompactResponseObject, error) {
+	if req.Body == nil {
+		return nil, errStatus(http.StatusBadRequest, "missing body")
+	}
+	var override *bool
+	switch req.Body.State {
+	case oapi.SetForceCompactJSONBodyStateOn:
+		on := true
+		override = &on
+	case oapi.SetForceCompactJSONBodyStateOff:
+		off := false
+		override = &off
+	case oapi.SetForceCompactJSONBodyStateInherit:
+		override = nil
+	default:
+		return nil, errStatus(http.StatusBadRequest, "state must be one of: on, off, inherit")
+	}
+	if err := s.store.SetForceCompact(ctx, req.Id, override); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, errStatus(http.StatusNotFound, "session not found")
+		}
+		return nil, err
+	}
+	s.notify()
+	return oapi.SetForceCompact200JSONResponse{State: oapi.SetForceCompact200JSONResponseBodyState(req.Body.State)}, nil
+}
+
 // SetPermissionMode implements PATCH /api/v1/sessions/{id}/permission-mode. An
 // empty mode is valid — it means "use the global default".
 func (s *Server) SetPermissionMode(ctx context.Context, req oapi.SetPermissionModeRequestObject) (oapi.SetPermissionModeResponseObject, error) {

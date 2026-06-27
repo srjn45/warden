@@ -354,6 +354,8 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `token_guard` | `true` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch for the whole guard (gauge, alert, auto-compact) |
 | `token_warn_alert` | `true` | Fire a desktop notification (when `notify` is on) once per upward crossing into the warning or critical band |
 | `token_auto_compact` | `true` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded) |
+| `token_force_compact` | `false` | When an agent goes `critical` **while still working**, interrupt it (Escape), `/compact` once it idles, then send the resume prompt. **Destructive** — discards the in-flight turn — so off by default. Per-agent override via `warden force-compact <id> on\|off\|inherit` |
+| `token_compact_resume_prompt` | _(built-in)_ | Message sent to a force-compacted agent once compaction lands so it resumes its work |
 | `token_warn` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `token_critical` is not greater than this, both reset to the defaults |
 | `token_critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
 | `auto_approve` | `false` | Auto-answer recognized permission prompts. Bare on/off, or an allow/deny **rule policy** (by tool / glob / regex / paths, with per-agent overrides) — see `warden auto-approve` |
