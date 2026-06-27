@@ -1131,6 +1131,14 @@ func (c *Client) SetPermissionMode(ctx context.Context, id string, mode string) 
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-mode", body, nil)
 }
 
+// SetForceCompact sets an agent's force-compact override. state must be one of
+// "on", "off", or "inherit" (clears the override so the agent follows the global
+// token_force_compact).
+func (c *Client) SetForceCompact(ctx context.Context, id, state string) error {
+	body := map[string]string{"state": state}
+	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/force-compact", body, nil)
+}
+
 // SetName renames an agent (blank clears the name). The daemon validates the
 // format and rejects a name already used by another session.
 func (c *Client) SetName(ctx context.Context, id, name string) error {

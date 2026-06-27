@@ -143,6 +143,7 @@ own tmux session, most in a git worktree).
 | Event stream (SSE) | — | — | — | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Desktop / webhook / Slack notifications | config (`notify`, `webhook_*`) | automatic | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Context/token guard (gauge, alert, auto-`/compact`) | config (`token_guard`) | automatic | ✓ | ✓ | gauge | [observability](https://srjn45.github.io/warden/reference/observability/) |
+| Force-compact a busy critical agent (interrupt→`/compact`→resume) | `force-compact` (config `token_force_compact`) | `set_force_compact` | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Crash / anomaly detection (OOM, loop, pre-crash) | config | automatic | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 
 ## 10. Portability & presets

@@ -177,6 +177,48 @@ func (e TaskType) Valid() bool {
 	}
 }
 
+// Defines values for SetForceCompactJSONBodyState.
+const (
+	SetForceCompactJSONBodyStateInherit SetForceCompactJSONBodyState = "inherit"
+	SetForceCompactJSONBodyStateOff     SetForceCompactJSONBodyState = "off"
+	SetForceCompactJSONBodyStateOn      SetForceCompactJSONBodyState = "on"
+)
+
+// Valid indicates whether the value is a known member of the SetForceCompactJSONBodyState enum.
+func (e SetForceCompactJSONBodyState) Valid() bool {
+	switch e {
+	case SetForceCompactJSONBodyStateInherit:
+		return true
+	case SetForceCompactJSONBodyStateOff:
+		return true
+	case SetForceCompactJSONBodyStateOn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SetForceCompact200JSONResponseBodyState.
+const (
+	SetForceCompact200JSONResponseBodyStateInherit SetForceCompact200JSONResponseBodyState = "inherit"
+	SetForceCompact200JSONResponseBodyStateOff     SetForceCompact200JSONResponseBodyState = "off"
+	SetForceCompact200JSONResponseBodyStateOn      SetForceCompact200JSONResponseBodyState = "on"
+)
+
+// Valid indicates whether the value is a known member of the SetForceCompact200JSONResponseBodyState enum.
+func (e SetForceCompact200JSONResponseBodyState) Valid() bool {
+	switch e {
+	case SetForceCompact200JSONResponseBodyStateInherit:
+		return true
+	case SetForceCompact200JSONResponseBodyStateOff:
+		return true
+	case SetForceCompact200JSONResponseBodyStateOn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SetPermissionModeJSONBodyPermissionMode.
 const (
 	AcceptEdits       SetPermissionModeJSONBodyPermissionMode = "acceptEdits"
@@ -770,6 +812,17 @@ type CreatePRJSONBody struct {
 	Base string `json:"base,omitempty"`
 }
 
+// SetForceCompactJSONBody defines parameters for SetForceCompact.
+type SetForceCompactJSONBody struct {
+	State SetForceCompactJSONBodyState `json:"state"`
+}
+
+// SetForceCompactJSONBodyState defines parameters for SetForceCompact.
+type SetForceCompactJSONBodyState string
+
+// SetForceCompact200JSONResponseBodyState defines parameters for SetForceCompact.
+type SetForceCompact200JSONResponseBodyState string
+
 // GetInboxParams defines parameters for GetInbox.
 type GetInboxParams struct {
 	// Unread Filter to unread only
@@ -888,6 +941,9 @@ type CreatePRJSONRequestBody CreatePRJSONBody
 
 // DeleteSessionJSONRequestBody defines body for DeleteSession for application/json ContentType.
 type DeleteSessionJSONRequestBody = DeleteRequest
+
+// SetForceCompactJSONRequestBody defines body for SetForceCompact for application/json ContentType.
+type SetForceCompactJSONRequestBody SetForceCompactJSONBody
 
 // SendInputJSONRequestBody defines body for SendInput for application/json ContentType.
 type SendInputJSONRequestBody = InputRequest
@@ -1062,6 +1118,9 @@ type ServerInterface interface {
 	// Completion digest for an agent
 	// (GET /api/v1/sessions/{id}/digest)
 	GetDigest(w http.ResponseWriter, r *http.Request, id SessionId)
+	// Set an agent's force-compact override (on / off / inherit)
+	// (PATCH /api/v1/sessions/{id}/force-compact)
+	SetForceCompact(w http.ResponseWriter, r *http.Request, id SessionId)
 	// Send text input to an agent's pane
 	// (POST /api/v1/sessions/{id}/input)
 	SendInput(w http.ResponseWriter, r *http.Request, id SessionId)
@@ -1407,6 +1466,12 @@ func (_ Unimplemented) DeleteSession(w http.ResponseWriter, r *http.Request, id 
 // Completion digest for an agent
 // (GET /api/v1/sessions/{id}/digest)
 func (_ Unimplemented) GetDigest(w http.ResponseWriter, r *http.Request, id SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set an agent's force-compact override (on / off / inherit)
+// (PATCH /api/v1/sessions/{id}/force-compact)
+func (_ Unimplemented) SetForceCompact(w http.ResponseWriter, r *http.Request, id SessionId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3030,6 +3095,38 @@ func (siw *ServerInterfaceWrapper) GetDigest(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// SetForceCompact operation middleware
+func (siw *ServerInterfaceWrapper) SetForceCompact(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetForceCompact(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SendInput operation middleware
 func (siw *ServerInterfaceWrapper) SendInput(w http.ResponseWriter, r *http.Request) {
 
@@ -3840,6 +3937,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/sessions/{id}/digest", wrapper.GetDigest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/sessions/{id}/force-compact", wrapper.SetForceCompact)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/sessions/{id}/input", wrapper.SendInput)
@@ -5419,6 +5519,45 @@ func (response GetDigest404JSONResponse) VisitGetDigestResponse(w http.ResponseW
 	return err
 }
 
+type SetForceCompactRequestObject struct {
+	Id   SessionId `json:"id"`
+	Body *SetForceCompactJSONRequestBody
+}
+
+type SetForceCompactResponseObject interface {
+	VisitSetForceCompactResponse(w http.ResponseWriter) error
+}
+
+type SetForceCompact200JSONResponse struct {
+	State SetForceCompact200JSONResponseBodyState `json:"state"`
+}
+
+func (response SetForceCompact200JSONResponse) VisitSetForceCompactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetForceCompact404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetForceCompact404JSONResponse) VisitSetForceCompactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SendInputRequestObject struct {
 	Id   SessionId `json:"id"`
 	Body *SendInputJSONRequestBody
@@ -6168,6 +6307,9 @@ type StrictServerInterface interface {
 	// Completion digest for an agent
 	// (GET /api/v1/sessions/{id}/digest)
 	GetDigest(ctx context.Context, request GetDigestRequestObject) (GetDigestResponseObject, error)
+	// Set an agent's force-compact override (on / off / inherit)
+	// (PATCH /api/v1/sessions/{id}/force-compact)
+	SetForceCompact(ctx context.Context, request SetForceCompactRequestObject) (SetForceCompactResponseObject, error)
 	// Send text input to an agent's pane
 	// (POST /api/v1/sessions/{id}/input)
 	SendInput(ctx context.Context, request SendInputRequestObject) (SendInputResponseObject, error)
@@ -7633,6 +7775,39 @@ func (sh *strictHandler) GetDigest(w http.ResponseWriter, r *http.Request, id Se
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetDigestResponseObject); ok {
 		if err := validResponse.VisitGetDigestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetForceCompact operation middleware
+func (sh *strictHandler) SetForceCompact(w http.ResponseWriter, r *http.Request, id SessionId) {
+	var request SetForceCompactRequestObject
+
+	request.Id = id
+
+	var body SetForceCompactJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetForceCompact(ctx, request.(SetForceCompactRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetForceCompact")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetForceCompactResponseObject); ok {
+		if err := validResponse.VisitSetForceCompactResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

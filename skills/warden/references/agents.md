@@ -53,6 +53,12 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   (legacy `--supervised` = `acceptEdits`). Global default `default_permission_mode`
   (defaults `auto`). Change at runtime: MCP `set_permission_mode {ticket, mode}` /
   `warden set-permission-mode <id> <mode>`.
+- **Force-compact** — when an agent hits the critical context threshold while
+  **still working**, warden can interrupt it (Escape), `/compact` once it idles,
+  then send a resume prompt — destructive, so it's off by default. Global default
+  `token_force_compact`; per-agent override: MCP `set_force_compact {ticket, state}`
+  (`on|off|inherit`) / `warden force-compact <id> on|off|inherit`. The resume
+  message is `token_compact_resume_prompt`.
 - **Presets** — `warden preset save <name> [spawn flags]` persists
   `--type`/`--model`/`--permission-mode`/`--auto-restart`/`--worktree`/`--in-repo`;
   `warden preset list`; `warden start --preset <name>` (explicit flags still

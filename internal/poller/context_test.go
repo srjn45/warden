@@ -44,15 +44,18 @@ func TestDecideContext(t *testing.T) {
 }
 
 type ctxFakeDeps struct {
-	tokens    int
-	tokensOK  bool
-	inUsage   int
-	outUsage  int
-	usageOK   bool
-	updated   []string // "tokens:state"
-	compacted int
-	stamped   int
-	events    []store.Event
+	tokens       int
+	tokensOK     bool
+	inUsage      int
+	outUsage     int
+	usageOK      bool
+	updated      []string // "tokens:state"
+	compacted    int
+	stamped      int
+	interrupted  int
+	resumed      int
+	resumePrompt string
+	events       []store.Event
 }
 
 func (f *ctxFakeDeps) List(context.Context) ([]*store.Session, error) { return nil, nil }
@@ -79,7 +82,16 @@ func (f *ctxFakeDeps) UpdateContext(_ context.Context, _ string, tokens int, sta
 	f.updated = append(f.updated, fmt.Sprintf("%d:%s", tokens, state))
 	return nil
 }
-func (f *ctxFakeDeps) Compact(context.Context, *store.Session) error  { f.compacted++; return nil }
+func (f *ctxFakeDeps) Compact(context.Context, *store.Session) error { f.compacted++; return nil }
+func (f *ctxFakeDeps) Interrupt(context.Context, *store.Session) error {
+	f.interrupted++
+	return nil
+}
+func (f *ctxFakeDeps) Resume(_ context.Context, _ *store.Session, prompt string) error {
+	f.resumed++
+	f.resumePrompt = prompt
+	return nil
+}
 func (f *ctxFakeDeps) StampCompact(context.Context, string) error     { f.stamped++; return nil }
 func (f *ctxFakeDeps) SendKeys(context.Context, string, string) error { return nil }
 func (f *ctxFakeDeps) RecordEvent(_ context.Context, _ string, ev store.Event) error {
@@ -331,5 +343,163 @@ func TestCheckContextNoUsageIsNoop(t *testing.T) {
 	p.checkContext(context.Background(), &store.Session{ID: "a1", Status: store.StatusIdle}, time.Now())
 	if len(fd.updated) != 0 || fd.compacted != 0 {
 		t.Fatal("no-usage read must be a no-op")
+	}
+}
+
+// newForcePoller builds a poller with the force-compact path enabled globally,
+// a resume prompt set, and the usual thresholds, for the lifecycle tests below.
+func newForcePoller(fd *ctxFakeDeps) *Poller {
+	p := New(fd, time.Minute)
+	p.TokenWarn, p.TokenCrit = 100000, 150000
+	p.WarnAlert, p.AutoCompact, p.TokenGuard = true, true, true
+	p.ForceCompact = true
+	p.CompactResumePrompt = "RESUME-PROMPT"
+	return p
+}
+
+func TestForceCompactInterruptThenCompactThenResume(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p := newForcePoller(fd)
+	var preCrash int
+	p.OnAnomaly = func(_ *store.Session, a Anomaly) {
+		if a.Kind == anomalyPreCrash {
+			preCrash++
+		}
+	}
+	s := &store.Session{ID: "a1", Status: store.StatusWorking}
+	t0 := time.Now()
+
+	// Tick 1: busy + critical → interrupt only. No /compact, no human nudge (the
+	// machine is handling it).
+	p.checkContext(context.Background(), s, t0)
+	if fd.interrupted != 1 || fd.compacted != 0 {
+		t.Fatalf("tick1 interrupted=%d compacted=%d, want 1/0", fd.interrupted, fd.compacted)
+	}
+	if preCrash != 0 {
+		t.Fatalf("tick1 raised %d pre-crash nudges, want 0 (force machine suppresses it)", preCrash)
+	}
+
+	// The interrupt landed → agent is now idle. Tick 2: send /compact, park pending.
+	s.Status = store.StatusIdle
+	p.checkContext(context.Background(), s, t0.Add(20*time.Second))
+	if fd.compacted != 1 || fd.interrupted != 1 {
+		t.Fatalf("tick2 compacted=%d interrupted=%d, want 1/1 (no re-interrupt)", fd.compacted, fd.interrupted)
+	}
+	if fd.resumed != 0 {
+		t.Fatalf("tick2 resumed=%d, want 0 (compaction hasn't landed)", fd.resumed)
+	}
+
+	// Tick 3: compaction lands (reading drops below critical) → resume the agent.
+	fd.tokens = 80000
+	p.checkContext(context.Background(), s, t0.Add(40*time.Second))
+	if fd.resumed != 1 || fd.resumePrompt != "RESUME-PROMPT" {
+		t.Fatalf("tick3 resumed=%d prompt=%q, want 1/RESUME-PROMPT", fd.resumed, fd.resumePrompt)
+	}
+	if _, ok := p.forceCompact["a1"]; ok {
+		t.Fatal("force-compact state must be cleared after resume")
+	}
+}
+
+func TestForceCompactDisabledKeepsSuggestNudge(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p := newForcePoller(fd)
+	p.ForceCompact = false // global off, no per-agent override
+	var preCrash int
+	p.OnAnomaly = func(_ *store.Session, a Anomaly) {
+		if a.Kind == anomalyPreCrash {
+			preCrash++
+		}
+	}
+	s := &store.Session{ID: "a1", Status: store.StatusWorking}
+	p.checkContext(context.Background(), s, time.Now())
+	if fd.interrupted != 0 || fd.compacted != 0 {
+		t.Fatalf("disabled: interrupted=%d compacted=%d, want 0/0", fd.interrupted, fd.compacted)
+	}
+	if preCrash != 1 {
+		t.Fatalf("disabled: pre-crash nudges=%d, want 1 (the human nudge still fires)", preCrash)
+	}
+}
+
+func TestForceCompactPerAgentOverride(t *testing.T) {
+	// Per-agent ON beats global OFF.
+	on := true
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p := newForcePoller(fd)
+	p.ForceCompact = false
+	s := &store.Session{ID: "a1", Status: store.StatusWorking, ForceCompact: &on}
+	p.checkContext(context.Background(), s, time.Now())
+	if fd.interrupted != 1 {
+		t.Fatalf("override-on: interrupted=%d, want 1 (beats global off)", fd.interrupted)
+	}
+
+	// Per-agent OFF beats global ON.
+	off := false
+	fd2 := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p2 := newForcePoller(fd2)
+	p2.ForceCompact = true
+	var preCrash int
+	p2.OnAnomaly = func(_ *store.Session, a Anomaly) {
+		if a.Kind == anomalyPreCrash {
+			preCrash++
+		}
+	}
+	s2 := &store.Session{ID: "a2", Status: store.StatusWorking, ForceCompact: &off}
+	p2.checkContext(context.Background(), s2, time.Now())
+	if fd2.interrupted != 0 {
+		t.Fatalf("override-off: interrupted=%d, want 0 (beats global on)", fd2.interrupted)
+	}
+	if preCrash != 1 {
+		t.Fatalf("override-off: pre-crash nudges=%d, want 1 (falls back to the nudge)", preCrash)
+	}
+}
+
+func TestForceCompactAbandonsInterruptThatNeverLands(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p := newForcePoller(fd)
+	var preCrash int
+	p.OnAnomaly = func(_ *store.Session, a Anomaly) {
+		if a.Kind == anomalyPreCrash {
+			preCrash++
+		}
+	}
+	s := &store.Session{ID: "a1", Status: store.StatusWorking}
+	t0 := time.Now()
+
+	// Tick 1: interrupt. Agent stays busy (ignored the Escape).
+	p.checkContext(context.Background(), s, t0)
+	if fd.interrupted != 1 {
+		t.Fatalf("interrupted=%d, want 1", fd.interrupted)
+	}
+	// Tick 2: still busy, within the interrupt window → keep waiting, no nudge yet.
+	p.checkContext(context.Background(), s, t0.Add(20*time.Second))
+	if fd.compacted != 0 || preCrash != 0 {
+		t.Fatalf("within window: compacted=%d preCrash=%d, want 0/0", fd.compacted, preCrash)
+	}
+	// Tick 3: still busy past forceInterruptWindow → abandon and fall back to the
+	// human nudge; never compacted, never resumed.
+	p.checkContext(context.Background(), s, t0.Add(forceInterruptWindow+time.Second))
+	if fd.compacted != 0 || fd.resumed != 0 {
+		t.Fatalf("abandoned: compacted=%d resumed=%d, want 0/0", fd.compacted, fd.resumed)
+	}
+	if preCrash != 1 {
+		t.Fatalf("abandoned: pre-crash nudges=%d, want 1", preCrash)
+	}
+	if _, ok := p.forceCompact["a1"]; ok {
+		t.Fatal("abandoned interrupt must clear force-compact state")
+	}
+}
+
+func TestForceCompactIdleAgentSkipsInterrupt(t *testing.T) {
+	// A force-enabled agent that is already idle+critical needs no interrupt —
+	// compact straight away.
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p := newForcePoller(fd)
+	s := &store.Session{ID: "a1", Status: store.StatusIdle}
+	p.checkContext(context.Background(), s, time.Now())
+	if fd.interrupted != 0 {
+		t.Fatalf("idle agent interrupted=%d, want 0 (nothing to interrupt)", fd.interrupted)
+	}
+	if fd.compacted != 1 {
+		t.Fatalf("idle agent compacted=%d, want 1", fd.compacted)
 	}
 }

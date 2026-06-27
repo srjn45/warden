@@ -37,6 +37,7 @@ Available Commands:
   doctor              Run preflight checks (required binaries, daemon, data dir)
   done                Terminate an agent and clear its record (does NOT remove the worktree)
   export              Serialize agent session metadata to JSON on stdout
+  force-compact       Override force-compact for one agent (interrupt → /compact → resume)
   handoff             Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
@@ -667,7 +668,7 @@ Usage:
 
 See [Interactive mode](/warden/multi-agent/repl/) for the full `/`-command table.
 
-## warden auto-approve / set-permission-mode
+## warden auto-approve / force-compact / set-permission-mode
 
 ```text
 warden auto-approve <agent-id> <on|off>      Per-agent toggle: opt one agent into auto-approval
@@ -686,6 +687,12 @@ warden auto-approve clear [--agent <name>]    Clear the default rules (or a per-
     --paths <a,b>      path globs against the action target (comma-separated)
     --agent <name|id>  scope the rule to a per-agent override
 
+warden force-compact <agent-id> <on|off|inherit>
+                                             Per-agent override for force-compact: when on, warden
+                                             interrupts the agent if it goes context-critical while
+                                             still working, /compacts once it idles, then resumes it
+                                             (destructive: discards the in-flight turn). inherit clears
+                                             the override (global default: token_force_compact config).
 warden set-permission-mode <agent-id> <mode> Set an agent's permission mode
                                              (acceptEdits|auto|bypassPermissions|default|dontAsk|plan).
 ```

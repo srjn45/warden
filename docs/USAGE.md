@@ -1226,6 +1226,8 @@ daemon address for a single command.
 | `token_guard` | `true` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web |
 | `token_warn_alert` | `true` | Fire a desktop notification (when `notify` is on) once per upward crossing into warning/critical |
 | `token_auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting (cooldown-guarded) |
+| `token_force_compact` | `false` | When an agent goes `critical` while **still working**, interrupt it (Escape), `/compact` once idle, then send `token_compact_resume_prompt`. Destructive (discards the in-flight turn) → off by default. Per-agent override: `warden force-compact <id> on\|off\|inherit` |
+| `token_compact_resume_prompt` | _(built-in)_ | Message sent to a force-compacted agent once compaction lands so it resumes its work |
 | `token_warn` | `200000` | Warning threshold in context tokens (inclusive). Both thresholds reset to defaults if critical ≤ warn |
 | `token_critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
 | `log_level` | `info` | Minimum severity the daemon logs (`debug`/`info`/`warn`/`error`). Overridden by `warden daemon --log-level` |
