@@ -2,7 +2,7 @@
 
 **Companion to:** `2026-06-27-agent-subtree-grouping.md` (design)
 **Branch / worktree:** `feat/agent-subtree-design` (`.worktrees/agent-subtree-design`)
-**Status:** Plan (no code yet)
+**Status:** Implemented (all phases shipped)
 
 This breaks the design into ordered, independently-reviewable phases. Each phase
 compiles and is testable on its own; the feature is only *visible* after Phase 4.

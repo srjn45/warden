@@ -89,6 +89,24 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 many agents are already live. `--force` (or MCP `force:true`) spawns anyway. The
 same gate governs new-delegate `handoff`.
 
+## Parentage & sub-trees
+
+When **you** (an agent) call `spawn_agent`, warden records you as the spawned
+agent's **parent** (`parent_id` on its session — stamped from your
+`WARDEN_SESSION_ID`; operator/CLI spawns have none). The TUI uses this to nest
+the agents you spawn **under you** as a collapsible sub-tree, so the operator can
+see which agents are yours vs. theirs. Implications for how you should work:
+
+- Nothing changes in how you call `spawn_agent` — parentage is recorded
+  automatically. You don't (and can't) set `parent_id` yourself.
+- The operator may **delete you while your children are still running**. You
+  won't be removed outright; you become a *terminated tombstone* (a header-only
+  row) and your children keep running, so they are never orphaned. The daemon
+  removes the tombstone once your whole sub-tree finishes.
+- Prefer `spawn_agent` (not the built-in Task/Agent subagent tool) for work the
+  operator should see and manage — sub-tree nesting only applies to warden
+  agents you spawn.
+
 ## Handoff is one concept
 
 `handoff` covers **every** way of passing work to another agent. Pick the mode by

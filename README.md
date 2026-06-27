@@ -30,6 +30,7 @@ Capability highlights from the **v5.x** line (full notes on the [releases page](
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
 - **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending Claude tokens); optionally hosts the cockpit master pane.
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
+- **Agent sub-trees in the TUI** — agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); deleting a parent with live children leaves a muted *terminated tombstone* header so the children never orphan, reaped once the sub-tree finishes.
 - **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s and variabled `prompt-template`s (browse both via `warden library`), and web batch operations.
 - **Observability** — per-agent metrics & performance history (`warden stats`), crash/anomaly detection, the context-size guard, and webhook/Slack notifications.
 - **Token-savings ledger (`warden savings`)** — a real, append-only ledger of the tokens warden's lifecycle features keep out of agents' context, with an `--benchmark` A/B headline (without-vs-with warden, % reduction, $ saved) you can screenshot.
@@ -441,6 +442,8 @@ warden       # bare invocation — same thing
 
 `warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), a terminal shell for running CLI commands (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
 
+Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under their parent** as a collapsible sub-tree (`▸ / ▾`, indented per depth — the same affordance pipelines use), so you can see which agents an orchestrator fanned out. Deleting a parent that still has live children keeps it as a muted **terminated tombstone** header (`terminated · N running`) — no terminal/attach pane — so its children never vanish; the daemon reaps the tombstone once the whole sub-tree finishes.
+
 The cockpit **requires tmux ≥ 3.1** (it composites real tmux panes). If tmux isn't installed, or `warden tui` is launched from inside an existing tmux session, the cockpit can't build its panes and exits with an error — run it from a plain terminal.
 
 The list pane polls the daemon about once a second. The daemon must be running (`warden.daemon`) before opening the TUI.
@@ -450,8 +453,8 @@ The list pane polls the daemon about once a second. The daemon must be running (
 | Key | Action |
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move selection (detail pane is unaffected) |
-| `←` / `→` or `h` / `l` | Collapse / expand the pipeline under the cursor |
-| `Enter` | Open the selected agent (or running pipeline job) in the right detail pane |
+| `←` / `→` or `h` / `l` | Collapse / expand the pipeline or agent sub-tree under the cursor |
+| `Enter` | Open the selected agent (or running pipeline job) in the right detail pane — a finished agent or tombstone shows its stored detail instead of attaching |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |

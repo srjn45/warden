@@ -239,6 +239,7 @@ detail pane for the selected agent.
 |---|---|
 | **Live list** | Polls the daemon ~1×/sec; browse with `↑`/`↓` without disturbing the detail pane. |
 | **Pipeline tree** | Pipelines shown as a collapsible `▸ Pipelines` section; expand/collapse, open running jobs, retry failed jobs. |
+| **Agent sub-trees** | Agents spawned by another agent (`spawn_agent`) nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth, `h`/`l` to toggle). Deleting a parent with live children keeps it as a muted **terminated tombstone** header (`terminated · N running`) with no terminal/attach pane, so children never orphan; the daemon reaps the tombstone once the whole sub-tree goes terminal. `Enter` on a finished agent or tombstone opens its stored detail instead of attaching to a dead session. |
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
 | **In-cockpit actions** | `n` new agent, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
 | **Terminal shell pane** | Bottom-left pane runs `$SHELL` for direct CLI access to `warden` commands and other terminal work. |

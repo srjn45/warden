@@ -777,8 +777,8 @@ highlighted agent to open it in the right pane.
 | Key | Action |
 |---|---|
 | `↑`/`↓` or `j`/`k` | Move selection (right pane is unaffected) |
-| `←`/`→` or `h`/`l` | Collapse / expand the pipeline under the cursor |
-| `Enter` | Open the selected agent (or running pipeline job) in the right detail pane |
+| `←`/`→` or `h`/`l` | Collapse / expand the pipeline or agent sub-tree under the cursor |
+| `Enter` | Open the selected agent (or running pipeline job) in the right detail pane — a finished agent or tombstone shows its stored detail instead of attaching |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
@@ -799,6 +799,15 @@ deletes a stopped pipeline's record; on a job row, `r` retries a
 failed/needs-attention job, and `enter`/`a` opens a running job's session.
 (Authoring pipelines is via `warden pipeline create -f` — see §7.5; editing job
 prompts and building pipelines in the TUI are not yet available.)
+
+Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under
+their parent** as a collapsible sub-tree — a `▸ / ▾` header indented per depth,
+toggled with `h`/`l` (`←`/`→`), the same affordance pipelines use. Deleting a
+parent that still has live children keeps it as a muted **terminated tombstone**
+header (`terminated · N running`) with no terminal/attach pane, so the children
+never orphan; the daemon reaps the tombstone once the whole sub-tree goes
+terminal. `Enter` on a finished agent or tombstone opens its stored detail
+instead of attaching to a dead session.
 
 > **Getting back from an agent.** Attaching moves your single tmux client onto
 > the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to
