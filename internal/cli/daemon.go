@@ -217,6 +217,7 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
 			srv.SetSpawnGate(cfg.SpawnGateEnabled, cfg.SpawnGateMaxAgents)
+			srv.SetBudget(cfg.BudgetGate, cfg.BudgetDailyUSD, cfg.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.WorktreeKeepDone, cfg.WorktreeAutoPrune)
 			srv.SetAudit(audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl")))
 			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)

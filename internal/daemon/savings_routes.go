@@ -79,16 +79,18 @@ func (s *Server) recordCheckSavings(sess *store.Session, res lifecycle.CheckResu
 }
 
 // RecordSpend records an agent's cumulative billed spend (input+output tokens
-// read from its transcript) into the real-spend tracker. The poller wires it to
+// read from its transcript) into the real-spend tracker, stamped with the model
+// (for pricing) and repo (for the per-repo rollup). The poller wires it to
 // OnSpend; the tracker only ever raises a session's figure. Gate-aware and
-// fail-open like the ledger record helpers — spend feeds only the report, so a
-// nil tracker, the feature being off, or a write error just logs.
-func (s *Server) RecordSpend(agent string, inputTokens, outputTokens int) {
-	if !s.savingsOn || s.spend == nil {
+// fail-open like the ledger record helpers — spend feeds the savings denominator,
+// the cost report, and the budget gate, so a nil tracker, the feature being off,
+// or a write error just logs.
+func (s *Server) RecordSpend(sess *store.Session, inputTokens, outputTokens int) {
+	if !s.savingsOn || s.spend == nil || sess == nil {
 		return
 	}
-	if err := s.spend.Record(agent, inputTokens+outputTokens); err != nil {
-		slog.Warn("savings: failed to record spend", "agent", agent, "err", err)
+	if err := s.spend.Record(sess.ID, sess.Model, sess.Repo, inputTokens, outputTokens); err != nil {
+		slog.Warn("savings: failed to record spend", "agent", sess.ID, "err", err)
 	}
 }
 

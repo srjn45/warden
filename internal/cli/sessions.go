@@ -42,7 +42,9 @@ func newLsCmd() *cobra.Command {
 				}
 				return printJSON(out, sessions)
 			}
-			return renderSessions(out, sessions, isTTY(out))
+			// Best-effort per-agent cost for the COST column; a nil map (feature off
+			// or daemon hiccup) degrades the column to "—" rather than failing the list.
+			return renderSessions(out, sessions, spendAgentCosts(cmd), isTTY(out))
 		},
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
@@ -75,10 +77,11 @@ func filterByTags(sessions []*store.Session, want []string) []*store.Session {
 	return out
 }
 
-// renderSessions writes the agent table to w. color enables ANSI tinting.
-func renderSessions(w io.Writer, sessions []*store.Session, color bool) error {
+// renderSessions writes the agent table to w. cost maps agent id → measured $
+// spend for the COST column (nil/absent ⇒ "—"). color enables ANSI tinting.
+func renderSessions(w io.Writer, sessions []*store.Session, cost map[string]float64, color bool) error {
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tID\tTYPE\tMODEL\tPERMISSION_MODE\tSTATUS\tCONTEXT\tAGE\tDIR\tSUBJECT")
+	fmt.Fprintln(tw, "NAME\tID\tTYPE\tMODEL\tPERMISSION_MODE\tSTATUS\tCONTEXT\tCOST\tAGE\tDIR\tSUBJECT")
 	for _, s := range sessions {
 		name := s.Name
 		if name == "" {
@@ -88,11 +91,20 @@ func renderSessions(w io.Writer, sessions []*store.Session, color bool) error {
 		if permMode == "" {
 			permMode = "default"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			name, s.ID, typeOrPending(s.Type), modelCell(s.Model), permMode, statusCell(s.Status, color), contextCell(s.ContextTokens, s.ContextState, color),
-			age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
+			costCell(cost, s.ID), age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
 	}
 	return tw.Flush()
+}
+
+// costCell renders an agent's measured spend for the COST column: "$1.23", or
+// "—" when no spend has been attributed (or the cost map is unavailable).
+func costCell(cost map[string]float64, id string) string {
+	if usd, ok := cost[id]; ok && usd > 0 {
+		return fmt.Sprintf("$%.2f", usd)
+	}
+	return "—"
 }
 
 // watchSessions streams live snapshots from the daemon's SSE endpoint, redrawing
@@ -118,7 +130,9 @@ func watchSessions(cmd *cobra.Command, out io.Writer, jsonOut bool) error {
 			fmt.Fprintf(&buf, "watching %d agent(s) — updated %s — Ctrl+C to exit\n\n",
 				len(sessions), time.Now().Format("15:04:05"))
 		}
-		if err := renderSessions(&buf, sessions, color); err != nil {
+		// Watch mode streams session snapshots over SSE; the cost column degrades to
+		// "—" here rather than re-fetching the spend rollup on every redraw.
+		if err := renderSessions(&buf, sessions, nil, color); err != nil {
 			return err
 		}
 		_, err := out.Write(buf.Bytes())

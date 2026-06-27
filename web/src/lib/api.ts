@@ -2,6 +2,7 @@ import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message, Co
 import type { Verdict, PressureStatus } from './pressure';
 import type { MetricsSample } from './metrics';
 import type { Summary } from './savings';
+import type { Report as SpendReport } from './spend';
 import { getToken, withToken, notifyAuthRequired, API_PREFIX } from './token';
 
 export class ApiError extends Error {
@@ -192,6 +193,15 @@ export async function getSavings(sinceISO?: string, bucket?: 'day' | 'hour'): Pr
   if (bucket) q.set('bucket', bucket);
   const qs = q.toString();
   return parse<Summary>(await apiFetch(`/savings${qs ? `?${qs}` : ''}`));
+}
+
+// getSpend returns the cost rollup (GET /spend): measured Claude spend priced
+// per model and aggregated per-agent / per-repo / per-day, plus the daily/weekly
+// totals the budget gate enforces. GATED by the same `savings` setting as the
+// ledger: a disabled daemon answers 403, surfaced here as an ApiError(403) the
+// Metrics tab turns into an enable hint.
+export async function getSpend(): Promise<SpendReport> {
+  return parse<SpendReport>(await apiFetch('/spend'));
 }
 
 export async function listApprovals(): Promise<{ enabled: boolean; approvals: ApprovalView[] }> {

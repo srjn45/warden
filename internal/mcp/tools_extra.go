@@ -210,6 +210,17 @@ func (s *Server) registerExtraTools() {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "spend",
+		Description: "Cost governance: the REAL billed Claude spend warden measured from agents' transcripts, priced per model into dollars and rolled up per-agent, per-repo, and per-day, plus the daily/weekly totals the budget gate enforces. The cost counterpart to the `savings` tool. Read-only; returns the spend Report.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+		rep, err := s.cl.Spend(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(rep)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "search",
 		Description: "Full-text search across agents (subject, prompt, type, name, pane, id, ticket, branch). AND of whitespace-separated terms. With closed=true also searches archived agents. Returns the matching sessions.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a searchArgs) (*mcpsdk.CallToolResult, any, error) {

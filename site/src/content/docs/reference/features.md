@@ -134,6 +134,8 @@ own tmux session, most in a git worktree).
 | Memory-pressure gate / headroom | `doctor` / spawn gate | `get_pressure` | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Fleet insights (parallelizable pairs, etc.) | `insights` | `insights` | ✓ | — | — | [insights](https://srjn45.github.io/warden/reference/insights/) |
 | Token-savings ledger | `savings` | `savings` | ✓ | — | — | [savings](https://srjn45.github.io/warden/reference/savings/) |
+| Cost governance ($ spend rollup) | `spend` | `spend` | ✓ | ✓ | $ in `ls` | [savings](https://srjn45.github.io/warden/reference/savings/) |
+| Budget gate (soft $ cap on spawn) | config (`budget_gate`) / spawn gate | automatic | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Full-text search | `search` | `search` | ✓ | ✓ | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | Browse archived agents | `history` | `history` | ✓ | ✓ (archive) | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | Action audit trail | `audit log` | `audit_log` | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
@@ -238,12 +240,12 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**65 tools**, including the
+Every fleet/data feature is reachable over MCP (**66 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §15 (plus interactive `attach`/`repl` and local-config `preset`), which are
 CLI-only **by design**. New parity tools added for full coverage: `digest`,
-`get_metrics`, `savings`, `search`, `history`, `audit_log`, `list_worktrees`,
+`get_metrics`, `savings`, `spend`, `search`, `history`, `audit_log`, `list_worktrees`,
 `list_plugins`, `get_pressure`, `set_auto_approve`, `set_permission_mode`,
 `prune_worktrees`, `export_sessions`, `import_sessions`, `rotate_agent`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,

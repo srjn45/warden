@@ -47,11 +47,12 @@ func TestRenderSessions(t *testing.T) {
 		{ID: "A-1", Name: "alpha", Type: store.Type("development"), Status: store.Status("working"), Subject: "do a thing"},
 		{ID: "B-2"}, // sparse session exercises the em-dash fallbacks
 	}
-	if err := renderSessions(&buf, sessions, false); err != nil {
+	cost := map[string]float64{"A-1": 1.5}
+	if err := renderSessions(&buf, sessions, cost, false); err != nil {
 		t.Fatalf("renderSessions returned error: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"NAME", "ID", "SUBJECT", "alpha", "A-1", "B-2", "do a thing"} {
+	for _, want := range []string{"NAME", "ID", "COST", "SUBJECT", "alpha", "A-1", "B-2", "do a thing", "$1.50"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}

@@ -15,17 +15,17 @@ func TestStoreRecordAndTotal(t *testing.T) {
 	if total, err := s.Total(); err != nil || total != 0 {
 		t.Fatalf("fresh Total=%d err=%v, want 0/nil", total, err)
 	}
-	if err := s.Record("a1", 1000); err != nil {
+	if err := s.Record("a1", "opus", "/x", 800, 200); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Record("a2", 500); err != nil {
+	if err := s.Record("a2", "sonnet", "/x", 400, 100); err != nil {
 		t.Fatal(err)
 	}
 	if total, _ := s.Total(); total != 1500 {
 		t.Fatalf("Total=%d, want 1500", total)
 	}
-	// A later, higher cumulative reading for a1 replaces (raises) its figure.
-	if err := s.Record("a1", 1800); err != nil {
+	// A later, higher cumulative reading for a1 raises its figure on each axis.
+	if err := s.Record("a1", "opus", "/x", 1500, 300); err != nil {
 		t.Fatal(err)
 	}
 	if total, _ := s.Total(); total != 2300 {
@@ -35,10 +35,10 @@ func TestStoreRecordAndTotal(t *testing.T) {
 
 func TestStoreRecordNeverLowers(t *testing.T) {
 	s, _ := NewStore(t.TempDir())
-	_ = s.Record("a1", 2000)
+	_ = s.Record("a1", "opus", "/x", 1500, 500)
 	// A momentarily smaller reading (rotated/partial transcript) must not lower the
-	// established cumulative figure.
-	if err := s.Record("a1", 900); err != nil {
+	// established cumulative figure on either axis.
+	if err := s.Record("a1", "opus", "/x", 700, 200); err != nil {
 		t.Fatal(err)
 	}
 	if total, _ := s.Total(); total != 2000 {
@@ -48,18 +48,37 @@ func TestStoreRecordNeverLowers(t *testing.T) {
 
 func TestStoreRecordIgnoresEmptyAndNonPositive(t *testing.T) {
 	s, _ := NewStore(t.TempDir())
-	_ = s.Record("", 1000) // no session id
-	_ = s.Record("a1", 0)  // unmeasurable
-	_ = s.Record("a1", -5) // never
+	_ = s.Record("", "opus", "/x", 1000, 0)  // no session id
+	_ = s.Record("a1", "opus", "/x", 0, 0)   // unmeasurable on both axes
+	_ = s.Record("a1", "opus", "/x", -5, -5) // never
 	if total, _ := s.Total(); total != 0 {
 		t.Fatalf("Total=%d, want 0 (no valid records)", total)
+	}
+}
+
+func TestStoreSessionsStampsModelRepoDay(t *testing.T) {
+	s, _ := NewStore(t.TempDir())
+	_ = s.Record("a1", "opus", "/x", 800, 200)
+	sessions, err := s.Sessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("want 1 session, got %d", len(sessions))
+	}
+	e := sessions[0]
+	if e.Session != "a1" || e.Model != "opus" || e.Repo != "/x" || e.Input != 800 || e.Output != 200 {
+		t.Fatalf("session not stamped correctly: %+v", e)
+	}
+	if e.Day == "" {
+		t.Errorf("expected a first-seen day to be stamped")
 	}
 }
 
 func TestStorePersistsAcrossInstances(t *testing.T) {
 	dir := t.TempDir()
 	s1, _ := NewStore(dir)
-	_ = s1.Record("a1", 1234)
+	_ = s1.Record("a1", "opus", "/x", 1000, 234)
 	// A second store rooted at the same dir reads the persisted figure.
 	s2, _ := NewStore(dir)
 	if total, _ := s2.Total(); total != 1234 {
@@ -78,7 +97,7 @@ func TestStoreToleratesCorruptFile(t *testing.T) {
 	if total, err := s.Total(); err != nil || total != 0 {
 		t.Fatalf("corrupt Total=%d err=%v, want 0/nil", total, err)
 	}
-	if err := s.Record("a1", 42); err != nil {
+	if err := s.Record("a1", "opus", "/x", 42, 0); err != nil {
 		t.Fatal(err)
 	}
 	if total, _ := s.Total(); total != 42 {

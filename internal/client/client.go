@@ -25,6 +25,7 @@ import (
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
+	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -585,6 +586,18 @@ func (c *Client) Savings(ctx context.Context, since time.Time, bucket string, sa
 		return nil, err
 	}
 	return &sum, nil
+}
+
+// Spend fetches the cost rollup: the measured Claude spend priced per model and
+// aggregated per-agent / per-repo / per-day, plus the daily/weekly totals the
+// budget gate enforces. The daemon returns 403 (a StatusError with Code 403) when
+// spend tracking is disabled, which the CLI turns into a friendly enable hint.
+func (c *Client) Spend(ctx context.Context) (*spend.Report, error) {
+	var rep spend.Report
+	if err := c.do(ctx, http.MethodGet, "/spend", nil, &rep); err != nil {
+		return nil, err
+	}
+	return &rep, nil
 }
 
 // Approvals fetches the live approval queue. Returns (enabled, views, err);

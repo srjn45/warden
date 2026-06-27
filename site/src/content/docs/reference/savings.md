@@ -77,3 +77,43 @@ The web **Metrics** tab uses this: short windows (`24h`/`48h`) request `bucket=h
 longer ones `bucket=day`, and the card plots per-bucket saved tokens, the cumulative
 line, and a per-feature stacked breakdown. `warden savings --benchmark` requests the
 daily buckets for its sparkline.
+
+## Cost governance — `warden spend` + the budget gate
+
+Savings reports what warden kept **out** of context; **cost governance** reports what
+agents **actually billed** Claude. The daemon already reads each agent's REAL
+input/output tokens from its transcript; `warden spend` prices that per model into
+dollars and rolls it up. Gated by the same `savings` switch; served at
+`GET /api/v1/spend` (403 when off) and exposed as the `spend` MCP tool.
+
+```sh
+warden spend                      # total / today / this week, then per-agent/repo/day $ tables
+warden spend --by agent           # show just one rollup: agent, repo, or day
+warden spend --json               # structured rollup for tooling
+```
+
+Per-model pricing (`$/Mtok`, in/out): **Opus** `$5/$25`, **Sonnet** `$3/$15`,
+**Haiku** `$0.8/$4`. An unrecognized model is priced at the Opus tier, so spend is
+never silently under-counted. Opus rates match the savings ledger.
+
+### Budget gate
+
+A **soft** spawn gate on cost, sibling to the memory-pressure gate. Set the caps and
+turn it on:
+
+```yaml
+budget_gate: true
+budget_daily_usd: 25      # today's measured spend cap (0 disables this axis)
+budget_weekly_usd: 100    # trailing-7-day cap (0 disables this axis)
+```
+
+When today's or the trailing week's measured spend reaches a cap, a non-forced spawn
+returns **428** with a confirmation payload naming the figures; re-run with `--force`
+(API/MCP `force: true`) to proceed — exactly like the memory-pressure gate. It never
+hard-blocks.
+
+### Where else cost shows up
+
+- **`warden ls`** gains a **COST** column (also in `warden search` / `warden history`).
+- The web **Metrics** tab adds a **Cost per agent** card: the `total / today / this
+  week` headline plus a live per-agent cost table beside the RSS/CPU charts.

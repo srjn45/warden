@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import { ApiError, getMetricsHistory, getSavings } from '../lib/api';
+import { ApiError, getMetricsHistory, getSavings, getSpend } from '../lib/api';
 import type { MetricsSample } from '../lib/metrics';
 import type { Summary } from '../lib/savings';
+import type { Report as SpendReport } from '../lib/spend';
 import {
   cpuSeries, rssSeries, totalCpuSeries, totalRssSeries,
   fleetSizeSeries, contextSeries, tokensSavedSeries, featureStackSeries,
@@ -38,6 +39,8 @@ export default function MetricsTab({ contextHistory }: { contextHistory: Context
   const [history, setHistory] = useState<MetricsSample[]>([]);
   const [savings, setSavings] = useState<Summary | null>(null);
   const [savingsErr, setSavingsErr] = useState<ApiError | null>(null);
+  const [spend, setSpend] = useState<SpendReport | null>(null);
+  const [spendErr, setSpendErr] = useState<ApiError | null>(null);
   // Default to 24h/hourly so the trend has points on day one. The window the
   // user picks drives both the since-window and the bucket granularity.
   const [savingsWin, setSavingsWin] = useState<SavingsWindow>(SAVINGS_WINDOWS[0]);
@@ -67,12 +70,28 @@ export default function MetricsTab({ contextHistory }: { contextHistory: Context
     return () => { alive = false; clearInterval(h); };
   }, [savingsWin]);
 
+  // Spend (cost) every 5s — live per-agent cost beside the RSS/CPU charts. A 403
+  // means spend tracking is disabled (same `savings` switch); keep it so the card
+  // can show the enable hint instead of an empty table.
+  useEffect(() => {
+    let alive = true;
+    const tick = () => {
+      getSpend()
+        .then((r) => { if (alive) { setSpend(r); setSpendErr(null); } })
+        .catch((e) => { if (alive && e instanceof ApiError) setSpendErr(e); });
+    };
+    tick();
+    const h = setInterval(tick, 5000);
+    return () => { alive = false; clearInterval(h); };
+  }, []);
+
   return (
     <div className="metrics">
       <MultiSeriesCard title="CPU per agent" unit="%" series={cpuSeries(history)} />
       <TotalSeriesCard title="Total CPU" unit="%" series={totalCpuSeries(history)} color="#4ea1ff" />
       <MultiSeriesCard title="Memory per agent" unit="GiB" series={rssSeries(history)} digits={2} />
       <TotalSeriesCard title="Total memory" unit="GiB" series={totalRssSeries(history)} color="#d2a8ff" digits={2} />
+      <SpendCard report={spend} err={spendErr} />
       <ContextCard points={contextHistory} />
       <FleetSizeCard history={history} />
       <SavingsCard
@@ -244,6 +263,53 @@ function FleetSizeCard({ history }: { history: MetricsSample[] }) {
     <section className="card metrics-card">
       <h3>Number of agents</h3>
       <div ref={ref} className="metrics-chart" />
+    </section>
+  );
+}
+
+// SpendCard shows the live cost side of the ledger: the headline total / today /
+// this-week dollars the budget gate watches, then a per-agent cost table beside
+// the RSS/CPU charts so an agent's money cost sits next to its resource cost. On
+// 403 (spend tracking disabled) it renders the enable hint.
+function SpendCard({ report, err }: { report: SpendReport | null; err: ApiError | null }) {
+  if (err?.status === 403) {
+    return (
+      <EmptyCard
+        title="Cost per agent"
+        msg="Spend tracking disabled. Set `savings: true` in the daemon config to measure Claude spend."
+      />
+    );
+  }
+  const agents = report?.by_agent ?? [];
+  return (
+    <section className="card metrics-card">
+      <h3>Cost per agent</h3>
+      {report && (
+        <p className="metrics-headline">
+          <strong>${report.total_usd.toFixed(2)}</strong> total ·{' '}
+          <strong>${report.daily_usd.toFixed(2)}</strong> today ·{' '}
+          <strong>${report.weekly_usd.toFixed(2)}</strong> this week
+        </p>
+      )}
+      {agents.length === 0
+        ? <p className="metrics-empty muted">No spend measured yet.</p>
+        : (
+          <table className="resources-table">
+            <thead>
+              <tr><th>agent</th><th>cost</th><th>in</th><th>out</th></tr>
+            </thead>
+            <tbody>
+              {agents.map((a) => (
+                <tr key={a.key}>
+                  <td>{a.key}</td>
+                  <td>${a.usd.toFixed(2)}</td>
+                  <td>{a.input_tokens.toLocaleString()}</td>
+                  <td>{a.output_tokens.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
     </section>
   );
 }

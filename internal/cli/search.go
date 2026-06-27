@@ -34,7 +34,7 @@ func newSearchCmd() *cobra.Command {
 				}
 				return printJSON(out, sessions)
 			}
-			return renderSessions(out, sessions, isTTY(out))
+			return renderSessions(out, sessions, spendAgentCosts(cmd), isTTY(out))
 		},
 	}
 	cmd.Flags().Bool("closed", false, "also search archived (closed) agents")

@@ -79,7 +79,7 @@ func newHistoryCmd() *cobra.Command {
 				fmt.Fprintln(out, "no archived agents match")
 				return nil
 			}
-			return renderSessions(out, sessions, isTTY(out))
+			return renderSessions(out, sessions, spendAgentCosts(cmd), isTTY(out))
 		},
 	}
 	cmd.Flags().String("since", "", "only agents updated since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)")

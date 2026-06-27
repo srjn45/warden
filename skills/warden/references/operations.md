@@ -31,6 +31,30 @@ adds the human-readable table and `--benchmark` headline.
 Reach for this when the user asks "how much is warden saving me" or wants proof the
 lifecycle tools pay off.
 
+## Cost governance — `spend` / `wd spend` + budget gate
+
+The **cost** counterpart to the savings ledger: where `savings` reports what warden
+kept OUT of context, `spend` reports what agents **actually billed** Claude. warden
+reads each agent's REAL input/output tokens from its transcript and prices them per
+model into dollars. Config-gated by the same `savings` switch; served at
+`GET /api/v1/spend`. MCP `spend` (no args) returns the structured `Report`.
+
+- `wd spend` — the measured spend rolled up three ways: **per agent**, **per repo**,
+  **per day**, under a `total / today / this week` headline. `--by agent|repo|day`
+  shows one rollup; `--json` for tooling. Pricing: Opus `$5/$25`, Sonnet `$3/$15`,
+  Haiku `$0.8/$4` per Mtok (in/out); an unknown model is priced at the Opus tier.
+- **Budget gate** (`budget_gate`, off by default) — a **soft** spawn gate, sibling
+  to the memory-pressure gate. When today's spend reaches `budget_daily_usd` or the
+  trailing week reaches `budget_weekly_usd`, a non-forced `spawn`/`spawn_agent`
+  returns `428` with a confirmation payload; re-submit with `force: true` (CLI
+  `--force`) to proceed. A `0` cap disables that axis. Surface the dollar figures
+  from the verdict's reason when you relay the warning.
+- `$` is also surfaced as a **COST** column in `wd ls` and a **Cost per agent** card
+  on the web Metrics tab.
+
+Reach for this when the user asks "how much am I spending", wants a per-agent/repo
+cost breakdown, or wants to cap spend before spawning more agents.
+
 ## Insights — mine warden's own history
 
 ## Insights — mine warden's own history
@@ -103,6 +127,7 @@ Notable settings (see the generated file for the full set with defaults):
   at critical when idle.
 - **Approvals:** `approvals`, `auto_approve`.
 - **Spawn / worktree / restart:** `spawn_gate`/`spawn_gate_max_agents`,
+  `budget_gate`/`budget_daily_usd`/`budget_weekly_usd` (soft $ cap on spawn),
   `worktree_keep_done`/`worktree_auto_prune`, `pipeline_keep_done`/`pipeline_hint`,
   `auto_restart_max`/`auto_restart_reset`, `rate_limit_auto_resume`.
 - **Boundary guards:** `isolation_guard`, `root_guard`, `git_redirect`,
@@ -209,6 +234,8 @@ Read verbs for catching up on the fleet, all MCP-first:
 - `history {since?, type?, limit?}` (CLI `wd history`) — browse archived agents.
 - `get_metrics {history?, since?, limit?}` (CLI `wd stats`) — live resource snapshot
   or time-series; `get_pressure` is the spawn gate's memory-headroom verdict.
+- `spend` (CLI `wd spend`) — measured Claude spend in $, per agent / repo / day (see
+  the cost-governance section above); `savings` is its keep-out-of-context twin.
 - `list_worktrees {repo?}` / `prune_worktrees {repo?, dry_run?, force?}` (CLI
   `wd worktree ls` / `wd prune`) — list / reconcile a repo's worktrees.
 - `digest {ticket}` (CLI `wd digest`) — a compact catch-up summary of one agent.

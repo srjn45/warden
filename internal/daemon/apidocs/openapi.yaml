@@ -1301,6 +1301,28 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/spend:
+    get:
+      operationId: getSpend
+      tags: [Savings]
+      summary: Per-agent / per-repo / per-day cost rollup
+      description: >
+        Cost governance: the REAL billed Claude spend warden measured from agents'
+        transcripts, priced per model into dollars and rolled up per-agent,
+        per-repo, and per-day, plus the daily/weekly totals the budget gate
+        enforces. Gated by the `savings` config setting; returns 403 when disabled.
+      responses:
+        "200":
+          description: The spend rollup
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpendReport" }
+        "403":
+          description: Savings/spend tracking disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/schedules:
     get:
       operationId: listSchedules
@@ -1471,6 +1493,38 @@ components:
         features:
           type: array
           items: { $ref: "#/components/schemas/SavingsFeature" }
+
+    SpendBucket:
+      x-go-type: spend.Bucket
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/spend
+        name: spend
+      type: object
+      description: One cost rollup row — an agent, repo, or day — with priced spend.
+      properties:
+        key: { type: string }
+        input_tokens: { type: integer }
+        output_tokens: { type: integer }
+        usd: { type: number, format: double }
+      required: [key, input_tokens, output_tokens, usd]
+
+    SpendReport:
+      x-go-type: spend.Report
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/spend
+        name: spend
+      type: object
+      description: Measured Claude spend, priced per model and rolled up three ways.
+      properties:
+        total_usd: { type: number, format: double }
+        input_tokens: { type: integer }
+        output_tokens: { type: integer }
+        by_agent: { type: array, items: { $ref: "#/components/schemas/SpendBucket" } }
+        by_repo: { type: array, items: { $ref: "#/components/schemas/SpendBucket" } }
+        by_day: { type: array, items: { $ref: "#/components/schemas/SpendBucket" } }
+        daily_usd: { type: number, format: double }
+        weekly_usd: { type: number, format: double }
+      required: [total_usd, input_tokens, output_tokens, daily_usd, weekly_usd]
 
     HealthResponse:
       type: object

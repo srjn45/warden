@@ -60,6 +60,7 @@ Available Commands:
   search              Full-text search agents by subject, prompt, type, name, branch, or pane text
   send                Type a message into an agent's claude session and press Enter
   set-permission-mode Set the permission mode for an agent
+  spend               Show measured Claude spend in dollars, per agent / repo / day
   snapshot            Checkpoint a worktree + transcript and roll back later
   start               Spawn an agent — `start "<prompt>"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)
   stats               Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
@@ -290,6 +291,26 @@ Flags:
 ```
 
 Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, % and $) and the **offload** axis (Claude work moved off entirely onto the local LLM, $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`.
+
+## warden spend
+
+```text
+Show measured Claude spend in dollars, per agent / repo / day — the REAL billed
+input/output tokens warden read from agents' transcripts, priced per model. The
+cost side of the savings ledger. Gated by the `savings` config setting.
+
+Usage:
+  warden spend [flags]
+
+Flags:
+      --by string    show only one rollup: agent, repo, or day (default: all three)
+      --json         output the structured rollup as JSON
+```
+
+The headline names the **daily** and **weekly** totals the budget gate enforces
+(`budget_gate` / `budget_daily_usd` / `budget_weekly_usd`): with the gate on, a
+spawn that would push measured spend over a cap warns first (re-run with `--force`),
+mirroring the memory-pressure spawn gate. `warden ls` also gains a **COST** column.
 
 ## warden branches
 
