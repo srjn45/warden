@@ -35,6 +35,7 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		AutoRestart:    b.AutoRestart,
 		Force:          b.Force,
 		Model:          b.Model,
+		Backend:        b.Backend,
 		Tags:           b.Tags,
 		ParentID:       b.ParentId,
 	}

@@ -42,9 +42,20 @@ func parseTags(flag string) []string {
 
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "start [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>]",
+		Use:   "start [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>]",
 		Short: "Spawn an agent — `start \"<prompt>\"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `Spawn an agent.
+
+Free-form:   warden start "<prompt>" [--dir <path>]   (autonomous)
+Interactive: warden start --dir <path>                (opens the agent and waits)
+Managed:     warden start TICKET --type <TYPE>        (isolated worktree)
+
+Backends (--backend): warden drives Claude Code by default. Pass --backend aider
+to drive Aider instead. Backends differ in capabilities (design §5): Aider is
+bring-your-own-model (pass --model, e.g. ollama_chat/qwen2.5-coder:3b), has no
+resume and no priced spend (tokens only), and runs an autonomous --message task
+that exits when done rather than a persistent loop. Claude remains full-fidelity.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load the named preset first (if any) so its saved defaults seed the
 			// flags below; an explicit CLI flag always overrides the preset.
@@ -83,8 +94,9 @@ func newStartCmd() *cobra.Command {
 				autoRestart := boolFlagOr(cmd, "auto-restart", pre.AutoRestart)
 				force, _ := cmd.Flags().GetBool("force")
 				model := stringFlagOr(cmd, "model", pre.Model)
+				backend, _ := cmd.Flags().GetString("backend")
 				tagsFlag, _ := cmd.Flags().GetString("tags")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Tags: parseTags(tagsFlag)})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag)})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -136,9 +148,10 @@ func newStartCmd() *cobra.Command {
 			}
 			force, _ := cmd.Flags().GetBool("force")
 			model := stringFlagOr(cmd, "model", pre.Model)
+			backend, _ := cmd.Flags().GetString("backend")
 			tagsFlag, _ := cmd.Flags().GetString("tags")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Tags: parseTags(tagsFlag),
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag),
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -170,6 +183,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)")
+	cmd.Flags().String("backend", "", "agent backend to drive: claude (default) or aider. Backends differ in capabilities — see `warden` docs (e.g. aider is bring-your-own-model: pass --model)")
 	cmd.Flags().String("preset", "", "load saved spawn defaults from a named preset (see `warden preset`); explicit flags override")
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")

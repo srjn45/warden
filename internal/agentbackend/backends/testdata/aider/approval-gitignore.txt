@@ -1,0 +1,6 @@
+Aider v0.86.2
+Model: ollama_chat/qwen2.5-coder:3b with whole edit format
+Git repo: .git with 0 files
+Repo-map: using 4096.0 tokens, auto refresh
+
+Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:

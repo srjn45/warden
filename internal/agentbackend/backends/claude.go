@@ -75,6 +75,14 @@ func (Claude) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 	return base(o.Model, o.Mode) + " --resume " + o.SessionID + " --name " + shellQuoteArg(o.Name), true
 }
 
+// LaunchPromptArg seeds the initial task prompt as Claude's trailing positional
+// argument, read back from promptFile via "$(cat …)" so a multi-line prompt types
+// as a single physical line. Byte-identical to the fragment lifecycle appended
+// before backend selection landed (the Phase-0 exit gate).
+func (Claude) LaunchPromptArg(promptFile string) string {
+	return ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+}
+
 // HeadlessCmd returns the argv for a headless one-shot (`claude -p <prompt>`),
 // used for classify/summarize. The prompt is the warden-built instruction; this
 // adapter only wraps it in the binary invocation.

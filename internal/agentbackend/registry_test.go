@@ -15,6 +15,7 @@ func (stub) Binary() string                               { return "stub" }
 func (stub) InstallHint() string                          { return "" }
 func (stub) LaunchCmd(LaunchOpts) string                  { return "" }
 func (stub) ResumeCmd(ResumeOpts) (string, bool)          { return "", false }
+func (stub) LaunchPromptArg(string) string                { return "" }
 func (stub) HeadlessCmd(string) ([]string, bool)          { return nil, false }
 func (stub) TranscriptPath(_, _, _ string) (string, bool) { return "", false }
 func (stub) ParseTranscript(io.Reader) ([]Turn, error)    { return nil, nil }

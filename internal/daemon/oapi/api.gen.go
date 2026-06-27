@@ -608,9 +608,12 @@ type SnapshotCreateRequest struct {
 
 // SpawnRequest defines model for SpawnRequest.
 type SpawnRequest struct {
-	AutoRestart bool   `json:"auto_restart,omitempty"`
-	Branch      string `json:"branch,omitempty"`
-	Cwd         string `json:"cwd,omitempty"`
+	AutoRestart bool `json:"auto_restart,omitempty"`
+
+	// Backend agent backend id (claude, aider, …); empty = claude (the default)
+	Backend string `json:"backend,omitempty"`
+	Branch  string `json:"branch,omitempty"`
+	Cwd     string `json:"cwd,omitempty"`
 
 	// Force bypass the memory-pressure spawn gate
 	Force  bool   `json:"force,omitempty"`

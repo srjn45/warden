@@ -33,6 +33,7 @@ export default defineConfig({
           { label: 'Architecture & the daemon', slug: 'concepts/architecture' },
           { label: 'Agents & lifecycle', slug: 'concepts/agents-lifecycle' },
           { label: 'Worktrees & task types', slug: 'concepts/worktrees-task-types' },
+          { label: 'Agent backends', slug: 'concepts/agent-backends' },
         ]},
         { label: 'Guides', items: [
           { label: 'Spawn & watch agents', slug: 'guides/spawn-and-watch' },

@@ -87,11 +87,26 @@ const pipelineHintGuidance = "You were launched as a standalone warden agent. " 
 // disabled. The leading space lets callers concatenate it directly onto a
 // claudeLaunch string. Applied only by Spawn (plain agents); SpawnJob (pipeline
 // jobs, already decomposed) and resume omit it.
-func (l *Lifecycle) pipelineHint() string {
-	if !l.cfg.GetPipelineHint() {
+func (l *Lifecycle) pipelineHint(b agentbackend.Backend) string {
+	return systemPromptHint(b, l.cfg.GetPipelineHint(), pipelineHintGuidance)
+}
+
+// systemPromptHint returns the launch fragment that injects guidance as a
+// system-prompt addendum for backend b when enabled, or "" otherwise. It routes
+// through the backend's SystemPromptFlag so a backend that can't inject a system
+// prompt (Caps.SystemPromptInject=false, e.g. Aider) silently contributes
+// nothing. For Claude this reproduces the historical
+// ` --append-system-prompt '<guidance>'` fragment byte-for-byte (the Phase-0
+// exit gate), since Claude's SystemPromptFlag emits exactly that.
+func systemPromptHint(b agentbackend.Backend, enabled bool, guidance string) string {
+	if !enabled {
 		return ""
 	}
-	return " --append-system-prompt " + shellQuoteArg(pipelineHintGuidance)
+	frag, ok := b.SystemPromptFlag(guidance)
+	if !ok {
+		return ""
+	}
+	return frag
 }
 
 // collabHintGuidance is appended to a freshly spawned agent's system prompt so
@@ -115,11 +130,8 @@ const collabHintGuidance = "warden may run other agents concurrently, each in it
 // claudeLaunch string. Applied to every spawn path that launches claude —
 // plain agents and pipeline jobs alike, since parallel jobs are the prime
 // file-conflict scenario.
-func (l *Lifecycle) collabHint() string {
-	if !l.cfg.GetCollabHint() {
-		return ""
-	}
-	return " --append-system-prompt " + shellQuoteArg(collabHintGuidance)
+func (l *Lifecycle) collabHint(b agentbackend.Backend) string {
+	return systemPromptHint(b, l.cfg.GetCollabHint(), collabHintGuidance)
 }
 
 // gitConventionsGuidance steers a spawned agent toward warden's git lifecycle
@@ -139,11 +151,43 @@ const gitConventionsGuidance = "Prefer warden git tools over raw git Bash: wd co
 // gitConventionsGuidance as a system-prompt addendum, or "" when the
 // git_conventions config setting is disabled. Applied to typed (worktree-backed)
 // agents — the ones that commit — alongside collabHint/guardSettingsFlag.
-func (l *Lifecycle) gitConventionsHint() string {
-	if !l.cfg.GetGitConventions() {
+func (l *Lifecycle) gitConventionsHint(b agentbackend.Backend) string {
+	return systemPromptHint(b, l.cfg.GetGitConventions(), gitConventionsGuidance)
+}
+
+// launchModel resolves the model id passed to a backend's LaunchCmd. Claude
+// applies warden's alias/default expansion (opus/sonnet/… → full id, empty →
+// the configured default); other backends receive the raw model unchanged —
+// warden's Claude aliases don't map onto a different provider's model ids, and a
+// bring-your-own-model backend (Aider) supplies its own default when empty.
+func (l *Lifecycle) launchModel(b agentbackend.Backend, model string) string {
+	if b.ID() == agentbackend.DefaultID {
+		return l.modelOrDefault(model)
+	}
+	return model
+}
+
+// promptArg returns the launch fragment that seeds the initial task prompt for
+// backend b from promptFile, or "" when there is no prompt (interactive agent).
+// The adapter decides the delivery shape (Claude: trailing positional; Aider:
+// --message) and owns the shell-quoting.
+func (l *Lifecycle) promptArg(b agentbackend.Backend, promptFile string) string {
+	if promptFile == "" {
 		return ""
 	}
-	return " --append-system-prompt " + shellQuoteArg(gitConventionsGuidance)
+	return b.LaunchPromptArg(promptFile)
+}
+
+// guardSettings returns the Claude --settings launch fragment for the isolation/
+// git/check/root guard hooks, but only for the Claude backend: the hooks are
+// installed via Claude Code's settings mechanism, which other backends don't
+// share. A non-Claude agent therefore runs without the PreToolUse guards (its
+// adapter would wire equivalent enforcement if/when one exists).
+func (l *Lifecycle) guardSettings(b agentbackend.Backend, id string) string {
+	if b.ID() != agentbackend.DefaultID {
+		return ""
+	}
+	return l.guardSettingsFlag(id)
 }
 
 // classifyInstruction is prepended to the task prompt for headless classification.
@@ -382,6 +426,7 @@ type SpawnRequest struct {
 	PermissionMode string   // explicit mode override; empty = use global default
 	AutoRestart    bool     // opt-in: auto-resume this agent when it errors (capped)
 	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
+	Backend        string   // agent backend id (claude, aider, …); empty = claude (the default)
 	Tags           []string // optional free-form labels for grouping/filtering (#30)
 	ParentID       string   // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 }
@@ -867,6 +912,12 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if !freeMode {
 		req.Type = store.NormalizeType(string(req.Type))
 	}
+	// Reject an unknown backend up front (before any tmux/worktree side effects),
+	// so a typo fails cleanly rather than launching the wrong agent. An empty
+	// backend resolves to Claude (back-compat) inside agentbackend.Get.
+	if _, err := agentbackend.Get(req.Backend); err != nil {
+		return nil, err
+	}
 	id, err := resolveID(req)
 	if err != nil {
 		return nil, err
@@ -887,6 +938,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		PermissionMode: req.PermissionMode,
 		AutoRestart:    req.AutoRestart,
 		Model:          req.Model,
+		Backend:        req.Backend,
 	}
 	// Record provenance, but never let an agent be its own parent (a self-id would
 	// create a degenerate cycle in the sub-tree view).
@@ -924,7 +976,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	// directly would have its embedded newlines register as Enter and submit a
 	// half-typed command. The prompt is passed to the writer as an exec argument
 	// (never through a shell), so quotes and newlines in it need no escaping.
-	launchPrompt := ""
+	promptFile := ""
 	if req.Prompt != "" {
 		if l.PromptsDir == "" {
 			return nil, fmt.Errorf("prompt spawn requires a prompts dir")
@@ -932,11 +984,10 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 		if out, err := l.run.Run(ctx, "", "mkdir", "-m", "700", "-p", l.PromptsDir); err != nil {
 			return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
 		}
-		promptFile := filepath.Join(l.PromptsDir, sess.ID)
+		promptFile = filepath.Join(l.PromptsDir, sess.ID)
 		if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
 			return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
 		}
-		launchPrompt = ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	}
 
 	if err := l.newAgentSession(ctx, "", sess.ID, req.Cwd); err != nil {
@@ -946,9 +997,10 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.backendFor(sess.Backend).LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.modelOrDefault(req.Model), Mode: mode,
-	}) + l.pipelineHint() + l.collabHint() + launchPrompt + l.exitSuffix(sess.ID)
+	b := l.backendFor(sess.Backend)
+	launch := b.LaunchCmd(agentbackend.LaunchOpts{
+		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+	}) + l.pipelineHint(b) + l.collabHint(b) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
 		l.cleanupFailedSpawn(sess, true, false)
@@ -987,22 +1039,23 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	// mechanism as spawnFreeForm/SpawnJob). Empty prompt = an interactive managed
 	// agent (open claude and wait). Without this the worktree+session come up but
 	// the agent sits idle at an empty prompt.
-	promptArg := ""
+	promptFile := ""
 	if req.Prompt != "" {
-		promptFile, err := l.writePromptFile(ctx, sess.ID, req.Prompt)
+		pf, err := l.writePromptFile(ctx, sess.ID, req.Prompt)
 		if err != nil {
 			l.cleanupFailedSpawn(sess, true, worktreeCreated)
 			return nil, err
 		}
-		promptArg = ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+		promptFile = pf
 	}
 	mode := req.PermissionMode
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.backendFor(sess.Backend).LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.modelOrDefault(req.Model), Mode: mode,
-	}) + l.pipelineHint() + l.collabHint() + l.gitConventionsHint() + l.guardSettingsFlag(sess.ID) + promptArg + l.exitSuffix(sess.ID)
+	b := l.backendFor(sess.Backend)
+	launch := b.LaunchCmd(agentbackend.LaunchOpts{
+		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+	}) + l.pipelineHint(b) + l.collabHint(b) + l.gitConventionsHint(b) + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -1127,18 +1180,19 @@ func EnsureExtendedKeys(ctx context.Context, run Runner) {
 }
 
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
-// agent conversation claudeID inside it. Shared by Restore and Adopt. Phase 0 is
-// Claude-only, so it uses the default backend; a per-session backend is threaded
-// through once selection lands (Phase 1).
-func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID, model string, mode string) error {
-	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
-		return err
-	}
-	cmd, ok := l.backend.ResumeCmd(agentbackend.ResumeOpts{
-		SessionID: claudeID, Name: id, Model: l.modelOrDefault(model), Mode: mode,
+// agent conversation claudeID inside it using backend b. Shared by Restore and
+// Adopt. The ResumeCmd capability is checked BEFORE the tmux session is created
+// so a backend without resume (Caps.Resume=false, e.g. Aider) fails cleanly
+// instead of stranding an empty session (design §5: !Resume ⇒ start fresh).
+func (l *Lifecycle) resumeInTmux(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode string) error {
+	cmd, ok := b.ResumeCmd(agentbackend.ResumeOpts{
+		SessionID: claudeID, Name: id, Model: l.launchModel(b, model), Mode: mode,
 	})
 	if !ok {
-		return fmt.Errorf("backend %s does not support resume", l.backend.ID())
+		return fmt.Errorf("backend %s does not support resume — start a fresh agent instead", b.ID())
+	}
+	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
+		return err
 	}
 	resume := cmd + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, resume, "Enter"); err != nil {
@@ -1153,6 +1207,13 @@ func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID, model s
 // still exists, and its transcript is present — returning a specific sentinel
 // otherwise — and never silently starts a fresh conversation.
 func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
+	b := l.backendFor(sess.Backend)
+	if !b.Capabilities().Resume {
+		// The agent's backend can't resume a prior session by id (e.g. Aider
+		// continues from repo history, not a pinned id). Restore is resume-only,
+		// so refuse rather than silently start a fresh conversation.
+		return fmt.Errorf("backend %s does not support restore/resume — start a fresh agent instead", b.ID())
+	}
 	if sess.ClaudeSessionID == "" {
 		return ErrNoSessionID
 	}
@@ -1170,7 +1231,7 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	return l.resumeInTmux(ctx, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode)
+	return l.resumeInTmux(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode)
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
@@ -1218,7 +1279,9 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 			return nil, ErrWorkdirMissing
 		}
 		sess.Status = store.StatusSpawning
-		if err := l.resumeInTmux(ctx, id, req.Cwd, req.ClaudeSessionID, req.Model, l.cfg.GetDefaultPermissionMode()); err != nil {
+		// Adopt registers a Claude session warden did not spawn, so resume always
+		// goes through the default (Claude) backend.
+		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, req.ClaudeSessionID, req.Model, l.cfg.GetDefaultPermissionMode()); err != nil {
 			return nil, err
 		}
 		return sess, nil
@@ -1615,9 +1678,10 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.backendFor(sess.Backend).LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: sess.ClaudeSessionID, Name: id, Model: l.modelOrDefault(req.Model), Mode: mode,
-	}) + l.collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
+	b := l.backendFor(sess.Backend)
+	launch := b.LaunchCmd(agentbackend.LaunchOpts{
+		SessionID: sess.ClaudeSessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
+	}) + l.collabHint(b) + l.promptArg(b, promptFile) + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)

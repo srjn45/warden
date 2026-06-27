@@ -90,10 +90,11 @@ Flags:
 Spawn an agent — `start "<prompt>"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)
 
 Usage:
-  warden start [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [flags]
+  warden start [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>] [flags]
 
 Flags:
       --auto-restart             auto-resume this agent if it crashes (errored), capped at a few attempts
+      --backend string           agent backend to drive: claude (default) or aider. Backends differ in capabilities — aider is bring-your-own-model (pass --model), has no resume and no priced spend, and runs an autonomous task that exits when done
       --branch string            new branch (development) or checkout target (pr-review)
       --dir string               directory to launch the agent from (default: current directory)
       --force                    spawn even when the memory-pressure gate warns
