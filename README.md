@@ -11,13 +11,56 @@
 
 > 📖 **Docs & guide:** https://srjn45.github.io/warden/
 
-A single Go binary (`warden`, aliased as `wd`) that spawns, monitors, and tears down Claude Code agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and a file-based JSON store (no database to run).
+**Run a fleet of Claude Code agents without losing your mind.** warden is a single Go
+binary (`warden`, aliased `wd`) that spawns, monitors, and tears down Claude Code agent
+sessions — each in its own isolated git worktree — while tracking exactly what every agent
+costs and how many tokens its lifecycle features keep out of context. Backed by a local
+daemon and a file-based JSON store: **no database, no SaaS, no telemetry.**
 
-One binary, multiple faces: `warden daemon` is the single writer to the on-disk session store, serving a loopback REST API and running a background poller. `warden ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `warden mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator Claude session to query agents and talk to a specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
+<!-- TODO(marketing): drop a 20s cockpit demo GIF here — spawn 3 agents → cockpit lights
+     up → cost + tokens-saved counters tick. The highest-converting asset for this repo. -->
+<p align="center"><em>▶ demo GIF goes here — until then, see <a href="#terminal-ui">Terminal UI</a> and the web cockpit</em></p>
+
+### Why warden
+
+- **Orchestrate, don't babysit** — spawn many agents in parallel, watch them in a live TUI
+  cockpit or web dashboard, and talk to any one of them. Write-type agents get their own
+  worktree by default, so parallel agents never collide on the same tree.
+- **See what it costs** — `warden spend` prices each agent's real Claude usage into dollars
+  with a budget gate, and `warden savings` is an append-only ledger of the tokens warden
+  keeps out of agents' context, with a without-vs-with **A/B benchmark** you can screenshot.
+- **Self-hosted and free** — one binary, a loopback REST API, and a JSON store on disk.
+  Run it on your laptop or a box; nothing leaves your machine.
+- **Drives Claude itself** — `warden mcp` exposes the whole fleet as MCP tools, so an
+  orchestrator Claude session can spawn, query, and coordinate agents for you.
+
+### Quickstart
+
+```sh
+go install github.com/srjn45/warden/cmd/warden@latest   # or grab a release binary (see Install)
+warden setup --yes      # install missing deps (tmux, claude, …); `warden doctor` just checks
+warden tutorial         # guided tour of the core loop: spawn → watch → commit → tear down
+warden start "review the auth module for security issues"   # spawn your first agent
+warden tui              # open the cockpit
+```
+
+> `go install` gives you the CLI / daemon / TUI / MCP server. For the embedded **web
+> dashboard**, use a [release binary](#1-download-a-release-binary-quickest) or build with
+> `make release` — see [Install](#install).
+
+<details>
+<summary><strong>Architecture — one binary, multiple faces</strong></summary>
+
+`warden daemon` is the single writer to the on-disk session store, serving a loopback REST
+API and running a background poller. `warden ls|status|start|done|attach|send|tail` are thin
+HTTP clients to the daemon. `warden mcp` is a stdio MCP server that bridges MCP tool calls to
+the same REST API, enabling an orchestrator Claude session to query agents and talk to a
+specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
 
 ```
 alias agents=warden
 ```
+</details>
 
 > **New here?** See [docs/USAGE.md](docs/USAGE.md) for a task-oriented guide to running agents day to day, [docs/FEATURES.md](docs/FEATURES.md) for a complete catalog of what warden can do, and [FEATURES.md](FEATURES.md) for the at-a-glance **coverage matrix** (which of CLI / MCP / skill / web / TUI can drive each feature). The sections below cover build, install, and contributor setup.
 
