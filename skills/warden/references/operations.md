@@ -43,9 +43,9 @@ model into dollars. Config-gated by the same `savings` switch; served at
   **per day**, under a `total / today / this week` headline. `--by agent|repo|day`
   shows one rollup; `--json` for tooling. Pricing: Opus `$5/$25`, Sonnet `$3/$15`,
   Haiku `$0.8/$4` per Mtok (in/out); an unknown model is priced at the Opus tier.
-- **Budget gate** (`budget_gate`, off by default) — a **soft** spawn gate, sibling
-  to the memory-pressure gate. When today's spend reaches `budget_daily_usd` or the
-  trailing week reaches `budget_weekly_usd`, a non-forced `spawn`/`spawn_agent`
+- **Budget gate** (`tokens.budget_gate`, off by default) — a **soft** spawn gate, sibling
+  to the memory-pressure gate. When today's spend reaches `tokens.budget_daily_usd` or the
+  trailing week reaches `tokens.budget_weekly_usd`, a non-forced `spawn`/`spawn_agent`
   returns `428` with a confirmation payload; re-submit with `force: true` (CLI
   `--force`) to proceed. A `0` cap disables that axis. Surface the dollar figures
   from the verdict's reason when you relay the warning.
@@ -120,20 +120,23 @@ prints what's live (there is no `config set` subcommand — edit the YAML by han
 Notable settings (see the generated file for the full set with defaults):
 
 - **Models / permissions:** `model_default`, `default_permission_mode`.
-- **Notifications:** `notify`, `webhook_enabled`/`webhook_url` (a Slack
+- **Notifications:** `notify.enabled`, `notify.webhook_enabled`/`notify.webhook_url` (a Slack
   incoming-webhook URL works out of the box), browser notifications.
-- **Token guard:** `token_guard`, `token_warn_alert`, `token_auto_compact`,
-  `token_warn` (200000), `token_critical` (400000) — gauge + alert + auto-`/compact`
+- **Token guard:** `tokens.guard`, `tokens.warn_alert`, `tokens.auto_compact`,
+  `tokens.warn` (200000), `tokens.critical` (400000) — gauge + alert + auto-`/compact`
   at critical when idle.
 - **Approvals:** `approvals`, `auto_approve`.
-- **Spawn / worktree / restart:** `spawn_gate`/`spawn_gate_max_agents`,
-  `budget_gate`/`budget_daily_usd`/`budget_weekly_usd` (soft $ cap on spawn),
-  `worktree_keep_done`/`worktree_auto_prune`, `pipeline_keep_done`/`pipeline_hint`,
+- **Spawn / worktree / restart:** `worktree.spawn_gate`/`worktree.spawn_gate_max_agents`,
+  `tokens.budget_gate`/`tokens.budget_daily_usd`/`tokens.budget_weekly_usd` (soft $ cap on spawn),
+  `worktree.keep_done`/`worktree.auto_prune`, `pipeline_keep_done`/`pipeline_hint`,
   `auto_restart_max`/`auto_restart_reset`, `rate_limit_auto_resume`.
-- **Boundary guards:** `isolation_guard`, `root_guard`, `git_redirect`,
-  `check_redirect`, `git_conventions` (see git-and-checks.md).
-- **Local LLM / REPL:** `local_llm` (+ `local_llm_url`/`_model`/`_timeout`),
-  `local_llm_tier`/`_escalate`/`_classifier`, `repl`.
+- **Boundary guards:** `rails.isolation_guard`, `rails.root_guard`, `rails.git_redirect`,
+  `rails.check_redirect`, `rails.git_conventions` (see git-and-checks.md).
+- **Local LLM / REPL:** `local_llm.enabled` (+ `local_llm.url`/`.model`/`.timeout`),
+  `local_llm.tier`/`.escalate`/`.classifier`, `local_llm.repl`.
+- **Deprecated flat-key aliases:** old keys like `token_guard`, `local_llm_url`, `notify`,
+  `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect` still work and
+  migrate automatically — prefer the namespaced form in new config files.
 - **Misc:** `metrics`, `snapshots`, `insights`, `plugins`/`plugin_registry`,
   `scheduler_enabled`, `api_docs`, `collab_*`, `branch_track_*`, `tutorial`,
   `allow_nonloopback`, `log_level`/`log_format`.

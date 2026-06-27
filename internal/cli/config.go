@@ -15,7 +15,15 @@ func newConfigCmd() *cobra.Command {
 		Use:   "config",
 		Short: "Show the resolved configuration (and its file path)",
 		Long: "Print the live, resolved configuration values warden is using, grouped by area,\n" +
-			"with the config file path at the top. Edit the file by hand to change settings.",
+			"with the config file path at the top. Edit the file by hand to change settings.\n\n" +
+			"Settings are organized into namespaced blocks in the config file:\n" +
+			"  rails.*    — guard/hook settings (git_redirect, root_guard, isolation_guard, …)\n" +
+			"  tokens.*   — token-guard, budget-gate, and savings settings\n" +
+			"  notify.*   — desktop notification and webhook settings\n" +
+			"  worktree.* — worktree-retention and spawn-gate settings\n" +
+			"  local_llm.*— local-model, REPL, and LLM-offload settings\n\n" +
+			"Deprecated flat keys (e.g. token_guard, notify, local_llm_url) still load\n" +
+			"and are automatically migrated to the namespaced form on `warden config init`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := configPathFor(cmd)
@@ -48,7 +56,7 @@ func newConfigPathCmd() *cobra.Command {
 func newConfigInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Create the config file (or migrate it, adding any missing keys)",
+		Short: "Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := configPathFor(cmd)
@@ -79,25 +87,40 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"auto_approve", fmt.Sprintf("%t", cfg.AutoApprove.Enabled)},
 			{"pipeline_hint", fmt.Sprintf("%t", cfg.PipelineHint)},
 			{"pipeline_keep_done", fmt.Sprintf("%t", cfg.PipelineKeepDone)},
-			{"spawn_gate", fmt.Sprintf("%t", cfg.SpawnGateEnabled)},
-			{"spawn_gate_max_agents", fmt.Sprintf("%d", cfg.SpawnGateMaxAgents)},
 			{"tutorial", fmt.Sprintf("%t", cfg.Tutorial)},
 		}},
-		{"notifications & metrics", [][2]string{
-			{"approvals", fmt.Sprintf("%t", cfg.ApprovalsEnabled)},
-			{"notify", fmt.Sprintf("%t", cfg.NotifyEnabled)},
-			{"webhook_enabled", fmt.Sprintf("%t", cfg.WebhookEnabled)},
+		{"notifications & metrics (notify.*)", [][2]string{
+			{"notify.enabled", fmt.Sprintf("%t", cfg.Notify.Enabled)},
+			{"notify.webhook_enabled", fmt.Sprintf("%t", cfg.Notify.WebhookEnabled)},
 			// The URL carries a secret (e.g. a Slack token), so show set/unset
 			// rather than the value to keep it out of terminals and screenshots.
-			{"webhook_url", webhookURLDisplay(cfg.WebhookURL)},
+			{"notify.webhook_url", webhookURLDisplay(cfg.Notify.WebhookURL)},
 			{"metrics", fmt.Sprintf("%t", cfg.MetricsEnabled)},
 		}},
-		{"token guard", [][2]string{
-			{"token_guard", fmt.Sprintf("%t", cfg.TokenGuard)},
-			{"token_warn_alert", fmt.Sprintf("%t", cfg.TokenWarnAlert)},
-			{"token_auto_compact", fmt.Sprintf("%t", cfg.TokenAutoCompact)},
-			{"token_warn", fmt.Sprintf("%d", cfg.TokenWarn)},
-			{"token_critical", fmt.Sprintf("%d", cfg.TokenCritical)},
+		{"token & budget guard (tokens.*)", [][2]string{
+			{"tokens.guard", fmt.Sprintf("%t", cfg.Tokens.Guard)},
+			{"tokens.warn_alert", fmt.Sprintf("%t", cfg.Tokens.WarnAlert)},
+			{"tokens.auto_compact", fmt.Sprintf("%t", cfg.Tokens.AutoCompact)},
+			{"tokens.warn", fmt.Sprintf("%d", cfg.Tokens.Warn)},
+			{"tokens.critical", fmt.Sprintf("%d", cfg.Tokens.Critical)},
+			{"tokens.budget_gate", fmt.Sprintf("%t", cfg.Tokens.BudgetGate)},
+			{"tokens.budget_daily_usd", fmt.Sprintf("%.2f", cfg.Tokens.BudgetDailyUSD)},
+			{"tokens.budget_weekly_usd", fmt.Sprintf("%.2f", cfg.Tokens.BudgetWeeklyUSD)},
+			{"tokens.savings", fmt.Sprintf("%t", cfg.Tokens.Savings)},
+			{"tokens.savings_samples", fmt.Sprintf("%t", cfg.Tokens.SavingsSamples)},
+		}},
+		{"worktree & spawn gate (worktree.*)", [][2]string{
+			{"worktree.spawn_gate", fmt.Sprintf("%t", cfg.Worktree.SpawnGate)},
+			{"worktree.spawn_gate_max_agents", fmt.Sprintf("%d", cfg.Worktree.SpawnGateMax)},
+			{"worktree.keep_done", fmt.Sprintf("%t", cfg.Worktree.KeepDone)},
+			{"worktree.auto_prune", fmt.Sprintf("%t", cfg.Worktree.AutoPrune)},
+		}},
+		{"rails / guards (rails.*)", [][2]string{
+			{"rails.git_conventions", fmt.Sprintf("%t", cfg.Rails.GitConventions)},
+			{"rails.git_redirect", fmt.Sprintf("%t", cfg.Rails.GitRedirect)},
+			{"rails.check_redirect", fmt.Sprintf("%t", cfg.Rails.CheckRedirect)},
+			{"rails.root_guard", fmt.Sprintf("%t", cfg.Rails.RootGuard)},
+			{"rails.isolation_guard", fmt.Sprintf("%t", cfg.Rails.IsolationGuard)},
 		}},
 		{"auto-restart", [][2]string{
 			{"auto_restart_max", fmt.Sprintf("%d", cfg.AutoRestartMax)},
@@ -114,6 +137,16 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"collab_hint", fmt.Sprintf("%t", cfg.CollabHint)},
 			{"branch_track_enabled", fmt.Sprintf("%t", cfg.BranchTrackEnabled)},
 			{"branch_track_interval", cfg.BranchTrackInterval},
+		}},
+		{"local model / REPL (local_llm.*)", [][2]string{
+			{"local_llm.enabled", fmt.Sprintf("%t", cfg.LocalLLM.Enabled)},
+			{"local_llm.url", cfg.LocalLLM.URL},
+			{"local_llm.model", cfg.LocalLLM.Model},
+			{"local_llm.timeout", cfg.LocalLLM.Timeout},
+			{"local_llm.escalate", fmt.Sprintf("%t", cfg.LocalLLM.Escalate)},
+			{"local_llm.tier", cfg.LocalLLM.Tier},
+			{"local_llm.classifier", cfg.LocalLLM.Classifier},
+			{"local_llm.repl", fmt.Sprintf("%t", cfg.LocalLLM.Repl)},
 		}},
 	}
 	for _, g := range groups {

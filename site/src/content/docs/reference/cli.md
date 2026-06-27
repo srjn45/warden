@@ -248,7 +248,7 @@ Models are scored by suitability for the conductor role — reliable tool/functi
 calling, not coding or raw size. The recommendation (★) is the best-scoring model
 that runs comfortably now while leaving headroom for your real workload (Docker,
 DBs, IDE, Claude sessions, the warden daemon). warden only ever recommends — you
-set local_llm_model yourself.
+set `local_llm.model` yourself.
 
 Usage:
   warden llm suggest [flags]
@@ -312,7 +312,7 @@ Flags:
 ```
 
 The headline names the **daily** and **weekly** totals the budget gate enforces
-(`budget_gate` / `budget_daily_usd` / `budget_weekly_usd`): with the gate on, a
+(`tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`): with the gate on, a
 spawn that would push measured spend over a cap warns first (re-run with `--force`),
 mirroring the memory-pressure spawn gate. `warden ls` also gains a **COST** column.
 
@@ -337,7 +337,7 @@ Enable the background monitor with `branch_track_enabled` (tune `branch_track_in
 ```text
 Mine agent history for recurring patterns, slow/failure-prone work, and
 parallelization opportunities — a deterministic report, optionally narrated by the
-local LLM (local_llm). Gated by `insights` (default on).
+local LLM (`local_llm.enabled`). Gated by `insights` (default on).
 
 Usage:
   warden insights [flags]
@@ -659,7 +659,7 @@ add a trailing + to fill every field (/spawn+ <prompt>). With a local model
 present each field opens with a suggested value you can accept with Enter, type
 over, or clear with "-".
 
-`!cmd` runs a command in your own $SHELL. Starts without local_llm — only the
+`!cmd` runs a command in your own $SHELL. Starts without `local_llm.enabled` — only the
 natural-language half needs it.
 
 Usage:

@@ -102,9 +102,10 @@ A **soft** spawn gate on cost, sibling to the memory-pressure gate. Set the caps
 turn it on:
 
 ```yaml
-budget_gate: true
-budget_daily_usd: 25      # today's measured spend cap (0 disables this axis)
-budget_weekly_usd: 100    # trailing-7-day cap (0 disables this axis)
+tokens:
+  budget_gate: true
+  budget_daily_usd: 25      # today's measured spend cap (0 disables this axis)
+  budget_weekly_usd: 100    # trailing-7-day cap (0 disables this axis)
 ```
 
 When today's or the trailing week's measured spend reaches a cap, a non-forced spawn

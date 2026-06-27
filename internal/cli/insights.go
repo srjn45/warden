@@ -155,7 +155,7 @@ func newInsightsCmd() *cobra.Command {
 			// completer means deterministic-only, which Narrate handles.
 			var comp llm.Completer
 			if cfg.GetLocalLLM() {
-				comp = llm.NewOllama(cfg.LocalLLMURL, cfg.LocalLLMModel, cfg.LocalLLMTimeoutDuration())
+				comp = llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, cfg.LocalLLMTimeoutDuration())
 			}
 
 			r, narration, err := runInsights(cmd.Context(), clientFor(cmd), comp,

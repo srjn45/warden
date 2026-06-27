@@ -97,21 +97,21 @@ func systemRAMGB() (float64, bool) {
 func localLLMAdvice(cfg config.Config, mem memProbe) checkResult {
 	if !mem.ok {
 		return checkResult{name: "local llm", required: false, ok: true,
-			detail: "hardware undetected → recommend qwen2.5-coder:1.5b (conservative floor); override by setting local_llm_model in your config file (`wd config path`)"}
+			detail: "hardware undetected → recommend qwen2.5-coder:1.5b (conservative floor); override by setting local_llm.model in your config file (`wd config path`)"}
 	}
 	rec := recommendModel(mem.gb)
 	detail := fmt.Sprintf("detected ~%.0f GB %s → recommend %s (run `wd llm suggest` for memory-ranked options)", mem.gb, mem.source, rec)
 	switch {
 	case !cfg.GetLocalLLM():
 		detail += "; enable the local model by setting local_llm: true in your config file (the orchestrator needs it; `wd config path`)"
-	case cfg.LocalLLMModel == rec:
+	case cfg.LocalLLM.Model == rec:
 		detail += "; configured model matches ✓"
 	default:
-		configured := cfg.LocalLLMModel
+		configured := cfg.LocalLLM.Model
 		if strings.TrimSpace(configured) == "" {
 			configured = "(unset)"
 		}
-		detail += fmt.Sprintf("; configured %s — change local_llm_model to %s in your config file (`wd config path`)", configured, rec)
+		detail += fmt.Sprintf("; configured %s — change local_llm.model to %s in your config file (`wd config path`)", configured, rec)
 	}
 	return checkResult{name: "local llm", required: false, ok: true, detail: detail}
 }

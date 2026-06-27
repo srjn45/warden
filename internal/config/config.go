@@ -24,72 +24,102 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ---------------------------------------------------------------------------
+// Namespaced sub-structs
+// ---------------------------------------------------------------------------
+
+// RailsConfig groups the guard/boundary-hook settings that constrain what
+// agents can do: git conventions, redirect hooks, and isolation guards.
+type RailsConfig struct {
+	GitConventions bool `yaml:"git_conventions"`
+	GitRedirect    bool `yaml:"git_redirect"`
+	CheckRedirect  bool `yaml:"check_redirect"`
+	RootGuard      bool `yaml:"root_guard"`
+	IsolationGuard bool `yaml:"isolation_guard"`
+}
+
+// TokensConfig groups token-guard, budget-gate, and cost/savings settings.
+type TokensConfig struct {
+	Guard               bool    `yaml:"guard"`
+	WarnAlert           bool    `yaml:"warn_alert"`
+	AutoCompact         bool    `yaml:"auto_compact"`
+	ForceCompact        bool    `yaml:"force_compact"`
+	CompactResumePrompt string  `yaml:"compact_resume_prompt"`
+	Warn                int     `yaml:"warn"`
+	Critical            int     `yaml:"critical"`
+	BudgetGate          bool    `yaml:"budget_gate"`
+	BudgetDailyUSD      float64 `yaml:"budget_daily_usd"`
+	BudgetWeeklyUSD     float64 `yaml:"budget_weekly_usd"`
+	Savings             bool    `yaml:"savings"`
+	SavingsSamples      bool    `yaml:"savings_samples"`
+}
+
+// NotifyConfig groups desktop-notification and webhook settings.
+type NotifyConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	WebhookEnabled bool   `yaml:"webhook_enabled"`
+	WebhookURL     string `yaml:"webhook_url"`
+}
+
+// WorktreeConfig groups worktree-retention and spawn-gate settings.
+type WorktreeConfig struct {
+	SpawnGate    bool `yaml:"spawn_gate"`
+	SpawnGateMax int  `yaml:"spawn_gate_max_agents"`
+	KeepDone     bool `yaml:"keep_done"`
+	AutoPrune    bool `yaml:"auto_prune"`
+}
+
+// LocalLLMConfig groups local-model, REPL, and LLM-offload settings.
+type LocalLLMConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	URL        string `yaml:"url"`
+	Model      string `yaml:"model"`
+	Timeout    string `yaml:"timeout"`
+	Escalate   bool   `yaml:"escalate"`
+	Tier       string `yaml:"tier"`
+	Classifier string `yaml:"classifier"`
+	Repl       bool   `yaml:"repl"`
+}
+
+// ---------------------------------------------------------------------------
+// Top-level Config
+// ---------------------------------------------------------------------------
+
 // Config is the typed view of warden's configuration. Every field carries a
 // yaml tag matching a key in the on-disk config file. Duration-valued settings
 // are stored as Go duration strings (e.g. "5m"); use the typed accessor methods
 // (AutoRestartResetDuration, etc.) to read them.
+//
+// Five groups of settings have been moved into namespaced YAML blocks (rails,
+// tokens, notify, worktree, local_llm). Old flat keys (e.g. token_guard) are
+// transparently migrated at load time and are kept as deprecated aliases — they
+// still work but emit a deprecation warning once per daemon start.
 type Config struct {
 	Addr                  string          `yaml:"addr"`
 	DataDir               string          `yaml:"data_dir"`
 	ClaudeProjectsDir     string          `yaml:"claude_projects_dir"`
-	NotifyEnabled         bool            `yaml:"notify"`
-	WebhookEnabled        bool            `yaml:"webhook_enabled"`
-	WebhookURL            string          `yaml:"webhook_url"`
 	ApprovalsEnabled      bool            `yaml:"approvals"`
 	AutoApprove           approval.Policy `yaml:"auto_approve"`
 	DefaultPermissionMode string          `yaml:"default_permission_mode"`
-	SpawnGateEnabled      bool            `yaml:"spawn_gate"`
-	SpawnGateMaxAgents    int             `yaml:"spawn_gate_max_agents"`
-	BudgetGate            bool            `yaml:"budget_gate"`
-	BudgetDailyUSD        float64         `yaml:"budget_daily_usd"`
-	BudgetWeeklyUSD       float64         `yaml:"budget_weekly_usd"`
 	MetricsEnabled        bool            `yaml:"metrics"`
 	AllowNonLoopback      bool            `yaml:"allow_nonloopback"`
-	TokenGuard            bool            `yaml:"token_guard"`
-	TokenWarnAlert        bool            `yaml:"token_warn_alert"`
-	TokenAutoCompact      bool            `yaml:"token_auto_compact"`
-	TokenForceCompact     bool            `yaml:"token_force_compact"`
-	TokenWarn             int             `yaml:"token_warn"`
-	TokenCritical         int             `yaml:"token_critical"`
-	// TokenCompactResumePrompt is the message warden sends a force-compacted agent
-	// once its compaction lands, so it resumes the work the interrupt discarded.
-	TokenCompactResumePrompt string `yaml:"token_compact_resume_prompt"`
 
 	// Migrated from previously-scattered os.Getenv reads.
-	PipelineKeepDone    bool   `yaml:"pipeline_keep_done"`
-	ModelDefault        string `yaml:"model_default"`
-	PipelineHint        bool   `yaml:"pipeline_hint"`
-	AutoRestartMax      int    `yaml:"auto_restart_max"`
-	AutoRestartReset    string `yaml:"auto_restart_reset"`
-	CollabEnabled       bool   `yaml:"collab_enabled"`
-	CollabInterval      string `yaml:"collab_interval"`
-	CollabHint          bool   `yaml:"collab_hint"`
-	BranchTrackEnabled  bool   `yaml:"branch_track_enabled"`
-	BranchTrackInterval string `yaml:"branch_track_interval"`
-	IsolationGuard      bool   `yaml:"isolation_guard"`
-	GitConventions      bool   `yaml:"git_conventions"`
-	GitRedirect         bool   `yaml:"git_redirect"`
-	CheckRedirect       bool   `yaml:"check_redirect"`
-	RootGuard           bool   `yaml:"root_guard"`
-	Snapshots           bool   `yaml:"snapshots"`
-	Savings             bool   `yaml:"savings"`
-	SavingsSamples      bool   `yaml:"savings_samples"`
-	Tutorial            bool   `yaml:"tutorial"`
-	Insights            bool   `yaml:"insights"`
-	ApiDocs             bool   `yaml:"api_docs"`
-	SchedulerEnabled    bool   `yaml:"scheduler_enabled"`
-	LocalLLM            bool   `yaml:"local_llm"`
-	LocalLLMURL         string `yaml:"local_llm_url"`
-	LocalLLMModel       string `yaml:"local_llm_model"`
-	LocalLLMTimeout     string `yaml:"local_llm_timeout"`
-	LocalLLMEscalate    bool   `yaml:"local_llm_escalate"`
-	LocalLLMTier        string `yaml:"local_llm_tier"`
-	LocalLLMClassifier  string `yaml:"local_llm_classifier"`
-	Repl                bool   `yaml:"repl"`
-	// OrchestratorLegacy reads the pre-rename `orchestrator:` key so existing
-	// configs keep working after the `wd orch` command became `wd repl`. GetRepl
-	// ORs it in.
-	OrchestratorLegacy     bool          `yaml:"orchestrator"`
+	PipelineKeepDone       bool          `yaml:"pipeline_keep_done"`
+	ModelDefault           string        `yaml:"model_default"`
+	PipelineHint           bool          `yaml:"pipeline_hint"`
+	AutoRestartMax         int           `yaml:"auto_restart_max"`
+	AutoRestartReset       string        `yaml:"auto_restart_reset"`
+	CollabEnabled          bool          `yaml:"collab_enabled"`
+	CollabInterval         string        `yaml:"collab_interval"`
+	CollabHint             bool          `yaml:"collab_hint"`
+	BranchTrackEnabled     bool          `yaml:"branch_track_enabled"`
+	BranchTrackInterval    string        `yaml:"branch_track_interval"`
+	Snapshots              bool          `yaml:"snapshots"`
+	Tutorial               bool          `yaml:"tutorial"`
+	Insights               bool          `yaml:"insights"`
+	ApiDocs                bool          `yaml:"api_docs"`
+	SchedulerEnabled       bool          `yaml:"scheduler_enabled"`
 	PluginsEnabled         bool          `yaml:"plugins"`
 	Plugins                []plugin.Spec `yaml:"plugin_registry"`
 	RateLimitRetryInterval string        `yaml:"rate_limit_retry_interval"`
@@ -97,14 +127,18 @@ type Config struct {
 	RateLimitAutoResume    bool          `yaml:"rate_limit_auto_resume"`
 	RateLimitResumePrompt  string        `yaml:"rate_limit_resume_prompt"`
 
-	// Worktree retention policy (see internal/lifecycle prune/RemoveWorktree).
-	WorktreeKeepDone  bool `yaml:"worktree_keep_done"`
-	WorktreeAutoPrune bool `yaml:"worktree_auto_prune"`
-
-	// Structured logging (internal/logging). LogLevel filters by severity;
-	// LogFormat selects human-readable text or machine-readable JSON.
+	// Structured logging (internal/logging).
 	LogLevel  string `yaml:"log_level"`
 	LogFormat string `yaml:"log_format"`
+
+	// Namespaced configuration groups. Each replaces a set of flat keys that are
+	// now deprecated aliases (see migrateFlatToNamespaced). Old flat keys are
+	// still transparently loaded by translating them at parse time.
+	Rails    RailsConfig    `yaml:"rails"`
+	Tokens   TokensConfig   `yaml:"tokens"`
+	Notify   NotifyConfig   `yaml:"notify"`
+	Worktree WorktreeConfig `yaml:"worktree"`
+	LocalLLM LocalLLMConfig `yaml:"local_llm"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -123,26 +157,11 @@ var schema = []setting{
 	{"addr", "Daemon listen address. Values: host:port (non-loopback requires WARDEN_TOKEN for bearer-token auth, or allow_nonloopback: true to bind without auth)"},
 	{"data_dir", "Directory for warden state (sessions, inbox, pipelines, metrics). Values: absolute path"},
 	{"claude_projects_dir", "Claude Code transcript root. Values: absolute path"},
-	{"notify", "Desktop notifications on agent status changes. Values: true | false"},
-	{"webhook_enabled", "POST a notification to webhook_url on attention-needed status transitions (waiting_for_input, errored, orphaned). Runs alongside desktop notifications. Values: true | false"},
-	{"webhook_url", "Webhook endpoint for status notifications when webhook_enabled is true. A Slack incoming-webhook URL works out of the box (the payload's \"text\" field is what Slack renders); any endpoint accepting a JSON POST of {text, title, body} works. Values: http(s) URL"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
 	{"auto_approve", "Auto-approve policy. With NO rules configured this is the simple on/off toggle (enabled answers every recognized, non-destructive prompt). With rules, the daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, regex, paths} — tool/pattern are case-insensitive, regex is a Go regexp), agents (per-agent overrides keyed by agent name or id, each its own {enabled, allow_sticky, rules} block that replaces the default for that agent)."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
-	{"spawn_gate", "Warn (soft, never blocks) before spawning when many agents are live. Values: true | false"},
-	{"spawn_gate_max_agents", "Live-agent count that trips the spawn-gate warning. Values: integer"},
-	{"budget_gate", "Warn (soft, never blocks) before spawning when measured Claude spend has reached a budget cap (budget_daily_usd / budget_weekly_usd). Re-run the spawn with force to proceed. Values: true | false"},
-	{"budget_daily_usd", "Daily spend cap in US dollars for the budget gate. The gate trips when today's measured spend reaches this figure. 0 disables the daily axis. Values: number (e.g. 25)"},
-	{"budget_weekly_usd", "Weekly (trailing 7-day) spend cap in US dollars for the budget gate. The gate trips when the trailing-week measured spend reaches this figure. 0 disables the weekly axis. Values: number (e.g. 100)"},
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
 	{"allow_nonloopback", "Bind to a non-loopback address WITHOUT authentication (not recommended). Prefer setting WARDEN_TOKEN instead, which requires a bearer token. Values: true | false"},
-	{"token_guard", "Enable the context-token guard (warn / auto-compact). Values: true | false"},
-	{"token_warn_alert", "Notify when an agent crosses the token warning threshold. Values: true | false"},
-	{"token_auto_compact", "Auto-compact an agent that crosses the critical threshold. Values: true | false"},
-	{"token_force_compact", "Interrupt a busy critical agent to /compact it, then resume it (destructive: discards the in-flight turn). Per-agent override via `warden force-compact`. Values: true | false"},
-	{"token_warn", "Token count for the warning threshold. Values: integer (must be < token_critical)"},
-	{"token_critical", "Token count for the critical threshold. Values: integer (must be > token_warn)"},
-	{"token_compact_resume_prompt", "Message sent to a force-compacted agent once compaction lands so it resumes its work. Values: any text"},
 	{"pipeline_keep_done", "Keep a pipeline job's agent alive after the job completes. Values: true | false"},
 	{"model_default", "Default model for new agents. Values: a claude model id or alias (sonnet, opus, haiku, fable)"},
 	{"pipeline_hint", "Append the pipeline-decomposition hint to standalone agents. Values: true | false"},
@@ -153,36 +172,26 @@ var schema = []setting{
 	{"collab_hint", "Append the conflict-check hint to spawned agents so they coordinate on shared files. Values: true | false"},
 	{"branch_track_enabled", "Monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts. Values: true | false"},
 	{"branch_track_interval", "Branch-tracker scan interval. Values: Go duration (e.g. 2m, 5m)"},
-	{"isolation_guard", "Install the PreToolUse hook that blocks an isolated agent from editing files outside its worktree (into the shared repo). Values: true | false"},
-	{"git_conventions", "Append the git-conventions hint steering agents toward wd commit/push/sync over raw git Bash. Values: true | false"},
-	{"git_redirect", "Install the PreToolUse hook that denies raw git commit/push/pull/rebase in Bash and redirects to the warden tools (reads stay allowed). Values: true | false"},
-	{"check_redirect", "Install the PreToolUse hook that denies a raw test/lint/build command the project's .warden/check.yml registers and redirects it to wd check (returns only failures). No config means nothing is redirected. Values: true | false"},
-	{"root_guard", "Install the PreToolUse hook that blocks ANY spawned agent from editing files in the main repo working tree (the shared project root), regardless of whether it owns a worktree. Unlike isolation_guard this needs no daemon and catches free-form/--in-repo agents too — so it also overrides the --in-repo opt-out. Values: true | false"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
-	{"savings", "Record the token reductions warden's lifecycle features earn (starting with wd check: raw test output kept out of the transcript) to an append-only ledger, surfaced by wd savings and GET /savings. Off disables recording and returns 403 on the endpoint. Values: true | false"},
-	{"savings_samples", "Retain opt-in provenance samples in the savings ledger: a truncated (~2KB) snapshot of the real raw output a feature avoided and the kept output it returned, sampled on a fraction of events and shown by wd savings --audit so a skeptic can eyeball actual bytes. WARNING: these samples retain substrings of real build/test/git output, which may be sensitive — off by default. Requires savings. Values: true | false"},
 	{"tutorial", "Print a one-line first-run hint pointing at `wd tutorial` until the walkthrough is completed (it writes a tutorial-complete marker in data_dir). The hint is non-blocking and only shown on an interactive TTY; this gate disables it. Values: true | false"},
 	{"insights", "Enable the AI-powered insights engine (wd insights + MCP insights): mine agent history for duration outliers, co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could run in parallel. Deterministic by default; narrated by the local model when local_llm is on. Values: true | false"},
 	{"api_docs", "Serve the OpenAPI spec + interactive Swagger UI at /api/docs (public, like the static UI shell; the spec describes the API shape but holds no secrets). Values: true | false"},
 	{"scheduler_enabled", "Enable the native scheduler (#15): recurring (--cron) and single-shot (--at) triggers that fire an agent spawn or a pipeline on a daemon-owned timer (wd schedule create/list/delete). OFF by default — the daemon must be running for schedules to fire, so this is deliberately opt-in. Values: true | false"},
-	{"local_llm", "Route fuzzy-but-cheap tasks (task classification) to a local model instead of warden's own headless Claude. Off by default; every step falls back to Claude on any error. Values: true | false"},
-	{"local_llm_url", "Base URL of the local Ollama-compatible server used when local_llm is on. Values: http(s) URL (default http://localhost:11434)"},
-	{"local_llm_model", "Model name the local server should run for warden's tasks. Values: an Ollama model tag (e.g. qwen2.5-coder:7b)"},
-	{"local_llm_timeout", "Hard timeout for each local-model call before falling back to Claude. Values: Go duration (e.g. 20s, 1m)"},
-	{"local_llm_escalate", "Let the REPL escalate an over-tier planning step to headless Claude (one bounded `claude -p`); off ⇒ degrade honestly instead. Execution stays token-free warden calls either way. Values: true | false"},
-	{"local_llm_tier", "Explicit REPL planning-tier override for the local model. auto derives the tier from the model name. Values: auto | t0 | t1 | t2"},
-	{"local_llm_classifier", "How the REPL buckets a request's needed planning tier. heuristic uses cheap surface signals (no model call); model adds a one-shot local-model classification (more accurate, one extra round-trip) and falls back to the heuristic on any error. Values: heuristic | model"},
-	{"repl", "Start the cockpit master pane in REPL mode (the natural-language interactive shell) instead of a plain shell. Also accepts the deprecated key `orchestrator`. Values: true | false"},
 	{"plugins", "Enable the plugin system (#47): load the external plugin executables in plugin_registry, register their custom agent task types, and invoke their subscribed lifecycle hooks over a JSON-over-stdio protocol. OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Values: true | false"},
 	{"plugin_registry", "Plugins loaded when `plugins` is true. A list of entries, each with: name, path (the plugin executable), events (subscribed lifecycle hooks; any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree}). Empty by default. Values: list"},
 	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
 	{"rate_limit_resume_prompt", "Text to send when resuming a rate-limited agent. Empty = bare keypress (no injected user turn). Values: any string"},
-	{"worktree_keep_done", "Keep a worktree-owning agent's worktree after it is archived (done). When false, a clean worktree is removed on archive (dirty/unpushed are kept + logged); never blocks the archive. Values: true | false"},
-	{"worktree_auto_prune", "Let the daemon auto-reclaim clean, record-less orphan worktrees on a slow cadence + at startup (the unattended sweep never touches archived-owned worktrees). Values: true | false"},
 	{"log_level", "Minimum severity the daemon logs. Values: debug | info | warn | error"},
 	{"log_format", "Daemon log output format. Values: text (human-readable) | json (structured)"},
+
+	// Namespaced groups — each replaces a set of deprecated flat keys.
+	{"rails", "Guard and boundary-hook settings (previously flat keys: git_conventions, git_redirect, check_redirect, root_guard, isolation_guard). Sub-keys: git_conventions, git_redirect, check_redirect, root_guard, isolation_guard. Flat keys still load as deprecated aliases."},
+	{"tokens", "Token-guard, budget-gate, and cost/savings settings (previously flat keys: token_guard, token_warn_alert, token_auto_compact, token_force_compact, token_warn, token_critical, token_compact_resume_prompt, budget_gate, budget_daily_usd, budget_weekly_usd, savings, savings_samples). Sub-keys match without the token_ prefix. Flat keys still load as deprecated aliases."},
+	{"notify", "Notification settings (previously flat keys: notify, webhook_enabled, webhook_url). Sub-keys: enabled (was notify), webhook_enabled, webhook_url. Flat keys still load as deprecated aliases."},
+	{"worktree", "Worktree-retention and spawn-gate settings (previously flat keys: spawn_gate, spawn_gate_max_agents, worktree_keep_done, worktree_auto_prune). Sub-keys: spawn_gate, spawn_gate_max_agents, keep_done, auto_prune. Flat keys still load as deprecated aliases."},
+	{"local_llm", "Local-model, REPL, and LLM-offload settings (previously flat keys: local_llm, local_llm_url, local_llm_model, local_llm_timeout, local_llm_escalate, local_llm_tier, local_llm_classifier, repl). Sub-keys: enabled (was local_llm), url, model, timeout, escalate, tier, classifier, repl. Flat keys still load as deprecated aliases."},
 }
 
 // fileHeader is the comment written at the very top of a generated config file.
@@ -201,70 +210,80 @@ func defaults() Config {
 		Addr:              "127.0.0.1:8765",
 		DataDir:           defaultDataDir(),
 		ClaudeProjectsDir: defaultClaudeProjectsDir(),
-		NotifyEnabled:     false,
-		WebhookEnabled:    false,
-		WebhookURL:        "",
 		ApprovalsEnabled:  true,
 		AutoApprove: approval.Policy{
 			Enabled:     false,
 			AllowSticky: false,
 			Rules:       approval.Rules{Allow: []approval.Rule{}, Deny: []approval.Rule{}},
 		},
-		DefaultPermissionMode:    "auto",
-		SpawnGateEnabled:         true,
-		SpawnGateMaxAgents:       5,
-		BudgetGate:               false,
-		BudgetDailyUSD:           0,
-		BudgetWeeklyUSD:          0,
-		MetricsEnabled:           true,
-		AllowNonLoopback:         false,
-		TokenGuard:               true,
-		TokenWarnAlert:           true,
-		TokenAutoCompact:         true,
-		TokenForceCompact:        false, // destructive (interrupts a busy turn) — opt-in only
-		TokenWarn:                200000,
-		TokenCritical:            400000,
-		TokenCompactResumePrompt: defaultCompactResumePrompt,
-		PipelineKeepDone:         false,
-		ModelDefault:             "claude-sonnet-4-6", // current "sonnet" alias; keep in sync with lifecycle.DefaultModel
-		PipelineHint:             true,
-		AutoRestartMax:           3,
-		AutoRestartReset:         "5m",
-		CollabEnabled:            true,
-		CollabInterval:           "10s",
-		CollabHint:               true,
-		BranchTrackEnabled:       false,
-		BranchTrackInterval:      "2m",
-		IsolationGuard:           true,
-		GitConventions:           true,
-		GitRedirect:              true,
-		CheckRedirect:            true,
-		RootGuard:                true,
-		Snapshots:                true,
-		Savings:                  true,
-		SavingsSamples:           false,
-		Tutorial:                 true,
-		Insights:                 true,
-		ApiDocs:                  true,
-		SchedulerEnabled:         false,
-		LocalLLM:                 false,
-		LocalLLMURL:              "http://localhost:11434",
-		LocalLLMModel:            "qwen2.5-coder:7b",
-		LocalLLMTimeout:          "20s",
-		LocalLLMEscalate:         true,
-		LocalLLMTier:             "auto",
-		LocalLLMClassifier:       "heuristic",
-		Repl:                     false,
-		PluginsEnabled:           false,
-		Plugins:                  []plugin.Spec{},
-		RateLimitRetryInterval:   "30m",
-		RateLimitBuffer:          "1m",
-		RateLimitAutoResume:      true,
-		RateLimitResumePrompt:    "",
-		WorktreeKeepDone:         true,
-		WorktreeAutoPrune:        false,
-		LogLevel:                 logging.DefaultLevel,
-		LogFormat:                logging.DefaultFormat,
+		DefaultPermissionMode:  "auto",
+		MetricsEnabled:         true,
+		AllowNonLoopback:       false,
+		PipelineKeepDone:       false,
+		ModelDefault:           "claude-sonnet-4-6", // current "sonnet" alias; keep in sync with lifecycle.DefaultModel
+		PipelineHint:           true,
+		AutoRestartMax:         3,
+		AutoRestartReset:       "5m",
+		CollabEnabled:          true,
+		CollabInterval:         "10s",
+		CollabHint:             true,
+		BranchTrackEnabled:     false,
+		BranchTrackInterval:    "2m",
+		Snapshots:              true,
+		Tutorial:               true,
+		Insights:               true,
+		ApiDocs:                true,
+		SchedulerEnabled:       false,
+		PluginsEnabled:         false,
+		Plugins:                []plugin.Spec{},
+		RateLimitRetryInterval: "30m",
+		RateLimitBuffer:        "1m",
+		RateLimitAutoResume:    true,
+		RateLimitResumePrompt:  "",
+		LogLevel:               logging.DefaultLevel,
+		LogFormat:              logging.DefaultFormat,
+		Rails: RailsConfig{
+			GitConventions: true,
+			GitRedirect:    true,
+			CheckRedirect:  true,
+			RootGuard:      true,
+			IsolationGuard: true,
+		},
+		Tokens: TokensConfig{
+			Guard:               true,
+			WarnAlert:           true,
+			AutoCompact:         true,
+			ForceCompact:        false, // destructive (interrupts a busy turn) — opt-in only
+			CompactResumePrompt: defaultCompactResumePrompt,
+			Warn:                200000,
+			Critical:            400000,
+			BudgetGate:          false,
+			BudgetDailyUSD:      0,
+			BudgetWeeklyUSD:     0,
+			Savings:             true,
+			SavingsSamples:      false,
+		},
+		Notify: NotifyConfig{
+			Enabled:        false,
+			WebhookEnabled: false,
+			WebhookURL:     "",
+		},
+		Worktree: WorktreeConfig{
+			SpawnGate:    true,
+			SpawnGateMax: 5,
+			KeepDone:     true,
+			AutoPrune:    false,
+		},
+		LocalLLM: LocalLLMConfig{
+			Enabled:    false,
+			URL:        "http://localhost:11434",
+			Model:      "qwen2.5-coder:7b",
+			Timeout:    "20s",
+			Escalate:   true,
+			Tier:       "auto",
+			Classifier: "heuristic",
+			Repl:       false,
+		},
 	}
 }
 
@@ -298,16 +317,31 @@ func DefaultPath() string {
 // Load reads config from path, applying defaults for any missing keys and
 // validating the result. A missing or unreadable file yields an all-defaults
 // Config. Load never writes.
+//
+// Deprecated flat keys (e.g. token_guard, local_llm_url, notify) are
+// transparently migrated to their namespaced equivalents in memory — the file
+// is not changed. A deprecation warning is logged once per deprecated key found.
 func Load(path string) Config {
 	c := defaults()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return c // absent/unreadable → all defaults
 	}
-	// Unmarshal overlays only the keys present in the file; absent keys keep
-	// their default value (c was pre-populated by defaults()).
-	if err := yaml.Unmarshal(data, &c); err != nil {
+	// Parse to node tree so we can run the in-memory flat→namespaced migration
+	// before struct decoding. This preserves backward compat for old flat keys.
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
 		slog.Warn("config: parse error, using defaults", "path", path, "err", err)
+		return defaults()
+	}
+	if len(doc.Content) > 0 && doc.Content[0].Kind == yaml.MappingNode {
+		migrateFlatToNamespaced(doc.Content[0])
+		migrateAutoApprove(doc.Content[0])
+	}
+	// Decode the (possibly migrated) node tree onto c — absent keys keep their
+	// default value since c was pre-populated by defaults().
+	if err := doc.Decode(&c); err != nil {
+		slog.Warn("config: decode error, using defaults", "path", path, "err", err)
 		return defaults()
 	}
 	validate(&c)
@@ -331,12 +365,12 @@ func validate(c *Config) {
 	if strings.TrimSpace(c.ModelDefault) == "" {
 		c.ModelDefault = d.ModelDefault
 	}
-	if strings.TrimSpace(c.TokenCompactResumePrompt) == "" {
-		c.TokenCompactResumePrompt = d.TokenCompactResumePrompt
+	if strings.TrimSpace(c.Tokens.CompactResumePrompt) == "" {
+		c.Tokens.CompactResumePrompt = d.Tokens.CompactResumePrompt
 	}
 	c.DefaultPermissionMode = validPermissionMode(c.DefaultPermissionMode)
-	if c.TokenCritical <= c.TokenWarn { // inverted/degenerate → defaults (warning must be reachable)
-		c.TokenWarn, c.TokenCritical = d.TokenWarn, d.TokenCritical
+	if c.Tokens.Critical <= c.Tokens.Warn { // inverted/degenerate → defaults
+		c.Tokens.Warn, c.Tokens.Critical = d.Tokens.Warn, d.Tokens.Critical
 	}
 	if c.AutoRestartMax < 0 {
 		c.AutoRestartMax = d.AutoRestartMax
@@ -348,13 +382,13 @@ func validate(c *Config) {
 	c.BranchTrackInterval = validDuration(c.BranchTrackInterval, d.BranchTrackInterval)
 	c.RateLimitRetryInterval = validDuration(c.RateLimitRetryInterval, d.RateLimitRetryInterval)
 	c.RateLimitBuffer = validDuration(c.RateLimitBuffer, d.RateLimitBuffer)
-	if strings.TrimSpace(c.LocalLLMURL) == "" {
-		c.LocalLLMURL = d.LocalLLMURL
+	if strings.TrimSpace(c.LocalLLM.URL) == "" {
+		c.LocalLLM.URL = d.LocalLLM.URL
 	}
-	if strings.TrimSpace(c.LocalLLMModel) == "" {
-		c.LocalLLMModel = d.LocalLLMModel
+	if strings.TrimSpace(c.LocalLLM.Model) == "" {
+		c.LocalLLM.Model = d.LocalLLM.Model
 	}
-	c.LocalLLMTimeout = validDuration(c.LocalLLMTimeout, d.LocalLLMTimeout)
+	c.LocalLLM.Timeout = validDuration(c.LocalLLM.Timeout, d.LocalLLM.Timeout)
 }
 
 func validPermissionMode(v string) string {
@@ -402,8 +436,9 @@ func validDuration(v, def string) string {
 
 // Reconcile is the only writer. When the file is absent it generates a full,
 // commented file from the schema + defaults. When present it parses the node
-// tree and appends only the keys not already there (with their hint comments),
-// preserving existing values, comments, and unknown keys untouched.
+// tree, migrates any deprecated flat keys to their namespaced blocks, and
+// appends only the keys not already there (with their hint comments), preserving
+// existing values, comments, and unknown keys untouched.
 func Reconcile(path string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -431,10 +466,12 @@ func Reconcile(path string) error {
 	}
 	mapping := doc.Content[0]
 
+	// Migrate deprecated flat keys to namespaced blocks. Must run before the
+	// auto_approve migration and the add-missing loop, which use the same node.
+	changed := migrateFlatToNamespaced(mapping)
 	// Migrate a legacy flat auto_approve (scalar bool, plus the Stage-A
-	// auto_approve_allow_sticky key) into the nested policy block before the
-	// add-missing loop, which would otherwise treat auto_approve as "present".
-	changed := migrateAutoApprove(mapping)
+	// auto_approve_allow_sticky key) into the nested policy block.
+	changed = migrateAutoApprove(mapping) || changed
 
 	present := map[string]bool{}
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
@@ -465,6 +502,149 @@ func Reconcile(path string) error {
 	}
 	return writeFile(path, out)
 }
+
+// ---------------------------------------------------------------------------
+// Flat-to-namespaced migration
+// ---------------------------------------------------------------------------
+
+// keyAlias maps one deprecated flat key to its sub-key in the new block.
+type keyAlias struct {
+	flat string // old flat key at the root level
+	sub  string // sub-key name inside the new block
+}
+
+// keyGroup defines one namespaced block and the flat aliases it absorbs.
+type keyGroup struct {
+	block string
+	keys  []keyAlias
+}
+
+// flatKeyGroups is the authoritative mapping from deprecated flat keys to the
+// five namespaced configuration blocks. Order within each group matches the
+// order sub-keys appear in the generated file.
+var flatKeyGroups = []keyGroup{
+	{"rails", []keyAlias{
+		{"git_conventions", "git_conventions"},
+		{"git_redirect", "git_redirect"},
+		{"check_redirect", "check_redirect"},
+		{"root_guard", "root_guard"},
+		{"isolation_guard", "isolation_guard"},
+	}},
+	{"tokens", []keyAlias{
+		{"token_guard", "guard"},
+		{"token_warn_alert", "warn_alert"},
+		{"token_auto_compact", "auto_compact"},
+		{"token_force_compact", "force_compact"},
+		{"token_compact_resume_prompt", "compact_resume_prompt"},
+		{"token_warn", "warn"},
+		{"token_critical", "critical"},
+		{"budget_gate", "budget_gate"},
+		{"budget_daily_usd", "budget_daily_usd"},
+		{"budget_weekly_usd", "budget_weekly_usd"},
+		{"savings", "savings"},
+		{"savings_samples", "savings_samples"},
+	}},
+	{"notify", []keyAlias{
+		{"notify", "enabled"},
+		{"webhook_enabled", "webhook_enabled"},
+		{"webhook_url", "webhook_url"},
+	}},
+	{"worktree", []keyAlias{
+		{"spawn_gate", "spawn_gate"},
+		{"spawn_gate_max_agents", "spawn_gate_max_agents"},
+		{"worktree_keep_done", "keep_done"},
+		{"worktree_auto_prune", "auto_prune"},
+	}},
+	{"local_llm", []keyAlias{
+		{"local_llm", "enabled"},
+		{"local_llm_url", "url"},
+		{"local_llm_model", "model"},
+		{"local_llm_timeout", "timeout"},
+		{"local_llm_escalate", "escalate"},
+		{"local_llm_tier", "tier"},
+		{"local_llm_classifier", "classifier"},
+		{"repl", "repl"},
+		{"orchestrator", "repl"}, // pre-rename legacy alias
+	}},
+}
+
+// migrateFlatToNamespaced rewrites deprecated flat keys into their namespaced
+// blocks in place on the YAML mapping node. It handles all five groups. Returns
+// true when mapping was modified. Called at Load time (in-memory, not written)
+// and at Reconcile time (written back to disk for a permanent upgrade).
+func migrateFlatToNamespaced(mapping *yaml.Node) bool {
+	changed := false
+	for _, g := range flatKeyGroups {
+		if migrateGroup(mapping, g.block, g.keys) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// migrateGroup moves any matching flat keys from mapping into the named block.
+// It logs a deprecation warning for each flat key found, then folds the values
+// into the block (creating the block if absent), and removes the flat keys.
+// Returns true when mapping was modified.
+func migrateGroup(mapping *yaml.Node, blockKey string, aliases []keyAlias) bool {
+	type flatFound struct {
+		alias keyAlias
+		val   *yaml.Node
+	}
+
+	// First pass: collect flat keys that are present and need migration.
+	var found []flatFound
+	for _, alias := range aliases {
+		val := findValue(mapping, alias.flat)
+		if val == nil {
+			continue
+		}
+		// If flat key name == block key name and value is already a mapping, the
+		// file is already using the namespaced form — skip migration for this alias.
+		if alias.flat == blockKey && val.Kind == yaml.MappingNode {
+			continue
+		}
+		found = append(found, flatFound{alias, val})
+	}
+	if len(found) == 0 {
+		return false
+	}
+
+	// Emit deprecation warnings.
+	for _, f := range found {
+		slog.Warn("config: deprecated flat key — please update to namespaced form",
+			"key", f.alias.flat, "use_instead", blockKey+"."+f.alias.sub)
+	}
+
+	// Ensure the block mapping node exists in the root mapping.
+	blockVal := findValue(mapping, blockKey)
+	if blockVal == nil || blockVal.Kind != yaml.MappingNode {
+		// blockVal might be a scalar if flat key == block key (e.g. notify: false).
+		// We'll remove it below along with the other flat keys and add a fresh block.
+		freshBlock := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		blockKeyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: blockKey}
+		mapping.Content = append(mapping.Content, blockKeyNode, freshBlock)
+		blockVal = freshBlock
+	}
+
+	// Fold each flat key's value into the block (if the sub-key is not already
+	// present — the explicit namespaced value takes precedence over the flat alias).
+	for _, f := range found {
+		if findValue(blockVal, f.alias.sub) == nil {
+			blockVal.Content = append(blockVal.Content, strNode(f.alias.sub), f.val)
+		}
+		// Remove the flat key from the root. Note: when flat key == block key,
+		// removeKey removes the FIRST occurrence. Because we appended the new block
+		// after the original flat entry, the first occurrence is the flat scalar,
+		// which is what we want to remove.
+		removeKey(mapping, f.alias.flat)
+	}
+	return true
+}
+
+// ---------------------------------------------------------------------------
+// auto_approve migration (unchanged from original)
+// ---------------------------------------------------------------------------
 
 // WriteAutoApprove persists policy as the `auto_approve` block of the config
 // file at path, preserving every other key, value, and comment. It is the
@@ -587,6 +767,10 @@ func policyValueNode(enabled, sticky bool) *yaml.Node {
 	}}
 }
 
+// ---------------------------------------------------------------------------
+// YAML node helpers
+// ---------------------------------------------------------------------------
+
 // findValue returns the value node for key in a mapping node, or nil if absent.
 func findValue(mapping *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
@@ -629,6 +813,10 @@ func boolNode(b bool) *yaml.Node {
 func seqNode() *yaml.Node {
 	return &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
 }
+
+// ---------------------------------------------------------------------------
+// File generation helpers
+// ---------------------------------------------------------------------------
 
 // renderFull builds a complete, commented config document from defaults().
 func renderFull() ([]byte, error) {
@@ -769,6 +957,10 @@ func IsLoopbackHost(addr string) bool {
 	return false
 }
 
+// ---------------------------------------------------------------------------
+// Public accessor methods
+// ---------------------------------------------------------------------------
+
 // GetDefaultPermissionMode returns the configured default permission mode for agents.
 func (c Config) GetDefaultPermissionMode() string { return c.DefaultPermissionMode }
 
@@ -781,7 +973,7 @@ func (c Config) GetPipelineHint() bool { return c.PipelineHint }
 
 // GetIsolationGuard reports whether the PreToolUse isolation-guard hook is
 // installed into spawned agents (blocks edits that escape the agent's worktree).
-func (c Config) GetIsolationGuard() bool { return c.IsolationGuard }
+func (c Config) GetIsolationGuard() bool { return c.Rails.IsolationGuard }
 
 // GetCollabHint reports whether the conflict-check hint is appended to spawned
 // agents so they coordinate on files other agents are editing.
@@ -789,33 +981,33 @@ func (c Config) GetCollabHint() bool { return c.CollabHint }
 
 // GetGitConventions reports whether the git-conventions hint (steer agents to
 // wd commit/push/sync over raw git Bash) is appended to spawned agents.
-func (c Config) GetGitConventions() bool { return c.GitConventions }
+func (c Config) GetGitConventions() bool { return c.Rails.GitConventions }
 
 // GetGitRedirect reports whether the PreToolUse git-redirect hook is installed
 // into spawned agents (denies raw git commit/push/pull/rebase in Bash and points
 // the agent at the warden tools instead).
-func (c Config) GetGitRedirect() bool { return c.GitRedirect }
+func (c Config) GetGitRedirect() bool { return c.Rails.GitRedirect }
 
 // GetCheckRedirect reports whether the PreToolUse check-redirect hook is installed
 // into spawned agents (denies a raw test/lint/build command the project's
 // .warden/check.yml registers and points the agent at wd check instead). With no
 // project config nothing is redirected, so this is effectively opt-in per repo.
-func (c Config) GetCheckRedirect() bool { return c.CheckRedirect }
+func (c Config) GetCheckRedirect() bool { return c.Rails.CheckRedirect }
 
 // GetRootGuard reports whether the PreToolUse root-guard hook is installed into
 // spawned agents. It blocks any edit that targets the main repo working tree —
 // the daemon-free backstop that catches even no-worktree (free-form / --in-repo)
 // agents the isolation guard intentionally exempts.
-func (c Config) GetRootGuard() bool { return c.RootGuard }
+func (c Config) GetRootGuard() bool { return c.Rails.RootGuard }
 
 // GetSavings reports whether the token-savings ledger is enabled (the default).
 // When off, lifecycle features record no savings and GET /savings returns 403.
-func (c Config) GetSavings() bool { return c.Savings }
+func (c Config) GetSavings() bool { return c.Tokens.Savings }
 
 // GetSavingsSamples reports whether the savings ledger retains opt-in provenance
 // samples (truncated raw/kept output) for the wd savings --audit view. Off by
 // default — the samples may hold sensitive substrings of real output.
-func (c Config) GetSavingsSamples() bool { return c.SavingsSamples }
+func (c Config) GetSavingsSamples() bool { return c.Tokens.SavingsSamples }
 
 // GetSnapshots reports whether the snapshot/checkpoint system is enabled (the
 // daemon gates the wd snapshot create/list/restore endpoints on it).
@@ -839,37 +1031,37 @@ func (c Config) GetSchedulerEnabled() bool { return c.SchedulerEnabled }
 
 // GetLocalLLM reports whether warden routes its fuzzy-but-cheap tasks (task
 // classification) to a local model instead of headless Claude.
-func (c Config) GetLocalLLM() bool { return c.LocalLLM }
+func (c Config) GetLocalLLM() bool { return c.LocalLLM.Enabled }
 
 // LocalLLMTimeoutDuration returns the hard per-call timeout for the local model
 // before warden falls back to Claude.
 func (c Config) LocalLLMTimeoutDuration() time.Duration {
-	return durOr(c.LocalLLMTimeout, 20*time.Second)
+	return durOr(c.LocalLLM.Timeout, 20*time.Second)
 }
 
 // GetLocalLLMEscalate reports whether the REPL may escalate an over-tier
 // planning step to headless Claude (vs. degrading honestly).
-func (c Config) GetLocalLLMEscalate() bool { return c.LocalLLMEscalate }
+func (c Config) GetLocalLLMEscalate() bool { return c.LocalLLM.Escalate }
 
 // GetLocalLLMTier returns the explicit REPL planning-tier override
 // ("auto"|"t0"|"t1"|"t2"); "auto" derives the tier from the model name.
-func (c Config) GetLocalLLMTier() string { return c.LocalLLMTier }
+func (c Config) GetLocalLLMTier() string { return c.LocalLLM.Tier }
 
 // GetLocalLLMClassifier returns how the REPL buckets a request's needed
 // planning tier: "heuristic" (cheap surface signals, no model call — the
 // default) or "model" (a one-shot local-model classification that falls back to
 // the heuristic on any error). Empty normalises to "heuristic".
 func (c Config) GetLocalLLMClassifier() string {
-	if strings.TrimSpace(c.LocalLLMClassifier) == "" {
+	if strings.TrimSpace(c.LocalLLM.Classifier) == "" {
 		return "heuristic"
 	}
-	return c.LocalLLMClassifier
+	return c.LocalLLM.Classifier
 }
 
 // GetRepl reports whether the cockpit master pane starts in REPL mode instead of
-// a plain shell. It honours both the `repl:` key and the deprecated
-// `orchestrator:` key (pre-rename) so old configs keep working.
-func (c Config) GetRepl() bool { return c.Repl || c.OrchestratorLegacy }
+// a plain shell. The deprecated `repl:` and `orchestrator:` flat keys are
+// transparently migrated to local_llm.repl on load.
+func (c Config) GetRepl() bool { return c.LocalLLM.Repl }
 
 // GetPluginsEnabled reports whether the plugin system (#47) is enabled (the
 // daemon loads plugin_registry, registers custom task types, and wires the

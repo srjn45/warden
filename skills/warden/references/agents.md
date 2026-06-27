@@ -85,7 +85,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 
 ## Spawn gate
 
-`spawn_gate` (default on, `spawn_gate_max_agents` = 5) warns before spawning when
+`worktree.spawn_gate` (default on, `worktree.spawn_gate_max_agents` = 5) warns before spawning when
 many agents are already live. `--force` (or MCP `force:true`) spawns anyway. The
 same gate governs new-delegate `handoff`.
 

@@ -50,10 +50,10 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 			// starts either way. Only the natural-language half needs local_llm; we
 			// say so up front when it's off, then let surface() handle any bare line.
 			if !cfg.GetLocalLLM() {
-				fmt.Fprintln(out, "natural-language mode is off (local_llm: true not set in `wd config path`) — /commands and !shell still work; type /help.")
+				fmt.Fprintln(out, "natural-language mode is off (local_llm.enabled: true not set in `wd config path`) — /commands and !shell still work; type /help.")
 			}
 			cl := clientFor(cmd)
-			chat := llm.NewOllama(cfg.LocalLLMURL, cfg.LocalLLMModel, cfg.LocalLLMTimeoutDuration())
+			chat := llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, cfg.LocalLLMTimeoutDuration())
 			// Show the operator what an empty model / permission_mode field in the
 			// [e]dit flow will actually resolve to (warden fills these from config
 			// when the model omits them).

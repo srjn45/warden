@@ -27,7 +27,7 @@ const claudeEscalationTimeout = 45 * time.Second
 func NewRouterFromConfig(cfg config.Config, comp llm.Completer) *Router {
 	tier, ok := ParseTier(cfg.GetLocalLLMTier())
 	if !ok {
-		tier = modelTier(cfg.LocalLLMModel)
+		tier = modelTier(cfg.LocalLLM.Model)
 	}
 	var esc Escalator
 	if cfg.GetLocalLLMEscalate() {

@@ -77,24 +77,24 @@ func TestLocalLLMAdvice(t *testing.T) {
 	mem := memProbe{gb: 4, source: "system RAM (no GPU detected)", ok: true}
 
 	// local_llm off → tell the operator to enable it.
-	off := localLLMAdvice(config.Config{LocalLLM: false}, mem)
+	off := localLLMAdvice(config.Config{LocalLLM: config.LocalLLMConfig{Enabled: false}}, mem)
 	require.True(t, off.ok)
 	require.False(t, off.required, "the recommendation is advisory, never a failure")
 	require.Contains(t, off.detail, "qwen2.5-coder:3b")
-	require.Contains(t, off.detail, "local_llm: true")
+	require.Contains(t, off.detail, "local_llm")
 
 	// on with a matching model → confirmed.
-	match := localLLMAdvice(config.Config{LocalLLM: true, LocalLLMModel: "qwen2.5-coder:3b"}, mem)
+	match := localLLMAdvice(config.Config{LocalLLM: config.LocalLLMConfig{Enabled: true, Model: "qwen2.5-coder:3b"}}, mem)
 	require.Contains(t, match.detail, "qwen2.5-coder:3b")
-	require.NotContains(t, match.detail, "change local_llm_model", "no change needed when it already matches")
+	require.NotContains(t, match.detail, "change local_llm.model", "no change needed when it already matches")
 
 	// on with a mismatched model → point at the config file, never auto-swap.
-	miss := localLLMAdvice(config.Config{LocalLLM: true, LocalLLMModel: "llama3:8b"}, mem)
+	miss := localLLMAdvice(config.Config{LocalLLM: config.LocalLLMConfig{Enabled: true, Model: "llama3:8b"}}, mem)
 	require.Contains(t, miss.detail, "llama3:8b")
-	require.Contains(t, miss.detail, "change local_llm_model to qwen2.5-coder:3b in your config file")
+	require.Contains(t, miss.detail, "change local_llm.model to qwen2.5-coder:3b in your config file")
 
 	// detection failure → conservative floor.
-	undetected := localLLMAdvice(config.Config{LocalLLM: true}, memProbe{ok: false})
+	undetected := localLLMAdvice(config.Config{LocalLLM: config.LocalLLMConfig{Enabled: true}}, memProbe{ok: false})
 	require.Contains(t, undetected.detail, "qwen2.5-coder:1.5b")
 }
 

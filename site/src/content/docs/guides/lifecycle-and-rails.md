@@ -41,9 +41,9 @@ The verbs are only half the story — warden also keeps agents *on* them. Each a
 
 | Hook | Config key | What it does |
 |---|---|---|
-| **Prompt steer** | `git_conventions` | A system-prompt hint nudging agents toward `wd commit`/`push`/`sync`/`check` over raw git/test Bash — the gentle first layer. |
-| **Isolation guard** | `isolation_guard` | Denies an isolated agent's Edit/Write that escapes its worktree into the shared repo. |
-| **Git-guard** | `git_redirect` | Argv-parses each Bash command and deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden verbs (reads stay allowed); the deny message names the exact replacement. |
-| **Check-guard** | `check_redirect` | Deny-redirects a raw test/lint/build command that `.warden/check.yml` registers to `wd check` (broad runs redirect; focused `-run` runs pass through). |
+| **Prompt steer** | `rails.git_conventions` | A system-prompt hint nudging agents toward `wd commit`/`push`/`sync`/`check` over raw git/test Bash — the gentle first layer. |
+| **Isolation guard** | `rails.isolation_guard` | Denies an isolated agent's Edit/Write that escapes its worktree into the shared repo. |
+| **Git-guard** | `rails.git_redirect` | Argv-parses each Bash command and deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden verbs (reads stay allowed); the deny message names the exact replacement. |
+| **Check-guard** | `rails.check_redirect` | Deny-redirects a raw test/lint/build command that `.warden/check.yml` registers to `wd check` (broad runs redirect; focused `-run` runs pass through). |
 
 Default-isolated write agents (`code`/`docs`/`website`/`debug-ci`/`tests`, see [Worktrees & task types](/warden/concepts/worktrees-task-types/)) are what make the isolation guard meaningful: each gets its own worktree unless you pass `--in-repo`, so the guard has a boundary to enforce and parallel agents never clobber one another.

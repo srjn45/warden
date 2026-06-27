@@ -114,20 +114,20 @@ func newDaemonCmd() *cobra.Command {
 			// Optional local-model provider (Phase 1): only constructed when the
 			// operator opts in, so the default build never reaches out to Ollama.
 			// Classify routes through it first and falls back to Claude on any error.
-			if cfg.LocalLLM {
-				lc.LLM = llm.NewOllama(cfg.LocalLLMURL, cfg.LocalLLMModel, cfg.LocalLLMTimeoutDuration())
-				slog.Info("local LLM enabled", "url", cfg.LocalLLMURL, "model", cfg.LocalLLMModel)
+			if cfg.LocalLLM.Enabled {
+				lc.LLM = llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, cfg.LocalLLMTimeoutDuration())
+				slog.Info("local LLM enabled", "url", cfg.LocalLLM.URL, "model", cfg.LocalLLM.Model)
 			}
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
-			pl.TokenGuard = cfg.TokenGuard
-			pl.TokenWarn = cfg.TokenWarn
-			pl.TokenCrit = cfg.TokenCritical
-			pl.WarnAlert = cfg.TokenWarnAlert
-			pl.AutoCompact = cfg.TokenAutoCompact
-			pl.ForceCompact = cfg.TokenForceCompact
-			pl.CompactResumePrompt = cfg.TokenCompactResumePrompt
+			pl.TokenGuard = cfg.Tokens.Guard
+			pl.TokenWarn = cfg.Tokens.Warn
+			pl.TokenCrit = cfg.Tokens.Critical
+			pl.WarnAlert = cfg.Tokens.WarnAlert
+			pl.AutoCompact = cfg.Tokens.AutoCompact
+			pl.ForceCompact = cfg.Tokens.ForceCompact
+			pl.CompactResumePrompt = cfg.Tokens.CompactResumePrompt
 			pl.AutoApprovePolicy = cfg.AutoApprove
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
@@ -160,7 +160,7 @@ func newDaemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			srv.SetSavings(cfg.Savings, savStore, cfg.SavingsSamples)
+			srv.SetSavings(cfg.Tokens.Savings, savStore, cfg.Tokens.SavingsSamples)
 			// Apply a previously-derived calibration factor (wd savings --calibrate)
 			// so a freshly started daemon prices new events by this workload's measured
 			// bytes-per-token ratio rather than the 4-bytes/token heuristic. Absent or
@@ -224,25 +224,25 @@ func newDaemonCmd() *cobra.Command {
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
 			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
-			srv.SetSpawnGate(cfg.SpawnGateEnabled, cfg.SpawnGateMaxAgents)
-			srv.SetBudget(cfg.BudgetGate, cfg.BudgetDailyUSD, cfg.BudgetWeeklyUSD)
-			srv.SetWorktreeRetention(cfg.WorktreeKeepDone, cfg.WorktreeAutoPrune)
+			srv.SetSpawnGate(cfg.Worktree.SpawnGate, cfg.Worktree.SpawnGateMax)
+			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
+			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
 			srv.SetAudit(audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl")))
 			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)
 			mrec, err := metrics.NewRecorder(filepath.Join(cfg.DataDir, "metrics"))
 			if err != nil {
 				return err
 			}
-			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled, cfg.TokenWarn, cfg.TokenCritical)
+			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled, cfg.Tokens.Warn, cfg.Tokens.Critical)
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(cfg.PipelineKeepDone)
 
 			// One notifier seam drives every alert channel: the platform
 			// (desktop) notifier, plus the webhook when configured. Both the
 			// status-transition hook and the context-size alert deliver through it.
-			notifier := notify.New(cfg.NotifyEnabled)
-			if cfg.WebhookEnabled && cfg.WebhookURL != "" {
-				notifier = notify.Multi(notifier, notify.NewWebhook(cfg.WebhookURL))
+			notifier := notify.New(cfg.Notify.Enabled)
+			if cfg.Notify.WebhookEnabled && cfg.Notify.WebhookURL != "" {
+				notifier = notify.Multi(notifier, notify.NewWebhook(cfg.Notify.WebhookURL))
 			}
 			// Branch tracker (#44): opt-in. When enabled it fans CI failures out
 			// through the same operator notifier seam (desktop + webhook) and
@@ -267,7 +267,7 @@ func newDaemonCmd() *cobra.Command {
 				title, body := daemon.ContextAlertMessage(sess, state, tokens)
 				go notifier.Notify(title, body)
 			}
-			pl.OnAnomaly = daemon.NotifyOnAnomaly(notify.New(cfg.NotifyEnabled))
+			pl.OnAnomaly = daemon.NotifyOnAnomaly(notify.New(cfg.Notify.Enabled))
 
 			// Reconstruct rate limit timers from persisted state
 			if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
