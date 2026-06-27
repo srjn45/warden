@@ -52,6 +52,13 @@ model into dollars. Config-gated by the same `savings` switch; served at
 - `$` is also surfaced as a **COST** column in `wd ls` and a **Cost per agent** card
   on the web Metrics tab.
 
+**`wd cost` umbrella.** Both financial views also sit under one parent: `wd cost
+spend` and `wd cost savings` are the same commands as `wd spend` / `wd savings` (the
+top-level forms stay as aliases), and `wd cost` with no subcommand prints a combined
+SPEND + SAVINGS summary. Over MCP nothing changes — keep using the `spend` and
+`savings` tools directly. Resource footprint (memory/CPU/pressure) is a different
+axis: that's `wd stats` / `get_metrics`, not `wd cost`.
+
 Reach for this when the user asks "how much am I spending", wants a per-agent/repo
 cost breakdown, or wants to cap spend before spawning more agents.
 

@@ -40,6 +40,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newPresetCmd())
 	root.AddCommand(newPromptTemplateCmd())
 	root.AddCommand(newLibraryCmd())
+	root.AddCommand(newCostCmd())
 	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd(), newStatsCmd(), newInsightsCmd(), newSavingsCmd(), newSpendCmd())
 	root.AddCommand(newSearchCmd(), newHistoryCmd())
 	root.AddCommand(newAuditCmd())

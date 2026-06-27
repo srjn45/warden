@@ -923,9 +923,21 @@ warden stats --history                # per-agent performance history + anomaly 
 warden stats --history --agent PROJ-350
 ```
 
+### `warden cost`
+
+One umbrella over warden's two financial views: **spend** (the real dollars agents billed Claude) and **savings** (the tokens — and the dollars they represent — warden kept out of context). `warden cost` with no subcommand prints a combined at-a-glance summary of both.
+
+```sh
+warden cost                           # combined: SPEND section + SAVINGS section
+warden cost spend                     # same as `warden spend` (all flags wired through)
+warden cost savings --benchmark       # same as `warden savings --benchmark`
+```
+
+Purely additive: it reuses the existing spend rollup and savings ledger and their render logic, so the top-level `warden spend` and `warden savings` keep working unchanged (they remain available as aliases). Resource footprint — memory/CPU/pressure — is a different axis; see `warden stats`.
+
 ### `warden savings`
 
-Read back the **token-savings ledger** — the tokens warden's lifecycle features kept out of agents' context windows. A real, append-only record, not an estimate. Gated by the `savings` config setting (default on).
+Read back the **token-savings ledger** — the tokens warden's lifecycle features kept out of agents' context windows. A real, append-only record, not an estimate. Gated by the `savings` config setting (default on). Also reachable as `warden cost savings`.
 
 ```sh
 warden savings                        # per-feature table (saved/raw tokens, events)
@@ -940,7 +952,7 @@ Two axes are reported separately and never blended: the **context** axis (how mu
 
 ### `warden spend`
 
-The cost side of the ledger: the **REAL billed Claude spend** warden measured from agents' transcripts, priced per model into dollars and rolled up per agent / repo / day. Gated by the same `savings` config setting.
+The cost side of the ledger: the **REAL billed Claude spend** warden measured from agents' transcripts, priced per model into dollars and rolled up per agent / repo / day. Gated by the same `savings` config setting. Also reachable as `warden cost spend`.
 
 ```sh
 warden spend                          # total / today / this week, then per-agent/repo/day $ tables

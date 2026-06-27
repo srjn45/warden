@@ -275,6 +275,30 @@ Flags:
       --watch   redraw every 3s until interrupted
 ```
 
+## warden cost
+
+```text
+One umbrella over warden's two financial views:
+  • SPEND   — the REAL dollars agents billed Claude, measured from their transcripts (`wd cost spend`)
+  • SAVINGS — the tokens, and the dollars they represent, warden kept OUT of context (`wd cost savings`)
+
+`wd cost` with no subcommand prints a combined at-a-glance summary of both axes.
+`wd cost spend` and `wd cost savings` are the same commands as the top-level
+`wd spend` and `wd savings`, which remain available and unchanged. Both views are
+gated by the `savings` config setting. Resource footprint — memory/CPU/pressure —
+is a different axis; see `wd stats`.
+
+Usage:
+  warden cost [flags]
+  warden cost [command]
+
+Available Commands:
+  savings     Show the token reductions warden's lifecycle features have earned
+  spend       Show measured Claude spend in dollars, per agent / repo / day
+```
+
+Purely additive: it reuses the existing spend rollup and savings ledger and their render logic, so the top-level `warden spend` / `warden savings` keep working unchanged. `warden cost spend` / `warden cost savings` accept every flag the standalone commands do (`--by`, `--json`, `--benchmark`, `--since`, `--audit`, `--calibrate`).
+
 ## warden savings
 
 ```text
