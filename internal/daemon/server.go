@@ -115,6 +115,16 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		close(pollerDone)
 	}
 
+	// Reap tombstoned parents whose sub-tree has gone fully terminal (agent
+	// sub-tree grouping). Lazy reap fires on terminal transitions; this sweep is
+	// the safety net for transitions that bypass the poller (SessionEnd hook,
+	// operator terminate). Uses the poll cadence; falls back if unset.
+	reapInterval := s.pollInterval
+	if reapInterval <= 0 {
+		reapInterval = 30 * time.Second
+	}
+	go s.runTombstoneReapSweep(runCtx, reapInterval)
+
 	if s.life != nil {
 		go s.runPressureSampler(runCtx)
 		// Unattended worktree GC (worktree_auto_prune): sweep at startup + on a
