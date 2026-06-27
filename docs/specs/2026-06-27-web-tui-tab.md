@@ -111,6 +111,18 @@ Browser /tui (fullscreen)   Daemon                          tmux
   rather than a bare `q` so a literal `q` still types into the shells / Claude /
   pagers (full terminal fidelity), and Ctrl+Q isn't an OS-reserved chord the way
   Cmd+Q is.
+- **`q` in the list pane drops to a shell, never a blank pane.** The bloom list
+  app quits on `q`, and in the foreground TUI that runs `killCockpitCmd` (tears
+  the whole tmux session down — correct, the local terminal returns to your
+  shell). In the *web* cockpit the session is shared and bridged to the browser,
+  so killing it would blank the page. Two changes make `q` safe there: the list
+  pane is launched with a new internal `--web` flag, which makes its quit a bare
+  `tea.Quit` (no `killCockpitCmd`); and `listPaneCmd` wraps the web list in a
+  shell **loop** — `while :; do warden tui --pane=list … --web; ${SHELL}; done`.
+  So `q` exits bloom into a live `$SHELL` in that same pane (the terminal is now
+  exposed on the web), and exiting that shell reopens the list — the pane is
+  always either the dashboard or a usable terminal, never blank. Ctrl+Q (above)
+  is still the real way out. Foreground (`RunCockpit`) is unchanged (`web=false`).
 - **Desktop/laptop only.** The cockpit wants width, so the full-screen TUI sets
   `keyBar={false}` — no mobile soft-key bar. The per-agent attach (still mobile-
   friendly) keeps it.
@@ -123,7 +135,12 @@ Browser /tui (fullscreen)   Daemon                          tmux
 Server:
 - `internal/tui/compositor.go` — `WebCockpitSession` const + `EnsureWebCockpit`
   (the headless, daemon-callable counterpart to `RunCockpit` — builds, never
-  attaches).
+  attaches). `cockpitOpts.web` + `listPaneCmd(self, detailPane, web)` wrap the
+  web list pane in a `while` shell loop so `q` drops to a terminal, not a blank
+  pane.
+- `internal/tui/list_pane.go` — `listPaneModel.web` + `quitCmd()`: web mode quits
+  the program only (`tea.Quit`); foreground keeps the `killCockpitCmd` teardown.
+- `internal/cli/tui.go` — hidden `--web` flag on `warden tui --pane=list`.
 - `internal/daemon/attach.go` — extracted `bridgeTmux(w, r, session)` shared by
   per-agent and cockpit attach; added `handleCockpitAttach`.
 - `internal/daemon/api.go` — registered `GET /api/v1/cockpit/attach` next to the

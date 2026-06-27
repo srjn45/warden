@@ -25,7 +25,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
 	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+detailPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
 	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+shell] = lifecycle.FakeResp{Out: "%1\n"}
-	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+listPaneCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
+	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+listPaneCmd("/bin/warden", "%0", false)] = lifecycle.FakeResp{Out: "%2\n"}
 
 	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", masterCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
@@ -61,7 +61,7 @@ func TestBuildCockpitReplMasterPane(t *testing.T) {
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
 	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+detailPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
 	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+replCmd] = lifecycle.FakeResp{Out: "%1\n"}
-	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+listPaneCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
+	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+listPaneCmd("/bin/warden", "%0", false)] = lifecycle.FakeResp{Out: "%2\n"}
 
 	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", masterCwd: "/work", useRepl: true}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
@@ -110,7 +110,11 @@ func TestShellToggleScript(t *testing.T) {
 }
 
 func TestPaneCommandStrings(t *testing.T) {
-	require.Equal(t, "/bin/warden tui --pane=list --detail-pane=%0", listPaneCmd("/bin/warden", "%0"))
+	require.Equal(t, "/bin/warden tui --pane=list --detail-pane=%0", listPaneCmd("/bin/warden", "%0", false))
+	// The web cockpit wraps the list in a shell loop so `q` drops to a terminal
+	// (with --web so quitting bloom doesn't kill the browser-bridged session),
+	// and exiting that shell reopens the list — never a blank pane.
+	require.Equal(t, "while :; do /bin/warden tui --pane=list --detail-pane=%0 --web; ${SHELL:-/bin/sh}; done", listPaneCmd("/bin/warden", "%0", true))
 	require.Contains(t, detailPlaceholderCmd(), "press Enter to open")
 	require.True(t, strings.Contains(shquote("a b"), "'a b'"))
 }

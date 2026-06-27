@@ -77,6 +77,12 @@ WebSocket PTY that powers a per-agent attach. Because it's the real session:
 - **The shells are real shells.** The master pane runs *your* `$SHELL` with your
   rc files, so tab-completion, autosuggestions, history, and fzf all behave as
   they do locally — nothing is emulated, only piped.
+- **`q` in the list pane opens a terminal, never a blank pane.** Pressing `q` in
+  the top-left list quits the list app and drops that pane to a live `$SHELL` —
+  the terminal is right there on the web. Exit the shell (Ctrl-D) to bring the
+  list back. (Locally, `q` tears the whole cockpit down; on the web the session
+  is shared with the browser, so it can't be killed from inside — **Ctrl+Q** is
+  the way out.)
 - **Claude Code in the detail pane is the real Claude Code**, with its full
   interactive UI. Shift+Enter is mapped to its newline.
 - **Shared across clients.** There's one web cockpit; the most-recently-active
