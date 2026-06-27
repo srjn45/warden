@@ -1,7 +1,7 @@
 # Agent Sub-tree Grouping in the TUI (parent → spawned children)
 
 **Date:** 2026-06-27
-**Status:** Proposed design (pre-implementation — awaiting review)
+**Status:** Implemented (phases 1–6 shipped)
 **Owner:** Srajan Pathak
 **Branch / worktree:** `feat/agent-subtree-design` (`.worktrees/agent-subtree-design`)
 **Scope:** `internal/store`, `internal/client`, `internal/daemon`, `internal/mcp`,
