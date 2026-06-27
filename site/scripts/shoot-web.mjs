@@ -5,6 +5,6 @@ const URL = process.env.WARDEN_WEB_URL || 'http://localhost:4321/';
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 await page.goto(URL, { waitUntil: 'networkidle' });
-await page.screenshot({ path: 'site/public/media/web-overview.png' });
+await page.screenshot({ path: 'site/public/media/web-cockpit.png' });
 await browser.close();
-console.log('wrote site/public/media/web-overview.png');
+console.log('wrote site/public/media/web-cockpit.png');

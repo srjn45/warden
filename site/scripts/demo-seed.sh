@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Seed an ISOLATED, throwaway warden instance with a generic demo fleet so we can
-# capture clean marketing screenshots (web-overview.png + cockpit.png) without
+# capture clean marketing screenshots (web-cockpit.png + cockpit.png) without
 # exposing the recorder's real agents, home path, or live permission prompts.
 #
 # Everything lives under /tmp and a scratch $HOME; nothing touches ~/.warden or

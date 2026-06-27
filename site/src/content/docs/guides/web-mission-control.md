@@ -10,7 +10,7 @@ warden daemon
 open http://localhost:8765
 ```
 
-![The warden web dashboard: a routed mission-control shell with a Cockpit home, an Others catch-all, Pipelines, a Metrics view, and an Archive tab.](/warden/media/web-overview.png)
+![The warden web dashboard on its Cockpit home: a routed mission-control shell with a Fleet summary header (totals · busy · waiting · errored · pressure) above the agent grid, grouped by directory, with Pipelines, Metrics, Archive, and Others tabs alongside.](/warden/media/web-cockpit.png)
 
 ## Routes & tabs
 
@@ -26,6 +26,10 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 | `/agent/<id>` | `<id>` | A pinned agent's live terminal (one closeable tab per pinned agent). |
 
 `/` redirects to `/cockpit`, so there is a single canonical home URL. Deep-linking and refresh work because the daemon serves the SPA for any non-API path.
+
+In the Cockpit you can **group the fleet** by directory, task type, status, or tag to keep a large fleet legible:
+
+![The Cockpit grouped by task type: agents collected under collapsible *analysis* and *development* sections, each with a per-group count.](/warden/media/web-cockpit-grouped.png)
 
 ## What it does
 
@@ -52,6 +56,10 @@ The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a sele
 
 ## Metrics view
 
+![The Metrics tab, upper half: CPU per agent beside Total CPU, Memory per agent beside Total memory, and a Cost-per-agent card (total · today · this week, with per-agent input/output token counts).](/warden/media/web-metrics.png)
+
+![The Metrics tab, lower half: Number of agents, the Tokens-saved trend with a 24h/48h/7d/30d/All window picker and a cumulative line, a Savings-by-feature stacked area (compact / llm_offload / check / commit), and the Live-footprint resource chart.](/warden/media/web-metrics-2.png)
+
 The **Metrics** tab (`/metrics`) is a responsive grid of self-contained uPlot chart cards — **two columns** on wide screens (each per-agent chart sits beside its fleet-wide total), collapsing to a **single column** on phones:
 
 | Card | What it shows |
@@ -60,6 +68,7 @@ The **Metrics** tab (`/metrics`) is a responsive grid of self-contained uPlot ch
 | **Total CPU** | A single fleet-wide line: `cpu_percent` summed across all agents per sample. Sits beside *CPU per agent*. |
 | **Memory per agent** | One line series per agent, resident memory in GiB over time. |
 | **Total memory** | A single fleet-wide line: resident memory (GiB) summed across all agents. Sits beside *Memory per agent*. |
+| **Cost per agent** | A **total · today · this week** dollar headline over a per-agent table — each agent's measured `$` cost with its input/output token counts — from the [cost-governance](/warden/reference/savings/#cost-governance--warden-spend--the-budget-gate) rollup (`warden spend`). |
 | **Context per agent** | One line series per agent of its live context-window fill over time, with the legend dot coloured by `ok`/`warning`/`critical`. This series is **accumulated client-side** (a ring buffer over the live SSE feed) — it survives tab switches but **starts fresh on a full page reload** (a persisted history is a tracked daemon follow-up). |
 | **Number of agents** | Fleet size (`agent_count`) over time. |
 | **Tokens saved** | The saved-tokens trend (from the [savings ledger](/warden/reference/savings/)) with a **window picker** — `24h`/`48h` bucket by **hour**, `7d`/`30d`/`All` by **day** — so a fresh ledger still plots a real curve instead of a single point. A filled area shows tokens saved per bucket against a left axis, and a dashed line shows the **running cumulative** against the right axis, plus a headline saved-tokens / dollars figure. The trend is zero-filled, so idle intervals read as real zeros rather than gaps. If the ledger is disabled (`savings: false`) the card shows a "set `savings: true`" hint instead of an empty chart. |
