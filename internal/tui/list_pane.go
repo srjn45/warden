@@ -628,7 +628,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.detailPane != "" {
-			attach, jobPipe, jobID := cockpitDetailCmd(itemAt(m.items(), m.cursor))
+			attach, jobPipe, jobID, agentDetail := cockpitDetailCmd(itemAt(m.items(), m.cursor))
 			switch {
 			case attach != "":
 				return m, openInDetailCmd(m.detailPane, attach)
@@ -636,6 +636,10 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// A terminal job's agent tmux is gone — render its stored detail
 				// instead of attaching to a dead session (which leaves a blank pane).
 				return m, openJobDetailCmd(m.detailPane, jobPipe, jobID)
+			case agentDetail != "":
+				// A terminal agent (tombstone or finished) has no live tmux — render
+				// its stored detail rather than attaching to a dead session.
+				return m, openAgentDetailCmd(m.detailPane, agentDetail)
 			}
 		}
 	case "down", "j":
@@ -647,8 +651,12 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "right", "l":
-		if it := itemAt(m.items(), m.cursor); it.pipeline != nil {
+		it := itemAt(m.items(), m.cursor)
+		switch {
+		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = false
+		case it.session != nil && it.hasKids:
+			m.collapsed[it.session.ID] = false
 		}
 	case "left", "h":
 		it := itemAt(m.items(), m.cursor)
@@ -660,6 +668,11 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// header so the cursor never lands on a now-hidden row.
 			m.collapsed[it.pjPipe] = true
 			m.repin(itemKey(item{pipeline: &pipeline.Pipeline{ID: it.pjPipe}}))
+		case it.session != nil && it.hasKids:
+			// Hide this agent's sub-tree; the header row stays, so re-pin to it (its
+			// key is the session id) — the cursor never lands on a now-hidden child.
+			m.collapsed[it.session.ID] = true
+			m.repin(it.session.ID)
 		}
 	case "n":
 		m.targetDir = m.activeDir()
@@ -899,19 +912,24 @@ func openInDetailCmd(detailPane, agentSession string) tea.Cmd {
 // cockpitDetailCmd decides what the cockpit shows in its detail pane for the item
 // under the cursor. A terminal pipeline job (done/failed/skipped) has no live tmux
 // to attach to, so it returns the pipeline+job ids for a stored-detail render;
-// anything else with a live session returns that session to attach. Returns all
-// empty for rows with nothing to open (headers, placeholders, pending jobs).
-func cockpitDetailCmd(it item) (attach, jobPipe, jobID string) {
+// a live agent returns its tmux session to attach; a terminal agent (incl. a
+// tombstone parent) has no live tmux, so it returns the agent id for a stored-
+// detail render. Returns all empty for rows with nothing to open (headers,
+// placeholders, pending jobs).
+func cockpitDetailCmd(it item) (attach, jobPipe, jobID, agentDetail string) {
 	if it.pjJob != nil {
 		if jobIsTerminal(it.pjJob.Status) {
-			return "", it.pjPipe, it.pjJob.ID
+			return "", it.pjPipe, it.pjJob.ID, ""
 		}
-		return it.pjJob.SessionID, "", ""
+		return it.pjJob.SessionID, "", "", ""
 	}
 	if it.session != nil {
-		return it.session.TmuxSession, "", ""
+		if liveStatus(it.session.Status) {
+			return it.session.TmuxSession, "", "", ""
+		}
+		return "", "", "", it.session.ID
 	}
-	return "", "", ""
+	return "", "", "", ""
 }
 
 // respawnJobDetailArgs builds the tmux command that replaces the detail pane with
@@ -929,6 +947,25 @@ func openJobDetailCmd(detailPane, pid, jobID string) tea.Cmd {
 			return attachDoneMsg{err: err}
 		}
 		return attachDoneMsg{err: exec.Command("tmux", respawnJobDetailArgs(detailPane, self, pid, jobID)...).Run()}
+	}
+}
+
+// respawnAgentDetailArgs builds the tmux command that replaces the detail pane
+// with a render of one terminal agent's stored detail (self re-invoked as a
+// hidden pane) — the agent parallel to respawnJobDetailArgs.
+func respawnAgentDetailArgs(detailPane, self, agentID string) []string {
+	return []string{"respawn-pane", "-k", "-t", detailPane,
+		self + " tui --pane=agentdetail --agent=" + agentID}
+}
+
+// openAgentDetailCmd renders a terminal agent's stored detail into the detail pane.
+func openAgentDetailCmd(detailPane, agentID string) tea.Cmd {
+	return func() tea.Msg {
+		self, err := os.Executable()
+		if err != nil {
+			return attachDoneMsg{err: err}
+		}
+		return attachDoneMsg{err: exec.Command("tmux", respawnAgentDetailArgs(detailPane, self, agentID)...).Run()}
 	}
 }
 

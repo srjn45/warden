@@ -31,6 +31,34 @@ func loadJobDetail(a api, pid, jobID string) (string, error) {
 	return jobDetailText(p, jobID, 100)
 }
 
+// RunAgentDetailPane renders one terminal agent's stored detail to stdout and then
+// blocks, so the cockpit's detail pane can show a finished or tombstoned agent
+// (whose tmux is gone) instead of a blank attach. tmux replaces this process via
+// respawn-pane when the user selects another item; scrolling uses copy-mode.
+func RunAgentDetailPane(a api, agentID string) error {
+	if text, err := loadAgentDetail(a, agentID); err != nil {
+		fmt.Println(stMuted.Render("could not load agent detail: " + err.Error()))
+	} else {
+		fmt.Println(text)
+	}
+	select {} // hold the pane open until tmux respawns it
+}
+
+// loadAgentDetail finds the agent by id in the session list and renders its
+// stored detail (the same body the `i` overlay shows).
+func loadAgentDetail(a api, agentID string) (string, error) {
+	sessions, err := a.List(context.Background())
+	if err != nil {
+		return "", err
+	}
+	for _, s := range sessions {
+		if s.ID == agentID {
+			return detailBody(s, 100), nil
+		}
+	}
+	return "", fmt.Errorf("agent %q not found", agentID)
+}
+
 // pipelineHasLiveJobs reports whether any job is still running or awaiting input.
 // A pipeline can only be deleted once none of its jobs is live (mirrors the
 // daemon's DELETE /pipelines/{pid} guard).

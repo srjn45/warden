@@ -233,29 +233,41 @@ func TestListPanePipelinesAndCancel(t *testing.T) {
 }
 
 func TestCockpitDetailCmdTerminalJobRendersDetail(t *testing.T) {
-	at, jp, jid := cockpitDetailCmd(item{pjPipe: "pl", pjJob: &pipeline.Job{
+	at, jp, jid, ad := cockpitDetailCmd(item{pjPipe: "pl", pjJob: &pipeline.Job{
 		ID: "only", Status: pipeline.JobDone, SessionID: "pl-only"}})
 	require.Equal(t, "", at, "terminal job must not attach to its dead tmux session")
 	require.Equal(t, "pl", jp)
 	require.Equal(t, "only", jid)
+	require.Equal(t, "", ad)
 }
 
 func TestCockpitDetailCmdRunningJobAttaches(t *testing.T) {
-	at, jp, jid := cockpitDetailCmd(item{pjPipe: "pl", pjJob: &pipeline.Job{
+	at, jp, jid, ad := cockpitDetailCmd(item{pjPipe: "pl", pjJob: &pipeline.Job{
 		ID: "b", Status: pipeline.JobRunning, SessionID: "pl-b"}})
 	require.Equal(t, "pl-b", at)
-	require.Equal(t, "", jp+jid)
+	require.Equal(t, "", jp+jid+ad)
 }
 
 func TestCockpitDetailCmdLiveAgentAttaches(t *testing.T) {
-	at, jp, jid := cockpitDetailCmd(item{session: &store.Session{ID: "x", TmuxSession: "x"}})
+	at, jp, jid, ad := cockpitDetailCmd(item{session: &store.Session{
+		ID: "x", TmuxSession: "x", Status: store.StatusWorking}})
 	require.Equal(t, "x", at)
+	require.Equal(t, "", jp+jid+ad)
+}
+
+func TestCockpitDetailCmdTerminalAgentRendersDetail(t *testing.T) {
+	// A tombstone / finished agent has no live tmux — Enter renders its stored
+	// detail (the agent id) rather than attaching to a dead session.
+	at, jp, jid, ad := cockpitDetailCmd(item{session: &store.Session{
+		ID: "old", TmuxSession: "old", Status: store.StatusDone}})
+	require.Equal(t, "", at, "terminal agent must not attach to its dead tmux session")
+	require.Equal(t, "old", ad)
 	require.Equal(t, "", jp+jid)
 }
 
 func TestCockpitDetailCmdPipelineHeaderShowsNothing(t *testing.T) {
-	at, jp, jid := cockpitDetailCmd(item{pipeline: &pipeline.Pipeline{ID: "pl"}})
-	require.Equal(t, "", at+jp+jid)
+	at, jp, jid, ad := cockpitDetailCmd(item{pipeline: &pipeline.Pipeline{ID: "pl"}})
+	require.Equal(t, "", at+jp+jid+ad)
 }
 
 func TestRespawnJobDetailArgs(t *testing.T) {
@@ -263,6 +275,78 @@ func TestRespawnJobDetailArgs(t *testing.T) {
 		[]string{"respawn-pane", "-k", "-t", "%3",
 			"/usr/bin/warden tui --pane=jobdetail --pipeline=pl --job=only"},
 		respawnJobDetailArgs("%3", "/usr/bin/warden", "pl", "only"))
+}
+
+func TestRespawnAgentDetailArgs(t *testing.T) {
+	require.Equal(t,
+		[]string{"respawn-pane", "-k", "-t", "%3",
+			"/usr/bin/warden tui --pane=agentdetail --agent=ag-1"},
+		respawnAgentDetailArgs("%3", "/usr/bin/warden", "ag-1"))
+}
+
+// itemSessionIDs lists the session ids of the agent rows in order (skipping
+// non-agent rows like headers and placeholders) — handy for asserting sub-tree
+// nesting and collapse/expand.
+func itemSessionIDs(items []item) []string {
+	var ids []string
+	for _, it := range items {
+		if it.session != nil {
+			ids = append(ids, it.session.ID)
+		}
+	}
+	return ids
+}
+
+// parentWithChild returns a live root agent "p1" and its spawned child "c1".
+func parentWithChild() []*store.Session {
+	now := time.Now()
+	return []*store.Session{
+		{ID: "p1", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now.Add(-2 * time.Minute)},
+		{ID: "c1", Workdir: "/w", Status: store.StatusWorking, ParentID: "p1", CreatedAt: now.Add(-1 * time.Minute)},
+	}
+}
+
+func TestListPaneCollapseAgentHeaderHidesSubtree(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = lstep(m, sessionsMsg{sessions: parentWithChild()})
+	require.Equal(t, []string{"p1", "c1"}, itemSessionIDs(m.items()), "child nests under parent")
+
+	require.Equal(t, "p1", m.selectedID(), "cursor starts on the parent header")
+	m = lstep(m, key("h")) // collapse the sub-tree
+	require.True(t, m.collapsed["p1"], "h on an agent header collapses its sub-tree")
+	require.Equal(t, []string{"p1"}, itemSessionIDs(m.items()), "collapsed sub-tree hides the child")
+	require.Equal(t, "p1", m.selectedID(), "cursor re-pins to the collapsed header")
+}
+
+func TestListPaneExpandAgentHeaderShowsSubtree(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = lstep(m, sessionsMsg{sessions: parentWithChild()})
+	m = lstep(m, key("h"))
+	require.Equal(t, []string{"p1"}, itemSessionIDs(m.items()))
+
+	m = lstep(m, key("l")) // re-expand
+	require.False(t, m.collapsed["p1"], "l on a collapsed agent header re-expands it")
+	require.Equal(t, []string{"p1", "c1"}, itemSessionIDs(m.items()), "expanded sub-tree shows the child again")
+}
+
+// TestListPaneCollapseAgentRepinsCursorOffChild guards the case where the cursor
+// sits on a child row when its parent collapses: it must re-pin to the surviving
+// header rather than dangling on a now-hidden row.
+func TestListPaneCollapseAgentRepinsCursorOffChild(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9")
+	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = lstep(m, sessionsMsg{sessions: parentWithChild()})
+	m = lstep(m, key("down")) // move onto the child
+	require.Equal(t, "c1", m.selectedID())
+
+	// Move back to the header and collapse; the child disappears and the cursor
+	// must land on the header, never out of bounds.
+	m = lstep(m, key("up"))
+	m = lstep(m, key("h"))
+	require.Equal(t, []string{"p1"}, itemSessionIDs(m.items()))
+	require.Equal(t, "p1", m.selectedID(), "cursor stays on the surviving header")
 }
 
 func TestListPaneInspectorTogglesAndFetches(t *testing.T) {
