@@ -36,6 +36,7 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		Force:          b.Force,
 		Model:          b.Model,
 		Tags:           b.Tags,
+		ParentID:       b.ParentId,
 	}
 }
 

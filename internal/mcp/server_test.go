@@ -69,6 +69,43 @@ func TestSpawnAgentToolSendsPrompt(t *testing.T) {
 	require.Contains(t, gotBody, `"prompt":"research SSE reconnection"`)
 }
 
+func TestSpawnAgentToolStampsParentID(t *testing.T) {
+	// An agent-initiated spawn stamps the caller's WARDEN_SESSION_ID as parent_id,
+	// so the daemon can nest the new agent under its orchestrator.
+	t.Setenv("WARDEN_SESSION_ID", "orchestrator-7")
+
+	var gotBody string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/spawn" {
+			b, _ := io.ReadAll(r.Body)
+			gotBody = string(b)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"agent-x","status":"spawning"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, serverTransport) }()
+
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "spawn_agent",
+		Arguments: map[string]any{"prompt": "do X"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, gotBody, `"parent_id":"orchestrator-7"`)
+}
+
 func textOf(res *mcpsdk.CallToolResult) string {
 	out := ""
 	for _, c := range res.Content {

@@ -38,6 +38,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		AutoRestart:    req.AutoRestart,
 		Model:          req.Model,
 		Tags:           req.Tags,
+		ParentID:       req.ParentID,
 	}
 	// Normalize only a typed spawn. Free-form (Type empty) is keyed on cwd, not the
 	// prompt: leaving Type empty keeps lifecycle.Spawn on the cwd-launch path and the

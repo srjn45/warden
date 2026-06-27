@@ -388,6 +388,7 @@ type SpawnRequest struct {
 	AutoRestart    bool     // opt-in: auto-resume this agent when it errors (capped)
 	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
 	Tags           []string // optional free-form labels for grouping/filtering (#30)
+	ParentID       string   // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -907,6 +908,11 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		PermissionMode: req.PermissionMode,
 		AutoRestart:    req.AutoRestart,
 		Model:          req.Model,
+	}
+	// Record provenance, but never let an agent be its own parent (a self-id would
+	// create a degenerate cycle in the sub-tree view).
+	if req.ParentID != id {
+		sess.ParentID = req.ParentID
 	}
 	sess.ClaudeSessionID, err = store.NewSessionID()
 	if err != nil {

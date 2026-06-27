@@ -1689,6 +1689,7 @@ components:
         force: { type: boolean, description: "bypass the memory-pressure spawn gate" }
         model: { type: string }
         tags: { type: array, items: { type: string } }
+        parent_id: { type: string, description: "id of the agent that spawned this one; empty = root" }
 
     Verdict:
       x-go-type: pressure.Verdict

@@ -47,6 +47,7 @@ type SpawnRequest struct {
 	Force          bool     `json:"force"`           // bypass the memory-pressure spawn gate
 	Model          string   `json:"model"`           // claude model (opus/sonnet/haiku or full ID); empty = default
 	Tags           []string `json:"tags"`            // optional free-form labels for grouping/filtering (#30)
+	ParentID       string   `json:"parent_id"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 }
 
 // AdoptParams are the resolved inputs the handler passes to Lifecycle.Adopt.
