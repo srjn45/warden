@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -245,6 +246,46 @@ func TestLoadNestedAutoApproveRoundTrips(t *testing.T) {
 	require.Equal(t, []string{"src/**"}, c.AutoApprove.Rules.Allow[0].Paths)
 	require.Len(t, c.AutoApprove.Rules.Deny, 1)
 	require.Equal(t, "git push", c.AutoApprove.Rules.Deny[0].Pattern)
+}
+
+func TestWriteAutoApproveRoundTrips(t *testing.T) {
+	// Start from a file with an unrelated custom key + comment we must preserve.
+	path := tmpConfig(t, `# my own note
+addr: 127.0.0.1:7777
+metrics: false
+`)
+	pol := approval.Policy{
+		Enabled:     true,
+		AllowSticky: true,
+		Rules: approval.Rules{
+			Allow: []approval.Rule{{Tool: "Read"}, {Regex: `^Bash\(git (status|diff)\)$`}},
+			Deny:  []approval.Rule{{Tool: "Bash", Pattern: "rm"}},
+		},
+		Agents: map[string]approval.Policy{
+			"reviewer": {Enabled: true, Rules: approval.Rules{Allow: []approval.Rule{{Tool: "Grep"}}}},
+		},
+	}
+	require.NoError(t, WriteAutoApprove(path, pol))
+
+	// The unrelated key + comment survive.
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "my own note")
+	require.Contains(t, string(data), "127.0.0.1:7777")
+
+	// And the policy reloads identically.
+	c := Load(path)
+	require.True(t, c.AutoApprove.Enabled)
+	require.True(t, c.AutoApprove.AllowSticky)
+	require.Len(t, c.AutoApprove.Rules.Allow, 2)
+	require.Equal(t, "Read", c.AutoApprove.Rules.Allow[0].Tool)
+	require.Equal(t, `^Bash\(git (status|diff)\)$`, c.AutoApprove.Rules.Allow[1].Regex)
+	require.Len(t, c.AutoApprove.Rules.Deny, 1)
+	require.Equal(t, "rm", c.AutoApprove.Rules.Deny[0].Pattern)
+	ov, ok := c.AutoApprove.Agents["reviewer"]
+	require.True(t, ok)
+	require.True(t, ov.Enabled)
+	require.Equal(t, "Grep", ov.Rules.Allow[0].Tool)
 }
 
 func TestReconcileMigratesFlatAutoApprove(t *testing.T) {

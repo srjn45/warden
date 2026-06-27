@@ -97,7 +97,7 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   launchd/systemd) — do not guess at state. There may be a systemd unit
   (`warden.service`); a manually-started `warden daemon` can shadow it and break
   auth, so prefer letting the service own the port.
-- **MCP tools and the CLI wrap the same daemon REST API** (63 MCP tools), so prefer
+- **MCP tools and the CLI wrap the same daemon REST API** (67 MCP tools), so prefer
   MCP and fall back to CLI only when MCP is blocked (see above). **Every fleet/data
   feature is reachable from MCP *and* CLI** — pipelines (all verbs incl.
   pause/resume/retry/edit-job/emit/delete/validate/templates), schedules

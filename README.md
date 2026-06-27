@@ -356,7 +356,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `token_auto_compact` | `true` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded) |
 | `token_warn` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `token_critical` is not greater than this, both reset to the defaults |
 | `token_critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
-| `auto_approve` | `false` | Auto-answer recognized yes/no permission prompts (option 1); per-agent override via `warden auto-approve` |
+| `auto_approve` | `false` | Auto-answer recognized permission prompts. Bare on/off, or an allow/deny **rule policy** (by tool / glob / regex / paths, with per-agent overrides) — see `warden auto-approve` |
 | `webhook_enabled` / `webhook_url` | `false` / _(empty)_ | POST a JSON payload to `webhook_url` on attention + context-size alerts (a Slack incoming-webhook URL works out of the box); runs alongside `notify` |
 | `collab_enabled` / `collab_interval` / `collab_hint` | `true` / … / `true` | File-conflict detection across worktrees, scan interval, and the spawn-time coordination hint |
 | `isolation_guard` / `git_redirect` / `check_redirect` / `git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
@@ -978,14 +978,30 @@ warden snapshot restore <id> [--force]                     # re-apply onto its w
 
 Restore reapplies the captured stash onto the recorded worktree; it refuses a dirty/conflicting tree rather than clobbering, and a failed apply leaves the snapshot intact. Also available as the `snapshot_create`/`snapshot_list`/`snapshot_restore` MCP tools.
 
-### `warden auto-approve <id> on|off`
+### `warden auto-approve`
 
-Per-agent override of the `auto_approve` config setting — auto-answer recognized yes/no permission prompts by selecting option 1 (multi-select / text-entry / unrecognized prompts always fall back to manual).
+Two layers control auto-approval:
+
+**Per-agent toggle** — opt one agent into evaluation even when the global policy is off:
 
 ```sh
 warden auto-approve agent-abc123 on
 warden auto-approve agent-abc123 off
 ```
+
+**Rule policy** — a real allow/deny engine. A recognized prompt is auto-answered only when it matches an **allow** rule, matches **no deny** rule, and isn't on warden's built-in destructive deny-list (which always wins). Rules match by tool name, a case-insensitive glob/substring (`--pattern`), a **Go regexp** (`--regex`) over the prompt, and/or path globs (`--paths`). A **per-agent override** (`--agent`, keyed by name or id) gets its own rule set that replaces the default. Changes take effect immediately and persist to config.
+
+```sh
+warden auto-approve rules                         # show the live policy
+warden auto-approve enable                         # turn the policy on
+warden auto-approve allow --tool Read              # auto-approve all Read prompts
+warden auto-approve allow --regex '^Bash\(git (status|diff|log)\)'
+warden auto-approve deny  --tool Bash --pattern rm
+warden auto-approve allow --agent reviewer --tool Grep
+warden auto-approve clear --agent reviewer         # drop reviewer's overrides
+```
+
+With **no rules** configured, an enabled policy keeps the simple legacy behavior: it auto-answers every recognized, non-destructive prompt (selecting the least-privilege affirmative). Multi-select / text-entry / unrecognized prompts always fall back to manual. Also available as the `set_auto_approve` (toggle) and `set_auto_approve_policy` (rules) MCP tools.
 
 ### `warden set-permission-mode <id> <mode>`
 

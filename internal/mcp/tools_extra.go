@@ -10,6 +10,7 @@ import (
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
@@ -18,6 +19,22 @@ import (
 	"github.com/srjn45/warden/internal/prompttemplate"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// applyAutoApproveAgent applies fn to the default policy (agent == "") or to the
+// named per-agent override, creating the override (and the Agents map) on first
+// use. Mirrors the CLI's applyToAgent.
+func applyAutoApproveAgent(pol *approval.Policy, agent string, fn func(*approval.Policy)) {
+	if agent == "" {
+		fn(pol)
+		return
+	}
+	if pol.Agents == nil {
+		pol.Agents = map[string]approval.Policy{}
+	}
+	ov := pol.Agents[agent]
+	fn(&ov)
+	pol.Agents[agent] = ov
+}
 
 // parseSinceArg mirrors the CLI's parseSince (internal/cli/history.go): a window
 // (24h, 7d, 2w), a Go duration, or a date (2006-01-02 / RFC3339). Empty = zero.
@@ -92,6 +109,14 @@ type pruneArgs struct {
 type setAutoApproveArgs struct {
 	Ticket  string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	Enabled bool   `json:"enabled" jsonschema:"true to auto-answer this agent's recognized approval prompts, false to stop"`
+}
+type autoApprovePolicyArgs struct {
+	Action  string   `json:"action" jsonschema:"what to do: show | allow | deny | clear | enable | disable"`
+	Agent   string   `json:"agent,omitempty" jsonschema:"scope to a per-agent override (agent name or id); empty = the global default policy"`
+	Tool    string   `json:"tool,omitempty" jsonschema:"allow/deny: exact tool name to match (e.g. Read, Bash)"`
+	Pattern string   `json:"pattern,omitempty" jsonschema:"allow/deny: case-insensitive glob/substring over the action + question"`
+	Regex   string   `json:"regex,omitempty" jsonschema:"allow/deny: Go regular expression over the action + question"`
+	Paths   []string `json:"paths,omitempty" jsonschema:"allow/deny: path globs against the action target"`
 }
 type setPermissionModeArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
@@ -320,6 +345,54 @@ func (s *Server) registerExtraTools() {
 			state = "on"
 		}
 		return textResult("auto-approve " + state + " for " + a.Ticket), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_auto_approve_policy",
+		Description: "Manage the auto-approve RULE policy (distinct from per-agent on/off via set_auto_approve). action=show returns the live policy; allow/deny appends a rule (by tool/pattern/regex/paths); clear drops rules; enable/disable flips the master switch. Use agent=<name|id> to scope to a per-agent override. With no rules an enabled policy approves every recognized, non-destructive prompt. Mirrors `warden auto-approve rules|allow|deny|clear|enable|disable`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a autoApprovePolicyArgs) (*mcpsdk.CallToolResult, any, error) {
+		pol, err := s.cl.GetAutoApprovePolicy(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		action := strings.ToLower(strings.TrimSpace(a.Action))
+		if action == "" {
+			action = "show"
+		}
+		if action == "show" {
+			b, _ := json.MarshalIndent(pol, "", "  ")
+			return textResult(string(b)), nil, nil
+		}
+		switch action {
+		case "allow", "deny":
+			rule := approval.Rule{Tool: a.Tool, Pattern: a.Pattern, Regex: a.Regex, Paths: a.Paths}
+			if a.Tool == "" && a.Pattern == "" && a.Regex == "" && len(a.Paths) == 0 {
+				return textResult("error: refusing an empty " + action + " rule (matches everything); set at least one of tool/pattern/regex/paths"), nil, nil
+			}
+			applyAutoApproveAgent(&pol, a.Agent, func(p *approval.Policy) {
+				if action == "allow" {
+					p.Rules.Allow = append(p.Rules.Allow, rule)
+				} else {
+					p.Rules.Deny = append(p.Rules.Deny, rule)
+				}
+			})
+		case "clear":
+			if a.Agent != "" {
+				delete(pol.Agents, a.Agent)
+			} else {
+				pol.Rules = approval.Rules{}
+			}
+		case "enable", "disable":
+			applyAutoApproveAgent(&pol, a.Agent, func(p *approval.Policy) { p.Enabled = action == "enable" })
+		default:
+			return textResult("error: unknown action " + a.Action + " (want show|allow|deny|clear|enable|disable)"), nil, nil
+		}
+		saved, err := s.cl.PutAutoApprovePolicy(ctx, pol)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		b, _ := json.MarshalIndent(saved, "", "  ")
+		return textResult(string(b)), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

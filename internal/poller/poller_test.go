@@ -1036,8 +1036,11 @@ func TestTryAutoApproveAffirmativeSelection(t *testing.T) {
 				Allow: []approval.Rule{{}},
 				Deny:  []approval.Rule{{Pattern: "proceed"}},
 			}}, wantSends: 0},
-		// Enabled but empty allow -> approve nothing (fail-safe).
-		{name: "empty allow approves nothing", pane: plainYesNo, policy: approval.Policy{Enabled: true}, wantSends: 0},
+		// Enabled with NO rules -> legacy simple on/off: approve any recognized,
+		// non-destructive prompt (backward compatible with bare `auto_approve: true`).
+		{name: "enabled no rules is legacy approve-all", pane: plainYesNo, policy: approval.Policy{Enabled: true}, wantSends: 1, wantKey: "1"},
+		// ...but the destructive guard still fires under the legacy no-rules path.
+		{name: "enabled no rules still blocks destructive", pane: destructive, policy: approval.Policy{Enabled: true}, wantSends: 0},
 		// Per-session opt-in: a disabled policy still supplies the allow rules.
 		{name: "per-session opt-in participates in global rules", pane: plainYesNo,
 			policy:     approval.Policy{Enabled: false, Rules: approval.Rules{Allow: []approval.Rule{{}}}},
@@ -1064,6 +1067,67 @@ func TestTryAutoApproveAffirmativeSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestTryAutoApprovePerAgent(t *testing.T) {
+	const gitStatus = "Bash(git status)\nDo you want to proceed?\n ❯ 1. Yes\n   2. No"
+	const gitPush = "Bash(git push origin main)\nDo you want to proceed?\n ❯ 1. Yes\n   2. No"
+
+	// Default policy approves nothing (no rules, disabled). A per-agent override
+	// for "reviewer" enables auto-approve and allows read-only git verbs by regex.
+	policy := approval.Policy{
+		Enabled: false,
+		Agents: map[string]approval.Policy{
+			"reviewer": {
+				Enabled: true,
+				Rules:   approval.Rules{Allow: []approval.Rule{{Regex: `^Bash\(git (status|diff|log)\)`}}},
+			},
+		},
+	}
+
+	cases := []struct {
+		name      string
+		agentName string
+		pane      string
+		wantSends int
+	}{
+		{name: "override agent approves matching rule", agentName: "reviewer", pane: gitStatus, wantSends: 1},
+		{name: "override agent abstains on non-matching", agentName: "reviewer", pane: gitPush, wantSends: 0},
+		{name: "other agent falls to disabled default", agentName: "builder", pane: gitStatus, wantSends: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &stubDeps{}
+			p := New(d, 30*time.Second)
+			p.AutoApprovePolicy = policy
+			s := &store.Session{ID: "id-" + tc.agentName, Name: tc.agentName, TmuxSession: "tmux-1"}
+
+			p.tryAutoApprove(context.Background(), s, tc.pane)
+
+			require.Equal(t, tc.wantSends, d.sendCount())
+		})
+	}
+}
+
+// TestSetAutoApprovePolicy verifies the runtime swap the daemon's PUT handler
+// uses takes effect immediately.
+func TestSetAutoApprovePolicy(t *testing.T) {
+	const plainYesNo = "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
+	d := &stubDeps{}
+	p := New(d, 30*time.Second)
+	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+
+	// Initially disabled: nothing approved.
+	p.tryAutoApprove(context.Background(), s, plainYesNo)
+	require.Equal(t, 0, d.sendCount())
+
+	// Swap in an enabled, no-rules (legacy) policy at runtime.
+	p.SetAutoApprovePolicy(approval.Policy{Enabled: true})
+	p.tryAutoApprove(context.Background(), s, plainYesNo)
+	require.Equal(t, 1, d.sendCount())
+	require.Equal(t, policySnapshotEnabled(p), true)
+}
+
+func policySnapshotEnabled(p *Poller) bool { return p.AutoApprovePolicySnapshot().Enabled }
 
 func TestAutoApprovalEndToEnd(t *testing.T) {
 	// Scenario: Agent shows first prompt (status transition), gets auto-approved,

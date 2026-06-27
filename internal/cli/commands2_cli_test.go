@@ -187,6 +187,64 @@ func TestAutoApproveCmdInvalidMode(t *testing.T) {
 	}
 }
 
+func TestAutoApproveRulesShow(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/auto-approve/policy": `{"enabled":true,"allow_sticky":false,"rules":{"allow":[{"tool":"Read"}],"deny":[]}}`,
+	}, nil, nil))
+	out, err := runCLI(t, addr, "auto-approve", "rules")
+	if err != nil {
+		t.Fatalf("auto-approve rules: %v", err)
+	}
+	if !strings.Contains(out, "tool: Read") || !strings.Contains(out, "enabled: true") {
+		t.Fatalf("rules output missing policy: %q", out)
+	}
+}
+
+func TestAutoApproveAllowRule(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/auto-approve/policy": `{"enabled":true,"rules":{"allow":[],"deny":[]}}`,
+		"PUT /api/v1/auto-approve/policy": `{"enabled":true,"rules":{"allow":[{"tool":"Read"}],"deny":[]}}`,
+	}, nil, body))
+	out, err := runCLI(t, addr, "auto-approve", "allow", "--tool", "Read")
+	if err != nil {
+		t.Fatalf("auto-approve allow: %v", err)
+	}
+	if !strings.Contains(out, "added allow rule") || !strings.Contains(out, "1 allow") {
+		t.Fatalf("allow output unexpected: %q", out)
+	}
+	if !strings.Contains(body["/api/v1/auto-approve/policy"], `"tool":"Read"`) {
+		t.Fatalf("rule not forwarded in PUT body: %q", body["/api/v1/auto-approve/policy"])
+	}
+}
+
+func TestAutoApproveAllowEmptyRuleRejected(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/auto-approve/policy": `{"enabled":true,"rules":{"allow":[],"deny":[]}}`,
+	}, nil, nil))
+	if _, err := runCLI(t, addr, "auto-approve", "allow"); err == nil {
+		t.Fatal("expected an error refusing an empty (match-everything) rule")
+	}
+}
+
+func TestAutoApprovePerAgentAllow(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/auto-approve/policy": `{"enabled":false,"rules":{"allow":[],"deny":[]}}`,
+		"PUT /api/v1/auto-approve/policy": `{"enabled":false,"rules":{"allow":[],"deny":[]},"agents":{"reviewer":{"enabled":false,"rules":{"allow":[{"tool":"Grep"}],"deny":[]}}}}`,
+	}, nil, body))
+	out, err := runCLI(t, addr, "auto-approve", "allow", "--agent", "reviewer", "--tool", "Grep")
+	if err != nil {
+		t.Fatalf("per-agent allow: %v", err)
+	}
+	if !strings.Contains(out, "for agent reviewer") {
+		t.Fatalf("per-agent output unexpected: %q", out)
+	}
+	if !strings.Contains(body["/api/v1/auto-approve/policy"], `"reviewer"`) || !strings.Contains(body["/api/v1/auto-approve/policy"], `"tool":"Grep"`) {
+		t.Fatalf("per-agent override not forwarded: %q", body["/api/v1/auto-approve/policy"])
+	}
+}
+
 func TestSetPermissionModeCmd(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, nil, nil, body))

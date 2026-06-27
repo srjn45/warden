@@ -1106,6 +1106,26 @@ func (c *Client) SetAutoApprove(ctx context.Context, id string, enabled bool) er
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/auto-approve", body, nil)
 }
 
+// GetAutoApprovePolicy reads the live auto-approve policy (default allow/deny
+// rules plus per-agent overrides) the daemon's poller is running.
+func (c *Client) GetAutoApprovePolicy(ctx context.Context) (approval.Policy, error) {
+	var pol approval.Policy
+	if err := c.do(ctx, http.MethodGet, "/auto-approve/policy", nil, &pol); err != nil {
+		return approval.Policy{}, err
+	}
+	return pol, nil
+}
+
+// PutAutoApprovePolicy replaces the live auto-approve policy (effective
+// immediately) and persists it to the config file. Returns the stored policy.
+func (c *Client) PutAutoApprovePolicy(ctx context.Context, pol approval.Policy) (approval.Policy, error) {
+	var out approval.Policy
+	if err := c.do(ctx, http.MethodPut, "/auto-approve/policy", pol, &out); err != nil {
+		return approval.Policy{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) SetPermissionMode(ctx context.Context, id string, mode string) error {
 	body := map[string]string{"permission_mode": mode}
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-mode", body, nil)

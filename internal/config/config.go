@@ -123,7 +123,7 @@ var schema = []setting{
 	{"webhook_enabled", "POST a notification to webhook_url on attention-needed status transitions (waiting_for_input, errored, orphaned). Runs alongside desktop notifications. Values: true | false"},
 	{"webhook_url", "Webhook endpoint for status notifications when webhook_enabled is true. A Slack incoming-webhook URL works out of the box (the payload's \"text\" field is what Slack renders); any endpoint accepting a JSON POST of {text, title, body} works. Values: http(s) URL"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
-	{"auto_approve", "Auto-approve policy. The daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, paths})."},
+	{"auto_approve", "Auto-approve policy. With NO rules configured this is the simple on/off toggle (enabled answers every recognized, non-destructive prompt). With rules, the daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, regex, paths} — tool/pattern are case-insensitive, regex is a Go regexp), agents (per-agent overrides keyed by agent name or id, each its own {enabled, allow_sticky, rules} block that replaces the default for that agent)."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"spawn_gate", "Warn (soft, never blocks) before spawning when many agents are live. Values: true | false"},
 	{"spawn_gate_max_agents", "Live-agent count that trips the spawn-gate warning. Values: integer"},
@@ -448,6 +448,75 @@ func Reconcile(path string) error {
 		return err
 	}
 	return writeFile(path, out)
+}
+
+// WriteAutoApprove persists policy as the `auto_approve` block of the config
+// file at path, preserving every other key, value, and comment. It is the
+// durable half of the runtime PUT /auto-approve/policy endpoint: the daemon
+// swaps the live poller policy and calls this so rule changes survive a restart.
+// It generates the file from defaults first if it is missing, then replaces just
+// the auto_approve value node (keeping that key's head-comment).
+func WriteAutoApprove(path string, policy approval.Policy) error {
+	if err := Reconcile(path); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("config: unexpected shape in %s", path)
+	}
+	mapping := doc.Content[0]
+	val, err := policyValueNodeFrom(policy)
+	if err != nil {
+		return err
+	}
+	if existing := findValue(mapping, "auto_approve"); existing != nil {
+		// Swap only the value node so the key node keeps its position + head-comment.
+		*existing = *val
+	} else {
+		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "auto_approve", HeadComment: comment(autoApproveHint())}
+		mapping.Content = append(mapping.Content, key, val)
+	}
+	out, err := marshalNode(&doc)
+	if err != nil {
+		return err
+	}
+	return writeFile(path, out)
+}
+
+// policyValueNodeFrom marshals an approval.Policy into a YAML value node (the
+// mapping under `auto_approve`). Default marshaling matches the policy's yaml
+// tags (enabled / allow_sticky / rules / agents).
+func policyValueNodeFrom(policy approval.Policy) (*yaml.Node, error) {
+	b, err := yaml.Marshal(policy)
+	if err != nil {
+		return nil, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("config: unexpected policy node shape")
+	}
+	return doc.Content[0], nil
+}
+
+// autoApproveHint returns the documentation hint for the auto_approve key from
+// the schema (used only when the key is absent, e.g. a hand-trimmed file).
+func autoApproveHint() string {
+	for _, s := range schema {
+		if s.Key == "auto_approve" {
+			return s.Hint
+		}
+	}
+	return ""
 }
 
 // migrateAutoApprove upgrades a legacy flat auto_approve key into the nested

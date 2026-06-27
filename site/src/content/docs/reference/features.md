@@ -8,7 +8,7 @@ in the repository — the authoritative inventory of **every** warden capability
 which surface can drive it.
 
 warden exposes its features across five surfaces — the **CLI** (`warden`, aliased
-`wd`), **MCP** (63 structured tools for an orchestrating Claude), the **/warden
+`wd`), **MCP** (67 structured tools for an orchestrating Claude), the **/warden
 skill**, the **web** GUI, and the **TUI** cockpit.
 
 **Coverage legend:** ✓ supported · — not applicable / not present on that surface ·
@@ -105,7 +105,8 @@ own tmux session, most in a git worktree).
 |---|---|---|---|---|---|---|
 | List pending approvals | `approvals` | `list_approvals` | ✓ | ✓ | cockpit | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Answer an approval | `approve` | `approve` | ✓ | ✓ | `a` | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
-| Auto-approve toggle | `auto-approve` | `set_auto_approve` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
+| Auto-approve toggle | `auto-approve <id> on\|off` | `set_auto_approve` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
+| Auto-approve rule policy (tool/glob/regex/paths, per-agent) | `auto-approve rules\|allow\|deny\|clear\|enable\|disable` | `set_auto_approve_policy` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Set permission mode (running agent) | `set-permission-mode` | `set_permission_mode` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Supervised spawn (gate every prompt) | `start --supervised` | `spawn_agent` (`supervised`) | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 
@@ -243,14 +244,15 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**66 tools**, including the
+Every fleet/data feature is reachable over MCP (**67 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §15 (plus interactive `attach`/`repl` and the local-config `preset` /
 `prompt-template` authoring commands), which are
 CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `get_metrics`, `savings`, `spend`, `search`, `history`, `audit_log`, `list_worktrees`,
-`list_plugins`, `get_pressure`, `set_auto_approve`, `set_permission_mode`,
+`list_plugins`, `get_pressure`, `set_auto_approve`, `set_auto_approve_policy`,
+`set_permission_mode`,
 `prune_worktrees`, `export_sessions`, `import_sessions`, `rotate_agent`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,

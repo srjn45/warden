@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -9,28 +10,98 @@ import (
 )
 
 // Rule matches a parsed prompt. A present field must match; an absent field is a
-// wildcard. tool/pattern are case-insensitive; paths are globs against the action
+// wildcard. tool/pattern are case-insensitive; regex is a Go regular expression
+// (case-sensitive unless you add a (?i) flag); paths are globs against the action
 // target. A rule matches when ALL of its present fields match.
 //
 // Foot-gun: an empty Rule{} (no fields set) matches EVERYTHING. In allow it
 // approves every non-destructive recognized prompt; in deny it is a kill-switch.
 type Rule struct {
-	Tool    string   `yaml:"tool,omitempty"`
-	Pattern string   `yaml:"pattern,omitempty"`
-	Paths   []string `yaml:"paths,omitempty"`
+	Tool    string   `yaml:"tool,omitempty" json:"tool,omitempty"`
+	Pattern string   `yaml:"pattern,omitempty" json:"pattern,omitempty"`
+	Regex   string   `yaml:"regex,omitempty" json:"regex,omitempty"`
+	Paths   []string `yaml:"paths,omitempty" json:"paths,omitempty"`
 }
 
 // Rules is the allow/deny pair under auto_approve.rules.
 type Rules struct {
-	Allow []Rule `yaml:"allow"`
-	Deny  []Rule `yaml:"deny"`
+	Allow []Rule `yaml:"allow" json:"allow"`
+	Deny  []Rule `yaml:"deny" json:"deny"`
 }
 
-// Policy is the global auto-approve policy loaded from config.
+// Policy is the auto-approve policy loaded from config. The top-level fields are
+// the default policy; Agents holds per-agent overrides keyed by agent name or id
+// (resolve the effective policy for an agent with For).
 type Policy struct {
-	Enabled     bool  `yaml:"enabled"`
-	AllowSticky bool  `yaml:"allow_sticky"`
-	Rules       Rules `yaml:"rules"`
+	Enabled     bool  `yaml:"enabled" json:"enabled"`
+	AllowSticky bool  `yaml:"allow_sticky" json:"allow_sticky"`
+	Rules       Rules `yaml:"rules" json:"rules"`
+	// Agents maps an agent name (or id) to a policy override. An override fully
+	// replaces the default's rules + allow_sticky for that agent and may enable
+	// auto-approve for it alone; the master Enabled switch is inherited (OR'd).
+	// Nested overrides ignore their own Agents map. nil ⇒ no per-agent policies.
+	Agents map[string]Policy `yaml:"agents,omitempty" json:"agents,omitempty"`
+}
+
+// Validate reports the first malformed regex in the policy (default rules and
+// every per-agent override), so callers can reject a bad policy up front rather
+// than silently never-matching it at evaluation time. nil ⇒ all regexes compile.
+func (p Policy) Validate() error {
+	check := func(rs []Rule) error {
+		for _, r := range rs {
+			if r.Regex == "" {
+				continue
+			}
+			if _, err := regexp.Compile(r.Regex); err != nil {
+				return fmt.Errorf("invalid regex %q: %w", r.Regex, err)
+			}
+		}
+		return nil
+	}
+	if err := check(p.Rules.Allow); err != nil {
+		return err
+	}
+	if err := check(p.Rules.Deny); err != nil {
+		return err
+	}
+	for name, ov := range p.Agents {
+		if err := check(ov.Rules.Allow); err != nil {
+			return fmt.Errorf("agent %q: %w", name, err)
+		}
+		if err := check(ov.Rules.Deny); err != nil {
+			return fmt.Errorf("agent %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// HasRules reports whether any allow or deny rule is configured on this policy.
+// When false the poller falls back to the legacy on/off behavior (approve every
+// recognized, non-destructive prompt), keeping `auto_approve: true` working.
+func (p Policy) HasRules() bool {
+	return len(p.Rules.Allow) > 0 || len(p.Rules.Deny) > 0
+}
+
+// For resolves the effective policy for an agent identified by any of names
+// (typically its name then its id). The first name with a matching entry in
+// Agents wins: that override's rules + allow_sticky replace the default, and its
+// Enabled is OR'd with the default's master switch (so an override can enable
+// auto-approve for one agent even when the global default is off). With no match
+// the default policy is returned. The returned policy carries no Agents map.
+func (p Policy) For(names ...string) Policy {
+	for _, n := range names {
+		if n == "" {
+			continue
+		}
+		if ov, ok := p.Agents[n]; ok {
+			ov.Enabled = p.Enabled || ov.Enabled
+			ov.Agents = nil
+			return ov
+		}
+	}
+	out := p
+	out.Agents = nil
+	return out
 }
 
 // Decision is the result of evaluating a prompt against the allow/deny rules only.
@@ -67,6 +138,12 @@ func (r Rule) matches(tool, arg, question string, paths []string) bool {
 	}
 	if r.Pattern != "" {
 		if !globMatch(r.Pattern, tool+"("+arg+")") && !globMatch(r.Pattern, question) {
+			return false
+		}
+	}
+	if r.Regex != "" {
+		re := compileRegex(r.Regex)
+		if re == nil || (!re.MatchString(tool+"("+arg+")") && !re.MatchString(question)) {
 			return false
 		}
 	}
@@ -142,6 +219,28 @@ func pathsOf(a Approval) []string {
 		}
 	}
 	return out
+}
+
+// regexCache memoizes compiled user regexps keyed by the raw pattern. A pattern
+// that fails to compile is cached as a nil entry so a bad rule never approves and
+// is not recompiled every tick.
+var regexCache sync.Map // map[string]*regexp.Regexp
+
+// compileRegex compiles (and caches) a user-supplied Go regexp. It returns nil
+// for an un-compilable pattern, which matches() treats as "no match" — a
+// malformed regex rule can never approve a prompt.
+func compileRegex(pattern string) *regexp.Regexp {
+	if v, ok := regexCache.Load(pattern); ok {
+		re, _ := v.(*regexp.Regexp)
+		return re
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		regexCache.Store(pattern, (*regexp.Regexp)(nil))
+		return nil
+	}
+	regexCache.Store(pattern, re)
+	return re
 }
 
 // globCache memoizes compiled glob->regexp translations keyed by the raw glob.

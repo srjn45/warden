@@ -40,7 +40,8 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `ctx_cas` / `ctx_append` | Compare-and-set / append-to-list context writes (lock-free coordination) |
 | `send_message` / `read_inbox` / `wait_for_message` | Directed messaging, incl. a blocking long-poll wait |
 | `list_approvals` / `approve` | List / answer pending tool-permission prompts |
-| `set_auto_approve` / `set_permission_mode` | Toggle auto-approval / change an agent's permission mode |
+| `set_auto_approve` / `set_auto_approve_policy` | Per-agent auto-approve toggle / manage the allow-deny rule policy (tool/glob/regex/paths, per-agent overrides) |
+| `set_permission_mode` | Change an agent's permission mode |
 | `commit` / `push` / `sync` / `check` | The git + check lifecycle on an agent's branch (warden rails) |
 | `get_collaboration_status` / `who_is_editing_file` | See which agents are editing the same files |
 | `get_branch_status` | Per-agent CI status + standing vs `origin/main` (the branch monitor, read-only) |
@@ -55,7 +56,7 @@ Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP
 | `search` / `history` / `audit_log` | Full-text search / archived agents / the action audit trail |
 | `export_sessions` / `import_sessions` / `list_plugins` | Serialize / load session metadata / list registered plugins |
 
-> **Full parity (65 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, and `rotate`/`handoff`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`); see the [feature catalog](/warden/reference/features/).
+> **Full parity (67 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, and `rotate`/`handoff`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`); see the [feature catalog](/warden/reference/features/).
 
 Example orchestrator prompts:
 

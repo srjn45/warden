@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/config"
@@ -135,6 +136,11 @@ func newDaemonCmd() *cobra.Command {
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
 			srv.SetAuth(authToken)
+			// Persist auto-approve policy changes (PUT /auto-approve/policy) back to
+			// the config file so runtime rule edits survive a restart.
+			srv.SetAutoApprovePersist(func(p approval.Policy) error {
+				return config.WriteAutoApprove(cfgPath, p)
+			})
 			if cfg.CollabEnabled {
 				srv.SetCollabInterval(cfg.CollabIntervalDuration())
 			} else {

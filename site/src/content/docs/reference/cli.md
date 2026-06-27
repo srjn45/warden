@@ -23,7 +23,7 @@ Available Commands:
   approve             Answer a pending tool-permission prompt by option number
   attach              Attach to the agent's tmux session
   audit               Inspect the append-only action audit trail
-  auto-approve        Enable or disable auto-approval for an agent's prompts
+  auto-approve        Toggle per-agent auto-approve, or manage the auto-approve rule policy
   branches            Per-agent CI status and standing vs origin/main (opt-in monitor)
   check               Run the project's configured checks and report only failures
   collab              Inter-agent collaboration: see which agents are editing the same files
@@ -670,11 +670,30 @@ See [Interactive mode](/warden/multi-agent/repl/) for the full `/`-command table
 ## warden auto-approve / set-permission-mode
 
 ```text
-warden auto-approve <agent-id> <on|off>      Toggle daemon auto-approval of recognized yes/no
-                                             prompts for one agent (global default: auto_approve config).
+warden auto-approve <agent-id> <on|off>      Per-agent toggle: opt one agent into auto-approval
+                                             even when the global policy is off.
+
+# Rule policy (allow/deny engine; effective immediately, persisted to config):
+warden auto-approve rules                     Show the live policy (default rules + per-agent overrides).
+warden auto-approve enable|disable [--agent]  Flip the master switch (or a per-agent override's).
+warden auto-approve allow [flags]             Append an allow rule.
+warden auto-approve deny  [flags]             Append a deny rule.
+warden auto-approve clear [--agent <name>]    Clear the default rules (or a per-agent override).
+  Flags for allow/deny:
+    --tool <name>      exact tool name to match (e.g. Read, Bash)
+    --pattern <glob>   case-insensitive glob/substring over the action + question
+    --regex <re>       Go regular expression over the action + question
+    --paths <a,b>      path globs against the action target (comma-separated)
+    --agent <name|id>  scope the rule to a per-agent override
+
 warden set-permission-mode <agent-id> <mode> Set an agent's permission mode
                                              (acceptEdits|auto|bypassPermissions|default|dontAsk|plan).
 ```
+
+With no rules configured, an enabled policy keeps the simple legacy behavior
+(approve every recognized, non-destructive prompt). warden's built-in
+destructive deny-list always wins, so no rule can auto-approve a destructive
+action.
 
 ## warden worktree / prune
 

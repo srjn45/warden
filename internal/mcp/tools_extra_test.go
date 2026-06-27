@@ -42,7 +42,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 	want := []string{
 		"digest", "get_metrics", "savings", "spend", "search", "history", "audit_log",
 		"list_worktrees", "list_plugins", "get_pressure",
-		"set_auto_approve", "set_permission_mode", "prune_worktrees",
+		"set_auto_approve", "set_auto_approve_policy", "set_permission_mode", "prune_worktrees",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
 		"pause_pipeline", "resume_pipeline", "retry_pipeline_job",
 		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",
@@ -163,6 +163,54 @@ func TestSetAutoApproveTool(t *testing.T) {
 	require.False(t, res.IsError, textOf(res))
 	require.Equal(t, "PATCH /api/v1/sessions/A-1/auto-approve", hit)
 	require.Contains(t, textOf(res), "auto-approve on for A-1")
+}
+
+// TestSetAutoApprovePolicyTool exercises the rule-management read-modify-write:
+// the tool GETs the policy, appends an allow rule, and PUTs it back.
+func TestSetAutoApprovePolicyTool(t *testing.T) {
+	var methods []string
+	var putBody string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method+" "+r.URL.Path)
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"enabled":true,"allow_sticky":false,"rules":{"allow":[],"deny":[]}}`))
+		case http.MethodPut:
+			b := make([]byte, r.ContentLength)
+			_, _ = r.Body.Read(b)
+			putBody = string(b)
+			_, _ = w.Write(b) // echo back
+		}
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "set_auto_approve_policy",
+		Arguments: map[string]any{"action": "allow", "tool": "Read"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, methods, "GET /api/v1/auto-approve/policy")
+	require.Contains(t, methods, "PUT /api/v1/auto-approve/policy")
+	require.Contains(t, putBody, `"tool":"Read"`)
+	require.Contains(t, textOf(res), `"Read"`)
+}
+
+// TestSetAutoApprovePolicyEmptyRuleRejected ensures an all-wildcard rule is refused.
+func TestSetAutoApprovePolicyEmptyRuleRejected(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"enabled":true,"rules":{"allow":[],"deny":[]}}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "set_auto_approve_policy",
+		Arguments: map[string]any{"action": "allow"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, textOf(res), "refusing an empty")
 }
 
 // TestHandoffAgentRetire asserts handoff_agent{retire:true} runs the rotate path:

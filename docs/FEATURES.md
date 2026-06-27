@@ -105,33 +105,78 @@ attaching. Controlled by the `approvals` config setting (on by default).
 
 ### Auto-Approve
 
-Automatically approve yes/no tool-permission prompts by always selecting option 1.
-Off by default (opt-in safety), enabled globally via the `auto_approve` config
-setting or per-agent via `warden auto-approve <id> on|off`.
+Automatically answer recognized tool-permission prompts. Off by default (opt-in
+safety). Two cooperating layers:
 
-**Behavior:**
-- Only triggers for recognized yes/no prompts (parsed via `approval.Parse`)
-- Always selects option 1 (predictable, auditable behavior)
-- Skips multi-select, text-entry, and unrecognized prompts (falls back to manual approval)
-- Logs all auto-approval attempts (success/skip/failure) for auditing
-- Per-agent setting overrides global default
+1. **Per-agent toggle** (`warden auto-approve <id> on|off`) — opt one agent into
+   evaluation even when the global policy is disabled.
+2. **Rule policy** (the `auto_approve` config block / `warden auto-approve`
+   subcommands) — an allow/deny engine evaluated for every participating agent.
+
+**Decision order** (a prompt is auto-answered only if all pass):
+- The built-in **destructive deny-list** (delete, `rm -rf`, force, push, deploy,
+  reset --hard, …) **always wins** — it is checked first and is not configurable.
+- It must match an **allow** rule and match **no deny** rule. Deny wins over allow.
+- It must be a recognized yes/no prompt with an affirmative option; the
+  least-privilege ("yes" over "yes & don't ask again") affirmative is pressed.
+  `allow_sticky: true` permits pressing standing "don't ask again" options.
+
+**Rule fields** (a rule matches when every present field matches; an absent field
+is a wildcard — an empty rule matches everything, so it is refused on the CLI):
+- `tool` — exact tool name, case-insensitive (e.g. `Read`, `Bash`).
+- `pattern` — case-insensitive glob/substring over `Tool(arg)` and the question.
+- `regex` — a **Go regular expression** over `Tool(arg)` and the question.
+- `paths` — globs against path tokens in the action argument.
+
+**Per-agent overrides** live under `agents:` keyed by agent name or id; each is its
+own `{enabled, allow_sticky, rules}` block that replaces the default for that agent
+(and can enable auto-approve for just that agent).
+
+**Backward compatible:** with **no rules** configured, an enabled policy is the
+simple legacy toggle — it approves every recognized, non-destructive prompt. So
+`auto_approve: true` keeps working unchanged.
 
 **Configuration:**
 ```yaml
-# Enable globally (all supervised agents): in ~/.warden/config.yaml, then restart the daemon
-auto_approve: true
+# ~/.warden/config.yaml
+auto_approve:
+  enabled: true
+  allow_sticky: false
+  rules:
+    allow:
+      - tool: Read
+      - regex: '^Bash\(git (status|diff|log)\)'
+    deny:
+      - tool: Bash
+        pattern: rm
+  agents:
+    reviewer:                 # override for the agent named/ided "reviewer"
+      enabled: true
+      rules:
+        allow:
+          - tool: Grep
 ```
 ```bash
-# Toggle for a specific agent (overrides the global default)
-warden auto-approve abc123 on   # enable for agent abc123
-warden auto-approve abc123 off  # disable for agent abc123
+warden auto-approve rules                       # show the live policy
+warden auto-approve enable                       # master switch on
+warden auto-approve allow --tool Read            # append an allow rule
+warden auto-approve allow --regex '^Bash\(git (status|diff)\)'
+warden auto-approve deny  --tool Bash --pattern rm
+warden auto-approve allow --agent reviewer --tool Grep
+warden auto-approve clear --agent reviewer       # drop a per-agent override
+warden auto-approve abc123 on                    # per-agent participate toggle
 ```
 
+Rule changes via the CLI/MCP take effect **immediately** (no restart) and are
+persisted back to the config file. Editing `config.yaml` by hand applies on the
+next daemon start.
+
 **Safety:**
-- Off by default (must explicitly enable)
-- Only works with recognized prompt grammar (strict parser)
-- Never retries on failure (fail-safe to manual approval)
-- Does not bypass approvals inbox (works alongside it)
+- Off by default (must explicitly enable).
+- The destructive deny-list always wins; no allow/regex rule can un-block it.
+- Only works with recognized prompt grammar (strict parser); never retries on
+  failure (fail-safe to manual approval).
+- Does not bypass the approvals inbox (works alongside it); all attempts are logged.
 
 ---
 
@@ -230,7 +275,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator Claude session can manage
-the fleet through tool calls. **66 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **67 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:
@@ -252,7 +297,8 @@ stay CLI-only). Tools exposed:
 | `get_collaboration_status` / `who_is_editing_file` | File-conflict detection |
 | `get_branch_status` | Per-agent CI + branch-vs-main status |
 | `list_approvals` / `approve` | List / answer pending tool-permission prompts |
-| `set_auto_approve` / `set_permission_mode` | Auto-approve toggle / permission-mode change |
+| `set_auto_approve` / `set_auto_approve_policy` | Per-agent auto-approve toggle / manage the allow-deny rule policy (tool/glob/regex/paths, per-agent) |
+| `set_permission_mode` | Permission-mode change for a running agent |
 | `commit` / `push` / `sync` | Git lifecycle on the agent's pinned worktree — staged commit (auto-message when omitted), push, rebase-sync — returning compact structs instead of raw git output (see §22) |
 | `check` | Run the project's `.warden/check.yml` checks, returning pass/fail with output for only the failing ones (see §22) |
 | `create_pipeline` / `list_pipelines` / `show_pipeline` | Create a DAG pipeline from a YAML spec / list / inspect (jobs, branches, handoffs) |
@@ -318,7 +364,7 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `webhook_enabled` | `false` | POST notifications to `webhook_url` on attention transitions (runs alongside `notify`) |
 | `webhook_url` | _(empty)_ | Webhook endpoint; a Slack incoming-webhook URL works out of the box |
 | `approvals` | `true` | The approvals inbox |
-| `auto_approve` | `false` | Auto-answer recognized yes/no prompts (option 1) |
+| `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (tool/glob/regex/paths + per-agent overrides) |
 | `token_guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
 | `token_warn_alert` | `true` | Notify once per upward crossing into warning/critical (needs `notify`) |
 | `token_auto_compact` | `true` | Auto-`/compact` at `critical` when the agent is idle (cooldown-guarded) |

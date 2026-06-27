@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
@@ -167,6 +168,10 @@ type Server struct {
 	scheduler     bool
 	schedStore    *schedule.Store
 	schedInterval time.Duration
+	// autoApprovePersist persists a replaced auto-approve policy to the config
+	// file (set by the daemon to config.WriteAutoApprove). nil ⇒ the PUT
+	// /auto-approve/policy endpoint changes the live policy but does not persist.
+	autoApprovePersist func(approval.Policy) error
 }
 
 // SetScheduler wires the native scheduler (#15) and its config gate.
