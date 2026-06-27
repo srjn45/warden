@@ -99,6 +99,14 @@ body { margin: 0; }
 .tabbar .tab-close:hover { color: var(--error); }
 .tab-content { flex: 1; overflow: auto; padding: 1rem; }
 .attn-pill { background: var(--attention); color: #fff; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; }
+/* The TUI launcher is the one highlighted action — accent fill so it reads as a
+   primary "open the cockpit" affordance, not just another grey toggle. */
+.tui-launch {
+  background: var(--accent); color: #fff; border: none; border-radius: 1rem;
+  padding: .15rem .8rem; cursor: pointer; font: inherit; font-weight: 600;
+  display: inline-flex; align-items: center; gap: .3rem; letter-spacing: .02em;
+}
+.tui-launch:hover { filter: brightness(1.08); }
 .notify-toggle, .theme-toggle { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; }
 .theme-toggle { font: inherit; }
 .token-clear { background: #8882; border: none; border-radius: 1rem; padding: .15rem .7rem; cursor: pointer; color: inherit; }
@@ -247,10 +255,19 @@ kbd {
 }
 .term-keybar button:active { background: var(--accent); color: #fff; }
 .term-keybar-bottom { margin-left: auto; }
-/* TUI tab: the cockpit terminal owns the whole content area. The tab itself
-   fills the (flex) content region; xterm-fill makes the wrap stretch and the
-   host grow to take all remaining height instead of the fixed 420px. */
-.tui-tab { display: flex; flex-direction: column; height: 100%; }
+/* Full-screen TUI: the cockpit terminal owns the entire viewport, edge-to-edge
+   and non-scrollable, with none of the dashboard chrome. Fixed to the visible
+   viewport (tracks --app-height like .layout); xterm-fill makes the wrap stretch
+   and the host grow to take all the height instead of the fixed 420px. The host
+   loses its rounding/padding so the terminal reaches the bezel. */
+.tui-fullscreen {
+  position: fixed; inset: 0; z-index: 50;
+  height: 100vh; height: 100dvh; height: var(--app-height, 100dvh);
+  overflow: hidden; background: var(--term-bg);
+  display: flex; flex-direction: column;
+}
+.tui-fullscreen .xterm-wrap { flex: 1; min-height: 0; gap: 0; }
+.tui-fullscreen .xterm-host { border-radius: 0; padding: .25rem; }
 .xterm-fill { flex: 1; min-height: 0; }
 .xterm-fill .xterm-host { flex: 1; height: auto; min-height: 0; }
 .details-toggle { align-self: flex-start; background: none; border: none; color: var(--idle); cursor: pointer; font: inherit; }

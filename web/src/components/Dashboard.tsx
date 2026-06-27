@@ -216,6 +216,19 @@ export default function Dashboard() {
     ? sessions.find((s) => s.id === route.id) ?? null
     : null;
 
+  // The TUI is a full-screen surface, not a tab: when it's the active route we
+  // render only the cockpit terminal, edge-to-edge over the whole viewport, with
+  // none of the dashboard chrome (top bar / tab bar). Ctrl+Q exits back to home.
+  // (The token modal still rides along so an auth prompt can surface.)
+  if (route.kind === 'tui') {
+    return (
+      <>
+        <TuiTab onExit={() => navigate(DEFAULT_ROUTE)} />
+        {authRequired && <TokenModal onSaved={onTokenSaved} />}
+      </>
+    );
+  }
+
   return (
     <div className="layout">
       <AttentionBar
@@ -232,6 +245,7 @@ export default function Dashboard() {
         onCycleTheme={cycleTheme}
         onShowHelp={() => setShowHelp(true)}
         onToggleContext={() => setShowContext((v) => !v)}
+        onOpenTui={() => navigate({ kind: 'tui' })}
       />
       <TabBar
         route={route}
@@ -242,7 +256,6 @@ export default function Dashboard() {
       <main className="tab-content">
         {route.kind === 'others' && <OthersTab sessions={sessions} onSelect={select} />}
         {route.kind === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} onCreated={select} />}
-        {route.kind === 'tui' && <TuiTab />}
         {route.kind === 'pipelines' && <PipelinesTab onSelect={select} />}
         {route.kind === 'metrics' && <MetricsTab contextHistory={contextHistory} />}
         {route.kind === 'archive' && <ArchiveTab />}

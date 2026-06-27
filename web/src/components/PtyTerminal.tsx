@@ -7,8 +7,8 @@ import { resizeMessage } from '../lib/attach';
 // PtyTerminal is a fully interactive terminal bridged to a real `tmux attach`
 // over a WebSocket: keystrokes (binary frames) go to the PTY, PTY output (binary
 // frames) is rendered, and fit/resize is sent as a text control frame. It is the
-// shared engine behind both the per-agent attach (AttachTerminal) and the web
-// "TUI" tab (TuiTab) — the only difference is which tmux session the daemon
+// shared engine behind both the per-agent attach (AttachTerminal) and the
+// full-screen web TUI (TuiTab) — the only difference is which tmux session the daemon
 // bridges (a single agent vs the shared three-pane cockpit), expressed via
 // `makeUrl`.
 //
@@ -36,6 +36,8 @@ export default function PtyTerminal({
   reconnectKey,
   extendedKeys = false,
   fill = false,
+  onExit,
+  keyBar = true,
   disconnectedMsg = 'disconnected — the agent may have ended',
 }: {
   // makeUrl builds the WebSocket URL from the live location; called inside the
@@ -46,6 +48,12 @@ export default function PtyTerminal({
   reconnectKey: string;
   extendedKeys?: boolean;
   fill?: boolean;
+  // onExit, when set, makes Ctrl+Q leave the terminal (used by the full-screen
+  // TUI to return home) instead of being sent to the PTY.
+  onExit?: () => void;
+  // keyBar shows the on-screen soft-keyboard key bar (Esc/Tab/Ctrl-C/arrows).
+  // It's for phones; the desktop-only full-screen TUI turns it off.
+  keyBar?: boolean;
   disconnectedMsg?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -53,6 +61,10 @@ export default function PtyTerminal({
   // send writes raw bytes to the PTY (same path as keystrokes); held in a ref so
   // the key bar can reach the live socket without re-rendering.
   const sendRef = useRef<(s: string) => void>(() => {});
+  // onExit is held in a ref so the (mount-time) key handler always sees the
+  // latest callback without re-arming the connect effect.
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
   const [closed, setClosed] = useState(false);
 
   useEffect(() => {
@@ -102,6 +114,15 @@ export default function PtyTerminal({
       };
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== 'keydown') return true;
+        // Ctrl+Q leaves the full-screen TUI (back to the dashboard) rather than
+        // reaching the PTY. We use Ctrl+Q (not a bare `q`) so a literal `q` still
+        // types into the shells / Claude / pagers — full terminal fidelity — and
+        // Ctrl+Q isn't an OS-reserved chord the way Cmd+Q is.
+        if (onExitRef.current && e.key === 'q' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+          e.preventDefault();
+          onExitRef.current();
+          return false;
+        }
         if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           send('\x1b\r');
@@ -200,14 +221,16 @@ export default function PtyTerminal({
         </div>
       )}
       <div className="xterm-host" ref={hostRef} tabIndex={0} />
-      <div className="term-keybar" role="toolbar" aria-label="Terminal keys">
-        <button type="button" onClick={key('\x1b')}>Esc</button>
-        <button type="button" onClick={key('\t')}>Tab</button>
-        <button type="button" onClick={key('\x03')}>Ctrl-C</button>
-        <button type="button" onClick={key('\x1b[A')} aria-label="Up">↑</button>
-        <button type="button" onClick={key('\x1b[B')} aria-label="Down">↓</button>
-        <button type="button" className="term-keybar-bottom" onClick={toBottom}>⤓ Bottom</button>
-      </div>
+      {keyBar && (
+        <div className="term-keybar" role="toolbar" aria-label="Terminal keys">
+          <button type="button" onClick={key('\x1b')}>Esc</button>
+          <button type="button" onClick={key('\t')}>Tab</button>
+          <button type="button" onClick={key('\x03')}>Ctrl-C</button>
+          <button type="button" onClick={key('\x1b[A')} aria-label="Up">↑</button>
+          <button type="button" onClick={key('\x1b[B')} aria-label="Down">↓</button>
+          <button type="button" className="term-keybar-bottom" onClick={toBottom}>⤓ Bottom</button>
+        </div>
+      )}
     </div>
   );
 }

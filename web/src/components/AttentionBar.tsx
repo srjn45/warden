@@ -7,6 +7,7 @@ import { THEME_ICON, THEME_LABEL, type Theme, type Resolved } from '../lib/theme
 export default function AttentionBar({
   connected, attentionCount, notifyEnabled, onToggleNotify, onNew, onJumpAttention,
   tokenSet, onClearToken, theme, resolvedTheme, onCycleTheme, onShowHelp, onToggleContext,
+  onOpenTui,
 }: {
   connected: boolean;
   attentionCount: number;
@@ -21,6 +22,7 @@ export default function AttentionBar({
   onCycleTheme: () => void;
   onShowHelp: () => void;
   onToggleContext: () => void;
+  onOpenTui: () => void;
 }) {
   // Pick the wordmark for the theme that actually renders, so an explicit
   // override (not just the OS) gets the matching asset.
@@ -42,6 +44,14 @@ export default function AttentionBar({
       )}
       {/* Action controls grouped flush-right with even spacing. */}
       <div className="topbar-actions">
+        <button
+          className="tui-launch"
+          onClick={onOpenTui}
+          title="Open the full-screen TUI cockpit (Ctrl+Q to exit)"
+          aria-label="Open the full-screen TUI cockpit"
+        >
+          ▢ TUI
+        </button>
         <button
           className="theme-toggle"
           onClick={onCycleTheme}

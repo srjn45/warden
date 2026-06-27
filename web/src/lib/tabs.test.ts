@@ -6,8 +6,8 @@ import {
 import type { Route } from './router';
 
 describe('fixed tabs', () => {
-  it('is the new route list (no context, no overview)', () => {
-    expect(FIXED_TABS).toEqual(['cockpit', 'tui', 'pipelines', 'metrics', 'archive', 'others']);
+  it('is the new route list (no context, no overview, no tui — that is full-screen)', () => {
+    expect(FIXED_TABS).toEqual(['cockpit', 'pipelines', 'metrics', 'archive', 'others']);
     expect(isFixedTab('cockpit')).toBe(true);
     expect(isFixedTab('others')).toBe(true);
     expect(isFixedTab('metrics')).toBe(true);
@@ -19,7 +19,7 @@ describe('fixed tabs', () => {
 describe('ordered routes & keyboard navigation', () => {
   it('orderedRoutes is fixed routes followed by pins in open order', () => {
     expect(orderedRoutes(['A-1', 'B-2'])).toEqual([
-      { kind: 'cockpit' }, { kind: 'tui' }, { kind: 'pipelines' }, { kind: 'metrics' },
+      { kind: 'cockpit' }, { kind: 'pipelines' }, { kind: 'metrics' },
       { kind: 'archive' }, { kind: 'others' },
       { kind: 'agent', id: 'A-1' }, { kind: 'agent', id: 'B-2' },
     ]);
@@ -27,19 +27,19 @@ describe('ordered routes & keyboard navigation', () => {
 
   it('routeByIndex is 1-based and undefined out of range', () => {
     expect(routeByIndex(['A-1'], 1)).toEqual({ kind: 'cockpit' });
-    expect(routeByIndex(['A-1'], 2)).toEqual({ kind: 'tui' });
-    expect(routeByIndex(['A-1'], 7)).toEqual({ kind: 'agent', id: 'A-1' });
-    expect(routeByIndex(['A-1'], 8)).toBeUndefined();
+    expect(routeByIndex(['A-1'], 2)).toEqual({ kind: 'pipelines' });
+    expect(routeByIndex(['A-1'], 6)).toEqual({ kind: 'agent', id: 'A-1' });
+    expect(routeByIndex(['A-1'], 7)).toBeUndefined();
   });
 
   it('routeIndex finds the current route, -1 when absent', () => {
-    expect(routeIndex(['A-1'], { kind: 'others' })).toBe(5);
-    expect(routeIndex(['A-1'], { kind: 'agent', id: 'A-1' })).toBe(6);
+    expect(routeIndex(['A-1'], { kind: 'others' })).toBe(4);
+    expect(routeIndex(['A-1'], { kind: 'agent', id: 'A-1' })).toBe(5);
     expect(routeIndex(['A-1'], { kind: 'agent', id: 'ghost' })).toBe(-1);
   });
 
   it('navRoute moves through the list and clamps at the ends', () => {
-    expect(navRoute(['A-1'], { kind: 'cockpit' }, 1)).toEqual({ kind: 'tui' });
+    expect(navRoute(['A-1'], { kind: 'cockpit' }, 1)).toEqual({ kind: 'pipelines' });
     expect(navRoute(['A-1'], { kind: 'cockpit' }, -1)).toEqual({ kind: 'cockpit' }); // clamped
     const last: Route = { kind: 'agent', id: 'A-1' };
     expect(navRoute(['A-1'], last, 1)).toEqual(last); // clamped
