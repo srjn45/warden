@@ -28,9 +28,11 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 
 `/` redirects to `/cockpit`, so there is a single canonical home URL. Deep-linking and refresh work because the daemon serves the SPA for any non-API path.
 
-In the Cockpit you can **group the fleet** by directory, task type, status, or tag to keep a large fleet legible:
+In the Cockpit you can **group the fleet** by directory, task type, status, tag, or **agent** (the AI backend — claude/aider/…) to keep a large fleet legible:
 
 ![The Cockpit grouped by task type: agents collected under collapsible *analysis* and *development* sections, each with a per-group count.](/warden/media/web-cockpit-grouped.png)
+
+Each agent card also shows the **brand logo of the backend** driving it in the tile header, so you can spot claude vs aider agents at a glance. An agent with no recorded backend (anything spawned before backend selection shipped) shows as **claude**; an unrecognized backend falls back to a small monochrome lettermark.
 
 ## What it does
 
@@ -48,7 +50,8 @@ In the Cockpit you can **group the fleet** by directory, task type, status, or t
 | **Terminate with git guard** | Surfaces a 409 → **Force** + optional hard-delete when there's uncommitted/unpushed work. |
 | **Digest panel** | View an agent's completion digest in the browser. |
 | **Browser notifications** | Opt-in desktop notification when an agent enters `waiting_for_input` (gated to hidden tabs). |
-| **Group the fleet** | In the Cockpit, group agents by directory, task type, status, or tag to keep a large fleet legible. |
+| **Group the fleet** | In the Cockpit, group agents by directory, task type, status, tag, or **agent** (the backend driving each session) to keep a large fleet legible. |
+| **Backend logo on cards** | Each agent card's header shows the brand mark of its backend (claude/aider/…); empty/legacy ⇒ claude, unknown backends ⇒ a monochrome lettermark. |
 | **Batch operations** | Select multiple agents and act on them at once (e.g. terminate / delete). |
 | **Search & archive** | Full-text search across the fleet; browse archived (closed) agents from the Archive tab. |
 | **Theme toggle** | Light / dark / system theming. |

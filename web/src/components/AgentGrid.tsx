@@ -8,6 +8,7 @@ import {
 import MiniTerminal from './MiniTerminal';
 import BusyIdleBadge from './BusyIdleBadge';
 import ContextBadge from './ContextBadge';
+import BackendLogo from './BackendLogo';
 import QuickAddButton from './QuickAddButton';
 
 // AgentGrid renders live thumbnail tiles for every agent, bucketed into titled
@@ -126,6 +127,7 @@ export default function AgentGrid({ sessions, onSelect, lines = 8, onCreated, se
                         )}
                         <button className="grid-tile" onClick={() => onSelect(s.id)}>
                           <div className="tile-head">
+                            <BackendLogo backend={s.backend} />
                             <b>{s.id}</b> <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
                             <ContextBadge tokens={s.context_tokens} state={s.context_state} />
                           </div>

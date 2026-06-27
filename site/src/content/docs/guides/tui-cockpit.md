@@ -29,7 +29,7 @@ warden       # bare invocation — same thing
 
 | Feature | Description |
 |---|---|
-| **Live list** | Polls the daemon ~1×/sec; browse with `↑`/`↓` without disturbing the detail pane. |
+| **Live list** | Polls the daemon ~1×/sec; browse with `↑`/`↓` without disturbing the detail pane. Each row shows a compact **backend** token (claude/aider/…) and the inspector (`i`) adds a `backend` line; an agent with no recorded backend reads as **claude**. |
 | **Pipeline tree** | Pipelines shown as a collapsible `▸ Pipelines` section; expand/collapse, open running jobs, retry failed jobs. |
 | **Agent sub-trees** | Agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); `h`/`l` toggles. See [Agent sub-trees](#agent-sub-trees) below. |
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |

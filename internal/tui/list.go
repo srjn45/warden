@@ -675,9 +675,10 @@ func renderItemLine(it item, selected bool, width int) string {
 		} else {
 			nameStr = trunc(nameStr, 15)
 		}
-		line = treePrefix(it) + fmt.Sprintf("%-16s %-14s %-11s %-6s %-5s%s",
+		line = treePrefix(it) + fmt.Sprintf("%-16s %-14s %-11s %-6s %-5s %s%s",
 			nameStr, s.ID, st.Render(label),
-			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt), branchInfo)
+			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt),
+			stMuted.Render(fmt.Sprintf("%-7s", trunc(backendOr(s), 7))), branchInfo)
 	}
 	cur := "  "
 	if selected {
@@ -733,6 +734,7 @@ func detailBody(s *store.Session, width int) string {
 		b.WriteString(stMuted.Render("subject   ") + s.Subject + "\n")
 	}
 	b.WriteString(stMuted.Render("type      ") + typeOr(s) + "   " + stMuted.Render("age ") + age(s.UpdatedAt) + "\n")
+	b.WriteString(stMuted.Render("backend   ") + backendOr(s) + "\n")
 	if cl, _ := contextLabel(s.ContextTokens, s.ContextState); cl != "" {
 		ctxLine := stMuted.Render("context   ") + cl
 		if s.ContextState != "" {
@@ -871,6 +873,17 @@ func typeOr(s *store.Session) string {
 		return "classifying"
 	}
 	return string(s.Type)
+}
+
+// backendOr returns the agent's AI backend id (claude, aider, …), defaulting to
+// "claude" when empty. Backend is json `omitempty`, so agents spawned before
+// backends were recorded carry no value — treat the registry default as claude
+// everywhere rather than rendering a blank.
+func backendOr(s *store.Session) string {
+	if s.Backend == "" {
+		return "claude"
+	}
+	return s.Backend
 }
 
 func max(a, b int) int {
