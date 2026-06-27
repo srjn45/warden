@@ -19,21 +19,23 @@ func TestDecideContext(t *testing.T) {
 		sinceCmpct  time.Duration
 		warnAlert   bool
 		autoCompact bool
+		pending     bool
 		wantAlert   bool
 		wantCompact bool
 	}{
-		{"ok->warning alerts", ctxtokens.StateOK, ctxtokens.StateWarning, store.StatusWorking, time.Hour, true, true, true, false},
-		{"warning steady no alert", ctxtokens.StateWarning, ctxtokens.StateWarning, store.StatusWorking, time.Hour, true, true, false, false},
-		{"warning->critical alerts, working defers compact", ctxtokens.StateWarning, ctxtokens.StateCritical, store.StatusWorking, time.Hour, true, true, true, false},
-		{"critical idle compacts (deferred case, no edge)", ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusIdle, time.Hour, true, true, false, true},
-		{"critical waiting compacts", ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusWaitingForInput, time.Hour, true, true, false, true},
-		{"critical idle within cooldown skips compact", ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusIdle, 30 * time.Second, true, true, false, false},
-		{"warnAlert off suppresses alert", ctxtokens.StateOK, ctxtokens.StateWarning, store.StatusWorking, time.Hour, false, true, false, false},
-		{"autoCompact off suppresses compact", ctxtokens.StateWarning, ctxtokens.StateCritical, store.StatusIdle, time.Hour, true, false, true, false},
+		{"ok->warning alerts", ctxtokens.StateOK, ctxtokens.StateWarning, store.StatusWorking, time.Hour, true, true, false, true, false},
+		{"warning steady no alert", ctxtokens.StateWarning, ctxtokens.StateWarning, store.StatusWorking, time.Hour, true, true, false, false, false},
+		{"warning->critical alerts, working defers compact", ctxtokens.StateWarning, ctxtokens.StateCritical, store.StatusWorking, time.Hour, true, true, false, true, false},
+		{"critical idle compacts (deferred case, no edge)", ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusIdle, time.Hour, true, true, false, false, true},
+		{"critical waiting compacts", ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusWaitingForInput, time.Hour, true, true, false, false, true},
+		{"critical idle within cooldown skips compact", ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusIdle, 30 * time.Second, true, true, false, false, false},
+		{"critical idle with compact in flight skips compact", ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusIdle, time.Hour, true, true, true, false, false},
+		{"warnAlert off suppresses alert", ctxtokens.StateOK, ctxtokens.StateWarning, store.StatusWorking, time.Hour, false, true, false, false, false},
+		{"autoCompact off suppresses compact", ctxtokens.StateWarning, ctxtokens.StateCritical, store.StatusIdle, time.Hour, true, false, false, true, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			d := decideContext(c.prev, c.cur, c.status, c.sinceCmpct, cool, c.warnAlert, c.autoCompact)
+			d := decideContext(c.prev, c.cur, c.status, c.sinceCmpct, cool, c.warnAlert, c.autoCompact, c.pending)
 			if d.Alert != c.wantAlert || d.Compact != c.wantCompact {
 				t.Fatalf("alert=%v compact=%v, want alert=%v compact=%v", d.Alert, d.Compact, c.wantAlert, c.wantCompact)
 			}
@@ -111,22 +113,22 @@ func TestDecideContextSuggestsCompactWhenCriticalAndWorking(t *testing.T) {
 	const cool = 2 * time.Minute
 	// Critical + working: auto-compact can't act (not idle), so Suggest fires and
 	// Compact does not.
-	d := decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusWorking, time.Hour, cool, true, true)
+	d := decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusWorking, time.Hour, cool, true, true, false)
 	if !d.Suggest || d.Compact {
 		t.Fatalf("critical+working: suggest=%v compact=%v, want suggest=true compact=false", d.Suggest, d.Compact)
 	}
 	// Critical + idle: the auto-compact path handles it, no pre-crash suggestion.
-	d = decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusIdle, time.Hour, cool, true, true)
+	d = decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusIdle, time.Hour, cool, true, true, false)
 	if d.Suggest {
 		t.Fatal("critical+idle must not suggest (auto-compact handles it)")
 	}
 	// Suggest is independent of auto-compact being on.
-	d = decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusWorking, time.Hour, cool, true, false)
+	d = decideContext(ctxtokens.StateCritical, ctxtokens.StateCritical, store.StatusWorking, time.Hour, cool, true, false, false)
 	if !d.Suggest {
 		t.Fatal("critical+working must suggest even with auto-compact off")
 	}
 	// Below critical never suggests.
-	d = decideContext(ctxtokens.StateWarning, ctxtokens.StateWarning, store.StatusWorking, time.Hour, cool, true, true)
+	d = decideContext(ctxtokens.StateWarning, ctxtokens.StateWarning, store.StatusWorking, time.Hour, cool, true, true, false)
 	if d.Suggest {
 		t.Fatal("non-critical context must not suggest")
 	}
@@ -290,6 +292,35 @@ func TestCheckContextCompactParksThenRecords(t *testing.T) {
 	}
 	if saved.cost != 1200 {
 		t.Fatalf("cost=%d, want 1200 (summary-generation output delta)", saved.cost)
+	}
+}
+
+func TestCheckContextDoesNotReCompactWhileInFlight(t *testing.T) {
+	// Regression: a /compact whose reclaim never shows up (no following prompt, so
+	// the transcript's last assistant turn keeps reporting the pre-compact fill)
+	// must NOT be re-sent every cooldown. The parked marker holds it off until the
+	// land window abandons it; only then may warden try once more.
+	fd := &ctxFakeDeps{tokens: 420000, tokensOK: true}
+	p := New(fd, time.Minute)
+	p.TokenWarn, p.TokenCrit = 200000, 400000
+	p.WarnAlert, p.AutoCompact, p.TokenGuard = true, true, true
+
+	s := &store.Session{ID: "a1", Status: store.StatusIdle}
+	t0 := time.Now()
+	// First tick compacts. Subsequent ticks stay critical (reading never drops) and
+	// sit well past the cooldown, yet must not re-fire while the marker is in flight.
+	p.checkContext(context.Background(), s, t0)
+	for i := 1; i <= 5; i++ {
+		p.checkContext(context.Background(), s, t0.Add(time.Duration(i)*p.CompactCooldown))
+	}
+	if fd.compacted != 1 {
+		t.Fatalf("compacted=%d, want 1 (no re-send while a /compact is in flight)", fd.compacted)
+	}
+
+	// Past the land window the stale marker is abandoned, re-arming a single retry.
+	p.checkContext(context.Background(), s, t0.Add(compactLandWindow+time.Minute))
+	if fd.compacted != 2 {
+		t.Fatalf("compacted=%d, want 2 (one retry after the marker goes stale)", fd.compacted)
 	}
 }
 

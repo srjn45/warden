@@ -29,18 +29,25 @@ type ctxDecision struct {
 //   - Alert fires once per upward crossing into warning or critical (cur != prev
 //     and cur is a threshold band), when the warn-alert flag is on.
 //   - Compact fires whenever the agent is critical AND idle/waiting AND the
-//     auto-compact flag is on AND the cooldown since the last /compact has
-//     elapsed. It deliberately does NOT require an edge: that lets a compact that
-//     was deferred while the agent was "working" fire on a later tick once it
-//     goes idle, while the cooldown prevents re-sending before a just-issued
-//     compaction shows up in the transcript.
+//     auto-compact flag is on AND no /compact is already in flight AND the
+//     cooldown since the last /compact has elapsed. It deliberately does NOT
+//     require an edge: that lets a compact that was deferred while the agent was
+//     "working" fire on a later tick once it goes idle. The in-flight guard
+//     (compactPending) is what actually stops a re-send storm: a /compact that
+//     hasn't been followed by a fresh prompt leaves the transcript's last
+//     assistant turn still reporting the pre-compact (critical) fill, so the
+//     cooldown alone would re-fire /compact every cooldown until the land window
+//     abandons the marker. Holding off while a send is still parked caps that at
+//     one /compact per episode (re-armed only when the marker lands or goes
+//     stale). The cooldown still guards the gap before the marker is parked and
+//     any re-fire after a landed compaction left the agent critical.
 //   - Suggest fires when the agent is critical but NOT idle/waiting — exactly the
 //     case the auto-compact path can't act on (warden won't interrupt a working
 //     agent to /compact). Its context only grows from here, so the caller surfaces
 //     a "compact before it crashes" anomaly (once per critical episode). It is
 //     independent of autoCompact: when auto-compact is off, the human nudge matters
 //     even more.
-func decideContext(prev, cur ctxtokens.State, status store.Status, sinceCompact, cooldown time.Duration, warnAlert, autoCompact bool) ctxDecision {
+func decideContext(prev, cur ctxtokens.State, status store.Status, sinceCompact, cooldown time.Duration, warnAlert, autoCompact, compactPending bool) ctxDecision {
 	var d ctxDecision
 	if warnAlert && cur != prev && (cur == ctxtokens.StateWarning || cur == ctxtokens.StateCritical) {
 		d.Alert = true
@@ -49,7 +56,7 @@ func decideContext(prev, cur ctxtokens.State, status store.Status, sinceCompact,
 	if cur == ctxtokens.StateCritical && !idle {
 		d.Suggest = true
 	}
-	if autoCompact && cur == ctxtokens.StateCritical && idle && sinceCompact >= cooldown {
+	if autoCompact && cur == ctxtokens.StateCritical && idle && !compactPending && sinceCompact >= cooldown {
 		d.Compact = true
 	}
 	return d
@@ -90,7 +97,11 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 	if s.LastCompactAt != nil {
 		sinceCompact = now.Sub(*s.LastCompactAt)
 	}
-	d := decideContext(prev, cur, s.Status, sinceCompact, p.CompactCooldown, p.WarnAlert, p.AutoCompact)
+	// A /compact already parked for this agent (reconcileCompact above ran first,
+	// so a landed or stale marker is gone by now) means a previous send hasn't
+	// shown its reclaim yet — don't pile another on top while it's still in flight.
+	_, compactInFlight := p.pendingCompact[s.ID]
+	d := decideContext(prev, cur, s.Status, sinceCompact, p.CompactCooldown, p.WarnAlert, p.AutoCompact, compactInFlight)
 
 	if d.Alert && p.OnContextAlert != nil {
 		p.OnContextAlert(s, cur, tokens)
