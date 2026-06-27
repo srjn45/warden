@@ -145,7 +145,8 @@ type Session struct {
 	Type            Type       `json:"type"`
 	Ticket          string     `json:"ticket"` // optional
 	TmuxSession     string     `json:"tmux_session"`
-	ClaudeSessionID string     `json:"claude_session_id"` // pinned claude --session-id (UUID); deterministic transcript + future --resume
+	Backend         string     `json:"backend,omitempty"` // agent backend id (claude, aider, …); empty ⇒ "claude" (back-compat, no store migration)
+	ClaudeSessionID string     `json:"claude_session_id"` // pinned backend session id (claude --session-id; UUID); deterministic transcript + --resume
 	Repo            string     `json:"repo"`
 	Worktree        string     `json:"worktree"`                   // optional (empty = no worktree)
 	Branch          string     `json:"branch"`                     // optional
