@@ -247,6 +247,12 @@ kbd {
 }
 .term-keybar button:active { background: var(--accent); color: #fff; }
 .term-keybar-bottom { margin-left: auto; }
+/* TUI tab: the cockpit terminal owns the whole content area. The tab itself
+   fills the (flex) content region; xterm-fill makes the wrap stretch and the
+   host grow to take all remaining height instead of the fixed 420px. */
+.tui-tab { display: flex; flex-direction: column; height: 100%; }
+.xterm-fill { flex: 1; min-height: 0; }
+.xterm-fill .xterm-host { flex: 1; height: auto; min-height: 0; }
 .details-toggle { align-self: flex-start; background: none; border: none; color: var(--idle); cursor: pointer; font: inherit; }
 .agent-tab-actions { display: flex; gap: 1rem; }
 .agent-details { display: flex; flex-direction: column; gap: .5rem; }

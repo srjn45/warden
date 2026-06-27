@@ -8,6 +8,14 @@ export function attachURL(loc: { protocol: string; host: string }, id: string): 
   return withToken(`${scheme}//${loc.host}${API_PREFIX}/sessions/${encodeURIComponent(id)}/attach`);
 }
 
+// cockpitAttachURL builds the WebSocket URL for the daemon-owned web cockpit
+// (the "TUI" tab) — the shared three-pane dashboard, not a single agent. Same
+// scheme/token handling as attachURL.
+export function cockpitAttachURL(loc: { protocol: string; host: string }): string {
+  const scheme = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  return withToken(`${scheme}//${loc.host}${API_PREFIX}/cockpit/attach`);
+}
+
 // resizeMessage is the text control frame announcing terminal dimensions.
 export function resizeMessage(cols: number, rows: number): string {
   return JSON.stringify({ cols, rows });

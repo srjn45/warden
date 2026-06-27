@@ -363,6 +363,7 @@ func (s *Server) router() http.Handler {
 		ar.Use(stashRequest)     // expose *http.Request to strict handlers (audit IP)
 		ar.Get("/api/v1/events/stream", s.handleEventsStream)
 		ar.Get("/api/v1/sessions/{id}/attach", s.handleAttach)
+		ar.Get("/api/v1/cockpit/attach", s.handleCockpitAttach)
 		strict := oapi.NewStrictHandlerWithOptions(s, nil, oapi.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  strictRequestError,
 			ResponseErrorHandlerFunc: strictResponseError,

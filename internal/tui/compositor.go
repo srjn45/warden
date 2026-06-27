@@ -215,6 +215,46 @@ func cleanStaleCockpits(run lifecycle.Runner) {
 	}
 }
 
+// WebCockpitSession is the stable tmux session name for the daemon-owned cockpit
+// that the web "TUI" tab attaches to. Unlike the foreground TUI's per-PID
+// sessions (warden-tui-<pid>), there is a single shared web cockpit: warden is a
+// single-user, single-daemon tool, so one session gives the same live dashboard
+// from any browser or device (continuity), and `window-size latest` on attach
+// lets the most-recently-active client drive sizing.
+const WebCockpitSession = "warden-web-cockpit"
+
+// EnsureWebCockpit makes sure the daemon-owned web cockpit session exists,
+// building it (detached) on first call and reusing it thereafter, and returns
+// its tmux session name. It is the headless counterpart to RunCockpit: it builds
+// the same three-pane layout but never attaches — the browser attaches over the
+// daemon's WebSocket PTY bridge instead. self is the absolute path to the warden
+// binary (the panes re-exec it), masterCwd the directory the master/list panes
+// run in (agents spawned via `n` launch there), and useRepl selects the `wd
+// repl` master-pane flavor. Idempotent and safe to call on every attach.
+func EnsureWebCockpit(ctx context.Context, run lifecycle.Runner, self, masterCwd string, useRepl bool) (string, error) {
+	// has-session exits 0 only when the session already exists; reuse it.
+	if _, err := run.Run(ctx, "", "tmux", "has-session", "-t", WebCockpitSession); err == nil {
+		return WebCockpitSession, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	o := cockpitOpts{
+		session:   WebCockpitSession,
+		self:      self,
+		homeDir:   home,
+		masterCwd: masterCwd,
+		useRepl:   useRepl,
+	}
+	if err := buildCockpit(ctx, run, o); err != nil {
+		// Tear down a half-built session so we never leave an orphan.
+		_, _ = run.Run(ctx, "", "tmux", "kill-session", "-t", o.session)
+		return "", err
+	}
+	return WebCockpitSession, nil
+}
+
 // RunCockpit builds the tmux cockpit for this process and attaches to it,
 // blocking until the user detaches/quits. masterCwd is the launching shell's
 // directory (where the master pane runs). useRepl selects the cockpit flavor

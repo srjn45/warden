@@ -182,9 +182,10 @@ own tmux session, most in a git worktree).
 ## 12. Web mission control
 
 The browser GUI (served by the daemon) is a **URL-routed** shell (`/cockpit`
-home · `/pipelines` · `/metrics` · `/archive` · `/others` · `/agent/<id>` —
-deep-linkable, back/forward, shareable). It provides: the **Cockpit** home
-(Fleet header + agent grid), a **Pipelines** tab with a live DAG, a **Metrics**
+home · `/tui` · `/pipelines` · `/metrics` · `/archive` · `/others` · `/agent/<id>`
+— deep-linkable, back/forward, shareable). It provides: the **Cockpit** home
+(Fleet header + agent grid), a **TUI** tab that streams the literal `warden tui`
+into the browser, a **Pipelines** tab with a live DAG, a **Metrics**
 tab (per-agent **and** fleet-total CPU/memory, per-agent context, fleet size,
 tokens saved — two-column on desktop, single-column on mobile), an **Archive**
 tab, the **Others** catch-all (attention queue, conflicts, activity; sits last),
@@ -200,6 +201,7 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 | Metrics: per-agent + fleet-total CPU/mem, per-agent context, fleet size, tokens saved (2-col responsive) | Metrics (`/metrics`) | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Archive (history) | Archive (`/archive`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | In-browser attach terminal | Agent (`/agent/<id>`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Full **TUI** tab — the three-pane cockpit streamed into the browser (same panes, shortcuts, real shells & Claude Code) | TUI (`/tui`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Context & messages | header 🗒 overlay | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Spawn modal (+ New agent) | header button | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Bulk actions | Bulk action bar | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |

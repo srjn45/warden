@@ -15,6 +15,7 @@ import BusyIdleBadge from './BusyIdleBadge';
 interface FixedTab { route: Route; label: string; }
 const FIXED: FixedTab[] = [
   { route: { kind: 'cockpit' }, label: '⊞ Cockpit' },
+  { route: { kind: 'tui' }, label: '▢ TUI' },
   { route: { kind: 'pipelines' }, label: '⛓ Pipelines' },
   { route: { kind: 'metrics' }, label: '📊 Metrics' },
   { route: { kind: 'archive' }, label: '🗄 Archive' },
