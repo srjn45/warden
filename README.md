@@ -17,9 +17,9 @@ sessions — each in its own isolated git worktree — while tracking exactly wh
 costs and how many tokens its lifecycle features keep out of context. Backed by a local
 daemon and a file-based JSON store: **no database, no SaaS, no telemetry.**
 
-<!-- TODO(marketing): drop a 20s cockpit demo GIF here — spawn 3 agents → cockpit lights
-     up → cost + tokens-saved counters tick. The highest-converting asset for this repo. -->
-<p align="center"><em>▶ demo GIF goes here — until then, see <a href="#terminal-ui">Terminal UI</a> and the web cockpit</em></p>
+<p align="center">
+  <a href="https://srjn45.github.io/warden/"><img src="site/public/media/hero.gif" alt="warden in action: spawning and monitoring a fleet of Claude Code agents from one cockpit" width="820"></a>
+</p>
 
 ### Why warden
 
@@ -47,6 +47,31 @@ warden tui              # open the cockpit
 > `go install` gives you the CLI / daemon / TUI / MCP server. For the embedded **web
 > dashboard**, use a [release binary](#1-download-a-release-binary-quickest) or build with
 > `make release` — see [Install](#install).
+
+### Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="https://srjn45.github.io/warden/guides/tui-cockpit/"><img src="site/public/media/cockpit.png" alt="The warden TUI cockpit: a live agents list, a shell, and the selected agent's session in the full-height detail pane."></a>
+      <p align="center"><strong>TUI cockpit</strong> — agents list, shell, and the selected agent's live session, side by side in tmux.</p>
+    </td>
+    <td width="50%">
+      <a href="https://srjn45.github.io/warden/guides/web-mission-control/"><img src="site/public/media/web-cockpit.png" alt="The warden web dashboard Cockpit home with a Fleet summary header and agents grouped by directory."></a>
+      <p align="center"><strong>Web dashboard</strong> — mission control with a Fleet header, grouped agents, and Pipelines / Metrics / Archive tabs.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="https://srjn45.github.io/warden/guides/web-mission-control/"><img src="site/public/media/web-metrics.png" alt="The warden Metrics tab: CPU and memory per agent beside fleet totals, plus a per-agent cost card."></a>
+      <p align="center"><strong>Metrics &amp; cost</strong> — per-agent and fleet CPU/memory, context, tokens saved, and real Claude spend in dollars.</p>
+    </td>
+    <td width="50%">
+      <a href="https://srjn45.github.io/warden/multi-agent/pipelines/"><img src="site/public/media/web-pipeline.png" alt="A warden pipeline rendered as a DAG in the web UI, with each job card showing its live status."></a>
+      <p align="center"><strong>Pipelines</strong> — chain dependent agents into a DAG and watch each job's live status.</p>
+    </td>
+  </tr>
+</table>
 
 <details>
 <summary><strong>Architecture — one binary, multiple faces</strong></summary>
