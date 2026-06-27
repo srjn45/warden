@@ -16,6 +16,7 @@ import AttentionBar from './AttentionBar';
 import TabBar from './TabBar';
 import OthersTab from './OthersTab';
 import CockpitTab from './CockpitTab';
+import TuiTab from './TuiTab';
 import MetricsTab from './MetricsTab';
 import AgentTab from './AgentTab';
 import NewAgentModal from './NewAgentModal';
@@ -241,6 +242,7 @@ export default function Dashboard() {
       <main className="tab-content">
         {route.kind === 'others' && <OthersTab sessions={sessions} onSelect={select} />}
         {route.kind === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} onCreated={select} />}
+        {route.kind === 'tui' && <TuiTab />}
         {route.kind === 'pipelines' && <PipelinesTab onSelect={select} />}
         {route.kind === 'metrics' && <MetricsTab contextHistory={contextHistory} />}
         {route.kind === 'archive' && <ArchiveTab />}

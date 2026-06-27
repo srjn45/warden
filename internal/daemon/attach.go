@@ -12,7 +12,9 @@ import (
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/tui"
 )
 
 // attachEnv forces TERM=xterm-256color for the tmux attach PTY. The rendering
@@ -67,10 +69,44 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.bridgeTmux(w, r, sess.TmuxSession)
+}
 
+// handleCockpitAttach bridges an interactive attach to the daemon-owned web
+// cockpit — the three-pane "TUI" (agent list + master shell/REPL + detail pane)
+// rendered into the browser's xterm.js by the same PTY↔WS bridge that powers the
+// per-agent attach. The cockpit is built lazily on first attach and shared across
+// clients/devices, so it is the literal `warden tui`, driven from anywhere.
+func (s *Server) handleCockpitAttach(w http.ResponseWriter, r *http.Request) {
+	self, err := os.Executable()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "resolve warden binary: "+err.Error())
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	run := lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}
+	// Plain-shell master pane (the `warden tui` default); useRepl is reserved for a
+	// future config toggle.
+	session, err := tui.EnsureWebCockpit(r.Context(), run, self, home, false)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "build cockpit: "+err.Error())
+		return
+	}
+	s.bridgeTmux(w, r, session)
+}
+
+// bridgeTmux runs an interactive `tmux attach-session -t <session>` over a PTY
+// and bridges it to the WebSocket: PTY output → binary frames, client binary
+// frames → keystrokes, client text frames → {cols,rows} resize controls. Closing
+// the socket detaches THIS client only — the tmux session keeps running. Shared
+// by the per-agent attach and the cockpit attach.
+func (s *Server) bridgeTmux(w http.ResponseWriter, r *http.Request, session string) {
 	// The most recently active client drives the window size (web vs TUI vs
 	// terminal). Best-effort; failure is non-fatal.
-	_ = exec.Command("tmux", "set-option", "-t", sess.TmuxSession, "window-size", "latest").Run()
+	_ = exec.Command("tmux", "set-option", "-t", session, "window-size", "latest").Run()
 
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -82,7 +118,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel() // safety net for early returns (e.g. pty.Start failure)
 
-	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sess.TmuxSession)
+	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", session)
 	cmd.Env = attachEnv(os.Environ())
 	ptyFile, err := pty.Start(cmd)
 	if err != nil {

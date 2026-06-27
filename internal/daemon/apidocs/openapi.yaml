@@ -297,6 +297,21 @@ paths:
           description: Switching Protocols (WebSocket)
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/cockpit/attach:
+    get:
+      operationId: attachCockpit
+      tags: [Sessions]
+      summary: Attach to the web cockpit / TUI (WebSocket)
+      description: |
+        Upgrades to a WebSocket carrying the daemon-owned three-pane cockpit
+        (agent list + master shell/REPL + detail pane) — the same `warden tui`,
+        rendered into the browser. The cockpit is built lazily on first attach
+        and shared across clients. Not a request/response endpoint; a successful
+        handshake returns 101.
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+
   /api/v1/sessions/{id}/restore:
     post:
       operationId: restoreSession

@@ -19,6 +19,7 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 | Route | Tab | What's there |
 |---|---|---|
 | `/cockpit` | ⊞ **Cockpit** | **The home view** (`/` redirects here). A slim **Fleet** header — totals · busy · waiting · errored, pressure, per-directory counts — above the full agent grid. |
+| `/tui` | ▢ **TUI** | The **full `warden tui`, streamed into the browser** — see [TUI tab](#tui-tab). |
 | `/pipelines` | ⛓ **Pipelines** | Pipeline list + live DAG / per-job drawer. |
 | `/metrics` | 📊 **Metrics** | Per-agent and fleet-wide charts — [see below](#metrics-view). |
 | `/archive` | 🗄 **Archive** | Ended sessions with since/type filters. |
@@ -42,6 +43,7 @@ In the Cockpit you can **group the fleet** by directory, task type, status, or t
 | **Metrics view** | A dedicated `/metrics` tab — see [Metrics view](#metrics-view). |
 | **Context & Messages overlay** | Opened from a small **🗒 header button** as a dismissible overlay (Esc closes); it's no longer a tab. |
 | **Interactive terminal** | Pin an agent to get a live `tmux attach` bridged to the browser over a WebSocket (xterm.js) — type into the agent and watch it respond. **Mobile-friendly:** swipe to scroll back through history (the swipe drives tmux/the agent's scrollback the same way a mouse wheel does), plus a sticky on-screen key bar (Esc, Tab, Ctrl-C, ↑/↓, jump-to-bottom) for the keys a phone keyboard lacks. The layout tracks the visible viewport, so the bottom tab nav and the key bar stay put above the soft keyboard. |
+| **TUI tab** | The whole `warden tui` in the browser — see [TUI tab](#tui-tab). |
 | **Create agent** | **+ New agent** prompt box with a directory picker (live prefix autocomplete) and a **Supervised** checkbox. |
 | **Terminate with git guard** | Surfaces a 409 → **Force** + optional hard-delete when there's uncommitted/unpushed work. |
 | **Digest panel** | View an agent's completion digest in the browser. |
@@ -53,6 +55,36 @@ In the Cockpit you can **group the fleet** by directory, task type, status, or t
 | **Keyboard shortcuts** | Global shortcuts for navigation and actions (`1`–`9` jump to a tab, `j`/`k` next/previous, `Esc` close), with a `?` help overlay listing them. |
 
 The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a selected pipeline's jobs as status-colored cards with dependency chips, and a per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) / **Retry** (job) control, and an **Open terminal** link to a running job's session. (Creating / editing pipelines in the browser is not yet available — use `warden pipeline create -f`.)
+
+## TUI tab
+
+The **TUI** tab (`/tui`) is the full terminal cockpit — the literal `warden tui`
+— **streamed into the browser**, so you can drive the entire fleet from any
+device exactly as you do locally.
+
+It isn't a reimplementation. The daemon builds a shared three-pane tmux cockpit
+(agent **list** pane + a **master** shell/REPL pane + a **detail** pane that opens
+the selected agent) and bridges it to an xterm.js terminal over the same
+WebSocket PTY that powers a per-agent attach. Because it's the real session:
+
+- **Every TUI keybinding works** — `enter` open · `n` new · `o` dir · `s` send ·
+  `a` attach · `i` info · `x` kill · `r` refresh · `?` help · `j`/`k`, `g`/`G`,
+  and the rest — they reach the bubbletea list pane unchanged.
+- **The shells are real shells.** The master pane runs *your* `$SHELL` with your
+  rc files, so tab-completion, autosuggestions, history, and fzf all behave as
+  they do locally — nothing is emulated, only piped.
+- **Claude Code in the detail pane is the real Claude Code**, with its full
+  interactive UI. Shift+Enter is mapped to its newline.
+- **Shared across devices.** There's one web cockpit; open it on a laptop and
+  pick it up on a phone mid-navigation. The most-recently-active client drives
+  the window size.
+
+It's built lazily on first attach and reused after that. While the terminal has
+focus the dashboard's global single-key shortcuts stay dormant (keys flow to the
+TUI); click another tab to leave. The one place a browser tab can't match a local
+terminal is a handful of browser-reserved chords (`Ctrl+T`/`Ctrl+W`/`Ctrl+N`) —
+installing the dashboard as a PWA reclaims most of them. The three-pane layout is
+desktop/tablet-first; on a phone, pinning a single agent (above) is the better fit.
 
 ## Metrics view
 
@@ -84,4 +116,4 @@ warden daemon    # start the daemon as usual
 
 Then open `http://localhost:8765` in a browser.
 
-> The UI is baked into the binary at build time. After changing anything under `web/`, rebuild (`make release`, or `make ui` for the frontend only) and restart the daemon. For live UI iteration, run `warden daemon` and `make ui-dev` in parallel and open `http://localhost:4321` — the Astro dev server proxies `/api/*` (the whole REST surface, incl. the `/api/v1/sessions/{id}/attach` WebSocket and `/api/v1/events/stream` SSE) and `/healthz` to `:8765`, so SSE and all REST calls work without CORS configuration.
+> The UI is baked into the binary at build time. After changing anything under `web/`, rebuild (`make release`, or `make ui` for the frontend only) and restart the daemon. For live UI iteration, run `warden daemon` and `make ui-dev` in parallel and open `http://localhost:4321` — the Astro dev server proxies `/api/*` (the whole REST surface, incl. the `/api/v1/sessions/{id}/attach` and `/api/v1/cockpit/attach` WebSockets and `/api/v1/events/stream` SSE) and `/healthz` to `:8765`, so SSE and all REST calls work without CORS configuration.
