@@ -25,8 +25,9 @@ const (
 	// FeatureLLMOffload covers a classify/summarize call served by the local model
 	// instead of warden's own Claude — the whole prompt left Claude's spend (kept 0).
 	FeatureLLMOffload = "llm_offload"
-	// FeatureCompact is reserved for auto-/compact reclaiming context-window fill;
-	// not yet emitted (its saving is measured post-compaction in the poller).
+	// FeatureCompact covers auto-/compact reclaiming context-window fill; emitted
+	// by the poller, which measures the saving post-compaction (pre vs. post
+	// context tokens) net of the one-time summary-generation cost.
 	FeatureCompact = "compact"
 )
 
