@@ -12,7 +12,7 @@ import (
 
 func newTUICmd() *cobra.Command {
 	var pane, detailPane, pipelineID, jobID, agentID string
-	var repl, web bool
+	var repl bool
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Live terminal cockpit for agents",
@@ -21,7 +21,7 @@ func newTUICmd() *cobra.Command {
 			a := clientFor(cmd)
 			switch pane {
 			case "list":
-				return tui.RunListPane(a, detailPane, web)
+				return tui.RunListPane(a, detailPane)
 			case "jobdetail":
 				return tui.RunJobDetailPane(a, pipelineID, jobID)
 			case "agentdetail":
@@ -39,8 +39,7 @@ func newTUICmd() *cobra.Command {
 	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "internal: pipeline id for --pane=jobdetail")
 	cmd.Flags().StringVar(&jobID, "job", "", "internal: job id for --pane=jobdetail")
 	cmd.Flags().StringVar(&agentID, "agent", "", "internal: agent id for --pane=agentdetail")
-	cmd.Flags().BoolVar(&web, "web", false, "internal: web-cockpit list pane — `q` drops to the wrapping shell instead of killing the session")
-	for _, f := range []string{"pane", "detail-pane", "pipeline", "job", "agent", "web"} {
+	for _, f := range []string{"pane", "detail-pane", "pipeline", "job", "agent"} {
 		_ = cmd.Flags().MarkHidden(f)
 	}
 	return cmd

@@ -34,6 +34,20 @@ func attachEnv(base []string) []string {
 	return append(out, "TERM=xterm-256color")
 }
 
+// wsStatusCockpitEnded is the WebSocket close code the cockpit bridge sends when
+// the tmux session it was attached to has gone away — i.e. the user quit the TUI
+// from inside (`q` → killCockpitCmd). It's in the application-private 4000–4999
+// range. The browser's full-screen TUI reads it as "leave and go home" rather
+// than the reconnect banner a plain disconnect shows. A normal client detach
+// (navigating away, a network drop) leaves the session alive, so this code is
+// not sent then.
+const wsStatusCockpitEnded websocket.StatusCode = 4001
+
+// tmuxHasSession reports whether a tmux session by that name currently exists.
+func tmuxHasSession(session string) bool {
+	return exec.Command("tmux", "has-session", "-t", session).Run() == nil
+}
+
 // resizeMsg is the JSON body of a client text control frame.
 type resizeMsg struct {
 	Cols uint16 `json:"cols"`
@@ -69,7 +83,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.bridgeTmux(w, r, sess.TmuxSession)
+	s.bridgeTmux(w, r, sess.TmuxSession, false)
 }
 
 // handleCockpitAttach bridges an interactive attach to the daemon-owned web
@@ -95,7 +109,7 @@ func (s *Server) handleCockpitAttach(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "build cockpit: "+err.Error())
 		return
 	}
-	s.bridgeTmux(w, r, session)
+	s.bridgeTmux(w, r, session, true)
 }
 
 // bridgeTmux runs an interactive `tmux attach-session -t <session>` over a PTY
@@ -103,7 +117,13 @@ func (s *Server) handleCockpitAttach(w http.ResponseWriter, r *http.Request) {
 // frames → keystrokes, client text frames → {cols,rows} resize controls. Closing
 // the socket detaches THIS client only — the tmux session keeps running. Shared
 // by the per-agent attach and the cockpit attach.
-func (s *Server) bridgeTmux(w http.ResponseWriter, r *http.Request, session string) {
+//
+// When signalSessionEnd is set (the cockpit) and the bridge ends because the
+// session itself vanished — the user quit the TUI from inside (`q`) — the socket
+// is closed with wsStatusCockpitEnded so the browser navigates home instead of
+// showing a reconnect banner. A plain client detach (session still alive) closes
+// normally.
+func (s *Server) bridgeTmux(w http.ResponseWriter, r *http.Request, session string, signalSessionEnd bool) {
 	// The most recently active client drives the window size (web vs TUI vs
 	// terminal). Best-effort; failure is non-fatal.
 	_ = exec.Command("tmux", "set-option", "-t", session, "window-size", "latest").Run()
@@ -153,10 +173,11 @@ func (s *Server) bridgeTmux(w http.ResponseWriter, r *http.Request, session stri
 	}()
 
 	// client → PTY: binary = keystrokes, text = resize control.
+clientLoop:
 	for {
 		typ, data, rerr := conn.Read(ctx)
 		if rerr != nil {
-			return
+			break
 		}
 		switch typ {
 		case websocket.MessageText:
@@ -165,8 +186,17 @@ func (s *Server) bridgeTmux(w http.ResponseWriter, r *http.Request, session stri
 			}
 		case websocket.MessageBinary:
 			if _, werr := ptyFile.Write(data); werr != nil {
-				return
+				break clientLoop
 			}
 		}
+	}
+
+	// The bridge ended. If the cockpit session is gone, the user quit from inside
+	// (the PTY reader cancelled ctx when `tmux attach` exited on kill-session) —
+	// tell the browser to leave the full-screen TUI rather than reconnect. (A
+	// client detach leaves the session alive, so this is skipped; the deferred
+	// CloseNow handles the ordinary close.) Best-effort.
+	if signalSessionEnd && !tmuxHasSession(session) {
+		_ = conn.Close(wsStatusCockpitEnded, "cockpit exited")
 	}
 }

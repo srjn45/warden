@@ -31,6 +31,13 @@ import { resizeMessage } from '../lib/attach';
 const wheelSeq = (up: boolean, col: number, row: number) =>
   `\x1b[<${up ? 64 : 65};${col};${row}M`;
 
+// WS_COCKPIT_ENDED is the WebSocket close code the daemon sends when the cockpit
+// tmux session went away because the user quit the TUI from inside (`q`). The
+// full-screen TUI treats it as "exit to home"; an ordinary disconnect (no
+// onExit, or a different code) shows the reconnect banner instead. Must match
+// wsStatusCockpitEnded in internal/daemon/attach.go.
+const WS_COCKPIT_ENDED = 4001;
+
 export default function PtyTerminal({
   makeUrl,
   reconnectKey,
@@ -146,7 +153,16 @@ export default function PtyTerminal({
     ws.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) term.write(new Uint8Array(e.data));
     };
-    ws.onclose = () => setClosed(true);
+    ws.onclose = (e) => {
+      // The user quit the TUI from inside (`q` tore the cockpit down) — leave the
+      // full-screen TUI for home rather than showing the reconnect banner. Any
+      // other close (network drop, daemon restart) falls through to the banner.
+      if (onExitRef.current && e.code === WS_COCKPIT_ENDED) {
+        onExitRef.current();
+        return;
+      }
+      setClosed(true);
+    };
     ws.onerror = () => setClosed(true);
 
     const dataSub = term.onData((d) => send(d));
