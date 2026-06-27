@@ -89,11 +89,27 @@ export default function PtyTerminal({
     // as "newline, don't submit"; we send the ESC+CR (Alt+Enter) sequence the TUI
     // cockpit already wires up as the Shift+Enter fallback.
     if (extendedKeys) {
+      // Alt+Arrow moves between cockpit panes (tmux `bind-key -n M-Up/Down/
+      // Left/Right`). The browser would otherwise eat Alt+Left/Right as
+      // back/forward navigation, and `macOptionIsMeta` reroutes the modifier, so
+      // neither reliably reaches the PTY. Emit the modifyOtherKeys CSI ourselves
+      // (modifier 3 = Alt, which tmux reads as M-) and swallow the browser event.
+      const altArrow: Record<string, string> = {
+        ArrowUp: '\x1b[1;3A',
+        ArrowDown: '\x1b[1;3B',
+        ArrowRight: '\x1b[1;3C',
+        ArrowLeft: '\x1b[1;3D',
+      };
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== 'keydown') return true;
         if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           send('\x1b\r');
+          return false;
+        }
+        if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && altArrow[e.key]) {
+          e.preventDefault();
+          send(altArrow[e.key]);
           return false;
         }
         return true;

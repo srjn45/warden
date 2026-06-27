@@ -51,6 +51,10 @@ port. The work is making the key/clipboard/terminfo pipe transparent:
   bytes: `PtyTerminal` installs an `attachCustomKeyEventHandler` that maps
   Shift+Enter → `ESC`+`CR` (the Alt+Enter fallback the TUI cockpit already wires
   up via `extended-keys`), and sets `macOptionIsMeta` so ⌥-chords reach the PTY.
+  The same handler emits the modifyOtherKeys CSI for **Alt+Arrow**
+  (`ESC [ 1 ; 3 A/B/C/D`) so cockpit pane navigation (tmux `bind-key -n
+  M-Up/Down/Left/Right`) works — otherwise the browser eats Alt+Left/Right as
+  back/forward and `macOptionIsMeta` reroutes the modifier.
 - **Browser-reserved chords** — a few combos (`Ctrl+T/W/N`, some `Cmd+…`) the
   browser swallows before JS sees them. This is the only place a browser tab
   can't be byte-for-byte identical to local; running the app as an installed PWA
