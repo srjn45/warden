@@ -125,18 +125,26 @@ day-to-day impact now that `q` exits cleanly.
 
 ## 🤖 Agent Backends & Ecosystem
 
-#### 52. Pluggable agent backends (beyond Claude Code) — *idea, not yet scoped*
-**Effort:** TBD (deep-dive later)
+#### 52. Pluggable agent backends (beyond Claude Code) — *designed; not started*
+**Effort:** large, phased (see spec) — interface extraction + 1 adapter per agent
+**Design:** `docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`
 
 Generalize the agent layer so warden can drive **other console-based coding
-agents** (e.g. other CLI AI assistants) the same way it drives Claude Code, not
-just Claude Code alone. Today the spawn/attach/lifecycle plumbing assumes the
-`claude` binary; factoring that into a backend interface (launch command,
-prompt/handoff protocol, idle/needs-input detection, digest parsing) would let an
-operator pick a backend per agent. **Why it matters:** broadens warden's reach
-beyond Claude-Code users to any developer running a terminal agent, which is the
-single biggest lever on adoption. Needs a design pass on the backend abstraction
-and which agents to support first.
+agents** the same way it drives Claude Code, via an **adapter layer** (one
+`AgentBackend` adapter per agent). Today the spawn/attach/lifecycle plumbing
+assumes the `claude` binary; the spec factors that into a `Backend` interface
+(launch/resume command, headless one-shot, transcript parsing, idle/needs-input
+detection, approval parsing, system-prompt injection) with **capability flags**
+so features degrade gracefully when an agent lacks a capability.
+
+**Decisions (design pass 2026-06-27):** Claude Code becomes the reference impl;
+**Aider** is the mechanical proof backend (Tier C, easiest); **Antigravity CLI**
+(`agy`, Google's Gemini-CLI successor — Gemini CLI retired 2026-06-18) is the
+headline first non-Claude target. Then Codex CLI, OpenCode, and the full catalog
+(spec §12) over time. **Start with one agent; one adapter PR per agent after the
+interface is proven.** **Why it matters:** broadens warden's reach beyond
+Claude-Code users to any developer running a terminal agent — the single biggest
+lever on adoption.
 
 ---
 
