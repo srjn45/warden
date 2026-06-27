@@ -42,7 +42,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 	want := []string{
 		"digest", "get_metrics", "savings", "spend", "search", "history", "audit_log",
 		"list_worktrees", "list_plugins", "get_pressure",
-		"set_auto_approve", "set_permission_mode", "prune_worktrees",
+		"set_auto_approve", "set_force_compact", "set_permission_mode", "prune_worktrees",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
 		"pause_pipeline", "resume_pipeline", "retry_pipeline_job",
 		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",

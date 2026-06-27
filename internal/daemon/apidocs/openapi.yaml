@@ -370,6 +370,42 @@ paths:
                   auto_approve: { type: boolean }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/sessions/{id}/force-compact:
+    patch:
+      operationId: setForceCompact
+      tags: [Sessions]
+      summary: Set an agent's force-compact override (on / off / inherit)
+      description: >-
+        Controls the destructive force-compact path for one agent, overriding the
+        global token_force_compact. enabled=true forces it on, false forces it
+        off, and null/omitted clears the override so the agent inherits the global
+        setting.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state:
+                  type: string
+                  enum: [on, off, inherit]
+      responses:
+        "200":
+          description: The new force-compact override (inherit = use global)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state:
+                    type: string
+                    enum: [on, off, inherit]
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/sessions/{id}/permission-mode:
     patch:
       operationId: setPermissionMode

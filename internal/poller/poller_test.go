@@ -268,6 +268,8 @@ func (d *stubDeps) TranscriptUsage(_ context.Context, _ *store.Session) (int, in
 }
 func (d *stubDeps) UpdateContext(_ context.Context, _ string, _ int, _ string) error { return nil }
 func (d *stubDeps) Compact(_ context.Context, _ *store.Session) error                { return nil }
+func (d *stubDeps) Interrupt(_ context.Context, _ *store.Session) error              { return nil }
+func (d *stubDeps) Resume(_ context.Context, _ *store.Session, _ string) error       { return nil }
 func (d *stubDeps) StampCompact(_ context.Context, _ string) error                   { return nil }
 func (d *stubDeps) SessionAlive(_ context.Context, name string) bool                 { return d.alive[name] }
 func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {

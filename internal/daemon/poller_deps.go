@@ -97,6 +97,18 @@ func (d *pollerDeps) Compact(ctx context.Context, s *store.Session) error {
 	return d.lc.Input(ctx, s.ID, "/compact")
 }
 
+// Interrupt sends Escape to the agent's pane, cancelling the in-flight turn so a
+// busy critical agent drops to idle and the force-compact path can /compact it.
+func (d *pollerDeps) Interrupt(ctx context.Context, s *store.Session) error {
+	return d.lc.SendKeys(ctx, s.ID, "Escape")
+}
+
+// Resume sends a prompt to a force-compacted agent so it picks its work back up
+// after the interrupt + compaction (the bracketed-paste + Enter path).
+func (d *pollerDeps) Resume(ctx context.Context, s *store.Session, prompt string) error {
+	return d.lc.Input(ctx, s.ID, prompt)
+}
+
 func (d *pollerDeps) StampCompact(ctx context.Context, id string) error {
 	return d.store.StampCompact(ctx, id)
 }

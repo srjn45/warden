@@ -48,8 +48,12 @@ type Config struct {
 	TokenGuard            bool            `yaml:"token_guard"`
 	TokenWarnAlert        bool            `yaml:"token_warn_alert"`
 	TokenAutoCompact      bool            `yaml:"token_auto_compact"`
+	TokenForceCompact     bool            `yaml:"token_force_compact"`
 	TokenWarn             int             `yaml:"token_warn"`
 	TokenCritical         int             `yaml:"token_critical"`
+	// TokenCompactResumePrompt is the message warden sends a force-compacted agent
+	// once its compaction lands, so it resumes the work the interrupt discarded.
+	TokenCompactResumePrompt string `yaml:"token_compact_resume_prompt"`
 
 	// Migrated from previously-scattered os.Getenv reads.
 	PipelineKeepDone    bool   `yaml:"pipeline_keep_done"`
@@ -135,8 +139,10 @@ var schema = []setting{
 	{"token_guard", "Enable the context-token guard (warn / auto-compact). Values: true | false"},
 	{"token_warn_alert", "Notify when an agent crosses the token warning threshold. Values: true | false"},
 	{"token_auto_compact", "Auto-compact an agent that crosses the critical threshold. Values: true | false"},
+	{"token_force_compact", "Interrupt a busy critical agent to /compact it, then resume it (destructive: discards the in-flight turn). Per-agent override via `warden force-compact`. Values: true | false"},
 	{"token_warn", "Token count for the warning threshold. Values: integer (must be < token_critical)"},
 	{"token_critical", "Token count for the critical threshold. Values: integer (must be > token_warn)"},
+	{"token_compact_resume_prompt", "Message sent to a force-compacted agent once compaction lands so it resumes its work. Values: any text"},
 	{"pipeline_keep_done", "Keep a pipeline job's agent alive after the job completes. Values: true | false"},
 	{"model_default", "Default model for new agents. Values: a claude model id or alias (sonnet, opus, haiku, fable)"},
 	{"pipeline_hint", "Append the pipeline-decomposition hint to standalone agents. Values: true | false"},
@@ -182,6 +188,11 @@ var schema = []setting{
 // fileHeader is the comment written at the very top of a generated config file.
 const fileHeader = "warden configuration — edit values below; run `warden config` to see what's live."
 
+// defaultCompactResumePrompt is sent to a force-compacted agent once the
+// compaction lands, so it resumes the work the interrupt discarded. Kept generic
+// because warden can't know the agent's specific task.
+const defaultCompactResumePrompt = "Your context was just compacted to free up space. Continue the task you were working on before the compaction."
+
 // defaults returns a fully-populated Config holding every setting's default.
 // It is the single source of truth for default values (file generation reads
 // the values from here; Load starts from here and overlays the file).
@@ -199,59 +210,61 @@ func defaults() Config {
 			AllowSticky: false,
 			Rules:       approval.Rules{Allow: []approval.Rule{}, Deny: []approval.Rule{}},
 		},
-		DefaultPermissionMode:  "auto",
-		SpawnGateEnabled:       true,
-		SpawnGateMaxAgents:     5,
-		BudgetGate:             false,
-		BudgetDailyUSD:         0,
-		BudgetWeeklyUSD:        0,
-		MetricsEnabled:         true,
-		AllowNonLoopback:       false,
-		TokenGuard:             true,
-		TokenWarnAlert:         true,
-		TokenAutoCompact:       true,
-		TokenWarn:              200000,
-		TokenCritical:          400000,
-		PipelineKeepDone:       false,
-		ModelDefault:           "claude-sonnet-4-6", // current "sonnet" alias; keep in sync with lifecycle.DefaultModel
-		PipelineHint:           true,
-		AutoRestartMax:         3,
-		AutoRestartReset:       "5m",
-		CollabEnabled:          true,
-		CollabInterval:         "10s",
-		CollabHint:             true,
-		BranchTrackEnabled:     false,
-		BranchTrackInterval:    "2m",
-		IsolationGuard:         true,
-		GitConventions:         true,
-		GitRedirect:            true,
-		CheckRedirect:          true,
-		RootGuard:              true,
-		Snapshots:              true,
-		Savings:                true,
-		SavingsSamples:         false,
-		Tutorial:               true,
-		Insights:               true,
-		ApiDocs:                true,
-		SchedulerEnabled:       false,
-		LocalLLM:               false,
-		LocalLLMURL:            "http://localhost:11434",
-		LocalLLMModel:          "qwen2.5-coder:7b",
-		LocalLLMTimeout:        "20s",
-		LocalLLMEscalate:       true,
-		LocalLLMTier:           "auto",
-		LocalLLMClassifier:     "heuristic",
-		Repl:                   false,
-		PluginsEnabled:         false,
-		Plugins:                []plugin.Spec{},
-		RateLimitRetryInterval: "30m",
-		RateLimitBuffer:        "1m",
-		RateLimitAutoResume:    true,
-		RateLimitResumePrompt:  "",
-		WorktreeKeepDone:       true,
-		WorktreeAutoPrune:      false,
-		LogLevel:               logging.DefaultLevel,
-		LogFormat:              logging.DefaultFormat,
+		DefaultPermissionMode:    "auto",
+		SpawnGateEnabled:         true,
+		SpawnGateMaxAgents:       5,
+		BudgetGate:               false,
+		BudgetDailyUSD:           0,
+		BudgetWeeklyUSD:          0,
+		MetricsEnabled:           true,
+		AllowNonLoopback:         false,
+		TokenGuard:               true,
+		TokenWarnAlert:           true,
+		TokenAutoCompact:         true,
+		TokenForceCompact:        false, // destructive (interrupts a busy turn) — opt-in only
+		TokenWarn:                200000,
+		TokenCritical:            400000,
+		TokenCompactResumePrompt: defaultCompactResumePrompt,
+		PipelineKeepDone:         false,
+		ModelDefault:             "claude-sonnet-4-6", // current "sonnet" alias; keep in sync with lifecycle.DefaultModel
+		PipelineHint:             true,
+		AutoRestartMax:           3,
+		AutoRestartReset:         "5m",
+		CollabEnabled:            true,
+		CollabInterval:           "10s",
+		CollabHint:               true,
+		BranchTrackEnabled:       false,
+		BranchTrackInterval:      "2m",
+		IsolationGuard:           true,
+		GitConventions:           true,
+		GitRedirect:              true,
+		CheckRedirect:            true,
+		RootGuard:                true,
+		Snapshots:                true,
+		Savings:                  true,
+		SavingsSamples:           false,
+		Tutorial:                 true,
+		Insights:                 true,
+		ApiDocs:                  true,
+		SchedulerEnabled:         false,
+		LocalLLM:                 false,
+		LocalLLMURL:              "http://localhost:11434",
+		LocalLLMModel:            "qwen2.5-coder:7b",
+		LocalLLMTimeout:          "20s",
+		LocalLLMEscalate:         true,
+		LocalLLMTier:             "auto",
+		LocalLLMClassifier:       "heuristic",
+		Repl:                     false,
+		PluginsEnabled:           false,
+		Plugins:                  []plugin.Spec{},
+		RateLimitRetryInterval:   "30m",
+		RateLimitBuffer:          "1m",
+		RateLimitAutoResume:      true,
+		RateLimitResumePrompt:    "",
+		WorktreeKeepDone:         true,
+		WorktreeAutoPrune:        false,
+		LogLevel:                 logging.DefaultLevel,
+		LogFormat:                logging.DefaultFormat,
 	}
 }
 
@@ -317,6 +330,9 @@ func validate(c *Config) {
 	}
 	if strings.TrimSpace(c.ModelDefault) == "" {
 		c.ModelDefault = d.ModelDefault
+	}
+	if strings.TrimSpace(c.TokenCompactResumePrompt) == "" {
+		c.TokenCompactResumePrompt = d.TokenCompactResumePrompt
 	}
 	c.DefaultPermissionMode = validPermissionMode(c.DefaultPermissionMode)
 	if c.TokenCritical <= c.TokenWarn { // inverted/degenerate → defaults (warning must be reachable)

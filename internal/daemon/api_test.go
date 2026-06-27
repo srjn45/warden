@@ -243,6 +243,7 @@ func (f *fakeStore) Delete(_ context.Context, id string) error {
 func (f *fakeStore) Ping(_ context.Context) error                                { return nil }
 func (f *fakeStore) Close(_ context.Context) error                               { return nil }
 func (f *fakeStore) UpdateAutoApprove(_ context.Context, _ string, _ bool) error { return nil }
+func (f *fakeStore) SetForceCompact(_ context.Context, _ string, _ *bool) error  { return nil }
 func (f *fakeStore) UpdatePermissionMode(_ context.Context, id string, mode string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -463,6 +463,15 @@ func (fs *FileStore) UpdateAutoApprove(ctx context.Context, id string, enabled b
 	})
 }
 
+// SetForceCompact sets the per-agent force-compact override. v=nil clears the
+// override so the agent inherits the global token_force_compact setting; a
+// non-nil pointer pins the agent on (true) or off (false) regardless of global.
+func (fs *FileStore) SetForceCompact(ctx context.Context, id string, v *bool) error {
+	return fs.mutate(id, func(s *Session) {
+		s.ForceCompact = v
+	})
+}
+
 func (fs *FileStore) UpdatePermissionMode(ctx context.Context, id string, mode string) error {
 	return fs.mutate(id, func(s *Session) {
 		s.PermissionMode = mode

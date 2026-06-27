@@ -97,6 +97,10 @@ type setPermissionModeArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	Mode   string `json:"mode" jsonschema:"permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan"`
 }
+type setForceCompactArgs struct {
+	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
+	State  string `json:"state" jsonschema:"force-compact override: on (always) | off (never) | inherit (follow the global token_force_compact)"`
+}
 type exportArgs struct {
 	All bool `json:"all,omitempty" jsonschema:"also include archived (closed) agent records"`
 }
@@ -320,6 +324,24 @@ func (s *Server) registerExtraTools() {
 			state = "on"
 		}
 		return textResult("auto-approve " + state + " for " + a.Ticket), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_force_compact",
+		Description: "Set one agent's force-compact override. When on, warden interrupts that agent (Escape) if it goes context-critical while still working, runs /compact once it is idle, then sends the resume prompt — destructive: the in-flight turn is discarded. state: on | off | inherit (follow the global token_force_compact). Mirrors `warden force-compact <id> on|off|inherit`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setForceCompactArgs) (*mcpsdk.CallToolResult, any, error) {
+		state := a.State
+		switch state {
+		case "on", "off", "inherit":
+		case "default", "clear":
+			state = "inherit"
+		default:
+			return textResult("error: state must be on, off, or inherit"), nil, nil
+		}
+		if err := s.cl.SetForceCompact(ctx, a.Ticket, state); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("force-compact " + state + " for " + a.Ticket), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

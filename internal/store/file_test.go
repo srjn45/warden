@@ -790,6 +790,43 @@ func TestUpdateAutoApproveNotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestSetForceCompact(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	s := &Session{ID: "fc-1", TmuxSession: "tmux-1", Repo: "/repo", Status: StatusWorking}
+	require.NoError(t, st.Insert(ctx, s))
+
+	// Starts unset (inherit global).
+	got, err := st.Get(ctx, "fc-1")
+	require.NoError(t, err)
+	require.Nil(t, got.ForceCompact, "ForceCompact should start nil (inherit)")
+
+	// Pin on.
+	on := true
+	require.NoError(t, st.SetForceCompact(ctx, "fc-1", &on))
+	got, err = st.Get(ctx, "fc-1")
+	require.NoError(t, err)
+	require.NotNil(t, got.ForceCompact)
+	require.True(t, *got.ForceCompact)
+
+	// Pin off.
+	off := false
+	require.NoError(t, st.SetForceCompact(ctx, "fc-1", &off))
+	got, err = st.Get(ctx, "fc-1")
+	require.NoError(t, err)
+	require.NotNil(t, got.ForceCompact)
+	require.False(t, *got.ForceCompact)
+
+	// Clear back to inherit.
+	require.NoError(t, st.SetForceCompact(ctx, "fc-1", nil))
+	got, err = st.Get(ctx, "fc-1")
+	require.NoError(t, err)
+	require.Nil(t, got.ForceCompact, "ForceCompact should be cleared to nil (inherit)")
+}
+
 func TestPermissionModeFieldPersistence(t *testing.T) {
 	dir := t.TempDir()
 	st, err := NewFileStore(dir)
