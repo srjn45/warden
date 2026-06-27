@@ -49,6 +49,14 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 - **Model** — `--model` (CLI) / `model` (MCP). Aliases `opus`/`sonnet`/`haiku`/`fable`;
   config default `model_default`; fallback `claude-sonnet-4-6`. Shown in the MODEL
   column, preserved on restore.
+- **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`. Backends
+  differ in capabilities and warden degrades gracefully (it never crashes on a
+  missing one). `aider` is bring-your-own-model — **you must pass `model`** (e.g.
+  `ollama_chat/qwen2.5-coder:3b`); it has **no resume** (rotate/handoff re-spawn
+  fresh, `restore` refuses), **no priced spend** (`spend` shows tokens, `savings`
+  omits it), and runs an **autonomous `--message` task that exits when done**
+  rather than a persistent loop. Claude is the full-fidelity default — leave
+  `backend` unset unless the operator asked for another agent.
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`
   (legacy `--supervised` = `acceptEdits`). Global default `default_permission_mode`
   (defaults `auto`). Change at runtime: MCP `set_permission_mode {ticket, mode}` /

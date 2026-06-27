@@ -117,6 +117,15 @@ type Backend interface {
 	LaunchCmd(opts LaunchOpts) string
 	ResumeCmd(opts ResumeOpts) (cmd string, ok bool) // ok=false ⇒ no resume support
 
+	// LaunchPromptArg returns the fragment that seeds an initial task prompt onto
+	// the launch command, given the absolute path of a file holding the prompt
+	// (read back via "$(cat …)" so a multi-line prompt types as one physical line).
+	// Agents disagree on how the first message is delivered: Claude takes it as a
+	// trailing positional argument, while Aider takes it via --message. The adapter
+	// owns the shell-quoting of promptFile. The returned fragment includes its own
+	// leading space so it concatenates directly onto LaunchCmd.
+	LaunchPromptArg(promptFile string) string
+
 	// Headless one-shot (classify / summarize). ok=false ⇒ caller uses the local-LLM path.
 	HeadlessCmd(prompt string) (argv []string, ok bool)
 

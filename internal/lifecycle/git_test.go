@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/stretchr/testify/require"
 )
 
@@ -182,7 +183,7 @@ func TestParsePorcelainPaths(t *testing.T) {
 
 func TestGitConventionsHint(t *testing.T) {
 	t.Run("on by default", func(t *testing.T) {
-		got := New(&FakeRunner{}, &FakeConfig{}).gitConventionsHint()
+		got := New(&FakeRunner{}, &FakeConfig{}).gitConventionsHint(agentbackend.Default())
 		require.Contains(t, got, "--append-system-prompt")
 		require.Contains(t, got, "wd commit")
 		require.Contains(t, got, "wd check")
@@ -191,7 +192,7 @@ func TestGitConventionsHint(t *testing.T) {
 		require.NotContains(t, gitConventionsGuidance, "'", "guidance must stay apostrophe-free (keeps the single-quoted shell form clean)")
 	})
 	t.Run("opt-out via config", func(t *testing.T) {
-		got := New(&FakeRunner{}, &FakeConfig{GitConventionsOff: true}).gitConventionsHint()
+		got := New(&FakeRunner{}, &FakeConfig{GitConventionsOff: true}).gitConventionsHint(agentbackend.Default())
 		require.Equal(t, "", got)
 	})
 }

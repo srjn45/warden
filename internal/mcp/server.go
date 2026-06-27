@@ -43,6 +43,7 @@ type spawnArgs struct {
 	Force          bool     `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
 	Name           string   `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
 	Model          string   `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to the model_default config setting (sonnet)"`
+	Backend        string   `json:"backend,omitempty" jsonschema:"agent backend to drive: claude (default) or aider. Backends differ in capabilities — aider is bring-your-own-model (set model, e.g. ollama_chat/qwen2.5-coder:3b), has no resume and no priced spend, and runs an autonomous task that exits when done"`
 	Tags           []string `json:"tags,omitempty" jsonschema:"optional free-form labels for grouping/filtering (e.g. [\"backend\",\"urgent\"]); searchable and filterable via warden ls --tag"`
 }
 type adoptArgs struct {
@@ -276,7 +277,7 @@ func NewServer(daemonBase string) *Server {
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree, InRepo: a.InRepo,
 			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
-			Name: a.Name, Model: a.Model, Tags: a.Tags, ParentID: sessionID(),
+			Name: a.Name, Model: a.Model, Backend: a.Backend, Tags: a.Tags, ParentID: sessionID(),
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired

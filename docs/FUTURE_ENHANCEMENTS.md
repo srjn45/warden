@@ -125,9 +125,18 @@ day-to-day impact now that `q` exits cleanly.
 
 ## 🤖 Agent Backends & Ecosystem
 
-#### 52. Pluggable agent backends (beyond Claude Code) — *designed; not started*
+#### 52. Pluggable agent backends (beyond Claude Code) — *Phase 0 + Phase 1 shipped; Antigravity (Phase 2) next*
 **Effort:** large, phased (see spec) — interface extraction + 1 adapter per agent
 **Design:** `docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`
+**Impl plan:** `docs/superpowers/specs/2026-06-27-pluggable-agent-backends-impl.md`
+
+**Status:** Phase 0 (interface extraction, `internal/agentbackend`, Claude moved
+behind it — zero behavior change) and **Phase 1** (Aider adapter + `--backend`
+selection across CLI/MCP/daemon + capability-gated degradation) are merged.
+Aider ships as **Tier A** (its markdown transcript parses into structured
+digests); spend/savings degrade to tokens-only (BYO model, no pricing) and
+rotate/handoff re-spawn fresh (no resume). **Next:** Phase 2 — Antigravity CLI
+(`agy`), the headline non-Claude backend.
 
 Generalize the agent layer so warden can drive **other console-based coding
 agents** the same way it drives Claude Code, via an **adapter layer** (one

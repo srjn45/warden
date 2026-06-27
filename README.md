@@ -118,7 +118,8 @@ Capability highlights from the **v5.x** line (full notes on the [releases page](
 - **Go 1.26+** — to build the binary (only needed for `go install` or building from source)
 - **tmux** — every agent session runs in a detached tmux window
 - **git** — worktree creation and guarded cleanup
-- **Claude Code** (`claude` on PATH) — the agent runtime launched in each session
+- **Claude Code** (`claude` on PATH) — the default agent runtime launched in each session
+- **Aider** (`aider` on PATH, optional) — only needed to spawn agents with `--backend aider`; bring-your-own-model (works with local Ollama models, $0)
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch, and for `warden done --create-pr`
 - **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden repl` REPL; warden falls back to Claude when it's off or unreachable
 
@@ -409,6 +410,32 @@ warden start "Complex task" --model opus
 # View model in agent list
 warden ls  # Shows MODEL column
 ```
+
+---
+
+## Agent backends (`--backend`)
+
+Warden drives **Claude Code** by default, but the agent layer is pluggable: pick
+the backend per agent at spawn time with `--backend` (CLI) or the `backend` param
+(`spawn_agent` MCP tool).
+
+| Backend | `--backend` | Tier | Notes |
+|---|---|---|---|
+| **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
+| **Aider** | `aider` | A* | Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
+
+```bash
+# Drive Aider against a local Ollama model (free, offline)
+export OLLAMA_API_BASE=http://127.0.0.1:11434
+warden start "implement the add function" --backend aider --model ollama_chat/qwen2.5-coder:3b --dir .
+```
+
+Backends differ in capabilities; warden **degrades gracefully** rather than
+crashing when one lacks a capability (e.g. spend shows tokens-not-dollars for a
+bring-your-own-model backend; rotate/handoff re-spawn fresh when resume is
+unavailable). See the design (`docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`, §5)
+and roadmap item #52. More backends (Antigravity CLI, Codex, OpenCode) land as
+isolated adapter PRs over time.
 
 ---
 

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -157,6 +158,57 @@ func TestDigestUnknownSession(t *testing.T) {
 	if code != http.StatusNotFound {
 		t.Errorf("code = %d, want 404", code)
 	}
+}
+
+// aiderDigestTranscript is a minimal .aider.chat.history.md exercising the
+// non-Claude (Tier A) digest path: a markdown transcript parsed via the Aider
+// backend's ParseTranscript and bridged into Facts.
+const aiderDigestTranscript = "\n# aider chat started at 2026-06-27 19:25:05\n\n" +
+	"> Aider v0.86.2  \n> Added calc.py to the chat.  \n\n" +
+	"#### implement add to return a+b  \n\ncalc.py\n```\n" +
+	"def add(a, b):\n    return a + b\n```\n\n" +
+	"> Tokens: 676 sent, 30 received.  \n> Applied edit to calc.py  \n"
+
+// TestDigestAiderBackendTierA proves the adapter interface end-to-end: an
+// Aider-backed session's markdown transcript is parsed through the backend and
+// produces a structured digest (Task / Turns / Files / summary), with no Claude
+// JSONL involved.
+func TestDigestAiderBackendTierA(t *testing.T) {
+	work := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(work, ".aider.chat.history.md"), []byte(aiderDigestTranscript), 0o644))
+
+	lc := lifecycle.New(lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}, &lifecycle.FakeConfig{})
+	lc.ProjectsDir = t.TempDir()
+	fs := newFakeStore()
+	fs.data["agent-a1"] = &store.Session{ID: "agent-a1", Workdir: work, Backend: "aider", Status: store.Status("done")}
+	srv := &Server{store: fs, life: NewLifecycleAdapter(lc, fs), narrator: nil}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	d, code := getDigest(t, ts, "agent-a1")
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, "implement add to return a+b", d.Task)
+	require.Equal(t, 1, d.Turns)
+	require.Contains(t, d.Summary, "def add(a, b):", "no narrator ⇒ LastMessage fallback")
+	var paths []string
+	for _, f := range d.Files {
+		paths = append(paths, f.Path)
+	}
+	require.Contains(t, paths, "calc.py", "edited file from 'Applied edit to'")
+}
+
+func TestFactsFromTurns(t *testing.T) {
+	turns := []agentbackend.Turn{
+		{Role: "user", Text: "do the thing"},
+		{Role: "assistant", Text: "did it", ToolName: "edit", Files: []string{"a.go", "a.go", "b.go"}},
+		{Role: "user", Text: "second prompt"},
+		{Role: "assistant", Text: "more"},
+	}
+	f := factsFromTurns(turns)
+	require.Equal(t, "do the thing", f.Task, "first user prompt is the Task")
+	require.Equal(t, 2, f.Turns, "assistant turns counted")
+	require.Equal(t, "more", f.LastMessage, "last assistant text")
+	require.Equal(t, []string{"a.go", "b.go"}, f.EditedFiles, "de-duped, first-seen order")
 }
 
 // TestHandleDigestServesPipelineSnapshot verifies that a reaped pipeline job's

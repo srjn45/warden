@@ -46,6 +46,7 @@ type SpawnRequest struct {
 	AutoRestart    bool     `json:"auto_restart"`    // opt-in: auto-resume on error (capped)
 	Force          bool     `json:"force"`           // bypass the memory-pressure spawn gate
 	Model          string   `json:"model"`           // claude model (opus/sonnet/haiku or full ID); empty = default
+	Backend        string   `json:"backend"`         // agent backend id (claude, aider, …); empty = claude (back-compat)
 	Tags           []string `json:"tags"`            // optional free-form labels for grouping/filtering (#30)
 	ParentID       string   `json:"parent_id"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 }

@@ -39,9 +39,9 @@ func claudeResume(sessionID, name, model, mode string) string {
 	})
 	return cmd
 }
-func pipelineHint() string       { return defaultLC().pipelineHint() }
-func collabHint() string         { return defaultLC().collabHint() }
-func gitConventionsHint() string { return defaultLC().gitConventionsHint() }
+func pipelineHint() string       { return defaultLC().pipelineHint(agentbackend.Default()) }
+func collabHint() string         { return defaultLC().collabHint(agentbackend.Default()) }
+func gitConventionsHint() string { return defaultLC().gitConventionsHint(agentbackend.Default()) }
 
 func TestClaudeLaunchPermissionMode(t *testing.T) {
 	def := claudeLaunch("sid", "agent-1", "", "acceptEdits")
@@ -1188,7 +1188,7 @@ func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 
 func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 	fr := &FakeRunner{}
-	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), "ag1", "/cwd", "claude-id", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "claude-id", "", "auto")
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", "ag1", "mouse", "on"})
 	require.Greater(t,
@@ -1273,7 +1273,7 @@ func TestResumeSucceedsWhenMouseSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -t ag1 mouse on": {Err: errors.New("boom")},
 	}}
-	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "cid", "", "auto")
 	require.NoError(t, err, "mouse-on failure must not fail the resume")
 }
 
@@ -1281,7 +1281,7 @@ func TestResumeFailsWhenNewSessionFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux new-session -d -s ag1 -e WARDEN_SESSION_ID=ag1 -e AGENTCTL_SESSION_ID=ag1 -c /cwd": {Err: errors.New("boom")},
 	}}
-	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), "ag1", "/cwd", "cid", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "cid", "", "auto")
 	require.Error(t, err, "new-session failure stays fatal")
 }
 
@@ -1471,7 +1471,7 @@ func TestSpawnJobOmitsPipelineHintKeepsCollabHint(t *testing.T) {
 
 func TestPipelineHint(t *testing.T) {
 	t.Run("on by default", func(t *testing.T) {
-		got := New(&FakeRunner{}, &FakeConfig{}).pipelineHint()
+		got := New(&FakeRunner{}, &FakeConfig{}).pipelineHint(agentbackend.Default())
 		require.Contains(t, got, "--append-system-prompt")
 		require.Contains(t, got, "warden pipeline")
 		require.True(t, strings.HasPrefix(got, " "), "leading space so it concatenates onto claudeLaunch output")
@@ -1479,14 +1479,14 @@ func TestPipelineHint(t *testing.T) {
 		require.NotContains(t, pipelineHintGuidance, "'", "guidance must stay apostrophe-free (comment invariant; keeps the single-quoted shell form clean)")
 	})
 	t.Run("opt-out via config", func(t *testing.T) {
-		got := New(&FakeRunner{}, &FakeConfig{PipelineHintOff: true}).pipelineHint()
+		got := New(&FakeRunner{}, &FakeConfig{PipelineHintOff: true}).pipelineHint(agentbackend.Default())
 		require.Equal(t, "", got)
 	})
 }
 
 func TestCollabHint(t *testing.T) {
 	t.Run("on by default", func(t *testing.T) {
-		got := New(&FakeRunner{}, &FakeConfig{}).collabHint()
+		got := New(&FakeRunner{}, &FakeConfig{}).collabHint(agentbackend.Default())
 		require.Contains(t, got, "--append-system-prompt")
 		require.Contains(t, got, "who_is_editing_file")
 		require.True(t, strings.HasPrefix(got, " "), "leading space so it concatenates onto claudeLaunch output")
@@ -1494,7 +1494,7 @@ func TestCollabHint(t *testing.T) {
 		require.NotContains(t, collabHintGuidance, "'", "guidance must stay apostrophe-free (comment invariant; keeps the single-quoted shell form clean)")
 	})
 	t.Run("opt-out via config", func(t *testing.T) {
-		got := New(&FakeRunner{}, &FakeConfig{CollabHintOff: true}).collabHint()
+		got := New(&FakeRunner{}, &FakeConfig{CollabHintOff: true}).collabHint(agentbackend.Default())
 		require.Equal(t, "", got)
 	})
 }

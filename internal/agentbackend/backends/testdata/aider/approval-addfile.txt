@@ -1,0 +1,6 @@
+#### add a multiply function in a new helper
+
+I'll create the new file for the multiply helper.
+
+helpers/mul.py
+Allow creation of new file helpers/mul.py? (Y)es/(N)o/(A)ll/(S)kip all [Yes]:

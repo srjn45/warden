@@ -308,6 +308,42 @@ When you `warden restore <id>` an orphaned agent, it resumes with the **original
 
 ---
 
+## 5.2. Agent backends (`--backend`)
+
+Warden drives **Claude Code** by default, but the agent layer is an **adapter
+layer**: each console coding agent is normalized behind a `Backend` interface, and
+you pick one per agent at spawn time.
+
+| Backend | `--backend` | Tier | What works / degrades |
+|---|---|---|---|
+| **Claude Code** (default) | `claude` | A | Everything — digests, savings, priced spend, resume, all permission modes |
+| **Aider** | `aider` | A | Bring-your-own-model (pass `--model`); structured markdown transcript ⇒ real digests. **No** resume (rotate/handoff re-spawn fresh), **no** priced spend (`wd spend` shows tokens, `wd savings` omits it), no assignable session id, system-prompt hints skipped. Runs an autonomous `--message` task that exits when done. |
+
+```sh
+# Claude (default) — nothing to pass
+warden start "review the auth module"
+
+# Aider against a local Ollama model (free, offline, $0)
+export OLLAMA_API_BASE=http://127.0.0.1:11434
+warden start "implement the add function" \
+  --backend aider --model ollama_chat/qwen2.5-coder:3b --dir .
+```
+
+Over MCP, pass the `backend` param (kept at parity with the CLI):
+
+```typescript
+spawn_agent({ prompt: "implement add", backend: "aider", model: "ollama_chat/qwen2.5-coder:3b" })
+```
+
+An unknown backend id is rejected up front (before any tmux/worktree side effect).
+The selected backend is stored on the session (`Session.Backend`; empty ⇒ claude,
+so existing stores are unaffected). Capabilities differ per backend and warden
+**degrades gracefully** rather than crashing when one is missing (design §5). More
+backends (Antigravity CLI, Codex, OpenCode) land as isolated adapter PRs — see
+roadmap item #52.
+
+---
+
 ## 6. Command reference
 
 All commands accept `--addr` to point at a non-default daemon (overrides

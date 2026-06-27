@@ -1703,6 +1703,7 @@ components:
         auto_restart: { type: boolean }
         force: { type: boolean, description: "bypass the memory-pressure spawn gate" }
         model: { type: string }
+        backend: { type: string, description: "agent backend id (claude, aider, …); empty = claude (the default)" }
         tags: { type: array, items: { type: string } }
         parent_id: { type: string, description: "id of the agent that spawned this one; empty = root" }
 
