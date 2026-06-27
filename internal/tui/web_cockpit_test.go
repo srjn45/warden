@@ -37,7 +37,7 @@ func TestEnsureWebCockpitBuildsWhenAbsent(t *testing.T) {
 		"tmux has-session -t " + WebCockpitSession: {Err: errors.New("no session")},
 		"tmux new-session -d -s " + WebCockpitSession + " -c " + home + " -P -F #{pane_id} " + detailPlaceholderCmd(): {Out: "%0\n"},
 		"tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} " + shell:                                     {Out: "%1\n"},
-		"tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} " + listPaneCmd("/bin/warden", "%0"):          {Out: "%2\n"},
+		"tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} " + listPaneCmd("/bin/warden", "%0", true):    {Out: "%2\n"},
 	}}
 
 	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false)

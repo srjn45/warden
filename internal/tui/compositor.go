@@ -24,6 +24,7 @@ type cockpitOpts struct {
 	homeDir   string // cwd for the list pane process
 	masterCwd string // cwd for the master shell pane (the launching shell's dir)
 	useRepl   bool   // master pane runs `wd repl` instead of a plain $SHELL
+	web       bool   // headless web cockpit: wrap the list pane in a shell (see listPaneCmd)
 }
 
 // masterPaneCmd is the command tmux runs in the bottom-left master pane. The
@@ -49,8 +50,21 @@ func shquote(s string) string {
 // listPaneCmd is the shell command tmux runs for the top-left list pane. It is
 // told the detail pane's id so it can drive (respawn) it when the user opens an
 // agent with Enter.
-func listPaneCmd(self, detailPane string) string {
-	return self + " tui --pane=list --detail-pane=" + detailPane
+//
+// In the headless web cockpit (web=true) the list is wrapped in a shell loop so
+// quitting the bloom app (`q`) drops the pane to a live terminal instead of
+// killing the shared session and blanking the browser. `--web` makes `q` quit
+// only the bubbletea program (it must NOT kill the session, which is bridged to
+// the browser — see listPaneModel.quitCmd); when the list exits we land in
+// `$SHELL`, and exiting that shell reopens the list. So the pane is always
+// either the dashboard or a usable terminal, never blank. The real exit is
+// Ctrl+Q in the browser.
+func listPaneCmd(self, detailPane string, web bool) string {
+	base := self + " tui --pane=list --detail-pane=" + detailPane
+	if !web {
+		return base
+	}
+	return "while :; do " + base + " --web; ${SHELL:-/bin/sh}; done"
 }
 
 // detailPlaceholderCmd keeps the right pane alive showing a hint until the user
@@ -126,7 +140,7 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	// (`n`) launch in that dir — os.Getwd() in the pane is what spawnCmd sends.
 	listID, err := runPaneCreate(ctx, run,
 		"split-window", "-v", "-b", "-l", "50%", "-t", masterID, "-c", o.masterCwd,
-		"-P", "-F", "#{pane_id}", listPaneCmd(o.self, detailID))
+		"-P", "-F", "#{pane_id}", listPaneCmd(o.self, detailID, o.web))
 	if err != nil {
 		return err
 	}
@@ -246,6 +260,7 @@ func EnsureWebCockpit(ctx context.Context, run lifecycle.Runner, self, masterCwd
 		homeDir:   home,
 		masterCwd: masterCwd,
 		useRepl:   useRepl,
+		web:       true,
 	}
 	if err := buildCockpit(ctx, run, o); err != nil {
 		// Tear down a half-built session so we never leave an orphan.

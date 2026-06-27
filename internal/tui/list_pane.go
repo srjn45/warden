@@ -58,8 +58,22 @@ type listPaneModel struct {
 	apprCursor    int                   // focused recognized approval (modeApprovals)
 	digest        *digest.Digest        // last fetched digest (modeDigest)
 	digestID      string                // agent id the digest is for
+	web           bool                  // web cockpit: `q` quits to the wrapping shell, not killing the session
 	w, h          int
 	ready         bool
+}
+
+// quitCmd is what `q`/`ctrl+c` runs. In the foreground cockpit it tears the
+// whole tmux session down (killCockpitCmd) before quitting, so the local
+// terminal returns to the user's shell. In the web cockpit the session is
+// shared and bridged to the browser — killing it would blank the page — so we
+// only quit the bubbletea program, dropping the pane to the shell the web list
+// pane is wrapped in (see listPaneCmd). The real exit is Ctrl+Q in the browser.
+func (m listPaneModel) quitCmd() tea.Cmd {
+	if m.web {
+		return tea.Quit
+	}
+	return tea.Sequence(killCockpitCmd(), tea.Quit)
 }
 
 func newListPane(a api, detailPane string) listPaneModel {
@@ -519,7 +533,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeInspector:
 		switch msg.String() {
 		case "q", "ctrl+c":
-			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+			return m, m.quitCmd()
 		case "esc", "c":
 			m.mode = modeNormal
 			return m, nil
@@ -538,7 +552,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeDigest:
 		switch msg.String() {
 		case "q", "ctrl+c":
-			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+			return m, m.quitCmd()
 		case "esc", "d":
 			m.mode = modeNormal
 			return m, nil
@@ -555,7 +569,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeDetails:
 		switch msg.String() {
 		case "q", "ctrl+c":
-			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+			return m, m.quitCmd()
 		case "esc", "i":
 			m.mode = modeNormal
 			return m, nil
@@ -584,7 +598,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		rec := recognizedApprovals(m.approvals)
 		switch msg.String() {
 		case "q", "ctrl+c":
-			return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+			return m, m.quitCmd()
 		case "esc", "p":
 			m.mode = modeNormal
 			return m, nil
@@ -611,7 +625,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// normal mode
 	switch msg.String() {
 	case "q", "ctrl+c":
-		return m, tea.Sequence(killCockpitCmd(), tea.Quit)
+		return m, m.quitCmd()
 	case "c":
 		// Open the read-only shared-context + message-traffic inspector and
 		// kick off an immediate fetch (the tick keeps it fresh while open).
@@ -970,9 +984,13 @@ func openAgentDetailCmd(detailPane, agentID string) tea.Cmd {
 }
 
 // RunListPane runs the top-left cockpit pane; detailPane is the tmux id of the
-// detail pane it drives (opened on Enter).
-func RunListPane(a api, detailPane string) error {
-	p := tea.NewProgram(newListPane(a, detailPane), tea.WithAltScreen())
+// detail pane it drives (opened on Enter). web selects the web-cockpit quit
+// behavior: `q` exits only this program (dropping to the wrapping shell) instead
+// of killing the shared, browser-bridged tmux session.
+func RunListPane(a api, detailPane string, web bool) error {
+	m := newListPane(a, detailPane)
+	m.web = web
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
