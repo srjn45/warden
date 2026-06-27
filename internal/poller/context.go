@@ -77,7 +77,7 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 	// leaves spend unknown for this tick.
 	inUsage, outUsage, usageOK := p.deps.TranscriptUsage(ctx, s)
 	if usageOK && p.OnSpend != nil {
-		p.OnSpend(s.ID, inUsage, outUsage)
+		p.OnSpend(s, inUsage, outUsage)
 	}
 
 	// Reconcile any /compact still awaiting its reclaim. A compaction lands a few

@@ -60,6 +60,14 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 			return oapi.SpawnAgent428JSONResponse{ConfirmationRequired: true, Verdict: v}, nil
 		}
 	}
+	// Budget (cost) gate: a soft gate on measured Claude spend, sibling to the
+	// pressure gate above and sharing its 428 confirmation contract. A spawn that
+	// would push past a configured $ cap warns once; force re-submits past it.
+	if !sr.Force {
+		if v, over := s.budgetVerdict(); over {
+			return oapi.SpawnAgent428JSONResponse{ConfirmationRequired: true, Verdict: v}, nil
+		}
+	}
 	sess, err := s.life.Spawn(ctx, sr)
 	if err != nil {
 		return nil, err

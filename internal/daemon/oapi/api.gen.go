@@ -28,6 +28,7 @@ import (
 	savings "github.com/srjn45/warden/internal/savings"
 	schedule "github.com/srjn45/warden/internal/schedule"
 	snapshot "github.com/srjn45/warden/internal/snapshot"
+	spend "github.com/srjn45/warden/internal/spend"
 	store "github.com/srjn45/warden/internal/store"
 )
 
@@ -564,6 +565,12 @@ type SpawnRequest struct {
 	Worktree bool   `json:"worktree,omitempty"`
 }
 
+// SpendBucket One cost rollup row — an agent, repo, or day — with priced spend.
+type SpendBucket = spend.Bucket
+
+// SpendReport Measured Claude spend, priced per model and rolled up three ways.
+type SpendReport = spend.Report
+
 // Status Agent lifecycle status
 type Status string
 
@@ -1064,6 +1071,9 @@ type ServerInterface interface {
 	// Spawn a new agent
 	// (POST /api/v1/spawn)
 	SpawnAgent(w http.ResponseWriter, r *http.Request)
+	// Per-agent / per-repo / per-day cost rollup
+	// (GET /api/v1/spend)
+	GetSpend(w http.ResponseWriter, r *http.Request)
 	// List a repo's worktrees
 	// (GET /api/v1/worktrees)
 	ListWorktrees(w http.ResponseWriter, r *http.Request, params ListWorktreesParams)
@@ -1436,6 +1446,12 @@ func (_ Unimplemented) RestoreSnapshot(w http.ResponseWriter, r *http.Request, i
 // Spawn a new agent
 // (POST /api/v1/spawn)
 func (_ Unimplemented) SpawnAgent(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Per-agent / per-repo / per-day cost rollup
+// (GET /api/v1/spend)
+func (_ Unimplemented) GetSpend(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3421,6 +3437,26 @@ func (siw *ServerInterfaceWrapper) SpawnAgent(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// GetSpend operation middleware
+func (siw *ServerInterfaceWrapper) GetSpend(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSpend(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListWorktrees operation middleware
 func (siw *ServerInterfaceWrapper) ListWorktrees(w http.ResponseWriter, r *http.Request) {
 
@@ -3755,6 +3791,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/spawn", wrapper.SpawnAgent)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/spend", wrapper.GetSpend)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/worktrees", wrapper.ListWorktrees)
@@ -5773,6 +5812,41 @@ func (response SpawnAgent428JSONResponse) VisitSpawnAgentResponse(w http.Respons
 	return err
 }
 
+type GetSpendRequestObject struct {
+}
+
+type GetSpendResponseObject interface {
+	VisitGetSpendResponse(w http.ResponseWriter) error
+}
+
+type GetSpend200JSONResponse SpendReport
+
+func (response GetSpend200JSONResponse) VisitGetSpendResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSpend403JSONResponse Error
+
+func (response GetSpend403JSONResponse) VisitGetSpendResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListWorktreesRequestObject struct {
 	Params ListWorktreesParams
 }
@@ -5982,6 +6056,9 @@ type StrictServerInterface interface {
 	// Spawn a new agent
 	// (POST /api/v1/spawn)
 	SpawnAgent(ctx context.Context, request SpawnAgentRequestObject) (SpawnAgentResponseObject, error)
+	// Per-agent / per-repo / per-day cost rollup
+	// (GET /api/v1/spend)
+	GetSpend(ctx context.Context, request GetSpendRequestObject) (GetSpendResponseObject, error)
 	// List a repo's worktrees
 	// (GET /api/v1/worktrees)
 	ListWorktrees(ctx context.Context, request ListWorktreesRequestObject) (ListWorktreesResponseObject, error)
@@ -7772,6 +7849,30 @@ func (sh *strictHandler) SpawnAgent(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SpawnAgentResponseObject); ok {
 		if err := validResponse.VisitSpawnAgentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSpend operation middleware
+func (sh *strictHandler) GetSpend(w http.ResponseWriter, r *http.Request) {
+	var request GetSpendRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSpend(ctx, request.(GetSpendRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSpend")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSpendResponseObject); ok {
+		if err := validResponse.VisitGetSpendResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

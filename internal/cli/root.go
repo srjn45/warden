@@ -39,7 +39,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newPresetCmd())
 	root.AddCommand(newLibraryCmd())
-	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd(), newStatsCmd(), newInsightsCmd(), newSavingsCmd())
+	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd(), newStatsCmd(), newInsightsCmd(), newSavingsCmd(), newSpendCmd())
 	root.AddCommand(newSearchCmd(), newHistoryCmd())
 	root.AddCommand(newAuditCmd())
 	root.AddCommand(newExportCmd(), newImportCmd())

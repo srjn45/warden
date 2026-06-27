@@ -100,6 +100,11 @@ type Server struct {
 	pressLevel   pressure.Level
 	spawnGate    bool // spawn_gate config setting
 	spawnGateMax int  // spawn_gate_max_agents config setting
+	// Budget (cost) gate: a soft spawn gate on measured Claude spend, sibling to
+	// the memory-pressure gate above. Read on the spawn hot path; set once at start.
+	budgetGate      bool    // budget_gate config setting
+	budgetDailyUSD  float64 // budget_daily_usd cap (0 ⇒ daily axis off)
+	budgetWeeklyUSD float64 // budget_weekly_usd cap (0 ⇒ weekly axis off)
 	// metrics collection (resource observability). nil collector ⇒ /metrics
 	// returns an empty sample; nil recorder ⇒ no on-disk recording.
 	mcollector *metrics.Collector
@@ -230,6 +235,17 @@ func (s *Server) SetSpawnGate(enabled bool, maxAgents int) {
 	if s.pressLevel == 0 {
 		s.pressLevel = pressure.Normal
 	}
+}
+
+// SetBudget configures the cost gate: the daily/weekly dollar caps and whether a
+// spawn that has reached one warns (returns 428). enabled=false leaves spend
+// tracking + the report live but never gates a spawn.
+func (s *Server) SetBudget(enabled bool, dailyUSD, weeklyUSD float64) {
+	s.pressMu.Lock()
+	defer s.pressMu.Unlock()
+	s.budgetGate = enabled
+	s.budgetDailyUSD = dailyUSD
+	s.budgetWeeklyUSD = weeklyUSD
 }
 
 // Lifecycle is the subset of operations the API delegates to (Phase 4+).

@@ -229,7 +229,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator Claude session can manage
-the fleet through tool calls. **65 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **66 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:
@@ -325,6 +325,7 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `token_critical` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
 | `allow_nonloopback` | `false` | Allow binding the auth-less daemon to a non-loopback address |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `5` | Soft warning before spawning when many agents are live |
+| `budget_gate` / `budget_daily_usd` / `budget_weekly_usd` | `false` / `0` / `0` | Soft warning before spawning when measured Claude spend has reached a $ cap (see §30) |
 | `metrics` | `true` | Record per-agent metrics to disk |
 | `pipeline_keep_done` / `pipeline_hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |
 | `worktree_keep_done` / `worktree_auto_prune` | `false` / `false` | Keep a worktree after its agent is done / auto-reclaim orphaned worktrees |
@@ -737,3 +738,23 @@ Every figure states its **basis** — `CALIBRATED` (workload-measured) or `HEURI
 Opus input/output rates. Self-contained, fully unit-tested `internal/savings`
 package (`store` / `savings` / `calibrate`); the CLI rendering lives in
 `internal/cli/savings.go`.
+
+## 30. Cost governance (`wd spend` + budget gate)
+
+The cost counterpart to the savings ledger: where `wd savings` reports what warden
+kept **out** of context, `wd spend` reports what agents **actually billed** Claude.
+The daemon already reads each agent's REAL input/output tokens from its transcript
+(`internal/spend`); cost governance prices that per model into dollars and gates on
+it. Config-gated by `savings` (the same switch — spend is the cost half of the same
+measured data); the daemon serves it at `GET /api/v1/spend` (403 when off).
+
+| Feature | Description |
+|---|---|
+| **`wd spend`** (CLI + MCP `spend`) | The measured spend priced per model and rolled up three ways — **per agent**, **per repo**, **per day** — with a headline `total / today / this week`. `--by agent\|repo\|day` shows one rollup; `--json` for tooling. An empty meter reads as "nothing measured yet". |
+| **Per-model pricing** | A small `$/Mtok` table (`internal/spend/pricing.go`): Opus `$5/$25`, Sonnet `$3/$15`, Haiku `$0.8/$4` (in/out); an unrecognized model is priced at the Opus tier so spend is never silently under-counted. Opus rates are kept in sync with the savings ledger. |
+| **Budget gate** | A **soft** spawn gate, sibling to the memory-pressure gate: when today's or the trailing-week's measured spend reaches a configured cap, a non-forced spawn returns `428` with a confirmation payload; re-run with `--force` to proceed. Off by default. Tunable via `budget_gate` / `budget_daily_usd` / `budget_weekly_usd` (a `0` cap disables that axis). |
+| **`$` in `wd ls`** | A **COST** column shows each agent's measured spend beside its context fill (best-effort — `—` when the feature is off). Also surfaced in `wd search` / `wd history`. |
+| **Web Metrics tab** | A **Cost per agent** card: the `total / today / this week` headline plus a live per-agent cost table beside the RSS/CPU charts. |
+
+Self-contained, fully unit-tested `internal/spend` package (`store` / `pricing` /
+`report` / `budget`); the CLI rendering lives in `internal/cli/spend.go`.

@@ -40,6 +40,9 @@ type Config struct {
 	DefaultPermissionMode string          `yaml:"default_permission_mode"`
 	SpawnGateEnabled      bool            `yaml:"spawn_gate"`
 	SpawnGateMaxAgents    int             `yaml:"spawn_gate_max_agents"`
+	BudgetGate            bool            `yaml:"budget_gate"`
+	BudgetDailyUSD        float64         `yaml:"budget_daily_usd"`
+	BudgetWeeklyUSD       float64         `yaml:"budget_weekly_usd"`
 	MetricsEnabled        bool            `yaml:"metrics"`
 	AllowNonLoopback      bool            `yaml:"allow_nonloopback"`
 	TokenGuard            bool            `yaml:"token_guard"`
@@ -124,6 +127,9 @@ var schema = []setting{
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"spawn_gate", "Warn (soft, never blocks) before spawning when many agents are live. Values: true | false"},
 	{"spawn_gate_max_agents", "Live-agent count that trips the spawn-gate warning. Values: integer"},
+	{"budget_gate", "Warn (soft, never blocks) before spawning when measured Claude spend has reached a budget cap (budget_daily_usd / budget_weekly_usd). Re-run the spawn with force to proceed. Values: true | false"},
+	{"budget_daily_usd", "Daily spend cap in US dollars for the budget gate. The gate trips when today's measured spend reaches this figure. 0 disables the daily axis. Values: number (e.g. 25)"},
+	{"budget_weekly_usd", "Weekly (trailing 7-day) spend cap in US dollars for the budget gate. The gate trips when the trailing-week measured spend reaches this figure. 0 disables the weekly axis. Values: number (e.g. 100)"},
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
 	{"allow_nonloopback", "Bind to a non-loopback address WITHOUT authentication (not recommended). Prefer setting WARDEN_TOKEN instead, which requires a bearer token. Values: true | false"},
 	{"token_guard", "Enable the context-token guard (warn / auto-compact). Values: true | false"},
@@ -196,6 +202,9 @@ func defaults() Config {
 		DefaultPermissionMode:  "auto",
 		SpawnGateEnabled:       true,
 		SpawnGateMaxAgents:     5,
+		BudgetGate:             false,
+		BudgetDailyUSD:         0,
+		BudgetWeeklyUSD:        0,
 		MetricsEnabled:         true,
 		AllowNonLoopback:       false,
 		TokenGuard:             true,

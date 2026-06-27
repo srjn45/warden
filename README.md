@@ -33,6 +33,7 @@ Capability highlights from the **v5.x** line (full notes on the [releases page](
 - **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s, and web batch operations.
 - **Observability** — per-agent metrics & performance history (`warden stats`), crash/anomaly detection, the context-size guard, and webhook/Slack notifications.
 - **Token-savings ledger (`warden savings`)** — a real, append-only ledger of the tokens warden's lifecycle features keep out of agents' context, with an `--benchmark` A/B headline (without-vs-with warden, % reduction, $ saved) you can screenshot.
+- **Cost governance (`warden spend`)** — the REAL Claude spend warden measures from agents' transcripts, priced per model into dollars and rolled up per-agent/repo/day, plus a **budget gate** that softly warns before a spawn pushes daily/weekly spend over a configured `$` cap (a `$` column in `warden ls` and a live per-agent cost card on the web Metrics tab round it out).
 - **Native scheduler (`warden schedule`)** — opt-in cron/at triggers that fire an agent or a pipeline on the daemon's own timer; no external crontab.
 - **Snapshots & insights** — `warden snapshot` checkpoints a worktree + transcript for rollback; `warden insights` mines agent history for patterns and parallelization wins.
 - **Branch tracking (`warden branches`)** — opt-in monitor of each agent's CI status and standing vs `origin/main`, with non-blocking inbox/desktop alerts.
@@ -363,7 +364,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `local_llm` (+ `local_llm_url`/`_model`/`_timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden repl` (its `/` commands work without it) |
 | `repl` | `false` | Start the cockpit master pane in `warden repl` mode instead of a plain shell |
 
-`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree_keep_done` / `worktree_auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the REPL tier knobs (`local_llm_tier` / `local_llm_escalate` / `local_llm_classifier`).
+`warden config` lists every setting, including `spawn_gate` / `spawn_gate_max_agents`, `budget_gate` / `budget_daily_usd` / `budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree_keep_done` / `worktree_auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the REPL tier knobs (`local_llm_tier` / `local_llm_escalate` / `local_llm_classifier`).
 
 > **Legacy env vars:** the old `WARDEN_*` environment variables (e.g. `WARDEN_ADDR`, `WARDEN_NOTIFY`, `WARDEN_TOKEN_*`) are no longer read — the daemon warns once at startup if any are still set. The per-agent IPC vars warden injects into each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration and are unaffected.
 
@@ -919,6 +920,18 @@ warden savings --calibrate            # measure this workload's bytes/token vs C
 
 Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, in % and $) and the **offload** axis (Claude work moved off entirely onto the local LLM, in $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`. See [docs/FEATURES.md §29](docs/FEATURES.md).
 
+### `warden spend`
+
+The cost side of the ledger: the **REAL billed Claude spend** warden measured from agents' transcripts, priced per model into dollars and rolled up per agent / repo / day. Gated by the same `savings` config setting.
+
+```sh
+warden spend                          # total / today / this week, then per-agent/repo/day $ tables
+warden spend --by agent               # just one rollup: agent, repo, or day
+warden spend --json                   # structured rollup
+```
+
+A **budget gate** (off by default) turns this into a guardrail: set `budget_daily_usd` / `budget_weekly_usd` and flip `budget_gate: true`, and a spawn that would push measured spend over the cap warns first (re-run with `--force` to proceed) — mirroring the memory-pressure spawn gate. `warden ls` also gains a **COST** column, and the web Metrics tab a live per-agent cost card. See [docs/FEATURES.md §30](docs/FEATURES.md).
+
 ### `warden branches`
 
 Opt-in, read-only view of each active agent's branch health: its **GitHub CI status** (latest `gh run list` in the worktree) and its **standing vs `origin/main`** (commits behind/ahead, merged?).
@@ -1035,7 +1048,7 @@ warden mcp
 warden mcp --addr 127.0.0.1:8765
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `stop_agent`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`.
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `stop_agent`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`, `spend`.
 
 ### `warden completion <shell>`
 
@@ -1240,7 +1253,7 @@ The dashboard is a **routed mission-control shell**. Tabs are **real URLs** (His
 | `/agent/<id>` | `<id>` | A pinned agent's live terminal (one closeable tab per pinned agent). |
 
 - **Cockpit is the home** — `/` redirects to `/cockpit`. It carries the **Fleet** summary header (moved out of the old Overview) above the canonical agent grid; the redundant *Quick spawn* widget and the duplicate *All agents* mini-grid were removed.
-- **Metrics tab (`/metrics`)** — a scrollable column of uPlot chart cards: **CPU per agent**, **Memory per agent** (GiB), **Context per agent** (a client-accumulated time series of each agent's live context fill, legend dot colored by `ok`/`warning`/`critical`; in-session only — resets on full reload), **Number of agents** (fleet size over time), and **Tokens saved** (daily bars from the savings ledger + a headline saved-tokens/$ figure). When the savings ledger is disabled the card shows a "set `savings: true`" hint instead of an empty chart. A **Live footprint** card carries the former Resources panel.
+- **Metrics tab (`/metrics`)** — a scrollable column of uPlot chart cards: **CPU per agent**, **Memory per agent** (GiB), **Cost per agent** (live measured Claude spend in $, with a total/today/this-week headline and a per-agent cost table), **Context per agent** (a client-accumulated time series of each agent's live context fill, legend dot colored by `ok`/`warning`/`critical`; in-session only — resets on full reload), **Number of agents** (fleet size over time), and **Tokens saved** (daily bars from the savings ledger + a headline saved-tokens/$ figure). When the savings ledger is disabled the savings/cost cards show a "set `savings: true`" hint instead of an empty chart. A **Live footprint** card carries the former Resources panel.
 - **Context & Messages** — no longer a tab; opened from a small **🗒 button in the header** as a dismissible overlay (**Esc** to close).
 - **Agent tabs** — pin any agent to its own tab to get a **live, interactive terminal** (`AttachTerminal`) — a real `tmux attach` bridged to the browser over a WebSocket, so you can type into the agent and watch it respond in real time.
 - **Create agent** — **+ New agent** opens a prompt box (with a directory picker and a **Supervised** checkbox). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. Tick **Supervised** to launch with `--permission-mode acceptEdits` instead of full bypass. For a managed worktree, use the CLI: `warden start TICKET --type development --repo …`.

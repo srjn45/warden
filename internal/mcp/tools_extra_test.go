@@ -40,7 +40,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 	}
 
 	want := []string{
-		"digest", "get_metrics", "savings", "search", "history", "audit_log",
+		"digest", "get_metrics", "savings", "spend", "search", "history", "audit_log",
 		"list_worktrees", "list_plugins", "get_pressure",
 		"set_auto_approve", "set_permission_mode", "prune_worktrees",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
@@ -107,6 +107,21 @@ func TestSavingsTool(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "42000")
+}
+
+// TestSpendTool exercises the GET /spend round-trip.
+func TestSpendTool(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/spend", r.URL.Path)
+		_, _ = w.Write([]byte(`{"total_usd":1.23,"by_agent":[{"key":"a1","usd":1.23}]}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "spend"})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), "1.23")
 }
 
 // TestPausePipelineTool exercises a pipeline write verb.

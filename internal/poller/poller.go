@@ -136,10 +136,11 @@ type Poller struct {
 
 	// OnSpend, if set, records an agent's cumulative billed spend (input+output
 	// tokens read from its transcript) so the report can express savings as a share
-	// of REAL measured spend. Called each context check with the latest cumulative
-	// reading; the daemon wires it to the spend tracker (which only ever raises a
-	// session's figure). Best-effort and gate-aware on the receiving side.
-	OnSpend func(agent string, inputTokens, outputTokens int)
+	// of REAL measured spend AND price it per model into the cost-governance rollup.
+	// Called each context check with the session (for its model/repo) and the latest
+	// cumulative reading; the daemon wires it to the spend tracker (which only ever
+	// raises a session's figure). Best-effort and gate-aware on the receiving side.
+	OnSpend func(s *store.Session, inputTokens, outputTokens int)
 
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
 
