@@ -52,6 +52,9 @@ export default defineConfig({
           { label: 'Orchestration: MCP & skill', slug: 'multi-agent/mcp-and-skill' },
           { label: 'Interactive REPL (local LLM)', slug: 'multi-agent/repl' },
         ]},
+        { label: 'Blog', items: [
+          { label: 'Running a fleet of Claude Code agents', slug: 'blog/running-a-fleet-of-claude-code-agents' },
+        ]},
         { label: 'Reference', items: [
           { label: 'Feature catalog', slug: 'reference/features' },
           { label: 'CLI command reference', slug: 'reference/cli' },
