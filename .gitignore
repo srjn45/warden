@@ -29,3 +29,4 @@ dev.log
 
 # coverage artifacts (make cover)
 coverage.out
+.aider*
