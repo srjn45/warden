@@ -33,7 +33,7 @@ func TestRenderListRowShowsLeanColumns(t *testing.T) {
 			Subject:   "this subject must not appear in the row",
 		},
 	}
-	out := renderList(buildItems(sessions, nil), 0, 120, 10)
+	out := renderList(buildItems(sessions, nil, nil), 0, 120, 10)
 	require.Contains(t, out, "agent-abc", "row should show the ID")
 	require.Contains(t, out, "<1m", "row should show the age token")
 	require.NotContains(t, out, "this subject", "subject must not be rendered in the lean row")
@@ -45,7 +45,7 @@ func TestRenderListRowShowsFullUntrimmedID(t *testing.T) {
 	sessions := []*store.Session{
 		{ID: "agent-fd56deb4", Status: store.StatusWorking, UpdatedAt: time.Now()},
 	}
-	out := renderList(buildItems(sessions, nil), 0, 120, 10)
+	out := renderList(buildItems(sessions, nil, nil), 0, 120, 10)
 	require.Contains(t, out, "agent-fd56deb4", "the full agent id must render untrimmed")
 	require.NotContains(t, out, "…", "the id must not be ellipsis-truncated")
 }
@@ -62,7 +62,7 @@ func TestRenderListRowDoesNotClipAtNarrowWidth(t *testing.T) {
 	}
 	// Width 30 is narrower than the old 51-char fixed block; the lean row
 	// (~36 visible chars of fixed columns) must still carry ID + ctx + age.
-	out := renderList(buildItems(sessions, nil), 0, 30, 10)
+	out := renderList(buildItems(sessions, nil, nil), 0, 30, 10)
 	require.Contains(t, out, "agent-abc")
 	require.Contains(t, out, "88k")
 	require.Contains(t, out, "2m")
@@ -73,7 +73,7 @@ func TestRenderListClampsToHeightAndKeepsCursor(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		sessions = append(sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
-	out := renderList(buildItems(sessions, nil), 18, 80, 8)
+	out := renderList(buildItems(sessions, nil, nil), 18, 80, 8)
 	require.Len(t, strings.Split(out, "\n"), 8, "rendered to exactly height lines")
 	require.Contains(t, out, "agent-18", "the selected row is within the window")
 	require.Contains(t, out, "more", "a ▲/▼ hint appears when rows are hidden")
@@ -81,7 +81,7 @@ func TestRenderListClampsToHeightAndKeepsCursor(t *testing.T) {
 
 func TestRenderListShortListPadsToHeight(t *testing.T) {
 	sessions := []*store.Session{{ID: "only", Status: store.StatusWorking}}
-	require.Len(t, strings.Split(renderList(buildItems(sessions, nil), 0, 80, 6), "\n"), 6, "short list padded to height")
+	require.Len(t, strings.Split(renderList(buildItems(sessions, nil, nil), 0, 80, 6), "\n"), 6, "short list padded to height")
 }
 
 func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
@@ -89,7 +89,7 @@ func TestRenderListHeightOneRendersSingleLine(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		sessions = append(sessions, &store.Session{ID: fmt.Sprintf("agent-%02d", i), Status: store.StatusWorking})
 	}
-	require.Len(t, strings.Split(renderList(buildItems(sessions, nil), 0, 80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
+	require.Len(t, strings.Split(renderList(buildItems(sessions, nil, nil), 0, 80, 1), "\n"), 1, "height 1 with many rows still renders exactly 1 line")
 }
 
 func TestSourceDir(t *testing.T) {
@@ -142,7 +142,7 @@ func TestRenderListGroupsBySourceDir(t *testing.T) {
 		{ID: "a2", Workdir: "/work/alpha", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-time.Minute)},
 		{ID: "b1", Workdir: "/work/beta", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-2 * time.Minute)},
 	})
-	out := renderList(buildItems(sessions, nil), 0, 120, 12)
+	out := renderList(buildItems(sessions, nil, nil), 0, 120, 12)
 	require.Contains(t, out, "/work/alpha (2)", "alpha group header with count")
 	require.Contains(t, out, "/work/beta (1)", "beta group header with count")
 	require.Contains(t, out, "a1")
@@ -161,7 +161,7 @@ func TestBuildItemsGroupsAgentsNoOpenedDirs(t *testing.T) {
 		{ID: "a2", Workdir: "/a", CreatedAt: now.Add(-time.Minute)},
 		{ID: "b1", Workdir: "/b", CreatedAt: now.Add(-2 * time.Minute)},
 	})
-	items := buildItems(ss, nil)
+	items := buildItems(ss, nil, nil)
 	require.Len(t, items, 3)
 	require.Equal(t, "a1", items[0].session.ID)
 	require.Equal(t, "a2", items[1].session.ID)
@@ -169,11 +169,131 @@ func TestBuildItemsGroupsAgentsNoOpenedDirs(t *testing.T) {
 	require.Equal(t, "/a", items[0].dir)
 }
 
+// A spawned child nests directly under its parent, indented, and the parent
+// becomes a collapsible header.
+func TestBuildItemsNestsChildUnderParent(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "parent", Workdir: "/a", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "child", ParentID: "parent", Workdir: "/a", Status: store.StatusWorking, CreatedAt: now.Add(-time.Minute)},
+	}
+	items := buildItems(ss, nil, nil)
+	require.Len(t, items, 2)
+	require.Equal(t, "parent", items[0].session.ID)
+	require.True(t, items[0].hasKids, "parent marked as a collapsible header")
+	require.Equal(t, 0, items[0].depth)
+	require.Equal(t, "child", items[1].session.ID)
+	require.Equal(t, 1, items[1].depth, "child indented one level")
+	require.Equal(t, "/a", items[1].dir, "child inherits the root's dir group")
+}
+
+// Collapsing a parent hides its entire sub-tree (children and grandchildren).
+func TestBuildItemsCollapsedParentHidesSubtree(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "a", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "b", ParentID: "a", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now.Add(-time.Minute)},
+		{ID: "c", ParentID: "b", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now.Add(-2 * time.Minute)},
+	}
+	items := buildItems(ss, nil, map[string]bool{"a": true})
+	require.Len(t, items, 1, "collapsed root hides its whole sub-tree")
+	require.Equal(t, "a", items[0].session.ID)
+	require.True(t, items[0].collapsed)
+	require.True(t, items[0].hasKids)
+}
+
+// Deep nesting A→B→C indents each level in DFS pre-order.
+func TestBuildItemsDeepNestingDepths(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "a", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "b", ParentID: "a", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now.Add(-time.Minute)},
+		{ID: "c", ParentID: "b", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now.Add(-2 * time.Minute)},
+	}
+	items := buildItems(ss, nil, nil)
+	require.Len(t, items, 3)
+	require.Equal(t, []string{"a", "b", "c"}, []string{items[0].session.ID, items[1].session.ID, items[2].session.ID})
+	require.Equal(t, []int{0, 1, 2}, []int{items[0].depth, items[1].depth, items[2].depth})
+}
+
+// A terminal parent that still anchors a live child renders as a tombstone with
+// the running-descendant count, and carries no live badge.
+func TestBuildItemsTombstoneParentWithLiveChild(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "gone", Workdir: "/w", Status: store.StatusDone, CreatedAt: now},
+		{ID: "live", ParentID: "gone", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now.Add(-time.Minute)},
+	}
+	items := buildItems(ss, nil, nil)
+	require.Len(t, items, 2)
+	require.True(t, items[0].tombstone, "terminal parent with children is a tombstone")
+	require.Equal(t, 1, items[0].runningKids)
+
+	out := renderItemLine(items[0], false, 80)
+	require.Contains(t, out, "(terminated · 1 running)")
+	require.NotContains(t, out, "done", "tombstone shows no live status badge")
+}
+
+// An orphan child (its parent id is not in the set) is promoted to a root rather
+// than vanishing.
+func TestBuildItemsOrphanChildPromotedToRoot(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "orphan", ParentID: "missing", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now},
+	}
+	items := buildItems(ss, nil, nil)
+	require.Len(t, items, 1)
+	require.Equal(t, "orphan", items[0].session.ID)
+	require.Equal(t, 0, items[0].depth, "orphan rendered as a root")
+	require.False(t, items[0].hasKids)
+}
+
+// A parent cycle (a→b→a) never loops forever and emits each node once.
+func TestBuildItemsParentCycleGuarded(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "a", ParentID: "b", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "b", ParentID: "a", Workdir: "/w", Status: store.StatusWorking, CreatedAt: now.Add(-time.Minute)},
+	}
+	items := buildItems(ss, nil, nil)
+	// Neither is a root (each parent is present), so the forest is anchored only by
+	// the cycle guard; the build must terminate and not duplicate a node.
+	seen := map[string]int{}
+	for _, it := range items {
+		if it.session != nil {
+			seen[it.session.ID]++
+		}
+	}
+	for id, n := range seen {
+		require.Equalf(t, 1, n, "node %s emitted exactly once", id)
+	}
+}
+
+// liveStatus mirrors the daemon: running/awaiting states are live, terminal ones
+// are not.
+func TestLiveStatus(t *testing.T) {
+	for _, s := range []store.Status{store.StatusSpawning, store.StatusWorking, store.StatusWaitingForInput, store.StatusIdle} {
+		require.Truef(t, liveStatus(s), "%s is live", s)
+	}
+	for _, s := range []store.Status{store.StatusDone, store.StatusErrored, store.StatusOrphaned, store.StatusRateLimited} {
+		require.Falsef(t, liveStatus(s), "%s is terminal", s)
+	}
+}
+
+// treePrefix indents by depth and switches the glyph on collapse; a childless
+// root gets no prefix (flat list unchanged).
+func TestTreePrefix(t *testing.T) {
+	require.Equal(t, "", treePrefix(item{depth: 0}))
+	require.Equal(t, "▾ ", treePrefix(item{depth: 0, hasKids: true}))
+	require.Equal(t, "▸ ", treePrefix(item{depth: 0, hasKids: true, collapsed: true}))
+	require.Equal(t, "      ", treePrefix(item{depth: 2}), "leaf at depth 2: 4 indent + 2 align = 6 spaces")
+}
+
 func TestBuildItemsEmptyOpenedDirGetsPlaceholderOnTop(t *testing.T) {
 	now := time.Now()
 	ss := []*store.Session{{ID: "a1", Workdir: "/a", CreatedAt: now.Add(-time.Hour)}}
 	opened := map[string]time.Time{"/freshly/opened": now} // newer than the agent
-	items := buildItems(ss, opened)
+	items := buildItems(ss, opened, nil)
 	require.Len(t, items, 2, "one placeholder + one agent")
 	require.Nil(t, items[0].session, "placeholder is first (most recent)")
 	require.Equal(t, "/freshly/opened", items[0].dir)
@@ -184,14 +304,14 @@ func TestBuildItemsOpenedDirWithAgentsHasNoPlaceholder(t *testing.T) {
 	now := time.Now()
 	ss := []*store.Session{{ID: "a1", Workdir: "/a", UpdatedAt: now}}
 	opened := map[string]time.Time{"/a": now.Add(-time.Hour)} // /a already has an agent
-	items := buildItems(ss, opened)
+	items := buildItems(ss, opened, nil)
 	require.Len(t, items, 1, "no placeholder for an opened dir that has agents")
 	require.Equal(t, "a1", items[0].session.ID)
 }
 
 func TestBuildItemsOnlyOpenedDirsNoSessions(t *testing.T) {
 	now := time.Now()
-	items := buildItems(nil, map[string]time.Time{"/x": now})
+	items := buildItems(nil, map[string]time.Time{"/x": now}, nil)
 	require.Len(t, items, 1)
 	require.Nil(t, items[0].session)
 	require.Equal(t, "/x", items[0].dir)
@@ -272,6 +392,7 @@ func TestRenderListShowsPlaceholderForEmptyOpenedDir(t *testing.T) {
 	items := buildItems(
 		[]*store.Session{{ID: "a1", Workdir: "/work/alpha", Status: store.StatusWorking, UpdatedAt: now.Add(-time.Hour)}},
 		map[string]time.Time{"/work/empty": now},
+		nil,
 	)
 	out := renderList(items, 0, 120, 12)
 	require.Contains(t, out, "/work/empty (0)", "empty opened dir header with zero count")
@@ -326,7 +447,7 @@ func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
 	}
 	sessions := groupSort(ss)
 	for h := 1; h <= 4; h++ {
-		out := renderList(buildItems(sessions, nil), 5, 80, h)
+		out := renderList(buildItems(sessions, nil, nil), 5, 80, h)
 		require.Len(t, strings.Split(out, "\n"), h, "exactly height lines at h=%d", h)
 		require.Contains(t, out, "a5", "selected agent must stay visible at h=%d", h)
 	}

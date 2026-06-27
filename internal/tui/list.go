@@ -164,10 +164,16 @@ type item struct {
 	apprCount int  // number of waiting agents (inbox row only)
 
 	pipeline  *pipeline.Pipeline // pipeline header row
-	collapsed bool               // pipeline header row: jobs hidden (▸ vs ▾)
+	collapsed bool               // pipeline/agent header row: children hidden (▸ vs ▾)
 	pjPipe    string             // pipelineJob row: owning pipeline id
 	pjJob     *pipeline.Job      // pipelineJob row: the job
 	pjSess    *store.Session     // pipelineJob row: linked live session (nil if none/terminal)
+
+	// agent sub-tree rows (agent sub-tree grouping)
+	depth       int  // nesting level under the root agent (0 = root)
+	hasKids     bool // has ≥1 child agent → collapsible header (▸/▾)
+	tombstone   bool // terminal parent: render header-only, no live badge/gauge
+	runningKids int  // live descendants under a tombstone (the "N running" badge)
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't
@@ -191,15 +197,44 @@ func itemKey(it item) string {
 	return dirKey(it.dir)
 }
 
+// liveStatus reports whether an agent status is non-terminal — still running or
+// awaiting input. Mirrors the daemon's liveStatus (internal/daemon): a terminal
+// parent with children is a tombstone, rendered header-only in the sub-tree.
+func liveStatus(s store.Status) bool {
+	switch s {
+	case store.StatusSpawning, store.StatusWorking, store.StatusWaitingForInput, store.StatusIdle:
+		return true
+	}
+	return false // done/errored/orphaned/rate_limited
+}
+
 // buildItems flattens grouped sessions plus opened directories into the list the
-// cursor walks. Groups are ordered by creation (an agent group's key is its newest
-// agent's CreatedAt; an empty opened dir's key is when it was opened — so a
-// freshly-opened dir floats to the top). Keying on CreatedAt (not UpdatedAt) keeps
-// rows fixed once placed instead of churning as agents work. An opened dir that has
-// agents emits its agents and no placeholder; an opened dir with none emits a
-// single placeholder. Pure: returns a new slice, leaves inputs untouched.
-// Callers pass sessions already grouped by groupSort; within-group agent order is preserved from the input.
-func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
+// cursor walks, nesting agent-spawned children under their parent (agent sub-tree
+// grouping). Dir grouping is over ROOT agents only — a child nests under its
+// root's dir regardless of its own sourceDir. Groups are ordered by creation (an
+// agent group's key is its newest root's CreatedAt; an empty opened dir's key is
+// when it was opened — so a freshly-opened dir floats to the top). An opened dir
+// that has agents emits its sub-trees and no placeholder; an opened dir with none
+// emits a single placeholder. A node listed in `collapsed` hides its whole
+// sub-tree. Pure: returns a new slice, leaves inputs untouched. Callers pass
+// sessions already grouped by groupSort; within-group root order is preserved.
+func buildItems(sessions []*store.Session, opened map[string]time.Time, collapsed map[string]bool) []item {
+	// Index for parent lookup + child grouping. A child whose parent id is absent
+	// from the set is an orphan → promoted to a root so it never vanishes.
+	byID := make(map[string]*store.Session, len(sessions))
+	for _, s := range sessions {
+		byID[s.ID] = s
+	}
+	childrenByParent := map[string][]*store.Session{}
+	var roots []*store.Session
+	for _, s := range sessions {
+		if s.ParentID != "" && byID[s.ParentID] != nil {
+			childrenByParent[s.ParentID] = append(childrenByParent[s.ParentID], s)
+		} else {
+			roots = append(roots, s)
+		}
+	}
+
 	type grp struct {
 		max  time.Time
 		seen int
@@ -217,7 +252,7 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 			g.max = t
 		}
 	}
-	for _, s := range sessions {
+	for _, s := range roots {
 		note(sourceDir(s), s.CreatedAt)
 	}
 	for dir, at := range opened {
@@ -231,20 +266,68 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time) []item {
 		return ga.max.After(gb.max)
 	})
 	byDir := map[string][]*store.Session{}
-	for _, s := range sessions {
+	for _, s := range roots {
 		byDir[sourceDir(s)] = append(byDir[sourceDir(s)], s)
 	}
 	var items []item
+	seen := map[string]bool{} // cycle guard across the whole forest
 	for _, dir := range order {
-		if agents := byDir[dir]; len(agents) > 0 {
-			for _, s := range agents {
-				items = append(items, item{session: s, dir: dir})
-			}
+		rs := byDir[dir]
+		if len(rs) == 0 {
+			items = append(items, item{dir: dir}) // empty opened dir → placeholder
 			continue
 		}
-		items = append(items, item{dir: dir}) // empty opened dir → placeholder
+		for _, s := range rs {
+			items = appendSubtree(items, s, dir, 0, childrenByParent, collapsed, seen)
+		}
 	}
 	return items
+}
+
+// appendSubtree emits s then, unless it is collapsed, its descendants in DFS
+// pre-order, assigning tree depth. A node with children renders as a collapsible
+// header (▸/▾); a terminal (non-live) parent is a tombstone — header-only, no
+// live badge/gauge — carrying the count of live descendants still under it. seen
+// guards against a malformed parent cycle.
+func appendSubtree(items []item, s *store.Session, dir string, depth int, childrenByParent map[string][]*store.Session, collapsed, seen map[string]bool) []item {
+	if seen[s.ID] {
+		return items
+	}
+	seen[s.ID] = true
+
+	kids := childrenByParent[s.ID]
+	it := item{session: s, dir: dir, depth: depth, hasKids: len(kids) > 0}
+	if it.hasKids {
+		it.collapsed = collapsed[s.ID]
+		if !liveStatus(s.Status) {
+			it.tombstone = true
+			it.runningKids = liveDescendants(s.ID, childrenByParent, map[string]bool{})
+		}
+	}
+	items = append(items, it)
+	if it.hasKids && !it.collapsed {
+		for _, c := range kids {
+			items = appendSubtree(items, c, dir, depth+1, childrenByParent, collapsed, seen)
+		}
+	}
+	return items
+}
+
+// liveDescendants counts the live (non-terminal) agents anywhere under id — the
+// figure the tombstone header reports as "N running". seen guards against cycles.
+func liveDescendants(id string, childrenByParent map[string][]*store.Session, seen map[string]bool) int {
+	if seen[id] {
+		return 0
+	}
+	seen[id] = true
+	n := 0
+	for _, c := range childrenByParent[id] {
+		if liveStatus(c.Status) {
+			n++
+		}
+		n += liveDescendants(c.ID, childrenByParent, seen)
+	}
+	return n
 }
 
 // pipelineItems flattens pipelines into a header row per pipeline followed by an
@@ -490,6 +573,26 @@ func contextLabel(tokens int, state string) (string, lipgloss.Style) {
 	}
 }
 
+// treePrefix renders the sub-tree indentation + collapse glyph for an agent row:
+// two spaces per depth level, then ▾/▸ for a node with children (expanded vs
+// collapsed), or two aligning spaces for a leaf so it lines up under siblings
+// that carry a glyph. A childless root (depth 0) gets no prefix — the flat list
+// renders exactly as before.
+func treePrefix(it item) string {
+	if it.depth == 0 && !it.hasKids {
+		return ""
+	}
+	p := strings.Repeat("  ", it.depth)
+	switch {
+	case it.hasKids && it.collapsed:
+		return p + "▸ "
+	case it.hasKids:
+		return p + "▾ "
+	default:
+		return p + "  "
+	}
+}
+
 // renderItemLine renders one body row: an agent's columns, or the placeholder
 // line for an empty opened dir. The cursor row gets the "› " caret + cursor style.
 func renderItemLine(it item, selected bool, width int) string {
@@ -538,6 +641,18 @@ func renderItemLine(it item, selected bool, width int) string {
 			st.Render(glyph), trunc(it.pjJob.ID, 12), st.Render(statusWord), agentCol, ctxCol, branchInfo) + deps
 	case it.session == nil:
 		line = stMuted.Render("(no agents — n to spawn here)")
+	case it.tombstone:
+		// A deleted-or-done parent anchoring live children: header-only, muted,
+		// with the running-descendant count. No state badge, gauge, or worktree —
+		// there is no live pane to attach to.
+		s := it.session
+		nameStr := s.Name
+		if nameStr == "" {
+			nameStr = "—"
+		} else {
+			nameStr = trunc(nameStr, 15)
+		}
+		line = treePrefix(it) + stMuted.Render(fmt.Sprintf("%-16s %-14s (terminated · %d running)", nameStr, s.ID, it.runningKids))
 	default:
 		s := it.session
 		label, st := badge(s.Status, s.ExitCode)
@@ -560,7 +675,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		} else {
 			nameStr = trunc(nameStr, 15)
 		}
-		line = fmt.Sprintf("%-16s %-14s %-11s %-6s %-5s%s",
+		line = treePrefix(it) + fmt.Sprintf("%-16s %-14s %-11s %-6s %-5s%s",
 			nameStr, s.ID, st.Render(label),
 			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt), branchInfo)
 	}
