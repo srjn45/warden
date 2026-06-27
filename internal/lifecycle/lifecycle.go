@@ -18,6 +18,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/srjn45/warden/internal/agentbackend"
+	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register the Claude backend (and future adapters)
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/savings"
@@ -29,11 +31,17 @@ import (
 // particular the poller, which runs Summarize inline on its lifetime context.
 const claudeCallTimeout = 30 * time.Second
 
-// runClaudeP runs `claude -p <arg>` with a bounded timeout derived from ctx.
+// runClaudeP runs the backend's headless one-shot (`claude -p <arg>` for Claude)
+// with a bounded timeout derived from ctx. The argv is built by the backend so
+// the literal binary/flag shape lives in one place.
 func (l *Lifecycle) runClaudeP(ctx context.Context, arg string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, claudeCallTimeout)
 	defer cancel()
-	return l.run.Run(cctx, "", "claude", "-p", arg)
+	argv, ok := l.backend.HeadlessCmd(arg)
+	if !ok {
+		return "", fmt.Errorf("backend %s has no headless mode", l.backend.ID())
+	}
+	return l.run.Run(cctx, "", argv[0], argv[1:]...)
 }
 
 // PermissionModes is the canonical set of accepted claude permission modes.
@@ -55,33 +63,11 @@ func ValidPermissionMode(mode string) bool {
 	return false
 }
 
-// permissionFlag selects the claude permission mode flag for a spawned agent.
-// mode is one of PermissionModes. The value is shell-quoted because claudeBase's
-// result is typed into a tmux pane and run by a shell — an unquoted mode that
-// slipped past validation must never be able to inject shell syntax.
-func permissionFlag(mode string) string {
-	return "--permission-mode " + shellQuoteArg(mode)
-}
-
-// claudeBase is the claude command + model + permission flag every agent session starts from.
-// Uses the provided model, or the default (DefaultModel) when model is empty.
-// modelID is shell-quoted: it may be an arbitrary caller-supplied full model ID
-// (ResolveModel passes unknown values through), and claudeBase's result is typed
-// into a tmux pane and executed by a shell, so an unquoted model would be a
-// command-injection vector.
-func (l *Lifecycle) claudeBase(model string, mode string) string {
-	modelID := l.modelOrDefault(model)
-	return "claude --model " + shellQuoteArg(modelID) + " " + permissionFlag(mode)
-}
-
-// claudeLaunch builds the claude invocation for a spawned agent: the base
-// command plus a pinned --session-id (deterministic transcript + future
-// --resume) and a --name display label equal to the agent id, so the agent id,
-// tmux session, and claude session all read the same. sessionID is a generated
-// UUID (safe charset); name is the agent id (may be a ticket key) so it is quoted.
-func (l *Lifecycle) claudeLaunch(sessionID, name string, model string, mode string) string {
-	return l.claudeBase(model, mode) + " --session-id " + sessionID + " --name " + shellQuoteArg(name)
-}
+// The claude command/resume/headless builders that used to live here now belong
+// to the Claude adapter (internal/agentbackend/backends/claude.go). Lifecycle
+// resolves a Backend from the registry and calls backend.LaunchCmd / ResumeCmd /
+// HeadlessCmd instead. The hint fragments below (pipeline/collab/git-conventions)
+// are still appended by lifecycle for now.
 
 // pipelineHintGuidance is appended to a freshly spawned plain agent's system
 // prompt so that, handed a large/multi-phase task, the agent recommends
@@ -158,13 +144,6 @@ func (l *Lifecycle) gitConventionsHint() string {
 		return ""
 	}
 	return " --append-system-prompt " + shellQuoteArg(gitConventionsGuidance)
-}
-
-// claudeResume builds the invocation that resumes an existing agent conversation
-// by its pinned session id (continues the same transcript). --name re-applies the
-// display label so the resumed session still reads as the agent id.
-func (l *Lifecycle) claudeResume(sessionID, name string, model string, mode string) string {
-	return l.claudeBase(model, mode) + " --resume " + sessionID + " --name " + shellQuoteArg(name)
 }
 
 // classifyInstruction is prepended to the task prompt for headless classification.
@@ -306,6 +285,10 @@ func shellQuoteArg(s string) string {
 type Lifecycle struct {
 	run Runner
 	cfg ConfigProvider
+	// backend is the default agent backend (Claude) resolved from the registry.
+	// Per-session backends are resolved via backendFor; in Phase 0 every session
+	// is Claude, so this is also the effective backend everywhere.
+	backend agentbackend.Backend
 	// ProjectsDir is the Claude Code transcript root (default empty → transcript
 	// lookup disabled; the daemon sets it from config). Overridable in tests.
 	ProjectsDir string
@@ -370,7 +353,19 @@ type ConfigProvider interface {
 	GetRootGuard() bool
 }
 
-func New(r Runner, cfg ConfigProvider) *Lifecycle { return &Lifecycle{run: r, cfg: cfg} }
+func New(r Runner, cfg ConfigProvider) *Lifecycle {
+	return &Lifecycle{run: r, cfg: cfg, backend: agentbackend.Default()}
+}
+
+// backendFor resolves the backend for a session by its Backend field, falling
+// back to the default (Claude) for an empty/unknown id. Empty ⇒ Claude keeps
+// existing stores back-compatible (Session.Backend is omitempty).
+func (l *Lifecycle) backendFor(id string) agentbackend.Backend {
+	if b, err := agentbackend.Get(id); err == nil {
+		return b
+	}
+	return l.backend
+}
 
 // SpawnRequest is the type-aware input to Spawn (design §2 / §6).
 type SpawnRequest struct {
@@ -699,24 +694,8 @@ func oversizedOutput(s string) bool {
 // globally unique, so this is robust to cwd path-encoding quirks). With no
 // pinned id (legacy sessions) it falls back to the newest .jsonl in the dir.
 func (l *Lifecycle) transcriptPath(sess *store.Session) string {
-	if sess.ClaudeSessionID != "" {
-		if dir := claudeProjectDir(l.ProjectsDir, sess.Workdir); dir != "" {
-			p := filepath.Join(dir, sess.ClaudeSessionID+".jsonl")
-			if _, err := os.Stat(p); err == nil {
-				return p
-			}
-		}
-		if l.ProjectsDir != "" {
-			if m, _ := filepath.Glob(filepath.Join(l.ProjectsDir, "*", sess.ClaudeSessionID+".jsonl")); len(m) == 1 {
-				return m[0]
-			}
-		}
-		return "" // pinned but not written yet -> caller falls back to the pane
-	}
-	if dir := claudeProjectDir(l.ProjectsDir, sess.Workdir); dir != "" {
-		return newestTranscriptPath(dir)
-	}
-	return ""
+	p, _ := l.backendFor(sess.Backend).TranscriptPath(l.ProjectsDir, sess.Workdir, sess.ClaudeSessionID)
+	return p
 }
 
 // TranscriptPath is the exported accessor the daemon uses to resolve an agent's
@@ -967,7 +946,9 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.collabHint() + launchPrompt + l.exitSuffix(sess.ID)
+	launch := l.backendFor(sess.Backend).LaunchCmd(agentbackend.LaunchOpts{
+		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.modelOrDefault(req.Model), Mode: mode,
+	}) + l.pipelineHint() + l.collabHint() + launchPrompt + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
 		l.cleanupFailedSpawn(sess, true, false)
@@ -1019,7 +1000,9 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.claudeLaunch(sess.ClaudeSessionID, sess.ID, req.Model, mode) + l.pipelineHint() + l.collabHint() + l.gitConventionsHint() + l.guardSettingsFlag(sess.ID) + promptArg + l.exitSuffix(sess.ID)
+	launch := l.backendFor(sess.Backend).LaunchCmd(agentbackend.LaunchOpts{
+		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.modelOrDefault(req.Model), Mode: mode,
+	}) + l.pipelineHint() + l.collabHint() + l.gitConventionsHint() + l.guardSettingsFlag(sess.ID) + promptArg + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -1144,12 +1127,20 @@ func EnsureExtendedKeys(ctx context.Context, run Runner) {
 }
 
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
-// claude conversation claudeID inside it. Shared by Restore and Adopt.
+// agent conversation claudeID inside it. Shared by Restore and Adopt. Phase 0 is
+// Claude-only, so it uses the default backend; a per-session backend is threaded
+// through once selection lands (Phase 1).
 func (l *Lifecycle) resumeInTmux(ctx context.Context, id, cwd, claudeID, model string, mode string) error {
 	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
 		return err
 	}
-	resume := l.claudeResume(claudeID, id, model, mode) + l.exitSuffix(id)
+	cmd, ok := l.backend.ResumeCmd(agentbackend.ResumeOpts{
+		SessionID: claudeID, Name: id, Model: l.modelOrDefault(model), Mode: mode,
+	})
+	if !ok {
+		return fmt.Errorf("backend %s does not support resume", l.backend.ID())
+	}
+	resume := cmd + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, resume, "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
 	}
@@ -1624,7 +1615,9 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	if mode == "" {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
-	launch := l.claudeLaunch(sess.ClaudeSessionID, id, req.Model, mode) + l.collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
+	launch := l.backendFor(sess.Backend).LaunchCmd(agentbackend.LaunchOpts{
+		SessionID: sess.ClaudeSessionID, Name: id, Model: l.modelOrDefault(req.Model), Mode: mode,
+	}) + l.collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"` + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)

@@ -12,27 +12,36 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
-// The claude-command builders (claudeLaunch/claudeResume/claudeBase/pipelineHint)
-// are methods on *Lifecycle now. These package-level test wrappers build the
-// expected strings using a default, production-like config (hint on, empty model
-// default → claude-sonnet-4-6) so existing expectations read unchanged.
+// The claude-command builders now live on the Claude adapter
+// (internal/agentbackend/backends), resolved through the Backend interface. These
+// package-level test wrappers drive the launch/resume strings through the same
+// default backend lifecycle uses, with a production-like config (hint on, empty
+// model default → claude-sonnet-4-6), so existing expectations read unchanged and
+// stay byte-identical to what lifecycle types into tmux.
 func defaultLC() *Lifecycle { return New(&FakeRunner{}, &FakeConfig{}) }
 
 func claudeLaunch(sessionID, name, model, mode string) string {
-	return defaultLC().claudeLaunch(sessionID, name, model, mode)
+	lc := defaultLC()
+	return lc.backend.LaunchCmd(agentbackend.LaunchOpts{
+		SessionID: sessionID, Name: name, Model: lc.modelOrDefault(model), Mode: mode,
+	})
 }
 func claudeResume(sessionID, name, model, mode string) string {
-	return defaultLC().claudeResume(sessionID, name, model, mode)
+	lc := defaultLC()
+	cmd, _ := lc.backend.ResumeCmd(agentbackend.ResumeOpts{
+		SessionID: sessionID, Name: name, Model: lc.modelOrDefault(model), Mode: mode,
+	})
+	return cmd
 }
-func claudeBase(model, mode string) string { return defaultLC().claudeBase(model, mode) }
-func pipelineHint() string                 { return defaultLC().pipelineHint() }
-func collabHint() string                   { return defaultLC().collabHint() }
-func gitConventionsHint() string           { return defaultLC().gitConventionsHint() }
+func pipelineHint() string       { return defaultLC().pipelineHint() }
+func collabHint() string         { return defaultLC().collabHint() }
+func gitConventionsHint() string { return defaultLC().gitConventionsHint() }
 
 func TestClaudeLaunchPermissionMode(t *testing.T) {
 	def := claudeLaunch("sid", "agent-1", "", "acceptEdits")
@@ -119,6 +128,29 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	// Launch claude UNATTENDED, with a pinned session id and display name.
 	require.NotEmpty(t, s.ClaudeSessionID)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
+}
+
+// TestSpawnLaunchStringByteIdentical is the Phase-0 exit gate: the claude command
+// string lifecycle types into tmux must be byte-identical to the pre-refactor
+// literal after routing through the AgentBackend interface. The backend-produced
+// prefix is asserted against a HARDCODED golden string (independent of the
+// adapter and the claudeLaunch wrapper) so the two cannot silently drift
+// together; the hint fragments are still appended by lifecycle as before.
+func TestSpawnLaunchStringByteIdentical(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+	}}
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
+	})
+	require.NoError(t, err)
+
+	// Exactly what warden typed before the agentbackend extraction:
+	// claude --model <default> --permission-mode <default> --session-id <uuid> --name <id>
+	prefix := "claude --model 'claude-sonnet-4-6' --permission-mode 'auto' --session-id " +
+		s.ClaudeSessionID + " --name 'PROJ-350'"
+	want := prefix + pipelineHint() + collabHint() + gitConventionsHint()
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", want, "Enter"})
 }
 
 // A typed (managed-worktree) spawn must seed the task prompt into claude, just
@@ -1556,58 +1588,11 @@ func TestExitSuffixClearsStaleFile(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 }
 
-func TestPermissionFlag(t *testing.T) {
-	tests := []struct {
-		mode string
-		want string
-	}{
-		{"auto", "--permission-mode 'auto'"},
-		{"acceptEdits", "--permission-mode 'acceptEdits'"},
-		{"bypassPermissions", "--permission-mode 'bypassPermissions'"},
-		{"default", "--permission-mode 'default'"},
-		{"dontAsk", "--permission-mode 'dontAsk'"},
-		{"plan", "--permission-mode 'plan'"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.mode, func(t *testing.T) {
-			got := permissionFlag(tt.mode)
-			if got != tt.want {
-				t.Errorf("permissionFlag(%q) = %q, want %q", tt.mode, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestClaudeBase(t *testing.T) {
-	tests := []struct {
-		mode string
-		want string
-	}{
-		{"auto", "claude --model 'claude-sonnet-4-6' --permission-mode 'auto'"},
-		{"acceptEdits", "claude --model 'claude-sonnet-4-6' --permission-mode 'acceptEdits'"},
-		{"bypassPermissions", "claude --model 'claude-sonnet-4-6' --permission-mode 'bypassPermissions'"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.mode, func(t *testing.T) {
-			got := claudeBase("", tt.mode)
-			if got != tt.want {
-				t.Errorf("claudeBase(%q) = %q, want %q", tt.mode, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestClaudeBaseQuotesModel is a regression guard for the command-injection fix:
-// a model string carrying shell metacharacters must be single-quoted so it can
-// never break out of the launch line that Spawn types into a tmux pane.
-func TestClaudeBaseQuotesModel(t *testing.T) {
-	l := &Lifecycle{cfg: &FakeConfig{}}
-	got := l.claudeBase("sonnet; touch /tmp/pwned #", "auto")
-	want := `claude --model 'sonnet; touch /tmp/pwned #' --permission-mode 'auto'`
-	if got != want {
-		t.Errorf("claudeBase with injected model = %q, want %q", got, want)
-	}
-}
+// Note: the claudeBase / permissionFlag / LaunchCmd / ResumeCmd builder tests
+// (permission-mode flags, model quoting, command-injection guard) now live with
+// the Claude adapter in internal/agentbackend/backends/claude_test.go, since
+// those builders moved there. The launch/resume strings lifecycle types into
+// tmux are still asserted here via the claudeLaunch/claudeResume wrappers.
 
 func TestValidPermissionMode(t *testing.T) {
 	valid := []string{"", "acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"}
