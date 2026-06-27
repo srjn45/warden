@@ -2,19 +2,23 @@
 const base = import.meta.env.BASE_URL;
 const tiles = [
   ['Spawn & classify', 'guides/spawn-and-watch'],
-  ['Approvals inbox', 'guides/approvals-supervised'],
+  ['Approvals & auto-approve', 'guides/approvals-supervised'],
   ['Supervised mode', 'guides/approvals-supervised'],
-  ['Self-rotation', 'guides/rotation-digests'],
-  ['Worktrees', 'concepts/worktrees-task-types'],
-  ['Completion digest', 'guides/rotation-digests'],
-  ['Observability', 'reference/observability'],
-  ['Context guard', 'reference/observability'],
+  ['Pipelines (DAG)', 'multi-agent/pipelines'],
+  ['Worktrees & task types', 'concepts/worktrees-task-types'],
+  ['Self-rotation & digests', 'guides/rotation-digests'],
+  ['Savings & cost governance', 'reference/savings'],
+  ['Context guard & compaction', 'reference/observability'],
+  ['Snapshots & rollback', 'guides/snapshots'],
+  ['Scheduling', 'guides/scheduling'],
+  ['Remote access', 'guides/remote-access'],
+  ['Insights', 'reference/insights'],
 ];
 ---
 <section class="section">
   <div class="wrap">
     <h2 style="text-align:center">Everything warden does</h2>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
       {tiles.map(([label, slug]) => (
         <a href={`${base}${slug}/`} style="background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px;text-decoration:none;color:var(--fg)">{label}</a>
       ))}

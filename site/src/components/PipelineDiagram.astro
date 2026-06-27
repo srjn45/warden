@@ -4,7 +4,8 @@ const base = import.meta.env.BASE_URL;
 <section class="section" style="text-align:center">
   <div class="wrap">
     <h2>Pipelines</h2>
-    <p style="color:var(--muted)">Chain dependent agents into a DAG — analyze → implement → review.</p>
-    <img src={`${base}media/pipeline-dag.svg`} alt="A three-stage agent pipeline" style="max-width:640px;width:100%" />
+    <p style="color:var(--muted)">Chain dependent agents into a DAG — outputs flow downstream, fan-out and fan-in resolve automatically, and the web UI renders the live graph.</p>
+    <img src={`${base}media/web-pipeline.png`} alt="A multi-stage agent pipeline rendered as a DAG in the warden web UI: parallel roots fan out through design and implementation jobs and converge on integrate, test, review and release jobs."
+      style="width:100%;border:1px solid var(--border);border-radius:8px" />
   </div>
 </section>

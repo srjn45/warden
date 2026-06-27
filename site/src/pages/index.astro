@@ -23,10 +23,12 @@ const base = import.meta.env.BASE_URL; // '/warden/'
     <ValueProps />
     <!-- Screenshots captured from an isolated demo instance (site/scripts/demo-seed.sh
          + site/tape/cockpit.tape); no real fleet, paths, or hostname. -->
-    <Showcase side="left"  title="The cockpit" img="cockpit.png"
+    <Showcase side="left"  title="The TUI cockpit" img="cockpit.png"
       blurb="Framed panes, live agent detail, scrollable sessions, approvals inbox — all in the terminal." />
-    <Showcase side="right" title="Web mission control" img="web-overview.png"
-      blurb="Tabbed shell, live xterm terminals, attention queue, resource metrics — in the browser." />
+    <Showcase side="right" title="Web mission control" img="web-cockpit.png"
+      blurb="A URL-routed dashboard with a Cockpit home, live SSE fleet, grouping, and a one-click attention queue — in the browser." />
+    <Showcase side="left"  title="Fleet metrics & savings" img="web-metrics.png"
+      blurb="CPU, memory, context fill and fleet size per agent and fleet-wide — plus the tokens-saved trend and per-model cost, from the savings ledger." />
     <FeatureGrid />
     <PipelineDiagram />
     <Quickstart />
