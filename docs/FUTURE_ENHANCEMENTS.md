@@ -123,6 +123,41 @@ day-to-day impact now that `q` exits cleanly.
 
 ---
 
+## 🤖 Agent Backends & Ecosystem
+
+#### 52. Pluggable agent backends (beyond Claude Code) — *idea, not yet scoped*
+**Effort:** TBD (deep-dive later)
+
+Generalize the agent layer so warden can drive **other console-based coding
+agents** (e.g. other CLI AI assistants) the same way it drives Claude Code, not
+just Claude Code alone. Today the spawn/attach/lifecycle plumbing assumes the
+`claude` binary; factoring that into a backend interface (launch command,
+prompt/handoff protocol, idle/needs-input detection, digest parsing) would let an
+operator pick a backend per agent. **Why it matters:** broadens warden's reach
+beyond Claude-Code users to any developer running a terminal agent, which is the
+single biggest lever on adoption. Needs a design pass on the backend abstraction
+and which agents to support first.
+
+---
+
+## 🧠 Project Context & Memory
+
+#### 53. `wd init` + per-project context store under `~/.warden` — *idea, not yet scoped*
+**Effort:** TBD (deep-dive later)
+
+A `wd init` command that registers a **project root** and keeps warden's
+per-project state under `~/.warden/<project>/` instead of inside the repo — so
+there's nothing to `.gitignore` and no warden artifacts polluting the working
+tree. The store would hold the project's durable context: session history,
+warden's accumulated understanding of the codebase, and a memory bank that
+persists across agents and runs. **Why it matters:** gives warden (and especially
+the local-LLM REPL, #50) real long-lived project memory to ground better answers
+and orchestration, while keeping the repo clean. Needs a design pass on the
+store's layout, what gets persisted vs. recomputed, and how it's keyed to a repo
+(path vs. remote vs. an explicit id).
+
+---
+
 ## 📊 Priority Matrix (reassessed 2026-06-26)
 
 Re-scored on **feasibility × necessity** for what warden actually is today: a
@@ -138,12 +173,17 @@ for a single user.
 > **Tiers 1–3 are cleared** — the REPL (#50, `wd repl`) shipped (see
 > [FEATURES.md §17](FEATURES.md#17-interactive-mode--repl-wd-repl)), along with the
 > onboarding / extensibility batch (#42, #43, #46, #47, #48). Only Tiers 4–5
-> remain below, and both are now empty or parked.
+> remain below: a few new early-stage bets (#51–#53) and the parked enterprise set.
 
 ### 🔮 Tier 4 — Future / large bets (usage-gated)
 - **Self-healing web cockpit session (#51)** — small (0.5–1 day) robustness item:
   make `EnsureWebCockpit` validate/rebuild a wedged cockpit instead of reusing it
   blindly. Low-moderate necessity; no day-to-day impact now that `q` exits cleanly.
+- **Pluggable agent backends (#52)** — early idea: drive console agents beyond
+  Claude Code via a backend interface. Biggest adoption lever; needs a design pass.
+- **`wd init` + per-project context store (#53)** — early idea: durable per-project
+  memory under `~/.warden` (no repo pollution) to ground warden / the local-LLM
+  REPL. Needs a design pass on store layout and repo keying.
 - Inter-agent collaboration (#44) is closed: the file-conflict MVP +
   BranchTracker shipped and the rest was audited and dropped (see §44 above). A
   fresh demand signal would be needed to reopen any of it.
