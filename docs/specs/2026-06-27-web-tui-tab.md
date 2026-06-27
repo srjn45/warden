@@ -1,14 +1,21 @@
-# Web "TUI" tab — the cockpit, streamed into the browser
+# Web "TUI" — the cockpit, streamed full-screen into the browser
 
-Status: implemented (Phase 1 + 2)
+Status: implemented (Phase 1 + 2; full-screen revision)
 Date: 2026-06-27
 
 ## Goal
 
-Give the web platform a tab that works **exactly** like the terminal TUI
+Give the web platform a surface that works **exactly** like the terminal TUI
 (`warden tui`) — same three-pane interface, same keyboard shortcuts, the same
 real shells and the same Claude Code — so an operator can drive the whole fleet
-from any browser/device in the identical way they do locally.
+from a laptop in the identical way they do locally.
+
+It is **not a tab**: it is launched from a highlighted **▢ TUI** button in the top
+bar and takes the **whole viewport, edge-to-edge and non-scrollable**, with none
+of the dashboard chrome — and it **exits on Ctrl+Q** (from any pane), landing back
+on the home view.
+It is a desktop/laptop surface (the three-pane cockpit wants width), so it drops
+the mobile soft-key bar that the per-agent attach keeps.
 
 ## Key realization
 
@@ -69,7 +76,7 @@ port. The work is making the key/clipboard/terminfo pipe transparent:
 ## Architecture
 
 ```
-Browser /tui tab            Daemon                          tmux
+Browser /tui (fullscreen)   Daemon                          tmux
 ┌────────────────┐  WS    ┌──────────────────────┐        ┌──────────────────────┐
 │ TuiTab          │◄──────►│ handleCockpitAttach  │──PTY──►│ warden-web-cockpit    │
 │ → PtyTerminal   │ binary │  ensureWebCockpit()  │ attach │  ├ list pane (bubbletea)│
@@ -93,8 +100,20 @@ Browser /tui tab            Daemon                          tmux
 - **Shortcut collisions are already solved.** xterm's input is a hidden
   `<textarea>`, and the dashboard's `isTypingTarget` (`lib/shortcuts.ts`) already
   suppresses global single-key shortcuts in textareas — so `n/r/j/k/1–9` flow to
-  the TUI, not the web shell, while the terminal has focus. Leaving the tab is via
-  a tab-bar click (you "enter" the TUI), matching expectations.
+  the TUI, not the web shell, while the terminal has focus.
+- **Full-screen route, not a tab.** `tui` is a standalone route (like `agent`),
+  removed from `FIXED_ROUTE_KINDS` so it has no tab and no slot in `1-9`/`j-k`
+  nav. `Dashboard` early-returns a chrome-less full-viewport `TuiTab` when the
+  route is `tui`. Launched from the highlighted top-bar **▢ TUI** button.
+- **Ctrl+Q exits.** Ctrl+Q is intercepted in the terminal's
+  `attachCustomKeyEventHandler`, `preventDefault`'d, and routed to `onExit()`
+  (→ home) instead of the PTY — so it works from **any** pane. We use Ctrl+Q
+  rather than a bare `q` so a literal `q` still types into the shells / Claude /
+  pagers (full terminal fidelity), and Ctrl+Q isn't an OS-reserved chord the way
+  Cmd+Q is.
+- **Desktop/laptop only.** The cockpit wants width, so the full-screen TUI sets
+  `keyBar={false}` — no mobile soft-key bar. The per-agent attach (still mobile-
+  friendly) keeps it.
 - **Lazy + idempotent.** The cockpit is built on first attach (`has-session`
   probe, then `buildCockpit`) and reused thereafter; it survives daemon restarts
   as long as the tmux server does, and is rebuilt on the next attach otherwise.
@@ -115,13 +134,21 @@ Server:
 Web:
 - `web/src/components/PtyTerminal.tsx` — the shared xterm engine extracted from
   `AttachTerminal`, parameterized by `makeUrl` / `reconnectKey`, with
-  `extendedKeys` and `fill` options.
+  `extendedKeys`, `fill`, `onExit` (Ctrl+Q exit), and `keyBar` options.
 - `web/src/components/AttachTerminal.tsx` — now a thin wrapper over `PtyTerminal`.
-- `web/src/components/TuiTab.tsx` — full-window cockpit terminal.
+- `web/src/components/TuiTab.tsx` — the full-screen cockpit terminal (`onExit`
+  + `keyBar={false}`).
+- `web/src/components/AttentionBar.tsx` — the highlighted top-bar **▢ TUI**
+  launcher (`onOpenTui`).
 - `web/src/lib/attach.ts` — `cockpitAttachURL`.
-- `web/src/lib/router.ts`, `web/src/components/TabBar.tsx`,
-  `web/src/components/Dashboard.tsx`, `web/src/pages/[...path].astro` — register
-  the `tui` route/tab and its deep-link shell.
+- `web/src/lib/router.ts` — `tui` made a standalone (non-tab) route; parsed/
+  round-tripped, kept out of `FIXED_ROUTE_KINDS`.
+- `web/src/components/TabBar.tsx` — TUI tab removed.
+- `web/src/components/Dashboard.tsx` — early-return full-screen `TuiTab` for the
+  `tui` route; top-bar launcher wired.
+- `web/src/pages/[...path].astro` — `/tui` deep-link shell (unchanged).
+- `web/src/styles/app.css` — `.tui-fullscreen` (fixed, edge-to-edge,
+  non-scrollable) + `.tui-launch` (accent button).
 
 ## Known limitations / follow-ups
 
@@ -129,8 +156,9 @@ Web:
   `M-t`) and a prefix `Enter` binding on the shared tmux server; these can leak to
   other sessions on the same server. Pre-existing TUI behavior; acceptable for a
   single-user daemon, but scoping to the cockpit session is a future cleanup.
-- **Mobile.** The three-pane layout wants width; the web cockpit is desktop/tablet
-  first. The per-agent `AttachTerminal` already covers "drive one agent" on a
-  phone. A phone-optimized single-pane cockpit layout is a possible follow-up.
+- **Mobile.** The full-screen TUI is explicitly a desktop/laptop surface (the
+  three-pane layout wants width; no soft-key bar). The per-agent `AttachTerminal`
+  already covers "drive one agent" on a phone. A phone-optimized single-pane
+  cockpit layout is a possible follow-up.
 - **Reconnect.** A dropped socket shows a banner and reconnects on reload; an
   auto-reconnect is a Phase 3 polish item.

@@ -4,7 +4,10 @@
 // working Back/Forward.
 //
 // Routes:
-//   /cockpit /tui /pipelines /metrics /archive /others  → fixed tabs
+//   /cockpit /pipelines /metrics /archive /others  → fixed tabs
+//   /tui                                            → the full-screen cockpit
+//                                                     (launched from the top bar,
+//                                                     not a tab)
 //   /agent/<id>                                     → a pinned agent pane
 //   anything else                                   → cockpit (default)
 //   /                                               → redirects to /cockpit
@@ -17,11 +20,14 @@ import { useEffect, useState } from 'react';
 // FIXED_ROUTE_KINDS is the canonical left-to-right order of the always-present
 // tabs. Mirrored by FIXED_TABS in lib/tabs.ts (kept in sync deliberately).
 // Others is the catch-all and sits last, after the purpose-built tabs.
-export const FIXED_ROUTE_KINDS = ['cockpit', 'tui', 'pipelines', 'metrics', 'archive', 'others'] as const;
+// `tui` is deliberately NOT here — it is a full-screen route launched from the
+// top bar, with no tab and no slot in 1-9 / j-k navigation.
+export const FIXED_ROUTE_KINDS = ['cockpit', 'pipelines', 'metrics', 'archive', 'others'] as const;
 export type FixedRouteKind = (typeof FIXED_ROUTE_KINDS)[number];
 
 export type Route =
   | { kind: FixedRouteKind }
+  | { kind: 'tui' }
   | { kind: 'agent'; id: string };
 
 // The canonical home path; `/` redirects here on first load.
@@ -45,6 +51,7 @@ export function parseRoute(pathname: string): Route {
   if (segs[0] === 'agent' && segs.length >= 2) {
     return { kind: 'agent', id: decodeURIComponent(segs.slice(1).join('/')) };
   }
+  if (segs.length === 1 && segs[0] === 'tui') return { kind: 'tui' };
   if (segs.length === 1 && isFixedKind(segs[0])) return { kind: segs[0] };
   return DEFAULT_ROUTE;
 }

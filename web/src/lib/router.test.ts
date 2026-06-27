@@ -16,6 +16,13 @@ describe('parseRoute', () => {
     expect(DEFAULT_ROUTE).toEqual({ kind: 'cockpit' });
   });
 
+  it('parses /tui as the full-screen route (not a fixed tab)', () => {
+    expect(parseRoute('/tui')).toEqual({ kind: 'tui' });
+    expect(parseRoute('/tui/')).toEqual({ kind: 'tui' });
+    expect(routeToPath({ kind: 'tui' })).toBe('/tui');
+    expect(FIXED_ROUTE_KINDS).not.toContain('tui');
+  });
+
   it('parses agent routes and decodes the id', () => {
     expect(parseRoute('/agent/A-1')).toEqual({ kind: 'agent', id: 'A-1' });
     expect(parseRoute('/agent/feat%2Fx')).toEqual({ kind: 'agent', id: 'feat/x' });
