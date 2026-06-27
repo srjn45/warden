@@ -47,7 +47,16 @@ func (d *pollerDeps) ExitCode(_ context.Context, id string) (int, bool) {
 	return d.lc.ReadExit(id)
 }
 func (d *pollerDeps) FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (bool, error) {
-	return d.store.FinalizeExit(ctx, id, expected, next, code)
+	swapped, err := d.store.FinalizeExit(ctx, id, expected, next, code)
+	// The child just went terminal; its parent may now be a fully-terminal
+	// tombstone ready to reap (agent sub-tree grouping, phase 3). Lazy primary
+	// reap — the periodic sweep is the safety net.
+	if swapped && err == nil {
+		if s, gerr := d.store.Get(ctx, id); gerr == nil && s.ParentID != "" {
+			reapTombstones(ctx, d.store, s.ParentID)
+		}
+	}
+	return swapped, err
 }
 func (d *pollerDeps) ClearExit(_ context.Context, id string) {
 	d.lc.ClearExit(id)
