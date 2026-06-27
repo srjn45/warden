@@ -766,6 +766,7 @@ out of agents' context windows — a measured proof point, not an estimate. Each
 a feature avoids dumping output into the transcript, the saving is recorded; `wd
 savings` reads it back. Config-gated by `savings` (default on); the daemon owns the
 store under `<data_dir>/savings/` and serves it at `GET /api/v1/savings` (403 when off).
+Also reachable under the cost umbrella as `wd cost savings` (see §30).
 
 The report keeps two axes honest and **never blends them into one percentage**:
 
@@ -810,3 +811,16 @@ measured data); the daemon serves it at `GET /api/v1/spend` (403 when off).
 
 Self-contained, fully unit-tested `internal/spend` package (`store` / `pricing` /
 `report` / `budget`); the CLI rendering lives in `internal/cli/spend.go`.
+
+**Cost umbrella (`wd cost`).** A single discoverable entry point over both financial
+views, mirroring the `library` umbrella over reusable launch config. `wd cost spend`
+and `wd cost savings` are the very same commands as the top-level `wd spend` and `wd
+savings` (every flag — `--by`, `--json`, `--benchmark`, `--since`, `--audit`,
+`--calibrate` — wired straight through); `wd cost` with no subcommand prints a
+combined at-a-glance summary with a **SPEND** section and a **SAVINGS** section,
+reusing both render helpers verbatim (`internal/cli/cost.go`) so the figures never
+disagree with the standalone commands. Purely additive — no new storage, pricing, or
+MCP tool: both axes are already exposed over MCP (`spend`, `savings`), and the
+top-level `wd spend` / `wd savings` remain as aliases. Resource footprint
+(memory/CPU/pressure) is a **different axis** and stays under `wd stats` (§ Live
+resource metrics), deliberately not folded into `wd cost`.

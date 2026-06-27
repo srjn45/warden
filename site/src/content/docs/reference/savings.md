@@ -118,3 +118,24 @@ hard-blocks.
 - **`warden ls`** gains a **COST** column (also in `warden search` / `warden history`).
 - The web **Metrics** tab adds a **Cost per agent** card: the `total / today / this
   week` headline plus a live per-agent cost table beside the RSS/CPU charts.
+
+## One umbrella — `warden cost`
+
+`warden cost` gathers both financial views under a single discoverable command,
+mirroring how `warden library` unifies presets, prompt templates, and pipeline
+templates:
+
+```sh
+warden cost                       # combined: a SPEND section + a SAVINGS section
+warden cost spend --by agent      # same as `warden spend --by agent`
+warden cost savings --benchmark   # same as `warden savings --benchmark`
+```
+
+`warden cost spend` and `warden cost savings` are the very same commands as the
+top-level `warden spend` / `warden savings` — every flag wired straight through —
+and the top-level commands remain available as aliases. With no subcommand,
+`warden cost` prints a combined at-a-glance summary that reuses both reports'
+render logic, so the figures never disagree. Purely additive: no new storage,
+pricing, or MCP tool (both axes already ship the `spend` and `savings` MCP tools).
+Resource footprint — memory/CPU/pressure — is a **different axis** and stays under
+[`warden stats`](/warden/reference/observability/), deliberately not folded in.

@@ -145,8 +145,9 @@ own tmux session, most in a git worktree).
 | Metrics history (time-series) | `stats --history` | `get_metrics` (`history`) | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Memory-pressure gate / headroom | `doctor` / spawn gate | `get_pressure` | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Fleet insights (parallelizable pairs, etc.) | `insights` | `insights` | ✓ | — | — | [insights](https://srjn45.github.io/warden/reference/insights/) |
-| Token-savings ledger | `savings` | `savings` | ✓ | — | — | [savings](https://srjn45.github.io/warden/reference/savings/) |
-| Cost governance ($ spend rollup) | `spend` | `spend` | ✓ | ✓ | $ in `ls` | [savings](https://srjn45.github.io/warden/reference/savings/) |
+| Cost umbrella (spend + savings in one) | `cost` (`cost spend` / `cost savings`) | `spend` + `savings` | ✓ | — | — | [savings](https://srjn45.github.io/warden/reference/savings/) |
+| Token-savings ledger | `savings` (alias `cost savings`) | `savings` | ✓ | — | — | [savings](https://srjn45.github.io/warden/reference/savings/) |
+| Cost governance ($ spend rollup) | `spend` (alias `cost spend`) | `spend` | ✓ | ✓ | $ in `ls` | [savings](https://srjn45.github.io/warden/reference/savings/) |
 | Budget gate (soft $ cap on spawn) | config (`budget_gate`) / spawn gate | automatic | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Full-text search | `search` | `search` | ✓ | ✓ | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | Browse archived agents | `history` | `history` | ✓ | ✓ (archive) | — | [cli](https://srjn45.github.io/warden/reference/cli/) |

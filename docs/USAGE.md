@@ -603,6 +603,23 @@ warden stats --history            # per-agent history + anomaly warnings
 warden stats --history --agent agent-4f2a
 ```
 
+### `warden cost [spend|savings]`
+One umbrella over warden's two financial views — **spend** (real dollars agents
+billed Claude) and **savings** (tokens, and the dollars they represent, warden kept
+out of context). With no subcommand it prints a combined at-a-glance summary (a
+**SPEND** section and a **SAVINGS** section). `warden cost spend` and `warden cost
+savings` are the same commands as the top-level `warden spend` / `warden savings`,
+with every flag wired through. The top-level commands remain available as aliases.
+
+```sh
+warden cost                       # combined: SPEND section + SAVINGS section
+warden cost spend --by agent      # same as `warden spend --by agent`
+warden cost savings --benchmark   # same as `warden savings --benchmark`
+```
+
+Resource footprint (memory/CPU/pressure) is a different axis — see `warden stats` —
+and is deliberately not folded into `warden cost`.
+
 ### `warden savings [--benchmark] [--since W] [--json] [--audit] [--calibrate]`
 Read back the **token-savings ledger** — a real, append-only record of the tokens
 warden's lifecycle features (starting with `wd check`) kept out of agents' context
