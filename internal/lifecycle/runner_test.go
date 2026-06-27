@@ -108,6 +108,18 @@ func TestCommandInstallHintGh(t *testing.T) {
 	require.Contains(t, hint, "https://cli.github.com")
 }
 
+func TestCommandInstallHintGit(t *testing.T) {
+	hint := commandInstallHint("git")
+	require.Contains(t, hint, "brew install git")
+	require.Contains(t, hint, "apt install git")
+}
+
+func TestCommandInstallHintOllama(t *testing.T) {
+	hint := commandInstallHint("ollama")
+	require.Contains(t, hint, "brew install ollama")
+	require.Contains(t, hint, "https://ollama.com/install.sh")
+}
+
 func TestCommandInstallHintUnknownCommand(t *testing.T) {
 	hint := commandInstallHint("unknown")
 	require.Contains(t, hint, "Install unknown")

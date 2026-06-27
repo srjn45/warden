@@ -24,7 +24,7 @@ func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) (st
 }
 
 // HintingExecRunner wraps a Runner and enhances command-not-found errors
-// with installation hints for tmux, claude, and gh.
+// with installation hints for tmux, git, claude, gh, and ollama.
 type HintingExecRunner struct {
 	Inner Runner
 }
@@ -67,10 +67,14 @@ func commandInstallHint(cmd string) string {
 	switch base {
 	case "tmux":
 		return "Install: brew install tmux (macOS) or apt install tmux (Linux)"
+	case "git":
+		return "Install: brew install git (macOS) or apt install git (Linux)"
 	case "gh":
 		return "Install: brew install gh (macOS) or apt install gh (Linux)\nOr visit: https://cli.github.com"
 	case "claude":
-		return "Install Claude Code from https://claude.ai/download"
+		return "Install Claude Code: curl -fsSL https://claude.ai/install.sh | bash (macOS/Linux)\nOr visit: https://claude.ai/download"
+	case "ollama":
+		return "Install: brew install ollama (macOS) or curl -fsSL https://ollama.com/install.sh | sh (Linux)"
 	default:
 		return "Install " + base + " to continue"
 	}

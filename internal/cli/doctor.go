@@ -19,10 +19,11 @@ import (
 const doctorVersion = "dev"
 
 // External tools warden shells out to. Required ones must resolve on PATH;
-// optional ones are warn-only (gh is only used for some convenience flows).
+// optional ones are warn-only (gh is only used for some convenience flows;
+// ollama only for local_llm / `wd repl`).
 var (
 	requiredBinaries = []string{"tmux", "git", "claude"}
-	optionalBinaries = []string{"gh"}
+	optionalBinaries = []string{"gh", "ollama"}
 )
 
 // checkResult is the outcome of one preflight check.
