@@ -21,50 +21,80 @@ func repoFlag(cmd *cobra.Command) (string, error) {
 	return os.Getwd()
 }
 
+// newWorktreeCmd is the unified "worktree" umbrella over warden's two worktree
+// operations: LIST (inspect the warden-owned worktrees under .worktrees, joined
+// to active/archived records) and PRUNE (reclaim orphaned worktrees). It adds no
+// storage or logic of its own — it is a single discoverable entry point that
+// reuses the existing list and prune run functions. `wd worktree` with no
+// subcommand prints the list (the same view as `wd worktree list`), kept for
+// back-compat. `wd worktree prune` is the very same command as the top-level
+// `wd prune`, which remains available and unchanged as an alias.
 func newWorktreeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "worktree",
-		Short: "Inspect warden's git worktrees",
+		Short: "Inspect and reclaim warden's git worktrees: list and prune, in one place",
+		Long: "One umbrella over warden's two worktree operations:\n" +
+			"  • LIST  — the warden-owned worktrees under .worktrees, joined to active/archived records (`wd worktree list`)\n" +
+			"  • PRUNE — reclaim orphaned warden worktrees (`wd worktree prune`)\n\n" +
+			"`wd worktree` with no subcommand prints the list (the same view as `wd worktree list`). " +
+			"`wd worktree prune` is the same command as the top-level `wd prune`, which remains available " +
+			"and unchanged as an alias. (Tearing down ONE agent's worktree is a different concern — see " +
+			"`wd remove-worktree`.)",
+		Args: cobra.NoArgs,
+		RunE: runWorktreeList,
 	}
-	cmd.AddCommand(newWorktreeLsCmd())
+	addWorktreeListFlags(cmd)
+	cmd.AddCommand(newWorktreeListCmd(), newPruneCmd())
 	return cmd
 }
 
-func newWorktreeLsCmd() *cobra.Command {
+func newWorktreeListCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "ls",
-		Short: "List warden worktrees under .worktrees, joined to active/archived records",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := repoFlag(cmd)
-			if err != nil {
-				return err
-			}
-			rows, err := clientFor(cmd).ListWorktrees(cmd.Context(), repo)
-			if err != nil {
-				return err
-			}
-			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-				if rows == nil {
-					rows = []lifecycle.WorktreeListing{}
-				}
-				return printJSON(cmd.OutOrStdout(), rows)
-			}
-			if len(rows) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "no warden worktrees under .worktrees")
-				return nil
-			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "PATH\tBRANCH\tOWNER\tSTATE")
-			for _, r := range rows {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Path, branchCell(r), ownerCell(r.Owner, r.Lifecycle), r.State)
-			}
-			return tw.Flush()
-		},
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List warden worktrees under .worktrees, joined to active/archived records",
+		Args:    cobra.NoArgs,
+		RunE:    runWorktreeList,
 	}
+	addWorktreeListFlags(cmd)
+	return cmd
+}
+
+// addWorktreeListFlags installs the flags shared by the bare `wd worktree`
+// (back-compat list) and the explicit `wd worktree list` subcommand.
+func addWorktreeListFlags(cmd *cobra.Command) {
 	cmd.Flags().String("repo", "", "repo path (default: current directory)")
 	cmd.Flags().Bool("json", false, "output as JSON")
-	return cmd
+}
+
+// runWorktreeList renders the warden-owned worktrees under .worktrees, joined to
+// their active/archived records. It backs both the bare `wd worktree` and the
+// explicit `wd worktree list`, so the two never diverge.
+func runWorktreeList(cmd *cobra.Command, _ []string) error {
+	repo, err := repoFlag(cmd)
+	if err != nil {
+		return err
+	}
+	rows, err := clientFor(cmd).ListWorktrees(cmd.Context(), repo)
+	if err != nil {
+		return err
+	}
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		if rows == nil {
+			rows = []lifecycle.WorktreeListing{}
+		}
+		return printJSON(cmd.OutOrStdout(), rows)
+	}
+	if len(rows) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "no warden worktrees under .worktrees")
+		return nil
+	}
+	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "PATH\tBRANCH\tOWNER\tSTATE")
+	for _, r := range rows {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Path, branchCell(r), ownerCell(r.Owner, r.Lifecycle), r.State)
+	}
+	return tw.Flush()
 }
 
 func branchCell(r lifecycle.WorktreeListing) string {
@@ -81,11 +111,23 @@ func ownerCell(owner, life string) string {
 	return fmt.Sprintf("%s (%s)", owner, life)
 }
 
+// newPruneCmd backs both `wd worktree prune` (the subcommand under the worktree
+// umbrella) and the top-level `wd prune` alias — the same constructor is wired
+// into both, so flags, prompts, and output are identical. It reclaims orphaned
+// warden worktrees under .worktrees; retention is policy-driven via the
+// `worktree.keep_done` / `worktree.auto_prune` config settings.
 func newPruneCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prune",
 		Short: "Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)",
-		Args:  cobra.NoArgs,
+		Long: "Reclaim orphaned warden worktrees under .worktrees — those whose owning agent\n" +
+			"record is gone (or, with --include-archived, archived). Always shows the plan\n" +
+			"and asks before removing anything (skip with --yes); dirty/unpushed worktrees\n" +
+			"are kept unless --force. Retention is policy-driven via the `worktree.keep_done`\n" +
+			"/ `worktree.auto_prune` config settings.\n\n" +
+			"Available as `wd worktree prune` and, unchanged, as the top-level alias `wd prune`.\n" +
+			"(To tear down ONE agent's worktree instead, use `wd remove-worktree`.)",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, err := repoFlag(cmd)
 			if err != nil {

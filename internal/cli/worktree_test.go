@@ -134,6 +134,74 @@ func TestWorktreeLsEmpty(t *testing.T) {
 	}
 }
 
+// TestWorktreeListAlias proves `wd worktree list` and the legacy `wd worktree ls`
+// alias drive the same view (the umbrella rename is wiring, not a fork).
+func TestWorktreeListAlias(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"worktrees": []lifecycle.WorktreeListing{
+				{Path: "/r/.worktrees/a", Branch: "feat", Owner: "code-1", Lifecycle: "active", State: "live"},
+			},
+		})
+	})
+	viaList, err := runCLI(t, addr, "worktree", "list", "--repo", "/r", "--json")
+	if err != nil {
+		t.Fatalf("worktree list: %v", err)
+	}
+	viaLs, err := runCLI(t, addr, "worktree", "ls", "--repo", "/r", "--json")
+	if err != nil {
+		t.Fatalf("worktree ls: %v", err)
+	}
+	if viaList != viaLs {
+		t.Errorf("`worktree list` and `worktree ls` diverged:\nlist: %q\nls:   %q", viaList, viaLs)
+	}
+}
+
+// TestWorktreeBareLists confirms the bare `wd worktree` (no subcommand) still
+// renders the list, for back-compat.
+func TestWorktreeBareLists(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"worktrees": []lifecycle.WorktreeListing{
+				{Path: "/r/.worktrees/a", Branch: "feat", Owner: "code-1", Lifecycle: "active", State: "live"},
+			},
+		})
+	})
+	out, err := runCLI(t, addr, "worktree", "--repo", "/r")
+	if err != nil {
+		t.Fatalf("bare worktree: %v", err)
+	}
+	for _, want := range []string{"PATH", "BRANCH", "feat", "code-1 (active)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bare worktree missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestWorktreePruneMatchesAlias proves `wd worktree prune` and the top-level
+// `wd prune` alias produce identical output (the umbrella reuses the same
+// constructor — it is wiring, not a copy).
+func TestWorktreePruneMatchesAlias(t *testing.T) {
+	stub := func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"results": []lifecycle.PruneResult{
+				{Action: lifecycle.PruneRemove, Path: "/r/.worktrees/a", Branch: "feat", State: "orphan"},
+			},
+		})
+	}
+	viaUmbrella, err := runCLI(t, stubDaemon(t, stub), "worktree", "prune", "--repo", "/r", "--dry-run")
+	if err != nil {
+		t.Fatalf("worktree prune: %v", err)
+	}
+	viaAlias, err := runCLI(t, stubDaemon(t, stub), "prune", "--repo", "/r", "--dry-run")
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if viaUmbrella != viaAlias {
+		t.Errorf("`worktree prune` and `prune` diverged:\numbrella: %q\nalias:    %q", viaUmbrella, viaAlias)
+	}
+}
+
 // TestPruneDryRun covers the prune command's --dry-run path (no prompt) and the
 // printPrune summary rendering.
 func TestPruneDryRun(t *testing.T) {

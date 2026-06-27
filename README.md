@@ -1041,15 +1041,18 @@ Change a running agent's permission mode (`acceptEdits`/`auto`/`bypassPermission
 warden set-permission-mode agent-abc123 dontAsk
 ```
 
-### `warden worktree ls` / `warden prune`
+### `warden worktree`
+
+The umbrella for warden's worktree operations — **list** and **prune**:
 
 ```sh
-warden worktree ls                    # list warden-owned worktrees under .worktrees, joined to records
-warden prune                          # reclaim orphaned worktrees (prompts; --force overrides guards)
-warden prune --include-archived       # widen scope to archived records
+warden worktree                       # list warden-owned worktrees (same as `worktree list`)
+warden worktree list                  # list worktrees under .worktrees, joined to records (alias: ls)
+warden worktree prune                 # reclaim orphaned worktrees (prompts; --force overrides guards)
+warden worktree prune --include-archived  # widen scope to archived records
 ```
 
-Retention is policy-driven via the `worktree_keep_done` / `worktree_auto_prune` config settings; dirty/unpushed worktrees are always kept.
+`warden prune` remains as a top-level alias for `warden worktree prune` (same flags, prompts, and output). Retention is policy-driven via the `worktree.keep_done` / `worktree.auto_prune` config settings; dirty/unpushed worktrees are always kept. Reclaiming whole orphaned worktrees is distinct from `warden remove-worktree`, which tears down one agent's worktree.
 
 ### `warden handoff`
 
