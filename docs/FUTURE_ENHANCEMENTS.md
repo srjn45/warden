@@ -1,6 +1,6 @@
 # Warden Future Enhancements & Feature Roadmap
 
-**Last Updated:** 2026-06-26
+**Last Updated:** 2026-06-27
 **Current Version:** v5.20.0
 
 This document tracks **pending** improvements and new features for warden, organized
@@ -92,6 +92,37 @@ warden's ≤10-agent scale:
 
 ---
 
+## 🖥️ Web Cockpit / Full-Screen TUI
+
+#### 51. Self-healing web cockpit session — *not started*
+**Effort:** 0.5–1 day
+
+`EnsureWebCockpit` (`internal/tui/compositor.go`) is idempotent on a bare
+`tmux has-session` probe: if a `warden-web-cockpit` session exists, it's reused
+as-is, with no check that it's *healthy* (3 panes; top-left actually running
+`warden tui --pane=list`). A session left in a degraded shape — e.g. the
+pre-#151 build where `q` dropped the list pane to a bare shell, or a daemon crash
+mid-`buildCockpit` — is then handed to every client forever, and survives daemon
+restarts/reinstalls because it lives in the **tmux server, not the daemon**. The
+only recovery today is a manual `tmux kill-session -t warden-web-cockpit`.
+
+This is **not a recurrence risk under normal use** — #151's `q` now runs
+`killCockpitCmd` and tears the whole session down cleanly — but there's no
+in-product recovery path when a session *does* end up wedged.
+
+Two options (pick one or both):
+- **Validate-and-rebuild** — on attach, verify the session has the expected pane
+  layout with the list pane running the bloom app; if not, kill and rebuild.
+  Makes the cockpit genuinely self-healing with no user action.
+- **Explicit rebuild affordance** — a `warden tui --rebuild-web-cockpit` flag /
+  daemon endpoint, surfaced as a small "↻ rebuild" control on the `/tui` screen,
+  so a wedged cockpit can be reset from the browser without shelling in.
+
+**Necessity: low-moderate** — purely a robustness/recoverability gap, no
+day-to-day impact now that `q` exits cleanly.
+
+---
+
 ## 📊 Priority Matrix (reassessed 2026-06-26)
 
 Re-scored on **feasibility × necessity** for what warden actually is today: a
@@ -110,7 +141,10 @@ for a single user.
 > remain below, and both are now empty or parked.
 
 ### 🔮 Tier 4 — Future / large bets (usage-gated)
-- _Empty._ Inter-agent collaboration (#44) is closed: the file-conflict MVP +
+- **Self-healing web cockpit session (#51)** — small (0.5–1 day) robustness item:
+  make `EnsureWebCockpit` validate/rebuild a wedged cockpit instead of reusing it
+  blindly. Low-moderate necessity; no day-to-day impact now that `q` exits cleanly.
+- Inter-agent collaboration (#44) is closed: the file-conflict MVP +
   BranchTracker shipped and the rest was audited and dropped (see §44 above). A
   fresh demand signal would be needed to reopen any of it.
 
