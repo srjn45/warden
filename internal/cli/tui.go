@@ -11,7 +11,7 @@ import (
 )
 
 func newTUICmd() *cobra.Command {
-	var pane, detailPane, pipelineID, jobID string
+	var pane, detailPane, pipelineID, jobID, agentID string
 	var repl bool
 	cmd := &cobra.Command{
 		Use:   "tui",
@@ -24,19 +24,22 @@ func newTUICmd() *cobra.Command {
 				return tui.RunListPane(a, detailPane)
 			case "jobdetail":
 				return tui.RunJobDetailPane(a, pipelineID, jobID)
+			case "agentdetail":
+				return tui.RunAgentDetailPane(a, agentID)
 			case "":
 				return runCockpit(a, cockpitUsesRepl(cmd, repl))
 			default:
-				return fmt.Errorf("unknown --pane %q (want list or jobdetail)", pane)
+				return fmt.Errorf("unknown --pane %q (want list, jobdetail, or agentdetail)", pane)
 			}
 		},
 	}
 	cmd.Flags().BoolVar(&repl, "repl", false, "run the REPL (wd repl) in the master pane instead of a shell (default: repl config setting)")
-	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (list, jobdetail)")
+	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (list, jobdetail, agentdetail)")
 	cmd.Flags().StringVar(&detailPane, "detail-pane", "", "internal: tmux id of the detail pane the list drives")
 	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "internal: pipeline id for --pane=jobdetail")
 	cmd.Flags().StringVar(&jobID, "job", "", "internal: job id for --pane=jobdetail")
-	for _, f := range []string{"pane", "detail-pane", "pipeline", "job"} {
+	cmd.Flags().StringVar(&agentID, "agent", "", "internal: agent id for --pane=agentdetail")
+	for _, f := range []string{"pane", "detail-pane", "pipeline", "job", "agent"} {
 		_ = cmd.Flags().MarkHidden(f)
 	}
 	return cmd
