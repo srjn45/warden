@@ -51,8 +51,13 @@ claude --version     # the agent runtime
 tmux -V              # every agent lives in a tmux window (≥ 3.1 for the cockpit)
 git --version        # worktree creation/cleanup
 gh --version         # only needed for pr-review agents
+ollama --version     # optional — only for local_llm / `wd repl`
 curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
 ```
+
+`warden doctor` runs these binary checks for you (plus daemon + data-dir
+probes), and `warden setup` installs whatever is missing — see §“Preflight &
+setup” below.
 
 If `healthz` doesn't return `ok`, start the daemon — see §3.
 
@@ -707,8 +712,30 @@ via `plugins` + a `plugin_registry` list; a worked example lives under
 `examples/plugins/`. See [FEATURES.md §26](FEATURES.md).
 
 ### `warden doctor`
-Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon
-reachability, and the data directory.
+Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones
+(`gh`, `ollama`, warn-only), daemon reachability, and the data directory.
+
+### `warden setup [--yes]`
+Verifies the install with the **same checks as `doctor`**, then installs whatever
+is missing. Idempotent — it only touches deps that aren't already on PATH. For
+each missing dependency it prints the exact install command and prompts before
+running it; `--yes` installs everything missing without prompting (for
+automation). Required deps (`tmux`, `git`, `claude`) are offered first, then the
+optional ones (`gh`, `ollama`).
+
+Package managers are auto-detected: Homebrew on macOS (never auto-bootstrapped —
+if `brew` is missing, setup prints the instruction and skips brew installs) and
+`apt`/`dnf`/`pacman` on Linux. Claude Code and Ollama use their official
+installers (`curl … | bash` / `curl … | sh`). After installing, setup re-runs
+the checks and prints a doctor-style report.
+
+`setup` is **CLI-only by design** — it installs host packages, so it is not
+exposed over MCP or the daemon.
+
+```sh
+warden setup            # confirm-each install of anything missing
+warden setup --yes      # non-interactive: install all missing deps
+```
 
 ### `warden version [--json]` / `warden --version`
 Print the version plus build metadata — commit, build date, Go version, and

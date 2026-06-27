@@ -62,6 +62,7 @@ Available Commands:
   search              Full-text search agents by subject, prompt, type, name, branch, or pane text
   send                Type a message into an agent's claude session and press Enter
   set-permission-mode Set the permission mode for an agent
+  setup               Install missing dependencies (tmux, git, claude; optional gh, ollama)
   spend               Show measured Claude spend in dollars, per agent / repo / day
   snapshot            Checkpoint a worktree + transcript and roll back later
   start               Spawn an agent — `start "<prompt>"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)
@@ -228,6 +229,35 @@ Run preflight checks (required binaries, daemon, data dir)
 
 Usage:
   warden doctor [flags]
+```
+
+## warden setup
+
+```text
+Install missing dependencies (tmux, git, claude; optional gh, ollama)
+
+Verify the current install with the same checks as `warden doctor`, then
+install whatever is missing. setup is idempotent: it only touches deps that
+are not already on PATH.
+
+For each missing dependency it prints the exact install command and prompts
+before running it (use --yes for non-interactive/automation). Required deps
+(tmux, git, claude) are offered first, then optional ones (gh, ollama).
+
+Package managers: Homebrew on macOS (never auto-bootstrapped — if brew is
+missing setup prints the instruction and skips brew installs), and apt, dnf,
+or pacman on Linux (auto-detected). Claude Code and Ollama use their official
+installers. After installing, setup re-runs the checks and prints the report.
+
+setup is CLI-only by design (it installs host packages) and is not exposed
+over MCP or the daemon.
+
+Usage:
+  warden setup [flags]
+
+Flags:
+  -h, --help   help for setup
+      --yes    install all missing dependencies without prompting (non-interactive)
 ```
 
 ## warden llm suggest

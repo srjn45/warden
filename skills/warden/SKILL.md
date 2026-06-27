@@ -105,9 +105,9 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   auto-approve + permission-mode, branches/collab, insights, savings, metrics,
   search/history, audit log, worktree list/prune, plugins, export/import, and
   rotate/handoff. The only **CLI-only** verbs are host/process/interactive/secret
-  ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `tutorial`,
-  `completion`, and the local-config `preset` / `prompt-template` authoring
-  commands — by design (see the [feature catalog](../../FEATURES.md)).
+  ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `setup`,
+  `tutorial`, `completion`, and the local-config `preset` / `prompt-template`
+  authoring commands — by design (see the [feature catalog](../../FEATURES.md)).
 
 ## Capability map → reference file
 

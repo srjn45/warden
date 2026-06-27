@@ -10,6 +10,14 @@ description: Prerequisites, installing the binary, running the daemon as a servi
 - **git** — worktree creation and guarded cleanup
 - **Claude Code** (`claude` on PATH) — the agent runtime launched in each session
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch
+- **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden repl` REPL; warden falls back to Claude when it's off or unreachable
+
+:::tip
+Once you have the `warden` binary, run **`warden doctor`** to check these
+dependencies and **`warden setup`** to install whatever is missing (Homebrew on
+macOS; apt/dnf/pacman on Linux; official installers for Claude Code and Ollama).
+`warden setup --yes` does it non-interactively.
+:::
 
 ## Install
 

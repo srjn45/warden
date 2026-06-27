@@ -53,6 +53,11 @@ Capability highlights from the **v5.x** line (full notes on the [releases page](
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch, and for `warden done --create-pr`
 - **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden repl` REPL; warden falls back to Claude when it's off or unreachable
 
+> **Tip:** once you have the `warden` binary, run **`warden doctor`** to check
+> these dependencies and **`warden setup`** to install whatever is missing
+> (Homebrew on macOS; apt/dnf/pacman on Linux; official installers for Claude
+> Code and Ollama). `warden setup --yes` does it non-interactively.
+
 ---
 
 ## Install
@@ -705,10 +710,19 @@ Unrecognized prompts always fall back to attach. Also surfaced in the web Attent
 
 ### `warden doctor`
 
-Preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon reachability, and the data directory. It also prints a one-line hardware-aware `local_llm_model` recommendation for the REPL.
+Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, `ollama`, warn-only), daemon reachability, and the data directory. It also prints a one-line hardware-aware `local_llm_model` recommendation for the REPL.
 
 ```sh
 warden doctor
+```
+
+### `warden setup`
+
+Verifies the install with the **same checks as `doctor`**, then installs whatever is missing — idempotent, so it only touches deps that aren't already on PATH. It prints the exact install command for each missing dependency and prompts before running it; `--yes` installs everything without prompting (for automation). Required deps (`tmux`, `git`, `claude`) come first, then optional ones (`gh`, `ollama`). Package managers are auto-detected — Homebrew on macOS (never auto-bootstrapped) and `apt`/`dnf`/`pacman` on Linux — and Claude Code and Ollama use their official installers. After installing, it re-runs the checks and prints a doctor-style report. `setup` is **CLI-only** (it installs host packages) and is not exposed over MCP.
+
+```sh
+warden setup            # confirm-each install of anything missing
+warden setup --yes      # non-interactive: install all missing deps
 ```
 
 ### `warden llm suggest` (memory-ranked model picker)

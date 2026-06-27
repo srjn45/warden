@@ -5,7 +5,7 @@ description: Preflight checks with warden doctor, and fixes for the most common 
 
 ## Preflight: `warden doctor`
 
-Run preflight checks — required binaries (`tmux`, `git`, `claude`, `gh`), daemon reachability, and the data directory.
+Run preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, `ollama`, warn-only), daemon reachability, and the data directory.
 
 ```sh
 warden doctor
@@ -18,7 +18,17 @@ claude --version     # the agent runtime
 tmux -V              # every agent lives in a tmux window (≥ 3.1 for the cockpit)
 git --version        # worktree creation/cleanup
 gh --version         # only needed for pr-review agents
+ollama --version     # optional — only for local_llm / `wd repl`
 curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
+```
+
+## Install missing dependencies: `warden setup`
+
+If `doctor` reports a missing binary, `warden setup` installs it for you. It runs the **same checks as `doctor`**, then — for each missing dependency — prints the exact install command and prompts before running it (use `--yes` to install everything without prompting). It auto-detects Homebrew on macOS (never auto-bootstrapped) and `apt`/`dnf`/`pacman` on Linux; Claude Code and Ollama use their official installers. `setup` is idempotent and **CLI-only** (it installs host packages, so it is not exposed over MCP).
+
+```sh
+warden setup            # confirm-each install of anything missing
+warden setup --yes      # non-interactive: install all missing deps
 ```
 
 ## Common symptoms
