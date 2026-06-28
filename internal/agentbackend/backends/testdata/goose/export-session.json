@@ -1,0 +1,123 @@
+{
+  "id": "20260628_3",
+  "working_dir": "/tmp/claude-1000/-home-srjn45-dev-warden--worktrees-development-bd1d6c8c/a0db46d8-8de6-403c-88be-64b6423ccd97/scratchpad/goosetest",
+  "name": "wt-llama",
+  "created_at": "2026-06-28T09:29:48Z",
+  "updated_at": "2026-06-28T09:30:11Z",
+  "provider_name": "ollama",
+  "model_config": {
+    "model_name": "llama3.2:3b",
+    "context_limit": null,
+    "temperature": null,
+    "max_tokens": null,
+    "toolshim": false,
+    "toolshim_model": null
+  },
+  "goose_mode": "auto",
+  "usage": {
+    "input_tokens": 1472,
+    "output_tokens": 132,
+    "total_tokens": 1604,
+    "cache_read_input_tokens": null,
+    "cache_write_input_tokens": null
+  },
+  "accumulated_usage": {
+    "input_tokens": 5464,
+    "output_tokens": 157,
+    "total_tokens": 5621,
+    "cache_read_input_tokens": null,
+    "cache_write_input_tokens": null
+  },
+  "accumulated_cost": null,
+  "message_count": 4,
+  "conversation": [
+    {
+      "id": "msg_20260628_3_aeb27b9e-71a5-44b6-bbc4-6f023fe6837b",
+      "role": "user",
+      "created": 1782638988,
+      "content": [
+        {
+          "type": "text",
+          "text": "Create greeting.txt containing the word hello"
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": true
+      }
+    },
+    {
+      "id": "msg_069e9756-6d39-425f-9b0f-f918a5ab5372",
+      "role": "assistant",
+      "created": 1782639002,
+      "content": [
+        {
+          "type": "toolRequest",
+          "id": "call_mqu1qxwk",
+          "toolCall": {
+            "status": "success",
+            "value": {
+              "name": "write",
+              "arguments": {
+                "content": "hello",
+                "path": "/tmp/greeting.txt"
+              }
+            }
+          },
+          "_meta": {
+            "goose_extension": "developer"
+          }
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": true
+      }
+    },
+    {
+      "id": "msg_888ed071-e871-4608-9f8e-7938e0fe1ed0",
+      "role": "user",
+      "created": 1782639002,
+      "content": [
+        {
+          "type": "toolResponse",
+          "id": "call_mqu1qxwk",
+          "toolResult": {
+            "status": "success",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Created /tmp/greeting.txt (1 lines)",
+                  "annotations": {
+                    "priority": 0.0
+                  }
+                }
+              ],
+              "isError": false
+            }
+          }
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": true
+      }
+    },
+    {
+      "id": "chatcmpl-554",
+      "role": "assistant",
+      "created": 1782639004,
+      "content": [
+        {
+          "type": "text",
+          "text": "<turn-context>\n<current-time>2026-06-28 11:30:03</current-time>\n<working-directory>/tmp/claude-1000/-home-srjn45-dev-warden--worktrees-development-bd1d6c8c/a0db46d8-8de6-403c-88be-64b6423ccd97/scratchpad/goosetest</working-directory>\n\nCurrent tasks and notes:\nOnce given a task, immediately update your todo with all explicit and implicit requirements\n</turn-context>\n<todo>\n  [ ] Require file greeting.txt to exist\n</todo>"
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": true
+      }
+    }
+  ]
+}

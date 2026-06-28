@@ -1,0 +1,57 @@
+{
+  "id": "20260628_1",
+  "working_dir": "/tmp/claude-1000/-home-srjn45-dev-warden--worktrees-development-bd1d6c8c/a0db46d8-8de6-403c-88be-64b6423ccd97/scratchpad/goosetest",
+  "name": "wardentest1",
+  "created_at": "2026-06-28T09:27:26Z",
+  "updated_at": "2026-06-28T09:28:09Z",
+  "provider_name": "ollama",
+  "model_config": {
+    "model_name": "qwen2.5-coder:3b",
+    "context_limit": null,
+    "temperature": null,
+    "max_tokens": null,
+    "toolshim": false,
+    "toolshim_model": null
+  },
+  "goose_mode": "auto",
+  "usage": {
+    "input_tokens": 3930,
+    "output_tokens": 110,
+    "total_tokens": 4040,
+    "cache_read_input_tokens": null,
+    "cache_write_input_tokens": null
+  },
+  "message_count": 2,
+  "conversation": [
+    {
+      "id": "msg_20260628_1_01016932-b2b7-4742-9ffb-7cea3d048bd7",
+      "role": "user",
+      "created": 1782638846,
+      "content": [
+        {
+          "type": "text",
+          "text": "Create a file calc.py with a function add(a,b) that returns a+b. Then stop."
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": true
+      }
+    },
+    {
+      "id": "chatcmpl-73",
+      "role": "assistant",
+      "created": 1782638881,
+      "content": [
+        {
+          "type": "text",
+          "text": "```json\n{\n  \"name\": \"write\",\n  \"arguments\": {\n    \"path\": \"/tmp/claude-1000/-home-srjn45-dev-warden--worktrees-development-bd1d6c8c/a0db46d8-8de6-403c-88be-64b6423ccd97/scratchpad/goosetest/calc.py\",\n    \"content\": \"\",\n    \"overwrite\": true\n  }\n}\n```"
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": true
+      }
+    }
+  ]
+}
