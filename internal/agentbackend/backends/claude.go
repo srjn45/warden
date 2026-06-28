@@ -63,16 +63,19 @@ func base(model, mode string) string {
 
 // LaunchCmd builds the claude invocation for a fresh session: base + a pinned
 // --session-id (deterministic transcript + --resume) and a --name display
-// label. SessionID is a generated UUID (safe charset, unquoted, as before);
-// Name may be a ticket key so it is quoted.
+// label. The whole line is typed into the agent's tmux pane (a shell), so every
+// interpolated value is shell-quoted. A fresh SessionID is a generated UUID, but
+// the resume/adopt/import paths carry a *stored* id, so it is quoted defensively
+// alongside Name (a UUID is byte-identical once single-quoted).
 func (Claude) LaunchCmd(o agentbackend.LaunchOpts) string {
-	return base(o.Model, o.Mode) + " --session-id " + o.SessionID + " --name " + shellQuoteArg(o.Name)
+	return base(o.Model, o.Mode) + " --session-id " + shellQuoteArg(o.SessionID) + " --name " + shellQuoteArg(o.Name)
 }
 
 // ResumeCmd builds the invocation that resumes a session by its pinned id. Claude
-// always supports resume, so ok is always true.
+// always supports resume, so ok is always true. SessionID is shell-quoted: on the
+// resume/adopt/import paths it originates from stored data, not a fresh mint.
 func (Claude) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
-	return base(o.Model, o.Mode) + " --resume " + o.SessionID + " --name " + shellQuoteArg(o.Name), true
+	return base(o.Model, o.Mode) + " --resume " + shellQuoteArg(o.SessionID) + " --name " + shellQuoteArg(o.Name), true
 }
 
 // LaunchPromptArg seeds the initial task prompt as Claude's trailing positional

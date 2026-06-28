@@ -131,11 +131,11 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 }
 
 // TestSpawnLaunchStringByteIdentical is the Phase-0 exit gate: the claude command
-// string lifecycle types into tmux must be byte-identical to the pre-refactor
-// literal after routing through the AgentBackend interface. The backend-produced
-// prefix is asserted against a HARDCODED golden string (independent of the
-// adapter and the claudeLaunch wrapper) so the two cannot silently drift
-// together; the hint fragments are still appended by lifecycle as before.
+// string lifecycle types into tmux is asserted against a HARDCODED golden string
+// (independent of the adapter and the claudeLaunch wrapper) so the backend and
+// lifecycle cannot silently drift together; the hint fragments are still appended
+// by lifecycle as before. The golden form quotes --session-id as of the
+// shell-injection hardening (a fresh UUID is byte-identical once single-quoted).
 func TestSpawnLaunchStringByteIdentical(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
@@ -145,10 +145,10 @@ func TestSpawnLaunchStringByteIdentical(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Exactly what warden typed before the agentbackend extraction:
-	// claude --model <default> --permission-mode <default> --session-id <uuid> --name <id>
-	prefix := "claude --model 'claude-sonnet-4-6' --permission-mode 'auto' --session-id " +
-		s.ClaudeSessionID + " --name 'PROJ-350'"
+	// What warden types post-hardening:
+	// claude --model <default> --permission-mode <default> --session-id '<uuid>' --name <id>
+	prefix := "claude --model 'claude-sonnet-4-6' --permission-mode 'auto' --session-id '" +
+		s.ClaudeSessionID + "' --name 'PROJ-350'"
 	want := prefix + pipelineHint() + collabHint() + gitConventionsHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", want, "Enter"})
 }

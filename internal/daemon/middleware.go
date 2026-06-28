@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/srjn45/warden/internal/config"
 )
 
 // authScope describes what an authenticated request is permitted to do. Today a
@@ -47,6 +49,27 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			s.authLimiter.recordFailure(ip, now)
 		}
 		writeErr(w, http.StatusUnauthorized, "unauthorized: missing or invalid bearer token")
+	})
+}
+
+// hostGuard defends the no-auth loopback default against DNS rebinding. When no
+// token is configured, the daemon's only trust boundary is its network position
+// (it binds loopback), so a request must also present a loopback Host header — a
+// browser whose attacker-controlled domain has been rebound to 127.0.0.1 sends
+// the attacker's domain as Host, which is rejected. When a token IS set, the
+// token is the trust boundary and arbitrary Host values are allowed: a reverse
+// proxy or tunnel (e.g. Cloudflare Tunnel) legitimately forwards the public
+// domain as Host, and those deployments already require a token to bind a
+// non-loopback address. This guards only the data/action API group; the static
+// SPA shell and /healthz carry no secrets and stay reachable for any Host.
+func (s *Server) hostGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.authToken == "" && !config.IsLoopbackHost(r.Host) {
+			writeErr(w, http.StatusForbidden,
+				"forbidden: request Host is not loopback; set a bearer token (run `warden token generate`) to allow proxied hosts")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

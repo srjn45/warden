@@ -360,6 +360,7 @@ func (s *Server) router() http.Handler {
 	// request/response model, so they are excluded from generation (see
 	// oapi/config.yaml) and registered by hand alongside it.
 	r.Group(func(ar chi.Router) {
+		ar.Use(s.hostGuard)      // DNS-rebinding guard for the no-auth loopback default
 		ar.Use(s.authMiddleware) // bearer-token gate for the API, SSE, and WS
 		ar.Use(stashRequest)     // expose *http.Request to strict handlers (audit IP)
 		ar.Get("/api/v1/events/stream", s.handleEventsStream)
