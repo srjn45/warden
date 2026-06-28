@@ -52,10 +52,10 @@ func (OpenCode) InstallHint() string {
 // --- Launch / resume --------------------------------------------------------
 
 // opencodeSkipPerms reports whether a warden permission mode should map to
-// OpenCode's --dangerously-skip-permissions (auto-approve) flag. OpenCode has two
-// effective modes — prompt (default) and skip — so warden's richer Claude modes
-// are folded onto them, mirroring the Aider adapter: any "just do it" mode becomes
-// --dangerously-skip-permissions; the cautious modes stay interactive.
+// OpenCode's auto-approve behavior. OpenCode has two effective modes — prompt
+// (default) and skip — so warden's richer Claude modes are folded onto them,
+// mirroring the Aider adapter: any "just do it" mode auto-approves; the cautious
+// modes stay interactive.
 func opencodeSkipPerms(mode string) bool {
 	switch mode {
 	case "dangerously-skip-permissions", "yes-always", "auto", "acceptEdits", "bypassPermissions", "dontAsk":
@@ -65,20 +65,33 @@ func opencodeSkipPerms(mode string) bool {
 	}
 }
 
+// opencodeAutoApproveEnv is the env-var prefix that puts an interactive OpenCode
+// session into auto-approve. The interactive TUI in current OpenCode (verified on
+// v1.17.11) has NO --dangerously-skip-permissions flag — that flag exists only on
+// the headless `opencode run` subcommand, so passing it to the TUI makes OpenCode
+// print help and exit. Auto-approve for the TUI is config-driven, so warden injects
+// a permissive `permission` block via OPENCODE_CONFIG_CONTENT, which OpenCode MERGES
+// over the user's config (their provider/model/auth are preserved — verified). The
+// JSON is a fixed trusted literal containing no single quotes, so the surrounding
+// single-quotes are a safe shell quote.
+const opencodeAutoApproveEnv = `OPENCODE_CONFIG_CONTENT='{"permission":{"edit":"allow","bash":"allow","webfetch":"allow"}}'`
+
 // LaunchCmd builds the interactive `opencode` (TUI) invocation for a tmux pane.
 // Model is shaped as OpenCode's `-m provider/model` and omitted when empty so a
 // BYO/Ollama config default applies (OpenCode is bring-your-own-model; the Claude
 // default alias never resolves here, same call as Aider). SessionID and Name are
 // ignored: OpenCode mints its own session id (SessionIDControl=false) and the bare
 // TUI has no session-name flag. The pane is already cd'd into the agent's workdir,
-// so no project-dir argument is appended.
+// so no project-dir argument is appended. Skip ("just do it") modes prepend the
+// OPENCODE_CONFIG_CONTENT auto-approve env (the TUI has no skip-permissions flag —
+// see opencodeAutoApproveEnv).
 func (OpenCode) LaunchCmd(o agentbackend.LaunchOpts) string {
 	cmd := "opencode"
 	if o.Model != "" {
 		cmd += " -m " + shellQuoteArg(o.Model)
 	}
 	if opencodeSkipPerms(o.Mode) {
-		cmd += " --dangerously-skip-permissions"
+		cmd = opencodeAutoApproveEnv + " " + cmd
 	}
 	return cmd
 }
@@ -98,6 +111,9 @@ func (OpenCode) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 	}
 	if o.Model != "" {
 		cmd += " -m " + shellQuoteArg(o.Model)
+	}
+	if opencodeSkipPerms(o.Mode) {
+		cmd = opencodeAutoApproveEnv + " " + cmd
 	}
 	return cmd, true
 }

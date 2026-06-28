@@ -39,10 +39,10 @@ func TestSystemPromptHintsSkippedForAider(t *testing.T) {
 }
 
 // TestSpawnAiderLaunchString locks the full command typed into tmux for an
-// Aider spawn: a valid `aider` invocation that carries the prompt via --message
-// and is free of Claude-only flags (--append-system-prompt, --session-id,
-// --settings). This is the regression guard that `wd start --backend aider`
-// actually launches.
+// Aider spawn: a valid bare interactive `aider` invocation (the prompt is typed in
+// after launch via PromptSeeder, not carried on the launch line) that is free of
+// Claude-only flags (--append-system-prompt, --session-id, --settings). This is the
+// regression guard that `wd start --backend aider` actually launches.
 func TestSpawnAiderLaunchString(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
@@ -56,10 +56,9 @@ func TestSpawnAiderLaunchString(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "aider", s.Backend)
 
-	promptFile := "/state/prompts/" + s.ID
-	want := "aider --no-show-model-warnings --model 'ollama_chat/qwen2.5-coder:3b' --yes-always" +
-		` --message "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	want := "aider --no-show-model-warnings --model 'ollama_chat/qwen2.5-coder:3b' --yes-always"
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
+	require.NotContains(t, want, "--message", "prompt is seeded after launch, not on the launch line")
 	require.NotContains(t, want, "--append-system-prompt", "no Claude system-prompt flags reach Aider")
 	require.NotContains(t, want, "--session-id", "Aider has no assignable session id")
 	require.NotContains(t, want, "--settings", "Claude-only guard hooks are skipped")

@@ -76,15 +76,22 @@ func (Aider) LaunchCmd(o agentbackend.LaunchOpts) string {
 // fresh instead (design §5, Caps.Resume=false).
 func (Aider) ResumeCmd(agentbackend.ResumeOpts) (string, bool) { return "", false }
 
-// LaunchPromptArg seeds the initial task prompt via Aider's --message flag
-// (read back from promptFile via "$(cat …)" so a multi-line prompt types as one
-// physical line). Unlike Claude, Aider treats trailing positional arguments as
-// files to add to the chat, so the prompt MUST go through --message. With
-// --message, Aider runs the task non-interactively and then exits — an
-// autonomous one-shot agent rather than a persistent loop (documented behavior).
-func (Aider) LaunchPromptArg(promptFile string) string {
-	return ` --message "$(cat ` + shellQuoteArg(promptFile) + `)"`
-}
+// LaunchPromptArg returns "" — Aider is seeded after launch (PromptSeeder), not on
+// the launch line. Aider treats trailing positionals as files to add to the chat,
+// and its only launch-line prompt path (--message) runs the task and then EXITS
+// (a one-shot, which surfaced as the agent dropping straight to "done"). To make
+// Aider a persistent interactive agent like the other backends, warden launches the
+// bare REPL and types the prompt in once it's ready (PromptText/ReadyMarker). The
+// headless one-shot path (HeadlessCmd) still uses --message for classify/summarize.
+func (Aider) LaunchPromptArg(string) string { return "" }
+
+// PromptText / ReadyMarker implement agentbackend.PromptSeeder: warden types the
+// task into Aider's interactive REPL once startup has finished. ReadyMarker keys on
+// the "Repo-map:" startup line Aider prints just before the input prompt becomes
+// interactive; if it never appears (e.g. repo-map disabled) the lifecycle falls
+// back to a settle delay.
+func (Aider) PromptText(prompt string) (string, bool) { return prompt, prompt != "" }
+func (Aider) ReadyMarker() string                     { return "Repo-map:" }
 
 // HeadlessCmd returns the argv for a headless one-shot used by warden's own
 // classify/summarize offload when Aider is the default backend. It runs a single

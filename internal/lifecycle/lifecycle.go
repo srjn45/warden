@@ -1006,6 +1006,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 		l.cleanupFailedSpawn(sess, true, false)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
+	l.seedInteractivePrompt(b, sess.ID, req.Prompt)
 	return sess, nil
 }
 
@@ -1060,6 +1061,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
+	l.seedInteractivePrompt(b, sess.ID, req.Prompt)
 	return sess, nil
 }
 
@@ -1452,6 +1454,81 @@ func (l *Lifecycle) SendKeys(ctx context.Context, tmuxSession, key string) error
 	return nil
 }
 
+// Post-launch prompt-seeding tunables (overridable in tests). A backend that takes
+// its first task only as typed input (agentbackend.PromptSeeder — Crush/Goose/Aider)
+// has its prompt typed into the pane after its UI is ready, rather than on the
+// launch line.
+var (
+	promptSeedTimeout      = 45 * time.Second       // overall budget to get ready + type
+	promptSeedPollInterval = 400 * time.Millisecond // pane re-capture cadence while waiting
+	promptSeedSettle       = 700 * time.Millisecond // extra wait after the marker appears
+	promptSeedFallbackWait = 6 * time.Second        // used when the backend has no ReadyMarker
+)
+
+// seedInteractivePrompt types the task prompt into a just-launched interactive
+// agent whose UI accepts the prompt only as typed input (PromptSeeder). It is a
+// no-op for backends that seed on the launch line. It runs asynchronously: the
+// launch keystroke must land and the agent's UI must finish booting before the
+// prompt can be typed, so the goroutine waits for the backend's ReadyMarker in the
+// captured pane (or a fallback settle) and then bracketed-pastes the prompt + Enter
+// via Input — the same path an operator's message takes. Failures degrade to "no
+// seed" (the agent simply waits at an empty prompt) rather than erroring the spawn.
+func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, tmuxSession, prompt string) {
+	ps, ok := b.(agentbackend.PromptSeeder)
+	if !ok {
+		return
+	}
+	text, ok := ps.PromptText(prompt)
+	if !ok || strings.TrimSpace(text) == "" {
+		return
+	}
+	marker := ps.ReadyMarker()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), promptSeedTimeout)
+		defer cancel()
+		if !l.waitPaneReady(ctx, tmuxSession, marker) {
+			slog.Warn("prompt seed: agent UI not ready, skipping initial prompt", "agent", tmuxSession, "backend", b.ID())
+			return
+		}
+		if err := l.Input(ctx, tmuxSession, text); err != nil {
+			slog.Warn("prompt seed: failed to type initial prompt", "agent", tmuxSession, "backend", b.ID(), "err", err)
+		}
+	}()
+}
+
+// waitPaneReady blocks until marker appears in the agent's captured pane (then a
+// short settle), up to ctx's deadline. With an empty marker it instead waits a
+// fixed fallback delay. Returns false if the deadline passes before the marker is
+// seen (caller skips seeding rather than typing into an unready UI / the shell).
+func (l *Lifecycle) waitPaneReady(ctx context.Context, tmuxSession, marker string) bool {
+	if marker == "" {
+		select {
+		case <-time.After(promptSeedFallbackWait):
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	tick := time.NewTicker(promptSeedPollInterval)
+	defer tick.Stop()
+	for {
+		out, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", tmuxSession)
+		if err == nil && strings.Contains(out, marker) {
+			select {
+			case <-time.After(promptSeedSettle):
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
 // Output returns the last `lines` rows of the agent's tmux pane.
 func (l *Lifecycle) Output(ctx context.Context, tmuxSession string, lines int) (string, error) {
 	if lines <= 0 {
@@ -1686,5 +1763,6 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
+	l.seedInteractivePrompt(b, id, req.Prompt)
 	return sess, nil
 }

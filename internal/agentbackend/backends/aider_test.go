@@ -64,8 +64,18 @@ func TestAiderResumeUnsupported(t *testing.T) {
 }
 
 func TestAiderLaunchPromptArg(t *testing.T) {
-	got := Aider{}.LaunchPromptArg("/state/prompts/job-1")
-	require.Equal(t, ` --message "$(cat '/state/prompts/job-1')"`, got)
+	// Aider seeds after launch (PromptSeeder), so nothing goes on the launch line.
+	require.Equal(t, "", Aider{}.LaunchPromptArg("/state/prompts/job-1"))
+}
+
+func TestAiderPromptSeeder(t *testing.T) {
+	var ps agentbackend.PromptSeeder = Aider{}
+	text, ok := ps.PromptText("do the thing")
+	require.True(t, ok)
+	require.Equal(t, "do the thing", text)
+	_, ok = ps.PromptText("")
+	require.False(t, ok)
+	require.Equal(t, "Repo-map:", ps.ReadyMarker())
 }
 
 func TestAiderHeadlessCmd(t *testing.T) {

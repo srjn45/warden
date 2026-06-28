@@ -104,6 +104,14 @@ func (Goose) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 // it lives in the gap doc; it is the honest breadth-first limitation.)
 func (Goose) LaunchPromptArg(string) string { return "" }
 
+// PromptText / ReadyMarker implement agentbackend.PromptSeeder: `goose session`
+// takes no launch-line prompt, so warden types the task into the REPL once Goose
+// has finished booting (provider/model resolved, banner drawn). ReadyMarker keys
+// on Goose's "goose is ready" banner line, which prints right before the prompt
+// becomes interactive.
+func (Goose) PromptText(prompt string) (string, bool) { return prompt, prompt != "" }
+func (Goose) ReadyMarker() string                     { return "goose is ready" }
+
 // HeadlessCmd returns the argv for a headless one-shot used by warden's own
 // classify/summarize offload when Goose is the default backend. `goose run -t`
 // runs a single instruction non-interactively; --no-session keeps it out of the

@@ -117,6 +117,14 @@ func (Crush) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 // exactly as for an interactive agent spawned with no prompt.
 func (Crush) LaunchPromptArg(string) string { return "" }
 
+// PromptText / ReadyMarker implement agentbackend.PromptSeeder: Crush's TUI takes
+// the first task only as typed input, so warden types the prompt into the pane
+// once the TUI is ready (proven: a bracketed-paste + Enter into the Crush composer
+// is ingested and answered). ReadyMarker keys on the footer hint Crush draws only
+// after its TUI has finished rendering and the composer is interactive.
+func (Crush) PromptText(prompt string) (string, bool) { return prompt, prompt != "" }
+func (Crush) ReadyMarker() string                     { return "ctrl+p commands" }
+
 // HeadlessCmd returns the argv for a headless one-shot used by warden's own
 // classify/summarize offload when Crush is the default backend. `crush run` is
 // non-interactive and raises no permission prompts, so no auto-accept flag is

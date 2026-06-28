@@ -145,3 +145,25 @@ type Backend interface {
 
 	Capabilities() Caps
 }
+
+// PromptSeeder is an optional Backend extension implemented by agents whose
+// interactive UI takes the initial task prompt only as typed input AFTER the
+// program has started — it has neither a launch-line positional nor a prompt flag
+// (Crush and Goose's interactive REPLs; Aider's interactive REPL). For such a
+// backend, LaunchPromptArg returns "" (there is nothing to put on the launch line)
+// and the lifecycle instead launches the bare interactive agent, waits for its
+// input to become ready, then types the prompt into the pane and presses Enter
+// (via the same bracketed-paste path as an operator's message). Backends that seed
+// the prompt on the launch line (Claude positional, Aider --message historically,
+// OpenCode --prompt, …) do NOT implement this interface.
+type PromptSeeder interface {
+	// PromptText returns the literal text to type into the started UI for the given
+	// task prompt. ok=false disables post-launch seeding for this invocation (e.g.
+	// an empty prompt — an interactive agent the operator drives by hand).
+	PromptText(prompt string) (text string, ok bool)
+
+	// ReadyMarker is a substring that appears in the agent's captured tmux pane once
+	// its input is ready to receive the prompt. The lifecycle polls the pane for it
+	// before typing; an empty marker falls back to a fixed settle delay.
+	ReadyMarker() string
+}

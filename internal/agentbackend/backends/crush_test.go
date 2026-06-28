@@ -79,10 +79,21 @@ func TestCrushResumeQuotesSessionID(t *testing.T) {
 	require.Equal(t, "crush --session 'abcdef0123456789'", cmd)
 }
 
-// TestCrushLaunchPromptArg documents the seeding gap: the interactive TUI takes no
-// initial prompt, so the launch fragment is always empty.
+// TestCrushLaunchPromptArg documents that the interactive TUI takes no initial
+// prompt on the launch line, so the launch fragment is always empty — the prompt
+// is instead typed in after launch via PromptSeeder.
 func TestCrushLaunchPromptArg(t *testing.T) {
 	require.Equal(t, "", Crush{}.LaunchPromptArg("/state/prompts/job-1"))
+}
+
+func TestCrushPromptSeeder(t *testing.T) {
+	var ps agentbackend.PromptSeeder = Crush{}
+	text, ok := ps.PromptText("list the apis")
+	require.True(t, ok)
+	require.Equal(t, "list the apis", text)
+	_, ok = ps.PromptText("")
+	require.False(t, ok)
+	require.Equal(t, "ctrl+p commands", ps.ReadyMarker())
 }
 
 func TestCrushHeadlessCmd(t *testing.T) {
