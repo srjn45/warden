@@ -64,34 +64,39 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `ollama/qwen2.5-coder:3b`); unlike aider it **DOES resume** (dir-scoped —
   `opencode -c` continues the worktree's last session, so rotate/handoff/restore
   work), has a **structured Tier-A transcript** (real digests, sourced via
-  `opencode export`), runs a **persistent TUI loop**, but **no priced spend**
-  (tokens-only, BYO model) and its interactive approval prompts are **not yet
-  parsed** (warden infers idle from staleness).
+  `opencode export`), runs a **persistent TUI loop**, gets **context injection**
+  (warden's hints via `AGENTS.md`), but **no priced spend** (tokens-only, BYO model)
+  and its interactive approval prompts are **not yet parsed** (warden infers idle
+  from staleness).
   `codex` is BYO-provider (configured via `~/.codex/config.toml`; pass `model`
-  for `-m`); it **DOES resume** (dir-scoped, `codex resume --last`), has a
-  **structured Tier-A transcript** (JSONL rollout files), and accepts an initial
-  prompt on TUI launch (like Claude); no priced spend, no system-prompt injection.
+  for `-m`); it **DOES resume** (dir-scoped `codex resume --last`, upgraded to
+  exact-id via discover-then-pin), has a **structured Tier-A transcript** (JSONL
+  rollout files), accepts an initial prompt on TUI launch (like Claude), has
+  **live state + approval detection** and **context injection** (`AGENTS.md`); no
+  priced spend.
   `crush` is BYO-model (TUI is config-driven; headless `crush run` accepts model);
   it **DOES resume** (dir-scoped, `crush --continue`), has a **structured Tier-A
-  transcript** (SQLite, via `crush session show --json`), but **the TUI takes no
-  initial prompt** (type it after attach); no priced spend, no system-prompt
-  injection.
+  transcript** (SQLite, via `crush session show --json`), gets **context injection**
+  (`CRUSH.md`), but **the TUI takes no initial prompt** (type it after attach) and
+  its approval prompts are **not yet parsed**; no priced spend.
   `goose` is BYO-provider (set `GOOSE_PROVIDER`/`GOOSE_MODEL` env before
   spawning; no `--model` flag on `goose session`); it **DOES resume**
   (name-deterministic — warden pins its own id as the Goose `--name`, so
   `goose session -r --name <id>` is exact, not dir-scoped guessing), has a
-  **structured Tier-A transcript** (SQLite, via `goose session export`); no priced
-  spend, no system-prompt injection.
+  **structured Tier-A transcript** (SQLite, via `goose session export`) and
+  **context injection** (`.goosehints`); approval prompts **not yet parsed**; no
+  priced spend.
   `cursor` (`cursor-agent`) is a **hosted plan** (billed to the operator's Cursor
   subscription — no $0-local rig, no priced spend); it **DOES resume** (dir-scoped,
   `--continue`), exposes **rich native permission modes** (`plan`/`ask`/`auto-review`/`force`),
-  and has **live state + approval/trust detection**, but its interactive transcript is an
-  unreadable SQLite store with no export verb, so it is **Tier C — no digests yet**.
+  has **live state + approval/trust detection** and **context injection** (`AGENTS.md`),
+  but its interactive transcript is an unreadable SQLite store with no export verb, so
+  it is **Tier C — no digests yet**.
   `antigravity` (`agy`) is a **Google-hosted free tier** (quota-capped; no priced spend)
   with a **multi-vendor model menu** (Gemini/Claude/GPT-OSS via env/config); it **DOES
   resume** (dir-scoped, `agy -c`), has a **structured Tier-A transcript** (plaintext
-  trajectory JSONL ⇒ real digests) and **live state + approval detection**; no
-  system-prompt injection.
+  trajectory JSONL ⇒ real digests), **live state + approval detection** and **context
+  injection** (`AGENTS.md`).
   Claude is the full-fidelity default — leave `backend` unset unless the operator
   explicitly asked for another agent.
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`

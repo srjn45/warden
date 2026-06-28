@@ -1,10 +1,24 @@
 # T1 Agent-Backend Perfecting Phase — Design
 
-**Status:** Draft / design pass (roadmap item #52, perfecting phase)
+**Status:** ✅ Phase complete (steps 1–5 merged to `main`, #52) — step 6 (superpowers)
+deferred as later/additive. Roadmap item #52, perfecting phase.
 **Date:** 2026-06-28
 **Scope:** the three "Tier-1" non-Claude backends — **Codex, Antigravity, Cursor**
 **Predecessor:** `2026-06-27-pluggable-agent-backends-design.md` (the breadth-first
 adapter rollout, now complete: 7 non-Claude backends merged + gap-documented).
+
+> **Phase-complete status (2026-06-28).** The capability work has landed:
+> step 1 (poller + approval routed through `Backend.DetectState`/`ParseApproval`,
+> Claude regression-locked), step 2 (`DiscoverSessionID` discover-then-pin — wired in
+> the poller; **codex** carries the per-backend discoverer, antigravity/cursor still
+> dir-scope), step 3 (live state + approval markers for **codex, antigravity, cursor**),
+> step 4 (cursor trust-prompt surfaced as an approval; transcript topology resolved —
+> see §8 Q1), and step 5 (`InjectContext` rules-file injection across codex, opencode,
+> antigravity, crush, cursor, goose — **aider intentionally skipped**, see its gap doc).
+> Step 6 (surface each agent's superpowers) remains future/additive. Gap #4 (dollar
+> pricing) was an intentional scope decision, not a closed gap: hosted backends
+> (antigravity, cursor) stay tokens-only by design and codex carries no warden-side
+> dollar rates yet. This DoD pass updates the gap docs, catalogs, and website to match.
 
 > This is a **planning & design** document. No production code is changed by this
 > spec. It scopes the gaps, the (modest) architecture changes, and the phase order
@@ -161,10 +175,15 @@ markers are captured, which remain) and **resume when the quota resets**.
 
 ## 8. Open questions
 
-1. **Cursor launch topology** (§5.4) — interactive-but-untranscribed vs
-   headless-but-transcribed vs dual. The "headless-capture" decision implies the
-   transcribed path; confirm whether operators still need an attachable interactive
-   cursor session.
+1. **Cursor launch topology** (§5.4) — ✅ **RESOLVED:** keep cursor **interactive
+   (attachable), Tier C**, and **defer** the headless-transcribed mode. Operators do
+   need an attachable interactive cursor session, and forcing a headless-only
+   transcribed launch would *strip* that — violating warden's "add capability on top,
+   never strip the agent" principle. So cursor stays interactive (live state + approval
+   detection already give warden eyes on it without a transcript), and the
+   already-built `stream-json` parser waits for either a `store.db` reader or an opt-in
+   headless-capture mode to flip it to Tier A — additive, no regression to the
+   interactive session. Rationale recorded in `docs/agent-backends/cursor.md`.
 2. **Antigravity subagent attribution** — internal subagents roll usage into one
    session; document the limitation rather than fake per-subagent numbers (carried
    from the predecessor spec §6.3).

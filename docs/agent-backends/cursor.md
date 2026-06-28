@@ -121,6 +121,26 @@ is not wired into the live digest path today**, because warden launches Cursor's
 forward-compat: the day warden gains a `store.db` reader (or captures the headless
 stream-json) the backend flips to **Tier A** with no parsing work left.
 
+### Transcript-topology decision (resolved — spec §8 Q1)
+
+The perfecting-phase design (`docs/superpowers/specs/2026-06-28-t1-backend-perfecting-design.md`
+§5.4 / §8 Q1) named an open choice for closing cursor's transcript gap:
+**interactive-but-untranscribed** vs **headless-but-transcribed** vs a dual mode. The
+`stream-json` NDJSON above is emitted only by the headless `-p` path, *not* by the
+interactive TUI — so "headless-capture" is a genuinely different launch topology, not a
+free upgrade.
+
+**Decision: keep cursor interactive (attachable), Tier C, and defer the
+headless-transcribed mode.** An attachable interactive cursor session is exactly the
+capability an operator wants, and a headless-only transcribed launch would *strip* it —
+which violates warden's core principle (**add capability on top of the agent, never
+restrict it to a lowest common denominator**). So cursor stays interactive. Live
+**state + approval/trust detection** (below) already give warden eyes on the agent
+without a transcript, so Tier C is no longer "blind." The already-built `stream-json`
+parser remains in place, waiting for an *additive* unlock — a future `store.db` reader
+or an opt-in headless-capture launch mode — at which point cursor flips to Tier A with
+**no regression** to the interactive session operators rely on today.
+
 ---
 
 ## State & approval detection (live pane markers)
