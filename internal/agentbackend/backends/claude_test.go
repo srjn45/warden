@@ -255,6 +255,16 @@ func TestClaudeNotContextInjector(t *testing.T) {
 	require.False(t, ok, "Claude uses the system-prompt flag, not AGENTS.md injection")
 }
 
+// TestClaudeNotReviewer regression-locks the Reviewer seam: Claude has no
+// non-interactive native diff-review subcommand (its `/code-review` is a Claude-Code
+// skill, not a warden-drivable verb), so it must NOT implement agentbackend.Reviewer
+// — `wd review` is simply not offered for Claude (it degrades to `wd check` /
+// `pr-review`), and Claude's launch/resume paths stay untouched.
+func TestClaudeNotReviewer(t *testing.T) {
+	_, ok := agentbackend.Backend(Claude{}).(agentbackend.Reviewer)
+	require.False(t, ok, "Claude has no native review subcommand; wd review must skip it")
+}
+
 func TestPricing(t *testing.T) {
 	tbl, ok := Claude{}.Pricing()
 	require.True(t, ok)

@@ -462,3 +462,78 @@ func TestCodexRegistered(t *testing.T) {
 	require.Equal(t, "Codex", b.DisplayName())
 	require.Equal(t, "codex", b.Binary())
 }
+
+// --- Native review (codex review → wd review) -------------------------------
+
+// TestCodexImplementsReviewer locks that Codex carries the optional Reviewer seam
+// (the `wd review` type-assert keys off this), unlike Claude which has no native
+// review subcommand.
+func TestCodexImplementsReviewer(t *testing.T) {
+	_, ok := agentbackend.Backend(Codex{}).(agentbackend.Reviewer)
+	require.True(t, ok, "Codex exposes `codex review` natively")
+}
+
+// TestCodexReviewCmd checks the argv shaping for both diff scopes (the PR-A prose
+// form) and the optional review prompt. SchemaFile is "" here — PR-A always asks for
+// the prose review; the structured `--output-schema` form is covered separately.
+func TestCodexReviewCmd(t *testing.T) {
+	cases := []struct {
+		name string
+		opts agentbackend.ReviewOpts
+		want []string
+	}{
+		{
+			name: "uncommitted default",
+			opts: agentbackend.ReviewOpts{Scope: "uncommitted"},
+			want: []string{"codex", "review", "--uncommitted"},
+		},
+		{
+			name: "empty scope defaults to uncommitted",
+			opts: agentbackend.ReviewOpts{},
+			want: []string{"codex", "review", "--uncommitted"},
+		},
+		{
+			name: "base branch scope",
+			opts: agentbackend.ReviewOpts{Scope: "base", Base: "main"},
+			want: []string{"codex", "review", "--base", "main"},
+		},
+		{
+			name: "base scope without a branch falls back to uncommitted",
+			opts: agentbackend.ReviewOpts{Scope: "base"},
+			want: []string{"codex", "review", "--uncommitted"},
+		},
+		{
+			name: "extra prompt rides as the trailing positional",
+			opts: agentbackend.ReviewOpts{Scope: "uncommitted", Prompt: "focus on the auth path"},
+			want: []string{"codex", "review", "--uncommitted", "focus on the auth path"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			argv, ok := Codex{}.ReviewCmd(tc.opts)
+			require.True(t, ok, "Codex always offers native review")
+			require.Equal(t, tc.want, argv)
+		})
+	}
+}
+
+// TestCodexReviewCmdStructuredForm locks the resolution of the design's open
+// question (§5 caveat / §7 OQ2): a non-empty SchemaFile requires the
+// `codex exec review` sub-form (verified against codex v0.142.3 — plain
+// `codex review` has no --output-schema), so ReviewCmd switches command shape. PR-A
+// never sets SchemaFile; this guards the form PR-B's structured path will inherit.
+func TestCodexReviewCmdStructuredForm(t *testing.T) {
+	argv, ok := Codex{}.ReviewCmd(agentbackend.ReviewOpts{Scope: "uncommitted", SchemaFile: "/tmp/schema.json"})
+	require.True(t, ok)
+	require.Equal(t, []string{"codex", "exec", "review", "--uncommitted", "--output-schema", "/tmp/schema.json"}, argv)
+}
+
+// TestCodexReviewFixture documents the captured $0-local `codex review --uncommitted`
+// run (testdata/codex/review-uncommitted.txt): it shows the verb→adapter→review
+// run→stream plumbing producing a real reviewer verdict on the Ollama rig. The
+// fixture proves the plumbing, not review quality on a tiny local model (design §5).
+func TestCodexReviewFixture(t *testing.T) {
+	out := codexFixture(t, "review-uncommitted.txt")
+	require.Contains(t, out, "provider: ollama", "captured against the $0-local Ollama rig")
+	require.Contains(t, out, "codex", "carries the reviewer's response section")
+}

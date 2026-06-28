@@ -111,6 +111,49 @@ func (Codex) ResumeCmd(agentbackend.ResumeOpts) (string, bool) {
 	return "codex resume --last", true
 }
 
+// ReviewCmd implements agentbackend.Reviewer: it returns the argv for a one-shot
+// `codex review` run in the agent's worktree (the CLI verb `wd review` execs it
+// locally and streams the findings to the operator — the agent-native counterpart
+// to `wd check`). Codex's review subcommand is diff-scoped natively:
+//   - Scope "uncommitted" (the default) → `--uncommitted` (staged+unstaged+untracked),
+//   - Scope "base" → `--base <Base>` (changes against a base branch).
+//
+// Model/provider are deliberately NOT forced here, exactly like LaunchCmd: warden
+// emits only the review verb and lets Codex's config (`~/.codex/config.toml`, or the
+// operator's `-c` overrides) pick the provider, so the same argv serves the
+// $0-local Ollama rig (`-c model_provider=ollama`) and a paid OpenAI setup ("BYO
+// config"). An optional Prompt rides as Codex's trailing positional review
+// instruction. This returns argv (not a tmux-pane string), so the verb execs it
+// directly with no shell — no shell-quoting needed and untrusted values never reach
+// a shell.
+//
+// SchemaFile selects the command form (verified against codex v0.142.3): the plain
+// `codex review` subcommand has NO `--output-schema`/`--json` flags — only the
+// `codex exec review` sub-form does — so a non-empty SchemaFile switches to
+// `codex exec review … --output-schema <file>`. PR-A's caller always passes "" (the
+// prose form); the branch is wired now so PR-B's structured-result path inherits the
+// correct command shape. ok is always true (Codex always offers native review).
+func (Codex) ReviewCmd(opts agentbackend.ReviewOpts) ([]string, bool) {
+	var argv []string
+	if opts.SchemaFile != "" {
+		argv = []string{"codex", "exec", "review"}
+	} else {
+		argv = []string{"codex", "review"}
+	}
+	if opts.Scope == "base" && opts.Base != "" {
+		argv = append(argv, "--base", opts.Base)
+	} else {
+		argv = append(argv, "--uncommitted")
+	}
+	if opts.SchemaFile != "" {
+		argv = append(argv, "--output-schema", opts.SchemaFile)
+	}
+	if opts.Prompt != "" {
+		argv = append(argv, opts.Prompt)
+	}
+	return argv, true
+}
+
 // LaunchPromptArg seeds the initial task prompt as Codex's trailing positional
 // argument (read back from promptFile via "$(cat …)" so a multi-line prompt types
 // as one physical line). Codex's TUI accepts an optional PROMPT positional and then

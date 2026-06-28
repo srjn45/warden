@@ -168,6 +168,33 @@ type PromptSeeder interface {
 	ReadyMarker() string
 }
 
+// Reviewer is an optional Backend extension implemented by agents that expose a
+// NON-INTERACTIVE, diff-scoped code review as a first-class subcommand (Codex:
+// `codex review --uncommitted|--base <branch>|--commit <sha>`). It is the
+// agent-native counterpart to warden's configured `.warden/check.yml` checks and
+// its spawned `pr-review` agent: instead of running project test commands or
+// standing up a whole reviewer session, warden asks the backend's OWN reviewer to
+// read the working diff and report findings. Additive and on-top — a backend that
+// does not implement it is simply not offered `wd review` (the verb reports the
+// backend has no native review and points at `pr-review`/`wd check`).
+type Reviewer interface {
+	// ReviewCmd returns the argv for a one-shot review run in the agent's workdir.
+	// scope selects what to review (uncommitted working tree, or a base branch);
+	// schemaFile, when non-empty, requests a machine-readable result the caller can
+	// parse (codex: --output-schema). ok=false ⇒ this backend offers no native review.
+	ReviewCmd(opts ReviewOpts) (argv []string, ok bool)
+}
+
+// ReviewOpts is the neutral input for a Reviewer.ReviewCmd call. The CLI verb
+// (`wd review`) populates it from its flags; an unset Scope means "uncommitted"
+// (the agent's working tree).
+type ReviewOpts struct {
+	Scope      string // "uncommitted" (default) | "base"
+	Base       string // base branch when Scope=="base"
+	SchemaFile string // optional JSON-Schema path for a structured result ("" = prose)
+	Prompt     string // optional extra review instructions
+}
+
 // SessionIDDiscoverer is an optional Backend extension implemented by agents that
 // mint their OWN session id at launch (Caps.SessionIDControl=false) — warden
 // cannot pin the id up front, so LaunchCmd ignores LaunchOpts.SessionID and the

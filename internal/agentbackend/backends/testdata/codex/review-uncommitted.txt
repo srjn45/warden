@@ -1,0 +1,42 @@
+# Captured stdout of a real `codex review --uncommitted` run on the $0-local
+# Ollama rig (codex-cli v0.142.3), proving the wd review plumbing end-to-end:
+# verb -> Codex.ReviewCmd -> codex review run -> streamed output.
+#
+# How it was captured (no auth, no spend — BYO config selects the provider, same
+# stance as the Codex launch path):
+#   cd <a git worktree with uncommitted changes>
+#   codex review --uncommitted \
+#     -c model_provider=ollama -c model=qwen2.5-coder:7b
+#
+# The `ollama` provider is a codex built-in (reserved id) pointing at the local
+# Ollama daemon; `codex review` has no `--oss` flag (that lives on `codex exec`),
+# so the provider is selected via `-c model_provider=ollama`. The argv warden's
+# Codex.ReviewCmd emits is just `codex review --uncommitted` — the model/provider
+# is the operator's config, never forced by warden.
+#
+# Note on quality: qwen2.5-coder:7b reviewed a diff that planted a real bug (an
+# `add()` that subtracts, plus a zero-division) and concluded "no bugs". That is
+# the documented weak-tiny-model caveat (design §5): the pilot proves the
+# plumbing, NOT review accuracy on a 3B/7B local model — quality rides the
+# operator's real model. (qwen2.5-coder:3b failed to emit any structured review
+# at all: "Reviewer failed to output a response.")
+#
+# Environment-noise lines elided: codex's periodic "ERROR codex_models_manager:
+# failed to refresh available models" (Ollama's /v1/models payload shape) and the
+# repeated streaming duplicates of the final line.
+OpenAI Codex v0.142.3
+--------
+workdir: /tmp/.../review-rig
+model: qwen2.5-coder:7b
+provider: ollama
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 019f1055-9099-7350-8cce-c2737e971f01
+--------
+user
+current changes
+
+codex
+The patch does not contain any bugs that would impact accuracy, performance, security, or maintainability.
