@@ -201,7 +201,14 @@ reachable, not flatten them away. Future enhancements should surface, not suppre
 
 - **Multi-vendor model menu** — one agent can run Gemini, Claude, *and* GPT-OSS models
   (`agy models`) under a single hosted login; a natural fit for per-agent model
-  routing.
+  routing. **Surfaced (step 6 PR-C):** `wd models` exposes this live menu via the
+  additive `agentbackend.ModelLister` interface — the adapter runs `agy models` and
+  normalizes its one-id-per-line stdout into the ids you pass to `--model` (e.g.
+  `Gemini 3.5 Flash (Low)`, `Claude Opus 4.6 (Thinking)`). Listing is a metadata read,
+  not a generation request, so it spends no hosted-tier quota; on a command error
+  (binary missing / not signed in) `ListModels` returns `ok=false` and the verb
+  degrades with a clear message. Backends with a static model set (Claude) don't
+  implement the interface and aren't offered the verb.
 - **Projects & multi-dir workspaces** — `--project <id>` / `--new-project` /
   `--add-dir` group conversations and span multiple directories.
 - **First-class skills / rules / hooks / MCP / sidecars / plugins** — `agy plugin`,
