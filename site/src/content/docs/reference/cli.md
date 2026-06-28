@@ -94,7 +94,7 @@ Usage:
 
 Flags:
       --auto-restart             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --backend string           agent backend to drive: claude (default, stable), aider (experimental), or opencode (experimental). Only claude is fully tested; aider and opencode are work-in-progress — any non-claude value is experimental. Backends differ in capabilities — aider & opencode are bring-your-own-model (pass --model) with tokens-only spend; aider has no resume and runs an autonomous task that exits when done; opencode has a structured (Tier A) transcript and DOES resume the worktree's last session
+      --backend string           agent backend to drive: claude|aider|opencode|codex|crush|goose. Only claude is fully tested and stable; all others are 🧪 experimental / work-in-progress. aider & opencode are bring-your-own-model (pass --model); codex uses BYO provider config; crush is config-driven TUI (no initial prompt at launch); goose uses GOOSE_PROVIDER/GOOSE_MODEL env. All non-claude backends show tokens-only spend. See docs: concepts/agent-backends
       --branch string            new branch (development) or checkout target (pr-review)
       --dir string               directory to launch the agent from (default: current directory)
       --force                    spawn even when the memory-pressure gate warns
