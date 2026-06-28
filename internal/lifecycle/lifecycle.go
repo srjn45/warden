@@ -1035,7 +1035,9 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 			return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
 		}
 		promptFile = filepath.Join(l.PromptsDir, sess.ID)
-		if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
+		// umask 077 so the prompt file is created 0600: task prompts can carry
+		// sensitive context, and the 0700 PromptsDir is the only other guard.
+		if out, err := l.run.Run(ctx, "", "sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
 			return nil, fmt.Errorf("write prompt file: %w: %s", err, out)
 		}
 	}
@@ -1767,7 +1769,8 @@ func (l *Lifecycle) writePromptFile(ctx context.Context, id, prompt string) (str
 		return "", fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
 	}
 	path := filepath.Join(l.PromptsDir, id)
-	if out, err := l.run.Run(ctx, "", "sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, path); err != nil {
+	// umask 077 so the prompt file is created 0600 (see spawnFreeForm).
+	if out, err := l.run.Run(ctx, "", "sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", prompt, path); err != nil {
 		return "", fmt.Errorf("write prompt file: %w: %s", err, out)
 	}
 	return path, nil

@@ -73,6 +73,59 @@ func TestWebhookNotifierTransportErrorIsBestEffort(t *testing.T) {
 	require.Contains(t, logBuf.String(), "webhook post failed")
 }
 
+func TestWebhookNotifierRejectsNonHTTPScheme(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	defer slog.SetDefault(prev)
+
+	// A non-http scheme must degrade to a logged no-op, not a live notifier.
+	n := NewWebhook("file:///etc/passwd")
+	require.IsType(t, logNotifier{}, n)
+	n.Notify("title", "body") // must not panic
+	require.Contains(t, logBuf.String(), "webhook disabled")
+}
+
+func TestWebhookNotifierDoesNotFollowRedirect(t *testing.T) {
+	var hits int
+	var mu sync.Mutex
+	// Internal endpoint a redirect would try to pivot to: it must never be hit.
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer internal.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, internal.URL, http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	defer slog.SetDefault(prev)
+
+	NewWebhook(redirector.URL).Notify("title", "body")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, 0, hits, "redirect target must not be followed")
+	require.Contains(t, logBuf.String(), "redirect refused")
+}
+
+func TestWebhookNotifierRefusesLinkLocalTarget(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	defer slog.SetDefault(prev)
+
+	// The cloud metadata endpoint: the dial guard must refuse it before connect.
+	NewWebhook("http://169.254.169.254/latest/meta-data/").Notify("title", "body")
+	require.Contains(t, logBuf.String(), "link-local target refused")
+}
+
 func TestMultiNotifierFansOutAndSkipsNil(t *testing.T) {
 	a := &countingNotifier{}
 	b := &countingNotifier{}

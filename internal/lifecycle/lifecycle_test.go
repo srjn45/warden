@@ -170,7 +170,7 @@ func TestSpawnTypedSeedsPromptArg(t *testing.T) {
 
 	// The prompt is file-backed in the shared state dir, keyed by agent id…
 	promptFile := "/state/prompts/" + s.ID
-	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
+	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
 	// …and passed to claude as the positional "$(cat …)" argument on launch.
 	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
@@ -699,7 +699,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	// in the caller's project and never in a per-agent directory.
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-m", "700", "-p", "/state/prompts"})
-	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
+	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
 	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
@@ -744,7 +744,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 
 	promptFile := "/state/prompts/" + s.ID
 	// Prompt written verbatim via an exec arg — no shell interpolation/escaping.
-	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
+	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
 
 	// The launch line is a single physical line; the multi-line prompt is read
 	// back via $(cat …) so no embedded newline is ever typed into the pane.
@@ -1515,7 +1515,7 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 	for _, c := range fr.Calls {
 		require.NotEqual(t, "mkdir", c.Argv[0], "no mkdir of a prompts dir")
 		if c.Argv[0] == "sh" {
-			require.NotContains(t, c.Argv, `printf '%s' "$1" > "$2"`, "no prompt-file write")
+			require.NotContains(t, c.Argv, `umask 077; printf '%s' "$1" > "$2"`, "no prompt-file write")
 		}
 	}
 
