@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/srjn45/warden/internal/agentbackend"
@@ -268,18 +269,152 @@ func agyUserText(content string) string {
 
 // --- State / approval -------------------------------------------------------
 
-// DetectState reports Unknown: `agy`'s run-state and approval prompts live in its
-// TUI, whose pane has no stable text marker this experimental adapter keys on yet
-// (no live interactive prompt was captured for this phase). warden infers idle from
-// staleness, the same conservative stance the Claude/Aider/OpenCode/Codex adapters
-// take. Mapping `agy`'s TUI approvals is deferred (docs/agent-backends/antigravity.md);
-// the faithful non-interactive surface is `agy -p`, which raises no prompts.
-func (Antigravity) DetectState(string) agentbackend.State { return agentbackend.StateUnknown }
+// DetectState maps a captured `agy` TUI pane to a neutral run state, mirroring the
+// structure of the Codex/Claude adapters. `agy`'s status bar is a clean binary marker
+// (captured live against `agy` v1.0.13, Gemini 3.5 Flash):
+//   - at rest ⇒ a "? for shortcuts" footer with an empty composer ⇒ StateIdle.
+//   - running a turn (generating or executing a tool) ⇒ an "esc to cancel" footer,
+//     usually alongside a "Generating..." spinner ⇒ StateWorking.
+//   - blocked on a tool-permission prompt ⇒ its numbered "Do you want to proceed?"
+//     menu, detected via ParseApproval ⇒ StateNeedsInput.
+//
+// The approval check runs FIRST because an open permission prompt keeps the
+// "esc to cancel" busy footer — so an approval pane would otherwise be misread as
+// Working. Anything unrecognized stays StateUnknown so warden falls back to inferring
+// idle from staleness (the conservative stance shared with the other adapters); never
+// a false StateNeedsInput/Working, which keeps the auto-approve path honest.
+func (Antigravity) DetectState(pane string) agentbackend.State {
+	if _, ok := (Antigravity{}).ParseApproval(pane); ok {
+		return agentbackend.StateNeedsInput
+	}
+	if strings.Contains(pane, "esc to cancel") || strings.Contains(pane, "Generating...") {
+		return agentbackend.StateWorking
+	}
+	if strings.Contains(pane, "? for shortcuts") {
+		return agentbackend.StateIdle
+	}
+	return agentbackend.StateUnknown
+}
 
-// ParseApproval reports no approval: see DetectState — `agy`'s interactive permission
-// prompts are not yet mapped, so this degrades (returns false) rather than
-// mis-parsing. The `-p --dangerously-skip-permissions` headless path raises no prompts.
-func (Antigravity) ParseApproval(string) (*agentbackend.Approval, bool) { return nil, false }
+// agyOptionRe matches one line of `agy`'s numbered permission menu, tolerating the
+// leading ">" selection cursor on the highlighted option and the plain indent on the
+// rest: "> 1. Yes" / "  2. Yes, and always allow …" / "  4. No".
+var agyOptionRe = regexp.MustCompile(`^\s*(>?)\s*(\d+)\.\s+(.+?)\s*$`)
+
+// ParseApproval normalizes `agy`'s interactive tool-permission prompt into the neutral
+// Approval. Captured live (`agy` v1.0.13) — a shell-command escalation renders as:
+//
+//	● Bash(echo hello-from-agy) (ctrl+o to expand)
+//	…
+//	  Requesting permission for:
+//	     echo hello-from-agy
+//
+//	Do you want to proceed?
+//	> 1. Yes
+//	  2. Yes, and always allow in this conversation for commands that start with 'echo'
+//	  3. Yes, and always allow for commands that start with 'echo' (Persist to settings.json)
+//	  4. No
+//	  ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command · ctrl+r Review
+//	esc to cancel
+//
+// It locates the contiguous 1..N option run, then reads the "Requesting permission
+// for:" command (the Action) and the "Do you want to proceed?" header (the Question)
+// just above it. The header is required, so a bare numbered list in agent prose is
+// NOT mis-parsed — it returns (nil,false), as does any non-approval pane. Options are
+// 1-indexed top-down so Fingerprint(Options) — which the auto-approve policy and the
+// daemon re-verify guard both key off — is stable and faithful to the pane.
+func (Antigravity) ParseApproval(pane string) (*agentbackend.Approval, bool) {
+	lines := strings.Split(pane, "\n")
+
+	// The live prompt sits at the bottom: find the last option line, then walk up
+	// while lines stay options.
+	end := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if agyOptionRe.MatchString(lines[i]) {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return nil, false
+	}
+	start := end
+	for start-1 >= 0 && agyOptionRe.MatchString(lines[start-1]) {
+		start--
+	}
+
+	var opts []string
+	sel := 0
+	for i := start; i <= end; i++ {
+		m := agyOptionRe.FindStringSubmatch(lines[i])
+		// Numbering must be sequential 1..N (rejects an incidental numbered list).
+		if m[2] != strconv.Itoa(i-start+1) {
+			return nil, false
+		}
+		if m[1] == ">" {
+			sel = i - start + 1
+		}
+		opts = append(opts, strings.TrimSpace(m[3]))
+	}
+	if len(opts) < 2 {
+		return nil, false
+	}
+
+	a := &agentbackend.Approval{Options: opts, SelectedIdx: sel}
+
+	// Scan upward from the option run (a bounded window) for the "Do you want to
+	// proceed?" Question and the command echoed under "Requesting permission for:".
+	// The command sits on the line directly below its label, so we track the most
+	// recent non-empty line seen on the way up and claim it when the label appears.
+	below := ""
+	for i := start - 1; i >= 0 && i >= start-12; i-- {
+		t := strings.TrimSpace(lines[i])
+		if t == "" {
+			continue
+		}
+		if a.Question == "" && strings.HasPrefix(t, "Do you want to proceed") {
+			a.Question = t
+		}
+		if a.Action == "" && strings.HasPrefix(t, "Requesting permission for") {
+			a.Action = below
+		}
+		below = t
+	}
+	// The header gates recognition: without it this is not an `agy` approval.
+	if a.Question == "" {
+		return nil, false
+	}
+	a.AffirmativeIdx, a.AffirmativeSticky = agyAffirmative(opts)
+	return a, true
+}
+
+// agyAffirmative picks the least-privilege affirmative option from an `agy` permission
+// menu, mirroring the approval package's policy for the neutral
+// Approval.AffirmativeIdx/Sticky fields. `agy`'s affirmatives start with "Yes" ("Yes"
+// / "Yes, and always allow …"); the standing grants carry an "always allow" or
+// "Persist to settings" clause. It returns the 1-based index of the first non-sticky
+// "Yes" (sticky=false); failing that the first sticky "Yes" (sticky=true); otherwise
+// (0,false) when only a "No" is offered.
+func agyAffirmative(opts []string) (idx int, sticky bool) {
+	stickyIdx := 0
+	for i, opt := range opts {
+		low := strings.ToLower(opt)
+		if !strings.HasPrefix(low, "yes") {
+			continue
+		}
+		if strings.Contains(low, "always") || strings.Contains(low, "persist to settings") || strings.Contains(low, "don't ask again") {
+			if stickyIdx == 0 {
+				stickyIdx = i + 1
+			}
+			continue
+		}
+		return i + 1, false
+	}
+	if stickyIdx != 0 {
+		return stickyIdx, true
+	}
+	return 0, false
+}
 
 // --- System prompt / pricing ------------------------------------------------
 

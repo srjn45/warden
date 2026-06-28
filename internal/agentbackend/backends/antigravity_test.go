@@ -186,12 +186,90 @@ func TestAntigravityParseTranscriptTolerant(t *testing.T) {
 	require.Equal(t, "reply", turns[1].Text)
 }
 
-// --- State / approval (degraded) --------------------------------------------
+// --- State / approval (live markers) ----------------------------------------
 
-func TestAntigravityStateDegrades(t *testing.T) {
-	require.Equal(t, agentbackend.StateUnknown, Antigravity{}.DetectState("any pane content"))
-	_, ok := Antigravity{}.ParseApproval("Allow command? [y/n]")
-	require.False(t, ok, "interactive approval parsing is deferred — degrade, not mis-parse")
+// agyFixture reads a captured tmux-pane fixture from testdata/antigravity/.
+func agyFixture(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "antigravity", name))
+	require.NoError(t, err)
+	return string(b)
+}
+
+// TestAntigravityDetectState classifies each captured pane: an at-rest pane ⇒ Idle
+// (the "? for shortcuts" footer), a streaming turn ⇒ Working (the "esc to cancel"
+// footer / "Generating..." spinner), and an open permission prompt ⇒ NeedsInput.
+func TestAntigravityDetectState(t *testing.T) {
+	tests := []struct {
+		fixture string
+		want    agentbackend.State
+	}{
+		{"state-idle.txt", agentbackend.StateIdle},
+		{"state-working.txt", agentbackend.StateWorking},
+		{"approval.txt", agentbackend.StateNeedsInput},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fixture, func(t *testing.T) {
+			require.Equal(t, tt.want, Antigravity{}.DetectState(agyFixture(t, tt.fixture)))
+		})
+	}
+
+	// An unrecognized pane stays Unknown (no false positive ⇒ warden infers idle
+	// from staleness).
+	require.Equal(t, agentbackend.StateUnknown, Antigravity{}.DetectState("just some quiet output"))
+}
+
+// TestAntigravityParseApproval parses the captured shell-command permission prompt
+// into the neutral Approval: the proposed command (Action), the "Do you want to
+// proceed?" header (Question), the four options top-down (1-indexed), the highlighted
+// option (SelectedIdx), and the least-privilege non-sticky "Yes" (AffirmativeIdx).
+func TestAntigravityParseApproval(t *testing.T) {
+	a, ok := Antigravity{}.ParseApproval(agyFixture(t, "approval.txt"))
+	require.True(t, ok, "the captured permission prompt parses")
+
+	require.Equal(t, "echo hello-from-agy", a.Action)
+	require.Equal(t, "Do you want to proceed?", a.Question)
+	require.Equal(t, []string{
+		"Yes",
+		"Yes, and always allow in this conversation for commands that start with 'echo'",
+		"Yes, and always allow for commands that start with 'echo' (Persist to settings.json)",
+		"No",
+	}, a.Options)
+	require.Equal(t, 1, a.SelectedIdx, "the > cursor sits on option 1")
+	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the bare non-sticky Yes")
+	require.False(t, a.AffirmativeSticky, "option 1 is a one-shot grant, not a standing one")
+}
+
+// TestAntigravityParseApprovalNegative proves a non-approval pane (idle or working)
+// is NOT mis-read as an approval — the header gate keeps the auto-approve path honest.
+func TestAntigravityParseApprovalNegative(t *testing.T) {
+	for _, name := range []string{"state-idle.txt", "state-working.txt"} {
+		t.Run(name, func(t *testing.T) {
+			_, ok := Antigravity{}.ParseApproval(agyFixture(t, name))
+			require.False(t, ok)
+		})
+	}
+
+	// A bare numbered list in agent prose (no "Do you want to proceed?" header) is
+	// not an approval, even though it has sequential 1..N lines.
+	prose := "Here are the steps:\n  1. Yes do this\n  2. No skip that\n"
+	_, ok := Antigravity{}.ParseApproval(prose)
+	require.False(t, ok, "a numbered list without the permission header is not a prompt")
+}
+
+// TestAntigravityAffirmativeStickyFallback covers the case where the only affirmative
+// is a standing "always allow" grant: it is chosen with sticky=true.
+func TestAntigravityAffirmativeStickyFallback(t *testing.T) {
+	idx, sticky := agyAffirmative([]string{
+		"Yes, and always allow for commands that start with 'ls'",
+		"No",
+	})
+	require.Equal(t, 1, idx)
+	require.True(t, sticky)
+
+	idx, sticky = agyAffirmative([]string{"No", "No, and tell agy what to do"})
+	require.Equal(t, 0, idx, "no affirmative offered")
+	require.False(t, sticky)
 }
 
 // --- Capabilities / pricing -------------------------------------------------

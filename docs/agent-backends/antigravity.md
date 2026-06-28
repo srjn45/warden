@@ -16,8 +16,11 @@ a lowest common denominator.
 > **Hosted, quota-limited.** Antigravity is a Google-hosted agent on the user's free
 > tier (a daily-ish cap), **not** a $0-local backend. This adapter was verified with
 > the *minimum* live spend: one `agy -p` (capture a transcript fixture) and one
-> `agy -c -p` (verify resume). Everything else was learned from `agy --help`,
-> `agy models`, the bundled `antigravity_guide` skill docs, and on-disk inspection.
+> `agy -c -p` (verify resume) for the transcript work, plus two interactive turns on
+> the cheapest model (`Gemini 3.5 Flash (Low)`) to capture the idle / working /
+> approval pane fixtures for `DetectState` + `ParseApproval`. Everything else was
+> learned from `agy --help`, `agy models`, the bundled `antigravity_guide` skill docs,
+> and on-disk inspection.
 
 ---
 
@@ -33,7 +36,8 @@ a lowest common denominator.
 | `ParseTranscript`    | parses the trajectory JSONL `USER_INPUT` / `PLANNER_RESPONSE` records | → neutral Turns. |
 | `SystemPromptFlag`   | — (unsupported)                                              | `agy` has no `--append-system-prompt` flag. |
 | `Pricing`            | — (unsupported)                                              | Google-hosted free tier; tokens shown in `/usage` TUI only, dollars not surfaced. |
-| `DetectState` / `ParseApproval` | — (degraded)                                     | TUI approval prompts not yet mapped. |
+| `DetectState`        | classify the TUI status bar                                  | `? for shortcuts` ⇒ idle, `esc to cancel` / `Generating...` ⇒ working, a permission menu ⇒ needs-input. |
+| `ParseApproval`      | parse the `Do you want to proceed?` permission menu          | numbered options (`Yes` / `Yes, and always allow …` / `No`) → neutral `Approval`. |
 
 ### Models & permissions
 
@@ -132,6 +136,18 @@ its own git worktree, this resolution is unambiguous.
 - Headless one-shots via `agy -p`.
 - **Digests** — the trajectory parses into structured Turns (Tier A): warden sees the
   human prompts, the model replies, and their timestamps.
+- **Live state detection** — `DetectState` classifies `agy`'s TUI status bar (captured
+  live against `agy` v1.0.13, Gemini 3.5 Flash): the `? for shortcuts` footer at rest
+  ⇒ **idle**, the `esc to cancel` footer / `Generating...` spinner during a turn ⇒
+  **working**, and an open permission menu ⇒ **needs-input**. Anything unrecognized
+  stays `Unknown` so warden falls back to staleness (no false positives).
+- **Approval detection + auto-approve** — `ParseApproval` maps `agy`'s
+  `Do you want to proceed?` permission menu into warden's neutral `Approval` (the
+  proposed command, the numbered `Yes` / `Yes, and always allow …` / `No` options, the
+  highlighted option, and the least-privilege affirmative). This lights up the
+  approvals inbox and auto-approve for Antigravity agents. Captured under the **default**
+  permission posture — `--dangerously-skip-permissions` raises no prompt, and the
+  `agy -p` headless path is non-interactive.
 
 **Gaps (degraded, documented — not mis-handled)**
 
@@ -149,11 +165,13 @@ its own git worktree, this resolution is unambiguous.
   the minted conv-id from `cache/last_conversations.json` after first launch and use
   exact-id `agy --conversation <uuid>` / direct `brain/<conv-id>/…` lookup
   (FUTURE_ENHANCEMENTS #52).
-- **No live state / approval detection.** `agy`'s run-state and approval prompts live
-  in its TUI; no stable pane marker was captured this phase, so `DetectState` returns
-  `Unknown` and `ParseApproval` returns `false` (warden infers idle from staleness, as
-  it does for Claude/Aider/OpenCode/Codex). The faithful non-interactive surface is
-  `agy -p`, which raises no prompts.
+- **Approval coverage is shell-command-only (so far).** `DetectState` + `ParseApproval`
+  are wired (see "Works today"), but the captured permission fixture was a **shell
+  command** (`Bash(echo …)`). `agy`'s file-edit / MCP-tool prompts almost certainly
+  reuse the same `Do you want to proceed?` + numbered-menu shape the parser keys on,
+  but that was not captured this frugal phase (kept within the free-tier quota), so it
+  is unverified. The header-gated, sequential-1..N parser degrades to `(nil,false)`
+  rather than mis-parsing any prompt variant it has not seen.
 - **No warden-side dollar pricing.** Antigravity is hosted on a Google free tier;
   `agy` shows token usage / session cost only in its `/usage` TUI panel and surfaces
   no per-call dollar figure on the CLI, and warden's spend table is Claude-specific.
