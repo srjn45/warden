@@ -504,17 +504,22 @@ const dollarsPerToken = pricePerMTok / 1_000_000
 // at. Exposed so the CLI can name the assumption in its output.
 const PricePerMTok = pricePerMTok
 
-// pricePerMTok is Claude Opus 4.x input pricing ($/MTok) as of 2026-06 (Opus
-// 4.8/4.7/4.6 all share the $5/MTok input rate). Saved tokens are overwhelmingly
-// input tokens (test logs, git output, prompts that never reach Claude), so the
-// input rate is the right multiplier.
+// pricePerMTok is Claude Opus 4.x published list-price input rate ($/MTok) as of
+// 2026-06 (Opus 4.8/4.7/4.6 all share the $5/MTok input rate). Saved tokens are
+// overwhelmingly input tokens (test logs, git output, prompts that never reach
+// Claude), so the input rate is the right multiplier. This is a static snapshot:
+// it excludes prompt-cache tokens and any volume/batch/enterprise discounts, so
+// dollar figures derived from it are estimates that may differ from the actual bill.
+// Update when Anthropic changes pricing.
 const pricePerMTok = 5.0
 
-// OutputPricePerMTok is Claude Opus 4.x OUTPUT pricing ($/MTok) as of 2026-06
-// ($25/MTok). It only applies to the offload axis: an offloaded classify/
-// summarize call would also have produced output tokens on Claude, so the
-// offload dollar figure values that avoided output on top of the avoided input.
-// Exposed so the CLI can name the assumption in its output.
+// OutputPricePerMTok is Claude Opus 4.x published list-price output rate ($/MTok)
+// as of 2026-06 ($25/MTok). It only applies to the offload axis: an offloaded
+// classify/summarize call would also have produced output tokens on Claude, so the
+// offload dollar figure values the avoided output on top of the avoided input. This
+// is a static snapshot that excludes prompt-cache tokens and any volume/batch/
+// enterprise discounts — dollar figures derived from it are estimates. Exposed so
+// the CLI can name the assumption in its output.
 const OutputPricePerMTok = 25.0
 
 // outputDollarsPerToken is OutputPricePerMTok in $/token, the offload axis's

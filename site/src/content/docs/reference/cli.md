@@ -351,6 +351,12 @@ Flags:
 
 Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, % and $) and the **offload** axis (Claude work moved off entirely onto the local LLM, $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`.
 
+:::note[Dollar figures are estimates]
+Dollar figures are based on published list prices (as of 2026-06); they exclude
+prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ
+from your actual bill. Token counts are exact (read from the transcript).
+:::
+
 ## warden spend
 
 ```text
@@ -370,6 +376,12 @@ The headline names the **daily** and **weekly** totals the budget gate enforces
 (`tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`): with the gate on, a
 spawn that would push measured spend over a cap warns first (re-run with `--force`),
 mirroring the memory-pressure spawn gate. `warden ls` also gains a **COST** column.
+
+:::note[Dollar figures are estimates]
+Dollar figures are based on published list prices (as of 2026-06); they exclude
+prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ
+from your actual bill. Token counts are exact (read directly from the transcript).
+:::
 
 ## warden branches
 

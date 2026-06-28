@@ -31,7 +31,10 @@ const (
 // modelPrices maps a normalized model family (opus/sonnet/haiku/fable) to its
 // rates. The keys are the short aliases warden already uses; PriceFor folds a
 // full model id (claude-opus-4-8, us.anthropic.claude-sonnet-…) down to one of
-// these families before looking it up. Rates are $/MTok as of 2026-06.
+// these families before looking it up. Rates are published list prices as of
+// 2026-06; they exclude prompt-cache tokens and any volume/batch/enterprise
+// discounts, so the dollar figures warden derives are estimates that may differ
+// from the actual bill. Update these constants when Anthropic changes pricing.
 var modelPrices = map[string]Price{
 	"opus":   {InputPerMTok: opusInputPerMTok, OutputPerMTok: opusOutputPerMTok},
 	"sonnet": {InputPerMTok: 3.0, OutputPerMTok: 15.0},

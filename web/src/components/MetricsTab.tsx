@@ -288,7 +288,8 @@ function SpendCard({ report, err }: { report: SpendReport | null; err: ApiError 
         <p className="metrics-headline">
           <strong>${report.total_usd.toFixed(2)}</strong> total ·{' '}
           <strong>${report.daily_usd.toFixed(2)}</strong> today ·{' '}
-          <strong>${report.weekly_usd.toFixed(2)}</strong> this week
+          <strong>${report.weekly_usd.toFixed(2)}</strong> this week{' '}
+          <small className="muted">(est. — list prices, excl. cache/discounts)</small>
         </p>
       )}
       {agents.length === 0
@@ -379,7 +380,8 @@ function SavingsCard({ summary, err, win, onWin }: {
       {summary && (
         <p className="metrics-headline">
           <strong>{summary.saved_tokens.toLocaleString()}</strong> tokens ·{' '}
-          <strong>${summary.saved_dollars.toFixed(2)}</strong> saved
+          <strong>${summary.saved_dollars.toFixed(2)}</strong> saved{' '}
+          <small className="muted">(est.)</small>
         </p>
       )}
       {ss.x.length === 0

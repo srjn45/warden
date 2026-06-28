@@ -58,6 +58,12 @@ spend was observed — the cut as a share of real measured Claude spend.
 Dollars are priced at the Opus input/output rates. Also exposed as the `savings`
 MCP tool.
 
+:::note[Dollar figures are estimates]
+Dollar figures are based on published list prices (as of 2026-06); they exclude
+prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ
+from your actual bill. Token counts are exact (read from the transcript).
+:::
+
 ## API: the saved-tokens trend
 
 `GET /api/v1/savings` accepts:

@@ -716,9 +716,14 @@ Every figure states its **basis** — `CALIBRATED` (workload-measured via
 `count_tokens`) or the generic 4-bytes/token `HEURISTIC`. Calibration is
 forward-only: it prices events recorded after it runs.
 
+> **Dollar figures are estimates** based on published list prices (as of 2026-06);
+> they exclude prompt-cache tokens and any volume/batch/enterprise discounts, so
+> they may differ from your actual bill. Token counts are exact (read from the
+> transcript).
+
 ### `warden spend [--by agent|repo|day] [--json]`
-Report the REAL billed Claude spend warden measured from agents' transcripts —
-the actual input/output tokens, priced per model into dollars and rolled up
+Report the measured Claude spend warden read from agents' transcripts — the exact
+input/output tokens priced per model into estimated dollar figures and rolled up
 per-agent, per-repo, and per-day. The cost counterpart to `wd savings`. Gated by
 the `savings` setting; `GET /api/v1/spend` returns 403 when off. See
 [FEATURES.md §30](FEATURES.md).
@@ -733,6 +738,10 @@ A **budget gate** (`tokens.budget_gate`, off by default) turns this into a guard
 with `tokens.budget_daily_usd` / `tokens.budget_weekly_usd` set, a spawn that would push
 measured spend over the cap warns first (re-run with `--force` to proceed),
 mirroring the memory-pressure spawn gate. `warden ls` also gains a **COST** column.
+
+> **Dollar figures are estimates** based on published list prices (as of 2026-06);
+> they exclude prompt-cache tokens and any volume/batch/enterprise discounts, so
+> they may differ from your actual bill. Token counts are exact.
 
 ### `warden branches [--json]`
 Opt-in, read-only view of each active agent's branch health: its **GitHub CI

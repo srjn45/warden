@@ -798,6 +798,11 @@ Opus input/output rates. Self-contained, fully unit-tested `internal/savings`
 package (`store` / `savings` / `calibrate`); the CLI rendering lives in
 `internal/cli/savings.go`.
 
+> **Dollar figures are estimates** based on published list prices (as of 2026-06);
+> they exclude prompt-cache tokens and any volume/batch/enterprise discounts, so
+> they may differ from your actual bill. Token counts are exact (read from the
+> transcript).
+
 ## 30. Cost governance (`wd spend` + budget gate)
 
 The cost counterpart to the savings ledger: where `wd savings` reports what warden
@@ -817,6 +822,11 @@ measured data); the daemon serves it at `GET /api/v1/spend` (403 when off).
 
 Self-contained, fully unit-tested `internal/spend` package (`store` / `pricing` /
 `report` / `budget`); the CLI rendering lives in `internal/cli/spend.go`.
+
+> **Dollar figures are estimates** based on published list prices (as of 2026-06);
+> they exclude prompt-cache tokens and any volume/batch/enterprise discounts, so
+> they may differ from your actual bill. Token counts are exact (read directly from
+> the transcript).
 
 **Cost umbrella (`wd cost`).** A single discoverable entry point over both financial
 views, mirroring the `library` umbrella over reusable launch config. `wd cost spend`
