@@ -12,9 +12,9 @@ restart the daemon; `warden config` prints what's live and the file path. The
 :::caution[Legacy `WARDEN_*` env vars are no longer read]
 Warden used to read scattered `WARDEN_*` / `AGENTCTL_*` environment variables.
 Those are now **ignored** — the daemon logs a one-time warning at startup if any are
-still set. Move them into the config file. The one deliberate exception is
-**`WARDEN_TOKEN`** (the remote-access bearer token), which stays an env var so the
-secret never lands in the config file. The per-agent IPC vars warden injects into
+still set. Move them into the config file. The deliberate exceptions are
+**`WARDEN_TOKEN`** and **`WARDEN_READONLY_TOKEN`** (the remote-access bearer
+tokens), which stay env vars so the secrets never land in the config file. The per-agent IPC vars warden injects into
 each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are runtime
 plumbing, not configuration.
 :::
@@ -24,6 +24,7 @@ plumbing, not configuration.
 | Variable | Default | Description |
 |---|---|---|
 | `WARDEN_TOKEN` | unset | Bearer token for remote (non-loopback) access — clients send it, the daemon requires it when bound off-loopback. Manage with `warden token`. See [Remote access](/warden/guides/remote-access/) |
+| `WARDEN_READONLY_TOKEN` | unset | Optional read-only bearer token: may read everything (GETs + the live event stream) but every write and the interactive attach return `403`. Only honored alongside `WARDEN_TOKEN`. Print it with `warden token show --readonly`. See [Remote access](/warden/guides/remote-access/) |
 | `ANTHROPIC_API_KEY` | unset | Used only by `warden savings --calibrate` to call Claude's `count_tokens` endpoint. Never printed; calibration is the only command that reads it |
 
 ## Config-file settings

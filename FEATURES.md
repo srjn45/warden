@@ -250,7 +250,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | Feature | CLI | Why CLI-only | Docs |
 |---|---|---|---|
 | Run / manage the daemon | `daemon` | process control on the host | [install](https://srjn45.github.io/warden/start/install/) |
-| Bearer token generate / show / rotate | `token` | the secret that protects every other surface | [remote-access](https://srjn45.github.io/warden/guides/remote-access/) |
+| Bearer token generate / show / rotate (+ read-only token) | `token` | the secret that protects every other surface; `show --readonly` for the view-only `WARDEN_READONLY_TOKEN` | [remote-access](https://srjn45.github.io/warden/guides/remote-access/) |
 | Configuration view / init / path | `config` | local file authoring | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
 | Health / environment doctor | `doctor` | host diagnostics | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
 | Install missing dependencies | `setup` | installs host packages (brew/apt/dnf/pacman + official installers) | [install](https://srjn45.github.io/warden/start/install/) |

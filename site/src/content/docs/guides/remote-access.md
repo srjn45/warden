@@ -25,6 +25,19 @@ To actually listen off-loopback, set a token (above) and bind the address you wa
 
 > Prefer a private overlay (Tailscale) or an authenticated tunnel (Cloudflare Tunnel) over exposing the port directly to the internet. Step-by-step LAN / Tailscale / Cloudflare recipes live in the repo's `docs/USAGE.md`.
 
+## Read-only access
+
+To hand out view-only access — a wall dashboard, or a teammate who should watch but not act — set an optional **second** token, `WARDEN_READONLY_TOKEN`. A request bearing it may read everything (every GET plus the live event stream) but is denied all state-changing actions and the interactive attach (which can type into a running agent); those return HTTP `403`.
+
+```sh
+export WARDEN_READONLY_TOKEN=$(warden token generate)   # mint one (a token is just a random secret)
+warden token show --readonly                             # print it back to paste into a viewer
+```
+
+The token value is identical to a normal one — what makes it read-only is the env var you assign it to. You can also add a `WARDEN_READONLY_TOKEN=<hex>` line to `~/.warden/token.env`. It is only honored **alongside** a primary `WARDEN_TOKEN`: the daemon refuses to start with a read-only token but no primary one (otherwise auth would be off entirely and "read-only" would silently grant full access). Revoke by regenerating it and restarting, exactly like the primary token.
+
+> Need per-teammate tokens with individual expiry or revocation? That's a future escalation (a token registry); today there is one full token and one optional read-only token.
+
 ## Container deployment
 
 A multi-stage `Dockerfile` and `docker-compose.yml` package the daemon for containerized remote access; the auth model above carries over unchanged.

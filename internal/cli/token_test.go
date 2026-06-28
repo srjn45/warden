@@ -66,6 +66,21 @@ func TestTokenShowMissing(t *testing.T) {
 	require.Error(t, err, "no token configured is an error")
 }
 
+func TestTokenShowReadonly(t *testing.T) {
+	t.Setenv(auth.ReadonlyTokenEnv, "ro-env-secret")
+	out, errOut, err := runToken(t, "show", "--readonly")
+	require.NoError(t, err)
+	require.Equal(t, "ro-env-secret\n", out)
+	require.Contains(t, errOut, "source: $"+auth.ReadonlyTokenEnv)
+}
+
+func TestTokenShowReadonlyMissing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(auth.ReadonlyTokenEnv, "")
+	_, _, err := runToken(t, "show", "--readonly")
+	require.Error(t, err, "no read-only token configured is an error")
+}
+
 func TestTokenRotateNoRestart(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(auth.TokenEnv, "")

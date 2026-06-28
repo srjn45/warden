@@ -43,6 +43,75 @@ func TestAuthorizeWithToken(t *testing.T) {
 	}
 }
 
+func TestAuthorizeReadonlyToken(t *testing.T) {
+	s := &Server{authToken: "full-secret", readonlyToken: "ro-secret"}
+
+	bearer := func(tok string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
+		if tok != "" {
+			r.Header.Set("Authorization", "Bearer "+tok)
+		}
+		return r
+	}
+
+	ok, scope := s.authorize(bearer("full-secret"))
+	require.True(t, ok)
+	require.Equal(t, scopeFull, scope)
+
+	ok, scope = s.authorize(bearer("ro-secret"))
+	require.True(t, ok)
+	require.Equal(t, scopeReadonly, scope)
+
+	ok, scope = s.authorize(bearer("nope"))
+	require.False(t, ok)
+	require.Equal(t, scopeNone, scope)
+
+	// An empty readonly token must never match an absent/empty presented token.
+	s2 := &Server{authToken: "full-secret"} // readonlyToken == ""
+	ok, scope = s2.authorize(bearer(""))
+	require.False(t, ok)
+	require.Equal(t, scopeNone, scope)
+}
+
+func TestAuthMiddlewareReadonlyScope(t *testing.T) {
+	s := &Server{authToken: "full-secret", readonlyToken: "ro-secret"}
+	var reached bool
+	h := s.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	do := func(method, path, tok string) int {
+		reached = false
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	// Read-only token: GETs pass (including the pure-read SSE event stream).
+	require.Equal(t, http.StatusOK, do(http.MethodGet, "/api/v1/sessions", "ro-secret"))
+	require.True(t, reached)
+	require.Equal(t, http.StatusOK, do(http.MethodGet, "/api/v1/events/stream", "ro-secret"))
+	require.True(t, reached)
+
+	// Read-only token: writes are forbidden (403), handler not reached.
+	require.Equal(t, http.StatusForbidden, do(http.MethodPost, "/api/v1/spawn", "ro-secret"))
+	require.False(t, reached)
+	require.Equal(t, http.StatusForbidden, do(http.MethodDelete, "/api/v1/pipelines/p1", "ro-secret"))
+	require.False(t, reached)
+	// The interactive PTY attach is a GET but grants write power → forbidden.
+	require.Equal(t, http.StatusForbidden, do(http.MethodGet, "/api/v1/sessions/s1/attach", "ro-secret"))
+	require.False(t, reached)
+	require.Equal(t, http.StatusForbidden, do(http.MethodGet, "/api/v1/cockpit/attach", "ro-secret"))
+	require.False(t, reached)
+
+	// Full token: a write reaches the handler.
+	require.Equal(t, http.StatusOK, do(http.MethodPost, "/api/v1/spawn", "full-secret"))
+	require.True(t, reached)
+}
+
 func TestAuthorizeLoopbackStillRequiresToken(t *testing.T) {
 	// No loopback exemption: a localhost request with no token is denied when a
 	// token is configured (a same-host reverse proxy must not bypass auth).

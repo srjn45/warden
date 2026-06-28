@@ -48,6 +48,17 @@ func requireTokenForNonLoopback(addr, token string) error {
 	return nil
 }
 
+// requireReadonlyHasPrimary rejects a read-only token configured without a
+// primary token. That combination is a footgun: with no primary token auth is
+// off entirely, so a "read-only" token would silently grant full access to every
+// caller. We fail safe and refuse to start.
+func requireReadonlyHasPrimary(token, readonlyToken string) error {
+	if readonlyToken != "" && token == "" {
+		return fmt.Errorf("%s is set but %s is not: read-only access requires a primary token (run `warden token generate`)", auth.ReadonlyTokenEnv, auth.TokenEnv)
+	}
+	return nil
+}
+
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
@@ -87,6 +98,10 @@ func newDaemonCmd() *cobra.Command {
 			}
 			authToken := auth.TokenFromEnv()
 			if err := requireTokenForNonLoopback(cfg.Addr, authToken); err != nil {
+				return err
+			}
+			readonlyToken := auth.ResolveReadonlyToken()
+			if err := requireReadonlyHasPrimary(authToken, readonlyToken); err != nil {
 				return err
 			}
 			// allow_nonloopback used to bypass this token requirement; that hole is
@@ -156,7 +171,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
-			srv.SetAuth(authToken)
+			srv.SetAuth(authToken, readonlyToken)
 			// Persist auto-approve policy changes (PUT /auto-approve/policy) back to
 			// the config file so runtime rule edits survive a restart.
 			srv.SetAutoApprovePersist(func(p approval.Policy) error {

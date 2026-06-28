@@ -7,19 +7,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/config"
 )
 
-// authScope describes what an authenticated request is permitted to do. Today a
-// valid token grants full access; the scope return value is the seam for future
-// per-client / read-only tokens — callers branch on the scope, never on the raw
-// token — so adding scoped tokens later is an additive change to authorize, not
-// a rewrite of the middleware or routes.
+// authScope describes what an authenticated request is permitted to do. Callers
+// branch on the scope, never on the raw token, so adding scopes is an additive
+// change to authorize, not a rewrite of the middleware or routes. Today there
+// are two grant levels: scopeFull (the primary WARDEN_TOKEN) and scopeReadonly
+// (the optional WARDEN_READONLY_TOKEN), enforced in authMiddleware.
 type authScope int
 
 const (
-	scopeNone authScope = iota // request is not authorized
-	scopeFull                  // full access
+	scopeNone     authScope = iota // request is not authorized
+	scopeReadonly                  // reads only (GETs + SSE); writes/attach denied
+	scopeFull                      // full access
 )
 
 // authMiddleware rejects requests that authorize denies. It guards the
@@ -31,9 +33,18 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Authorize first: a valid token always passes, so a successful client
 		// is never throttled (and a fixed typo clears the IP's failure count).
-		if ok, _ := s.authorize(r); ok {
+		if ok, scope := s.authorize(r); ok {
 			if s.authLimiter != nil {
 				s.authLimiter.clear(clientIP(r))
+			}
+			// A read-only token authenticates fine but may not mutate state or
+			// open the interactive PTY attach. This is enforced here, after the
+			// limiter clear, so a valid read-only token is never throttled — its
+			// write attempts are an authorization (403) failure, not an auth one.
+			if scope == scopeReadonly && isWriteRequest(r) {
+				writeErr(w, http.StatusForbidden,
+					"forbidden: this is a read-only token ("+auth.ReadonlyTokenEnv+"); use the full token for this action")
+				return
 			}
 			next.ServeHTTP(w, r)
 			return
@@ -84,10 +95,34 @@ func (s *Server) authorize(r *http.Request) (bool, authScope) {
 		return true, scopeFull
 	}
 	got := bearerToken(r)
-	if got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(s.authToken)) == 1 {
+	if got == "" {
+		return false, scopeNone
+	}
+	if subtle.ConstantTimeCompare([]byte(got), []byte(s.authToken)) == 1 {
 		return true, scopeFull
 	}
+	// The read-only token is optional; only consider it when configured so an
+	// empty s.readonlyToken can never match an empty/absent presented token.
+	if s.readonlyToken != "" && subtle.ConstantTimeCompare([]byte(got), []byte(s.readonlyToken)) == 1 {
+		return true, scopeReadonly
+	}
 	return false, scopeNone
+}
+
+// isWriteRequest reports whether a request needs full (write) scope. Every
+// non-GET method mutates state or triggers an action (verified against the
+// OpenAPI spec — there is no read implemented as POST). The one read-method
+// exception is the interactive PTY attach (paths ending "/attach": the session
+// attach and the cockpit attach), an HTTP GET that upgrades to a WebSocket the
+// client can type *into* — a write capability — so a read-only token is denied
+// it too. The SSE event stream (".../events/stream") stays a pure read.
+func isWriteRequest(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return strings.HasSuffix(r.URL.Path, "/attach")
+	default:
+		return true
+	}
 }
 
 // bearerToken extracts the presented token from the Authorization header

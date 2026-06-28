@@ -72,6 +72,41 @@ func TestWriteTokenFile(t *testing.T) {
 	require.Error(t, WriteTokenFile("", "x"), "empty path is rejected")
 }
 
+func TestReadonlyTokenFromEnv(t *testing.T) {
+	t.Setenv(ReadonlyTokenEnv, "")
+	require.Empty(t, ReadonlyTokenFromEnv(), "unset/empty env yields empty token")
+
+	t.Setenv(ReadonlyTokenEnv, "  ro-value\n")
+	require.Equal(t, "ro-value", ReadonlyTokenFromEnv())
+}
+
+func TestTokenFromFileKeyBothTokens(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "token.env")
+	// A single token.env may carry both the primary and the read-only token.
+	require.NoError(t, os.WriteFile(p, []byte("WARDEN_TOKEN=full-secret\nWARDEN_READONLY_TOKEN=ro-secret\n"), 0o600))
+
+	require.Equal(t, "full-secret", tokenFromFileKey(p, TokenEnv))
+	require.Equal(t, "ro-secret", tokenFromFileKey(p, ReadonlyTokenEnv))
+	require.Empty(t, tokenFromFileKey(p, "WARDEN_NOPE"))
+}
+
+func TestResolveReadonlyToken(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".warden"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".warden", "token.env"),
+		[]byte("WARDEN_TOKEN=full-home\nWARDEN_READONLY_TOKEN=ro-home\n"), 0o600))
+
+	// Env var wins when set.
+	t.Setenv(ReadonlyTokenEnv, "ro-env")
+	require.Equal(t, "ro-env", ResolveReadonlyToken())
+
+	// Falls back to the home token file's read-only line when the env var is empty.
+	t.Setenv(ReadonlyTokenEnv, "")
+	require.Equal(t, "ro-home", ResolveReadonlyToken())
+}
+
 func TestResolveToken(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "token.env")
