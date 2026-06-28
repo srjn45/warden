@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/store"
@@ -18,16 +19,30 @@ import (
 // conclusive signal; otherwise it returns the existing status unchanged
 // (hooks remain primary). sinceUpdate is how long the session has gone without
 // any recorded activity (pane change, hook event, or status change).
-func classify(s *store.Session, pane string, sessionAlive bool, sinceUpdate, stuckAfter time.Duration) store.Status {
+//
+// State detection is delegated to the agent's backend (b.DetectState): each
+// backend recognizes its own pane signals, so this is no longer Claude-specific.
+// For Claude the backend reproduces the original markers byte-for-byte ("esc to
+// interrupt" ⇒ working, "❯"/"Do you want" ⇒ needs-input), so this is a
+// behavior-preserving rewrite for the default backend; non-Claude backends now
+// get real working/needs-input/idle detection instead of always degrading to a
+// staleness guess. The rate-limit banner remains Claude-shaped (detectRateLimit)
+// and simply never matches a non-Claude pane, degrading cleanly.
+func classify(b agentbackend.Backend, s *store.Session, pane string, sessionAlive bool, sinceUpdate, stuckAfter time.Duration) store.Status {
 	if !sessionAlive {
 		return store.StatusOrphaned
 	}
 
-	// An agent that is actively streaming ("esc to interrupt") is working; a real
-	// limit banner only appears once streaming has stopped, so working wins first
-	// and we never even evaluate rate-limit detection on a live agent. This makes
-	// a stray "rate limit" keyword in live output unable to misclassify it.
-	if strings.Contains(pane, "esc to interrupt") {
+	var st agentbackend.State
+	if b != nil {
+		st = b.DetectState(pane)
+	}
+
+	// An agent that is actively streaming is working; a real limit banner only
+	// appears once streaming has stopped, so working wins first and we never even
+	// evaluate rate-limit detection on a live agent. This makes a stray "rate
+	// limit" keyword in live output unable to misclassify it.
+	if st == agentbackend.StateWorking {
 		return store.StatusWorking
 	}
 
@@ -36,9 +51,14 @@ func classify(s *store.Session, pane string, sessionAlive bool, sinceUpdate, stu
 	if isLimited, _, _ := detectRateLimit(pane); isLimited {
 		return store.StatusRateLimited
 	}
-	// A visible prompt box ("❯ 1." / "Do you want") confirms waiting_for_input.
-	if strings.Contains(pane, "❯") || strings.Contains(pane, "Do you want") {
+	// A visible prompt box ("❯ 1." / "Do you want", or a backend's own approval
+	// marker) confirms waiting_for_input.
+	if st == agentbackend.StateNeedsInput {
 		return store.StatusWaitingForInput
+	}
+	// A backend that positively reports idle (Claude does not) is at rest.
+	if st == agentbackend.StateIdle {
+		return store.StatusIdle
 	}
 	// A session that still claims to be "working" but has shown no pane activity
 	// for >= stuckAfter (and no "esc to interrupt" churn) is stuck or quietly
@@ -99,7 +119,12 @@ type Deps interface {
 }
 
 type Poller struct {
-	deps           Deps
+	deps Deps
+	// Backend resolves the agent backend for a session, used for pane state
+	// detection (classify) and approval parsing (tryAutoApprove). Defaults in New
+	// to the agentbackend registry (with the Claude default for an empty/unknown
+	// id); tests may override it with a fake backend.
+	Backend        func(s *store.Session) agentbackend.Backend
 	stuckAfter     time.Duration
 	SummarizeAfter time.Duration        // throttle for subject refresh (0 = every change)
 	lastSummary    map[string]time.Time // touched only by the tick goroutine
@@ -240,9 +265,32 @@ type fcState struct {
 	at    time.Time
 }
 
+// resolveBackend maps a session to its backend via the registry, falling back to
+// the Claude default for an empty or unrecognized backend id (back-compat). The
+// registry is populated at process start by the backends package's init, which
+// the daemon imports transitively through lifecycle.
+func resolveBackend(s *store.Session) agentbackend.Backend {
+	if s != nil {
+		if b, err := agentbackend.Get(s.Backend); err == nil && b != nil {
+			return b
+		}
+	}
+	return agentbackend.Default()
+}
+
+// backendFor resolves the backend for a session through the configured resolver
+// (Backend field), defaulting to the registry when unset.
+func (p *Poller) backendFor(s *store.Session) agentbackend.Backend {
+	if p.Backend != nil {
+		return p.Backend(s)
+	}
+	return resolveBackend(s)
+}
+
 func New(d Deps, stuckAfter time.Duration) *Poller {
 	return &Poller{
 		deps:            d,
+		Backend:         resolveBackend,
 		stuckAfter:      stuckAfter,
 		SummarizeAfter:  2 * time.Minute,
 		lastSummary:     map[string]time.Time{},
@@ -323,11 +371,22 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 		return
 	}
 
-	// Parse the approval
-	a, ok := approval.Parse(pane)
-	if !ok || len(a.Options) == 0 {
+	// Parse the approval through the agent's backend (each backend recognizes its
+	// own prompt UI; the Claude backend delegates to approval.Parse). The neutral
+	// agentbackend.Approval is mapped onto approval.Approval so the policy engine
+	// (IsDestructive / Decide) is unchanged.
+	ap, ok := p.backendFor(s).ParseApproval(pane)
+	if !ok || ap == nil || len(ap.Options) == 0 {
 		slog.Debug("auto-approve skipped: unrecognized prompt", "agent", s.ID)
 		return
+	}
+	a := approval.Approval{
+		Action:            ap.Action,
+		Question:          ap.Question,
+		Options:           ap.Options,
+		SelectedIdx:       ap.SelectedIdx,
+		AffirmativeIdx:    ap.AffirmativeIdx,
+		AffirmativeSticky: ap.AffirmativeSticky,
 	}
 
 	// Never auto-confirm a destructive/irreversible action — escalate to a human.
@@ -459,7 +518,7 @@ func (p *Poller) tick(ctx context.Context) error {
 		// Reclassify only when we have a fresh signal: either the session is dead
 		// (orphaned, pane-independent) or we captured the pane successfully.
 		if !alive || captureOK {
-			next := classify(s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
+			next := classify(p.backendFor(s), s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
 			if next != s.Status {
 				// CAS on the snapshot's status: if a hook changed it since List,
 				// the swap is skipped and the hook's newer status stands.

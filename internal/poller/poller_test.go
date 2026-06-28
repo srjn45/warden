@@ -4,15 +4,74 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentbackend/backends"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
+
+// fakeBackend is a minimal Backend that returns a fixed state + approval, used to
+// prove classify/tryAutoApprove route pane detection through the agent's backend
+// (not hardcoded Claude markers). Only DetectState/ParseApproval carry behavior;
+// the rest satisfy the interface.
+type fakeBackend struct {
+	state    agentbackend.State
+	approval *agentbackend.Approval
+}
+
+func (fakeBackend) ID() string                               { return "fake" }
+func (fakeBackend) DisplayName() string                      { return "Fake" }
+func (fakeBackend) Binary() string                           { return "fake" }
+func (fakeBackend) InstallHint() string                      { return "" }
+func (fakeBackend) LaunchCmd(agentbackend.LaunchOpts) string { return "fake" }
+func (fakeBackend) ResumeCmd(agentbackend.ResumeOpts) (string, bool) {
+	return "", false
+}
+func (fakeBackend) LaunchPromptArg(string) string       { return "" }
+func (fakeBackend) HeadlessCmd(string) ([]string, bool) { return nil, false }
+func (fakeBackend) TranscriptPath(_, _, _ string) (string, bool) {
+	return "", false
+}
+func (fakeBackend) ParseTranscript(io.Reader) ([]agentbackend.Turn, error) { return nil, nil }
+func (f fakeBackend) DetectState(string) agentbackend.State                { return f.state }
+func (f fakeBackend) ParseApproval(string) (*agentbackend.Approval, bool) {
+	if f.approval == nil {
+		return nil, false
+	}
+	return f.approval, true
+}
+func (fakeBackend) SystemPromptFlag(string) (string, bool) { return "", false }
+func (fakeBackend) Pricing() (agentbackend.PricingTable, bool) {
+	return agentbackend.PricingTable{}, false
+}
+func (fakeBackend) Capabilities() agentbackend.Caps { return agentbackend.Caps{} }
+
+// TestClassifyRoutesThroughBackend proves a non-Claude backend's positive state
+// detection drives classify even when the pane carries none of Claude's markers.
+func TestClassifyRoutesThroughBackend(t *testing.T) {
+	pane := "totally neutral pane with no claude markers"
+
+	// Backend reports working → working, despite no "esc to interrupt".
+	s := &store.Session{Status: store.StatusIdle}
+	got := classify(fakeBackend{state: agentbackend.StateWorking}, s, pane, true, 0, 5*time.Minute)
+	require.Equal(t, store.StatusWorking, got)
+
+	// Backend reports needs-input → waiting, despite no "❯"/"Do you want".
+	got = classify(fakeBackend{state: agentbackend.StateNeedsInput}, s, pane, true, 0, 5*time.Minute)
+	require.Equal(t, store.StatusWaitingForInput, got)
+
+	// Backend positively reports idle → idle (Claude never does this).
+	working := &store.Session{Status: store.StatusWorking}
+	got = classify(fakeBackend{state: agentbackend.StateIdle}, working, pane, true, 0, 5*time.Minute)
+	require.Equal(t, store.StatusIdle, got)
+}
 
 // allowAllPolicy is an enabled policy whose single empty allow rule matches every
 // non-destructive recognized prompt — the "approve everything" posture used by the
@@ -26,13 +85,13 @@ func allowAllPolicy() approval.Policy {
 
 func TestHeuristicWorkingWhenInterruptVisible(t *testing.T) {
 	s := &store.Session{Status: store.StatusIdle}
-	got := classify(s, "Thinking… (esc to interrupt)", true, 0, 5*time.Minute)
+	got := classify(backends.Claude{}, s, "Thinking… (esc to interrupt)", true, 0, 5*time.Minute)
 	require.Equal(t, store.StatusWorking, got)
 }
 
 func TestHeuristicOrphanedWhenSessionGone(t *testing.T) {
 	s := &store.Session{Status: store.StatusWorking}
-	got := classify(s, "", false, 0, 5*time.Minute) // sessionAlive=false
+	got := classify(backends.Claude{}, s, "", false, 0, 5*time.Minute) // sessionAlive=false
 	require.Equal(t, store.StatusOrphaned, got)
 }
 
@@ -42,13 +101,13 @@ func TestHeuristicConfirmsWaitingAfterThreshold(t *testing.T) {
 		UpdatedAt: time.Now().Add(-10 * time.Minute),
 		Events:    []store.Event{{Type: "Notification", TS: time.Now().Add(-10 * time.Minute)}},
 	}
-	got := classify(s, "Do you want to proceed? ❯ 1. Yes", true, 10*time.Minute, 5*time.Minute)
+	got := classify(backends.Claude{}, s, "Do you want to proceed? ❯ 1. Yes", true, 10*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusWaitingForInput, got)
 }
 
 func TestHeuristicKeepsHookStatusWhenNothingConclusive(t *testing.T) {
 	s := &store.Session{Status: store.StatusIdle}
-	got := classify(s, "some neutral pane text", true, 0, 5*time.Minute)
+	got := classify(backends.Claude{}, s, "some neutral pane text", true, 0, 5*time.Minute)
 	require.Equal(t, store.StatusIdle, got) // unchanged
 }
 
@@ -57,34 +116,34 @@ func TestHeuristicKeepsHookStatusWhenNothingConclusive(t *testing.T) {
 func TestHeuristicStuckWorkingBecomesIdle(t *testing.T) {
 	// Claims "working" but no pane churn and no "esc to interrupt" for >= stuckAfter.
 	s := &store.Session{Status: store.StatusWorking}
-	got := classify(s, "no activity here", true, 10*time.Minute, 5*time.Minute)
+	got := classify(backends.Claude{}, s, "no activity here", true, 10*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusIdle, got)
 }
 
 func TestHeuristicWorkingNotYetStuck(t *testing.T) {
 	// Below the threshold → still working.
 	s := &store.Session{Status: store.StatusWorking}
-	got := classify(s, "no activity here", true, 1*time.Minute, 5*time.Minute)
+	got := classify(backends.Claude{}, s, "no activity here", true, 1*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusWorking, got)
 }
 
 func TestHeuristicStuckIgnoredWhenInterruptVisible(t *testing.T) {
 	// "esc to interrupt" means genuinely churning — never stuck.
 	s := &store.Session{Status: store.StatusWorking}
-	got := classify(s, "Thinking… (esc to interrupt)", true, 30*time.Minute, 5*time.Minute)
+	got := classify(backends.Claude{}, s, "Thinking… (esc to interrupt)", true, 30*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusWorking, got)
 }
 
 func TestHeuristicStuckOnlyDowngradesWorking(t *testing.T) {
 	// A long-idle waiting_for_input session is genuinely waiting, not "stuck".
 	s := &store.Session{Status: store.StatusWaitingForInput}
-	got := classify(s, "neutral", true, 30*time.Minute, 5*time.Minute)
+	got := classify(backends.Claude{}, s, "neutral", true, 30*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusWaitingForInput, got)
 }
 
 func TestHeuristicStuckDisabledWhenThresholdZero(t *testing.T) {
 	s := &store.Session{Status: store.StatusWorking}
-	got := classify(s, "neutral", true, 99*time.Hour, 0)
+	got := classify(backends.Claude{}, s, "neutral", true, 99*time.Hour, 0)
 	require.Equal(t, store.StatusWorking, got)
 }
 
@@ -693,7 +752,7 @@ func TestClassify_RateLimited(t *testing.T) {
 
 	pane := sampleLimitBanner
 
-	got := classify(sess, pane, true, 0, 0)
+	got := classify(backends.Claude{}, sess, pane, true, 0, 0)
 
 	if got != store.StatusRateLimited {
 		t.Errorf("classify() = %v, want %v", got, store.StatusRateLimited)
@@ -709,7 +768,7 @@ func TestClassify_RateLimitPriority(t *testing.T) {
 
 	pane := sampleLimitBanner + "\n❯ Continue?"
 
-	got := classify(sess, pane, true, 0, 0)
+	got := classify(backends.Claude{}, sess, pane, true, 0, 0)
 
 	if got != store.StatusRateLimited {
 		t.Errorf("classify() = %v, want %v (rate limit should take priority)",
@@ -721,13 +780,13 @@ func TestClassify_WorkingVetoesStrayLimitKeyword(t *testing.T) {
 	s := &store.Session{ID: "t", Status: store.StatusWorking}
 	// Both a limit-ish line and the active-streaming marker present.
 	pane := "discussing rate limit handling...\nesc to interrupt"
-	got := classify(s, pane, true, 0, 0)
+	got := classify(backends.Claude{}, s, pane, true, 0, 0)
 	require.Equal(t, store.StatusWorking, got, "esc to interrupt must win")
 }
 
 func TestClassify_RealLimitWhenNotStreaming(t *testing.T) {
 	s := &store.Session{ID: "t", Status: store.StatusWorking}
-	got := classify(s, sampleLimitBanner, true, 0, 0)
+	got := classify(backends.Claude{}, s, sampleLimitBanner, true, 0, 0)
 	require.Equal(t, store.StatusRateLimited, got)
 }
 
@@ -739,7 +798,7 @@ func TestClassify_NoRateLimit(t *testing.T) {
 
 	pane := "Working on your request..."
 
-	got := classify(sess, pane, true, 0, 0)
+	got := classify(backends.Claude{}, sess, pane, true, 0, 0)
 
 	if got == store.StatusRateLimited {
 		t.Error("classify() should not return rate_limited for normal output")
@@ -1108,6 +1167,30 @@ func TestTryAutoApprovePerAgent(t *testing.T) {
 			require.Equal(t, tc.wantSends, d.sendCount())
 		})
 	}
+}
+
+// TestTryAutoApproveRoutesThroughBackend proves approval parsing is delegated to
+// the agent's backend: a pane the Claude parser would reject outright is still
+// auto-approved when the session's backend parses it into an affirmative option.
+func TestTryAutoApproveRoutesThroughBackend(t *testing.T) {
+	d := &stubDeps{}
+	p := New(d, 30*time.Second)
+	p.AutoApprovePolicy = allowAllPolicy()
+	p.Backend = func(*store.Session) agentbackend.Backend {
+		return fakeBackend{approval: &agentbackend.Approval{
+			Question:       "proceed?",
+			Options:        []string{"Yes", "No"},
+			AffirmativeIdx: 1,
+		}}
+	}
+	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+
+	// A pane with none of Claude's numbered-box chrome — approval.Parse returns
+	// false for it, so a positive send proves the fake backend was consulted.
+	p.tryAutoApprove(context.Background(), s, "custom agent prompt the claude parser ignores")
+
+	require.Equal(t, 1, d.sendCount())
+	require.Equal(t, "1", d.lastSentKey("tmux-1"))
 }
 
 // TestSetAutoApprovePolicy verifies the runtime swap the daemon's PUT handler
