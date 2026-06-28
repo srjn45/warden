@@ -260,12 +260,88 @@ func TestCodexParseTranscriptTolerant(t *testing.T) {
 	require.Equal(t, "hello", turns[0].Text)
 }
 
-// --- State / approval (degraded) --------------------------------------------
+// --- State / approval (live markers) ----------------------------------------
 
-func TestCodexStateDegrades(t *testing.T) {
-	require.Equal(t, agentbackend.StateUnknown, Codex{}.DetectState("any pane content"))
-	_, ok := Codex{}.ParseApproval("Allow command? [y/n]")
-	require.False(t, ok, "interactive approval parsing is deferred — degrade, not mis-parse")
+// codexFixture reads a captured tmux-pane fixture from testdata/codex/.
+func codexFixture(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "codex", name))
+	require.NoError(t, err)
+	return string(b)
+}
+
+// TestCodexDetectState classifies each captured pane: streaming ⇒ Working (the
+// "esc to interrupt" marker), an open approval ⇒ NeedsInput, an at-rest pane ⇒
+// Unknown (Codex has no positive idle marker; warden infers idle from staleness).
+func TestCodexDetectState(t *testing.T) {
+	tests := []struct {
+		fixture string
+		want    agentbackend.State
+	}{
+		{"state-working.txt", agentbackend.StateWorking},
+		{"approval-command.txt", agentbackend.StateNeedsInput},
+		{"state-idle.txt", agentbackend.StateUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fixture, func(t *testing.T) {
+			require.Equal(t, tt.want, Codex{}.DetectState(codexFixture(t, tt.fixture)))
+		})
+	}
+
+	// An unrecognized pane stays Unknown (no false positive).
+	require.Equal(t, agentbackend.StateUnknown, Codex{}.DetectState("just some quiet output"))
+}
+
+// TestCodexParseApproval parses the captured command-escalation approval into the
+// neutral Approval: the proposed command (Action), the "Would you like to …?"
+// header (Question), the three options top-down (1-indexed), the highlighted
+// option (SelectedIdx), and the least-privilege non-sticky "Yes" (AffirmativeIdx).
+func TestCodexParseApproval(t *testing.T) {
+	a, ok := Codex{}.ParseApproval(codexFixture(t, "approval-command.txt"))
+	require.True(t, ok, "the captured approval prompt parses")
+
+	require.Equal(t, "curl -sI https://example.com", a.Action)
+	require.Equal(t, "Would you like to run the following command?", a.Question)
+	require.Equal(t, []string{
+		"Yes, proceed (y)",
+		"Yes, and don't ask again for commands that start with `curl -sI` (p)",
+		"No, and tell Codex what to do differently (esc)",
+	}, a.Options)
+	require.Equal(t, 1, a.SelectedIdx, "the › cursor sits on option 1")
+	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the non-sticky Yes")
+	require.False(t, a.AffirmativeSticky, "option 1 is a one-shot grant, not a standing one")
+}
+
+// TestCodexParseApprovalNegative proves a non-approval pane (idle or working) is
+// NOT mis-read as an approval — the header gate keeps the auto-approve path honest.
+func TestCodexParseApprovalNegative(t *testing.T) {
+	for _, name := range []string{"state-idle.txt", "state-working.txt"} {
+		t.Run(name, func(t *testing.T) {
+			_, ok := Codex{}.ParseApproval(codexFixture(t, name))
+			require.False(t, ok)
+		})
+	}
+
+	// A bare numbered list in agent prose (no "Would you like to" header) is not an
+	// approval, even though it has sequential 1..N lines.
+	prose := "Here are the steps:\n  1. Yes do this\n  2. No skip that\n"
+	_, ok := Codex{}.ParseApproval(prose)
+	require.False(t, ok, "a numbered list without the approval header is not a prompt")
+}
+
+// TestCodexAffirmativeStickyFallback covers the case where the only affirmative is
+// a standing "don't ask again" grant: it is chosen with sticky=true.
+func TestCodexAffirmativeStickyFallback(t *testing.T) {
+	idx, sticky := codexAffirmative([]string{
+		"Yes, and don't ask again for this session",
+		"No, stop",
+	})
+	require.Equal(t, 1, idx)
+	require.True(t, sticky)
+
+	idx, sticky = codexAffirmative([]string{"No, cancel", "No, and tell Codex what to do"})
+	require.Equal(t, 0, idx, "no affirmative offered")
+	require.False(t, sticky)
 }
 
 // --- Capabilities / pricing -------------------------------------------------

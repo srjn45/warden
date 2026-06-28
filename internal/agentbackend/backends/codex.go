@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/srjn45/warden/internal/agentbackend"
@@ -427,18 +428,148 @@ func codexFilesFromCall(arguments string) []string {
 
 // --- State / approval -------------------------------------------------------
 
-// DetectState reports Unknown: Codex's run-state and approval prompts live in its
-// TUI, whose pane has no stable text marker this experimental adapter keys on yet
-// (no live interactive prompt was captured for this phase). warden infers idle from
-// staleness, the same conservative stance the Claude/Aider/OpenCode adapters take.
-// Mapping Codex's TUI approvals is deferred (docs/agent-backends/codex.md); the
-// faithful headless surface is `codex exec`, which raises no prompts.
-func (Codex) DetectState(string) agentbackend.State { return agentbackend.StateUnknown }
+// DetectState maps a captured Codex TUI pane to a neutral run state, mirroring the
+// structure of the Claude adapter. Codex's pane carries two stable positive
+// markers, captured live against codex v0.142.3:
+//   - streaming a turn ⇒ a "• Working (… • esc to interrupt)" status line, so the
+//     "esc to interrupt" substring (shared with Claude) means StateWorking.
+//   - blocked on a command/patch approval ⇒ its numbered "Would you like to …?"
+//     prompt, detected via ParseApproval, means StateNeedsInput.
+//
+// Codex surfaces NO positive idle marker (the composer placeholder rotates and the
+// "<model> default · <dir>" footer is present in every state), so an at-rest pane
+// returns StateUnknown and warden infers idle from staleness — the same
+// conservative stance the Claude/Aider/OpenCode adapters take. Returning Unknown
+// (never a false StateNeedsInput/Working) keeps the auto-approve path honest.
+func (Codex) DetectState(pane string) agentbackend.State {
+	if strings.Contains(pane, "esc to interrupt") {
+		return agentbackend.StateWorking
+	}
+	if _, ok := (Codex{}).ParseApproval(pane); ok {
+		return agentbackend.StateNeedsInput
+	}
+	return agentbackend.StateUnknown
+}
 
-// ParseApproval reports no approval: see DetectState — Codex's interactive
-// permission prompts are not yet mapped, so this degrades (returns false) rather
-// than mis-parsing. The bypassed `codex exec` headless path raises no prompts.
-func (Codex) ParseApproval(string) (*agentbackend.Approval, bool) { return nil, false }
+// codexOptionRe matches one line of Codex's numbered approval menu, tolerating the
+// leading "›" selection cursor (U+203A) on the highlighted option and the plain
+// indent on the rest: "› 1. Yes, proceed (y)" / "  2. Yes, and don't ask again …".
+var codexOptionRe = regexp.MustCompile(`^\s*(›?)\s*(\d+)\.\s+(.+?)\s*$`)
+
+// codexCommandRe captures the proposed command Codex echoes as "$ <command>" just
+// above the option run (the Action).
+var codexCommandRe = regexp.MustCompile(`^\s*\$\s+(.+?)\s*$`)
+
+// ParseApproval normalizes Codex's interactive permission prompt into the neutral
+// Approval. Captured live (codex v0.142.3) — a command-escalation prompt renders as:
+//
+//	  Would you like to run the following command?
+//	  …Reason: …
+//	  $ curl -sI https://example.com
+//	› 1. Yes, proceed (y)
+//	  2. Yes, and don't ask again for commands that start with `curl -sI` (p)
+//	  3. No, and tell Codex what to do differently (esc)
+//	  Press enter to confirm or esc to cancel
+//
+// It locates the contiguous 1..N option run at the bottom of the pane, then reads
+// the "$ <command>" Action and the "Would you like to …?" Question just above it.
+// The "Would you like to" header is required (the patch variant shares it), so a
+// bare numbered list in agent prose is NOT mis-parsed — it returns (nil,false), as
+// does any non-approval pane. Options are 1-indexed top-down so Fingerprint(Options)
+// — which the auto-approve policy and the daemon re-verify guard both key off — is
+// stable and faithful to the pane.
+func (Codex) ParseApproval(pane string) (*agentbackend.Approval, bool) {
+	lines := strings.Split(pane, "\n")
+
+	// The live prompt sits at the bottom: find the last option line, then walk up
+	// while lines stay options.
+	end := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if codexOptionRe.MatchString(lines[i]) {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return nil, false
+	}
+	start := end
+	for start-1 >= 0 && codexOptionRe.MatchString(lines[start-1]) {
+		start--
+	}
+
+	var opts []string
+	sel := 0
+	for i := start; i <= end; i++ {
+		m := codexOptionRe.FindStringSubmatch(lines[i])
+		// Numbering must be sequential 1..N (rejects an incidental numbered list).
+		if m[2] != strconv.Itoa(i-start+1) {
+			return nil, false
+		}
+		if m[1] == "›" {
+			sel = i - start + 1
+		}
+		opts = append(opts, strings.TrimSpace(m[3]))
+	}
+	if len(opts) < 2 {
+		return nil, false
+	}
+
+	a := &agentbackend.Approval{Options: opts, SelectedIdx: sel}
+
+	// Scan upward from the option run for the "$ <command>" Action and the
+	// "Would you like to …?" Question (a bounded window above the options).
+	for i := start - 1; i >= 0 && i >= start-12; i-- {
+		t := strings.TrimSpace(lines[i])
+		if t == "" {
+			continue
+		}
+		if a.Action == "" {
+			if m := codexCommandRe.FindStringSubmatch(lines[i]); m != nil {
+				a.Action = strings.TrimSpace(m[1])
+				continue
+			}
+		}
+		if strings.HasPrefix(t, "Would you like to") {
+			a.Question = t
+			break
+		}
+	}
+	// The header gates recognition: without it this is not a Codex approval.
+	if a.Question == "" {
+		return nil, false
+	}
+	a.AffirmativeIdx, a.AffirmativeSticky = codexAffirmative(opts)
+	return a, true
+}
+
+// codexAffirmative picks the least-privilege affirmative option from a Codex
+// approval menu, mirroring the approval package's policy for the neutral
+// Approval.AffirmativeIdx/Sticky fields. Codex's affirmatives start with "Yes"
+// ("Yes, proceed" / "Yes, and don't ask again …"); the standing grant carries a
+// "don't ask again"/"always" clause. It returns the 1-based index of the first
+// non-sticky "Yes" (sticky=false); failing that the first sticky "Yes"
+// (sticky=true); otherwise (0,false) when only a "No" is offered.
+func codexAffirmative(opts []string) (idx int, sticky bool) {
+	stickyIdx := 0
+	for i, opt := range opts {
+		low := strings.ToLower(opt)
+		if !strings.HasPrefix(low, "yes") {
+			continue
+		}
+		if strings.Contains(low, "don't ask again") || strings.Contains(low, "always") {
+			if stickyIdx == 0 {
+				stickyIdx = i + 1
+			}
+			continue
+		}
+		return i + 1, false
+	}
+	if stickyIdx != 0 {
+		return stickyIdx, true
+	}
+	return 0, false
+}
 
 // --- System prompt / pricing ------------------------------------------------
 
