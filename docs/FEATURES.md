@@ -415,6 +415,7 @@ the local machine. Setup recipes (LAN / Tailscale / Cloudflare Tunnel) live in
 | Feature | Description |
 |---|---|
 | **Bearer-token auth** | A 256-bit `crypto/rand` token gates every non-loopback request (constant-time compare). SSE/WS clients pass it as `?token=`. Binding the daemon to a non-loopback address is **refused unless a token is set**, so remote access can't be opened accidentally. |
+| **Read-only token** | An optional second token, `WARDEN_READONLY_TOKEN`, grants view-only access: it may read everything (all GETs + the live event stream) but every state-changing action and the interactive attach return `403`. Mint it like the primary (`warden token generate`); `warden token show --readonly` prints it back. Only honored alongside a primary `WARDEN_TOKEN` — the daemon refuses to start with a read-only token but no primary one. |
 | **Token management** | `warden token generate` mints a token, `warden token show` prints the current one (to paste into a remote client), and `warden token rotate` regenerates it in place and restarts the daemon. Persisted to `~/.warden/token.env` (`WARDEN_TOKEN=<hex>`, `0600`); the `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk. |
 | **Brute-force protection** | Per-IP rate-limiting on auth failures. |
 | **Web UI auth** | A token-entry modal appears on `401`, with `localStorage` persistence and a sign-out control; the static SPA shell stays public so the modal can load. |

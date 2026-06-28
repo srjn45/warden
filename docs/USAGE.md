@@ -1332,6 +1332,18 @@ the daemon refuses to start on a non-loopback address without `WARDEN_TOKEN`.
 (The old `allow_nonloopback` escape hatch is deprecated and inert — it no longer
 disables auth; setting it only logs a warning.)
 
+**Read-only token.** To share view-only access — a wall dashboard, a teammate
+who should watch but not act — set an optional second token,
+`WARDEN_READONLY_TOKEN`. A request bearing it may read everything (every GET plus
+the live event stream) but is denied all 40 state-changing actions and the
+interactive attach (which can type into an agent); those return HTTP `403`. Mint
+one the same way (`warden token generate`) and export it as
+`WARDEN_READONLY_TOKEN`; `warden token show --readonly` prints it back. It is only
+honored alongside a primary `WARDEN_TOKEN` — the daemon refuses to start with a
+read-only token but no primary one (otherwise auth would be off entirely and the
+"read-only" token would silently grant full access). Revoke by regenerating it and
+restarting, exactly like the primary token.
+
 #### API reference (OpenAPI / Swagger UI)
 
 For programmatic or remote consumers, the daemon serves an interactive **Swagger
@@ -1395,9 +1407,10 @@ the `auto_restart_*` knobs, the `rate_limit_*` knobs (§12.1), and the
 > **Config namespacing:** Settings are organized into five YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`) are deprecated aliases — they still load correctly and are permanently migrated when `warden config init` is re-run.
 
 > The old `WARDEN_*` configuration environment variables are no longer read — the
-> daemon warns once at startup if any are still set. `WARDEN_TOKEN` (the remote-access
-> bearer token) is the deliberate exception: it stays an env var so the secret never
-> lands in the config file, and it does not trigger the legacy warning. The per-agent
+> daemon warns once at startup if any are still set. `WARDEN_TOKEN` and
+> `WARDEN_READONLY_TOKEN` (the remote-access bearer tokens) are the deliberate
+> exceptions: they stay env vars so the secrets never land in the config file, and
+> they do not trigger the legacy warning. The per-agent
 > IPC vars warden injects into each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`,
 > `WARDEN_JOB_ID`) are not configuration and are unaffected.
 

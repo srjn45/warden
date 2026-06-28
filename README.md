@@ -1203,9 +1203,18 @@ Manage the bearer token that gates non-loopback (remote) access — see [Remote 
 warden token generate                 # mint a 256-bit token (persisted to ~/.warden/token.env, 0600)
 warden token show                     # print the current token (paste into a remote client)
 warden token rotate                   # regenerate in place + restart the daemon
+warden token show --readonly          # print the read-only token (WARDEN_READONLY_TOKEN)
 ```
 
 The `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk.
+
+**Read-only token.** Set an optional second token, `WARDEN_READONLY_TOKEN`, to hand
+out view-only access (e.g. a shared dashboard or a teammate). A read-only token may
+read everything — all GETs plus the live event stream — but is denied every
+state-changing action and the interactive attach. Mint one with `warden token
+generate` and export it as `WARDEN_READONLY_TOKEN` (it only works alongside a
+primary `WARDEN_TOKEN`; the daemon refuses to start with a read-only token but no
+primary one).
 
 ### `warden repl` — interactive mode
 

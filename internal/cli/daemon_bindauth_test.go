@@ -20,3 +20,14 @@ func TestRequireTokenForNonLoopback(t *testing.T) {
 		require.NoError(t, requireTokenForNonLoopback(addr, "tok"), "non-loopback %q with a token is allowed", addr)
 	}
 }
+
+func TestRequireReadonlyHasPrimary(t *testing.T) {
+	// A read-only token with no primary token is refused (auth would be off, so
+	// the read-only token would silently grant full access).
+	require.Error(t, requireReadonlyHasPrimary("", "ro-tok"))
+
+	// Every safe combination is allowed.
+	require.NoError(t, requireReadonlyHasPrimary("full-tok", "ro-tok"), "both set is fine")
+	require.NoError(t, requireReadonlyHasPrimary("full-tok", ""), "primary only is fine")
+	require.NoError(t, requireReadonlyHasPrimary("", ""), "neither set (auth disabled) is fine")
+}

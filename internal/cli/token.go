@@ -27,7 +27,14 @@ func newTokenGenerateCmd() *cobra.Command {
 			"warden does not store the token. Export it so the daemon picks it up:\n\n" +
 			"  export " + auth.TokenEnv + "=$(warden token generate)\n\n" +
 			"The token is required before the daemon will bind to a non-loopback address.\n" +
-			"Treat it like a password.",
+			"Treat it like a password.\n\n" +
+			"To mint a read-only token, generate one and export it as " + auth.ReadonlyTokenEnv + ":\n\n" +
+			"  export " + auth.ReadonlyTokenEnv + "=$(warden token generate)\n\n" +
+			"A read-only token may read everything (all GETs plus the live event stream) but\n" +
+			"is denied every state-changing action and the interactive attach. It only works\n" +
+			"alongside a primary " + auth.TokenEnv + "; the daemon refuses to start with a read-only\n" +
+			"token but no primary token. (The token value is identical either way — what makes\n" +
+			"it read-only is the env var you assign it to.)",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tok, err := auth.GenerateToken()
@@ -41,28 +48,40 @@ func newTokenGenerateCmd() *cobra.Command {
 }
 
 func newTokenShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var readonly bool
+	cmd := &cobra.Command{
 		Use:   "show",
 		Short: "Print the current bearer token (for pasting into a remote client)",
 		Long: "Print the bearer token local clients resolve: " + auth.TokenEnv + " if exported,\n" +
 			"otherwise the token a managed install persists in " + auth.DefaultTokenFile() + ".\n\n" +
 			"Use this to retrieve the secret to paste into the mobile web dashboard. The token\n" +
-			"is printed to stdout (so it pipes cleanly); its source is noted on stderr.",
+			"is printed to stdout (so it pipes cleanly); its source is noted on stderr.\n\n" +
+			"With --readonly, print the read-only token instead (" + auth.ReadonlyTokenEnv + " if\n" +
+			"exported, otherwise its line in the token file).",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			tok := auth.ResolveToken()
+			envName, fromEnv, resolve := auth.TokenEnv, auth.TokenFromEnv, auth.ResolveToken
+			if readonly {
+				envName, fromEnv, resolve = auth.ReadonlyTokenEnv, auth.ReadonlyTokenFromEnv, auth.ResolveReadonlyToken
+			}
+			tok := resolve()
 			if tok == "" {
+				if readonly {
+					return fmt.Errorf("no read-only token configured: export %s (run `warden token generate`)", auth.ReadonlyTokenEnv)
+				}
 				return fmt.Errorf("no bearer token configured: export %s or run `warden token rotate` (remote installs provision one automatically)", auth.TokenEnv)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), tok)
-			source := "$" + auth.TokenEnv
-			if auth.TokenFromEnv() == "" {
+			source := "$" + envName
+			if fromEnv() == "" {
 				source = auth.DefaultTokenFile()
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "source: %s\n", source)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&readonly, "readonly", false, "print the read-only token ("+auth.ReadonlyTokenEnv+") instead of the primary")
+	return cmd
 }
 
 func newTokenRotateCmd() *cobra.Command {

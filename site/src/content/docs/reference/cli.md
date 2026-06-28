@@ -676,6 +676,12 @@ Available Commands:
   generate   Generate a random bearer token for remote access
   rotate     Generate a new token, persist it, and restart the daemon
   show       Print the current token (for pasting into a remote client)
+
+# A read-only token grants view-only access (reads pass; writes and the
+# interactive attach are refused). Mint one like a normal token and export it
+# as WARDEN_READONLY_TOKEN; it only works alongside a primary WARDEN_TOKEN.
+  warden token generate                 # also mints a read-only token (export as WARDEN_READONLY_TOKEN)
+  warden token show --readonly          # print the read-only token instead of the primary
 ```
 
 See the [Remote access](/warden/guides/remote-access/) guide.

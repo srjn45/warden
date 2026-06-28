@@ -128,6 +128,10 @@ type Server struct {
 	// authToken is the bearer token required on every request. Empty ⇒ auth is
 	// disabled (the default loopback-only mode). See authorize.
 	authToken string
+	// readonlyToken is an optional second bearer token granting read-only access
+	// (scopeReadonly): reads pass, writes and the interactive attach are denied.
+	// Empty ⇒ no read-only token. Only meaningful when authToken is also set.
+	readonlyToken string
 	// authLimiter throttles repeated failed-auth attempts per source IP; nil
 	// when auth is disabled. See authlimit.go.
 	authLimiter *authLimiter
@@ -192,12 +196,15 @@ func (s *Server) SetScheduler(enabled bool, store *schedule.Store, interval time
 // at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.
 func (s *Server) SetAPIDocs(enabled bool) { s.apiDocs = enabled }
 
-// SetAuth configures the bearer token required for remote access. An empty
-// token disables authentication (the local-only default). When set, every
-// request — including loopback — must present the token; see authorize. A
-// per-IP auth-failure throttle is enabled alongside the token.
-func (s *Server) SetAuth(token string) {
+// SetAuth configures the bearer tokens required for remote access. An empty
+// primary token disables authentication (the local-only default). When set,
+// every request — including loopback — must present a token; see authorize. The
+// optional readonlyToken grants scopeReadonly (reads only) and is only honored
+// alongside a primary token (the caller enforces that invariant at startup). A
+// per-IP auth-failure throttle is enabled alongside the primary token.
+func (s *Server) SetAuth(token, readonlyToken string) {
 	s.authToken = token
+	s.readonlyToken = readonlyToken
 	if token != "" {
 		s.authLimiter = newAuthLimiter(authFailMax, authFailWindow)
 	}

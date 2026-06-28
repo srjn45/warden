@@ -19,6 +19,14 @@ import (
 // The token is a shared secret, not per-client; see the remote-access design.
 const TokenEnv = "WARDEN_TOKEN"
 
+// ReadonlyTokenEnv is the environment variable holding an optional second,
+// read-only bearer token. A request that presents it may read everything (all
+// GETs plus the SSE event stream) but is denied every mutating operation and the
+// interactive PTY attach — the daemon enforces this via authScope. It only has
+// meaning alongside a primary TokenEnv; the daemon refuses to start if this is
+// set without one (otherwise auth is off entirely and "read-only" grants nothing).
+const ReadonlyTokenEnv = "WARDEN_READONLY_TOKEN"
+
 // tokenBytes is the entropy size of a generated token (32 bytes → 64 hex chars).
 // 256 bits of randomness makes the token infeasible to brute-force, so a single
 // shared secret is sufficient for the personal-tool threat model.
@@ -42,6 +50,12 @@ func TokenFromEnv() string {
 	return strings.TrimSpace(os.Getenv(TokenEnv))
 }
 
+// ReadonlyTokenFromEnv returns the configured read-only bearer token, or "" if
+// unset. Same whitespace-trimming rationale as TokenFromEnv.
+func ReadonlyTokenFromEnv() string {
+	return strings.TrimSpace(os.Getenv(ReadonlyTokenEnv))
+}
+
 // DefaultTokenFile is where a managed remote install persists the bearer token
 // (chmod 600), in the same WARDEN_TOKEN=<hex> form an EnvironmentFile uses.
 // Returns "" if the home directory cannot be resolved.
@@ -56,6 +70,13 @@ func DefaultTokenFile() string {
 // tokenFromFile reads WARDEN_TOKEN=<value> from a token.env-style file, or
 // returns "" if the file is missing/unreadable or has no such line.
 func tokenFromFile(path string) string {
+	return tokenFromFileKey(path, TokenEnv)
+}
+
+// tokenFromFileKey reads <key>=<value> from a token.env-style file, or returns
+// "" if the file is missing/unreadable or has no such line. A token.env may hold
+// both WARDEN_TOKEN and WARDEN_READONLY_TOKEN lines, so the key selects which.
+func tokenFromFileKey(path, key string) string {
 	if path == "" {
 		return ""
 	}
@@ -65,7 +86,7 @@ func tokenFromFile(path string) string {
 	}
 	for _, line := range strings.Split(string(b), "\n") {
 		line = strings.TrimSpace(line)
-		if v, ok := strings.CutPrefix(line, TokenEnv+"="); ok {
+		if v, ok := strings.CutPrefix(line, key+"="); ok {
 			return strings.TrimSpace(v)
 		}
 	}
@@ -116,4 +137,15 @@ func ResolveToken() string {
 		return t
 	}
 	return tokenFromFile(DefaultTokenFile())
+}
+
+// ResolveReadonlyToken returns the read-only bearer token a local CLI should
+// present or display: WARDEN_READONLY_TOKEN if exported, otherwise a
+// WARDEN_READONLY_TOKEN=<hex> line persisted in DefaultTokenFile(). Symmetric
+// with ResolveToken — env is the override, the token.env file is the fallback.
+func ResolveReadonlyToken() string {
+	if t := ReadonlyTokenFromEnv(); t != "" {
+		return t
+	}
+	return tokenFromFileKey(DefaultTokenFile(), ReadonlyTokenEnv)
 }
