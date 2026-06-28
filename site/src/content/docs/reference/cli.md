@@ -94,7 +94,7 @@ Usage:
 
 Flags:
       --auto-restart             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --backend string           agent backend to drive: claude (default) or aider. Backends differ in capabilities — aider is bring-your-own-model (pass --model), has no resume and no priced spend, and runs an autonomous task that exits when done
+      --backend string           agent backend to drive: claude (default), aider, or opencode. Backends differ in capabilities — aider & opencode are bring-your-own-model (pass --model) with tokens-only spend; aider has no resume and runs an autonomous task that exits when done; opencode has a structured (Tier A) transcript and DOES resume the worktree's last session
       --branch string            new branch (development) or checkout target (pr-review)
       --dir string               directory to launch the agent from (default: current directory)
       --force                    spawn even when the memory-pressure gate warns

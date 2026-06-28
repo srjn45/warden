@@ -1,0 +1,26 @@
+[
+  {
+    "id": "ses_newerInDirB",
+    "title": "Hello in B",
+    "updated": 1782605767924,
+    "created": 1782605753029,
+    "projectId": "global",
+    "directory": "/work/agent-b"
+  },
+  {
+    "id": "ses_olderInDirA",
+    "title": "first task in A",
+    "updated": 1782605700000,
+    "created": 1782605600000,
+    "projectId": "global",
+    "directory": "/work/agent-a"
+  },
+  {
+    "id": "ses_newerInDirA",
+    "title": "latest task in A",
+    "updated": 1782605751536,
+    "created": 1782605729137,
+    "projectId": "global",
+    "directory": "/work/agent-a"
+  }
+]

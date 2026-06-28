@@ -10,6 +10,11 @@
 // public/brand/<id>.svg. Any backend without a registered mark falls back to a
 // tasteful monochrome lettermark chip, so adding antigravity/codex/etc. is just
 // a new entry below.
+//
+// opencode (#52, Phase 2) intentionally uses the lettermark fallback ("O") for
+// now: we ship the fallback rather than an unverified/fabricated brand SVG. Drop a
+// clean, freely-licensed OpenCode mark into MARKS (and public/brand/opencode.svg,
+// with its source/license noted above) when one is sourced.
 
 export const DEFAULT_BACKEND = 'claude';
 

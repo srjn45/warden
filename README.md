@@ -120,6 +120,7 @@ Capability highlights from the **v5.x** line (full notes on the [releases page](
 - **git** — worktree creation and guarded cleanup
 - **Claude Code** (`claude` on PATH) — the default agent runtime launched in each session
 - **Aider** (`aider` on PATH, optional) — only needed to spawn agents with `--backend aider`; bring-your-own-model (works with local Ollama models, $0)
+- **OpenCode** (`opencode` on PATH, optional) — only needed to spawn agents with `--backend opencode`; bring-your-own-model (works with local Ollama models, $0). Install: `npm install -g opencode-ai` (https://opencode.ai)
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch, and for `warden done --create-pr`
 - **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden repl` REPL; warden falls back to Claude when it's off or unreachable
 
@@ -423,19 +424,23 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A* | Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
+| **OpenCode** | `opencode` | A | Bring-your-own-model (pass `--model`, e.g. `ollama/qwen2.5-coder:3b`); structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session (`opencode -c`); spend tokens-only (BYO model) |
 
 ```bash
 # Drive Aider against a local Ollama model (free, offline)
 export OLLAMA_API_BASE=http://127.0.0.1:11434
 warden start "implement the add function" --backend aider --model ollama_chat/qwen2.5-coder:3b --dir .
+
+# Drive OpenCode against a local Ollama model (free, offline)
+warden start "implement the add function" --backend opencode --model ollama/qwen2.5-coder:3b --dir .
 ```
 
 Backends differ in capabilities; warden **degrades gracefully** rather than
 crashing when one lacks a capability (e.g. spend shows tokens-not-dollars for a
 bring-your-own-model backend; rotate/handoff re-spawn fresh when resume is
 unavailable). See the design (`docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`, §5)
-and roadmap item #52. More backends (Antigravity CLI, Codex, OpenCode) land as
-isolated adapter PRs over time.
+and roadmap item #52. More backends (Antigravity CLI, Codex) land as isolated
+adapter PRs over time.
 
 ---
 

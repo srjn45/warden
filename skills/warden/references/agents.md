@@ -55,7 +55,14 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `ollama_chat/qwen2.5-coder:3b`); it has **no resume** (rotate/handoff re-spawn
   fresh, `restore` refuses), **no priced spend** (`spend` shows tokens, `savings`
   omits it), and runs an **autonomous `--message` task that exits when done**
-  rather than a persistent loop. Claude is the full-fidelity default — leave
+  rather than a persistent loop. `opencode` is also bring-your-own-model
+  (**pass `model`**, e.g. `ollama/qwen2.5-coder:3b`); unlike aider it **DOES
+  resume** (dir-scoped — `opencode -c` continues the worktree's last session, so
+  rotate/handoff/restore work), has a **structured Tier-A transcript** (real
+  digests, sourced via `opencode export`), runs a **persistent TUI loop** (prompt
+  seeded via `--prompt`), but **no priced spend** (tokens-only, BYO model) and its
+  interactive approval prompts are **not yet parsed** (warden infers idle from
+  staleness for opencode agents). Claude is the full-fidelity default — leave
   `backend` unset unless the operator asked for another agent.
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`
   (legacy `--supervised` = `acceptEdits`). Global default `default_permission_mode`
