@@ -8,7 +8,7 @@ description: Prerequisites, installing the binary, running the daemon as a servi
 - **Go 1.26+** — to build the binary (only needed for `go install` or building from source)
 - **tmux** — every agent session runs in a detached tmux window
 - **git** — worktree creation and guarded cleanup
-- **Claude Code** (`claude` on PATH) — the agent runtime launched in each session
+- **Claude Code** (`claude` on PATH) — the default agent runtime launched in each session (other backends are opt-in via `--backend` — see [Agent backends](/warden/concepts/agent-backends/))
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch
 - **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden repl` REPL; warden falls back to Claude when it's off or unreachable
 

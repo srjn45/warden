@@ -54,9 +54,10 @@ Prefer a snapshot over a manual `git stash` before a risky change.
 
 ## Boundary-enforcement hooks (why a raw command got denied)
 
-warden installs PreToolUse hooks per agent via a `claude --settings` file. Each
-**fails open** (a hook error never blocks the agent) and is individually
-config-gated (default on). When a hook denies a command, **switch to the warden
+On the Claude Code backend, warden installs PreToolUse hooks per agent via a
+`claude --settings` file (backends without a hook/system-prompt seam skip the
+in-agent guard rails — the warden verbs still work). Each **fails open** (a hook
+error never blocks the agent) and is individually config-gated (default on). When a hook denies a command, **switch to the warden
 tool it names** — don't work around it.
 
 | Hook (config gate) | Behavior |

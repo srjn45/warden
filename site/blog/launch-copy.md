@@ -10,11 +10,11 @@ Repo: https://github.com/srjn45/warden  ·  Docs: https://srjn45.github.io/warde
 
 **Title** (80-char limit; link to the REPO, not the blog):
 
-    Show HN: Warden – run a fleet of Claude Code agents without losing your mind
+    Show HN: Warden – run a fleet of coding agents without losing your mind
 
 Alt titles if you want to A/B:
-- `Show HN: Warden – a cockpit for running many Claude Code agents at once`
-- `Show HN: Warden – self-hosted orchestrator for Claude Code agent fleets`
+- `Show HN: Warden – a cockpit for running many coding agents at once`
+- `Show HN: Warden – self-hosted orchestrator for AI coding agent fleets (Claude Code & more)`
 
 **First comment** (post this yourself, immediately after submitting):
 
@@ -27,9 +27,9 @@ Alt titles if you want to A/B:
 > Warden is a single Go binary that spawns each agent in its own isolated git
 > worktree (so parallel agents don't collide on the same tree), then gives you
 > one cockpit — a tmux TUI or a self-hosted web dashboard — to watch and talk to
-> all of them. It prices each agent's real Claude usage in dollars with a budget
-> gate, and it exposes the whole fleet as MCP tools so an orchestrator Claude
-> session can drive the other agents.
+> all of them. It drives multiple agent backends (Claude Code by default), prices
+> each agent's real model usage in dollars with a budget gate, and exposes the
+> whole fleet as MCP tools so an orchestrator agent session can drive the others.
 >
 > It's a local daemon writing to a file-based JSON store. No database, no SaaS,
 > no telemetry — runs on your laptop or a box you SSH into. Apache-2.0.
@@ -124,8 +124,9 @@ than hotlinking — Reddit-native media gets far more reach.
 
 **Body:**
 
-> Sharing a Go project I've been building: warden orchestrates fleets of Claude
-> Code agents. Posting here for the architecture rather than the AI angle, since
+> Sharing a Go project I've been building: warden orchestrates fleets of coding
+> agents (Claude Code by default, plus other backends). Posting here for the
+> architecture rather than the AI angle, since
 > a few of the design decisions might be interesting:
 >
 > - **Single-writer daemon.** One `warden daemon` process is the only writer to
@@ -149,7 +150,7 @@ than hotlinking — Reddit-native media gets far more reach.
 **Thread:**
 
 **1/**
-> I kept running more Claude Code agents than I could track — a refactor, a test
+> I kept running more coding agents than I could track — a refactor, a test
 > pass, a PR review, all in different terminals — and lost track of which was
 > which, which was blocked, and what it all cost.
 >
@@ -178,13 +179,13 @@ than hotlinking — Reddit-native media gets far more reach.
 > [web-monitor.gif]
 
 **5/**
-> The part I didn't expect to care about: it prices each agent's real Claude
+> The part I didn't expect to care about: it prices each agent's real model
 > usage in dollars with a budget gate. Running a fleet, cost stops being abstract.
 
 **6/**
 > And `warden mcp` exposes the whole fleet as MCP tools — so an orchestrator
-> Claude session can spawn and coordinate the other agents. Claude managing a
-> team of Claudes.
+> agent session can spawn and coordinate the others. One agent managing a team of
+> agents (a Claude session managing Claudes, say).
 
 **7/**
 > It's open source (Apache-2.0) and free. If you run more than one coding agent
@@ -194,7 +195,7 @@ than hotlinking — Reddit-native media gets far more reach.
 
 **Single-tweet version** (if you don't want a thread):
 
-> Running more than one Claude Code agent and losing track of them all?
+> Running more than one coding agent and losing track of them all?
 >
 > warden = one cockpit for the whole fleet. Spawn → watch → price in $ → tear
 > down. Each agent in its own git worktree. One Go binary, self-hosted, no
@@ -208,7 +209,7 @@ than hotlinking — Reddit-native media gets far more reach.
 ## 6. awesome-list PR entry (one-liner)
 
 > **[warden](https://github.com/srjn45/warden)** — Self-hosted cockpit for
-> running a fleet of Claude Code agents: spawn each in an isolated git worktree,
+> running a fleet of coding agents (Claude Code & more): spawn each in an isolated git worktree,
 > watch them in a TUI or web dashboard, track real cost in dollars, and drive the
 > whole fleet over MCP. Single Go binary, no SaaS, Apache-2.0.
 

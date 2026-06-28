@@ -16,7 +16,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | what is agent <id> doing | `get_agent` (status, subject, workdir, events) + `get_agent_output` (recent terminal) → report concisely. |
 | tell / ask agent <id> to do Y | `send_to_agent` (id as `ticket`, plus `text`). Echo back what you sent. |
 | tear down / clean up <id> (full) | `stop_agent` — **the primary teardown verb.** Default = terminate + clear record + remove worktree. Subtractive flags: `keep_record`, `keep_worktree` (`keep_worktree` alone == old `done`); `hard` purges; `pr`+`base` open a PR first; `force`/`delete_adopted_branch` for the worktree. Safe order: PR → terminate → clear record → remove worktree. DESTRUCTIVE (removes the worktree) — **confirm with the user first**. |
-| stop / terminate / kill <id> (reversible) | `terminate_agent` — kills tmux+claude, keeps record+worktree; reversible via `restore_agent`. Alias for `stop_agent {keep_record:true, keep_worktree:true}`. |
+| stop / terminate / kill <id> (reversible) | `terminate_agent` — kills tmux + the agent process, keeps record+worktree; reversible via `restore_agent`. Alias for `stop_agent {keep_record:true, keep_worktree:true}`. |
 | clear / delete an agent's record | `delete_agent` (id, `hard?`) — archives by default. Alias for `stop_agent {keep_worktree:true}` (record only). |
 | remove an agent's worktree | `remove_worktree` (id, `force?`) — DESTRUCTIVE; **confirm with the user first**; terminate the agent first. Alias for `stop_agent {keep_record:true}` (worktree only). |
 | restore a lost/orphaned agent | `restore_agent` (id) — only for sessions whose tmux is gone (status `orphaned`); resumes the same conversation. |
@@ -50,7 +50,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   config default `model_default`; fallback `claude-sonnet-4-6`. Shown in the MODEL
   column, preserved on restore.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
-  Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose`.
+  Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.
   **Only `claude` is fully tested and stable**; all others are
   🧪 **experimental / work-in-progress** — any non-`claude` value is experimental
   and functionality may be reduced or unverified. Backends differ in capabilities
@@ -82,6 +82,16 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `goose session -r --name <id>` is exact, not dir-scoped guessing), has a
   **structured Tier-A transcript** (SQLite, via `goose session export`); no priced
   spend, no system-prompt injection.
+  `cursor` (`cursor-agent`) is a **hosted plan** (billed to the operator's Cursor
+  subscription — no $0-local rig, no priced spend); it **DOES resume** (dir-scoped,
+  `--continue`), exposes **rich native permission modes** (`plan`/`ask`/`auto-review`/`force`),
+  and has **live state + approval/trust detection**, but its interactive transcript is an
+  unreadable SQLite store with no export verb, so it is **Tier C — no digests yet**.
+  `antigravity` (`agy`) is a **Google-hosted free tier** (quota-capped; no priced spend)
+  with a **multi-vendor model menu** (Gemini/Claude/GPT-OSS via env/config); it **DOES
+  resume** (dir-scoped, `agy -c`), has a **structured Tier-A transcript** (plaintext
+  trajectory JSONL ⇒ real digests) and **live state + approval detection**; no
+  system-prompt injection.
   Claude is the full-fidelity default — leave `backend` unset unless the operator
   explicitly asked for another agent.
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`

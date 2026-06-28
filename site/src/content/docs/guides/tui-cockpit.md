@@ -8,7 +8,7 @@ warden tui   # open the cockpit
 warden       # bare invocation — same thing
 ```
 
-`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), a terminal shell for CLI access (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
+`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), a terminal shell for CLI access (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive session (the `claude` process by default). Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
 
 ```
 ┌─ Agents (3) ──────┐┌─ agent-4f98 ──────────────┐

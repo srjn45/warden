@@ -11,14 +11,15 @@
 
 > 📖 **Docs & guide:** https://srjn45.github.io/warden/
 
-**Run a fleet of Claude Code agents without losing your mind.** warden is a single Go
-binary (`warden`, aliased `wd`) that spawns, monitors, and tears down Claude Code agent
+**Run a fleet of coding agents without losing your mind.** warden is a single Go
+binary (`warden`, aliased `wd`) that spawns, monitors, and tears down coding-agent
 sessions — each in its own isolated git worktree — while tracking exactly what every agent
-costs and how many tokens its lifecycle features keep out of context. Backed by a local
-daemon and a file-based JSON store: **no database, no SaaS, no telemetry.**
+costs and how many tokens its lifecycle features keep out of context. It drives multiple
+agent backends (Claude Code by default — see [Agent backends](#agent-backends---backend)),
+backed by a local daemon and a file-based JSON store: **no database, no SaaS, no telemetry.**
 
 <p align="center">
-  <a href="https://srjn45.github.io/warden/"><img src="site/public/media/hero.gif" alt="warden in action: spawning and monitoring a fleet of Claude Code agents from one cockpit" width="820"></a>
+  <a href="https://srjn45.github.io/warden/"><img src="site/public/media/hero.gif" alt="warden in action: spawning and monitoring a fleet of coding agents from one cockpit" width="820"></a>
 </p>
 
 ### Why warden
@@ -26,13 +27,14 @@ daemon and a file-based JSON store: **no database, no SaaS, no telemetry.**
 - **Orchestrate, don't babysit** — spawn many agents in parallel, watch them in a live TUI
   cockpit or web dashboard, and talk to any one of them. Write-type agents get their own
   worktree by default, so parallel agents never collide on the same tree.
-- **See what it costs** — `warden spend` prices each agent's real Claude usage into dollars
-  with a budget gate, and `warden savings` is an append-only ledger of the tokens warden
-  keeps out of agents' context, with a without-vs-with **A/B benchmark** you can screenshot.
+- **See what it costs** — `warden spend` prices each agent's real model usage into dollars
+  with a budget gate (priced for the Claude backend; bring-your-own-model backends report
+  tokens), and `warden savings` is an append-only ledger of the tokens warden keeps out of
+  agents' context, with a without-vs-with **A/B benchmark** you can screenshot.
 - **Self-hosted and free** — one binary, a loopback REST API, and a JSON store on disk.
   Run it on your laptop or a box; nothing leaves your machine.
-- **Drives Claude itself** — `warden mcp` exposes the whole fleet as MCP tools, so an
-  orchestrator Claude session can spawn, query, and coordinate agents for you.
+- **Driven by an agent itself** — `warden mcp` exposes the whole fleet as MCP tools, so an
+  orchestrator agent (e.g. a Claude session) can spawn, query, and coordinate the fleet for you.
 
 ### Quickstart
 
@@ -64,7 +66,7 @@ warden tui              # open the cockpit
   <tr>
     <td width="50%">
       <a href="https://srjn45.github.io/warden/guides/web-mission-control/"><img src="site/public/media/web-metrics.png" alt="The warden Metrics tab: CPU and memory per agent beside fleet totals, plus a per-agent cost card."></a>
-      <p align="center"><strong>Metrics &amp; cost</strong> — per-agent and fleet CPU/memory, context, tokens saved, and real Claude spend in dollars.</p>
+      <p align="center"><strong>Metrics &amp; cost</strong> — per-agent and fleet CPU/memory, context, tokens saved, and real model spend in dollars.</p>
     </td>
     <td width="50%">
       <a href="https://srjn45.github.io/warden/multi-agent/pipelines/"><img src="site/public/media/web-pipeline.png" alt="A warden pipeline rendered as a DAG in the web UI, with each job card showing its live status."></a>
@@ -79,8 +81,8 @@ warden tui              # open the cockpit
 `warden daemon` is the single writer to the on-disk session store, serving a loopback REST
 API and running a background poller. `warden ls|status|start|done|attach|send|tail` are thin
 HTTP clients to the daemon. `warden mcp` is a stdio MCP server that bridges MCP tool calls to
-the same REST API, enabling an orchestrator Claude session to query agents and talk to a
-specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
+the same REST API, enabling an orchestrator agent session (e.g. Claude) to query agents and
+talk to a specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
 
 ```
 alias agents=warden
@@ -96,18 +98,18 @@ alias agents=warden
 Capability highlights from the **v5.x** line (full notes on the [releases page](https://github.com/srjn45/warden/releases); the complete catalog lives in [docs/FEATURES.md](docs/FEATURES.md)):
 
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
-- **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending Claude tokens); optionally hosts the cockpit master pane.
+- **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending cloud-model tokens); optionally hosts the cockpit master pane.
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
 - **Agent sub-trees in the TUI** — agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); deleting a parent with live children leaves a muted *terminated tombstone* header so the children never orphan, reaped once the sub-tree finishes.
 - **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s and variabled `prompt-template`s (browse both via `warden library`), and web batch operations.
 - **Observability** — per-agent metrics & performance history (`warden stats`), crash/anomaly detection, the context-size guard, and webhook/Slack notifications.
 - **Token-savings ledger (`warden savings`)** — a real, append-only ledger of the tokens warden's lifecycle features keep out of agents' context, with an `--benchmark` A/B headline (without-vs-with warden, % reduction, $ saved) you can screenshot.
-- **Cost governance (`warden spend`)** — the REAL Claude spend warden measures from agents' transcripts, priced per model into dollars and rolled up per-agent/repo/day, plus a **budget gate** that softly warns before a spawn pushes daily/weekly spend over a configured `$` cap (a `$` column in `warden ls` and a live per-agent cost card on the web Metrics tab round it out).
+- **Cost governance (`warden spend`)** — the REAL model spend warden measures from agents' transcripts, priced per model into dollars and rolled up per-agent/repo/day (priced for the Claude backend; bring-your-own-model backends report tokens), plus a **budget gate** that softly warns before a spawn pushes daily/weekly spend over a configured `$` cap (a `$` column in `warden ls` and a live per-agent cost card on the web Metrics tab round it out).
 - **Native scheduler (`warden schedule`)** — opt-in cron/at triggers that fire an agent or a pipeline on the daemon's own timer; no external crontab.
 - **Snapshots & insights** — `warden snapshot` checkpoints a worktree + transcript for rollback; `warden insights` mines agent history for patterns and parallelization wins.
 - **Branch tracking (`warden branches`)** — opt-in monitor of each agent's CI status and standing vs `origin/main`, with non-blocking inbox/desktop alerts.
 - **Extensibility** — a `warden plugin` system (custom task types + lifecycle hooks over JSON-stdio) and an interactive **OpenAPI/Swagger UI** at `/api/docs`.
-- **Web** — real URL routing (`/cockpit`, `/tui`, `/pipelines`, `/metrics`, `/archive`, `/others`, `/agent/<id>` — deep-linkable, back/forward, shareable), a Cockpit home with a Fleet header, a highlighted top-bar **▢ TUI** launcher that opens the literal `warden tui` **full-screen** (the whole three-pane cockpit — same panes, shortcuts, real shells and Claude Code — edge-to-edge over the viewport, Ctrl+Q to exit) so you can drive the fleet from a laptop exactly as you do locally, a dedicated **Metrics** tab (per-agent **and** fleet-total CPU / memory, per-agent context, fleet size, tokens saved — two columns on desktop, single column on mobile), dark-mode theming, global keyboard shortcuts, Cockpit agent grouping, and an Archive tab plus an Others catch-all (last).
+- **Web** — real URL routing (`/cockpit`, `/tui`, `/pipelines`, `/metrics`, `/archive`, `/others`, `/agent/<id>` — deep-linkable, back/forward, shareable), a Cockpit home with a Fleet header, a highlighted top-bar **▢ TUI** launcher that opens the literal `warden tui` **full-screen** (the whole three-pane cockpit — same panes, shortcuts, real shells and live agent sessions — edge-to-edge over the viewport, Ctrl+Q to exit) so you can drive the fleet from a laptop exactly as you do locally, a dedicated **Metrics** tab (per-agent **and** fleet-total CPU / memory, per-agent context, fleet size, tokens saved — two columns on desktop, single column on mobile), dark-mode theming, global keyboard shortcuts, Cockpit agent grouping, and an Archive tab plus an Others catch-all (last).
 - **Remote access** — bearer-token auth (`warden token …`) and a Docker/compose deployment.
 - **First-run tutorial (`warden tutorial`)** — a guided walkthrough of the core loop, with a one-line nudge until you've taken (or skipped) the tour.
 
@@ -421,7 +423,7 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 (`spawn_agent` MCP tool).
 
 > **Supported agents — status:** warden is fully tested only with **Claude Code**.
-> All non-`claude` backends (Aider, OpenCode, Codex, Crush, Goose) are
+> All non-`claude` backends (Aider, OpenCode, Codex, Crush, Goose, Cursor, Antigravity) are
 > **experimental / work-in-progress** — functionality may be reduced or unverified.
 > Any non-`claude` value for `--backend` is experimental.
 
@@ -433,6 +435,8 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 | Codex CLI | 🧪 Experimental (WIP) |
 | Crush | 🧪 Experimental (WIP) |
 | Goose | 🧪 Experimental (WIP) |
+| Cursor CLI | 🧪 Experimental (WIP) |
+| Antigravity CLI | 🧪 Experimental (WIP) |
 
 | Backend | `--backend` | Tier | Notes |
 |---|---|---|---|
@@ -442,6 +446,8 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 | **Codex CLI** | `codex` | A | 🧪 Experimental. BYO provider (via Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped (`codex resume --last`); spend tokens-only, no system-prompt injection. See [`docs/agent-backends/codex.md`](docs/agent-backends/codex.md) |
 | **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI; headless `crush run` accepts `-m`); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped (`--continue`); **TUI takes no initial prompt** (type it after attach); spend tokens-only, no system-prompt injection. See [`docs/agent-backends/crush.md`](docs/agent-backends/crush.md) |
 | **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic (`goose session -r --name <id>`); no model flag on session launch, spend tokens-only, no system-prompt injection. See [`docs/agent-backends/goose.md`](docs/agent-backends/goose.md) |
+| **Cursor CLI** | `cursor` | C | 🧪 Experimental. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped (`--continue`); live state + approval/trust detection. **No structured transcript yet** (interactive store is unreadable SQLite) ⇒ no digests; spend tokens-only, no system-prompt injection. See [`docs/agent-backends/cursor.md`](docs/agent-backends/cursor.md) |
+| **Antigravity CLI** | `antigravity` | A | 🧪 Experimental. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL ⇒ real digests; **resumes** dir-scoped (`agy -c`); live state + approval detection; spend tokens-only, no system-prompt injection. See [`docs/agent-backends/antigravity.md`](docs/agent-backends/antigravity.md) |
 
 ```bash
 # Drive Aider against a local Ollama model (free, offline)
@@ -1068,7 +1074,7 @@ warden stats --history --agent PROJ-350
 
 ### `warden cost`
 
-One umbrella over warden's two financial views: **spend** (the real dollars agents billed Claude) and **savings** (the tokens — and the dollars they represent — warden kept out of context). `warden cost` with no subcommand prints a combined at-a-glance summary of both.
+One umbrella over warden's two financial views: **spend** (the real dollars agents billed to the model provider) and **savings** (the tokens — and the dollars they represent — warden kept out of context). `warden cost` with no subcommand prints a combined at-a-glance summary of both.
 
 ```sh
 warden cost                           # combined: SPEND section + SAVINGS section
@@ -1091,11 +1097,11 @@ warden savings --audit                # raw-vs-kept provenance samples (needs sa
 warden savings --calibrate            # measure this workload's bytes/token vs Claude count_tokens (needs ANTHROPIC_API_KEY)
 ```
 
-Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, in % and $) and the **offload** axis (Claude work moved off entirely onto the local LLM, in $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`. See [docs/FEATURES.md §29](docs/FEATURES.md).
+Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, in % and $) and the **offload** axis (cloud-model work moved off entirely onto the local LLM, in $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`. See [docs/FEATURES.md §29](docs/FEATURES.md).
 
 ### `warden spend`
 
-The cost side of the ledger: the **REAL billed Claude spend** warden measured from agents' transcripts, priced per model into dollars and rolled up per agent / repo / day. Gated by the same `savings` config setting. Also reachable as `warden cost spend`.
+The cost side of the ledger: the **REAL billed model spend** warden measured from agents' transcripts, priced per model into dollars and rolled up per agent / repo / day. Dollar pricing currently covers the **Claude backend**; bring-your-own-model backends report tokens only. Gated by the same `savings` config setting. Also reachable as `warden cost spend`.
 
 ```sh
 warden spend                          # total / today / this week, then per-agent/repo/day $ tables
@@ -1204,7 +1210,7 @@ The `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk.
 warden's **interactive mode**: a proper terminal REPL to drive the fleet, with a real line editor (arrow keys, persisted history, reverse-search, a **live `/`-command menu** that filters as you type, **Tab completion**, colourised prompt) that closes cleanly with Ctrl-D. It drives the fleet two ways:
 
 - **Deterministic `/` commands (no model)** — `/agents`, `/spawn <prompt>`, `/tell <id> <text>`, `/pipelines`, … Typing `/` pops a live, filtering menu of matching verbs (each with its summary); `/help` lists them all. These keep working even when the local model is slow or wrong. When a command needs more input, a **guided argument form** collects it — numbered pick-lists for known fields (model, permission, type), free text for the rest — opening automatically for a missing required arg or on a `+`-suffixed verb (`/spawn+`); a local model, if present, pre-fills each field with a suggestion you can accept, override, or clear.
-- **Natural language (local LLM)** — any other line is planned into **confirmed** warden tool calls without spending Claude tokens. It conducts; it never implements — all code work is delegated by spawning a Claude agent.
+- **Natural language (local LLM)** — any other line is planned into **confirmed** warden tool calls without spending cloud-model tokens. It conducts; it never implements — all code work is delegated by spawning an agent.
 
 It **starts without a local model** (the `/` commands and `!`-shell always work); only the natural-language half needs `local_llm: true`. Every mutating action passes a mandatory confirm gate. Run standalone, or as the cockpit master pane via the `repl` config / `--repl` flag (Alt+t toggles it with a raw shell). See [docs/FEATURES.md §17](docs/FEATURES.md).
 
@@ -1233,7 +1239,7 @@ warden.daemon --addr 127.0.0.1:9000
 
 ### `warden mcp`
 
-Run the MCP stdio server so an orchestrator Claude session can manage agents via tool calls.
+Run the MCP stdio server so an orchestrator agent session (e.g. Claude) can manage agents via tool calls.
 
 ```sh
 warden mcp
@@ -1259,7 +1265,7 @@ The completion script should be redirected to the appropriate location for your 
 
 ## Orchestrator (MCP)
 
-Register `warden mcp` as an MCP server in your orchestrator Claude session's MCP config (e.g. `~/.claude/claude_desktop_config.json` or the project-level `.claude/mcp.json`):
+Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. For a Claude Code orchestrator that's `~/.claude/claude_desktop_config.json` or the project-level `.claude/mcp.json`; other MCP-capable agents use their own config path:
 
 ```json
 {
@@ -1285,7 +1291,7 @@ Once registered, the orchestrator session can call these tools directly:
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Return the recent terminal output of a specific agent |
 | `stop_agent` | **Umbrella teardown.** Default = full teardown (terminate + clear record + remove worktree). `keep_record` / `keep_worktree` subtract steps (`keep_worktree` alone == the old `done`); `hard` purges the record; `pr`/`base` open a GitHub PR first while the agent is intact; `force`/`delete_adopted_branch` for the worktree guards. **Destructive** when it removes the worktree — only after explicit user confirmation |
-| `terminate_agent` | Stop an agent (kill tmux + claude); keeps the record and worktree. Reversible via `restore_agent` — the default "stop this agent" action |
+| `terminate_agent` | Stop an agent (kill tmux + the agent process); keeps the record and worktree. Reversible via `restore_agent` — the default "stop this agent" action |
 | `restore_agent` | Recreate and resume a lost/orphaned agent's session (`claude --resume`) |
 | `delete_agent` | Clear an agent's stored record (archives by default; `hard` purges). Does not touch tmux or the worktree |
 | `remove_worktree` | Remove an agent's git worktree + branch — **destructive**; refuses while the agent runs or has uncommitted/unpushed work unless `force` |
@@ -1311,11 +1317,12 @@ Example orchestrator prompts:
 - "Spawn a debug-ci agent in /path/to/repo" — calls `spawn_agent` with `type`+`repo`
 - "Stop PROJ-350" — calls `terminate_agent` (reversible); "clear its record too" — then `delete_agent`
 
-### Drive it from Claude (the `warden` skill)
+### Drive it from an orchestrator agent (the `warden` skill)
 
-Beyond raw tool access, install the packaged **Claude Code skill** so any Claude
-session knows *how and when* to manage your fleet (triage, create-from-prompt,
-relay "tell X to do Y", terminate-with-confirmation, daemon-down handling):
+Beyond raw tool access, install the packaged **Claude Code skill** so a Claude
+orchestrator session knows *how and when* to manage your fleet (triage, create-from-prompt,
+relay "tell X to do Y", terminate-with-confirmation, daemon-down handling). Other
+MCP-capable orchestrators drive the same tools directly without the skill:
 
 ```sh
 make install-skill   # symlinks skills/warden into ~/.claude/skills/warden
@@ -1331,7 +1338,7 @@ MCP server isn't registered). The daemon must be running.
 
 ## Lifecycle commands & boundary enforcement
 
-warden moves deterministic responsibilities off Claude agents — git and checks — onto the first-class `warden commit`/`push`/`sync`/`check` commands (CLI + MCP), and **enforces** the worktree boundary with PreToolUse hooks delivered through a per-agent `claude --settings` file. Each hook fails open (a hook error never blocks the agent) and is individually config-gated (default on):
+warden moves deterministic responsibilities off agents — git and checks — onto the first-class `warden commit`/`push`/`sync`/`check` commands (CLI + MCP), and **enforces** the worktree boundary with PreToolUse hooks delivered through a per-agent `claude --settings` file (Claude Code backend). Each hook fails open (a hook error never blocks the agent) and is individually config-gated (default on):
 
 | Layer | Setting | What it does |
 |---|---|---|
@@ -1445,7 +1452,7 @@ The dashboard is a **routed mission-control shell**. Tabs are **real URLs** (His
 | `/agent/<id>` | `<id>` | A pinned agent's live terminal (one closeable tab per pinned agent). |
 
 - **Cockpit is the home** — `/` redirects to `/cockpit`. It carries the **Fleet** summary header (moved out of the old Overview) above the canonical agent grid; the redundant *Quick spawn* widget and the duplicate *All agents* mini-grid were removed.
-- **Metrics tab (`/metrics`)** — a scrollable column of uPlot chart cards: **CPU per agent**, **Memory per agent** (GiB), **Cost per agent** (live measured Claude spend in $, with a total/today/this-week headline and a per-agent cost table), **Context per agent** (a client-accumulated time series of each agent's live context fill, legend dot colored by `ok`/`warning`/`critical`; in-session only — resets on full reload), **Number of agents** (fleet size over time), and **Tokens saved** (daily bars from the savings ledger + a headline saved-tokens/$ figure). When the savings ledger is disabled the savings/cost cards show a "set `savings: true`" hint instead of an empty chart. A **Live footprint** card carries the former Resources panel.
+- **Metrics tab (`/metrics`)** — a scrollable column of uPlot chart cards: **CPU per agent**, **Memory per agent** (GiB), **Cost per agent** (live measured model spend in $, with a total/today/this-week headline and a per-agent cost table), **Context per agent** (a client-accumulated time series of each agent's live context fill, legend dot colored by `ok`/`warning`/`critical`; in-session only — resets on full reload), **Number of agents** (fleet size over time), and **Tokens saved** (daily bars from the savings ledger + a headline saved-tokens/$ figure). When the savings ledger is disabled the savings/cost cards show a "set `savings: true`" hint instead of an empty chart. A **Live footprint** card carries the former Resources panel.
 - **Context & Messages** — no longer a tab; opened from a small **🗒 button in the header** as a dismissible overlay (**Esc** to close).
 - **Agent tabs** — pin any agent to its own tab to get a **live, interactive terminal** (`AttachTerminal`) — a real `tmux attach` bridged to the browser over a WebSocket, so you can type into the agent and watch it respond in real time.
 - **Create agent** — **+ New agent** opens a prompt box (with a directory picker and a **Supervised** checkbox). Type the task and press **Create** (or Cmd/Ctrl+Enter); the type label is assigned automatically. Tick **Supervised** to launch with `--permission-mode acceptEdits` instead of full bypass. For a managed worktree, use the CLI: `warden start TICKET --type development --repo …`.

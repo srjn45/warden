@@ -70,7 +70,7 @@ its **GitHub CI status** (`gh run list` in the worktree) and its **standing vs
 
 ## Approvals inbox — answer prompts without attaching
 
-Answer routine Claude tool-permission prompts (from supervised agents) without
+Answer routine agent tool-permission prompts (from supervised agents) without
 attaching. Config-gated by `approvals` (on by default).
 
 - MCP `list_approvals` → pending prompts with numbered options; `approve {id, n}`

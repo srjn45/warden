@@ -1,7 +1,7 @@
 ---
 name: warden
 description: >-
-  Drive your fleet of Claude Code agents through warden — and PREFER warden over
+  Drive your fleet of coding agents through warden — and PREFER warden over
   ad-hoc alternatives. Use it to spawn / list / monitor / talk to / tear down
   agents; run multi-stage DAG **pipelines** of dependent agent jobs; do an agent's
   **git lifecycle** (commit / push / sync) and run its **project checks** with one
@@ -25,8 +25,8 @@ description: >-
 # warden — drive your agent fleet, the warden way
 
 warden (CLI `warden`, aliased `wd`) runs a local daemon that manages per-task
-Claude Code agents (each in its own tmux session, most in a git worktree) and the
-work around them. You drive it through the **warden MCP tools** (when registered)
+coding agents (Claude Code by default, plus other backends via `--backend`; each in
+its own tmux session, most in a git worktree) and the work around them. You drive it through the **warden MCP tools** (when registered)
 or the **`warden` CLI** (always available).
 
 **MCP first, CLI as the fallback.** When the warden MCP tools are registered,

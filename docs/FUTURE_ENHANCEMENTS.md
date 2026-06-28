@@ -209,8 +209,8 @@ store's layout, what gets persisted vs. recomputed, and how it's keyed to a repo
 ## 📊 Priority Matrix (reassessed 2026-06-26)
 
 Re-scored on **feasibility × necessity** for what warden actually is today: a
-solo-operator tool for orchestrating Claude Code agents, with remote access (the
-flagship), mature pipelines, structured logging, the collab MVP, the **full
+solo-operator tool for orchestrating coding agents (Claude Code by default), with
+remote access (the flagship), mature pipelines, structured logging, the collab MVP, the **full
 orchestration brain (#49)** and the **local-LLM REPL (#50, `wd repl`)** all
 shipped. With the north-star orchestrator landed and the recent onboarding /
 extensibility batch merged (#42 tutorial, #43 OpenAPI docs, #46 snapshots, #47
