@@ -1,0 +1,32 @@
+[
+  {
+    "id": "20260628_3",
+    "working_dir": "/work/agent-a",
+    "name": "agent-a",
+    "created_at": "2026-06-28T09:29:48Z",
+    "updated_at": "2026-06-28T09:30:11Z",
+    "message_count": 4,
+    "provider_name": "ollama",
+    "model_config": { "model_name": "llama3.2:3b" }
+  },
+  {
+    "id": "20260628_2",
+    "working_dir": "/work/agent-b",
+    "name": "agent-b",
+    "created_at": "2026-06-28T09:29:02Z",
+    "updated_at": "2026-06-28T09:29:23Z",
+    "message_count": 2,
+    "provider_name": "ollama",
+    "model_config": { "model_name": "qwen2.5-coder:3b" }
+  },
+  {
+    "id": "20260628_1",
+    "working_dir": "/work/agent-a",
+    "name": "agent-a-older",
+    "created_at": "2026-06-28T09:27:26Z",
+    "updated_at": "2026-06-28T09:28:09Z",
+    "message_count": 2,
+    "provider_name": "ollama",
+    "model_config": { "model_name": "qwen2.5-coder:3b" }
+  }
+]
