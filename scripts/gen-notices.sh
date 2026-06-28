@@ -19,8 +19,10 @@ tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
 # csv columns: module,license-url,license-id. Sorted for a stable diff; the
-# warden module itself (empty version → HEAD) is dropped below.
-go-licenses csv ./cmd/warden 2>/dev/null | sort >"$tmp"
+# warden module itself (empty version → HEAD) is dropped below. LC_ALL=C pins a
+# byte-wise sort so the order is identical on every machine (a locale that folds
+# punctuation would, e.g., order `go.yaml.in/...` differently from CI).
+go-licenses csv ./cmd/warden 2>/dev/null | LC_ALL=C sort >"$tmp"
 
 {
   echo "# Third-Party Notices"
