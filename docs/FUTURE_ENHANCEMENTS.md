@@ -143,6 +143,12 @@ worktree rather than a warden-assigned id). Spend is tokens-only (BYO model) and
 OpenCode's interactive approval prompts are not yet parsed. **Next:** Antigravity
 CLI (`agy`) and Codex CLI adapters.
 
+> **Note:** Both Aider and OpenCode are considered **experimental / work-in-progress**
+> backends. Only Claude Code (`--backend claude`, the default) is fully tested.
+> Aider and OpenCode adapters are merged but unverified at scale — functionality
+> may be reduced (see gap list and capability flags in the design spec). Future
+> integrations (Antigravity, Codex) will start experimental too.
+
 **Follow-up infra — discover-then-pin session-id write-back (unblocks exact-id
 resume/transcript for id-minting backends):** OpenCode (and the upcoming
 Codex/Antigravity) mint their *own* session id, which warden cannot assign up
