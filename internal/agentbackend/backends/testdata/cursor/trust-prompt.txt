@@ -1,0 +1,50 @@
+cursor-agent
+/tmp/claude-1000/-home-srjn45-dev-warden--worktrees-development-66b099fe/bc57ba5b-44f7-458f-8a0a-b7ecf1312ea2/scratchpad/cursortrust.z1TeGs                                                    20:40:13
+❯ cursor-agent
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                                                                                                                  │
+  │  ⚠ Workspace Trust Required                                                                                                                                                                      │
+  │                                                                                                                                                                                                  │
+  │  Cursor Agent can execute code and access files in this directory.                                                                                                                               │
+  │                                                                                                                                                                                                  │
+  │  Do you trust the contents of this directory?                                                                                                                                                    │
+  │                                                                                                                                                                                                  │
+  │    /tmp/claude-1000/-home-srjn45-dev-warden--worktrees-development-66b099fe/bc57ba5b-44f7-458f-8a0a-b7ecf1312ea2/scratchpad/cursortrust.z1TeGs                                                   │
+  │                                                                                                                                                                                                  │
+  │                                                                                                                                                                                                  │
+  │  ▶ [a] Trust this workspace                                                                                                                                                                      │
+  │    [q] Quit                                                                                                                                                                                      │
+  │                                                                                                                                                                                                  │
+  │  Use arrow keys to navigate, Enter to select, or press the key shown                                                                                                                             │
+  │                                                                                                                                                                                                  │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

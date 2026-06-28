@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -293,18 +294,275 @@ func cursorToolNameAndFiles(raw json.RawMessage) (string, []string) {
 
 // --- State / approval -------------------------------------------------------
 
-// DetectState reports Unknown: Cursor's run-state and approval prompts (including its
-// workspace-trust prompt and the interactive approval UI) live in its TUI, whose pane
-// has no stable text marker this experimental adapter keys on yet. warden infers idle
-// from staleness, the same conservative stance the Claude/Codex/OpenCode adapters
-// take. Mapping Cursor's TUI approvals is deferred (docs/agent-backends/cursor.md);
-// the faithful non-interactive surface is `-p --force`, which raises no prompts.
-func (Cursor) DetectState(string) agentbackend.State { return agentbackend.StateUnknown }
+// cursorWorkingMarker is the stable footer hint cursor-agent right-aligns on the
+// composer's prompt line for the whole duration of a streaming turn
+// ("→ Add a follow-up … ctrl+c to stop"). The spinner status line above it varies
+// ("⠘⠤ Composing" / "⠠⠛ Running  N tokens"), so this hint — not the spinner — is the
+// reliable working marker. Captured live (cursor-agent 2026.06.26-7079533).
+const cursorWorkingMarker = "ctrl+c to stop"
 
-// ParseApproval reports no approval: see DetectState — Cursor's interactive
-// permission prompts are not yet mapped, so this degrades (returns false) rather than
-// mis-parsing. The `-p --force --trust` headless path raises no prompts.
-func (Cursor) ParseApproval(string) (*agentbackend.Approval, bool) { return nil, false }
+// cursorIdlePlaceholders are cursor-agent's at-rest composer placeholders: the
+// fresh-launch tagline and the post-turn follow-up prompt. They mark an empty
+// composer awaiting input. ("Add a follow-up" is ALSO shown mid-turn, but DetectState
+// gates StateWorking on cursorWorkingMarker first, so by the time idle is tested the
+// pane is genuinely at rest.) Both captured live (the fresh and after-a-turn panes).
+var cursorIdlePlaceholders = []string{
+	"Plan, search, build anything",
+	"Add a follow-up",
+}
+
+// DetectState maps a captured cursor-agent TUI pane to a neutral run state, mirroring
+// the Codex/Claude adapters. cursor-agent carries stable positive markers captured
+// live (2026.06.26-7079533):
+//   - streaming a turn ⇒ a right-aligned "ctrl+c to stop" hint on the composer prompt
+//     line, so that substring ⇒ StateWorking.
+//   - blocked on a command-allowlist approval or the workspace-trust prompt ⇒ a menu
+//     detected by ParseApproval ⇒ StateNeedsInput.
+//   - at rest with an empty composer ⇒ one of cursor's composer placeholders ⇒
+//     StateIdle.
+//
+// Anything else returns StateUnknown (never a false NeedsInput/Working) so warden
+// falls back to staleness — the same conservative stance as Codex. Order matters:
+// working is tested before idle because the at-rest follow-up placeholder is also
+// present mid-turn.
+func (Cursor) DetectState(pane string) agentbackend.State {
+	if strings.Contains(pane, cursorWorkingMarker) {
+		return agentbackend.StateWorking
+	}
+	if _, ok := (Cursor{}).ParseApproval(pane); ok {
+		return agentbackend.StateNeedsInput
+	}
+	for _, p := range cursorIdlePlaceholders {
+		if strings.Contains(pane, p) {
+			return agentbackend.StateIdle
+		}
+	}
+	return agentbackend.StateUnknown
+}
+
+// cursorMenuOptionRe matches one line of cursor-agent's interactive permission menu,
+// tolerating the leading "→" selection cursor (U+2192) on the highlighted option and
+// the plain indent on the rest, and anchoring on the trailing "(<key hint>)" every
+// option carries: "→ Run (once) (y)", "Add Shell(echo) to allowlist? (tab)",
+// "Run Everything (shift+tab)", "Skip (esc or n)". The label group is non-greedy and
+// the hint is anchored at end-of-line, so a label with its own inner parens (e.g.
+// "Shell(echo)") still binds the final key-hint paren.
+var cursorMenuOptionRe = regexp.MustCompile(`^\s*(\x{2192}\s+)?(.+?)\s+\(([^()]*)\)\s*$`)
+
+// cursorCommandRe captures the proposed command cursor-agent echoes as "$ <command>"
+// just above the menu (the Action); cursorLocationRe strips the trailing " in <cwd>"
+// annotation cursor appends to it.
+var cursorCommandRe = regexp.MustCompile(`^\s*\$\s+(.+?)\s*$`)
+var cursorLocationRe = regexp.MustCompile(`\s+in\s+[./]\S*$`)
+
+// cursorTrustOptionRe matches a workspace-trust menu entry once its box border is
+// stripped: a "[<key>] <label>" line, e.g. "[a] Trust this workspace" / "[q] Quit".
+var cursorTrustOptionRe = regexp.MustCompile(`^\[[^\]]+\]\s+(.+?)\s*$`)
+
+// ParseApproval normalizes cursor-agent's two interactive blocking prompts into the
+// neutral Approval: its command-allowlist approval and its one-time workspace-trust
+// prompt. Captured live (cursor-agent 2026.06.26-7079533). It returns (nil,false) for
+// any pane without one of those menus (idle/working prose is never mis-parsed),
+// keeping the auto-approve path — which keys off Fingerprint(Options) — honest.
+// Options are 1-indexed top-down and faithful to the pane.
+func (Cursor) ParseApproval(pane string) (*agentbackend.Approval, bool) {
+	if a, ok := cursorParseCommandApproval(pane); ok {
+		return a, true
+	}
+	return cursorParseTrustApproval(pane)
+}
+
+// cursorParseCommandApproval recognizes cursor's command-allowlist prompt, captured
+// live:
+//
+//	$  echo hello-from-cursor in .
+//
+//	Run this command?
+//	Not in allowlist: echo
+//	 → Run (once) (y)
+//	   Add Shell(echo) to allowlist? (tab)
+//	   Run Everything (shift+tab)
+//	   Skip (esc or n)
+//
+// It finds the contiguous menu run at the bottom of the pane (≥2 option lines, each
+// carrying a trailing key hint), then reads the "?"-terminated Question and the
+// "$ <command>" Action just above it. The Question gate is required, so a stray line
+// with trailing parens (e.g. the single "Reason for rejection (…)" composer prompt)
+// is not mis-read as a menu. Options keep their key hint so they stay faithful to the
+// pane (the auto-approve policy and daemon re-verify guard key off Fingerprint).
+func cursorParseCommandApproval(pane string) (*agentbackend.Approval, bool) {
+	lines := strings.Split(pane, "\n")
+
+	// The live prompt sits at the bottom: find the last option line, then walk up
+	// while lines stay options.
+	end := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if cursorMenuOptionRe.MatchString(lines[i]) {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return nil, false
+	}
+	start := end
+	for start-1 >= 0 && cursorMenuOptionRe.MatchString(lines[start-1]) {
+		start--
+	}
+
+	var opts []string
+	sel := 0
+	for i := start; i <= end; i++ {
+		m := cursorMenuOptionRe.FindStringSubmatch(lines[i])
+		if m[1] != "" { // the "→ " selection cursor sits on the highlighted option
+			sel = i - start + 1
+		}
+		opts = append(opts, strings.TrimSpace(m[2])+" ("+m[3]+")")
+	}
+	if len(opts) < 2 {
+		return nil, false
+	}
+
+	a := &agentbackend.Approval{Options: opts, SelectedIdx: sel}
+
+	// Scan upward from the menu for the "$ <command>" Action and the "?"-terminated
+	// Question (a bounded window above the options).
+	for i := start - 1; i >= 0 && i >= start-12; i-- {
+		t := strings.TrimSpace(lines[i])
+		if t == "" {
+			continue
+		}
+		if a.Action == "" {
+			if m := cursorCommandRe.FindStringSubmatch(lines[i]); m != nil {
+				a.Action = strings.TrimSpace(cursorLocationRe.ReplaceAllString(m[1], ""))
+				continue
+			}
+		}
+		if a.Question == "" && strings.HasSuffix(t, "?") {
+			a.Question = t
+		}
+	}
+	// The question header gates recognition: without it this is not a cursor approval.
+	if a.Question == "" {
+		return nil, false
+	}
+	a.AffirmativeIdx, a.AffirmativeSticky = cursorAffirmative(opts)
+	return a, true
+}
+
+// cursorParseTrustApproval recognizes cursor-agent's one-time workspace-trust prompt,
+// shown when launching interactively in an untrusted directory (a fresh warden
+// worktree). Captured live:
+//
+//	╭───────────────────────────────────────────────╮
+//	│  ⚠ Workspace Trust Required                     │
+//	│  Cursor Agent can execute code and access …     │
+//	│  Do you trust the contents of this directory?   │
+//	│    /path/to/workdir                             │
+//	│  ▶ [a] Trust this workspace                      │
+//	│    [q] Quit                                     │
+//	╰───────────────────────────────────────────────╯
+//
+// warden surfaces it as an Approval so the operator can clear it from the approvals
+// inbox instead of attaching to the pane — the maintainer's ruling is that trust is a
+// 1-time manual step, not a launch blocker. Only the bordered box interior is scanned
+// (so the shell scrollback / tmux titlebar above it is ignored). The affirmative
+// ("Trust this workspace") is a standing grant — cursor persists it to
+// ~/.cursor/projects/<…>/.workspace-trusted — so AffirmativeSticky is true. Returns
+// (nil,false) when the trust banner is absent.
+func cursorParseTrustApproval(pane string) (*agentbackend.Approval, bool) {
+	if !strings.Contains(pane, "Workspace Trust Required") &&
+		!strings.Contains(pane, "Do you trust the contents of this directory?") {
+		return nil, false
+	}
+
+	var opts []string
+	sel, action := 0, ""
+	for _, raw := range strings.Split(pane, "\n") {
+		if !strings.Contains(raw, "│") {
+			continue // only the bordered box interior carries the prompt
+		}
+		t := cursorStripBox(raw)
+		cursored := strings.HasPrefix(t, "▶") // "▶" marks the highlighted entry
+		t = strings.TrimSpace(strings.TrimPrefix(t, "▶"))
+		if m := cursorTrustOptionRe.FindStringSubmatch(t); m != nil {
+			opts = append(opts, strings.TrimSpace(m[1]))
+			if cursored {
+				sel = len(opts)
+			}
+			continue
+		}
+		// The directory under question is the first path line inside the box.
+		if action == "" && strings.HasPrefix(t, "/") {
+			action = t
+		}
+	}
+	if len(opts) < 2 {
+		return nil, false
+	}
+
+	a := &agentbackend.Approval{
+		Action:            action,
+		Question:          "Do you trust the contents of this directory?",
+		Options:           opts,
+		SelectedIdx:       sel,
+		AffirmativeSticky: true, // trusting persists to .workspace-trusted (a standing grant)
+	}
+	for i, o := range opts {
+		if strings.Contains(strings.ToLower(o), "trust") {
+			a.AffirmativeIdx = i + 1
+			break
+		}
+	}
+	return a, true
+}
+
+// cursorStripBox trims the box-drawing border cursor-agent draws around the
+// workspace-trust prompt (the vertical bars "│" U+2502 and surrounding whitespace),
+// leaving the inner text.
+func cursorStripBox(line string) string {
+	return strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│"))
+}
+
+// cursorAffirmative picks the least-privilege affirmative option from a cursor
+// command-approval menu for the neutral Approval.AffirmativeIdx/Sticky fields.
+// cursor's negative is "Skip" ("Skip (esc or n)"); among the affirmatives, a standing
+// grant carries an "allowlist"/"everything"/"always"/"don't ask" clause (sticky). It
+// returns the 1-based index of the first non-sticky affirmative ("Run (once)");
+// failing that the first sticky affirmative; otherwise (0,false) when only a negative
+// is offered.
+func cursorAffirmative(opts []string) (idx int, sticky bool) {
+	stickyIdx := 0
+	for i, opt := range opts {
+		low := strings.ToLower(opt)
+		if cursorNegativeOption(low) {
+			continue
+		}
+		if strings.Contains(low, "allowlist") || strings.Contains(low, "everything") ||
+			strings.Contains(low, "always") || strings.Contains(low, "don't ask") {
+			if stickyIdx == 0 {
+				stickyIdx = i + 1
+			}
+			continue
+		}
+		return i + 1, false
+	}
+	if stickyIdx != 0 {
+		return stickyIdx, true
+	}
+	return 0, false
+}
+
+// cursorNegativeOption reports whether a menu label is a decline ("Skip", "No",
+// "Reject", "Cancel", "Deny") rather than an affirmative.
+func cursorNegativeOption(low string) bool {
+	for _, n := range []string{"skip", "no,", "no ", "reject", "cancel", "deny", "abort"} {
+		if strings.HasPrefix(low, n) {
+			return true
+		}
+	}
+	return low == "no"
+}
 
 // --- System prompt / pricing ------------------------------------------------
 

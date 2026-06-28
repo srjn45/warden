@@ -1,0 +1,50 @@
+cursor-agent
+~/dev/warden/.worktrees/development-66b099fe/cursor-cap.LEWkV7                                                                                                                                 20:38:55
+❯ cursor-agent
+
+
+  Cursor Agent
+  v2026.06.26-7079533
+  Tip: Try Composer via /model, frontier intelligence at a fraction of the cost.
+
+
+  Run the shell command: echo hello-from-cursor
+
+
+  $ echo hello-from-cursor Waiting for approval...
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ $  echo hello-from-cursor in .
+
+ Run this command?
+ Not in allowlist: echo
+  → Run (once) (y)
+    Add Shell(echo) to allowlist? (tab)
+    Run Everything (shift+tab)
+    Skip (esc or n)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
