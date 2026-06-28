@@ -235,8 +235,8 @@ reachable, not flatten them away. Future enhancements should surface, not suppre
   into `PermissionModes`; richer per-agent posture could be exposed.
 - **`codex apply`** — apply the agent's last produced diff to the working tree as a
   `git apply`. A natural fit for warden's review-then-land flow.
-- **`codex review`** (`codex exec review`) — run a code review against the repo. Could
-  back a warden review step directly.
+- **`codex review`** (`codex exec review`) — run a code review against the repo.
+  **Surfaced** as `wd review` (see below).
 - **`codex mcp-server` / `codex mcp`** — Codex can *be* an MCP server and consume
   external MCP servers; relevant to warden's own MCP surface.
 - **`codex fork`** — branch a session to explore alternatives without losing the
@@ -247,3 +247,42 @@ reachable, not flatten them away. Future enhancements should surface, not suppre
 - **Profiles & `-c` overrides** — `~/.codex/config.toml`, `-p <profile>`,
   `-c key=value`; a clean path to per-agent provider/model/policy without warden
   hardcoding any of it.
+
+## Superpowers surfaced
+
+warden exposes Codex-native capabilities as first-class verbs via additive,
+type-asserted optional interfaces (Claude untouched, no registry/neutral-type
+churn). See `docs/superpowers/specs/2026-06-29-t1-superpowers-design.md`.
+
+### `wd review` — native diff review (`agentbackend.Reviewer`)
+
+`codex review` is a non-interactive, diff-scoped code reviewer — the agent reads a
+diff and reports findings. warden surfaces it as **`wd review`**, the agent-native
+counterpart to `wd check` (configured test/lint commands) and the `pr-review` agent
+(a whole reviewer session): instead of either, warden asks Codex's *own* reviewer to
+read the worktree diff.
+
+- **Scope.** Defaults to `--uncommitted` (the agent's working tree: staged +
+  unstaged + untracked). `wd review --base <branch>` maps to `codex review --base
+  <branch>`.
+- **Local exec, like a check.** `wd review` resolves the agent's backend,
+  type-asserts `Reviewer`, and execs the returned argv **in the worktree**,
+  streaming the review to the operator. It is CLI-local — no daemon API change.
+- **BYO config.** warden emits only `codex review --uncommitted` (plus an optional
+  trailing `--prompt`); the model/provider come from Codex's own config, exactly
+  like the launch path — so the $0-local Ollama rig (`-c model_provider=ollama`) and
+  a paid setup both work unchanged.
+- **Degrades cleanly.** A backend with no native review (e.g. Claude) is simply not
+  offered the verb — `wd review` exits non-zero pointing at `wd check` /
+  `pr-review`.
+- **Structured output (forward-compat).** `codex review`'s plain form has **no**
+  `--output-schema` (verified, codex v0.142.3) — only the `codex exec review`
+  sub-form does. `Reviewer.ReviewCmd` therefore switches to `codex exec review …
+  --output-schema <file>` when a schema is requested. The current `wd review` always
+  asks for the prose form; the machine-readable findings path lands later.
+
+Captured at $0 on the Ollama rig (`internal/agentbackend/backends/testdata/codex/
+review-uncommitted.txt`). Note: on a tiny local model review *quality* is weak (the
+7B model missed a planted bug; the 3B model emitted no structured review at all) —
+the pilot proves the **plumbing**, not accuracy; quality rides the operator's real
+model.
