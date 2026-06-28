@@ -50,15 +50,15 @@ Free-form:   warden start "<prompt>" [--dir <path>]   (autonomous)
 Interactive: warden start --dir <path>                (opens the agent and waits)
 Managed:     warden start TICKET --type <TYPE>        (isolated worktree)
 
-Backends (--backend): warden drives Claude Code by default. Pass --backend aider
-or --backend opencode to drive another agent. Backends differ in capabilities
-(design §5): Aider is bring-your-own-model (pass --model, e.g.
-ollama_chat/qwen2.5-coder:3b), has no resume and no priced spend (tokens only),
-and runs an autonomous --message task that exits when done rather than a
-persistent loop. OpenCode is also bring-your-own-model (-m provider/model, e.g.
-ollama/qwen2.5-coder:3b) with a structured (Tier A) transcript and DOES resume
-(continues the worktree's last session); spend is tokens-only. Claude remains
-full-fidelity.`,
+Backends (--backend): warden drives Claude Code by default. Accepted values:
+  claude (default, stable), aider, opencode, codex, crush, goose.
+Only claude is fully tested; all others are experimental / WIP.
+Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
+OpenCode: BYO model (pass --model), structured transcript, DOES resume.
+Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
+Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); TUI takes no initial prompt.
+Goose: BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env), DOES resume (name-deterministic); no --model on session launch.
+All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load the named preset first (if any) so its saved defaults seed the
@@ -187,7 +187,7 @@ full-fidelity.`,
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)")
-	cmd.Flags().String("backend", "", "agent backend to drive: claude (default), aider, or opencode. Backends differ in capabilities — see `warden` docs (aider & opencode are bring-your-own-model: pass --model; opencode resumes, aider does not)")
+	cmd.Flags().String("backend", "", "agent backend: claude (default, stable) | aider | opencode | codex | crush | goose — only claude is fully tested; others are experimental. See `warden start --help` for per-backend notes")
 	cmd.Flags().String("preset", "", "load saved spawn defaults from a named preset (see `warden preset`); explicit flags override")
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")

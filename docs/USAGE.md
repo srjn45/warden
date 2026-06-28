@@ -314,8 +314,8 @@ Warden drives **Claude Code** by default, but the agent layer is an **adapter
 layer**: each console coding agent is normalized behind a `Backend` interface, and
 you pick one per agent at spawn time.
 
-> **Important:** warden is fully tested only with **Claude Code**. All other agent
-> backends (Aider, OpenCode, and any future integrations) are **experimental /
+> **Important:** warden is fully tested only with **Claude Code**. All non-`claude`
+> backends (Aider, OpenCode, Codex, Crush, Goose) are **experimental /
 > work-in-progress** — functionality may be reduced or unverified. Any non-`claude`
 > value for `--backend` is experimental.
 
@@ -324,12 +324,18 @@ you pick one per agent at spawn time.
 | Claude Code | ✅ Stable — fully tested, reference backend |
 | Aider | 🧪 Experimental (WIP) |
 | OpenCode | 🧪 Experimental (WIP) |
+| Codex CLI | 🧪 Experimental (WIP) |
+| Crush | 🧪 Experimental (WIP) |
+| Goose | 🧪 Experimental (WIP) |
 
 | Backend | `--backend` | Tier | What works / degrades |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Everything — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`); structured markdown transcript ⇒ real digests. **No** resume (rotate/handoff re-spawn fresh), **no** priced spend (`wd spend` shows tokens, `wd savings` omits it), no assignable session id, system-prompt hints skipped. Runs an autonomous `--message` task that exits when done. |
 | **OpenCode** | `opencode` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama/qwen2.5-coder:3b`); structured JSON transcript (sourced via `opencode export`) ⇒ real digests. **Resumes** the worktree's last session (`opencode -c`, dir-scoped), so rotate/handoff/restore work. **No** priced spend (`wd spend` shows tokens, `wd savings` omits it — BYO model), no warden-assigned session id, system-prompt hints skipped. Runs a persistent agent loop (TUI, prompt seeded via `--prompt`). |
+| **Codex CLI** | `codex` | A | 🧪 Experimental. BYO provider (via `~/.codex/config.toml`; pass `-m` for model); structured JSONL transcript (rollout files) ⇒ real digests. **Resumes** dir-scoped (`codex resume --last`). No priced spend (tokens-only), no system-prompt injection. See [`docs/agent-backends/codex.md`](../agent-backends/codex.md). |
+| **Crush** | `crush` | A | 🧪 Experimental. BYO model (TUI is config-driven; headless `crush run` accepts `-m`); structured JSON transcript (via `crush session show --json`) ⇒ real digests. **Resumes** dir-scoped (`crush --continue`). **TUI takes no initial prompt** — type it after attach. No priced spend, no system-prompt injection. See [`docs/agent-backends/crush.md`](../agent-backends/crush.md). |
+| **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests. **Resumes** name-deterministic (`goose session -r --name <id>`). No model flag on session launch, no priced spend, no system-prompt injection. See [`docs/agent-backends/goose.md`](../agent-backends/goose.md). |
 
 ```sh
 # Claude (default) — nothing to pass
@@ -343,6 +349,16 @@ warden start "implement the add function" \
 # OpenCode against a local Ollama model (free, offline, $0)
 warden start "implement the add function" \
   --backend opencode --model ollama/qwen2.5-coder:3b --dir .
+
+# Codex — configure provider in ~/.codex/config.toml first
+warden start "implement the add function" --backend codex --dir .
+
+# Crush — configure provider in ~/.config/crush/crush.json first
+warden start "implement the add function" --backend crush --dir .
+
+# Goose against a local Ollama model ($0)
+GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
+warden start "implement the add function" --backend goose --dir .
 ```
 
 Over MCP, pass the `backend` param (kept at parity with the CLI):
@@ -350,14 +366,15 @@ Over MCP, pass the `backend` param (kept at parity with the CLI):
 ```typescript
 spawn_agent({ prompt: "implement add", backend: "aider", model: "ollama_chat/qwen2.5-coder:3b" })
 spawn_agent({ prompt: "implement add", backend: "opencode", model: "ollama/qwen2.5-coder:3b" })
+spawn_agent({ prompt: "implement add", backend: "codex" })
+spawn_agent({ prompt: "implement add", backend: "crush" })
+spawn_agent({ prompt: "implement add", backend: "goose" })
 ```
 
 An unknown backend id is rejected up front (before any tmux/worktree side effect).
 The selected backend is stored on the session (`Session.Backend`; empty ⇒ claude,
 so existing stores are unaffected). Capabilities differ per backend and warden
-**degrades gracefully** rather than crashing when one is missing (design §5). More
-backends (Antigravity CLI, Codex) land as isolated adapter PRs — see
-roadmap item #52.
+**degrades gracefully** rather than crashing when one is missing (design §5).
 
 ---
 

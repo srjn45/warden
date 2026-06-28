@@ -11,10 +11,12 @@
 // tasteful monochrome lettermark chip, so adding antigravity/codex/etc. is just
 // a new entry below.
 //
-// opencode (#52, Phase 2) intentionally uses the lettermark fallback ("O") for
-// now: we ship the fallback rather than an unverified/fabricated brand SVG. Drop a
-// clean, freely-licensed OpenCode mark into MARKS (and public/brand/opencode.svg,
-// with its source/license noted above) when one is sourced.
+// opencode, codex, crush, goose (#52) intentionally use the lettermark fallback
+// for now: none of these tools have entries in simple-icons (CC0) yet, and their
+// own project icons have not been independently verified as freely redistributable.
+// We ship the safe fallback rather than a fabricated or unverified brand SVG.
+// Drop a clean, freely-licensed mark into MARKS (and public/brand/<id>.svg, with
+// its source/license noted above) when one is sourced for a specific backend.
 
 export const DEFAULT_BACKEND = 'claude';
 

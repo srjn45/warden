@@ -50,23 +50,40 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   config default `model_default`; fallback `claude-sonnet-4-6`. Shown in the MODEL
   column, preserved on restore.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
-  **Only `claude` is fully tested and stable**; `aider` and `opencode` are
+  Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose`.
+  **Only `claude` is fully tested and stable**; all others are
   🧪 **experimental / work-in-progress** — any non-`claude` value is experimental
   and functionality may be reduced or unverified. Backends differ in capabilities
-  and warden degrades gracefully (it never crashes on a missing one). `aider` is
-  bring-your-own-model — **you must pass `model`** (e.g.
+  and warden degrades gracefully (it never crashes on a missing one).
+  `aider` is bring-your-own-model — **you must pass `model`** (e.g.
   `ollama_chat/qwen2.5-coder:3b`); it has **no resume** (rotate/handoff re-spawn
   fresh, `restore` refuses), **no priced spend** (`spend` shows tokens, `savings`
   omits it), and runs an **autonomous `--message` task that exits when done**
-  rather than a persistent loop. `opencode` is also bring-your-own-model
-  (**pass `model`**, e.g. `ollama/qwen2.5-coder:3b`); unlike aider it **DOES
-  resume** (dir-scoped — `opencode -c` continues the worktree's last session, so
-  rotate/handoff/restore work), has a **structured Tier-A transcript** (real
-  digests, sourced via `opencode export`), runs a **persistent TUI loop** (prompt
-  seeded via `--prompt`), but **no priced spend** (tokens-only, BYO model) and its
-  interactive approval prompts are **not yet parsed** (warden infers idle from
-  staleness for opencode agents). Claude is the full-fidelity default — leave
-  `backend` unset unless the operator explicitly asked for another agent.
+  rather than a persistent loop.
+  `opencode` is also bring-your-own-model (**pass `model`**, e.g.
+  `ollama/qwen2.5-coder:3b`); unlike aider it **DOES resume** (dir-scoped —
+  `opencode -c` continues the worktree's last session, so rotate/handoff/restore
+  work), has a **structured Tier-A transcript** (real digests, sourced via
+  `opencode export`), runs a **persistent TUI loop**, but **no priced spend**
+  (tokens-only, BYO model) and its interactive approval prompts are **not yet
+  parsed** (warden infers idle from staleness).
+  `codex` is BYO-provider (configured via `~/.codex/config.toml`; pass `model`
+  for `-m`); it **DOES resume** (dir-scoped, `codex resume --last`), has a
+  **structured Tier-A transcript** (JSONL rollout files), and accepts an initial
+  prompt on TUI launch (like Claude); no priced spend, no system-prompt injection.
+  `crush` is BYO-model (TUI is config-driven; headless `crush run` accepts model);
+  it **DOES resume** (dir-scoped, `crush --continue`), has a **structured Tier-A
+  transcript** (SQLite, via `crush session show --json`), but **the TUI takes no
+  initial prompt** (type it after attach); no priced spend, no system-prompt
+  injection.
+  `goose` is BYO-provider (set `GOOSE_PROVIDER`/`GOOSE_MODEL` env before
+  spawning; no `--model` flag on `goose session`); it **DOES resume**
+  (name-deterministic — warden pins its own id as the Goose `--name`, so
+  `goose session -r --name <id>` is exact, not dir-scoped guessing), has a
+  **structured Tier-A transcript** (SQLite, via `goose session export`); no priced
+  spend, no system-prompt injection.
+  Claude is the full-fidelity default — leave `backend` unset unless the operator
+  explicitly asked for another agent.
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`
   (legacy `--supervised` = `acceptEdits`). Global default `default_permission_mode`
   (defaults `auto`). Change at runtime: MCP `set_permission_mode {ticket, mode}` /

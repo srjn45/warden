@@ -50,7 +50,7 @@ own tmux session, most in a git worktree).
 | Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Tags (group / filter) | `start --tag`, `ls --tag` | `spawn_agent` (`tags`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Model selection | `start --model` / config | `spawn_agent` (`model`) | ✓ | ✓ | — | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
-| Backend selection (Claude / Aider / OpenCode) | `start --backend` | `spawn_agent` (`backend`) | ✓ | — | — | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — only `claude` is stable; `aider` and `opencode` are 🧪 experimental |
+| Backend selection (Claude / Aider / OpenCode / Codex / Crush / Goose) | `start --backend` | `spawn_agent` (`backend`) | ✓ | — | — | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — only `claude` is stable; `aider`, `opencode`, `codex`, `crush`, and `goose` are 🧪 experimental |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 

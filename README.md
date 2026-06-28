@@ -421,7 +421,7 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 (`spawn_agent` MCP tool).
 
 > **Supported agents — status:** warden is fully tested only with **Claude Code**.
-> All other agent backends (Aider, OpenCode, and any future integrations) are
+> All non-`claude` backends (Aider, OpenCode, Codex, Crush, Goose) are
 > **experimental / work-in-progress** — functionality may be reduced or unverified.
 > Any non-`claude` value for `--backend` is experimental.
 
@@ -430,12 +430,18 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 | Claude Code | ✅ Stable — fully tested, reference backend |
 | Aider | 🧪 Experimental (WIP) |
 | OpenCode | 🧪 Experimental (WIP) |
+| Codex CLI | 🧪 Experimental (WIP) |
+| Crush | 🧪 Experimental (WIP) |
+| Goose | 🧪 Experimental (WIP) |
 
 | Backend | `--backend` | Tier | Notes |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
-| **Aider** | `aider` | A* | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
+| **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
 | **OpenCode** | `opencode` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama/qwen2.5-coder:3b`); structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session (`opencode -c`); spend tokens-only (BYO model) |
+| **Codex CLI** | `codex` | A | 🧪 Experimental. BYO provider (via Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped (`codex resume --last`); spend tokens-only, no system-prompt injection. See [`docs/agent-backends/codex.md`](docs/agent-backends/codex.md) |
+| **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI; headless `crush run` accepts `-m`); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped (`--continue`); **TUI takes no initial prompt** (type it after attach); spend tokens-only, no system-prompt injection. See [`docs/agent-backends/crush.md`](docs/agent-backends/crush.md) |
+| **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic (`goose session -r --name <id>`); no model flag on session launch, spend tokens-only, no system-prompt injection. See [`docs/agent-backends/goose.md`](docs/agent-backends/goose.md) |
 
 ```bash
 # Drive Aider against a local Ollama model (free, offline)
@@ -444,14 +450,23 @@ warden start "implement the add function" --backend aider --model ollama_chat/qw
 
 # Drive OpenCode against a local Ollama model (free, offline)
 warden start "implement the add function" --backend opencode --model ollama/qwen2.5-coder:3b --dir .
+
+# Drive Codex against a local Ollama model (configure provider in ~/.codex/config.toml first)
+warden start "implement the add function" --backend codex --dir .
+
+# Drive Crush against a local Ollama model (configure provider in ~/.config/crush/crush.json first)
+warden start "implement the add function" --backend crush --dir .
+
+# Drive Goose against a local Ollama model
+GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
+warden start "implement the add function" --backend goose --dir .
 ```
 
 Backends differ in capabilities; warden **degrades gracefully** rather than
 crashing when one lacks a capability (e.g. spend shows tokens-not-dollars for a
 bring-your-own-model backend; rotate/handoff re-spawn fresh when resume is
 unavailable). See the design (`docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`, §5)
-and roadmap item #52. More backends (Antigravity CLI, Codex) land as isolated
-adapter PRs over time.
+and roadmap item #52.
 
 ---
 
