@@ -102,7 +102,11 @@ type Config struct {
 	AutoApprove           approval.Policy `yaml:"auto_approve"`
 	DefaultPermissionMode string          `yaml:"default_permission_mode"`
 	MetricsEnabled        bool            `yaml:"metrics"`
-	AllowNonLoopback      bool            `yaml:"allow_nonloopback"`
+	// AllowNonLoopback is DEPRECATED and inert (audit #7): it no longer bypasses
+	// authentication. A bearer token is mandatory for any non-loopback bind. The
+	// field is kept so existing configs still parse; setting it true only logs a
+	// deprecation warning at daemon startup.
+	AllowNonLoopback bool `yaml:"allow_nonloopback"`
 
 	// Migrated from previously-scattered os.Getenv reads.
 	PipelineKeepDone       bool          `yaml:"pipeline_keep_done"`
@@ -154,14 +158,14 @@ type setting struct {
 // reflection-based drift-guard test asserts this key set equals the set of
 // yaml tags on Config.
 var schema = []setting{
-	{"addr", "Daemon listen address. Values: host:port (non-loopback requires WARDEN_TOKEN for bearer-token auth, or allow_nonloopback: true to bind without auth)"},
+	{"addr", "Daemon listen address. Values: host:port (a non-loopback bind always requires WARDEN_TOKEN for bearer-token auth)"},
 	{"data_dir", "Directory for warden state (sessions, inbox, pipelines, metrics). Values: absolute path"},
 	{"claude_projects_dir", "Claude Code transcript root. Values: absolute path"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
 	{"auto_approve", "Auto-approve policy. With NO rules configured this is the simple on/off toggle (enabled answers every recognized, non-destructive prompt). With rules, the daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, regex, paths} — tool/pattern are case-insensitive, regex is a Go regexp), agents (per-agent overrides keyed by agent name or id, each its own {enabled, allow_sticky, rules} block that replaces the default for that agent)."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
-	{"allow_nonloopback", "Bind to a non-loopback address WITHOUT authentication (not recommended). Prefer setting WARDEN_TOKEN instead, which requires a bearer token. Values: true | false"},
+	{"allow_nonloopback", "DEPRECATED and inert: this no longer bypasses authentication. A bearer token (WARDEN_TOKEN) is now mandatory for any non-loopback bind. Setting it true only logs a deprecation warning. Values: true | false"},
 	{"pipeline_keep_done", "Keep a pipeline job's agent alive after the job completes. Values: true | false"},
 	{"model_default", "Default model for new agents. Values: a claude model id or alias (sonnet, opus, haiku, fable)"},
 	{"pipeline_hint", "Append the pipeline-decomposition hint to standalone agents. Values: true | false"},

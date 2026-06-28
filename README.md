@@ -484,7 +484,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 
 | Setting | Default | Description |
 |---|---|---|
-| `addr` | `127.0.0.1:8765` | Daemon listen address. Non-loopback requires `WARDEN_TOKEN` (bearer-token auth — see [Remote access](#remote-access)) or `allow_nonloopback: true` to bind without auth |
+| `addr` | `127.0.0.1:8765` | Daemon listen address. Non-loopback **requires** `WARDEN_TOKEN` (bearer-token auth — see [Remote access](#remote-access)); the daemon refuses a non-loopback bind without a token |
 | `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript directories; the poller reads agent transcripts here to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |

@@ -32,7 +32,7 @@ Common settings (run `warden config` for the complete, live list):
 
 | Setting | Default | Description |
 |---|---|---|
-| `addr` | `127.0.0.1:8765` | Daemon listen/connect address. A non-loopback address requires `WARDEN_TOKEN`, or `allow_nonloopback: true` to bind without auth |
+| `addr` | `127.0.0.1:8765` | Daemon listen/connect address. A non-loopback address **requires** `WARDEN_TOKEN`; the daemon refuses a non-loopback bind without a token |
 | `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), prompt files, inbox, pipelines, snapshots, savings ledger, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
@@ -63,7 +63,7 @@ Common settings (run `warden config` for the complete, live list):
 | `api_docs` | `true` | Serve the OpenAPI spec + Swagger UI at `/api/docs` |
 | `plugins` | `false` | Enable the plugin system. **Default off** — plugins run external code |
 | `plugin_registry` | _(empty)_ | List of registered plugins (name, path, events, task_types). Only used when `plugins` is on |
-| `allow_nonloopback` | `false` | Bind a non-loopback address *without* a token (not recommended) |
+| `allow_nonloopback` | `false` | **Deprecated / inert** — no longer bypasses auth. A token is mandatory for any non-loopback bind; setting this only logs a deprecation warning |
 | `log_level` / `log_format` | `info` / `text` | Daemon log verbosity and format (`text`/`json`) |
 
 There are more (`auto_restart_*`, `rate_limit_*`, `worktree_keep_done` /

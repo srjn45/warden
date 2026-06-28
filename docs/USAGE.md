@@ -1327,8 +1327,10 @@ the new token without restarting.
 
 **Hardening built in:** the bearer-token check is constant-time, and repeated
 failed attempts from one source IP are rate-limited (HTTP `429`) — a valid token
-is never throttled. To bind a non-loopback address *without* auth anyway (not
-recommended), set `allow_nonloopback: true` in the config.
+is never throttled. A bearer token is **mandatory for any non-loopback bind**:
+the daemon refuses to start on a non-loopback address without `WARDEN_TOKEN`.
+(The old `allow_nonloopback` escape hatch is deprecated and inert — it no longer
+disables auth; setting it only logs a warning.)
 
 #### API reference (OpenAPI / Swagger UI)
 
@@ -1355,7 +1357,7 @@ daemon address for a single command.
 
 | Setting | Default | Description |
 |---|---|---|
-| `addr` | `127.0.0.1:8765` | Daemon listen/connect address. A non-loopback address requires `WARDEN_TOKEN` (bearer-token auth) — see [Remote access](#remote-access-phone-tablet-another-machine) — or `allow_nonloopback: true` to bind without auth |
+| `addr` | `127.0.0.1:8765` | Daemon listen/connect address. A non-loopback address **requires** `WARDEN_TOKEN` (bearer-token auth) — see [Remote access](#remote-access-phone-tablet-another-machine). The daemon refuses a non-loopback bind without a token |
 | `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |

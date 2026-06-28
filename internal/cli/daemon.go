@@ -36,6 +36,18 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
+// requireTokenForNonLoopback rejects a non-loopback bind that has no bearer
+// token. A token is mandatory for any non-loopback address (audit #7): serving
+// the API on a public interface without auth is never permitted, and
+// allow_nonloopback no longer relaxes this. A loopback bind needs no token (the
+// hostGuard middleware defends it against DNS rebinding).
+func requireTokenForNonLoopback(addr, token string) error {
+	if !config.IsLoopbackHost(addr) && token == "" {
+		return fmt.Errorf("refusing to bind non-loopback address %q without authentication: set %s (run `warden token generate`) to require a bearer token", addr, auth.TokenEnv)
+	}
+	return nil
+}
+
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
@@ -74,8 +86,15 @@ func newDaemonCmd() *cobra.Command {
 				cfg.Addr = a
 			}
 			authToken := auth.TokenFromEnv()
-			if !config.IsLoopbackHost(cfg.Addr) && authToken == "" && !cfg.AllowNonLoopback {
-				return fmt.Errorf("refusing to bind non-loopback address %q without authentication: set %s (run `warden token generate`) to require a bearer token, or set allow_nonloopback: true in %s to bind without auth (not recommended)", cfg.Addr, auth.TokenEnv, cfgPath)
+			if err := requireTokenForNonLoopback(cfg.Addr, authToken); err != nil {
+				return err
+			}
+			// allow_nonloopback used to bypass this token requirement; that hole is
+			// closed (audit #7) — a bearer token is now mandatory for any
+			// non-loopback bind. The field is retained as an inert, deprecated
+			// no-op so existing configs still parse; warn so operators drop it.
+			if cfg.AllowNonLoopback {
+				slog.Warn("config allow_nonloopback is deprecated and no longer bypasses authentication; a bearer token is required for any non-loopback bind — remove it and set " + auth.TokenEnv + " instead")
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

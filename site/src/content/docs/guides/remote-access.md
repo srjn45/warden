@@ -17,7 +17,7 @@ warden token rotate     # regenerate in place and restart the daemon
 
 The token is stored in `~/.warden/token.env` (`WARDEN_TOKEN=<hex>`, mode `0600`). The `WARDEN_TOKEN` environment variable overrides the file, so the secret can stay off disk in a container or CI.
 
-To actually listen off-loopback, set `allow_nonloopback: true` in the config (or `WARDEN_ALLOW_NONLOOPBACK`) and bind the address you want (`addr` / `WARDEN_ADDR`).
+To actually listen off-loopback, set a token (above) and bind the address you want (`addr` / `WARDEN_ADDR`). A bearer token is **mandatory** for any non-loopback bind — the daemon refuses to start on a non-loopback address without `WARDEN_TOKEN`. (The old `allow_nonloopback` flag is deprecated and inert; it no longer disables auth.)
 
 - **CLI/API clients** send the token as a bearer header; SSE and WebSocket clients pass it as `?token=`.
 - **The web UI** shows a token-entry modal on a `401`, persists it in `localStorage`, and offers a sign-out control. The static SPA shell stays public so the modal can load.
