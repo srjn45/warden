@@ -5,8 +5,9 @@ description: The append-only ledger of tokens warden's lifecycle features keep o
 
 Every time one of warden's lifecycle features avoids dumping output into an agent's
 transcript, it records the saving to a real, **append-only ledger** under
-`<data_dir>/savings/`. `warden savings` reads it back — a measured proof point, not
-an estimate. Gated by the `savings` config setting (default on); the daemon serves
+`<data_dir>/savings/`. `warden savings` reads it back — a measured ledger of token
+counts (the dollar figures are list-price estimates; see below). Gated by the
+`savings` config setting (default on); the daemon serves
 it at `GET /api/v1/savings` (403 when off).
 
 ## Two axes, never blended
@@ -61,7 +62,10 @@ MCP tool.
 :::note[Dollar figures are estimates]
 Dollar figures are based on published list prices (as of 2026-06); they exclude
 prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ
-from your actual bill. Token counts are exact (read from the transcript).
+from your actual bill. Token counts are exact (read from the transcript). Dollar
+pricing applies to the Claude backend (spend is read from the Claude Code
+transcript); an unrecognized model id is priced at the Opus tier as a conservative
+budget floor — bring-your-own-model backends report tokens, not dollars.
 :::
 
 ## API: the saved-tokens trend

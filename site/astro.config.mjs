@@ -65,6 +65,7 @@ export default defineConfig({
           { label: 'Insights', slug: 'reference/insights' },
           { label: 'Plugins', slug: 'reference/plugins' },
           { label: 'REST API & OpenAPI', slug: 'reference/api-openapi' },
+          { label: 'Acceptable use & trademarks', slug: 'reference/acceptable-use' },
           { label: 'Troubleshooting', slug: 'reference/troubleshooting' },
         ]},
       ],

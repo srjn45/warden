@@ -64,7 +64,9 @@ CPU/memory:
 ![The warden web dashboard: the Cockpit home, then the Metrics tab with per-agent and fleet-total CPU/memory charts](/warden/media/web-monitor.gif)
 
 No SaaS, no login, no telemetry. It's a loopback REST API and a JSON store on
-disk. Runs on my laptop or a box I SSH into. Nothing leaves the machine.
+disk. Runs on my laptop or a box I SSH into. By default nothing leaves the
+machine — the only outbound traffic is what you opt into (webhook/Slack alerts,
+remote access, or `--calibrate`).
 
 ## The part I didn't expect to care about: knowing what it costs
 
