@@ -10,11 +10,38 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// backendFor resolves a session's agent backend, falling back to the Claude
+// default for an empty or unrecognized backend id (back-compat).
+func backendFor(id string) agentbackend.Backend {
+	if b, err := agentbackend.Get(id); err == nil && b != nil {
+		return b
+	}
+	return agentbackend.Default()
+}
+
+// approvalView builds the wire view for a session's pending approval by parsing
+// the pane through its backend (each backend recognizes its own prompt UI).
+func approvalView(b agentbackend.Backend, id, pane string) approval.View {
+	ap, ok := b.ParseApproval(pane)
+	if !ok || ap == nil {
+		return approval.View{ID: id, Recognized: false}
+	}
+	return approval.View{
+		ID:          id,
+		Action:      ap.Action,
+		Question:    ap.Question,
+		Options:     ap.Options,
+		Fingerprint: approval.Fingerprint(ap.Options),
+		Recognized:  true,
+	}
+}
 
 // ListSessions implements GET /api/v1/sessions. store.List returns pointers; the
 // generated SessionList holds values, so deref into a non-nil slice (the spec
@@ -138,7 +165,7 @@ func (s *Server) ListApprovals(ctx context.Context, _ oapi.ListApprovalsRequestO
 		if sess.Status != store.StatusWaitingForInput {
 			continue
 		}
-		views = append(views, approval.BuildView(sess.ID, sess.LastPaneExcerpt))
+		views = append(views, approvalView(backendFor(sess.Backend), sess.ID, sess.LastPaneExcerpt))
 	}
 	return oapi.ListApprovals200JSONResponse{Enabled: true, Approvals: views}, nil
 }
@@ -166,8 +193,8 @@ func (s *Server) ApproveSession(ctx context.Context, req oapi.ApproveSessionRequ
 	if err != nil {
 		return nil, err
 	}
-	a, ok := approval.Parse(pane)
-	if !ok || approval.Fingerprint(a.Options) != b.Fingerprint {
+	a, ok := backendFor(sess.Backend).ParseApproval(pane)
+	if !ok || a == nil || approval.Fingerprint(a.Options) != b.Fingerprint {
 		return nil, errStatus(http.StatusConflict, "prompt changed; reopen")
 	}
 	if b.Option < 1 || b.Option > len(a.Options) {
