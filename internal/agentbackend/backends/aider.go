@@ -298,9 +298,16 @@ func aiderApprovalLine(pane string) string {
 // --- System prompt / pricing ------------------------------------------------
 
 // SystemPromptFlag reports no system-prompt injection: Aider has no
-// --append-system-prompt equivalent (its convention mechanism is a --read file),
-// so warden's pipeline/collab/git hints are skipped for Aider agents
-// (Caps.SystemPromptInject=false).
+// --append-system-prompt equivalent, so warden's pipeline/collab/git hints are
+// skipped for Aider agents (Caps.SystemPromptInject=false).
+//
+// Aider also does NOT implement agentbackend.ContextInjector (the rules-file drop the
+// other flagless backends use): its convention mechanism, CONVENTIONS.md, is read
+// ONLY when explicitly added via `--read CONVENTIONS.md` or a `read:` entry in
+// `.aider.conf.yml` (verified: aider.chat/docs/usage/conventions) — a bare warden
+// launch does not auto-read it. Dropping a rules file Aider would ignore is worse than
+// nothing (a stale, unread file in the worktree), so warden injects nothing for Aider
+// rather than write a dead file. See docs/agent-backends/aider.md.
 func (Aider) SystemPromptFlag(string) (string, bool) { return "", false }
 
 // Pricing reports no pricing table: Aider is bring-your-own-model (any of dozens

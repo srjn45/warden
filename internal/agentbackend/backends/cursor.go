@@ -566,11 +566,31 @@ func cursorNegativeOption(low string) bool {
 
 // --- System prompt / pricing ------------------------------------------------
 
-// SystemPromptFlag reports no system-prompt injection: cursor-agent has no
-// --append-system-prompt equivalent on its launch command (its customization is
-// rules / AGENTS.md based), so warden's pipeline/collab/git hints are skipped for
-// Cursor agents (Caps.SystemPromptInject=false; see the gap doc).
+// SystemPromptFlag reports no launch-time system-prompt injection: cursor-agent has
+// no --append-system-prompt equivalent on its launch command (its customization is
+// rules / AGENTS.md based; Caps.SystemPromptInject stays false — that flag means
+// specifically a launch-time flag). warden instead delivers the same
+// pipeline/collab/git addendum out-of-band via the AGENTS.md rules file cursor-agent
+// reads on startup — see InjectContext (agentbackend.ContextInjector) and the gap doc.
 func (Cursor) SystemPromptFlag(string) (string, bool) { return "", false }
+
+// cursorRulesFile is the rules file cursor-agent reads on startup. The Cursor CLI
+// reads AGENTS.md (and CLAUDE.md) at the project root and applies it as rules
+// alongside .cursor/rules — verified: cursor.com/docs/cli — so warden writes its
+// addendum into the cross-tool-standard <workdir>/AGENTS.md rather than the
+// .mdc-formatted .cursor/rules tree.
+const cursorRulesFile = "AGENTS.md"
+
+// InjectContext implements agentbackend.ContextInjector. cursor-agent has no
+// --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
+// rules file from its working directory on startup, so warden delivers its
+// collab/git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
+// Lifecycle calls this post-worktree-creation / pre-launch so the file is present
+// when cursor-agent starts. The no-clobber/idempotent/git-exclude write is the shared
+// writeRulesFile helper (see inject.go and docs/agent-backends/cursor.md).
+func (Cursor) InjectContext(workdir, text string) error {
+	return writeRulesFile(workdir, cursorRulesFile, text)
+}
 
 // Pricing reports no pricing table. Cursor is a hosted plan: it surfaces token counts
 // (the stream-json `result.usage` carries input/output/cache tokens) but never a
@@ -588,9 +608,11 @@ func (Cursor) Pricing() (agentbackend.PricingTable, bool) {
 // (dir/workspace-scoped `--continue`; exact-id once discover-then-pin lands) and
 // there is a headless one-shot, but the interactive transcript is an unreadable
 // SQLite store so StructuredTranscript is off (digests degrade). Cursor mints its own
-// chatId (no SessionIDControl), has no launch-time system-prompt injection, and
-// exposes no warden-side dollar pricing (hosted plan). PermissionModes surface
-// Cursor's native execution/approval vocabulary.
+// chatId (no SessionIDControl) and exposes no warden-side dollar pricing (hosted
+// plan). SystemPromptInject stays false (cursor-agent has no launch-time
+// system-prompt flag) — but warden's addendum still reaches it out-of-band via the
+// AGENTS.md rules file (InjectContext); the Caps flag tracks the launch-flag
+// specifically. PermissionModes surface Cursor's native execution/approval vocabulary.
 func (Cursor) Capabilities() agentbackend.Caps {
 	return agentbackend.Caps{
 		Resume:               true,

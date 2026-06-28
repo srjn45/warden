@@ -66,6 +66,7 @@ synthetic write/edit fixture.
 | `TranscriptPath`         | `crush session list --json` → `crush session show <id> --json` | SQLite-sourced via the CLI, like OpenCode's `export` |
 | `ParseTranscript`        | parses `session show` JSON                      | Tier A |
 | `SystemPromptFlag`       | *(unsupported)*                                 | no `--append-system-prompt` equivalent |
+| `InjectContext`          | writes `<workdir>/CRUSH.md`                      | warden's collab/git/pipeline addendum is delivered via the CRUSH.md context file Crush reads on startup (the no-flag fallback) |
 | `Pricing`                | *(unsupported)*                                 | BYO multi-provider |
 | `DetectState` / `ParseApproval` | *(degraded)*                            | TUI prompts not captured |
 
@@ -107,7 +108,7 @@ Permission-mode folding: warden's `yolo` / `auto` / `acceptEdits` /
 | Session-id control     | ❌      | Crush mints its own 16-hex id; warden cannot assign one (`SessionIDControl=false`) |
 | Permission modes       | default / `yolo` | TUI prompt vs. `--yolo` auto-accept |
 | Pricing / spend $      | ❌ (deferred) | Crush **does** track cost/tokens natively in session meta; warden's usage reader is Claude-JSONL-specific and doesn't read it yet |
-| System-prompt inject   | ❌      | no launch-time `--append-system-prompt`; customization is config / `CRUSH.md` context files |
+| System-prompt inject   | ✅ via rules file | no launch-time `--append-system-prompt`, but warden delivers the same addendum out-of-band via the `CRUSH.md` context file Crush reads on startup (`InjectContext`). `SystemPromptInject` Caps stays `false` — it tracks the *launch flag* specifically. |
 | Initial-prompt seeding | ❌ (gap) | the interactive TUI takes no positional/flag prompt |
 
 ## What works vs. what warden can't do yet
@@ -133,7 +134,13 @@ Permission-mode folding: warden's `yolo` / `auto` / `acceptEdits` /
    headless `run` raise no prompts).
 4. **No warden-side dollar spend.** Multi-provider BYO; pricing degrades to
    tokens-only (Crush's native `meta.cost`/token counts are not yet wired in).
-5. **No system-prompt injection** of warden's collab/git/pipeline hints.
+5. ~~**No system-prompt injection** of warden's collab/git/pipeline hints.~~
+   **Resolved** — warden delivers its collab/git/pipeline hints to Crush by
+   writing them into the `CRUSH.md` context file Crush reads on startup
+   (`InjectContext`, the shared rules-file injector in `inject.go`; same
+   no-clobber / idempotent / git-`info/exclude` semantics as Codex). The
+   `SystemPromptInject` Caps flag stays `false` because it tracks a *launch-time*
+   flag specifically, which Crush still lacks.
 
 ## Crush superpowers worth preserving / wiring later
 
@@ -149,8 +156,9 @@ available to the agent and are candidates for deeper warden integration:
   natural source for a future first-class warden spend wiring.
 - **`crush server` / host socket** — a server mode (`-H/--host`) that could back
   a richer programmatic integration than the CLI shell-out.
-- **`CRUSH.md` context files & config agents** — the future home for injecting
-  warden's conventions without a launch flag.
+- **`CRUSH.md` context files & config agents** — already the home warden uses to
+  inject its conventions without a launch flag (`InjectContext`); config agents
+  remain a candidate for richer wiring.
 
 ## Deferred (FUTURE_ENHANCEMENTS #52)
 
@@ -159,4 +167,3 @@ available to the agent and are candidates for deeper warden integration:
 - Wire warden spend/savings to Crush's native `meta` cost/tokens.
 - Map interactive TUI approvals (`DetectState`/`ParseApproval`).
 - Seed the initial task prompt (needs a Crush TUI prompt flag or the server API).
-- Inject warden's system-prompt hints via `CRUSH.md` / config.

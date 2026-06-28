@@ -57,6 +57,7 @@ interactive `goose session` completed with no paid API calls.
 | `ParseTranscript`      | parses the export's `conversation[]`                                 | Tier A. |
 | `LaunchPromptArg`      | _(none)_                                                             | **Gap** — see below. |
 | `SystemPromptFlag`     | _(none on `session`)_                                                | `goose run --system` exists; interactive `session` has no equivalent. |
+| `InjectContext`        | writes `<workdir>/.goosehints`                                        | warden's collab/git/pipeline addendum is delivered via the `.goosehints` file Goose auto-loads on startup (the no-flag fallback). |
 
 ### Session identity & resume
 
@@ -118,7 +119,7 @@ a dir-scoped `session-list.json`.
 | Model selection (warden-driven) | `ModelSelection` | ❌    | Interactive `session` has no `--model`; config/env-driven. `goose run` does take `--model`/`--provider`. |
 | Permission-mode select   | `PermissionModes`      | ⚠️    | Native modes `auto`/`approve`/`chat`/`smart_approve` are listed for reference, but they're `GOOSE_MODE` env/config — the launch command can't select one. |
 | Session-id control       | `SessionIDControl`     | ❌    | Goose mints its own id; warden pins a **name** instead. |
-| System-prompt inject     | `SystemPromptInject`   | ❌    | `goose session` has no flag (only headless `goose run --system`). |
+| System-prompt inject     | `SystemPromptInject`   | ✅ via rules file | `goose session` has no launch flag (only headless `goose run --system`), but warden delivers the same addendum out-of-band via the `.goosehints` file Goose reads on startup (`InjectContext`). `SystemPromptInject` Caps stays `false` — it tracks the *launch flag* specifically. |
 | Pricing / spend          | `Pricing`              | ❌    | BYO multi-provider; no warden-side rate table (Goose does track tokens/cost natively — see deferred). |
 | State / approval detect  | —                      | ❌    | Degraded (Unknown / false); not yet mapped. |
 
@@ -145,8 +146,13 @@ a dir-scoped `session-list.json`.
 - **No warden-driven model/provider on launch.** Interactive `session` has no
   `--model`/`--provider`; warden relies on `GOOSE_PROVIDER`/`GOOSE_MODEL`.
 - **No warden-driven permission mode on launch.** `GOOSE_MODE` env/config only.
-- **No system-prompt injection** on the interactive launch (warden's
-  pipeline/collab/git hints are skipped for Goose agents).
+- ~~**No system-prompt injection** on the interactive launch.~~ **Resolved** —
+  warden delivers its pipeline/collab/git hints by writing them into the
+  `.goosehints` file Goose auto-loads from the working directory on startup
+  (`InjectContext`, the shared rules-file injector in `inject.go`; same
+  no-clobber / idempotent / git-`info/exclude` semantics as Codex). The
+  `SystemPromptInject` Caps flag stays `false` because it tracks a *launch-time*
+  flag specifically, which `goose session` still lacks.
 - **State/approval detection degraded.** Goose's run-state and `approve`-mode
   prompts live in its TUI; no stable pane marker was captured this phase, so
   `DetectState` returns Unknown and `ParseApproval` returns false (idle is
@@ -193,5 +199,6 @@ way. Things to integrate _on top_ later (none stripped today):
 **Tier A** (transcripts). Goose's SQLite store is sourced via
 `goose session export --format json` into clean, parseable `conversation[]` JSON,
 yielding high-fidelity neutral Turns. Resume is supported and name-deterministic.
-Pricing, model/mode/system-prompt-on-launch, and state detection are the honest
-degradations above.
+Pricing, model/mode-on-launch, and state detection are the honest degradations
+above; warden's system-prompt addendum now reaches Goose out-of-band via the
+`.goosehints` file (`InjectContext`).

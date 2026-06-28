@@ -3,7 +3,6 @@ package backends
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -582,19 +581,9 @@ func codexAffirmative(opts []string) (idx int, sticky bool) {
 // on startup — see InjectContext (agentbackend.ContextInjector) and the gap doc.
 func (Codex) SystemPromptFlag(string) (string, bool) { return "", false }
 
-// Codex's rules-file injection constants. Codex reads an AGENTS.md from the working
-// directory on startup; warden delivers its addendum through a clearly-delimited
-// block so a user's own AGENTS.md content is preserved and the warden section can be
-// replaced in place on every relaunch (idempotent, never duplicated).
-const (
-	codexAgentsFile  = "AGENTS.md"
-	codexWardenBegin = "<!-- warden:begin -->"
-	codexWardenEnd   = "<!-- warden:end -->"
-)
-
-// codexWardenBlockRe matches a previously-written warden block (begin…end, plus a
-// trailing newline) so InjectContext can replace it in place.
-var codexWardenBlockRe = regexp.MustCompile(`(?s)` + regexp.QuoteMeta(codexWardenBegin) + `.*?` + regexp.QuoteMeta(codexWardenEnd) + `\n?`)
+// codexAgentsFile is the rules file Codex reads from its working directory on
+// startup — the file warden writes its addendum into (see InjectContext).
+const codexAgentsFile = "AGENTS.md"
 
 // InjectContext implements agentbackend.ContextInjector. Codex has no
 // --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
@@ -603,119 +592,13 @@ var codexWardenBlockRe = regexp.MustCompile(`(?s)` + regexp.QuoteMeta(codexWarde
 // AGENTS.md counterpart to Claude's launch-time flag. Lifecycle calls this
 // post-worktree-creation / pre-launch so the file is present when Codex starts.
 //
-// The write is deliberately careful:
-//   - It does NOT clobber a user's existing AGENTS.md: warden's text goes inside a
-//     `<!-- warden:begin -->` … `<!-- warden:end -->` block. A pre-existing file
-//     keeps all its content; only the warden block is added or refreshed.
-//   - It is idempotent: relaunch/resume re-invokes this, and the warden block is
-//     replaced in place (matched by codexWardenBlockRe), never duplicated.
-//   - The dropped AGENTS.md is warden-injected, not the user's code, so it is kept
-//     out of git via the repo's info/exclude (codexExcludeFromGit) — it never lands
-//     in the agent's diff/PR. Best-effort: a non-git or unwritable workdir just
-//     skips the exclude (the file is still written). See docs/agent-backends/codex.md.
-//
-// An empty workdir or empty text is a no-op.
+// The actual write (no-clobber of a user's AGENTS.md via the warden-delimited block,
+// idempotent in-place replace, best-effort git info/exclude so it never lands in the
+// diff) is the shared writeRulesFile helper — the same machinery every injecting
+// backend uses, differing only in the filename. See docs/agent-backends/codex.md and
+// inject.go.
 func (Codex) InjectContext(workdir, text string) error {
-	text = strings.TrimSpace(text)
-	if workdir == "" || text == "" {
-		return nil
-	}
-	path := filepath.Join(workdir, codexAgentsFile)
-	block := codexWardenBegin + "\n" + text + "\n" + codexWardenEnd + "\n"
-
-	existing, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		if err := os.WriteFile(path, []byte(codexMergeAgents(string(existing), block)), 0o644); err != nil {
-			return err
-		}
-	case errors.Is(err, fs.ErrNotExist):
-		if err := os.WriteFile(path, []byte(block), 0o644); err != nil {
-			return err
-		}
-	default:
-		return err
-	}
-	codexExcludeFromGit(workdir, codexAgentsFile) // best-effort; keeps it out of the diff
-	return nil
-}
-
-// codexMergeAgents folds the warden block into a user's existing AGENTS.md content.
-// If a prior warden block is present it is replaced in place (idempotent); otherwise
-// the block is appended below the user's content, separated by a blank line. Uses a
-// literal replacement so `$` in the addendum is never treated as a capture ref.
-func codexMergeAgents(existing, block string) string {
-	if codexWardenBlockRe.MatchString(existing) {
-		return codexWardenBlockRe.ReplaceAllLiteralString(existing, block)
-	}
-	if existing == "" {
-		return block
-	}
-	if !strings.HasSuffix(existing, "\n") {
-		existing += "\n"
-	}
-	return existing + "\n" + block
-}
-
-// codexExcludeFromGit best-effort adds name to the repo's git info/exclude so the
-// warden-injected AGENTS.md never shows up as untracked (and so the agent can't land
-// it in a commit/PR). It is a no-op outside a git tree or when the exclude file is
-// unwritable, and never duplicates an existing entry.
-func codexExcludeFromGit(workdir, name string) {
-	excl, ok := gitInfoExcludePath(workdir)
-	if !ok {
-		return
-	}
-	data, _ := os.ReadFile(excl)
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == name {
-			return // already excluded
-		}
-	}
-	f, err := os.OpenFile(excl, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	prefix := ""
-	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
-		prefix = "\n"
-	}
-	_, _ = f.WriteString(prefix + name + "\n")
-}
-
-// gitInfoExcludePath resolves the info/exclude file git consults for workdir,
-// handling both a normal repo (.git is a directory) and a linked worktree (.git is a
-// file pointing at the per-worktree gitdir, whose commondir names the shared .git).
-// ok=false when workdir is not a git tree.
-func gitInfoExcludePath(workdir string) (string, bool) {
-	dotgit := filepath.Join(workdir, ".git")
-	info, err := os.Stat(dotgit)
-	if err != nil {
-		return "", false
-	}
-	if info.IsDir() {
-		return filepath.Join(dotgit, "info", "exclude"), true
-	}
-	// Linked worktree: .git is a file "gitdir: <per-worktree gitdir>".
-	data, err := os.ReadFile(dotgit)
-	if err != nil {
-		return "", false
-	}
-	gitdir := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(data)), "gitdir:"))
-	if gitdir == "" {
-		return "", false
-	}
-	// Excludes are read from the shared commondir, named by <gitdir>/commondir
-	// (relative to gitdir) when present; fall back to the per-worktree gitdir.
-	if rel, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
-		common := strings.TrimSpace(string(rel))
-		if !filepath.IsAbs(common) {
-			common = filepath.Join(gitdir, common)
-		}
-		return filepath.Join(filepath.Clean(common), "info", "exclude"), true
-	}
-	return filepath.Join(gitdir, "info", "exclude"), true
+	return writeRulesFile(workdir, codexAgentsFile, text)
 }
 
 // Pricing reports no pricing table. The $0-local rig runs Ollama (free) and Codex

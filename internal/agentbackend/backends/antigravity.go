@@ -418,11 +418,30 @@ func agyAffirmative(opts []string) (idx int, sticky bool) {
 
 // --- System prompt / pricing ------------------------------------------------
 
-// SystemPromptFlag reports no system-prompt injection: `agy` has no
+// SystemPromptFlag reports no launch-time system-prompt injection: `agy` has no
 // --append-system-prompt equivalent on its launch command (its customization is
-// skills/rules/AGENTS.md based), so warden's pipeline/collab/git hints are skipped
-// for Antigravity agents (Caps.SystemPromptInject=false; see the gap doc).
+// skills/rules/AGENTS.md based; Caps.SystemPromptInject stays false — that flag means
+// specifically a launch-time flag). warden instead delivers the same
+// pipeline/collab/git addendum out-of-band via the AGENTS.md rules file `agy` reads on
+// startup — see InjectContext (agentbackend.ContextInjector) and the gap doc.
 func (Antigravity) SystemPromptFlag(string) (string, bool) { return "", false }
+
+// agyRulesFile is the rules file `agy` reads on startup. Antigravity parses and
+// enforces the rule constraints in the active directory's AGENTS.md (and GEMINI.md)
+// — verified: ai.google.dev/gemini-api Antigravity docs — so warden writes its
+// addendum into the cross-tool-standard <workdir>/AGENTS.md.
+const agyRulesFile = "AGENTS.md"
+
+// InjectContext implements agentbackend.ContextInjector. `agy` has no
+// --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
+// rules file from its working directory on startup, so warden delivers its
+// collab/git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
+// Lifecycle calls this post-worktree-creation / pre-launch so the file is present
+// when `agy` starts. The no-clobber/idempotent/git-exclude write is the shared
+// writeRulesFile helper (see inject.go and docs/agent-backends/antigravity.md).
+func (Antigravity) InjectContext(workdir, text string) error {
+	return writeRulesFile(workdir, agyRulesFile, text)
+}
 
 // Pricing reports no pricing table. Antigravity is a Google-hosted free-tier agent:
 // `agy` surfaces token usage / session cost only in its `/usage` TUI panel, exposes
@@ -438,9 +457,11 @@ func (Antigravity) Pricing() (agentbackend.PricingTable, bool) {
 // Capabilities reports Antigravity as a Tier-A backend: the plaintext trajectory
 // JSONL parses into structured Turns (powering digests), and resume is supported
 // (dir-scoped today, exact-id once discover-then-pin lands). `agy` mints its own
-// conversation id (no SessionIDControl), has no launch-time system-prompt injection,
-// and exposes no warden-side dollar pricing yet. PermissionModes surface `agy`'s
-// native posture flags.
+// conversation id (no SessionIDControl) and exposes no warden-side dollar pricing yet.
+// SystemPromptInject stays false (`agy` has no launch-time system-prompt flag) — but
+// warden's addendum still reaches it out-of-band via the AGENTS.md rules file
+// (InjectContext); the Caps flag tracks the launch-flag specifically. PermissionModes
+// surface `agy`'s native posture flags.
 func (Antigravity) Capabilities() agentbackend.Caps {
 	return agentbackend.Caps{
 		Resume:               true,
