@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -450,6 +451,53 @@ func (Antigravity) InjectContext(workdir, text string) error {
 // warden to Antigravity's native usage is deferred (docs/agent-backends/antigravity.md).
 func (Antigravity) Pricing() (agentbackend.PricingTable, bool) {
 	return agentbackend.PricingTable{}, false
+}
+
+// --- Model menu -------------------------------------------------------------
+
+// agyModelsCmd runs `agy models` and returns its stdout. It is a package var so the
+// parser test can exercise ListModels without the real binary. Listing the menu is a
+// metadata read — `agy models` queries the available model set, it does NOT start a
+// session or a turn — so it costs no generation quota (verified live against agy
+// v1.0.13: exit 0, clean stdout, no auth challenge, no quota touched).
+var agyModelsCmd = func() ([]byte, error) {
+	return exec.Command("agy", "models").Output()
+}
+
+// ListModels implements agentbackend.ModelLister. `agy`'s model set is a live,
+// multi-vendor menu (Gemini 3.x, Claude Sonnet/Opus, GPT-OSS) the operator's account
+// can change, so warden surfaces the real `agy models` output rather than a hard-coded
+// alias table. The ids feed warden's `--model` flag verbatim — `agy models` prints the
+// exact display labels `agy --model` accepts (e.g. "Gemini 3.5 Flash (Low)"). ok=false
+// on any command error (binary missing, not signed in) so `wd models` degrades cleanly.
+func (Antigravity) ListModels() ([]string, bool) {
+	out, err := agyModelsCmd()
+	if err != nil {
+		return nil, false
+	}
+	return parseAgyModels(out), true
+}
+
+// parseAgyModels normalizes `agy models` stdout into a clean []string of model ids.
+// `agy models` prints one model per line with no header or decoration (verified live,
+// agy v1.0.13):
+//
+//	Gemini 3.5 Flash (Medium)
+//	Gemini 3.5 Flash (High)
+//	…
+//	GPT-OSS 120B (Medium)
+//
+// so the parse is: trim each line, drop blanks, preserve order. Returns an empty slice
+// (never nil-vs-nil ambiguity for callers) when there is nothing to list.
+func parseAgyModels(out []byte) []string {
+	models := []string{}
+	sc := bufio.NewScanner(strings.NewReader(string(out)))
+	for sc.Scan() {
+		if line := strings.TrimSpace(sc.Text()); line != "" {
+			models = append(models, line)
+		}
+	}
+	return models
 }
 
 // --- Capabilities -----------------------------------------------------------

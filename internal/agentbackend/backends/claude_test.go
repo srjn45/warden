@@ -265,6 +265,15 @@ func TestClaudeNotReviewer(t *testing.T) {
 	require.False(t, ok, "Claude has no native review subcommand; wd review must skip it")
 }
 
+// TestClaudeNotModelLister regression-locks the ModelLister seam: Claude's model set is
+// a static alias table, not a live runtime menu, so it must NOT implement
+// agentbackend.ModelLister — `wd models` is simply not offered for Claude (it degrades
+// to `--model` with a known id) and Claude's resolved-id behavior stays untouched.
+func TestClaudeNotModelLister(t *testing.T) {
+	_, ok := agentbackend.Backend(Claude{}).(agentbackend.ModelLister)
+	require.False(t, ok, "Claude has a static model set; wd models must skip it")
+}
+
 func TestPricing(t *testing.T) {
 	tbl, ok := Claude{}.Pricing()
 	require.True(t, ok)

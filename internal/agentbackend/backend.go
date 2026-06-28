@@ -237,6 +237,25 @@ type ReviewFinding struct {
 	Message  string `json:"message"`            // the finding text
 }
 
+// ModelLister is an optional Backend extension for agents whose model set is a
+// live, multi-vendor menu discoverable at runtime (Antigravity: `agy models`;
+// Cursor: `--list-models`) rather than a hard-coded alias table. It surfaces the
+// real, currently-available menu to warden's model picker — the agent-native
+// counterpart to the static `lifecycle/models.go` alias set — so the operator can
+// see exactly which ids the backend will accept on `--model` right now. Listing the
+// menu is a metadata read, not a generation request: implementations run the
+// backend's own list subcommand and return ok=false on any command error so the verb
+// degrades cleanly. Additive and on-top — a backend without it (Claude, with a static
+// model set) keeps the current resolved-id behavior and is simply not offered the
+// live menu (`wd models` reports it and points at `--model` with a known id).
+type ModelLister interface {
+	// ListModels runs the backend's native model-menu command and returns the live
+	// menu as a clean slice of model ids (one per entry, order preserved as the
+	// backend lists them). ok=false ⇒ no live menu is available (command missing or
+	// errored) — the caller reports a clean degrade rather than erroring.
+	ListModels() (models []string, ok bool)
+}
+
 // SessionIDDiscoverer is an optional Backend extension implemented by agents that
 // mint their OWN session id at launch (Caps.SessionIDControl=false) — warden
 // cannot pin the id up front, so LaunchCmd ignores LaunchOpts.SessionID and the

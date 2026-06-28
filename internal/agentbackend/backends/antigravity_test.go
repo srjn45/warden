@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,4 +302,59 @@ func TestAntigravityIdentity(t *testing.T) {
 	require.Equal(t, "antigravity", a.ID(), "canonical backend id is 'antigravity'")
 	require.Equal(t, "agy", a.Binary(), "binary is agy")
 	require.Equal(t, "Antigravity", a.DisplayName())
+}
+
+// --- Model menu (live `agy models`) -----------------------------------------
+
+// TestParseAgyModels locks the parser against the REAL `agy models` output captured
+// live (testdata/antigravity/models.txt, agy v1.0.13): one model per line, no header,
+// blanks dropped, order preserved. The ids are the exact `--model` labels.
+func TestParseAgyModels(t *testing.T) {
+	out := agyFixture(t, "models.txt")
+	got := parseAgyModels([]byte(out))
+	want := []string{
+		"Gemini 3.5 Flash (Medium)",
+		"Gemini 3.5 Flash (High)",
+		"Gemini 3.5 Flash (Low)",
+		"Gemini 3.1 Pro (Low)",
+		"Gemini 3.1 Pro (High)",
+		"Claude Sonnet 4.6 (Thinking)",
+		"Claude Opus 4.6 (Thinking)",
+		"GPT-OSS 120B (Medium)",
+	}
+	require.Equal(t, want, got)
+}
+
+// TestParseAgyModelsTrimsAndDropsBlanks covers the edge shapes the trim/drop handles:
+// surrounding whitespace, blank lines, a trailing newline. Never nil so JSON emits [].
+func TestParseAgyModelsTrimsAndDropsBlanks(t *testing.T) {
+	require.Equal(t, []string{"a", "b"}, parseAgyModels([]byte("  a  \n\n b\n")))
+	require.Equal(t, []string{}, parseAgyModels(nil), "empty input ⇒ empty (non-nil) slice")
+}
+
+// TestAntigravityListModels drives ListModels through the stubbed `agy models` runner
+// (the fixture stands in for the live binary) and asserts it normalizes the menu.
+func TestAntigravityListModels(t *testing.T) {
+	orig := agyModelsCmd
+	t.Cleanup(func() { agyModelsCmd = orig })
+	agyModelsCmd = func() ([]byte, error) {
+		return []byte(agyFixture(t, "models.txt")), nil
+	}
+	models, ok := Antigravity{}.ListModels()
+	require.True(t, ok)
+	require.Len(t, models, 8)
+	require.Equal(t, "Gemini 3.5 Flash (Medium)", models[0])
+	require.Equal(t, "GPT-OSS 120B (Medium)", models[len(models)-1])
+}
+
+// TestAntigravityListModelsDegradesOnError: a command error (binary missing / not
+// signed in) returns ok=false so `wd models` reports a clean degrade, never a crash.
+func TestAntigravityListModelsDegradesOnError(t *testing.T) {
+	orig := agyModelsCmd
+	t.Cleanup(func() { agyModelsCmd = orig })
+	agyModelsCmd = func() ([]byte, error) {
+		return nil, errors.New("exec: agy: not found")
+	}
+	_, ok := Antigravity{}.ListModels()
+	require.False(t, ok, "a command error degrades to ok=false")
 }
