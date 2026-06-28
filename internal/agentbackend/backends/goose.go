@@ -348,13 +348,31 @@ func (Goose) ParseApproval(string) (*agentbackend.Approval, bool) { return nil, 
 
 // --- System prompt / pricing ------------------------------------------------
 
-// SystemPromptFlag reports no system-prompt injection for the interactive launch:
-// `goose session` has no system-prompt flag (only headless `goose run --system`
-// does), so warden's pipeline/collab/git hints are skipped for Goose agents
-// (Caps.SystemPromptInject=false). Goose's first-class customization is its
-// recipes, `.goosehints`, and the "Top Of Mind" extension — richer mechanisms
-// worth wiring later (docs/agent-backends/goose.md).
+// SystemPromptFlag reports no launch-time system-prompt injection for the interactive
+// launch: `goose session` has no system-prompt flag (only headless `goose run
+// --system` does; Caps.SystemPromptInject stays false — that flag means specifically a
+// launch-time flag). warden instead delivers the same pipeline/collab/git addendum
+// out-of-band via the .goosehints file Goose reads on startup — see InjectContext
+// (agentbackend.ContextInjector). Goose's other first-class customization (recipes,
+// the "Top Of Mind" extension) is worth wiring later (docs/agent-backends/goose.md).
 func (Goose) SystemPromptFlag(string) (string, bool) { return "", false }
+
+// gooseHintsFile is the hints file Goose reads on startup. Goose loads .goosehints
+// (and AGENTS.md) from the working directory up to the repo root and adds them to the
+// system prompt for every request — verified: block.github.io/goose using-goosehints
+// — so warden writes its addendum into the Goose-native <workdir>/.goosehints.
+const gooseHintsFile = ".goosehints"
+
+// InjectContext implements agentbackend.ContextInjector. The interactive `goose
+// session` has no system-prompt flag (Caps.SystemPromptInject=false) but Goose reads
+// a .goosehints file from its working directory on startup, so warden delivers its
+// collab/git/pipeline addendum by writing that text into <workdir>/.goosehints.
+// Lifecycle calls this post-worktree-creation / pre-launch so the file is present
+// when Goose starts. The no-clobber/idempotent/git-exclude write is the shared
+// writeRulesFile helper (see inject.go and docs/agent-backends/goose.md).
+func (Goose) InjectContext(workdir, text string) error {
+	return writeRulesFile(workdir, gooseHintsFile, text)
+}
 
 // Pricing reports no pricing table. Goose is multi-provider bring-your-own-model
 // (local Ollama at $0, or any paid provider), so warden cannot enumerate per-model
@@ -372,8 +390,10 @@ func (Goose) Pricing() (agentbackend.PricingTable, bool) {
 // (JSON-export) transcript powers digests, and resume is supported and
 // name-deterministic (warden pins --name). Honest degradations: warden cannot
 // assign Goose's session id (it mints its own; warden pins a name instead), the
-// interactive launch takes no model or system-prompt flag (config/env-driven),
-// and there is no warden-side pricing yet. PermissionModes lists Goose's native
+// interactive launch takes no model or launch-time system-prompt flag (config/env-
+// driven), and there is no warden-side pricing yet. SystemPromptInject stays false
+// (no launch-time flag) — but warden's addendum still reaches Goose out-of-band via
+// the .goosehints file (InjectContext). PermissionModes lists Goose's native
 // approval modes for reference even though the interactive launch can't select
 // one (GOOSE_MODE env/config only) — see docs/agent-backends/goose.md.
 func (Goose) Capabilities() agentbackend.Caps {

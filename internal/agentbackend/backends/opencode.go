@@ -376,11 +376,31 @@ func (OpenCode) ParseApproval(string) (*agentbackend.Approval, bool) { return ni
 
 // --- System prompt / pricing ------------------------------------------------
 
-// SystemPromptFlag reports no system-prompt injection: OpenCode has no
+// SystemPromptFlag reports no launch-time system-prompt injection: OpenCode has no
 // --append-system-prompt equivalent on its launch command (its customization is
-// config/agent-file based), so warden's pipeline/collab/git hints are skipped for
-// OpenCode agents (Caps.SystemPromptInject=false).
+// config/agent-file based; Caps.SystemPromptInject stays false — that flag means
+// specifically a launch-time flag). warden instead delivers the same
+// pipeline/collab/git addendum out-of-band via the AGENTS.md rules file OpenCode
+// reads on startup — see InjectContext (agentbackend.ContextInjector).
 func (OpenCode) SystemPromptFlag(string) (string, bool) { return "", false }
+
+// opencodeAgentsFile is the rules file OpenCode reads on startup. OpenCode follows
+// the AGENTS.md standard: it loads the nearest AGENTS.md by traversing up from the
+// working directory (verified: opencode.ai/docs/rules), so warden writes its addendum
+// into <workdir>/AGENTS.md.
+const opencodeAgentsFile = "AGENTS.md"
+
+// InjectContext implements agentbackend.ContextInjector. OpenCode has no
+// --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
+// rules file from its working directory on startup, so warden delivers its
+// collab/git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
+// Lifecycle calls this post-worktree-creation / pre-launch so the file is present
+// when OpenCode starts. The no-clobber/idempotent/git-exclude write is the shared
+// writeRulesFile helper (the AGENTS.md counterpart to Claude's launch-time flag; see
+// inject.go and docs/agent-backends/opencode.md).
+func (OpenCode) InjectContext(workdir, text string) error {
+	return writeRulesFile(workdir, opencodeAgentsFile, text)
+}
 
 // Pricing reports no pricing table. OpenCode is multi-provider bring-your-own-model
 // (local Ollama at $0, or any paid provider), so warden cannot enumerate per-model
@@ -396,8 +416,10 @@ func (OpenCode) Pricing() (agentbackend.PricingTable, bool) {
 
 // Capabilities reports OpenCode as a Tier-A backend that, unlike Aider, supports
 // resume (dir-scoped today, exact-id once discover-then-pin lands). Structured
-// transcript powers digests; no assignable session id, no system-prompt injection,
-// no warden-side pricing yet.
+// transcript powers digests; no assignable session id, no warden-side pricing yet.
+// SystemPromptInject stays false (OpenCode has no launch-time system-prompt flag) —
+// but warden's addendum still reaches it out-of-band via the AGENTS.md rules file
+// (InjectContext); the Caps flag tracks the launch-flag specifically.
 func (OpenCode) Capabilities() agentbackend.Caps {
 	return agentbackend.Caps{
 		Resume:               true,

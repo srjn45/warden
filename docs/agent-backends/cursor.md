@@ -31,6 +31,7 @@ strips Cursor's features down to a lowest common denominator.
 | `TranscriptPath`     | — (degraded, returns false)                        | Interactive transcript is an unreadable SQLite `store.db` (see below). |
 | `ParseTranscript`    | parses `--output-format stream-json` NDLJSON       | Real + tested, but **not wired** today (no on-disk NDJSON for the TUI). |
 | `SystemPromptFlag`   | — (unsupported)                                    | Cursor has no `--append-system-prompt` flag. |
+| `InjectContext`      | writes `<workdir>/AGENTS.md`                       | warden's collab/git/pipeline addendum is delivered via the AGENTS.md rules file cursor-agent reads on startup (the no-flag fallback). |
 | `Pricing`            | — (unsupported)                                    | Hosted plan; tokens surfaced, dollars never are. |
 | `DetectState`        | working / idle / needs-input                       | TUI pane markers (`ctrl+c to stop`; composer placeholders; approval/trust menus) — see State & approval detection below. |
 | `ParseApproval`      | command-allowlist + workspace-trust prompts        | Both interactive menus normalize into a neutral `Approval`; surfaced in warden's approvals inbox. |
@@ -203,7 +204,7 @@ writing that file.)
 | `StructuredTranscript` | ❌    | interactive transcript is an unreadable SQLite `store.db` (**Tier C**). |
 | `PermissionModes`      | ✅    | `default`, `plan`, `ask`, `auto-review`, `force` (Cursor's native vocabulary). |
 | `SessionIDControl`     | ❌    | Cursor mints its own UUID chatId; no flag to assign one at launch. |
-| `SystemPromptInject`   | ❌    | no `--append-system-prompt` equivalent on the launch command. |
+| `SystemPromptInject`   | ✅ via rules file | no `--append-system-prompt` equivalent on the launch command, but warden delivers the same addendum out-of-band via the `AGENTS.md` rules file cursor-agent reads on startup (`InjectContext`). The Caps flag stays `false` — it tracks the *launch flag* specifically. |
 | `Pricing`              | ❌    | hosted plan; tokens are in the stream, dollars are never surfaced. |
 
 ---
@@ -243,8 +244,13 @@ writing that file.)
   counts, but warden's spend table is Claude-specific and Cursor never surfaces a
   per-call dollar figure (billing is the user's subscription); spend shows tokens,
   savings omits the agent (design §5).
-- **No system-prompt injection.** warden's pipeline/collab/git hints aren't appended
-  for Cursor agents (no flag). Cursor rules / `AGENTS.md` could carry this later.
+- ~~**No system-prompt injection.**~~ **Resolved** — warden delivers its
+  pipeline/collab/git hints by writing them into the `AGENTS.md` rules file
+  cursor-agent reads at the project root on startup (`InjectContext`, the shared
+  rules-file injector in `inject.go`; same no-clobber / idempotent /
+  git-`info/exclude` semantics as Codex). The `SystemPromptInject` Caps flag stays
+  `false` because it tracks a *launch-time* flag specifically, which cursor-agent
+  still lacks.
 
 **$0-local viability:** ❌ N/A. Cursor is a hosted plan; there is no free local rig.
 

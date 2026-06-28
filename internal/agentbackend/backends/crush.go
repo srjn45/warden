@@ -380,11 +380,32 @@ func (Crush) ParseApproval(string) (*agentbackend.Approval, bool) { return nil, 
 
 // --- System prompt / pricing ------------------------------------------------
 
-// SystemPromptFlag reports no system-prompt injection: Crush has no
+// SystemPromptFlag reports no launch-time system-prompt injection: Crush has no
 // --append-system-prompt equivalent on its launch command (its customization is
-// config / CRUSH.md context-file based), so warden's pipeline/collab/git hints are
-// skipped for Crush agents (Caps.SystemPromptInject=false).
+// config / CRUSH.md context-file based; Caps.SystemPromptInject stays false — that
+// flag means specifically a launch-time flag). warden instead delivers the same
+// pipeline/collab/git addendum out-of-band via the CRUSH.md context file Crush reads
+// on startup — see InjectContext (agentbackend.ContextInjector).
 func (Crush) SystemPromptFlag(string) (string, bool) { return "", false }
+
+// crushContextFile is the context file Crush reads on startup. Crush auto-loads a set
+// of project-level context files from the working directory — CRUSH.md, AGENTS.md,
+// CLAUDE.md, GEMINI.md and their variants (verified: charmbracelet/crush config). It
+// writes its addendum into the Crush-native CRUSH.md, the file Charm documents as
+// "Crush-specific rules that would confuse other agentic coding tools" — so warden's
+// hints stay scoped to Crush and never collide with a shared AGENTS.md.
+const crushContextFile = "CRUSH.md"
+
+// InjectContext implements agentbackend.ContextInjector. Crush has no
+// --append-system-prompt flag (Caps.SystemPromptInject=false) but reads a CRUSH.md
+// context file from its working directory on startup, so warden delivers its
+// collab/git/pipeline addendum by writing that text into <workdir>/CRUSH.md.
+// Lifecycle calls this post-worktree-creation / pre-launch so the file is present
+// when Crush starts. The no-clobber/idempotent/git-exclude write is the shared
+// writeRulesFile helper (see inject.go and docs/agent-backends/crush.md).
+func (Crush) InjectContext(workdir, text string) error {
+	return writeRulesFile(workdir, crushContextFile, text)
+}
 
 // Pricing reports no pricing table. Crush is multi-provider bring-your-own-model
 // (local Ollama at $0, or any paid provider), so warden cannot enumerate per-model
@@ -402,8 +423,11 @@ func (Crush) Pricing() (agentbackend.PricingTable, bool) {
 // Capabilities reports Crush as a Tier-A backend (structured SQLite-sourced
 // transcript powers digests) that, like OpenCode, supports resume (dir-scoped
 // today via --continue, exact-id once discover-then-pin lands). No assignable
-// session id, no launch-time system-prompt injection, no warden-side pricing yet.
-// ModelSelection is true — Crush accepts a model flag on the headless `run` path
+// session id, no warden-side pricing yet. SystemPromptInject stays false (Crush has
+// no launch-time system-prompt flag) — but warden's addendum still reaches it
+// out-of-band via the CRUSH.md context file (InjectContext); the Caps flag tracks the
+// launch-flag specifically. ModelSelection is true — Crush accepts a model flag on
+// the headless `run` path
 // and via config — though the interactive TUI launch is config-driven (gap doc).
 func (Crush) Capabilities() agentbackend.Caps {
 	return agentbackend.Caps{

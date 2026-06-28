@@ -35,6 +35,7 @@ a lowest common denominator.
 | `TranscriptPath`     | reads `~/.gemini/antigravity-cli/brain/<conv-id>/.system_generated/logs/transcript.jsonl` | conv-id resolved dir-scoped via `cache/last_conversations.json`. |
 | `ParseTranscript`    | parses the trajectory JSONL `USER_INPUT` / `PLANNER_RESPONSE` records | → neutral Turns. |
 | `SystemPromptFlag`   | — (unsupported)                                              | `agy` has no `--append-system-prompt` flag. |
+| `InjectContext`      | writes `<workdir>/AGENTS.md`                                 | warden's collab/git/pipeline addendum is delivered via the AGENTS.md rules file `agy` reads on startup (the no-flag fallback). |
 | `Pricing`            | — (unsupported)                                              | Google-hosted free tier; tokens shown in `/usage` TUI only, dollars not surfaced. |
 | `DetectState`        | classify the TUI status bar                                  | `? for shortcuts` ⇒ idle, `esc to cancel` / `Generating...` ⇒ working, a permission menu ⇒ needs-input. |
 | `ParseApproval`      | parse the `Do you want to proceed?` permission menu          | numbered options (`Yes` / `Yes, and always allow …` / `No`) → neutral `Approval`. |
@@ -120,7 +121,7 @@ its own git worktree, this resolution is unambiguous.
 | `StructuredTranscript` | ✅    | plaintext trajectory JSONL → neutral Turns (**Tier A**). |
 | `PermissionModes`      | ✅    | `default`, `sandbox`, `dangerously-skip-permissions` (`agy`'s native posture flags). |
 | `SessionIDControl`     | ❌    | `agy` mints its own UUID conv-id; no flag to assign one at launch. |
-| `SystemPromptInject`   | ❌    | no `--append-system-prompt` equivalent on the launch command. |
+| `SystemPromptInject`   | ✅ via rules file | no `--append-system-prompt` equivalent on the launch command, but warden delivers the same addendum out-of-band via the `AGENTS.md` rules file `agy` reads on startup (`InjectContext`). The Caps flag stays `false` — it tracks the *launch flag* specifically. |
 | `Pricing`              | ❌    | Google-hosted free tier; tokens in `/usage` TUI, dollars not wired into warden spend. |
 
 ---
@@ -176,9 +177,13 @@ its own git worktree, this resolution is unambiguous.
   `agy` shows token usage / session cost only in its `/usage` TUI panel and surfaces
   no per-call dollar figure on the CLI, and warden's spend table is Claude-specific.
   Spend shows tokens, savings omits the agent (design §5).
-- **No system-prompt injection.** warden's pipeline/collab/git hints aren't appended
-  for Antigravity agents (no flag). `agy`'s customization is skills/rules/AGENTS.md
-  based; one of those could carry this later.
+- ~~**No system-prompt injection.**~~ **Resolved** — warden delivers its
+  pipeline/collab/git hints by writing them into the `AGENTS.md` rules file `agy`
+  reads from the active directory on startup (`InjectContext`, the shared
+  rules-file injector in `inject.go`; same no-clobber / idempotent /
+  git-`info/exclude` semantics as Codex). The `SystemPromptInject` Caps flag stays
+  `false` because it tracks a *launch-time* flag specifically, which `agy` still
+  lacks.
 
 **Encrypted durable store.** Note the transcript warden reads is the *plaintext
 trajectory log*; the canonical conversation store (`implicit/*.pb`,
