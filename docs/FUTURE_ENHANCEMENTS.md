@@ -190,19 +190,76 @@ lever on adoption.
 
 ## 🧠 Project Context & Memory
 
-#### 53. `wd init` + per-project context store under `~/.warden` — *idea, not yet scoped*
-**Effort:** TBD (deep-dive later)
+#### 53. Backend-neutral project memory, curated from fleet digests — *reframed; worth a design pass (coupled to #52)*
+**Effort:** TBD (deep-dive later) — depends on the #52 backend interface
 
-A `wd init` command that registers a **project root** and keeps warden's
-per-project state under `~/.warden/<project>/` instead of inside the repo — so
-there's nothing to `.gitignore` and no warden artifacts polluting the working
-tree. The store would hold the project's durable context: session history,
-warden's accumulated understanding of the codebase, and a memory bank that
-persists across agents and runs. **Why it matters:** gives warden (and especially
-the local-LLM REPL, #50) real long-lived project memory to ground better answers
-and orchestration, while keeping the repo clean. Needs a design pass on the
-store's layout, what gets persisted vs. recomputed, and how it's keyed to a repo
-(path vs. remote vs. an explicit id).
+> **Reframed 2026-06-28** over two passes. Pass 1 nearly parked this as "just use
+> CLAUDE.md." Pass 2 corrected that: **warden is going multi-backend (#52), so
+> CLAUDE.md is not enough.** The memory idea is rehabilitated — but as a
+> *backend-neutral* store warden owns and *projects* into each agent, not as the
+> original `wd init` per-repo dump.
+
+**Why CLAUDE.md alone fails once warden is multi-backend.** CLAUDE.md is read and
+auto-injected by **Claude Code only**. Every other backend has its own project-
+memory convention (Aider: `CONVENTIONS.md` / read-only files; OpenCode / Codex:
+`AGENTS.md`; Antigravity: its own), and **none is shared across all of them**.
+There is no single committed file every agent ingests. That fragmentation is
+exactly what makes warden — the orchestration layer *above* all backends — the
+natural owner of **one canonical, backend-neutral project memory**, rendered into
+whatever each backend actually consumes on spawn.
+
+**The mechanism already exists in #52.** The `Backend` interface exposes
+`Caps.SystemPromptInject` + `SystemPromptFlag(text)` (`internal/agentbackend/
+backend.go`), a per-adapter, capability-gated seam for injecting an addendum at
+launch. So the projection step is: *render the canonical memory → inject via that
+seam where supported; degrade (skip, or fall back to the backend's native memory
+file) where not.* No new spawn plumbing — it rides the seam #52 built.
+
+**The warden-shaped kernel — the cross-agent rediscovery tax.** Agent A greps
+around, learns where things live, finishes, is torn down; Agent B (possibly a
+*different backend*) starts cold and re-learns it. warden uniquely sees this
+because it watches the *fleet* and already captures **digests** on completion.
+The loop: roll durable cross-agent learnings (from digests + summarizer workers)
+into the canonical memory, then project it into the next agent regardless of which
+backend it runs.
+
+**Open design questions (the actual deep-dive):**
+- **Where the canonical source lives.** Committed (team-shared, reviewable,
+  travels with clones) is still preferable to a machine-local `~/.warden/<project>`
+  dump. Candidate: adopt the emerging cross-tool **`AGENTS.md`** as canonical and
+  *generate/inject* the per-backend variants from it (including CLAUDE.md), so
+  Claude users lose nothing and other backends gain parity. Decide: single
+  committed file vs. warden-owned `.warden/` file vs. machine-local store.
+- **Curation & freshness.** Digests must be *summarized* into the memory, not
+  dumped; entries need timestamps and a verify-before-trust discipline, or stale
+  memory actively poisons agents (the known hazard of any injected memory).
+- **Per-backend projection & cost.** Injection adds input tokens per turn and only
+  nets positive when the memory is curated/compact, actually consumed to skip
+  rediscovery, and (for Claude) prompt-cache-stable (`cache_read` ≈ 10% of fresh
+  input). Caching/cost behavior differs per backend (BYO-model Aider/OpenCode may
+  not cache), so the projection budget is backend-specific.
+
+**Still dropped from the original framing:**
+- **`wd init` as a registration gate** — a regression against zero-ceremony spawn
+  ([[warden-adds-on-top-never-strips]]). Any project keying must be *implicit*
+  (derive from `git rev-parse --show-toplevel` + remote, auto-created on first
+  use), never an init wizard.
+- **"Repo cleanliness" as a motivation** — already solved; state lives in
+  `~/.warden`, not the tree. Not a reason to build anything.
+
+**Adjacent win (separable):** local-LLM **REPL (#50) grounding** — answer
+project questions from the canonical memory locally instead of a cloud round-trip.
+This *removes* cloud tokens (vs. agent injection, which adds them) and is the
+cleanest token-cost lever.
+
+**Optional small leftover:** implicit per-project *partitioning* of
+`savings`/`spend`/`insights` (today a global blob) — a reporting nicety, not the
+memory system. Build only if the commingling is actually felt.
+
+**Status:** **worth a design pass**, gated on #52 maturing (the projection seam and
+≥2 real backends are the prerequisite and the demand signal). Scope the canonical-
+source decision, the curation/freshness model, and the per-backend projection +
+cost budget before writing code.
 
 ---
 
@@ -229,9 +286,12 @@ for a single user.
   blindly. Low-moderate necessity; no day-to-day impact now that `q` exits cleanly.
 - **Pluggable agent backends (#52)** — early idea: drive console agents beyond
   Claude Code via a backend interface. Biggest adoption lever; needs a design pass.
-- **`wd init` + per-project context store (#53)** — early idea: durable per-project
-  memory under `~/.warden` (no repo pollution) to ground warden / the local-LLM
-  REPL. Needs a design pass on store layout and repo keying.
+- **Backend-neutral project memory from fleet digests (#53)** — *reframed; worth a
+  design pass, coupled to #52.* CLAUDE.md is Claude-only, so once warden is
+  multi-backend there is no shared memory substrate — warden becomes the natural
+  owner of one canonical memory projected into each backend via the existing
+  `SystemPromptInject` seam, curated from fleet digests. Dropped: `wd init` as a
+  gate and the "repo cleanliness" motivation. See §53.
 - Inter-agent collaboration (#44) is closed: the file-conflict MVP +
   BranchTracker shipped and the rest was audited and dropped (see §44 above). A
   fresh demand signal would be needed to reopen any of it.
