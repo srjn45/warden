@@ -22,7 +22,7 @@ on-disk state:
 | **Claude Code lifecycle hooks** | A hook script posts `SessionStart`/`Notification`/`Stop`/`SubagentStop`/`SessionEnd` to the daemon so status updates in real time without polling. Fails soft (never blocks the agent). |
 | **launchd auto-start (macOS)** | Installs as an auto-starting, crash-restarting background service. |
 | **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
-| **Security hardening** | `0700` data dir, slowloris/body/write timeouts (bypassed for SSE/WS/long-poll), refuses non-loopback bind unless the `allow_nonloopback` config setting is true. |
+| **Security hardening** | `0700` data dir, slowloris/body/write timeouts (bypassed for SSE/WS/long-poll), refuses a non-loopback bind without a bearer token (`WARDEN_TOKEN`). |
 | **`warden doctor`** | Preflight checks: required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, `ollama`, warn-only), daemon reachability, data directory. |
 | **`warden setup`** | Verifies the install with doctor's checks, then installs whatever is missing (idempotent — only touches absent deps). Confirm-each prompts (or `--yes` for automation); auto-detects Homebrew (macOS, never auto-bootstrapped) / `apt`/`dnf`/`pacman` (Linux); Claude Code + Ollama via their official installers. Re-runs the checks and prints a doctor-style report. **CLI-only** (installs host packages) — not exposed over MCP/daemon. |
 | **`warden version`** | Prints version + build metadata (commit, build date, Go version, platform); `--version` shows the same, `version --json` for scripting. Stamped via ldflags (goreleaser + `make build`) with a VCS-stamp fallback. |
@@ -362,7 +362,7 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 
 | Setting | Default | Description |
 |---|---|---|
-| `addr` | `127.0.0.1:8765` | Daemon listen address (loopback only unless `allow_nonloopback`) |
+| `addr` | `127.0.0.1:8765` | Daemon listen address (a non-loopback bind requires `WARDEN_TOKEN`) |
 | `data_dir` | `~/.warden` | Warden state directory (sessions, prompts, inbox, pipelines, metrics) |
 | `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript dirs (poller reads these) |
 | `model_default` | `claude-sonnet-4-6` | Default model for spawned agents (id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
@@ -379,7 +379,7 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `tokens.compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (resets with critical if critical ≤ warn) |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
-| `allow_nonloopback` | `false` | Allow binding the auth-less daemon to a non-loopback address |
+| `allow_nonloopback` | `false` | **Deprecated / inert** — no longer bypasses auth; a token is mandatory for any non-loopback bind |
 | `worktree.spawn_gate` / `worktree.spawn_gate_max_agents` | `true` / `5` | Soft warning before spawning when many agents are live |
 | `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd` | `false` / `0` / `0` | Soft warning before spawning when measured model spend has reached a $ cap (see §30) |
 | `metrics` | `true` | Record per-agent metrics to disk |
