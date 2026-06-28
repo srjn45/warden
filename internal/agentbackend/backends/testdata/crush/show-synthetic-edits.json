@@ -1,0 +1,56 @@
+{
+  "meta": {
+    "id": "aaaa1111bbbb2222",
+    "uuid": "00000000-0000-0000-0000-000000000000",
+    "title": "Refactor the parser",
+    "created": "2026-06-28T12:00:00+02:00",
+    "modified": "2026-06-28T12:01:30+02:00",
+    "cost": 0.012,
+    "prompt_tokens": 1500,
+    "completion_tokens": 320,
+    "total_tokens": 1820
+  },
+  "messages": [
+    {
+      "id": "u1",
+      "role": "user",
+      "created": "2026-06-28T12:00:00+02:00",
+      "parts": [
+        { "type": "text", "text": "Refactor parser.go and add a test." }
+      ]
+    },
+    {
+      "id": "a1",
+      "role": "assistant",
+      "created": "2026-06-28T12:00:05+02:00",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "parts": [
+        { "type": "reasoning", "thinking": "I should edit parser.go first." },
+        { "type": "text", "text": "I'll refactor the parser and add a test." },
+        { "type": "tool_call", "tool_call_id": "c1", "name": "edit", "input": "{\"file_path\":\"parser.go\",\"old\":\"a\",\"new\":\"b\"}" },
+        { "type": "tool_call", "tool_call_id": "c2", "name": "write", "input": "{\"file_path\":\"parser_test.go\",\"content\":\"package x\"}" },
+        { "type": "finish", "reason": "tool_use", "time": 1782640805 }
+      ]
+    },
+    {
+      "id": "t1",
+      "role": "tool",
+      "created": "2026-06-28T12:00:30+02:00",
+      "parts": [
+        { "type": "tool_result", "tool_call_id": "c1", "name": "edit", "content": "edited" }
+      ]
+    },
+    {
+      "id": "a2",
+      "role": "assistant",
+      "created": "2026-06-28T12:01:30+02:00",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "parts": [
+        { "type": "text", "text": "Done." },
+        { "type": "finish", "reason": "end_turn", "time": 1782640890 }
+      ]
+    }
+  ]
+}
