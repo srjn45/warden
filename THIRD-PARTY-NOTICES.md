@@ -1,0 +1,63 @@
+# Third-Party Notices
+
+warden (Apache-2.0) is built with the open-source Go modules listed below.
+All are permissive licenses (Apache-2.0, MIT, BSD-3-Clause, ISC) — no copyleft
+(GPL/LGPL/AGPL) dependencies. Each project is the copyright of its respective
+authors; follow the linked license for the full text and notices.
+
+_Generated with `go-licenses csv ./cmd/warden` on 2026-06-29. Regenerate
+when dependencies change._
+
+| Module | License | Text |
+|--------|---------|------|
+| `github.com/anthropics/anthropic-sdk-go` | MIT | [link](https://github.com/anthropics/anthropic-sdk-go/blob/v1.52.0/LICENSE) |
+| `github.com/apapsch/go-jsonmerge/v2` | MIT | [link](https://github.com/apapsch/go-jsonmerge/blob/v2.0.0/LICENSE) |
+| `github.com/atotto/clipboard` | BSD-3-Clause | [link](https://github.com/atotto/clipboard/blob/v0.1.4/LICENSE) |
+| `github.com/aymanbagabas/go-osc52/v2` | MIT | [link](https://github.com/aymanbagabas/go-osc52/blob/v2.0.1/LICENSE) |
+| `github.com/bahlo/generic-list-go` | BSD-3-Clause | [link](https://github.com/bahlo/generic-list-go/blob/v0.2.0/LICENSE) |
+| `github.com/buger/jsonparser` | MIT | [link](https://github.com/buger/jsonparser/blob/v1.1.2/LICENSE) |
+| `github.com/charmbracelet/bubbles` | MIT | [link](https://github.com/charmbracelet/bubbles/blob/v1.0.0/LICENSE) |
+| `github.com/charmbracelet/bubbletea` | MIT | [link](https://github.com/charmbracelet/bubbletea/blob/v1.3.10/LICENSE) |
+| `github.com/charmbracelet/colorprofile` | MIT | [link](https://github.com/charmbracelet/colorprofile/blob/v0.4.1/LICENSE) |
+| `github.com/charmbracelet/lipgloss` | MIT | [link](https://github.com/charmbracelet/lipgloss/blob/v1.1.0/LICENSE) |
+| `github.com/charmbracelet/x/ansi` | MIT | [link](https://github.com/charmbracelet/x/blob/ansi/v0.11.6/ansi/LICENSE) |
+| `github.com/charmbracelet/x/cellbuf` | MIT | [link](https://github.com/charmbracelet/x/blob/cellbuf/v0.0.15/cellbuf/LICENSE) |
+| `github.com/charmbracelet/x/term` | MIT | [link](https://github.com/charmbracelet/x/blob/term/v0.2.2/term/LICENSE) |
+| `github.com/chzyer/readline` | MIT | [link](https://github.com/chzyer/readline/blob/v1.5.1/LICENSE) |
+| `github.com/clipperhouse/displaywidth` | MIT | [link](https://github.com/clipperhouse/displaywidth/blob/v0.9.0/LICENSE) |
+| `github.com/clipperhouse/stringish` | MIT | [link](https://github.com/clipperhouse/stringish/blob/v0.1.1/LICENSE) |
+| `github.com/clipperhouse/uax29/v2/graphemes` | MIT | [link](https://github.com/clipperhouse/uax29/blob/v2.5.0/LICENSE) |
+| `github.com/coder/websocket` | ISC | [link](https://github.com/coder/websocket/blob/v1.8.13/LICENSE.txt) |
+| `github.com/creack/pty` | MIT | [link](https://github.com/creack/pty/blob/v1.1.24/LICENSE) |
+| `github.com/fsnotify/fsnotify` | BSD-3-Clause | [link](https://github.com/fsnotify/fsnotify/blob/v1.10.1/LICENSE) |
+| `github.com/go-chi/chi/v5` | MIT | [link](https://github.com/go-chi/chi/blob/v5.3.0/LICENSE) |
+| `github.com/google/jsonschema-go/jsonschema` | MIT | [link](https://github.com/google/jsonschema-go/blob/v0.4.3/LICENSE) |
+| `github.com/google/uuid` | BSD-3-Clause | [link](https://github.com/google/uuid/blob/v1.6.0/LICENSE) |
+| `github.com/invopop/jsonschema` | MIT | [link](https://github.com/invopop/jsonschema/blob/v0.14.0/COPYING) |
+| `github.com/lucasb-eyer/go-colorful` | MIT | [link](https://github.com/lucasb-eyer/go-colorful/blob/v1.3.0/LICENSE) |
+| `github.com/mattn/go-isatty` | MIT | [link](https://github.com/mattn/go-isatty/blob/v0.0.20/LICENSE) |
+| `github.com/mattn/go-runewidth` | MIT | [link](https://github.com/mattn/go-runewidth/blob/v0.0.19/LICENSE) |
+| `github.com/modelcontextprotocol/go-sdk` | Apache-2.0 | [link](https://github.com/modelcontextprotocol/go-sdk/blob/v1.6.1/LICENSE) |
+| `github.com/muesli/ansi` | MIT | [link](https://github.com/muesli/ansi/blob/276c6243b2f6/LICENSE) |
+| `github.com/muesli/cancelreader` | MIT | [link](https://github.com/muesli/cancelreader/blob/v0.2.2/LICENSE) |
+| `github.com/muesli/termenv` | MIT | [link](https://github.com/muesli/termenv/blob/v0.16.0/LICENSE) |
+| `github.com/oapi-codegen/runtime` | Apache-2.0 | [link](https://github.com/oapi-codegen/runtime/blob/v1.4.2/LICENSE) |
+| `github.com/pb33f/ordered-map/v2` | Apache-2.0 | [link](https://github.com/pb33f/ordered-map/blob/v2.3.1/LICENSE) |
+| `github.com/rivo/uniseg` | MIT | [link](https://github.com/rivo/uniseg/blob/v0.4.7/LICENSE.txt) |
+| `github.com/robfig/cron/v3` | MIT | [link](https://github.com/robfig/cron/blob/v3.0.1/LICENSE) |
+| `github.com/segmentio/asm` | MIT | [link](https://github.com/segmentio/asm/blob/v1.1.3/LICENSE) |
+| `github.com/segmentio/encoding` | MIT | [link](https://github.com/segmentio/encoding/blob/v0.5.4/LICENSE) |
+| `github.com/spf13/cobra` | Apache-2.0 | [link](https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt) |
+| `github.com/spf13/pflag` | BSD-3-Clause | [link](https://github.com/spf13/pflag/blob/v1.0.9/LICENSE) |
+| `github.com/standard-webhooks/standard-webhooks/libraries/go` | MIT | [link](https://github.com/standard-webhooks/standard-webhooks/blob/libraries/v0.0.1/libraries/LICENSE) |
+| `github.com/tidwall/gjson` | MIT | [link](https://github.com/tidwall/gjson/blob/v1.18.0/LICENSE) |
+| `github.com/tidwall/match` | MIT | [link](https://github.com/tidwall/match/blob/v1.1.1/LICENSE) |
+| `github.com/tidwall/pretty` | MIT | [link](https://github.com/tidwall/pretty/blob/v1.2.1/LICENSE) |
+| `github.com/tidwall/sjson` | MIT | [link](https://github.com/tidwall/sjson/blob/v1.2.5/LICENSE) |
+| `github.com/xo/terminfo` | MIT | [link](https://github.com/xo/terminfo/blob/abceb7e1c41e/LICENSE) |
+| `github.com/yosida95/uritemplate/v3` | BSD-3-Clause | [link](https://github.com/yosida95/uritemplate/blob/v3.0.2/LICENSE) |
+| `golang.org/x/oauth2` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/oauth2/+/v0.35.0:LICENSE) |
+| `golang.org/x/sync/errgroup` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/sync/+/v0.19.0:LICENSE) |
+| `golang.org/x/sys` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/sys/+/v0.42.0:LICENSE) |
+| `gopkg.in/yaml.v3` | MIT | [link](https://github.com/go-yaml/yaml/blob/v3.0.1/LICENSE) |
+| `go.yaml.in/yaml/v4` | MIT | [link](https://github.com/yaml/go-yaml/blob/v4.0.0-rc.2/LICENSE) |

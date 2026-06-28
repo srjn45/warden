@@ -32,7 +32,9 @@ backed by a local daemon and a file-based JSON store: **no database, no SaaS, no
   tokens), and `warden savings` is an append-only ledger of the tokens warden keeps out of
   agents' context, with a without-vs-with **A/B benchmark** you can screenshot.
 - **Self-hosted and free** — one binary, a loopback REST API, and a JSON store on disk.
-  Run it on your laptop or a box; nothing leaves your machine.
+  Run it on your laptop or a box. **By default nothing leaves your machine** — no
+  telemetry, no SaaS. Opt-in features (webhook/Slack alerts, remote access, and
+  `warden savings --calibrate`) send data only where you explicitly configure them.
 - **Driven by an agent itself** — `warden mcp` exposes the whole fleet as MCP tools, so an
   orchestrator agent (e.g. a Claude session) can spawn, query, and coordinate the fleet for you.
 
@@ -1511,6 +1513,23 @@ CI (build, test, lint) runs on every push and PR to `main` — see [`.github/wor
 ## License
 
 Licensed under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Third-party dependency licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+### Trademarks & affiliation
+
+warden is an independent open-source project. It is **not** affiliated with,
+endorsed by, or sponsored by Anthropic, OpenAI, Google, Cursor, Block, or any
+other agent-backend vendor. "Claude" and "Claude Code" are trademarks of
+Anthropic, PBC; "Codex" of OpenAI; and all other product and company names are
+trademarks of their respective owners, used here for identification only.
+
+### Your credentials, your responsibility
+
+warden is a local orchestrator: it drives agent-backend CLIs and services using
+**credentials you supply**. You are responsible for complying with the terms,
+usage policies, and rate limits of every backend and account you connect. warden
+grants no rights to any third-party service and makes no representation that a
+given automation or concurrency pattern is permitted under your plan.
 
 ```
 Copyright 2026 Srajan Pathak
