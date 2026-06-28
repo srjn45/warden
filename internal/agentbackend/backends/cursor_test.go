@@ -193,12 +193,108 @@ func TestCursorParseTranscriptTolerant(t *testing.T) {
 	require.Equal(t, "hello", turns[0].Text)
 }
 
-// --- State / approval (degraded) --------------------------------------------
+// --- State / approval (live markers) ----------------------------------------
 
-func TestCursorStateDegrades(t *testing.T) {
-	require.Equal(t, agentbackend.StateUnknown, Cursor{}.DetectState("any pane content"))
-	_, ok := Cursor{}.ParseApproval("Allow command? [y/n]")
-	require.False(t, ok, "interactive approval parsing is deferred — degrade, not mis-parse")
+// cursorFixture reads a captured tmux-pane fixture from testdata/cursor/.
+func cursorFixture(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "cursor", name))
+	require.NoError(t, err)
+	return string(b)
+}
+
+// TestCursorDetectState classifies each captured pane: a streaming turn ⇒ Working
+// (the "ctrl+c to stop" hint), an open command approval or the workspace-trust
+// prompt ⇒ NeedsInput, an at-rest composer ⇒ Idle (fresh and post-turn placeholders).
+func TestCursorDetectState(t *testing.T) {
+	tests := []struct {
+		fixture string
+		want    agentbackend.State
+	}{
+		{"state-working.txt", agentbackend.StateWorking},
+		{"approval.txt", agentbackend.StateNeedsInput},
+		{"trust-prompt.txt", agentbackend.StateNeedsInput},
+		{"state-idle.txt", agentbackend.StateIdle},
+		{"state-idle-after-turn.txt", agentbackend.StateIdle},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fixture, func(t *testing.T) {
+			require.Equal(t, tt.want, Cursor{}.DetectState(cursorFixture(t, tt.fixture)))
+		})
+	}
+
+	// An unrecognized pane stays Unknown (no false positive ⇒ warden uses staleness).
+	require.Equal(t, agentbackend.StateUnknown, Cursor{}.DetectState("just some quiet output"))
+}
+
+// TestCursorParseApprovalCommand parses the captured command-allowlist approval into
+// the neutral Approval: the proposed command (Action, with cursor's " in <cwd>" hint
+// stripped), the "Run this command?" header (Question), the four options top-down
+// (1-indexed, key hints kept), the highlighted option (SelectedIdx), and the
+// least-privilege non-sticky "Run (once)" (AffirmativeIdx).
+func TestCursorParseApprovalCommand(t *testing.T) {
+	a, ok := Cursor{}.ParseApproval(cursorFixture(t, "approval.txt"))
+	require.True(t, ok, "the captured command approval parses")
+
+	require.Equal(t, "echo hello-from-cursor", a.Action)
+	require.Equal(t, "Run this command?", a.Question)
+	require.Equal(t, []string{
+		"Run (once) (y)",
+		"Add Shell(echo) to allowlist? (tab)",
+		"Run Everything (shift+tab)",
+		"Skip (esc or n)",
+	}, a.Options)
+	require.Equal(t, 1, a.SelectedIdx, "the → cursor sits on option 1")
+	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the one-shot Run (once)")
+	require.False(t, a.AffirmativeSticky, "Run (once) is a one-shot grant, not a standing one")
+}
+
+// TestCursorParseApprovalTrust parses the captured workspace-trust prompt: warden
+// surfaces it as an Approval (so the operator can clear it from the inbox). The
+// affirmative "Trust this workspace" is a standing grant (sticky).
+func TestCursorParseApprovalTrust(t *testing.T) {
+	a, ok := Cursor{}.ParseApproval(cursorFixture(t, "trust-prompt.txt"))
+	require.True(t, ok, "the captured workspace-trust prompt parses")
+
+	require.Equal(t, "Do you trust the contents of this directory?", a.Question)
+	require.Equal(t, []string{"Trust this workspace", "Quit"}, a.Options)
+	require.Equal(t, 1, a.SelectedIdx, "the ▶ cursor sits on Trust this workspace")
+	require.Equal(t, 1, a.AffirmativeIdx)
+	require.True(t, a.AffirmativeSticky, "trusting a workspace persists to .workspace-trusted")
+	require.Contains(t, a.Action, "cursortrust", "the trusted directory is surfaced as the Action")
+}
+
+// TestCursorParseApprovalNegative proves a non-approval pane (idle or working) is NOT
+// mis-read as an approval — the question/banner gates keep the auto-approve path
+// honest.
+func TestCursorParseApprovalNegative(t *testing.T) {
+	for _, name := range []string{"state-idle.txt", "state-idle-after-turn.txt", "state-working.txt"} {
+		t.Run(name, func(t *testing.T) {
+			_, ok := Cursor{}.ParseApproval(cursorFixture(t, name))
+			require.False(t, ok)
+		})
+	}
+
+	// A single line carrying trailing parens (cursor's "Reason for rejection (…)"
+	// composer prompt) is not a menu: it needs ≥2 contiguous options and a "?" header.
+	_, ok := Cursor{}.ParseApproval("  → Reason for rejection (Enter to submit, Esc to cancel)")
+	require.False(t, ok, "a lone parenthesized composer prompt is not an approval menu")
+}
+
+// TestCursorAffirmativeStickyFallback covers the case where the only affirmative is a
+// standing "allowlist" grant: it is chosen with sticky=true; a menu with only a
+// decline returns no affirmative.
+func TestCursorAffirmativeStickyFallback(t *testing.T) {
+	idx, sticky := cursorAffirmative([]string{
+		"Add Shell(rm) to allowlist? (tab)",
+		"Skip (esc or n)",
+	})
+	require.Equal(t, 1, idx)
+	require.True(t, sticky)
+
+	idx, sticky = cursorAffirmative([]string{"Skip (esc or n)", "No (n)"})
+	require.Equal(t, 0, idx, "no affirmative offered")
+	require.False(t, sticky)
 }
 
 // --- Capabilities / pricing -------------------------------------------------

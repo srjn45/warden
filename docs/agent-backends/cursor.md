@@ -32,7 +32,8 @@ strips Cursor's features down to a lowest common denominator.
 | `ParseTranscript`    | parses `--output-format stream-json` NDLJSON       | Real + tested, but **not wired** today (no on-disk NDJSON for the TUI). |
 | `SystemPromptFlag`   | — (unsupported)                                    | Cursor has no `--append-system-prompt` flag. |
 | `Pricing`            | — (unsupported)                                    | Hosted plan; tokens surfaced, dollars never are. |
-| `DetectState` / `ParseApproval` | — (degraded)                            | TUI approval / trust prompts not yet mapped. |
+| `DetectState`        | working / idle / needs-input                       | TUI pane markers (`ctrl+c to stop`; composer placeholders; approval/trust menus) — see State & approval detection below. |
+| `ParseApproval`      | command-allowlist + workspace-trust prompts        | Both interactive menus normalize into a neutral `Approval`; surfaced in warden's approvals inbox. |
 
 ### Permission / execution modes
 
@@ -121,6 +122,77 @@ stream-json) the backend flips to **Tier A** with no parsing work left.
 
 ---
 
+## State & approval detection (live pane markers)
+
+warden classifies a Cursor agent from its captured tmux pane (`DetectState`) and
+normalizes its blocking prompts into a neutral `Approval` (`ParseApproval`). The
+markers below were captured live against `cursor-agent 2026.06.26-7079533`
+(interactive TUI, default approval posture) and are pinned as fixtures under
+`testdata/cursor/` (`state-working.txt`, `state-idle.txt`, `state-idle-after-turn.txt`,
+`approval.txt`, `trust-prompt.txt`).
+
+**State markers**
+
+- **Working** — while a turn streams, the composer prompt line carries a right-aligned
+  `ctrl+c to stop` hint (the spinner text above it varies: `⠘⠤ Composing`,
+  `⠠⠛ Running  N tokens`). That hint is the reliable marker.
+- **Idle** — an empty composer shows one of Cursor's placeholders: `Plan, search,
+  build anything` (fresh launch) or `Add a follow-up` (after a turn). Because the
+  follow-up placeholder is also shown mid-turn, `DetectState` tests `ctrl+c to stop`
+  (working) *before* idle.
+- **Needs-input** — an open command-allowlist menu or the workspace-trust prompt
+  (`ParseApproval` returns a match).
+- Anything else ⇒ `Unknown` (no false positives; warden falls back to staleness).
+
+**Command-allowlist approval.** When a shell command isn't on the allowlist Cursor
+blocks with:
+
+```
+ $  echo hello-from-cursor in .
+
+ Run this command?
+ Not in allowlist: echo
+  → Run (once) (y)
+    Add Shell(echo) to allowlist? (tab)
+    Run Everything (shift+tab)
+    Skip (esc or n)
+```
+
+`ParseApproval` reads the `$ <command>` Action (stripping Cursor's trailing
+` in <cwd>` hint), the `Run this command?` Question, and the four options top-down
+(1-indexed, key hints kept, the `→` cursor → `SelectedIdx`). The least-privilege
+affirmative is `Run (once)` (non-sticky); `Add … to allowlist` / `Run Everything` are
+standing grants (sticky). The Question gate keeps a lone parenthesized composer prompt
+(e.g. `Reason for rejection (…)`) from being mis-read as a menu. *(File edits inside
+the workspace are auto-applied in the default posture and do not raise this menu, so
+the command case is the representative approval shape.)*
+
+**Workspace-trust prompt — a 1-time manual step, not a launch blocker.** A fresh
+warden worktree is an untrusted directory, so the *interactive* launch shows a one-time
+box:
+
+```
+│  ⚠ Workspace Trust Required                    │
+│  Do you trust the contents of this directory?  │
+│    /path/to/workdir                            │
+│  ▶ [a] Trust this workspace                    │
+│    [q] Quit                                    │
+```
+
+`cursor-agent`'s `--trust` flag only works in `--print`/headless mode, so it can't
+pre-clear the *TUI* prompt. Per the maintainer's ruling this is **not a blocker**:
+every agent asks for trust at least once, and real warden users already have trust
+granted for their projects — if warden can't auto-clear it, the operator answers it
+once and it's done. warden makes that one answer easy: `ParseApproval` recognizes the
+trust box and surfaces it as an `Approval` (Question `Do you trust the contents of this
+directory?`, options `Trust this workspace` / `Quit`, the trusted directory as the
+Action), so the operator clears it from warden's approvals inbox instead of attaching
+to the pane. The affirmative is marked sticky because trusting persists to
+`~/.cursor/projects/<…>/.workspace-trusted`. (The workspace can also be pre-trusted by
+writing that file.)
+
+---
+
 ## Capability table
 
 | Capability             | Value | Detail |
@@ -146,6 +218,13 @@ stream-json) the backend flips to **Tier A** with no parsing work left.
   `--continue` resumed the same chatId and recalled the prior turn's context.
 - Headless one-shots via `cursor-agent -p --force --trust`.
 - Map Cursor's plan / ask / auto-review / force approval modes into warden modes.
+- **Live state detection** (`DetectState`) — classify the TUI pane as working / idle /
+  needs-input from stable pane markers (see below). Wired into the poller (#52 core
+  seam #1), so warden no longer infers idle purely from staleness for Cursor agents.
+- **Approval + workspace-trust detection** (`ParseApproval`) — Cursor's interactive
+  command-allowlist menu *and* its one-time workspace-trust prompt normalize into a
+  neutral `Approval`, so both surface in warden's approvals inbox and can be answered
+  without attaching to the pane (auto-approve keys off `Fingerprint(Options)`).
 
 **Gaps (degraded, documented — not mis-handled)**
 
@@ -160,17 +239,6 @@ stream-json) the backend flips to **Tier A** with no parsing work left.
   warden agent lives in its own worktree, so this is unambiguous). The minted id *is*
   observable (the stream's `system`/init `session_id`, and the on-disk chat dir name);
   the forward path is *discover-then-pin* → exact-id `--resume <chatId>` (#52).
-- **No live state / approval detection.** Cursor's run-state, its interactive approval
-  UI, *and* its **workspace-trust prompt** live in the TUI; no stable pane marker was
-  captured for this phase, so `DetectState` returns `Unknown` and `ParseApproval`
-  returns `false` (warden infers idle from staleness, as for Claude/Codex/OpenCode).
-- **Workspace-trust prompt at launch.** A fresh warden worktree is an untrusted
-  directory, so the *interactive* launch shows a one-time "Do you trust the contents of
-  this directory?" prompt. cursor-agent's `--trust` flag **only works in `--print`/
-  headless mode**, so it can't pre-clear the TUI prompt; the headless path passes
-  `--trust`, but an interactive agent must answer it once (or the workspace be
-  pre-trusted via `~/.cursor/projects/<…>/.workspace-trusted`). Pre-seeding trust is
-  out of scope for this minimal adapter; tracked as a gap.
 - **No warden-side dollar pricing.** The stream-json `result.usage` carries token
   counts, but warden's spend table is Claude-specific and Cursor never surfaces a
   per-call dollar figure (billing is the user's subscription); spend shows tokens,
