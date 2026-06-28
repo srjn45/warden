@@ -179,9 +179,12 @@ type PromptSeeder interface {
 // backend has no native review and points at `pr-review`/`wd check`).
 type Reviewer interface {
 	// ReviewCmd returns the argv for a one-shot review run in the agent's workdir.
-	// scope selects what to review (uncommitted working tree, or a base branch);
-	// schemaFile, when non-empty, requests a machine-readable result the caller can
-	// parse (codex: --output-schema). ok=false ⇒ this backend offers no native review.
+	// Scope selects what to review (uncommitted working tree, or a base branch).
+	// When opts.Structured is set, the adapter returns a NON-INTERACTIVE, parseable
+	// form whose machine-readable result the caller pairs with StructuredReviewer to
+	// read back neutral findings (codex: `codex exec review`, whose native review
+	// output persists to the rollout); otherwise it returns the prose/streamed form
+	// (codex: plain `codex review`). ok=false ⇒ this backend offers no native review.
 	ReviewCmd(opts ReviewOpts) (argv []string, ok bool)
 }
 
@@ -191,8 +194,47 @@ type Reviewer interface {
 type ReviewOpts struct {
 	Scope      string // "uncommitted" (default) | "base"
 	Base       string // base branch when Scope=="base"
-	SchemaFile string // optional JSON-Schema path for a structured result ("" = prose)
+	Structured bool   // request a machine-readable result (pair with StructuredReviewer); false ⇒ prose stream
 	Prompt     string // optional extra review instructions
+}
+
+// StructuredReviewer is an optional companion to Reviewer for agents whose NATIVE
+// review emits a machine-readable result the caller can normalize into neutral
+// findings. It is the seam behind `wd review --json`: the CLI runs the Structured
+// ReviewCmd form, then asks the backend to read back its own structured output as a
+// neutral ReviewFindings. The result shape is the BACKEND'S — warden does not impose
+// a schema on the agent (verified against codex v0.142.3: `codex review` ignores a
+// caller `--output-schema` and owns its `review_output` structure, persisted to the
+// session rollout); this seam normalizes that native shape into warden's neutral one.
+// Additive and on-top: a backend without it still offers prose `wd review`, just not
+// `--json`.
+type StructuredReviewer interface {
+	// ParseReviewResult locates the structured result of the review that just ran in
+	// workdir and normalizes it into neutral findings. It is meaningful only right
+	// after a Structured ReviewCmd run in the same workdir. ok=false ⇒ no structured
+	// result was found (e.g. the model produced none, or the run did not complete a
+	// review) — the caller reports a clean "no structured review output" rather than
+	// erroring. A non-nil error signals a read/parse failure the caller surfaces.
+	ParseReviewResult(workdir string) (findings ReviewFindings, ok bool, err error)
+}
+
+// ReviewFindings is warden's neutral, machine-readable result of a backend's native
+// diff review — the normalization target a StructuredReviewer maps its own review
+// output INTO, so `wd review --json` emits one neutral JSON shape regardless of which
+// backend produced it. warden OWNS this neutral shape (not the schema the agent emits).
+type ReviewFindings struct {
+	Summary  string          `json:"summary"`           // overall human-readable explanation
+	Verdict  string          `json:"verdict,omitempty"` // optional overall verdict in the backend's phrasing (codex: overall_correctness)
+	Findings []ReviewFinding `json:"findings"`          // zero or more located findings (never nil in JSON: emitted as [])
+}
+
+// ReviewFinding is one located issue from a structured review.
+type ReviewFinding struct {
+	File     string `json:"file,omitempty"`     // repo-relative path when the backend gives a location; "" otherwise
+	Line     int    `json:"line,omitempty"`     // 1-based start line; 0 when the backend gives no line
+	Severity string `json:"severity,omitempty"` // neutral "info" | "warning" | "error" (backend signal mapped onto these)
+	Title    string `json:"title,omitempty"`    // short headline, when the backend separates it from the body
+	Message  string `json:"message"`            // the finding text
 }
 
 // SessionIDDiscoverer is an optional Backend extension implemented by agents that

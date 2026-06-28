@@ -275,14 +275,53 @@ read the worktree diff.
 - **Degrades cleanly.** A backend with no native review (e.g. Claude) is simply not
   offered the verb — `wd review` exits non-zero pointing at `wd check` /
   `pr-review`.
-- **Structured output (forward-compat).** `codex review`'s plain form has **no**
-  `--output-schema` (verified, codex v0.142.3) — only the `codex exec review`
-  sub-form does. `Reviewer.ReviewCmd` therefore switches to `codex exec review …
-  --output-schema <file>` when a schema is requested. The current `wd review` always
-  asks for the prose form; the machine-readable findings path lands later.
 
 Captured at $0 on the Ollama rig (`internal/agentbackend/backends/testdata/codex/
 review-uncommitted.txt`). Note: on a tiny local model review *quality* is weak (the
 7B model missed a planted bug; the 3B model emitted no structured review at all) —
 the pilot proves the **plumbing**, not accuracy; quality rides the operator's real
 model.
+
+#### `wd review --json` — machine-readable findings (`agentbackend.StructuredReviewer`)
+
+`wd review --json` surfaces codex's native review as a neutral, machine-readable
+result. **What warden verified about the mechanism (codex v0.142.3, $0 Ollama rig) —
+and why it is NOT what the candidate design assumed:**
+
+- **`codex review` ignores a caller `--output-schema`.** The design imagined warden
+  supplying its own JSON Schema (`codex exec review … --output-schema <file>`). In
+  practice the review subcommand **owns its output shape** and does not honor a caller
+  schema: `--output-schema`'s companion `-o/--output-last-message` captured only the
+  prose `overall_explanation`, and the `--json` event stream omitted the findings
+  entirely. (`--output-schema` *does* work on a *plain* `codex exec` — just not on the
+  `review` sub-form.)
+- **The structured result is codex's NATIVE `review_output`, persisted to the
+  rollout.** `codex exec review` writes an `exited_review_mode` event whose
+  `review_output` is `{ findings[], overall_correctness, overall_explanation,
+  overall_confidence_score }`; each finding is `{ title, body, confidence_score,
+  priority, code_location: { absolute_file_path, line_range: { start_line, end_line }}}`.
+- **So warden requests no schema; it normalizes codex's own shape.** `wd review --json`
+  runs the structured form (`codex exec review`, non-interactive), then reads the
+  rollout's last `review_output` (`StructuredReviewer.ParseReviewResult`, reusing the
+  dir-scoped rollout locator `TranscriptPath` already uses) and maps it onto warden's
+  **neutral** `agentbackend.ReviewFindings`:
+
+  | neutral field | from codex |
+  |---|---|
+  | `summary` | `overall_explanation` |
+  | `verdict` | `overall_correctness` |
+  | `findings[].file` | `code_location.absolute_file_path` (relativized to the worktree) |
+  | `findings[].line` | `code_location.line_range.start_line` |
+  | `findings[].severity` | `priority` folded onto `info`/`warning`/`error` (0 = highest → `error`) |
+  | `findings[].title` / `.message` | `title` / `body` |
+
+  The neutral JSON goes to **stdout**; codex's own progress goes to **stderr**.
+- **Model-quality caveat (unchanged, important).** The structured result rides the
+  backend's configured model. On the $0 rig the 7B model emitted a **valid but
+  empty** `review_output` (judged the planted bug "correct"), and weaker models emit
+  no review at all — in which case `wd review --json` reports a clean *"produced no
+  structured review output"* and points back at the prose verb. The findings-mapping
+  is covered by a **schema-faithful** fixture (codex's verified native field names),
+  mirroring the adapter's tool-call fixture; the empty-findings path is covered by the
+  **authentic** $0 capture. Plumbing is proven; accuracy rides the operator's real
+  model.

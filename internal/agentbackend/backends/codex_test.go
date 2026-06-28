@@ -517,15 +517,129 @@ func TestCodexReviewCmd(t *testing.T) {
 	}
 }
 
-// TestCodexReviewCmdStructuredForm locks the resolution of the design's open
-// question (§5 caveat / §7 OQ2): a non-empty SchemaFile requires the
-// `codex exec review` sub-form (verified against codex v0.142.3 — plain
-// `codex review` has no --output-schema), so ReviewCmd switches command shape. PR-A
-// never sets SchemaFile; this guards the form PR-B's structured path will inherit.
+// TestCodexReviewCmdStructuredForm locks the verified structured form (PR-B1): a
+// Structured request switches to the NON-INTERACTIVE `codex exec review` sub-form whose
+// native review output persists to the rollout for ParseReviewResult to read back. It
+// carries NO `--output-schema`: verified against codex v0.142.3, the review subcommand
+// ignores a caller schema (only plain `codex exec` honors `--output-schema`), so warden
+// requests no schema and normalizes codex's own `review_output` instead. The prose form
+// (Structured=false) stays byte-identical to PR-A.
 func TestCodexReviewCmdStructuredForm(t *testing.T) {
-	argv, ok := Codex{}.ReviewCmd(agentbackend.ReviewOpts{Scope: "uncommitted", SchemaFile: "/tmp/schema.json"})
+	cases := []struct {
+		name string
+		opts agentbackend.ReviewOpts
+		want []string
+	}{
+		{
+			name: "structured uncommitted",
+			opts: agentbackend.ReviewOpts{Scope: "uncommitted", Structured: true},
+			want: []string{"codex", "exec", "review", "--uncommitted"},
+		},
+		{
+			name: "structured base branch",
+			opts: agentbackend.ReviewOpts{Scope: "base", Base: "main", Structured: true},
+			want: []string{"codex", "exec", "review", "--base", "main"},
+		},
+		{
+			name: "structured carries an extra prompt",
+			opts: agentbackend.ReviewOpts{Scope: "uncommitted", Structured: true, Prompt: "focus on auth"},
+			want: []string{"codex", "exec", "review", "--uncommitted", "focus on auth"},
+		},
+		{
+			name: "prose form unchanged (no exec, no schema)",
+			opts: agentbackend.ReviewOpts{Scope: "uncommitted"},
+			want: []string{"codex", "review", "--uncommitted"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			argv, ok := Codex{}.ReviewCmd(tc.opts)
+			require.True(t, ok)
+			require.Equal(t, tc.want, argv)
+			require.NotContains(t, argv, "--output-schema", "codex review ignores a caller schema; warden must not emit one")
+		})
+	}
+}
+
+// TestCodexImplementsStructuredReviewer asserts the optional StructuredReviewer seam is
+// wired so `wd review --json` lights up for Codex.
+func TestCodexImplementsStructuredReviewer(t *testing.T) {
+	_, ok := agentbackend.Backend(Codex{}).(agentbackend.StructuredReviewer)
+	require.True(t, ok, "Codex exposes its native review_output via StructuredReviewer")
+}
+
+// TestCodexParseReviewResultEmpty reads the AUTHENTIC $0-local capture (an
+// `exited_review_mode` review_output with no findings — the 7B model judged the patch
+// correct, missing the planted bug; design §5 "$0 proves plumbing not accuracy"). It
+// proves the locate→parse→normalize plumbing on a real rollout.
+func TestCodexParseReviewResultEmpty(t *testing.T) {
+	t.Setenv("CODEX_HOME", filepath.Join("testdata", "codex"))
+	rf, ok, err := Codex{}.ParseReviewResult("/work/agent-review-clean")
+	require.NoError(t, err)
+	require.True(t, ok, "the rollout carries an exited_review_mode review_output")
+	require.Equal(t, "patch is correct", rf.Verdict)
+	require.Contains(t, rf.Summary, "do not contain any issues")
+	require.NotNil(t, rf.Findings, "findings must marshal as [] not null")
+	require.Empty(t, rf.Findings)
+}
+
+// TestCodexParseReviewResultFindings exercises the finding mapping against a
+// schema-faithful fixture (codex's verified native review_output field names —
+// title/body/priority/code_location.line_range.start_line; the $0 models won't reliably
+// emit findings, so this mirrors the adapter's schema-faithful tool-call fixture). It
+// checks abs-path→repo-relative, start_line→line, and priority→severity folding.
+func TestCodexParseReviewResultFindings(t *testing.T) {
+	t.Setenv("CODEX_HOME", filepath.Join("testdata", "codex"))
+	rf, ok, err := Codex{}.ParseReviewResult("/work/agent-review-findings")
+	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, []string{"codex", "exec", "review", "--uncommitted", "--output-schema", "/tmp/schema.json"}, argv)
+	require.Equal(t, "patch is incorrect", rf.Verdict)
+	require.Len(t, rf.Findings, 3)
+
+	require.Equal(t, "calc.go", rf.Findings[0].File, "absolute path relativized to the workdir")
+	require.Equal(t, 4, rf.Findings[0].Line, "start_line becomes the neutral line")
+	require.Equal(t, "error", rf.Findings[0].Severity, "priority 0 → error")
+	require.Equal(t, "Possible divide-by-zero", rf.Findings[0].Title)
+	require.Contains(t, rf.Findings[0].Message, "panic")
+
+	require.Equal(t, "warning", rf.Findings[1].Severity, "priority 1 → warning")
+	require.Equal(t, "info", rf.Findings[2].Severity, "priority ≥2 → info")
+}
+
+// TestCodexParseReviewResultDegrades covers the misses: no workdir and a workdir with no
+// rollout both return ok=false with no error, so `wd review --json` reports a clean "no
+// structured review output" rather than crashing.
+func TestCodexParseReviewResultDegrades(t *testing.T) {
+	t.Setenv("CODEX_HOME", filepath.Join("testdata", "codex"))
+
+	_, ok, err := Codex{}.ParseReviewResult("")
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	_, ok, err = Codex{}.ParseReviewResult("/work/no-such-agent")
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+// TestCodexLastReviewOutputNoEvent: a rollout with conversation but no
+// exited_review_mode event yields ok=false (not an error) — the structured path then
+// degrades cleanly.
+func TestCodexLastReviewOutputNoEvent(t *testing.T) {
+	rollout := `{"type":"session_meta","payload":{"cwd":"/work/x"}}
+{"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}`
+	_, ok, err := codexLastReviewOutput(strings.NewReader(rollout))
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+// TestCodexPriorityToSeverity locks the neutral severity folding of codex's integer
+// priority (0 = highest).
+func TestCodexPriorityToSeverity(t *testing.T) {
+	require.Equal(t, "error", codexPriorityToSeverity(0))
+	require.Equal(t, "warning", codexPriorityToSeverity(1))
+	require.Equal(t, "info", codexPriorityToSeverity(2))
+	require.Equal(t, "info", codexPriorityToSeverity(5))
 }
 
 // TestCodexReviewFixture documents the captured $0-local `codex review --uncommitted`

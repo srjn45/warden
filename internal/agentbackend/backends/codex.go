@@ -127,15 +127,22 @@ func (Codex) ResumeCmd(agentbackend.ResumeOpts) (string, bool) {
 // directly with no shell — no shell-quoting needed and untrusted values never reach
 // a shell.
 //
-// SchemaFile selects the command form (verified against codex v0.142.3): the plain
-// `codex review` subcommand has NO `--output-schema`/`--json` flags — only the
-// `codex exec review` sub-form does — so a non-empty SchemaFile switches to
-// `codex exec review … --output-schema <file>`. PR-A's caller always passes "" (the
-// prose form); the branch is wired now so PR-B's structured-result path inherits the
-// correct command shape. ok is always true (Codex always offers native review).
+// opts.Structured selects the command form (verified against codex v0.142.3):
+//   - prose (default) → the plain `codex review` subcommand, streamed to the operator
+//     (PR-A).
+//   - structured → `codex exec review`, the NON-INTERACTIVE sub-form. This is the form
+//     whose native review output the caller reads back via ParseReviewResult.
+//
+// Note the structured path carries NO `--output-schema`: codex's review subcommand
+// owns its output shape and ignores a caller-supplied schema (verified — `-o` captures
+// only the prose summary and `--json` omits the findings entirely). The structured
+// result is codex's native `review_output`, which `codex exec review` persists to the
+// session rollout; ParseReviewResult reads it from there. So warden requests no schema
+// — it normalizes codex's native shape into its own neutral one. ok is always true
+// (Codex always offers native review).
 func (Codex) ReviewCmd(opts agentbackend.ReviewOpts) ([]string, bool) {
 	var argv []string
-	if opts.SchemaFile != "" {
+	if opts.Structured {
 		argv = []string{"codex", "exec", "review"}
 	} else {
 		argv = []string{"codex", "review"}
@@ -145,13 +152,153 @@ func (Codex) ReviewCmd(opts agentbackend.ReviewOpts) ([]string, bool) {
 	} else {
 		argv = append(argv, "--uncommitted")
 	}
-	if opts.SchemaFile != "" {
-		argv = append(argv, "--output-schema", opts.SchemaFile)
-	}
 	if opts.Prompt != "" {
 		argv = append(argv, opts.Prompt)
 	}
 	return argv, true
+}
+
+// codexReviewOutput is codex's NATIVE structured review result (verified against codex
+// v0.142.3), persisted to the session rollout as the payload of an `exited_review_mode`
+// event_msg. warden does NOT define this shape — codex owns it (the review subcommand
+// ignores a caller `--output-schema`); ParseReviewResult normalizes it into warden's
+// neutral agentbackend.ReviewFindings.
+type codexReviewOutput struct {
+	Findings           []codexReviewFinding `json:"findings"`
+	OverallCorrectness string               `json:"overall_correctness"`
+	OverallExplanation string               `json:"overall_explanation"`
+	OverallConfidence  float64              `json:"overall_confidence_score"`
+}
+
+// codexReviewFinding is one finding in codex's review_output. priority ranks severity
+// (0 = highest); code_location carries the absolute path and a 1-based line range.
+type codexReviewFinding struct {
+	Title           string  `json:"title"`
+	Body            string  `json:"body"`
+	ConfidenceScore float64 `json:"confidence_score"`
+	Priority        int     `json:"priority"`
+	CodeLocation    struct {
+		AbsoluteFilePath string `json:"absolute_file_path"`
+		LineRange        struct {
+			StartLine int `json:"start_line"`
+			EndLine   int `json:"end_line"`
+		} `json:"line_range"`
+	} `json:"code_location"`
+}
+
+// ParseReviewResult implements agentbackend.StructuredReviewer. After a structured
+// `codex exec review` run (ReviewCmd with opts.Structured), codex persists its native
+// review_output to the session rollout as the final `exited_review_mode` event. This
+// locates that rollout with the same dir-scoped newest-by-cwd locator TranscriptPath
+// uses — `wd review --json` runs `codex exec review` as its own process in the agent's
+// worktree, so the run's rollout is the newest one for that dir — reads the last
+// review_output, and maps it onto the neutral ReviewFindings.
+//
+// ok=false (no error) when no rollout exists for the dir or it carries no review event
+// (e.g. a too-weak local model produced no structured review): the caller reports a
+// clean "no structured review output" and points at the prose verb. A read error is
+// returned as a non-nil error.
+func (Codex) ParseReviewResult(workdir string) (agentbackend.ReviewFindings, bool, error) {
+	path, ok := codexNewestRolloutForDir(workdir)
+	if !ok {
+		return agentbackend.ReviewFindings{}, false, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return agentbackend.ReviewFindings{}, false, err
+	}
+	defer f.Close()
+	out, ok, err := codexLastReviewOutput(f)
+	if err != nil || !ok {
+		return agentbackend.ReviewFindings{}, false, err
+	}
+	return codexReviewToNeutral(out, workdir), true, nil
+}
+
+// codexLastReviewOutput scans a rollout JSONL stream for the LAST `exited_review_mode`
+// event_msg and returns its decoded review_output (the last one wins, so a re-review in
+// the same session reports the latest). ok=false when the stream carries no such event
+// or its review_output is null (a cancelled/incomplete review). Malformed lines are
+// skipped (best-effort, like ParseTranscript); only a reader error is returned.
+func codexLastReviewOutput(r io.Reader) (codexReviewOutput, bool, error) {
+	var (
+		out   codexReviewOutput
+		found bool
+	)
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var rec codexLine
+		if json.Unmarshal(line, &rec) != nil || rec.Type != "event_msg" {
+			continue
+		}
+		var ev struct {
+			Type         string             `json:"type"`
+			ReviewOutput *codexReviewOutput `json:"review_output"`
+		}
+		if json.Unmarshal(rec.Payload, &ev) != nil || ev.Type != "exited_review_mode" || ev.ReviewOutput == nil {
+			continue
+		}
+		out, found = *ev.ReviewOutput, true
+	}
+	return out, found, sc.Err()
+}
+
+// codexReviewToNeutral maps codex's native review_output onto warden's neutral
+// ReviewFindings: the overall explanation/correctness become the summary/verdict, and
+// each finding's absolute path is relativized to workdir (so the neutral output is
+// repo-relative), its start line becomes the neutral line, and its priority maps onto a
+// neutral severity. Findings is always non-nil so `--json` emits `[]` not `null`.
+func codexReviewToNeutral(out codexReviewOutput, workdir string) agentbackend.ReviewFindings {
+	rf := agentbackend.ReviewFindings{
+		Summary:  out.OverallExplanation,
+		Verdict:  out.OverallCorrectness,
+		Findings: []agentbackend.ReviewFinding{},
+	}
+	for _, fnd := range out.Findings {
+		file := fnd.CodeLocation.AbsoluteFilePath
+		if workdir != "" && file != "" {
+			if rel, err := filepath.Rel(workdir, file); err == nil && !strings.HasPrefix(rel, "..") {
+				file = rel
+			}
+		}
+		rf.Findings = append(rf.Findings, agentbackend.ReviewFinding{
+			File:     file,
+			Line:     fnd.CodeLocation.LineRange.StartLine,
+			Severity: codexPriorityToSeverity(fnd.Priority),
+			Title:    fnd.Title,
+			Message:  codexFindingMessage(fnd),
+		})
+	}
+	return rf
+}
+
+// codexFindingMessage is the finding's neutral message: codex's body, falling back to
+// its title when the body is empty.
+func codexFindingMessage(f codexReviewFinding) string {
+	if strings.TrimSpace(f.Body) != "" {
+		return f.Body
+	}
+	return f.Title
+}
+
+// codexPriorityToSeverity maps codex's review-finding priority (0 = highest) onto
+// warden's neutral severity. codex ranks findings by an integer priority rather than
+// emitting a severity enum, so warden folds the top two priorities onto error/warning
+// and everything lower onto info.
+func codexPriorityToSeverity(priority int) string {
+	switch {
+	case priority <= 0:
+		return "error"
+	case priority == 1:
+		return "warning"
+	default:
+		return "info"
+	}
 }
 
 // LaunchPromptArg seeds the initial task prompt as Codex's trailing positional
@@ -198,6 +345,15 @@ var codexHome = func() string {
 // digest path degrades to "no transcript" rather than erroring — same contract as
 // Aider/OpenCode.
 func (Codex) TranscriptPath(_, workdir, _ string) (string, bool) {
+	return codexNewestRolloutForDir(workdir)
+}
+
+// codexNewestRolloutForDir returns the path of the most recently modified rollout
+// whose `session_meta.cwd` equals workdir — the dir-scoped locator shared by
+// TranscriptPath, DiscoverSessionID, and ParseReviewResult (every warden agent runs
+// in its own worktree). ok=false on any miss (no workdir, no home, no matching
+// rollout).
+func codexNewestRolloutForDir(workdir string) (string, bool) {
 	if workdir == "" {
 		return "", false
 	}
