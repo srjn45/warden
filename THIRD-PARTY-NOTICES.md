@@ -56,8 +56,8 @@ commit whenever dependencies change; CI fails if this file is stale._
 | `github.com/tidwall/sjson` | MIT | [link](https://github.com/tidwall/sjson/blob/v1.2.5/LICENSE) |
 | `github.com/xo/terminfo` | MIT | [link](https://github.com/xo/terminfo/blob/abceb7e1c41e/LICENSE) |
 | `github.com/yosida95/uritemplate/v3` | BSD-3-Clause | [link](https://github.com/yosida95/uritemplate/blob/v3.0.2/LICENSE) |
+| `go.yaml.in/yaml/v4` | MIT | [link](https://github.com/yaml/go-yaml/blob/v4.0.0-rc.2/LICENSE) |
 | `golang.org/x/oauth2` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/oauth2/+/v0.35.0:LICENSE) |
 | `golang.org/x/sync/errgroup` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/sync/+/v0.19.0:LICENSE) |
 | `golang.org/x/sys` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/sys/+/v0.44.0:LICENSE) |
 | `gopkg.in/yaml.v3` | MIT | [link](https://github.com/go-yaml/yaml/blob/v3.0.1/LICENSE) |
-| `go.yaml.in/yaml/v4` | MIT | [link](https://github.com/yaml/go-yaml/blob/v4.0.0-rc.2/LICENSE) |
