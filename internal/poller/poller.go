@@ -116,6 +116,14 @@ type Deps interface {
 	// anomalies the poller raises — OOM-suspected crashes, infinite loops,
 	// pre-crash context warnings). A missing session is a soft no-op.
 	RecordEvent(ctx context.Context, id string, ev store.Event) error
+	// ProjectsDir is the backend transcript root (lifecycle's ProjectsDir), passed
+	// to a backend's DiscoverSessionID — mirrors how TranscriptPath receives it.
+	// Empty when transcript lookup is disabled.
+	ProjectsDir() string
+	// SetSessionID pins a discovered agent-generated session id to the session
+	// (discover-then-pin). Persisted once, after which the exact id drives the
+	// transcript path + resume in place of dir-scoping.
+	SetSessionID(ctx context.Context, id, sessionID string) error
 }
 
 type Poller struct {
@@ -285,6 +293,39 @@ func (p *Poller) backendFor(s *store.Session) agentbackend.Backend {
 		return p.Backend(s)
 	}
 	return resolveBackend(s)
+}
+
+// discoverSessionID lazily pins the agent-generated session id for a non-pinning
+// backend (Caps.SessionIDControl=false). It runs only while the session id is
+// still empty: a pinning backend (Claude) already carries warden's minted id at
+// spawn, so the SessionIDControl guard means this path NEVER runs for it. For a
+// non-pinning backend that implements SessionIDDiscoverer, it asks the backend to
+// find the id from the on-disk transcript and persists it once; backends without
+// the optional interface are skipped (they keep dir-scoping). The discovered id is
+// also written back onto the in-memory snapshot so this tick's later transcript
+// reads use the exact id immediately.
+func (p *Poller) discoverSessionID(ctx context.Context, s *store.Session) {
+	if s.ClaudeSessionID != "" {
+		return // already pinned (warden-minted or previously discovered)
+	}
+	b := p.backendFor(s)
+	if b.Capabilities().SessionIDControl {
+		return // pinning backend mints at spawn; never discovered
+	}
+	d, ok := b.(agentbackend.SessionIDDiscoverer)
+	if !ok {
+		return // backend keeps dir-scoping (no discovery support yet)
+	}
+	id, ok := d.DiscoverSessionID(p.deps.ProjectsDir(), s.Workdir)
+	if !ok || id == "" {
+		return // transcript not written yet — retry on a later tick
+	}
+	if err := p.deps.SetSessionID(ctx, s.ID, id); err != nil {
+		slog.Warn("poller: pin discovered session id failed", "agent", s.ID, "err", err)
+		return
+	}
+	s.ClaudeSessionID = id // reflect on the snapshot for this tick's transcript reads
+	slog.Info("poller: pinned discovered session id", "agent", s.ID, "session_id", id)
 }
 
 func New(d Deps, stuckAfter time.Duration) *Poller {
@@ -488,6 +529,13 @@ func (p *Poller) tick(ctx context.Context) error {
 			continue
 		}
 		alive := p.deps.SessionAlive(ctx, s.TmuxSession)
+		// Discover-then-pin: a non-pinning backend mints its own session id at
+		// launch, so ClaudeSessionID starts empty (dir-scoped fallback). Once the
+		// agent has written its transcript, discover the real id and persist it once
+		// — after which the transcript path + resume key off the exact id.
+		if alive {
+			p.discoverSessionID(ctx, s)
+		}
 		var pane string
 		paneChanged := false
 		captureOK := true

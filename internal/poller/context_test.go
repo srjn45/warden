@@ -64,6 +64,8 @@ func (f *ctxFakeDeps) UpdateStatusIf(context.Context, string, store.Status, stor
 }
 func (f *ctxFakeDeps) UpdatePane(context.Context, string, string) error          { return nil }
 func (f *ctxFakeDeps) UpdateSubject(context.Context, string, string) error       { return nil }
+func (f *ctxFakeDeps) ProjectsDir() string                                       { return "" }
+func (f *ctxFakeDeps) SetSessionID(context.Context, string, string) error        { return nil }
 func (f *ctxFakeDeps) SessionAlive(context.Context, string) bool                 { return true }
 func (f *ctxFakeDeps) CapturePane(context.Context, string) (string, error)       { return "", nil }
 func (f *ctxFakeDeps) Summarize(context.Context, *store.Session) (string, error) { return "", nil }

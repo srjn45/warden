@@ -43,6 +43,11 @@ type Store interface {
 	FinalizeExit(ctx context.Context, id string, expected, next Status, code int) (bool, error)
 	UpdateType(ctx context.Context, id string, t Type) error
 	UpdateSubject(ctx context.Context, id, subject string) error
+	// SetSessionID pins the backend session id (ClaudeSessionID) for a session.
+	// Used by the poller's discover-then-pin path: a non-pinning backend mints its
+	// own id at launch, which warden discovers post-launch and persists here so the
+	// transcript path + resume key off the exact id instead of dir-scoping.
+	SetSessionID(ctx context.Context, id, sessionID string) error
 	// UpdateName sets (or, when blank, clears) the human-friendly agent name.
 	// Format and uniqueness are the caller's responsibility (see ValidateName).
 	UpdateName(ctx context.Context, id, name string) error

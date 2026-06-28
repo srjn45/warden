@@ -218,6 +218,57 @@ func codexRolloutCwd(path string) string {
 	return meta.Cwd
 }
 
+// DiscoverSessionID implements agentbackend.SessionIDDiscoverer: Codex mints its
+// own UUID session id at launch (Caps.SessionIDControl=false), which warden cannot
+// pin up front, so the poller calls this post-launch to discover and pin it. It
+// reuses the dir-scoped locator (newest rollout whose `session_meta.cwd` equals
+// workdir — every warden agent runs in its own worktree), then reads that
+// rollout's `session_meta.session_id`. projectsDir (Claude-specific) is ignored,
+// same as TranscriptPath. ok=false on any miss (no rollout for the dir yet, or no
+// id in the header) so the poller keeps the empty id and retries on a later tick.
+// Once pinned, exact-id resume (`codex resume <uuid>`) and an exact transcript
+// path become possible even with more than one session per workdir.
+func (Codex) DiscoverSessionID(projectsDir, workdir string) (string, bool) {
+	path, ok := Codex{}.TranscriptPath(projectsDir, workdir, "")
+	if !ok {
+		return "", false
+	}
+	id := codexRolloutSessionID(path)
+	return id, id != ""
+}
+
+// codexRolloutSessionID reads a rollout's `session_meta` header (its first line)
+// and returns the recorded Codex session id, or "" if it can't be read. Codex
+// writes the id under `session_id` (with a duplicate `id` field as a fallback for
+// older rollouts).
+func codexRolloutSessionID(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	if !sc.Scan() {
+		return ""
+	}
+	var rec codexLine
+	if json.Unmarshal(sc.Bytes(), &rec) != nil || rec.Type != "session_meta" {
+		return ""
+	}
+	var meta struct {
+		SessionID string `json:"session_id"`
+		ID        string `json:"id"`
+	}
+	if json.Unmarshal(rec.Payload, &meta) != nil {
+		return ""
+	}
+	if meta.SessionID != "" {
+		return meta.SessionID
+	}
+	return meta.ID
+}
+
 // codexLine is one rollout JSONL record: a top-level type and an opaque payload
 // whose shape depends on that type (session_meta | response_item | event_msg |
 // turn_context).

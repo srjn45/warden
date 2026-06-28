@@ -413,6 +413,10 @@ func (fs *FileStore) UpdateName(ctx context.Context, id, name string) error {
 	return fs.mutate(id, func(s *Session) { s.Name = name })
 }
 
+func (fs *FileStore) SetSessionID(ctx context.Context, id, sessionID string) error {
+	return fs.mutate(id, func(s *Session) { s.ClaudeSessionID = sessionID })
+}
+
 func (fs *FileStore) UpdatePane(ctx context.Context, id, excerpt string) error {
 	return fs.mutate(id, func(s *Session) { s.LastPaneExcerpt = excerpt })
 }

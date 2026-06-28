@@ -135,3 +135,12 @@ func (d *pollerDeps) RecordEvent(ctx context.Context, id string, ev store.Event)
 	}
 	return err
 }
+
+// ProjectsDir exposes the lifecycle's transcript root so the poller can pass it to
+// a backend's DiscoverSessionID (same root TranscriptPath receives).
+func (d *pollerDeps) ProjectsDir() string { return d.lc.ProjectsDir }
+
+// SetSessionID persists a discovered agent-generated session id (discover-then-pin).
+func (d *pollerDeps) SetSessionID(ctx context.Context, id, sessionID string) error {
+	return d.store.SetSessionID(ctx, id, sessionID)
+}

@@ -64,6 +64,35 @@ func TestSpawnAiderLaunchString(t *testing.T) {
 	require.NotContains(t, want, "--settings", "Claude-only guard hooks are skipped")
 }
 
+// TestSpawnSessionIDMintGatedByCapability proves Spawn mints a warden session id
+// ONLY for a pinning backend (Claude, SessionIDControl=true) and leaves it empty
+// for a non-pinning backend (Codex). The empty id is the dir-scoped transcript
+// fallback; the poller discovers-then-pins the agent's real id post-launch (§5.2).
+func TestSpawnSessionIDMintGatedByCapability(t *testing.T) {
+	newLC := func() *Lifecycle {
+		fr := &FakeRunner{Responses: map[string]FakeResp{
+			"git worktree list --porcelain": {Out: noOtherWorktrees},
+		}}
+		lc := New(fr, &FakeConfig{})
+		lc.PromptsDir = "/state/prompts"
+		return lc
+	}
+
+	// Non-pinning backend (Codex) ⇒ id left empty for discover-then-pin.
+	codex, err := newLC().Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "CDX-1", Repo: "/repo", Backend: "codex",
+	})
+	require.NoError(t, err)
+	require.Empty(t, codex.ClaudeSessionID, "non-pinning backend leaves the session id empty")
+
+	// Pinning backend (Claude default) ⇒ a UUID minted at spawn (unchanged).
+	claude, err := newLC().Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "CLD-1", Repo: "/repo",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, claude.ClaudeSessionID, "pinning backend mints a session id at spawn (regression-lock)")
+}
+
 // TestLaunchModelPassthroughForNonClaude verifies model resolution is
 // backend-aware: Claude expands aliases/defaults; Aider (BYO model) receives the
 // raw model and an empty model stays empty (Aider supplies its own default).
