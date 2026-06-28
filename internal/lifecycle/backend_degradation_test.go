@@ -2,6 +2,8 @@ package lifecycle
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/srjn45/warden/internal/agentbackend"
@@ -36,6 +38,58 @@ func TestSystemPromptHintsSkippedForAider(t *testing.T) {
 
 	// Claude (the default) still emits its --append-system-prompt fragments.
 	require.Contains(t, lc.collabHint(agentbackend.Default()), "--append-system-prompt")
+}
+
+// TestInjectContextRoutesToInjector verifies the ContextInjector seam: a backend
+// that implements it (Codex) gets warden's gated addendum written into its workdir
+// as AGENTS.md, while a backend without the seam (Aider) and a flag-based backend
+// (Claude) are silently skipped — no file, no error. This is the lifecycle-side
+// counterpart to the per-backend injector tests.
+func TestInjectContextRoutesToInjector(t *testing.T) {
+	lc := New(&FakeRunner{}, &FakeConfig{})
+
+	codex, err := agentbackend.Get("codex")
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, lc.injectContext(codex, dir,
+		hintGuidance(lc.cfg.GetCollabHint(), collabHintGuidance),
+		hintGuidance(lc.cfg.GetGitConventions(), gitConventionsGuidance),
+	))
+	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(got), "<!-- warden:begin -->")
+	require.Contains(t, string(got), "who_is_editing_file", "collab hint reached the rules file")
+	require.Contains(t, string(got), "wd commit", "git-conventions hint reached the rules file")
+
+	// A backend without the injector seam (Aider) is silently skipped.
+	aider, err := agentbackend.Get("aider")
+	require.NoError(t, err)
+	aiderDir := t.TempDir()
+	require.NoError(t, lc.injectContext(aider, aiderDir, collabHintGuidance))
+	_, err = os.Stat(filepath.Join(aiderDir, "AGENTS.md"))
+	require.True(t, os.IsNotExist(err), "non-injector backend writes nothing")
+
+	// Claude (flag-based) is skipped too — its hints ride the launch line.
+	claudeDir := t.TempDir()
+	require.NoError(t, lc.injectContext(agentbackend.Default(), claudeDir, collabHintGuidance))
+	_, err = os.Stat(filepath.Join(claudeDir, "AGENTS.md"))
+	require.True(t, os.IsNotExist(err), "flag-based backend writes nothing")
+}
+
+// TestInjectContextSkipsWhenAllHintsDisabled verifies that when every guidance is
+// gated off (empty), an injector backend still writes nothing — the addendum is
+// genuinely empty, not a stray empty warden block.
+func TestInjectContextSkipsWhenAllHintsDisabled(t *testing.T) {
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	codex, err := agentbackend.Get("codex")
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, lc.injectContext(codex, dir,
+		hintGuidance(false, collabHintGuidance),
+		hintGuidance(false, gitConventionsGuidance),
+	))
+	_, err = os.Stat(filepath.Join(dir, "AGENTS.md"))
+	require.True(t, os.IsNotExist(err), "all-disabled hints write no file")
 }
 
 // TestSpawnAiderLaunchString locks the full command typed into tmux for an

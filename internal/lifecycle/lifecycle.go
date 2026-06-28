@@ -109,6 +109,46 @@ func systemPromptHint(b agentbackend.Backend, enabled bool, guidance string) str
 	return frag
 }
 
+// hintGuidance returns guidance when enabled, else "" — the raw-text counterpart to
+// systemPromptHint, used to assemble a ContextInjector backend's rules file. Where
+// SystemPromptFlag shapes guidance into a launch-line fragment, the injection path
+// needs the bare text to write into AGENTS.md.
+func hintGuidance(enabled bool, guidance string) string {
+	if enabled {
+		return guidance
+	}
+	return ""
+}
+
+// injectContext delivers warden's system-prompt addendum to a backend that has no
+// launch-time flag (Caps.SystemPromptInject=false) but implements the
+// ContextInjector seam (Codex) — the AGENTS.md counterpart to systemPromptHint's
+// --append-system-prompt fragment. It is called post-worktree-creation / pre-launch
+// with the agent's workdir and the SAME config-gated guidance strings the flag path
+// would have appended; empties are dropped and the rest are newline-joined into the
+// rules file. A backend implementing neither SystemPromptFlag nor ContextInjector
+// (and Claude, which uses the flag) skips this silently — the addendum is dropped
+// exactly as today. It returns the error so callers can decide; the spawn paths log
+// and continue (a failed hint-file write degrades the agent — no coordination hints
+// — rather than crashing the spawn, per design §5).
+func (l *Lifecycle) injectContext(b agentbackend.Backend, workdir string, guidances ...string) error {
+	inj, ok := b.(agentbackend.ContextInjector)
+	if !ok {
+		return nil
+	}
+	var parts []string
+	for _, g := range guidances {
+		if g != "" {
+			parts = append(parts, g)
+		}
+	}
+	text := strings.Join(parts, "\n\n")
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return inj.InjectContext(workdir, text)
+}
+
 // collabHintGuidance is appended to a freshly spawned agent's system prompt so
 // it cooperates with any agents running alongside it: check before editing a
 // file another agent already has open, and act on the daemon conflict warnings
@@ -1008,6 +1048,16 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	b := l.backendFor(sess.Backend)
+	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
+	// deliver the same pipeline/collab addendum by writing it into the workdir before
+	// launch. A flag-based backend (Claude) skips this — its hints ride the launch
+	// line below instead. A write failure degrades (no hints) but does not fail spawn.
+	if err := l.injectContext(b, sess.Workdir,
+		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
+		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+	); err != nil {
+		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
+	}
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + l.pipelineHint(b) + l.collabHint(b) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
@@ -1064,6 +1114,18 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	b := l.backendFor(sess.Backend)
+	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
+	// deliver the same pipeline/collab/git addendum by writing it into the worktree
+	// (created above) before launch. A flag-based backend (Claude) skips this — its
+	// hints ride the launch line below instead. A write failure degrades (no hints)
+	// but does not fail spawn.
+	if err := l.injectContext(b, sess.Workdir,
+		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
+		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+		hintGuidance(l.cfg.GetGitConventions(), gitConventionsGuidance),
+	); err != nil {
+		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
+	}
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + l.pipelineHint(b) + l.collabHint(b) + l.gitConventionsHint(b) + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
@@ -1770,6 +1832,15 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	b := l.backendFor(sess.Backend)
+	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
+	// deliver the same collab addendum by writing it into the workdir before launch.
+	// A flag-based backend (Claude) skips this — its hint rides the launch line below.
+	// A write failure degrades (no hints) but does not fail spawn.
+	if err := l.injectContext(b, sess.Workdir,
+		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+	); err != nil {
+		slog.Warn("spawn job: context injection failed", "agent", id, "backend", b.ID(), "err", err)
+	}
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + l.collabHint(b) + l.promptArg(b, promptFile) + l.exitSuffix(id)

@@ -224,6 +224,15 @@ func TestSystemPromptFlag(t *testing.T) {
 	require.True(t, strings.HasPrefix(frag, " "), "leading space so it concatenates onto LaunchCmd")
 }
 
+// TestClaudeNotContextInjector regression-locks the InjectContext seam: Claude
+// delivers its addendum via the launch-time --append-system-prompt flag and must NOT
+// implement agentbackend.ContextInjector, so the AGENTS.md injection path never runs
+// for it and its launch command stays byte-identical.
+func TestClaudeNotContextInjector(t *testing.T) {
+	_, ok := agentbackend.Backend(Claude{}).(agentbackend.ContextInjector)
+	require.False(t, ok, "Claude uses the system-prompt flag, not AGENTS.md injection")
+}
+
 func TestPricing(t *testing.T) {
 	tbl, ok := Claude{}.Pricing()
 	require.True(t, ok)
