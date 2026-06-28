@@ -318,6 +318,7 @@ you pick one per agent at spawn time.
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Everything — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | Bring-your-own-model (pass `--model`); structured markdown transcript ⇒ real digests. **No** resume (rotate/handoff re-spawn fresh), **no** priced spend (`wd spend` shows tokens, `wd savings` omits it), no assignable session id, system-prompt hints skipped. Runs an autonomous `--message` task that exits when done. |
+| **OpenCode** | `opencode` | A | Bring-your-own-model (pass `--model`, e.g. `ollama/qwen2.5-coder:3b`); structured JSON transcript (sourced via `opencode export`) ⇒ real digests. **Resumes** the worktree's last session (`opencode -c`, dir-scoped), so rotate/handoff/restore work. **No** priced spend (`wd spend` shows tokens, `wd savings` omits it — BYO model), no warden-assigned session id, system-prompt hints skipped. Runs a persistent agent loop (TUI, prompt seeded via `--prompt`). |
 
 ```sh
 # Claude (default) — nothing to pass
@@ -327,19 +328,24 @@ warden start "review the auth module"
 export OLLAMA_API_BASE=http://127.0.0.1:11434
 warden start "implement the add function" \
   --backend aider --model ollama_chat/qwen2.5-coder:3b --dir .
+
+# OpenCode against a local Ollama model (free, offline, $0)
+warden start "implement the add function" \
+  --backend opencode --model ollama/qwen2.5-coder:3b --dir .
 ```
 
 Over MCP, pass the `backend` param (kept at parity with the CLI):
 
 ```typescript
 spawn_agent({ prompt: "implement add", backend: "aider", model: "ollama_chat/qwen2.5-coder:3b" })
+spawn_agent({ prompt: "implement add", backend: "opencode", model: "ollama/qwen2.5-coder:3b" })
 ```
 
 An unknown backend id is rejected up front (before any tmux/worktree side effect).
 The selected backend is stored on the session (`Session.Backend`; empty ⇒ claude,
 so existing stores are unaffected). Capabilities differ per backend and warden
 **degrades gracefully** rather than crashing when one is missing (design §5). More
-backends (Antigravity CLI, Codex, OpenCode) land as isolated adapter PRs — see
+backends (Antigravity CLI, Codex) land as isolated adapter PRs — see
 roadmap item #52.
 
 ---

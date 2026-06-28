@@ -1,0 +1,99 @@
+{
+  "info": {
+    "id": "ses_0f47toolFIXTUREabc123",
+    "slug": "brave-otter",
+    "directory": "/work/agent-7",
+    "title": "Add subtract to calc.py",
+    "agent": "build",
+    "model": { "id": "qwen2.5-coder:7b", "providerID": "ollama", "variant": "default" },
+    "version": "1.17.11",
+    "cost": 0,
+    "tokens": { "input": 5120, "output": 96, "reasoning": 0, "cache": { "read": 0, "write": 0 } },
+    "time": { "created": 1782700000000, "updated": 1782700009000 }
+  },
+  "messages": [
+    {
+      "info": {
+        "role": "user",
+        "time": { "created": 1782700000000 },
+        "id": "msg_u1",
+        "sessionID": "ses_0f47toolFIXTUREabc123"
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "add a subtract function to calc.py",
+          "id": "prt_u1a",
+          "sessionID": "ses_0f47toolFIXTUREabc123",
+          "messageID": "msg_u1"
+        }
+      ]
+    },
+    {
+      "info": {
+        "role": "assistant",
+        "mode": "build",
+        "cost": 0,
+        "tokens": { "total": 5216, "input": 5120, "output": 96, "reasoning": 0, "cache": { "write": 0, "read": 0 } },
+        "modelID": "qwen2.5-coder:7b",
+        "providerID": "ollama",
+        "time": { "created": 1782700001000, "completed": 1782700009000 },
+        "finish": "stop",
+        "id": "msg_a1",
+        "sessionID": "ses_0f47toolFIXTUREabc123"
+      },
+      "parts": [
+        {
+          "snapshot": "aaaa1111",
+          "type": "step-start",
+          "id": "prt_a1s",
+          "sessionID": "ses_0f47toolFIXTUREabc123",
+          "messageID": "msg_a1"
+        },
+        {
+          "type": "text",
+          "text": "I'll add a subtract function next to add.",
+          "time": { "start": 1782700001000, "end": 1782700002000 },
+          "id": "prt_a1t",
+          "sessionID": "ses_0f47toolFIXTUREabc123",
+          "messageID": "msg_a1"
+        },
+        {
+          "type": "tool",
+          "tool": "write",
+          "callID": "call_w1",
+          "state": {
+            "status": "completed",
+            "input": {
+              "filePath": "calc.py",
+              "content": "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n"
+            },
+            "output": "wrote calc.py",
+            "title": "calc.py"
+          },
+          "id": "prt_a1w",
+          "sessionID": "ses_0f47toolFIXTUREabc123",
+          "messageID": "msg_a1"
+        },
+        {
+          "type": "patch",
+          "hash": "bbbb2222",
+          "files": ["calc.py"],
+          "id": "prt_a1p",
+          "sessionID": "ses_0f47toolFIXTUREabc123",
+          "messageID": "msg_a1"
+        },
+        {
+          "reason": "stop",
+          "snapshot": "cccc3333",
+          "type": "step-finish",
+          "tokens": { "total": 5216, "input": 5120, "output": 96, "reasoning": 0, "cache": { "write": 0, "read": 0 } },
+          "cost": 0,
+          "id": "prt_a1f",
+          "sessionID": "ses_0f47toolFIXTUREabc123",
+          "messageID": "msg_a1"
+        }
+      ]
+    }
+  ]
+}

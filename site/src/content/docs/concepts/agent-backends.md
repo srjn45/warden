@@ -1,6 +1,6 @@
 ---
 title: Agent backends
-description: Warden drives Claude Code by default, but the agent layer is pluggable — pick a backend (Claude or Aider) per agent, with capabilities that degrade gracefully.
+description: Warden drives Claude Code by default, but the agent layer is pluggable — pick a backend (Claude, Aider, or OpenCode) per agent, with capabilities that degrade gracefully.
 ---
 
 Warden was built around Claude Code, but the agent layer is an **adapter layer**:
@@ -14,6 +14,7 @@ binary directly. You pick the backend **per agent at spawn time**.
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | Bring-your-own-model; structured markdown transcript ⇒ real digests; no resume, no priced spend |
+| **OpenCode** | `opencode` | A | Bring-your-own-model; structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session; no priced spend (BYO model) |
 
 ```sh
 # Claude (default)
@@ -23,6 +24,10 @@ warden start "review the auth module"
 export OLLAMA_API_BASE=http://127.0.0.1:11434
 warden start "implement the add function" \
   --backend aider --model ollama_chat/qwen2.5-coder:3b --dir .
+
+# OpenCode against a local Ollama model (free, offline)
+warden start "implement the add function" \
+  --backend opencode --model ollama/qwen2.5-coder:3b --dir .
 ```
 
 Over MCP, pass the `backend` param to `spawn_agent` (kept at parity with the
@@ -58,6 +63,33 @@ capability is missing:
 - **No resume / no session id:** Aider continues from repo history, not a pinned
   id, so warden re-spawns fresh on rotate/handoff rather than resuming.
 
-More backends (Antigravity CLI, Codex CLI, OpenCode) land as isolated adapter PRs
-over time — see roadmap item #52 and the design spec under
-`docs/superpowers/specs/`.
+## OpenCode specifics
+
+- **Bring-your-own-model:** pass `-m provider/model` via `--model` (any provider,
+  or a local Ollama model like `ollama/qwen2.5-coder:3b`). Spend is tokens-only —
+  OpenCode tracks its own cost/tokens (first-class for paid providers), but
+  warden's spend integration reads them only once the transcript-usage wiring
+  lands (see #52).
+- **Tier A transcript (SQLite, sourced via `export`):** OpenCode stores
+  transcripts in a SQLite DB, not a flat file. The adapter sources the transcript
+  through `opencode export <session>` — one command that emits the whole session
+  as clean `{info, messages[]}` JSON — and parses it into warden's neutral turns,
+  so digests run on real structured data. (This is the design's "TranscriptSource
+  = DB query, not file read" case; sourcing via `export` avoids coupling to the DB
+  schema.)
+- **Resumes — dir-scoped:** unlike Aider, OpenCode **does** resume. OpenCode mints
+  its own session id (warden can't assign one), so the adapter keys resume off the
+  agent's worktree: `opencode -c` continues *that directory's* last session
+  (verified dir-scoped). rotate/handoff/restore therefore work. When a future
+  phase captures and pins OpenCode's real `ses_…` id (discover-then-pin, #52), the
+  adapter automatically upgrades to exact-id resume/transcript with no changes.
+- **Persistent loop:** an OpenCode agent runs its TUI with the task seeded via
+  `--prompt`, staying interactive (like Claude), rather than running once and
+  exiting (like Aider).
+- **Interactive approvals not yet mapped:** headless runs use
+  `--dangerously-skip-permissions` (no prompts); the TUI's permission prompts are
+  not yet parsed into warden's approval queue, so warden infers idle from
+  staleness for OpenCode agents (deferred — see #52).
+
+More backends (Antigravity CLI, Codex CLI) land as isolated adapter PRs over time
+— see roadmap item #52 and the design spec under `docs/superpowers/specs/`.

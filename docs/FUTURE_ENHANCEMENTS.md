@@ -125,18 +125,43 @@ day-to-day impact now that `q` exits cleanly.
 
 ## 🤖 Agent Backends & Ecosystem
 
-#### 52. Pluggable agent backends (beyond Claude Code) — *Phase 0 + Phase 1 shipped; Antigravity (Phase 2) next*
+#### 52. Pluggable agent backends (beyond Claude Code) — *Phase 0 + Phase 1 + Phase 2 (OpenCode) shipped; Antigravity / Codex next*
 **Effort:** large, phased (see spec) — interface extraction + 1 adapter per agent
 **Design:** `docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`
 **Impl plan:** `docs/superpowers/specs/2026-06-27-pluggable-agent-backends-impl.md`
 
 **Status:** Phase 0 (interface extraction, `internal/agentbackend`, Claude moved
-behind it — zero behavior change) and **Phase 1** (Aider adapter + `--backend`
-selection across CLI/MCP/daemon + capability-gated degradation) are merged.
-Aider ships as **Tier A** (its markdown transcript parses into structured
-digests); spend/savings degrade to tokens-only (BYO model, no pricing) and
-rotate/handoff re-spawn fresh (no resume). **Next:** Phase 2 — Antigravity CLI
-(`agy`), the headline non-Claude backend.
+behind it — zero behavior change), **Phase 1** (Aider adapter + `--backend`
+selection across CLI/MCP/daemon + capability-gated degradation), and **Phase 2**
+(OpenCode adapter) are merged. Aider ships as **Tier A** (markdown transcript →
+structured digests), no resume, tokens-only spend. OpenCode ships as **Tier A**
+too: its SQLite transcript is sourced via `opencode export <session>` (the
+design's "DB query, not file read" case), it runs a persistent TUI loop, and —
+unlike Aider — it **resumes** (dir-scoped: `opencode -c` continues the worktree's
+last session; OpenCode mints its own `ses_…` id, so resume keys off the agent
+worktree rather than a warden-assigned id). Spend is tokens-only (BYO model) and
+OpenCode's interactive approval prompts are not yet parsed. **Next:** Antigravity
+CLI (`agy`) and Codex CLI adapters.
+
+**Follow-up infra — discover-then-pin session-id write-back (unblocks exact-id
+resume/transcript for id-minting backends):** OpenCode (and the upcoming
+Codex/Antigravity) mint their *own* session id, which warden cannot assign up
+front (`Caps.SessionIDControl=false`). Phase 2 sidesteps this with **dir-scoping**
+(every agent runs in its own worktree, so "the directory's last/newest session" is
+that agent's session) — zero new plumbing, mirrors Aider, and the OpenCode adapter
+is already **forward-compatible**: if a real `ses_…` id is ever pinned into the
+session it prefers exact-id `-s <id>` resume and `export <id>` automatically. What
+remains is the **write-back hook** to capture and persist that real id: a backend
+seam to *discover* the agent-generated id (e.g. parse it from the first headless
+`run --format json` NDJSON event, which carries `sessionID`, or scrape it
+post-launch) plus a lifecycle step that writes it onto `Session.Backend`'s id. This
+is **general infrastructure**, not OpenCode-specific — Codex and Antigravity are
+also id-minting agents, so building it once lights up exact-id resume/transcript
+(robust under session forking, sub-sessions, and same-dir reuse, where dir-scoping
+is only a heuristic) and warden-side reading of OpenCode's first-class cost/tokens
+for `wd spend`/`wd savings`. Deferred to its own phase (a properly-designed
+cross-backend seam) rather than rushed into an adapter PR. Trade-off captured here
+so the dir-scoped choice is intentional, not accidental.
 
 Generalize the agent layer so warden can drive **other console-based coding
 agents** the same way it drives Claude Code, via an **adapter layer** (one
@@ -149,9 +174,9 @@ so features degrade gracefully when an agent lacks a capability.
 **Decisions (design pass 2026-06-27):** Claude Code becomes the reference impl;
 **Aider** is the mechanical proof backend (Tier C, easiest); **Antigravity CLI**
 (`agy`, Google's Gemini-CLI successor — Gemini CLI retired 2026-06-18) is the
-headline first non-Claude target. Then Codex CLI, OpenCode, and the full catalog
-(spec §12) over time. **Start with one agent; one adapter PR per agent after the
-interface is proven.** **Why it matters:** broadens warden's reach beyond
+headline first non-Claude target. **OpenCode shipped (Phase 2).** Then Codex CLI
+and the full catalog (spec §12) over time. **Start with one agent; one adapter PR
+per agent after the interface is proven.** **Why it matters:** broadens warden's reach beyond
 Claude-Code users to any developer running a terminal agent — the single biggest
 lever on adoption.
 
