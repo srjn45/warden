@@ -67,11 +67,21 @@ func TestGooseResumeCmd(t *testing.T) {
 	require.Equal(t, "goose session -r", cmd)
 }
 
-// TestGooseLaunchPromptArgEmpty pins the documented gap: `goose session` cannot
-// seed an initial task prompt, so the seeding fragment is empty and LaunchCmd
-// stays a valid standalone interactive launch.
+// TestGooseLaunchPromptArgEmpty pins that `goose session` takes no launch-line
+// prompt, so the seeding fragment is empty and LaunchCmd stays a valid standalone
+// interactive launch — the prompt is typed in after launch via PromptSeeder.
 func TestGooseLaunchPromptArgEmpty(t *testing.T) {
 	require.Equal(t, "", Goose{}.LaunchPromptArg("/state/prompts/job-1"))
+}
+
+func TestGoosePromptSeeder(t *testing.T) {
+	var ps agentbackend.PromptSeeder = Goose{}
+	text, ok := ps.PromptText("list the apis")
+	require.True(t, ok)
+	require.Equal(t, "list the apis", text)
+	_, ok = ps.PromptText("")
+	require.False(t, ok)
+	require.Equal(t, "goose is ready", ps.ReadyMarker())
 }
 
 func TestGooseHeadlessCmd(t *testing.T) {

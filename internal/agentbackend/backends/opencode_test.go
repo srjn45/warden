@@ -25,14 +25,14 @@ func TestOpenCodeLaunchCmd(t *testing.T) {
 			want: "opencode -m 'ollama/qwen2.5-coder:3b'",
 		},
 		{
-			name: "skip-permissions mode adds the flag",
+			name: "skip-permissions mode prepends the auto-approve env (TUI has no flag)",
 			opts: agentbackend.LaunchOpts{Model: "anthropic/claude-sonnet-4-6", Mode: "dangerously-skip-permissions"},
-			want: "opencode -m 'anthropic/claude-sonnet-4-6' --dangerously-skip-permissions",
+			want: opencodeAutoApproveEnv + " opencode -m 'anthropic/claude-sonnet-4-6'",
 		},
 		{
-			name: "claude 'auto' folds onto --dangerously-skip-permissions",
+			name: "claude 'auto' folds onto the auto-approve env",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "auto"},
-			want: "opencode -m 'm' --dangerously-skip-permissions",
+			want: opencodeAutoApproveEnv + " opencode -m 'm'",
 		},
 		{
 			name: "empty model omits -m (BYO model)",
@@ -75,6 +75,11 @@ func TestOpenCodeResumeCmd(t *testing.T) {
 	cmd, ok = OpenCode{}.ResumeCmd(agentbackend.ResumeOpts{SessionID: "x"})
 	require.True(t, ok)
 	require.Equal(t, "opencode -c", cmd)
+
+	// Skip mode prepends the auto-approve env on resume too.
+	cmd, ok = OpenCode{}.ResumeCmd(agentbackend.ResumeOpts{SessionID: "x", Model: "m", Mode: "auto"})
+	require.True(t, ok)
+	require.Equal(t, opencodeAutoApproveEnv+" opencode -c -m 'm'", cmd)
 }
 
 func TestOpenCodeLaunchPromptArg(t *testing.T) {
