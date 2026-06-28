@@ -53,6 +53,94 @@ func (fakeBackend) Pricing() (agentbackend.PricingTable, bool) {
 }
 func (fakeBackend) Capabilities() agentbackend.Caps { return agentbackend.Caps{} }
 
+// discoverBackend is a fakeBackend that implements SessionIDDiscoverer, with
+// settable caps + a canned discovery result, recording how many times discovery
+// is attempted — used to prove the poller's discover-then-pin path runs only for a
+// non-pinning backend and persists exactly once.
+type discoverBackend struct {
+	fakeBackend
+	caps  agentbackend.Caps
+	id    string
+	ok    bool
+	calls int
+}
+
+func (d *discoverBackend) Capabilities() agentbackend.Caps { return d.caps }
+func (d *discoverBackend) DiscoverSessionID(_, _ string) (string, bool) {
+	d.calls++
+	return d.id, d.ok
+}
+
+// TestDiscoverSessionIDPinsOnce proves a non-pinning backend's agent-generated id
+// is discovered, persisted, and reflected on the snapshot — and that a second pass
+// (id now set) neither re-discovers nor re-persists (pinned once).
+func TestDiscoverSessionIDPinsOnce(t *testing.T) {
+	d := &stubDeps{projectsDir: "/projects"}
+	db := &discoverBackend{caps: agentbackend.Caps{SessionIDControl: false}, id: "codex-uuid-1", ok: true}
+	p := New(d, 5*time.Minute)
+	p.Backend = func(*store.Session) agentbackend.Backend { return db }
+
+	s := &store.Session{ID: "A-1", Workdir: "/work/a", Backend: "codex"}
+	p.discoverSessionID(context.Background(), s)
+	require.Equal(t, "codex-uuid-1", s.ClaudeSessionID, "snapshot updated for this tick's reads")
+	require.Equal(t, "codex-uuid-1", d.sessionIDs["A-1"], "persisted to the store")
+	require.Equal(t, 1, d.setIDN)
+	require.Equal(t, 1, db.calls)
+
+	p.discoverSessionID(context.Background(), s)
+	require.Equal(t, 1, d.setIDN, "already pinned ⇒ not persisted again")
+	require.Equal(t, 1, db.calls, "already pinned ⇒ discovery not attempted again")
+}
+
+// TestDiscoverSessionIDSkipsPinningBackend proves a pinning backend (Claude,
+// SessionIDControl=true) NEVER enters discovery — the id is minted at spawn, so the
+// guard returns before the SessionIDDiscoverer assertion (regression-lock).
+func TestDiscoverSessionIDSkipsPinningBackend(t *testing.T) {
+	d := &stubDeps{projectsDir: "/projects"}
+	db := &discoverBackend{caps: agentbackend.Caps{SessionIDControl: true}, id: "unused", ok: true}
+	p := New(d, 5*time.Minute)
+	p.Backend = func(*store.Session) agentbackend.Backend { return db }
+
+	s := &store.Session{ID: "C-1", Workdir: "/work/c"}
+	p.discoverSessionID(context.Background(), s)
+	require.Equal(t, 0, db.calls, "pinning backend never discovers")
+	require.Equal(t, 0, d.setIDN)
+	require.Empty(t, s.ClaudeSessionID)
+}
+
+// TestDiscoverSessionIDSkipsNonDiscoverer proves a non-pinning backend that does
+// NOT implement SessionIDDiscoverer keeps dir-scoping (the type-assert skips it).
+func TestDiscoverSessionIDSkipsNonDiscoverer(t *testing.T) {
+	d := &stubDeps{projectsDir: "/projects"}
+	p := New(d, 5*time.Minute)
+	p.Backend = func(*store.Session) agentbackend.Backend { return fakeBackend{} } // caps zero ⇒ non-pinning, no discoverer
+
+	s := &store.Session{ID: "N-1", Workdir: "/work/n"}
+	p.discoverSessionID(context.Background(), s)
+	require.Equal(t, 0, d.setIDN)
+	require.Empty(t, s.ClaudeSessionID)
+}
+
+// TestDiscoverSessionIDRetriesUntilWritten proves an ok=false discovery (transcript
+// not written yet) pins nothing and leaves the id empty so a later tick retries.
+func TestDiscoverSessionIDRetriesUntilWritten(t *testing.T) {
+	d := &stubDeps{projectsDir: "/projects"}
+	db := &discoverBackend{caps: agentbackend.Caps{SessionIDControl: false}, ok: false}
+	p := New(d, 5*time.Minute)
+	p.Backend = func(*store.Session) agentbackend.Backend { return db }
+
+	s := &store.Session{ID: "R-1", Workdir: "/work/r"}
+	p.discoverSessionID(context.Background(), s)
+	require.Equal(t, 0, d.setIDN, "nothing to pin yet")
+	require.Empty(t, s.ClaudeSessionID)
+
+	// The agent has now written its transcript ⇒ the next pass pins it.
+	db.ok, db.id = true, "codex-uuid-late"
+	p.discoverSessionID(context.Background(), s)
+	require.Equal(t, "codex-uuid-late", s.ClaudeSessionID)
+	require.Equal(t, 1, d.setIDN)
+}
+
 // TestClassifyRoutesThroughBackend proves a non-Claude backend's positive state
 // detection drives classify even when the pane carries none of Claude's markers.
 func TestClassifyRoutesThroughBackend(t *testing.T) {
@@ -170,6 +258,10 @@ type stubDeps struct {
 	finalCode   map[string]int          // records the code passed to FinalizeExit
 	cleared     map[string]bool         // records ClearExit calls
 	finalizeErr error                   // when set, FinalizeExit returns this error
+
+	projectsDir string            // canned ProjectsDir result
+	sessionIDs  map[string]string // id -> last pinned session id (SetSessionID)
+	setIDN      int               // count of SetSessionID calls (discover-then-pin once)
 
 	// SendKeys recording (guarded — the approval worker calls SendKeys from its
 	// own goroutine while the test reads these after draining). The same mutex
@@ -336,6 +428,15 @@ func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {
 		return "", d.captureErr
 	}
 	return d.panes[name], nil
+}
+func (d *stubDeps) ProjectsDir() string { return d.projectsDir }
+func (d *stubDeps) SetSessionID(_ context.Context, id, sessionID string) error {
+	if d.sessionIDs == nil {
+		d.sessionIDs = map[string]string{}
+	}
+	d.sessionIDs[id] = sessionID
+	d.setIDN++
+	return nil
 }
 
 func TestTickMarksOrphaned(t *testing.T) {

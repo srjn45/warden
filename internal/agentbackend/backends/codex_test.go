@@ -117,6 +117,59 @@ func TestCodexTranscriptPathDegrades(t *testing.T) {
 	require.False(t, ok)
 }
 
+// --- Discover-then-pin session id -------------------------------------------
+
+// TestCodexDiscoverSessionID points CODEX_HOME at the fixture tree and asserts the
+// dir-scoped locator finds the agent's rollout and extracts its minted session id
+// from the `session_meta` header — the id warden pins post-launch (discover-then-pin).
+func TestCodexDiscoverSessionID(t *testing.T) {
+	t.Setenv("CODEX_HOME", filepath.Join("testdata", "codex"))
+
+	id, ok := Codex{}.DiscoverSessionID("", "/work/agent-codex")
+	require.True(t, ok, "session id discovered from the workdir's rollout")
+	require.Equal(t, "019f0d8c-6c54-7471-af1c-a9043b9f11e0", id)
+}
+
+// TestCodexDiscoverSessionIDDegrades covers the misses: no workdir, a workdir with
+// no rollout, and a sessions tree that exists but whose header carries no id — each
+// returns ok=false so the poller keeps the empty id and retries on a later tick.
+func TestCodexDiscoverSessionIDDegrades(t *testing.T) {
+	t.Setenv("CODEX_HOME", filepath.Join("testdata", "codex"))
+
+	_, ok := Codex{}.DiscoverSessionID("", "")
+	require.False(t, ok, "no workdir ⇒ nothing to resolve")
+
+	_, ok = Codex{}.DiscoverSessionID("", "/work/no-such-agent")
+	require.False(t, ok, "no rollout for the dir ⇒ degrade")
+
+	// A rollout whose session_meta header carries no id ⇒ degrade rather than pin "".
+	home := t.TempDir()
+	day := filepath.Join(home, "sessions", "2026", "06", "28")
+	require.NoError(t, os.MkdirAll(day, 0o755))
+	roll := filepath.Join(day, "rollout-2026-06-28T00-00-00-noid.jsonl")
+	require.NoError(t, os.WriteFile(roll,
+		[]byte(`{"type":"session_meta","payload":{"cwd":"/work/noid"}}`+"\n"), 0o644))
+	t.Setenv("CODEX_HOME", home)
+	_, ok = Codex{}.DiscoverSessionID("", "/work/noid")
+	require.False(t, ok, "header without a session id ⇒ degrade")
+}
+
+// codexRolloutSessionID also accepts the older rollouts that carry only `id` (no
+// `session_id`) in the header.
+func TestCodexDiscoverSessionIDLegacyIDField(t *testing.T) {
+	home := t.TempDir()
+	day := filepath.Join(home, "sessions", "2026", "06", "28")
+	require.NoError(t, os.MkdirAll(day, 0o755))
+	roll := filepath.Join(day, "rollout-2026-06-28T00-00-00-legacy.jsonl")
+	require.NoError(t, os.WriteFile(roll,
+		[]byte(`{"type":"session_meta","payload":{"id":"legacy-uuid-1234","cwd":"/work/legacy"}}`+"\n"), 0o644))
+	t.Setenv("CODEX_HOME", home)
+
+	id, ok := Codex{}.DiscoverSessionID("", "/work/legacy")
+	require.True(t, ok)
+	require.Equal(t, "legacy-uuid-1234", id)
+}
+
 // --- Transcript parsing -----------------------------------------------------
 
 // TestCodexParseTranscript parses the real captured rollout fixture and asserts the

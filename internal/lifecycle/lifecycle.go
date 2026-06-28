@@ -945,9 +945,19 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if req.ParentID != id {
 		sess.ParentID = req.ParentID
 	}
-	sess.ClaudeSessionID, err = store.NewSessionID()
-	if err != nil {
-		return nil, err
+	// Only pinning backends (Caps.SessionIDControl) take a warden-minted session
+	// id — for them the id is pinned at launch for a deterministic transcript path
+	// + --resume. A non-pinning backend (codex, cursor, antigravity, …) mints its
+	// own id and ignores the one we'd pass, so minting here would leave
+	// ClaudeSessionID holding a UUID that matches no on-disk transcript. Instead we
+	// leave it empty (empty already = the dir-scoped transcript fallback, safe even
+	// before discovery lands) and let the poller discover-then-pin the agent's real
+	// id post-launch (design §5.2; agentbackend.SessionIDDiscoverer).
+	if l.backendFor(req.Backend).Capabilities().SessionIDControl {
+		sess.ClaudeSessionID, err = store.NewSessionID()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if freeMode {
@@ -1216,7 +1226,11 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 		// so refuse rather than silently start a fresh conversation.
 		return fmt.Errorf("backend %s does not support restore/resume — start a fresh agent instead", b.ID())
 	}
-	if sess.ClaudeSessionID == "" {
+	// A pinning backend (Claude) resumes by exact id, so a missing id is fatal. A
+	// non-pinning backend (codex) resumes dir-scoped (e.g. `codex resume --last`)
+	// and never needs the id, so an empty ClaudeSessionID is fine — the
+	// transcript-exists check below still guards that there is a session to resume.
+	if b.Capabilities().SessionIDControl && sess.ClaudeSessionID == "" {
 		return ErrNoSessionID
 	}
 	// Refuse if the tmux session is still alive (avoid a double-launch).

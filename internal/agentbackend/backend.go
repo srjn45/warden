@@ -167,3 +167,28 @@ type PromptSeeder interface {
 	// before typing; an empty marker falls back to a fixed settle delay.
 	ReadyMarker() string
 }
+
+// SessionIDDiscoverer is an optional Backend extension implemented by agents that
+// mint their OWN session id at launch (Caps.SessionIDControl=false) — warden
+// cannot pin the id up front, so LaunchCmd ignores LaunchOpts.SessionID and the
+// agent generates a UUID of its own. For such a backend warden leaves
+// Session.ClaudeSessionID empty at spawn (the dir-scoped transcript fallback:
+// newest rollout in the workdir), then, once the agent has written its first
+// transcript, discovers the agent-generated id post-launch and pins it ONCE
+// (the poller persists it to the session). After that, the same id flows into
+// TranscriptPath / ResumeCmd so transcript reads and resume key off the exact id
+// instead of dir-scoping — exact-id fidelity even with more than one session per
+// workdir. Backends that let warden assign the id (Claude, SessionIDControl=true)
+// do NOT implement this interface: by construction the discovery path never runs
+// for them (the id is already pinned at spawn).
+type SessionIDDiscoverer interface {
+	// DiscoverSessionID locates the agent-generated session id for the agent
+	// running in workdir, given the backend's transcript root (projectsDir, the
+	// Claude-specific root; ignored by backends that resolve their own home, same
+	// as TranscriptPath's projectsDir argument). ok=false when no id can be found
+	// yet (the agent has not written a transcript) — the caller keeps the empty id
+	// and retries on a later tick, so this is safe to call repeatedly. The
+	// signature mirrors TranscriptPath(projectsDir, workdir, sessionID) minus the
+	// not-yet-known id.
+	DiscoverSessionID(projectsDir, workdir string) (id string, ok bool)
+}

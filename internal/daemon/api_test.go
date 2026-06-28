@@ -159,7 +159,8 @@ func (f *fakeStore) AppendEventStatus(_ context.Context, id string, ev store.Eve
 	}
 	return nil
 }
-func (f *fakeStore) UpdatePane(_ context.Context, id, ex string) error { return nil }
+func (f *fakeStore) UpdatePane(_ context.Context, id, ex string) error          { return nil }
+func (f *fakeStore) SetSessionID(_ context.Context, id, sessionID string) error { return nil }
 func (f *fakeStore) SetRestart(_ context.Context, id string, count int, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
