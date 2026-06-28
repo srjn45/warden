@@ -1,0 +1,4 @@
+{"timestamp": "2026-06-28T10:00:00.000Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Add a subtract function to calc.py"}]}}
+{"timestamp": "2026-06-28T10:00:05.000Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "I'll add a subtract function to calc.py."}]}}
+{"timestamp": "2026-06-28T10:00:06.000Z", "type": "response_item", "payload": {"type": "function_call", "name": "apply_patch", "call_id": "call_1", "arguments": "{\"input\": \"*** Begin Patch\\n*** Update File: calc.py\\n@@\\n def hello():\\n     pass\\n+\\n+def subtract(a, b):\\n+    return a - b\\n*** End Patch\\n\"}"}}
+{"timestamp": "2026-06-28T10:00:07.000Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "call_1", "output": "Success. Updated calc.py"}}
