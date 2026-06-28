@@ -83,11 +83,11 @@ WebSocket PTY that powers a per-agent attach. Because it's the real session:
 - **`q` exits the TUI to the dashboard.** Pressing `q` in the top-left list pane
   tears the whole cockpit down and returns you to the home view — exactly as it
   quits the cockpit locally. It's **pane-scoped**: `q` only exits from the list
-  pane (where it means "quit"); in the master shell or the Claude detail pane a
+  pane (where it means "quit"); in the master shell or the agent detail pane a
   literal `q` types normally. **Ctrl+Q** still exits from *any* pane. Re-open the
   TUI from the **▢ TUI** button — the cockpit is rebuilt fresh.
-- **Claude Code in the detail pane is the real Claude Code**, with its full
-  interactive UI. Shift+Enter is mapped to its newline.
+- **The agent in the detail pane is the real agent** (e.g. Claude Code), with its
+  full interactive UI. Shift+Enter is mapped to its newline.
 - **Shared across clients.** There's one web cockpit; the most-recently-active
   client drives the window size.
 

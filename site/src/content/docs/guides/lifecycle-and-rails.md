@@ -3,7 +3,7 @@ title: Lifecycle commands & boundary enforcement
 description: First-class git/check verbs (commit, push, sync, check) on warden rails, plus the PreToolUse hooks that keep agents inside their worktree.
 ---
 
-warden moves the deterministic, error-prone parts of an agent's job — git and running checks — off Claude and onto **first-class commands**, then *enforces* the worktree boundary with PreToolUse hooks. The agent stops spending tokens narrating `git status`/`add`/`commit` round-trips, and parallel agents stop colliding in a shared checkout.
+warden moves the deterministic, error-prone parts of an agent's job — git and running checks — off the agent and onto **first-class commands**, then *enforces* the worktree boundary with PreToolUse hooks. The agent stops spending tokens narrating `git status`/`add`/`commit` round-trips, and parallel agents stop colliding in a shared checkout.
 
 ## The lifecycle verbs
 
@@ -37,7 +37,7 @@ Omit `-m` and warden fills the message: if a local model is configured (`local_l
 
 ## Boundary enforcement (PreToolUse hooks)
 
-The verbs are only half the story — warden also keeps agents *on* them. Each agent is launched with a per-agent `claude --settings` file carrying PreToolUse hooks. Every hook **fails open** (a hook error never blocks the agent) and is individually config-gated (default on). The layering goes *steer first, then deny-and-redirect*.
+The verbs are only half the story — warden also keeps agents *on* them. On the Claude Code backend, each agent is launched with a per-agent `claude --settings` file carrying PreToolUse hooks (backends without a system-prompt/hook seam degrade gracefully — the verbs still work, the in-agent guard rails are skipped). Every hook **fails open** (a hook error never blocks the agent) and is individually config-gated (default on). The layering goes *steer first, then deny-and-redirect*.
 
 | Hook | Config key | What it does |
 |---|---|---|

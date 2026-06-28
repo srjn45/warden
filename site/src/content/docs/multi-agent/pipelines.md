@@ -3,7 +3,7 @@ title: Pipelines (DAG)
 description: Define a DAG of dependent agent jobs in YAML and let the daemon run them — outputs flow downstream automatically.
 ---
 
-A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents — so a "lead" Claude stays off the critical path. Author from a YAML spec (`warden pipeline create -f`), from a built-in template (`warden pipeline create --template …`), or over MCP (`create_pipeline`/`start_pipeline`). The TUI and web show + control pipelines but don't author them.
+A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents — so a "lead" orchestrator agent stays off the critical path. Author from a YAML spec (`warden pipeline create -f`), from a built-in template (`warden pipeline create --template …`), or over MCP (`create_pipeline`/`start_pipeline`). The TUI and web show + control pipelines but don't author them.
 
 ![A pipeline rendered as a DAG in the warden web UI: two parallel root jobs fan out through design and implementation jobs, converge on a three-parent `integrate` job, then fan out again to parallel test/review jobs before a final `release` job — each job card shows its live status.](/warden/media/web-pipeline.png)
 

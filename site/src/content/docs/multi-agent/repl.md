@@ -16,9 +16,9 @@ warden repl          # or: warden interactive / warden i
 It drives the fleet two ways — a reliable deterministic half and a natural-language half:
 
 - **Deterministic `/` commands (no model).** Type `/agents`, `/spawn <prompt>`, `/tell <id> <text>`, `/pipelines`, … and warden runs the exact verb — no LLM in the loop, so it keeps working even when the local model is slow or wrong. **Typing `/` pops a live menu** that filters as you type — each matching verb with its usage and a one-line summary, right under the prompt (Claude-Code style) — and Tab still completes verb names **and live agent ids**. `/help` lists them all.
-- **Natural language (local LLM).** Any other line is planned by a local model into **confirmed** warden tool calls — *"spin up two agents on the API and the web, then run the tests"*. It conducts; **it never implements** — there's no edit/write/bash tool in its registry, so all code work is delegated by spawning a Claude agent.
+- **Natural language (local LLM).** Any other line is planned by a local model into **confirmed** warden tool calls — *"spin up two agents on the API and the web, then run the tests"*. It conducts; **it never implements** — there's no edit/write/bash tool in its registry, so all code work is delegated by spawning an agent.
 
-Interactive mode **starts without a local model** — the `/` commands and `!`-shell always work. The natural-language half needs `local_llm.enabled: true` (and `local_llm.url`/`.model`/`.timeout`); without it, a bare line tells you so and points you at `/help`. Because execution is always plain warden API calls, the REPL spends **no Claude tokens**.
+Interactive mode **starts without a local model** — the `/` commands and `!`-shell always work. The natural-language half needs `local_llm.enabled: true` (and `local_llm.url`/`.model`/`.timeout`); without it, a bare line tells you so and points you at `/help`. Because execution is always plain warden API calls, the REPL spends **no cloud-model tokens**.
 
 You can also run it as the cockpit master pane via the `repl` config setting / `--repl` flag; **Alt+t** toggles that slot between interactive mode and a raw `$SHELL` without killing either side.
 
@@ -70,4 +70,4 @@ Read results are rendered for a **human**, not dumped as JSON: `/agents` and `/p
 
 > Not sure which model to run? **`warden llm suggest`** auto-detects your machine's **total** and **average free** memory (from the same pool — VRAM, Apple unified memory, or system RAM) and prints a memory-ranked shortlist, marking each model `fits now` / `free memory first` / `too large`. It scores a tool-calling-forward catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — calibrated against the [Berkeley Function-Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) (BFCL v4, multi-turn-weighted), since the REPL routes tool calls and never writes code — and stars the best model that runs *comfortably now* with headroom for your real workload. `warden doctor` gives the one-line version. Both only ever recommend — you set `local_llm.model`; warden never silently swaps it.
 
-For the token-spending alternative — driving the same operations from a full Claude session — see [Orchestration: MCP & skill](/warden/multi-agent/mcp-and-skill/).
+For the token-spending alternative — driving the same operations from a full orchestrator agent session (e.g. Claude) — see [Orchestration: MCP & skill](/warden/multi-agent/mcp-and-skill/).

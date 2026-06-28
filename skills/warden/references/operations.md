@@ -20,7 +20,7 @@ adds the human-readable table and `--benchmark` headline.
   (git plumbing output), auto-/`/compact` context reclaim, and local-LLM offload.
 - `--benchmark` — the screenshot-ready A/B headline: *without warden* vs *with
   warden* tokens, the reduction %, leaner factor, dollars saved, a per-day
-  sparkline, and the cut as a share of real measured Claude spend when observed.
+  sparkline, and the cut as a share of real measured model spend when observed.
 - `--since <window|date>`, `--json`. `--audit` prints retained raw-vs-kept
   provenance samples (needs `savings_samples`, off by default — samples may be
   sensitive). `--calibrate` measures this workload's true bytes-per-token against
@@ -200,8 +200,8 @@ drive the fleet:
   form. Deterministic structure; a local model, if present, pre-fills each field
   with a suggestion (Enter accepts, type overrides, `-` clears).
 - **Natural language (local LLM):** any other line is planned into **confirmed**
-  warden tool calls — no Claude tokens. **It conducts, never implements** (no
-  edit/write/bash in its registry — code work is delegated by spawning a Claude
+  warden tool calls — no cloud-model tokens. **It conducts, never implements** (no
+  edit/write/bash in its registry — code work is delegated by spawning an
   agent).
 
 Starts without a model (the `/` commands and `!`-shell always work); only the NL
@@ -244,7 +244,8 @@ Read verbs for catching up on the fleet, all MCP-first:
 - `history {since?, type?, limit?}` (CLI `wd history`) — browse archived agents.
 - `get_metrics {history?, since?, limit?}` (CLI `wd stats`) — live resource snapshot
   or time-series; `get_pressure` is the spawn gate's memory-headroom verdict.
-- `spend` (CLI `wd spend`) — measured Claude spend in $, per agent / repo / day (see
+- `spend` (CLI `wd spend`) — measured model spend in $ (priced for the Claude backend;
+  BYO-model backends report tokens), per agent / repo / day (see
   the cost-governance section above); `savings` is its keep-out-of-context twin.
 - `list_worktrees {repo?}` / `prune_worktrees {repo?, dry_run?, force?}` (CLI
   `wd worktree list` / `wd worktree prune`, both under the `wd worktree` umbrella;

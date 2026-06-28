@@ -14,9 +14,9 @@ it at `GET /api/v1/savings` (403 when off).
 The report keeps two honest claims separate:
 
 - **Context axis** — how much leaner agent context stayed: the raw output that
-  *would have* entered Claude vs. what actually did, as a reduction % and dollars.
-- **Offload axis** — Claude work moved off entirely onto the local LLM
-  (classify/summarize calls that never hit Claude), in dollars. It keeps nothing
+  *would have* entered the model vs. what actually did, as a reduction % and dollars.
+- **Offload axis** — cloud-model work moved off entirely onto the local LLM
+  (classify/summarize calls that never hit the cloud model), in dollars. It keeps nothing
   in-context, so it is never folded into the context percentage.
 
 ## What records a saving
@@ -24,7 +24,7 @@ The report keeps two honest claims separate:
 - `warden check` — raw build/test output kept out of the transcript (only failures returned).
 - `warden commit` / `push` / `sync` — git plumbing output the agent never sees.
 - Auto-/`​/compact` context reclaim — tokens dropped when the guard compacts a critical agent.
-- Local-LLM offload — classify/summarize work routed to the local model instead of Claude.
+- Local-LLM offload — classify/summarize work routed to the local model instead of the cloud model.
 
 ## Reading the report
 
@@ -38,9 +38,9 @@ warden savings --calibrate        # measure this workload's true bytes/token rat
 ```
 
 `--benchmark` is the persuasive view: *without warden* (raw tokens that would have
-entered Claude) vs. *with warden* (what actually did), the reduction %, a leaner
+entered the model) vs. *with warden* (what actually did), the reduction %, a leaner
 factor, dollars saved, a per-day saved-tokens **sparkline**, and — when transcript
-spend was observed — the cut as a share of real measured Claude spend.
+spend was observed — the cut as a share of real measured model spend.
 
 ## Honesty knobs
 
@@ -87,10 +87,12 @@ daily buckets for its sparkline.
 ## Cost governance — `warden spend` + the budget gate
 
 Savings reports what warden kept **out** of context; **cost governance** reports what
-agents **actually billed** Claude. The daemon already reads each agent's REAL
+agents **actually billed** the model provider. The daemon already reads each agent's REAL
 input/output tokens from its transcript; `warden spend` prices that per model into
-dollars and rolls it up. Gated by the same `savings` switch; served at
-`GET /api/v1/spend` (403 when off) and exposed as the `spend` MCP tool.
+dollars and rolls it up. Dollar pricing currently covers the **Claude backend** (the
+per-model rates below); bring-your-own-model backends report tokens only. Gated by the
+same `savings` switch; served at `GET /api/v1/spend` (403 when off) and exposed as the
+`spend` MCP tool.
 
 ```sh
 warden spend                      # total / today / this week, then per-agent/repo/day $ tables

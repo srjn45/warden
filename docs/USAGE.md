@@ -11,10 +11,12 @@ focuses on **how to use the tool once it's installed**.
 
 ## 1. What warden is (the mental model)
 
-`warden` (aliased as `wd`) lets you run many **Claude Code agent sessions** in parallel and
-watch them from one place. Each agent is a real `claude` process running inside
-its own detached **tmux** window. You spawn agents, watch what they're doing,
-talk to them, and tear them down — without juggling terminals by hand.
+`warden` (aliased as `wd`) lets you run many **coding-agent sessions** in parallel and
+watch them from one place. Each agent is a real agent process (a `claude` process by
+default) running inside its own detached **tmux** window. warden drives multiple
+agent backends — see [Agent backends](../README.md#agent-backends---backend). You
+spawn agents, watch what they're doing, talk to them, and tear them down — without
+juggling terminals by hand.
 
 One binary wears several hats:
 
@@ -24,8 +26,8 @@ One binary wears several hats:
 | **CLI client** | `ls`, `status`, `start`, `done`, `attach`, `send`, `tail`, the git/check lifecycle verbs (`commit`/`push`/`sync`/`check`), and more — thin HTTP clients that talk to the daemon. | Whenever you want to act on agents. |
 | **TUI cockpit** | `warden tui` (or bare `warden`) — a live tmux-based terminal dashboard of the whole fleet. | When you want a terminal cockpit. |
 | **Web GUI** | A React dashboard the daemon embeds and serves alongside the API — tabbed mission control with live SSE, interactive terminals, and an attention queue. | Open the daemon's address in a browser. |
-| **MCP server** | `warden mcp` — a stdio bridge so an *orchestrator* Claude session can manage agents through tool calls. | Wired into a Claude session's MCP config. |
-| **Interactive REPL** *(experimental)* | `warden repl` — a local-LLM conductor REPL that turns plain-English intent into confirmed warden actions, spending no Claude tokens. | When you want NL control without an MCP Claude session. |
+| **MCP server** | `warden mcp` — a stdio bridge so an *orchestrator* agent session (e.g. Claude) can manage agents through tool calls. | Wired into an orchestrator agent's MCP config. |
+| **Interactive REPL** *(experimental)* | `warden repl` — a local-LLM conductor REPL that turns plain-English intent into confirmed warden actions, spending no cloud-model tokens. | When you want NL control without an MCP orchestrator session. |
 
 Everything flows through the daemon, so **the daemon must be running** before
 any other command will work.
@@ -290,10 +292,10 @@ warden status PROJ-350
 
 ### MCP tool usage
 
-When spawning agents via the MCP `spawn_agent` tool (from an orchestrator Claude session), pass the `model` parameter:
+When spawning agents via the MCP `spawn_agent` tool (from an orchestrator agent session), pass the `model` parameter:
 
 ```typescript
-// Orchestrator Claude calls spawn_agent
+// Orchestrator agent calls spawn_agent
 spawn_agent({
   prompt: "Analyze the auth module",
   model: "opus"  // or "claude-opus-4-8"
@@ -722,9 +724,10 @@ forward-only: it prices events recorded after it runs.
 > transcript).
 
 ### `warden spend [--by agent|repo|day] [--json]`
-Report the measured Claude spend warden read from agents' transcripts — the exact
+Report the measured model spend warden read from agents' transcripts — the exact
 input/output tokens priced per model into estimated dollar figures and rolled up
-per-agent, per-repo, and per-day. The cost counterpart to `wd savings`. Gated by
+per-agent, per-repo, and per-day (dollar pricing currently covers the Claude
+backend; bring-your-own-model backends report tokens only). The cost counterpart to `wd savings`. Gated by
 the `savings` setting; `GET /api/v1/spend` returns 403 when off. See
 [FEATURES.md §30](FEATURES.md).
 
@@ -1012,11 +1015,12 @@ A template with an unfilled placeholder fails fast, naming the missing key.
 
 ---
 
-## 8. Orchestrating agents from another Claude session (MCP)
+## 8. Orchestrating agents from another agent session (MCP)
 
-Register `warden mcp` as an MCP server in your *orchestrator* Claude session
-so it can manage agents via tool calls. Add to your MCP config (e.g.
-`~/.claude/claude_desktop_config.json` or a project `.claude/mcp.json`):
+Register `warden mcp` as an MCP server in your *orchestrator* agent session
+(e.g. Claude) so it can manage agents via tool calls. Add to its MCP config — for a
+Claude Code orchestrator that's `~/.claude/claude_desktop_config.json` or a project
+`.claude/mcp.json`; other MCP-capable agents use their own config path:
 
 ```json
 {

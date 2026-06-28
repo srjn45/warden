@@ -372,7 +372,7 @@ brews:
       owner: srajanpathak
       name: homebrew-tap
     homepage: "https://github.com/srjn45/warden"
-    description: "Spawn, monitor, and tear down Claude Code agent sessions"
+    description: "Spawn, monitor, and tear down coding-agent sessions"
     license: "MIT"   # set to the real license
     dependencies:
       - tmux

@@ -5,7 +5,7 @@ description: Run agents in a lighter permission mode and answer their tool-permi
 
 ## Supervised mode
 
-By default every agent runs `claude --dangerously-skip-permissions` — permission prompts are suppressed and the agent runs fully autonomously.
+By default every agent runs fully autonomously with permission prompts suppressed (on the Claude backend, that's `claude --dangerously-skip-permissions`; each backend maps to its own "just do it" flag).
 
 Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer without attaching. A restored agent keeps its supervised setting.
 
@@ -15,7 +15,7 @@ warden start "refactor the auth module" --supervised
 
 ## The approvals inbox
 
-Answer routine Claude tool-permission prompts (from supervised agents) without attaching. Controlled by `WARDEN_APPROVALS` (on by default).
+Answer routine agent tool-permission prompts (from supervised agents) without attaching. Controlled by `WARDEN_APPROVALS` (on by default).
 
 | Surface | How |
 |---|---|

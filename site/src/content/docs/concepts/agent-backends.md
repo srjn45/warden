@@ -1,6 +1,6 @@
 ---
 title: Agent backends
-description: Warden drives Claude Code by default, but the agent layer is pluggable — pick a backend (Claude, Aider, OpenCode, Codex, Crush, or Goose) per agent, with capabilities that degrade gracefully.
+description: Warden drives Claude Code by default, but the agent layer is pluggable — pick a backend (Claude, Aider, OpenCode, Codex, Crush, Goose, Cursor, or Antigravity) per agent, with capabilities that degrade gracefully.
 ---
 
 Warden was built around Claude Code, but the agent layer is an **adapter layer**:
@@ -9,7 +9,7 @@ each console coding agent is normalized behind a neutral `Backend` interface
 binary directly. You pick the backend **per agent at spawn time**.
 
 :::caution[Experimental backends]
-Warden is fully tested only with **Claude Code**. All non-`claude` backends (Aider, OpenCode, Codex, Crush, Goose) are **experimental / work-in-progress** — functionality may be reduced or unverified. Any non-`claude` value for `--backend` is experimental.
+Warden is fully tested only with **Claude Code**. All non-`claude` backends (Aider, OpenCode, Codex, Crush, Goose, Cursor, Antigravity) are **experimental / work-in-progress** — functionality may be reduced or unverified. Any non-`claude` value for `--backend` is experimental.
 :::
 
 ## Supported agents — status
@@ -22,6 +22,8 @@ Warden is fully tested only with **Claude Code**. All non-`claude` backends (Aid
 | Codex CLI | 🧪 Experimental (WIP) |
 | Crush | 🧪 Experimental (WIP) |
 | Goose | 🧪 Experimental (WIP) |
+| Cursor CLI | 🧪 Experimental (WIP) |
+| Antigravity CLI | 🧪 Experimental (WIP) |
 
 ## Selecting a backend
 
@@ -33,6 +35,8 @@ Warden is fully tested only with **Claude Code**. All non-`claude` backends (Aid
 | **Codex CLI** | `codex` | A | 🧪 Experimental. BYO provider (Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped; no priced spend |
 | **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped; **no initial prompt on TUI launch**; no priced spend |
 | **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic; no model flag on session launch; no priced spend |
+| **Cursor CLI** | `cursor` | C | 🧪 Experimental. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; **no structured transcript yet** ⇒ no digests; no priced spend |
+| **Antigravity CLI** | `antigravity` | A | 🧪 Experimental. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL ⇒ real digests; **resumes** dir-scoped; live state + approval detection; no priced spend |
 
 ```sh
 # Claude (default)
@@ -56,6 +60,12 @@ warden start "implement the add function" --backend crush --dir .
 # Goose against a local Ollama model ($0)
 GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
 warden start "implement the add function" --backend goose --dir .
+
+# Cursor — log in once with `cursor-agent login` (hosted, billed to your Cursor plan)
+warden start "implement the add function" --backend cursor --dir .
+
+# Antigravity — Google-hosted free tier; `agy` resolves its model from config
+warden start "implement the add function" --backend antigravity --dir .
 ```
 
 Over MCP, pass the `backend` param to `spawn_agent` (kept at parity with the
@@ -145,3 +155,23 @@ capability is missing:
 - **No model flag on session launch.** The headless `goose run` path does accept `--model`/`--provider`.
 - **No system-prompt injection** and no TUI approval parsing yet. `goose run` (headless) in `auto` mode raises no prompts.
 - Full gap doc: [`docs/agent-backends/goose.md`](https://github.com/srjn45/warden/blob/main/docs/agent-backends/goose.md)
+
+## Cursor specifics
+
+- **Hosted, not $0-local:** the `cursor-agent` CLI runs against your Cursor subscription (log in once with `cursor-agent login`). There is no free local rig, and warden never surfaces dollars for it (billing is your Cursor plan); spend shows tokens, savings omits the agent.
+- **Rich permission modes:** Cursor exposes a finer approval surface than a prompt/auto toggle, and warden surfaces it honestly — `PermissionModes = default | plan | ask | auto-review | force`. The Claude-flavored "just do it" aliases fold onto `-f`/`--yolo`.
+- **Tier C — no structured transcript yet:** an interactive Cursor session persists to an undocumented binary SQLite `store.db` with no `export` verb, so `wd digest` shows "no transcript" for Cursor agents rather than guessing. The headless `stream-json` parser is implemented and tested but not wired (the TUI writes no on-disk NDJSON); the day warden gains a `store.db` reader it flips to Tier A.
+- **Resumes — dir-scoped:** `cursor-agent --continue` continues the workspace's latest session (verified), so rotate/handoff work; exact-id resume lands with discover-then-pin.
+- **Live state + approval/trust detection:** warden classifies the Cursor TUI pane (working / idle / needs-input) and normalizes both its command-allowlist menu and its one-time workspace-trust prompt into the approvals inbox.
+- **Double-worktree hazard:** cursor-agent ships its own `-w/--worktree`; warden never passes it (warden already owns the worktree) and launches in warden's worktree dir directly.
+- Full gap doc: [`docs/agent-backends/cursor.md`](https://github.com/srjn45/warden/blob/main/docs/agent-backends/cursor.md)
+
+## Antigravity specifics
+
+- **Hosted free tier, multi-vendor models:** the `agy` CLI (backend id `antigravity`) runs on Google's free tier (a daily-ish quota cap), and one agent can run Gemini, Claude, *and* GPT-OSS models under a single login (`agy models`). Tokens show in `agy`'s `/usage` TUI only — warden surfaces no dollars; spend shows tokens, savings omits the agent.
+- **Tier A transcript:** the durable conversation store is encrypted/proto, but `agy` also writes a **plaintext JSONL trajectory log** that warden parses into neutral Turns, so digests run on real structured data. (Tool-call/files-changed extraction is still degraded — the captured fixture was text-only.)
+- **Resumes — dir-scoped:** `agy -c` continues the most recent conversation for the workspace (verified); exact-id resume lands with discover-then-pin.
+- **Initial prompt:** seeded via `-i`/`--prompt-interactive`, then stays interactive (a persistent loop, like Claude).
+- **Live state + approval detection:** warden classifies `agy`'s TUI status bar (idle / working / needs-input) and maps its `Do you want to proceed?` permission menu into the approvals inbox (shell-command shape verified; other prompt variants degrade safely until captured).
+- **No system-prompt injection** (no `--append-system-prompt` flag).
+- Full gap doc: [`docs/agent-backends/antigravity.md`](https://github.com/srjn45/warden/blob/main/docs/agent-backends/antigravity.md)
