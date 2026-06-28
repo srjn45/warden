@@ -420,11 +420,22 @@ Warden drives **Claude Code** by default, but the agent layer is pluggable: pick
 the backend per agent at spawn time with `--backend` (CLI) or the `backend` param
 (`spawn_agent` MCP tool).
 
+> **Supported agents — status:** warden is fully tested only with **Claude Code**.
+> All other agent backends (Aider, OpenCode, and any future integrations) are
+> **experimental / work-in-progress** — functionality may be reduced or unverified.
+> Any non-`claude` value for `--backend` is experimental.
+
+| Agent | Status |
+|---|---|
+| Claude Code | ✅ Stable — fully tested, reference backend |
+| Aider | 🧪 Experimental (WIP) |
+| OpenCode | 🧪 Experimental (WIP) |
+
 | Backend | `--backend` | Tier | Notes |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
-| **Aider** | `aider` | A* | Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
-| **OpenCode** | `opencode` | A | Bring-your-own-model (pass `--model`, e.g. `ollama/qwen2.5-coder:3b`); structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session (`opencode -c`); spend tokens-only (BYO model) |
+| **Aider** | `aider` | A* | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
+| **OpenCode** | `opencode` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama/qwen2.5-coder:3b`); structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session (`opencode -c`); spend tokens-only (BYO model) |
 
 ```bash
 # Drive Aider against a local Ollama model (free, offline)

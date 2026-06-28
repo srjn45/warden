@@ -8,13 +8,25 @@ each console coding agent is normalized behind a neutral `Backend` interface
 (`internal/agentbackend`), and warden core never references a concrete agent
 binary directly. You pick the backend **per agent at spawn time**.
 
+:::caution[Experimental backends]
+Warden is fully tested only with **Claude Code**. All other agent backends (Aider, OpenCode, and any future integrations) are **experimental / work-in-progress** — functionality may be reduced or unverified. Any non-`claude` value for `--backend` is experimental.
+:::
+
+## Supported agents — status
+
+| Agent | Status |
+|---|---|
+| Claude Code | ✅ Stable — fully tested, reference backend |
+| Aider | 🧪 Experimental (WIP) |
+| OpenCode | 🧪 Experimental (WIP) |
+
 ## Selecting a backend
 
 | Backend | id | Tier | Summary |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
-| **Aider** | `aider` | A | Bring-your-own-model; structured markdown transcript ⇒ real digests; no resume, no priced spend |
-| **OpenCode** | `opencode` | A | Bring-your-own-model; structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session; no priced spend (BYO model) |
+| **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model; structured markdown transcript ⇒ real digests; no resume, no priced spend |
+| **OpenCode** | `opencode` | A | 🧪 Experimental. Bring-your-own-model; structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session; no priced spend (BYO model) |
 
 ```sh
 # Claude (default)
