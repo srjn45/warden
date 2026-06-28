@@ -24,6 +24,7 @@ top of* Codex; it never strips Codex's features down to a lowest common denomina
 | `TranscriptPath`     | reads `$CODEX_HOME/sessions/**/rollout-*.jsonl`                               | Resolved dir-scoped (match `session_meta.cwd`). |
 | `ParseTranscript`    | parses rollout JSONL `response_item` records                                 | message + function_call → neutral Turns. |
 | `SystemPromptFlag`   | — (unsupported)                                                              | Codex has no `--append-system-prompt` flag. |
+| `InjectContext`      | writes `<workdir>/AGENTS.md`                                                  | warden's collab/git/pipeline addendum is delivered via the AGENTS.md rules file Codex reads on startup (the no-flag fallback). |
 | `Pricing`            | — (unsupported)                                                              | OSS/BYO; tokens exposed, dollars not wired. |
 | `DetectState` / `ParseApproval` | live (pane markers)                                              | `esc to interrupt` ⇒ working; the numbered "Would you like to …?" prompt ⇒ needs-input + parsed approval. |
 
@@ -103,7 +104,7 @@ and `exec`, and after the process exits.
 | `StructuredTranscript` | ✅    | rollout JSONL → neutral Turns (**Tier A**). |
 | `PermissionModes`      | ✅    | `read-only`, `workspace-write`, `danger-full-access` (Codex's native sandbox). |
 | `SessionIDControl`     | ❌    | Codex mints its own UUID; no flag to assign one at launch. |
-| `SystemPromptInject`   | ❌    | no `--append-system-prompt` equivalent on the launch command. |
+| `SystemPromptInject`   | ❌    | no `--append-system-prompt` equivalent on the launch command — but the addendum still reaches Codex out-of-band via `InjectContext` (AGENTS.md). The Caps flag tracks the *launch flag* specifically, not whether the addendum is delivered. |
 | `Pricing`              | ❌    | OSS/BYO; tokens are in the rollout, dollars not wired into warden spend. |
 
 ---
@@ -118,6 +119,13 @@ and `exec`, and after the process exits.
 - Headless one-shots via `codex exec`.
 - **Digests** — the rollout parses into structured Turns (Tier A): warden sees the
   prompts, the model replies, the tools called, and the files patched.
+- **System-prompt addendum via AGENTS.md.** Codex has no `--append-system-prompt`
+  flag, so warden delivers its pipeline/collab/git-conventions hints through the
+  `AGENTS.md` rules file Codex reads from the working directory on startup
+  (`InjectContext`, the `agentbackend.ContextInjector` seam). Lifecycle writes it
+  post-worktree-creation / pre-launch, so a Codex agent receives the *same*
+  multi-agent-coordination hints a Claude agent gets via the flag. See
+  "Context injection" below for the merge / idempotency / git-exclude rules.
 - **Live state + approval detection.** `DetectState` reads the Codex TUI pane:
   `esc to interrupt` ⇒ **working**; the numbered "Would you like to …?" permission
   prompt ⇒ **needs-input**. `ParseApproval` normalizes that prompt into warden's
@@ -139,9 +147,10 @@ and `exec`, and after the process exits.
 - **No warden-side dollar pricing.** The rollout carries token counts
   (`token_count` events, `turn.completed.usage`), but warden's spend table is
   Claude-specific; spend shows tokens, savings omits the agent (design §5).
-- **No system-prompt injection.** warden's pipeline/collab/git hints aren't appended
-  for Codex agents (no flag). A `-c <key=value>` override or `AGENTS.md` could carry
-  this later.
+- ~~**No system-prompt injection.**~~ **Resolved** — warden now delivers its
+  pipeline/collab/git hints to Codex via `AGENTS.md` (`InjectContext`); see
+  "Context injection" below. `SystemPromptInject` stays `false` because that Caps
+  flag specifically means a *launch-time* flag, which Codex still lacks.
 
 **$0-local viability:** ✅ Confirmed. Codex's native `--oss --local-provider ollama`
 runs `qwen2.5-coder:3b` against a local Ollama at zero cost. Caveat observed on the
@@ -161,6 +170,58 @@ so its markers are faithful regardless of which model proposed the command — o
 the *triggering* needed a model strong enough to make a tool call.
 
 ---
+
+## Context injection (AGENTS.md)
+
+Codex has no `--append-system-prompt` flag, so warden's system-prompt addendum
+(the pipeline / collab / git-conventions hints — the biggest multi-agent
+coordination signal) can't ride the launch command the way it does for Claude.
+Instead the Codex adapter implements `agentbackend.ContextInjector`, and lifecycle
+delivers the **same** addendum text by dropping an `AGENTS.md` rules file into the
+agent's working directory — the file Codex reads on startup — **after** the worktree
+is created and **before** the agent launches. Backends with a launch-time flag
+(Claude) do not implement the seam, so the path never runs for them and their launch
+command is byte-identical (regression-locked).
+
+The write is deliberately careful:
+
+- **Never clobbers a user's `AGENTS.md`.** warden's text lives inside a delimited
+  block:
+
+  ```
+  <!-- warden:begin -->
+  …warden's collab / git / pipeline hints…
+  <!-- warden:end -->
+  ```
+
+  A pre-existing `AGENTS.md` keeps all of its content; the warden block is appended
+  below it (separated by a blank line) or, if already present, refreshed in place.
+
+- **Idempotent.** Relaunch / resume re-invokes the injector; the warden block is
+  matched and replaced in place, never duplicated. Running it twice yields exactly
+  one block.
+
+- **Kept out of git.** The dropped `AGENTS.md` is warden-injected, not the user's
+  code, so it must not show up in the agent's diff / PR. The injector best-effort
+  adds `AGENTS.md` to the repo's `info/exclude` (resolving the shared `commondir`
+  for linked worktrees) so it stays untracked. **Caveat:** `info/exclude` is shared
+  across all worktrees of the repo, so the entry also hides an *untracked*
+  `AGENTS.md` in the main tree — harmless (it has no effect on a *tracked* file, and
+  warden agents run in their own worktrees), but documented here for transparency.
+  Outside a git tree (e.g. a free-form agent in a non-repo dir) the exclude is
+  simply skipped; the file is still written. **Tracked-file edge case:** if the
+  user's repo *tracks* an `AGENTS.md`, `info/exclude` has no effect on it, so the
+  appended warden block shows as a modification (the `<!-- warden:* -->` markers make
+  it obvious and removable). This is the one case the warden block can surface in
+  `git status`; the common case (no `AGENTS.md`, or an untracked one) stays clean.
+
+- **Degrades, never crashes.** A failed write (unwritable dir, etc.) logs a warning
+  and the agent launches without the hints — it does not fail the spawn (design §5).
+
+The same addendum is injected on every spawn path that would have appended the flag:
+free-form (pipeline + collab), typed/worktree agents (pipeline + collab + git), and
+pipeline jobs (collab). Each hint is gated by its config setting
+(`pipeline_hint` / `collab_hint` / `git_conventions`), exactly as the flag path is.
 
 ## Codex-specific superpowers worth preserving (don't lowest-common-denominator)
 

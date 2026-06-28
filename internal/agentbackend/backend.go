@@ -192,3 +192,28 @@ type SessionIDDiscoverer interface {
 	// not-yet-known id.
 	DiscoverSessionID(projectsDir, workdir string) (id string, ok bool)
 }
+
+// ContextInjector is an optional Backend extension implemented by agents that have
+// NO launch-time system-prompt flag (Caps.SystemPromptInject=false) but DO read a
+// rules file (AGENTS.md) from their working directory on startup — Codex is the
+// pilot. It is the file-drop counterpart to SystemPromptFlag's
+// `--append-system-prompt` fragment: lifecycle assembles warden's
+// collab/git/pipeline addendum once and, for a backend that injects, writes that
+// SAME text into the worktree post-creation / pre-launch so the agent reads
+// warden's coordination hints when it starts. A backend that implements neither
+// SystemPromptFlag (returns ok=false) nor this interface contributes nothing — the
+// addendum is simply skipped, exactly as it is today (design §5.3 / §6 step 5).
+//
+// Backends with a launch-time flag (Claude, SystemPromptInject=true) do NOT
+// implement this interface: by construction the injection path never runs for them
+// (the addendum already rides the launch command via SystemPromptFlag), which keeps
+// Claude's launch byte-identical and regression-locked.
+type ContextInjector interface {
+	// InjectContext delivers text (warden's already-assembled addendum) into the
+	// agent's workdir by writing the backend's rules file. The implementation MUST be
+	// idempotent — relaunch/resume re-invokes it, so it replaces any prior
+	// warden-managed section in place rather than duplicating it — and MUST preserve
+	// a user's pre-existing rules file (merge a clearly-delimited warden block, never
+	// clobber). An empty workdir or text is a no-op (returns nil).
+	InjectContext(workdir, text string) error
+}

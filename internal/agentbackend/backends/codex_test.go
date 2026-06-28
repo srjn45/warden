@@ -367,6 +367,95 @@ func TestCodexSystemPromptUnsupported(t *testing.T) {
 	require.False(t, ok)
 }
 
+// --- Context injection (AGENTS.md) ------------------------------------------
+
+// TestCodexImplementsContextInjector locks that Codex carries the optional seam
+// (the lifecycle type-assert keys off this), unlike a flag-based backend.
+func TestCodexImplementsContextInjector(t *testing.T) {
+	_, ok := agentbackend.Backend(Codex{}).(agentbackend.ContextInjector)
+	require.True(t, ok, "Codex injects context via AGENTS.md")
+}
+
+// TestCodexInjectContextWritesBlock verifies a fresh workdir gets an AGENTS.md
+// carrying warden's addendum inside the delimited block.
+func TestCodexInjectContextWritesBlock(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, Codex{}.InjectContext(dir, "warden coordination hints"))
+
+	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	require.NoError(t, err)
+	s := string(got)
+	require.Contains(t, s, "<!-- warden:begin -->")
+	require.Contains(t, s, "<!-- warden:end -->")
+	require.Contains(t, s, "warden coordination hints")
+}
+
+// TestCodexInjectContextIdempotent verifies a second call replaces the warden block
+// in place rather than appending a duplicate.
+func TestCodexInjectContextIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, Codex{}.InjectContext(dir, "first hints"))
+	require.NoError(t, Codex{}.InjectContext(dir, "second hints"))
+
+	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	require.NoError(t, err)
+	s := string(got)
+	require.Equal(t, 1, strings.Count(s, "<!-- warden:begin -->"), "no duplicate warden block")
+	require.Equal(t, 1, strings.Count(s, "<!-- warden:end -->"))
+	require.Contains(t, s, "second hints")
+	require.NotContains(t, s, "first hints", "stale warden block replaced in place")
+}
+
+// TestCodexInjectContextPreservesUserFile verifies a user's pre-existing AGENTS.md
+// content survives: only the warden block is added/refreshed around it.
+func TestCodexInjectContextPreservesUserFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "AGENTS.md")
+	require.NoError(t, os.WriteFile(path, []byte("# My project rules\nAlways run the linter.\n"), 0o644))
+
+	require.NoError(t, Codex{}.InjectContext(dir, "warden hints"))
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	s := string(got)
+	require.Contains(t, s, "# My project rules", "user content preserved")
+	require.Contains(t, s, "Always run the linter.")
+	require.Contains(t, s, "warden hints")
+
+	// A second inject still preserves the user content and doesn't duplicate the block.
+	require.NoError(t, Codex{}.InjectContext(dir, "warden hints v2"))
+	got, err = os.ReadFile(path)
+	require.NoError(t, err)
+	s = string(got)
+	require.Contains(t, s, "# My project rules")
+	require.Equal(t, 1, strings.Count(s, "<!-- warden:begin -->"))
+	require.Contains(t, s, "warden hints v2")
+	require.NotContains(t, s, "warden hints\n", "old warden text replaced")
+}
+
+// TestCodexInjectContextNoOps verifies an empty workdir or empty text writes nothing.
+func TestCodexInjectContextNoOps(t *testing.T) {
+	require.NoError(t, Codex{}.InjectContext("", "hints"))
+
+	dir := t.TempDir()
+	require.NoError(t, Codex{}.InjectContext(dir, "   \n  "))
+	_, err := os.Stat(filepath.Join(dir, "AGENTS.md"))
+	require.True(t, os.IsNotExist(err), "empty text writes no file")
+}
+
+// TestCodexInjectContextGitExclude verifies the dropped AGENTS.md is added to the
+// repo's info/exclude (so it never lands in the agent's diff), idempotently.
+func TestCodexInjectContextGitExclude(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git", "info"), 0o755))
+
+	require.NoError(t, Codex{}.InjectContext(dir, "hints"))
+	require.NoError(t, Codex{}.InjectContext(dir, "hints again"))
+
+	excl, err := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(string(excl), "AGENTS.md"), "excluded once, not duplicated")
+}
+
 func TestCodexRegistered(t *testing.T) {
 	b, err := agentbackend.Get("codex")
 	require.NoError(t, err)
