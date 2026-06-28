@@ -1497,7 +1497,9 @@ The frontend Vitest suite lives in `web/src/lib/` alongside the source files (`s
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a PR:
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+licensing, the **DCO sign-off** (`git commit -s`), and dependency/notices rules.
+Before opening a PR:
 
 ```sh
 gofmt -l $(git ls-files '*.go')   # must be empty (CI enforces gofmt)
