@@ -1,0 +1,50 @@
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.142.3)                               │
+│                                                          │
+│ model:     gpt-5.5   /model to change                    │
+│ directory: /tmp/claude-1000/…1fba/…/scratchpad/codex-cap │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New For a limited time, Codex is included in your plan for free – let’s build together.
+
+
+› Run the shell command: echo hello-from-codex
+
+
+• Ran echo hello-from-codex
+  └ hello-from-codex
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• hello-from-codex
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Run this exact shell command (it needs network): curl -sI https://example.com
+
+
+• Ran curl -sI https://example.com
+  └ (no output)
+
+• Running curl -sI https://example.com
+
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: This command needs network access to fetch headers from example.com. Do you want to allow it?
+
+  $ curl -sI https://example.com
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `curl -sI` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel
+
+
+
+
+

@@ -1,0 +1,50 @@
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.142.3)                               │
+│                                                          │
+│ model:     qwen2.5-coder:7b   /model to change           │
+│ directory: /tmp/claude-1000/…1fba/…/scratchpad/codex-cap │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+
+› Write a 500-word essay on the history of the Unix operating system
+
+
+⚠ Model metadata for `qwen2.5-coder:7b` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (9s • esc to interrupt)
+
+
+› Summarize recent commits
+
+  qwen2.5-coder:7b default · /tmp/claude-1000/-home-srjn45-dev-warden--worktrees-development-05a41fba/37a1caf9-8014-47ba-a05c-534c0bbc7094/scratchpad/codex-cap
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

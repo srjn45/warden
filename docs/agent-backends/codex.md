@@ -25,7 +25,7 @@ top of* Codex; it never strips Codex's features down to a lowest common denomina
 | `ParseTranscript`    | parses rollout JSONL `response_item` records                                 | message + function_call → neutral Turns. |
 | `SystemPromptFlag`   | — (unsupported)                                                              | Codex has no `--append-system-prompt` flag. |
 | `Pricing`            | — (unsupported)                                                              | OSS/BYO; tokens exposed, dollars not wired. |
-| `DetectState` / `ParseApproval` | — (degraded)                                                     | TUI approval prompts not yet mapped. |
+| `DetectState` / `ParseApproval` | live (pane markers)                                              | `esc to interrupt` ⇒ working; the numbered "Would you like to …?" prompt ⇒ needs-input + parsed approval. |
 
 ### $0-local launch (Ollama)
 
@@ -118,6 +118,15 @@ and `exec`, and after the process exits.
 - Headless one-shots via `codex exec`.
 - **Digests** — the rollout parses into structured Turns (Tier A): warden sees the
   prompts, the model replies, the tools called, and the files patched.
+- **Live state + approval detection.** `DetectState` reads the Codex TUI pane:
+  `esc to interrupt` ⇒ **working**; the numbered "Would you like to …?" permission
+  prompt ⇒ **needs-input**. `ParseApproval` normalizes that prompt into warden's
+  neutral `Approval` (the proposed `$ <command>` as the action, the header as the
+  question, the three options top-down with the least-privilege "Yes, proceed" as
+  the affirmative), so the approvals inbox + auto-approve light up for Codex agents.
+  Codex has no positive *idle* marker, so an at-rest pane stays `Unknown` and warden
+  infers idle from staleness (same as Claude). Markers captured live against
+  codex v0.142.3 (fixtures under `testdata/codex/`).
 
 **Gaps (degraded, documented — not mis-handled)**
 
@@ -127,11 +136,6 @@ and `exec`, and after the process exits.
   *discover-then-pin*: read the minted `session_id` from `session_meta` after first
   launch and use exact-id `codex resume <uuid>` / direct rollout lookup
   (FUTURE_ENHANCEMENTS #52).
-- **No live state / approval detection.** Codex's run-state and approval prompts live
-  in its TUI; no stable pane marker was captured for this phase, so `DetectState`
-  returns `Unknown` and `ParseApproval` returns `false` (warden infers idle from
-  staleness, as it does for Claude/Aider/OpenCode). The faithful non-interactive
-  surface is `codex exec`, which raises no prompts.
 - **No warden-side dollar pricing.** The rollout carries token counts
   (`token_count` events, `turn.completed.usage`), but warden's spend table is
   Claude-specific; spend shows tokens, savings omits the agent (design §5).
@@ -146,6 +150,15 @@ print a JSON blob *describing* a call instead of invoking `apply_patch`. The rol
 format is unaffected (the tool-call parser is covered by a schema-faithful fixture,
 mirroring OpenCode's approach); only the model's *behavior* is limited, which is a
 property of the tiny free model, not of Codex or this adapter.
+
+The same limitation means the **approval** prompt won't render on the local rig —
+the 3B/7B/8B Ollama models (`qwen2.5-coder`, `llama3.2`, `llama3.1`) never emit a
+valid Codex `shell` tool call, so Codex never reaches the "would you like to run …?"
+gate. The **working** and **idle** fixtures were captured $0-local; the **approval**
+fixture was captured by driving the *same* Codex TUI with a capable model on the
+already-logged-in plan. The approval box is Codex chrome and **model-independent**,
+so its markers are faithful regardless of which model proposed the command — only
+the *triggering* needed a model strong enough to make a tool call.
 
 ---
 
