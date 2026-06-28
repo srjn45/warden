@@ -18,6 +18,31 @@ import (
 // ErrBadID is returned when a session id contains path separators or "..".
 var ErrBadID = errors.New("invalid session id")
 
+// ErrBadSessionRef is returned when a backend session reference (e.g. a
+// claude/codex/opencode session id) carries characters outside the conservative
+// allowlist. The reference is interpolated into a backend launch command, so
+// rejecting shell-dangerous bytes here is defense-in-depth behind the backend's
+// own shell-quoting.
+var ErrBadSessionRef = errors.New("invalid backend session reference")
+
+// sessionRefPattern is the conservative charset every real backend session id
+// fits: UUIDs (claude), ses_… (opencode), 16-hex (crush), and similar. It
+// deliberately excludes whitespace and shell metacharacters so an imported or
+// adopted record cannot smuggle a command into a launch line.
+var sessionRefPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// safeSessionRef validates a non-empty backend session reference. An empty
+// reference is valid (non-pinning backends discover their own id post-launch).
+func safeSessionRef(ref string) error {
+	if ref == "" {
+		return nil
+	}
+	if !sessionRefPattern.MatchString(ref) {
+		return ErrBadSessionRef
+	}
+	return nil
+}
+
 // FileStore persists each session as one pretty-printed JSON file under
 // <dir>/sessions/<id>.json. Archived sessions move to <dir>/closed/<id>.json.
 // The daemon is the only holder; an RWMutex serializes its concurrent callers
@@ -209,6 +234,10 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 	}
 
 	if err := safeID(s.ID); err != nil {
+		return err
+	}
+
+	if err := safeSessionRef(s.ClaudeSessionID); err != nil {
 		return err
 	}
 
@@ -414,6 +443,12 @@ func (fs *FileStore) UpdateName(ctx context.Context, id, name string) error {
 }
 
 func (fs *FileStore) SetSessionID(ctx context.Context, id, sessionID string) error {
+	// The pinned id is discovered by parsing a backend's own transcript/output and
+	// later interpolated into a resume command, so validate it here too — the same
+	// defense-in-depth guard Insert applies.
+	if err := safeSessionRef(sessionID); err != nil {
+		return err
+	}
 	return fs.mutate(id, func(s *Session) { s.ClaudeSessionID = sessionID })
 }
 

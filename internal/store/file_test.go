@@ -66,6 +66,44 @@ func TestFileBadID(t *testing.T) {
 	require.ErrorIs(t, err, ErrBadID)
 }
 
+func TestFileInsertRejectsUnsafeSessionRef(t *testing.T) {
+	// Defense-in-depth behind the backend's shell-quoting: a ClaudeSessionID that
+	// carries shell metacharacters (as an attacker-crafted import/adopt record
+	// would) is rejected at the store boundary so it can never reach a launch line.
+	ctx := context.Background()
+	st := newFileStore(t)
+	bad := sample()
+	bad.ID, bad.TmuxSession, bad.Ticket = "agent-evil", "agent-evil", ""
+	bad.ClaudeSessionID = "x; touch /tmp/pwned #"
+	require.ErrorIs(t, st.Insert(ctx, bad), ErrBadSessionRef)
+}
+
+func TestFileInsertAllowsRealSessionRefs(t *testing.T) {
+	// The allowlist must accept every shape a real backend mints: a claude UUID, an
+	// opencode ses_… id, and a crush 16-hex id.
+	ctx := context.Background()
+	for _, ref := range []string{
+		"550e8400-e29b-41d4-a716-446655440000",
+		"ses_5fA0bC",
+		"a1b2c3d4e5f60718",
+	} {
+		st := newFileStore(t)
+		s := sample()
+		s.ID, s.TmuxSession, s.Ticket = "agent-ok", "agent-ok", ""
+		s.ClaudeSessionID = ref
+		require.NoError(t, st.Insert(ctx, s), "ref %q must be accepted", ref)
+	}
+}
+
+func TestFileSetSessionIDRejectsUnsafeRef(t *testing.T) {
+	// The poller's discover-then-pin path writes a backend-discovered id; a malicious
+	// transcript must not be able to smuggle one past the same guard.
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	require.ErrorIs(t, st.SetSessionID(ctx, "PROJ-350", "x; rm -rf / #"), ErrBadSessionRef)
+}
+
 func TestFileListSortedByUpdatedDesc(t *testing.T) {
 	ctx := context.Background()
 	st := newFileStore(t)

@@ -62,9 +62,20 @@ func TestLaunchCmd(t *testing.T) {
 	got := Claude{}.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: "sid", Name: "agent-1", Model: "claude-sonnet-4-6", Mode: "auto",
 	})
-	want := "claude --model 'claude-sonnet-4-6' --permission-mode 'auto' --session-id sid --name 'agent-1'"
+	want := "claude --model 'claude-sonnet-4-6' --permission-mode 'auto' --session-id 'sid' --name 'agent-1'"
 	require.Equal(t, want, got)
 	require.NotContains(t, got, "--dangerously-skip-permissions")
+}
+
+// TestLaunchCmdQuotesSessionID guards the fix for the import/adopt shell-injection
+// finding: a stored ClaudeSessionID with shell metacharacters must be neutralized
+// by single-quoting, not interpolated raw into the pane launch line.
+func TestLaunchCmdQuotesSessionID(t *testing.T) {
+	got := Claude{}.LaunchCmd(agentbackend.LaunchOpts{
+		SessionID: "x; touch /tmp/pwned #", Name: "agent-1", Model: "m", Mode: "auto",
+	})
+	require.Contains(t, got, `--session-id 'x; touch /tmp/pwned #'`)
+	require.NotContains(t, got, "--session-id x;")
 }
 
 func TestLaunchCmdQuotesName(t *testing.T) {
@@ -80,7 +91,18 @@ func TestResumeCmd(t *testing.T) {
 		SessionID: "sid", Name: "agent-1", Model: "claude-sonnet-4-6", Mode: "acceptEdits",
 	})
 	require.True(t, ok, "Claude supports resume")
-	require.Equal(t, "claude --model 'claude-sonnet-4-6' --permission-mode 'acceptEdits' --resume sid --name 'agent-1'", got)
+	require.Equal(t, "claude --model 'claude-sonnet-4-6' --permission-mode 'acceptEdits' --resume 'sid' --name 'agent-1'", got)
+}
+
+// TestResumeCmdQuotesSessionID guards the fix for the import/adopt shell-injection
+// finding on the resume path (Restore/Adopt carry a stored ClaudeSessionID).
+func TestResumeCmdQuotesSessionID(t *testing.T) {
+	got, ok := Claude{}.ResumeCmd(agentbackend.ResumeOpts{
+		SessionID: "x; touch /tmp/pwned #", Name: "agent-1", Model: "m", Mode: "auto",
+	})
+	require.True(t, ok)
+	require.Contains(t, got, `--resume 'x; touch /tmp/pwned #'`)
+	require.NotContains(t, got, "--resume x;")
 }
 
 func TestHeadlessCmd(t *testing.T) {
