@@ -17,17 +17,17 @@ import (
 // the daily/weekly windows the budget gate watches, then per-agent, per-repo, and
 // per-day $ tables (each optionally restricted by --by). Empty spend reads as an
 // explicit "nothing measured yet" rather than blank tables, pointing at how the
-// figure is sourced (real billed tokens from transcripts).
+// figure is sourced (exact billed tokens from transcripts, dollar figures estimated).
 func formatSpend(rep *spend.Report, by string) string {
 	var b strings.Builder
 	if rep.InputTokens == 0 && rep.OutputTokens == 0 {
 		fmt.Fprintf(&b, "no spend measured yet\n")
-		fmt.Fprintf(&b, "warden reads each agent's REAL billed input/output tokens from its Claude transcript — spawn an agent (and let it work a little) to start the meter. Gated by the `savings` config setting.\n")
+		fmt.Fprintf(&b, "warden reads each agent's exact input/output tokens from its Claude transcript — spawn an agent (and let it work a little) to start the meter. Gated by the `savings` config setting.\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "measured Claude spend — $%.2f total · $%.2f today · $%.2f this week\n",
+	fmt.Fprintf(&b, "measured Claude spend — $%.2f total · $%.2f today · $%.2f this week (estimated)\n",
 		rep.TotalUSD, rep.DailyUSD, rep.WeeklyUSD)
-	fmt.Fprintf(&b, "%s billed (%s in · %s out), priced per model (Opus $%.0f/$%.0f, Sonnet $3/$15, Haiku $0.8/$4 per Mtok in/out)\n",
+	fmt.Fprintf(&b, "%s tokens (%s in · %s out), priced per model (Opus $%.0f/$%.0f, Sonnet $3/$15, Haiku $0.8/$4 per Mtok in/out)\n",
 		humanCount(rep.InputTokens+rep.OutputTokens), humanCount(rep.InputTokens), humanCount(rep.OutputTokens),
 		spend.PriceFor("opus").InputPerMTok, spend.PriceFor("opus").OutputPerMTok)
 
@@ -56,6 +56,7 @@ func formatSpend(rep *spend.Report, by string) string {
 		show("repo", rep.ByRepo)
 		show("day", rep.ByDay)
 	}
+	fmt.Fprintf(&b, "\nDollar figures are estimates based on published list prices (as of 2026-06); they exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ from your actual bill. Token counts are exact.\n")
 	return b.String()
 }
 
@@ -63,12 +64,15 @@ func newSpendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "spend",
 		Short: "Show measured Claude spend in dollars, per agent / repo / day",
-		Long: "Report the REAL billed Claude spend warden measured from agents' transcripts — the actual " +
-			"input/output tokens each agent sent and received — priced per model into dollars and rolled up " +
-			"per-agent, per-repo, and per-day. The headline names the daily and weekly totals the budget gate " +
+		Long: "Report the measured Claude spend warden read from agents' transcripts — the exact " +
+			"input/output tokens each agent sent and received — priced per model into estimated dollar figures " +
+			"and rolled up per-agent, per-repo, and per-day. Token counts are exact (read directly from " +
+			"the transcript); dollar figures are estimates based on published list prices (as of 2026-06) " +
+			"and exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ " +
+			"from your actual bill. The headline names the daily and weekly totals the budget gate " +
 			"(budget_gate / budget_daily_usd / budget_weekly_usd) enforces. This is the cost side of warden's " +
-			"savings ledger: where `wd savings` reports what warden kept OUT of context, `wd spend` reports what " +
-			"agents actually billed. Gated by the `savings` config setting.",
+			"savings ledger: where `wd savings` reports what warden kept OUT of context, `wd spend` reports " +
+			"what agents actually billed. Gated by the `savings` config setting.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")

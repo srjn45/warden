@@ -49,6 +49,7 @@ func formatSavings(sum *savings.Summary, sinceStr string) string {
 		fmt.Fprintf(&b, "%-14s %10s %10s %8d\n",
 			f.Feature, humanCount(f.SavedTokens), humanCount(f.RawTokens), f.Events)
 	}
+	fmt.Fprintf(&b, "\nDollar figures are estimates based on published list prices (as of 2026-06); token counts are exact.\n")
 	return b.String()
 }
 
@@ -114,6 +115,7 @@ func formatBenchmark(sum *savings.Summary, sinceStr string) string {
 			fmt.Fprintf(&b, "  %-12s %8s saved (%.0f%%)\n", f.Feature, humanCount(f.SavedTokens), share)
 		}
 	}
+	fmt.Fprintf(&b, "\nDollar figures are estimates based on published list prices (as of 2026-06); token counts are exact.\n")
 	return b.String()
 }
 
@@ -304,8 +306,10 @@ func newSavingsCmd() *cobra.Command {
 		Long: "Report the measured token savings warden has recorded — the raw output its lifecycle " +
 			"features (starting with `wd check`) kept out of agents' context windows — as a per-feature " +
 			"breakdown with cumulative tokens, an estimated dollar figure, and the percentage of would-be " +
-			"context spend eliminated. The data is a real, append-only ledger, not an estimate: a proof " +
-			"point you can screenshot. Gated by the `savings` config setting.",
+			"context spend eliminated. Token counts are exact (a real, append-only ledger — a proof point " +
+			"you can screenshot); dollar figures are estimates based on published list prices (as of 2026-06) " +
+			"and exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ " +
+			"from your actual bill. Gated by the `savings` config setting.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sinceStr, _ := cmd.Flags().GetString("since")
