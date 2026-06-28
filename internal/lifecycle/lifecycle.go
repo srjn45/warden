@@ -565,6 +565,14 @@ func (l *Lifecycle) worktreeExists(ctx context.Context, repo, rel string) (bool,
 // a failed spawn roll back only worktrees it made, never the user's existing
 // ones; branchCreated gates later branch deletion to branches warden owns.
 func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, rel string) (branch string, worktreeCreated, branchCreated bool, err error) {
+	// req.Branch and req.PR flow into git/gh as positional args; reject an
+	// option-like value (leading '-') before it can be parsed as a flag.
+	if err := safeGitRef(req.Branch); err != nil {
+		return "", false, false, err
+	}
+	if err := safeGitRef(req.PR); err != nil {
+		return "", false, false, err
+	}
 	exists, err := l.worktreeExists(ctx, req.Repo, rel)
 	if err != nil {
 		return "", false, false, err
@@ -1800,6 +1808,9 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	workdir := req.Repo
 	worktreeCreated := false
 	if req.Worktree {
+		if err := safeGitRef(req.BaseBranch); err != nil {
+			return nil, err
+		}
 		rel := worktreeRel(id)
 		add := []string{"worktree", "add", rel, "-b", id}
 		if req.BaseBranch != "" {

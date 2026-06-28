@@ -322,6 +322,9 @@ func (l *Lifecycle) Sync(ctx context.Context, dir, base string) (SyncResult, err
 	if base == "" {
 		base = "main"
 	}
+	if err := safeGitRef(base); err != nil {
+		return SyncResult{}, err
+	}
 	status, err := l.run.Run(ctx, dir, "git", "status", "--porcelain")
 	if err != nil {
 		return SyncResult{}, fmt.Errorf("git status: %w: %s", err, status)
