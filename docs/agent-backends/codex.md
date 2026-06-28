@@ -99,11 +99,11 @@ and `exec`, and after the process exits.
 | Capability             | Value | Detail |
 |------------------------|-------|--------|
 | `Headless`             | ✅    | `codex exec` (`--json` for JSONL events). |
-| `Resume`               | ✅    | `codex resume --last` (dir-scoped); exact-id once discover-then-pin lands. |
+| `Resume`               | ✅    | `codex resume --last` (dir-scoped) **plus exact-id resume** once warden discovers and pins the minted id (`DiscoverSessionID`, below). |
 | `ModelSelection`       | ✅    | `-m <model>`. |
 | `StructuredTranscript` | ✅    | rollout JSONL → neutral Turns (**Tier A**). |
 | `PermissionModes`      | ✅    | `read-only`, `workspace-write`, `danger-full-access` (Codex's native sandbox). |
-| `SessionIDControl`     | ❌    | Codex mints its own UUID; no flag to assign one at launch. |
+| `SessionIDControl`     | ❌ (mitigated) | Codex mints its own UUID and exposes no flag to assign one *at launch* — so `SessionIDControl` stays `false`. But warden now **discovers** that minted id post-launch (`DiscoverSessionID`, the `agentbackend.SessionIDDiscoverer` seam) and pins it, so resume/transcript resolve by exact id, not just dir-scope. |
 | `SystemPromptInject`   | ❌    | no `--append-system-prompt` equivalent on the launch command — but the addendum still reaches Codex out-of-band via `InjectContext` (AGENTS.md). The Caps flag tracks the *launch flag* specifically, not whether the addendum is delivered. |
 | `Pricing`              | ❌    | OSS/BYO; tokens are in the rollout, dollars not wired into warden spend. |
 
@@ -135,15 +135,17 @@ and `exec`, and after the process exits.
   Codex has no positive *idle* marker, so an at-rest pane stays `Unknown` and warden
   infers idle from staleness (same as Claude). Markers captured live against
   codex v0.142.3 (fixtures under `testdata/codex/`).
+- **Exact-id session pinning (discover-then-pin).** Codex still mints its own UUID with
+  no launch flag to set one, but warden no longer settles for dir-scoping: the adapter
+  implements `DiscoverSessionID` (the `agentbackend.SessionIDDiscoverer` seam), which
+  reads the minted `session_id` from the newest rollout's `session_meta` header for the
+  agent's worktree. The poller calls it once the id is still empty and **pins** the
+  discovered id to the session, so subsequent resume/transcript lookups use the exact id
+  (`codex resume <uuid>` / direct rollout path) instead of re-resolving by directory.
+  Pinning backends (Claude) skip this path; backends without the seam keep dir-scoping.
 
 **Gaps (degraded, documented — not mis-handled)**
 
-- **No session-id pinning.** Codex assigns its own UUID and exposes no launch flag to
-  set one, so warden resolves transcript + resume **dir-scoped** (every warden agent
-  lives in its own worktree, so this is unambiguous). The forward path is
-  *discover-then-pin*: read the minted `session_id` from `session_meta` after first
-  launch and use exact-id `codex resume <uuid>` / direct rollout lookup
-  (FUTURE_ENHANCEMENTS #52).
 - **No warden-side dollar pricing.** The rollout carries token counts
   (`token_count` events, `turn.completed.usage`), but warden's spend table is
   Claude-specific; spend shows tokens, savings omits the agent (design §5).
