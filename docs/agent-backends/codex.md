@@ -326,7 +326,7 @@ and why it is NOT what the candidate design assumed:**
   **authentic** $0 capture. Plumbing is proven; accuracy rides the operator's real
   model.
 
-### `spawn --fork-from` — managed conversation fork (`agentbackend.SessionForker`)
+### `wd fork` / `spawn --fork-from` — managed conversation fork (`agentbackend.SessionForker`)
 
 `codex fork <session-id>` branches a recorded session's **conversation/reasoning**
 (the rollout) into a **new divergent session**, preserving the original — *not* a
@@ -349,8 +349,24 @@ state/approval polling, and teardown. See
 - **Worktree.** The fork gets a **fresh sibling worktree off the source agent's branch
   HEAD** (`git worktree add -b <fork-branch> <source-branch>`) — not shared with the
   source (dir-scoped discover-then-pin needs each agent its own cwd) and not off main
-  (the forked conversation references the tree it diverged from). PR-1 is HEAD-only;
-  non-destructive dirty-tree carry is a later pass.
+  (the forked conversation references the tree it diverged from).
+- **Dirty-tree carry (default-on).** The fork also receives the source agent's
+  **uncommitted tracked changes**, so it diverges from the source's *exact live state*
+  rather than only its committed HEAD. warden reuses the same non-destructive stash
+  primitive the snapshot package uses: `git stash create` in the source builds a commit
+  object recording its working tree **without perturbing it** (no stash pushed, no index
+  touched — the source agent runs on untouched), then `git stash apply <sha>` re-applies
+  it into the fork worktree. Both worktrees share one object database (the fork is a
+  `git worktree` sibling), so nothing is transferred, and the apply is **conflict-free by
+  construction** — the fork's HEAD *is* the source-branch HEAD the stash was created
+  against. A **clean** source carries nothing (the create returns empty), so the fork is
+  HEAD-only. It is always-on (no opt-out flag): a fork's whole point is "explore an
+  alternative from *this* point", and a HEAD-only fork is still reachable by committing
+  first.
+  - **Caveat (untracked artifacts).** `git stash create` captures only **tracked**
+    changes; the source's untracked / `.gitignore`d build artifacts are **not** carried
+    (the same contract the snapshot package has). The fork's tree is therefore not
+    byte-identical to the source's — its tracked working diff is.
 - **`-C <fork-worktree>` (verified live, codex 0.142.3).** Because the fork always runs
   in a *different* cwd than the source's recorded one, `codex fork <uuid>` otherwise
   shows an interactive "Choose working directory to fork this session" picker whose
@@ -362,3 +378,10 @@ state/approval polling, and teardown. See
 - **Degrades cleanly.** A backend with no native fork (Claude) does not implement
   `SessionForker`, so a `fork_from` spawn against it returns a clean
   "backend … cannot fork a session" and every non-fork spawn stays byte-identical.
+- **Ergonomic wrappers (CLI/MCP parity).** `wd fork <agent> ["<prompt>"]` is the
+  shorthand for `warden start --fork-from <agent>` (mirroring how `wd handoff` wraps
+  spawn); the optional trailing prompt rides the existing spawn prompt seam as a
+  divergent first message, and the fork inherits the source's repo + backend (resolved
+  daemon-side), so neither is restated. The `fork_agent` MCP tool is the twin, wrapping
+  `spawn_agent` with `fork_from` set. Both are **thin wrappers over the one `fork_from`
+  field** — no new daemon endpoint.

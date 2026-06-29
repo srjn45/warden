@@ -246,6 +246,41 @@ func (l *Lifecycle) buildLaunch(b agentbackend.Backend, req SpawnRequest, sess *
 	return cmd, nil
 }
 
+// carryDirtyTree seeds the SOURCE agent's UNCOMMITTED tracked changes into the fork
+// worktree (PR-2 dirty-tree carry, §7), so a fork diverges from the source's EXACT
+// live state rather than only its branch HEAD. It reuses the SAME non-destructive
+// stash primitive the snapshot package uses (internal/snapshot Capture/Restore):
+// `git stash create` in the source builds a commit object recording its working tree
+// WITHOUT perturbing it (no stash entry pushed, no index touched — the source agent
+// runs on untouched), and `git stash apply <sha>` re-applies that commit into the
+// fork worktree. The fork is a `git worktree` sibling sharing the source's object
+// database, so the stash commit is reachable from the fork with no transfer.
+//
+// A CLEAN source tree yields an empty stash sha — nothing to carry, so this is a
+// no-op and the fork stays HEAD-only (exactly the PR-1 behavior). The apply is
+// conflict-free by construction: the fork worktree's HEAD IS the source branch HEAD
+// the stash was created against (ensureWorktree bases the fork off ForkSourceBranch),
+// so the patch re-applies onto the same base it came from.
+//
+// CAVEAT (design §8.4 #3): `git stash create` captures only TRACKED changes — the
+// source's untracked / .gitignore'd build artifacts are NOT carried (the same
+// contract the snapshot package has). So the fork's tree is not byte-identical to the
+// source's; its tracked working diff is.
+func (l *Lifecycle) carryDirtyTree(ctx context.Context, srcWorkdir, forkWorkdir string) error {
+	out, err := l.run.Run(ctx, srcWorkdir, "git", "stash", "create", "warden fork dirty-carry")
+	if err != nil {
+		return fmt.Errorf("fork dirty-carry: git stash create in source: %w: %s", err, strings.TrimSpace(out))
+	}
+	sha := strings.TrimSpace(out)
+	if sha == "" {
+		return nil // clean source tree — nothing to carry; the fork stays HEAD-only
+	}
+	if out, err := l.run.Run(ctx, forkWorkdir, "git", "stash", "apply", sha); err != nil {
+		return fmt.Errorf("fork dirty-carry: git stash apply %s into fork: %w: %s", sha, err, strings.TrimSpace(out))
+	}
+	return nil
+}
+
 // guardSettings returns the Claude --settings launch fragment for the isolation/
 // git/check/root guard hooks, but only for the Claude backend: the hooks are
 // installed via Claude Code's settings mechanism, which other backends don't
@@ -508,6 +543,12 @@ type SpawnRequest struct {
 	ForkFrom            string // source agent id (provenance / "this is a fork" signal); empty = normal spawn
 	ForkSourceSessionID string // source backend session id (pinned) to fork from
 	ForkSourceBranch    string // source agent's branch — the fork worktree's base (§7)
+	// ForkSourceWorkdir is the source agent's absolute worktree, the read-side of the
+	// PR-2 dirty-tree carry (§7): the fork ALSO receives the source's UNCOMMITTED
+	// tracked changes (not just its branch HEAD) so it diverges from the source's EXACT
+	// live state. The adapter resolves it from the source session (lifecycle stays
+	// store-free). Empty ⇒ carry nothing (HEAD-only fork, the PR-1 behavior).
+	ForkSourceWorkdir string
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -1165,6 +1206,19 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		workdir = filepath.Join(req.Repo, rel)
 	}
 	sess.Workdir = workdir
+	// Dirty-tree carry (PR-2, §7): a fork ALSO seeds the source agent's UNCOMMITTED
+	// tracked changes into its fresh worktree, so it diverges from the source's EXACT
+	// live state rather than only the source branch's committed HEAD. No-op when the
+	// source tree is clean or carry is off (ForkSourceWorkdir empty = HEAD-only, the
+	// PR-1 behavior). The carry is non-destructive on the source (git stash create);
+	// run before launch so the files are present when the agent starts.
+	if req.ForkFrom != "" && req.ForkSourceWorkdir != "" {
+		if err := l.carryDirtyTree(ctx, req.ForkSourceWorkdir, workdir); err != nil {
+			// Worktree (but not yet tmux) exists here; undo only a worktree we made.
+			l.cleanupFailedSpawn(sess, false, worktreeCreated)
+			return nil, err
+		}
+	}
 	if err := l.newAgentSession(ctx, req.Repo, sess.ID, workdir); err != nil {
 		// new-session failed, so no tmux session exists; only undo a worktree we made.
 		l.cleanupFailedSpawn(sess, false, worktreeCreated)

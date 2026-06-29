@@ -122,6 +122,118 @@ func TestSpawnForkRequiresOwnWorktree(t *testing.T) {
 	require.Contains(t, err.Error(), "fork requires its own worktree")
 }
 
+// TestSpawnForkDirtyCarryAppliesStashIntoFork is the PR-2 dirty-tree-carry test: a
+// fork whose source has UNCOMMITTED tracked changes carries them into the fork
+// worktree via the non-destructive stash primitive — `git stash create` in the SOURCE
+// (which leaves it untouched) returns a commit sha, then `git stash apply <sha>` runs
+// in the FORK worktree (§7).
+func TestSpawnForkDirtyCarryAppliesStashIntoFork(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain":            {Out: noOtherWorktrees},
+		"git stash create warden fork dirty-carry": {Out: "deadbeefcafe\n"},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.PromptsDir = "/state/prompts"
+	_, err := lc.Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "fork-1", Repo: "/repo", Backend: "codex",
+		Model:               "qwen2.5-coder:3b",
+		ForkFrom:            "src-agent",
+		ForkSourceSessionID: "11111111-2222-3333-4444-555555555555",
+		ForkSourceBranch:    "src-branch",
+		ForkSourceWorkdir:   "/repo/.worktrees/src-agent",
+	})
+	require.NoError(t, err)
+
+	// The stash is BUILT in the source worktree (non-destructive: a commit object, the
+	// tree untouched).
+	require.True(t, forkCalledInDir(fr, "/repo/.worktrees/src-agent",
+		[]string{"git", "stash", "create", "warden fork dirty-carry"}),
+		"dirty-carry builds a stash commit in the source worktree")
+	// ...and APPLIED into the fork worktree with that sha.
+	require.True(t, forkCalledInDir(fr, "/repo/.worktrees/fork-1",
+		[]string{"git", "stash", "apply", "deadbeefcafe"}),
+		"dirty-carry applies the source stash into the fork worktree")
+	// The source tree is otherwise untouched: the ONLY command run against it is the
+	// non-destructive create (no stash push / reset / checkout that would perturb it).
+	for _, c := range fr.Calls {
+		if c.Dir == "/repo/.worktrees/src-agent" {
+			require.Equal(t, []string{"git", "stash", "create", "warden fork dirty-carry"}, c.Argv,
+				"the only command run in the source worktree is the non-destructive stash create")
+		}
+	}
+}
+
+// TestSpawnForkDirtyCarryCleanSourceNoApply: a CLEAN source tree makes `git stash
+// create` return empty — there is nothing to carry, so NO `git stash apply` runs and
+// the fork stays HEAD-only (the PR-1 behavior).
+func TestSpawnForkDirtyCarryCleanSourceNoApply(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+		// `git stash create` returns "" (clean tree) via the default empty response.
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.PromptsDir = "/state/prompts"
+	_, err := lc.Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "fork-1", Repo: "/repo", Backend: "codex",
+		Model:               "qwen2.5-coder:3b",
+		ForkFrom:            "src-agent",
+		ForkSourceSessionID: "11111111-2222-3333-4444-555555555555",
+		ForkSourceBranch:    "src-branch",
+		ForkSourceWorkdir:   "/repo/.worktrees/src-agent",
+	})
+	require.NoError(t, err)
+
+	// create still runs (to learn the tree is clean)…
+	require.True(t, forkCalledInDir(fr, "/repo/.worktrees/src-agent",
+		[]string{"git", "stash", "create", "warden fork dirty-carry"}),
+		"dirty-carry always probes the source with a non-destructive stash create")
+	// …but a clean tree carries nothing, so no apply.
+	for _, c := range fr.Calls {
+		require.False(t, len(c.Argv) >= 3 && c.Argv[0] == "git" && c.Argv[1] == "stash" && c.Argv[2] == "apply",
+			"a clean source carries nothing — no stash apply")
+	}
+}
+
+// TestSpawnForkNoCarryWhenSourceWorkdirUnset locks the carry-off path: with
+// ForkSourceWorkdir empty (HEAD-only), NO stash command runs at all — byte-identical
+// to PR-1's HEAD-only fork.
+func TestSpawnForkNoCarryWhenSourceWorkdirUnset(t *testing.T) {
+	lc, fr := newForkLC()
+	_, err := lc.Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "fork-1", Repo: "/repo", Backend: "codex",
+		Model:               "qwen2.5-coder:3b",
+		ForkFrom:            "src-agent",
+		ForkSourceSessionID: "11111111-2222-3333-4444-555555555555",
+		ForkSourceBranch:    "src-branch",
+		// ForkSourceWorkdir intentionally empty → carry off.
+	})
+	require.NoError(t, err)
+	for _, c := range fr.Calls {
+		require.False(t, len(c.Argv) >= 2 && c.Argv[0] == "git" && c.Argv[1] == "stash",
+			"no stash command when dirty-carry is off (HEAD-only fork)")
+	}
+}
+
+// forkCalledInDir reports whether the runner saw an exact git/tmux argv run in dir.
+func forkCalledInDir(fr *FakeRunner, dir string, argv []string) bool {
+	for _, c := range fr.Calls {
+		if c.Dir != dir || len(c.Argv) != len(argv) {
+			continue
+		}
+		match := true
+		for i := range argv {
+			if c.Argv[i] != argv[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 // forkLaunchLine returns the command string typed into the agent's tmux pane (the
 // send-keys payload), failing the test if no launch was sent.
 func forkLaunchLine(t *testing.T, fr *FakeRunner, id string) string {

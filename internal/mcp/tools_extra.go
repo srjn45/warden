@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -150,6 +151,15 @@ type handoffAgentArgs struct {
 	Retire     bool   `json:"retire,omitempty" jsonschema:"retire mode: retire the ticket agent and hand its work to a fresh successor in the SAME worktree (same behavior as rotate_agent; mutually exclusive with to)"`
 	Ticket     string `json:"ticket,omitempty" jsonschema:"retire mode: the agent to retire; its successor inherits the same worktree (cwd) and permission mode"`
 	ResumeFile string `json:"resume_file,omitempty" jsonschema:"retire mode: optional path to handoff notes the successor reads first (and deletes)"`
+}
+type forkAgentArgs struct {
+	Source         string `json:"source" jsonschema:"id of the agent whose recorded session to FORK; its backend session id must already be pinned (let it run a turn first)"`
+	Prompt         string `json:"prompt,omitempty" jsonschema:"optional divergent first prompt for the fork; omit to just continue the source's conversation"`
+	Type           string `json:"type,omitempty" jsonschema:"worktree-backed task type for the fork (default development)"`
+	Name           string `json:"name,omitempty" jsonschema:"optional human-readable name for the fork"`
+	Model          string `json:"model,omitempty" jsonschema:"optional model override (default: the source/backend default)"`
+	PermissionMode string `json:"permission_mode,omitempty" jsonschema:"permission mode for the fork: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config)"`
+	Force          bool   `json:"force,omitempty" jsonschema:"fork even when the memory-pressure gate warns (default false)"`
 }
 type retryPipelineArgs struct {
 	Pipeline string `json:"pipeline" jsonschema:"the pipeline id"`
@@ -526,6 +536,33 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: spawn delegate: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(map[string]any{"delegate": delegate.ID, "workdir": delegate.Workdir})
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "fork_agent",
+		Description: "Fork an existing agent's recorded session into a NEW managed agent: branches the source's conversation/reasoning into a divergent session (codex `codex fork`) and continues it as its own agent — a fresh sibling worktree off the source's branch, seeded with the source's uncommitted tracked changes (dirty-tree carry; untracked/.gitignore'd artifacts are not carried), with its own tmux session warden manages and tears down. The source agent keeps running, untouched (fork branches sideways — unlike snapshot's rewind or rotate/handoff which drop the conversation). Only backends with a native session fork are forkable (codex); forking one without (claude) reports a clean cannot-fork. The source's backend session id must already be pinned — if it has not run a turn yet, retry after it has. The fork inherits the source's repo+backend. Thin wrapper over spawn_agent with fork_from set (no new endpoint). Mirrors `warden fork`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a forkAgentArgs) (*mcpsdk.CallToolResult, any, error) {
+		if strings.TrimSpace(a.Source) == "" {
+			return textResult("error: source agent id is required"), nil, nil
+		}
+		typ := a.Type
+		if typ == "" {
+			typ = "development" // a fork needs a worktree-backed type (§7)
+		}
+		sess, err := s.cl.Spawn(ctx, client.SpawnParams{
+			Type: typ, ForkFrom: a.Source, Prompt: a.Prompt, Name: a.Name, Model: a.Model,
+			PermissionMode: a.PermissionMode, Force: a.Force, ParentID: sessionID(),
+		})
+		if err != nil {
+			var cre *client.ErrConfirmationRequired
+			if errors.As(err, &cre) {
+				return textResult("memory-pressure gate: " + cre.Verdict.Reason +
+					"\nRe-call fork_agent with force=true to fork anyway."), nil, nil
+			}
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		res, err := jsonResult(sess)
+		return res, nil, err
 	})
 
 	// --- pipeline verbs (beyond create/list/show/start/cancel) ---

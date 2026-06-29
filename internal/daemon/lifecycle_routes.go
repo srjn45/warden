@@ -76,7 +76,10 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 	}
 	freeMode := req.Type == ""
 	if !freeMode {
-		if req.Repo == "" {
+		// A fork's repo is the SOURCE agent's repo, resolved by the lifecycle adapter
+		// from fork_from (the caller need not — and `wd fork`/`fork_agent` do not —
+		// pass one), so the repo requirement does not apply to a fork.
+		if req.Repo == "" && req.ForkFrom == "" {
 			return http.StatusBadRequest, "typed spawn requires repo"
 		}
 		// Reject an unknown type rather than silently collapsing it to "other".
