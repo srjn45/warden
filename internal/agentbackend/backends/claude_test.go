@@ -274,6 +274,16 @@ func TestClaudeNotModelLister(t *testing.T) {
 	require.False(t, ok, "Claude has a static model set; wd models must skip it")
 }
 
+// TestClaudeNotSessionForker regression-locks the SessionForker seam: Claude has no
+// native conversation-fork verb (its launch/resume are warden-pinned-id flows, not a
+// rollout branch), so it must NOT implement agentbackend.SessionForker — a spawn with
+// fork_from against Claude degrades to the clean "backend claude cannot fork a session"
+// error in lifecycle.buildLaunch, and every non-fork Claude spawn stays byte-identical.
+func TestClaudeNotSessionForker(t *testing.T) {
+	_, ok := agentbackend.Backend(Claude{}).(agentbackend.SessionForker)
+	require.False(t, ok, "Claude has no native fork; the fork path must never run for it")
+}
+
 func TestPricing(t *testing.T) {
 	tbl, ok := Claude{}.Pricing()
 	require.True(t, ok)

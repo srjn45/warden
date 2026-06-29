@@ -325,3 +325,40 @@ and why it is NOT what the candidate design assumed:**
   mirroring the adapter's tool-call fixture; the empty-findings path is covered by the
   **authentic** $0 capture. Plumbing is proven; accuracy rides the operator's real
   model.
+
+### `spawn --fork-from` — managed conversation fork (`agentbackend.SessionForker`)
+
+`codex fork <session-id>` branches a recorded session's **conversation/reasoning**
+(the rollout) into a **new divergent session**, preserving the original — *not* a
+working-tree op, *not* "resume into a new id". warden surfaces it as a managed spawn:
+a `fork_from` field on the existing spawn request (no new daemon endpoint), so a fork
+is a normal warden-managed agent — its own tmux session, worktree, store record,
+state/approval polling, and teardown. See
+`docs/superpowers/specs/2026-06-29-codex-fork-design.md`.
+
+- **Boundary.** A fork is only useful as a *managed* agent (an untracked
+  `codex fork` in a terminal adds nothing over typing it yourself), so — unlike
+  `wd review`/`wd models` — it is intrinsically daemon-crossing. The minimal
+  spec-first delta is one additive optional field, `fork_from`, on `SpawnRequest`.
+- **Source id (`agentbackend.SessionForker`).** The fork passes the source agent's
+  **pinned** backend session id explicitly (`codex fork <uuid>`, never `--last`,
+  which is cwd-scoped and would miss the fork's separate worktree). The daemon adapter
+  resolves it from the source agent's record via discover-then-pin; an unpinned source
+  errors cleanly ("let it run one turn, then retry"). `-m`/`-s`(+`-a never`) map exactly
+  as `LaunchCmd`; the prompt rides the existing launch-positional seam.
+- **Worktree.** The fork gets a **fresh sibling worktree off the source agent's branch
+  HEAD** (`git worktree add -b <fork-branch> <source-branch>`) — not shared with the
+  source (dir-scoped discover-then-pin needs each agent its own cwd) and not off main
+  (the forked conversation references the tree it diverged from). PR-1 is HEAD-only;
+  non-destructive dirty-tree carry is a later pass.
+- **`-C <fork-worktree>` (verified live, codex 0.142.3).** Because the fork always runs
+  in a *different* cwd than the source's recorded one, `codex fork <uuid>` otherwise
+  shows an interactive "Choose working directory to fork this session" picker whose
+  **default is the source dir** — the wrong, unsafe choice (it would run the fork in the
+  source's tree, corrupting both and breaking discover-then-pin). warden pins
+  `-C <fork-worktree>`, which suppresses the picker entirely while still minting the
+  fork's own id under the fork worktree's cwd. (Only the one-time per-directory trust
+  prompt remains — a known manual step for a fresh worktree.)
+- **Degrades cleanly.** A backend with no native fork (Claude) does not implement
+  `SessionForker`, so a `fork_from` spawn against it returns a clean
+  "backend … cannot fork a session" and every non-fork spawn stays byte-identical.

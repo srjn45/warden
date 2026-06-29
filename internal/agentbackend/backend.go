@@ -281,6 +281,50 @@ type SessionIDDiscoverer interface {
 	DiscoverSessionID(projectsDir, workdir string) (id string, ok bool)
 }
 
+// SessionForker is an optional Backend extension implemented by agents that can
+// BRANCH a recorded session into a new DIVERGENT one (Codex: `codex fork <id>`).
+// It complements warden's snapshot (linear worktree+transcript rollback) and its
+// rotate/handoff (which hand off the TASK but drop the conversation) with
+// CONVERSATIONAL forking — explore an alternative reasoning path from a recorded
+// session WITHOUT discarding the original, as a new warden-managed agent.
+//
+// A fork is structurally a managed spawn whose launch command is the fork verb, so
+// it returns a tmux-pane command string exactly like LaunchCmd/ResumeCmd (NOT an
+// argv): the spawn path types it into the new agent's pane and appends the same
+// hint/prompt/exit suffixes. The initial prompt is delivered via the existing
+// LaunchPromptArg seam (file-backed positional), NOT through this method.
+//
+// Additive and on-top: a backend that does not implement it is simply not forkable
+// (a spawn with fork_from set against such a backend is rejected with a clear
+// message). Claude implements none of this — by construction the fork path never
+// runs for it, keeping Claude's launch byte-identical and regression-locked.
+type SessionForker interface {
+	// ForkCmd returns the launch command that forks SourceSessionID into a new
+	// session, run in the new agent's worktree. ok=false ⇒ the source id is empty
+	// or this backend cannot fork the given input (the caller reports a clean
+	// "cannot fork" rather than launching a bare agent).
+	ForkCmd(opts ForkOpts) (cmd string, ok bool)
+}
+
+// ForkOpts is the neutral input for a SessionForker.ForkCmd call. SourceSessionID
+// is the BACKEND'S recorded session id (the source agent's pinned id, e.g. codex's
+// rollout UUID) — never warden's agent id. Model/Mode mirror LaunchOpts and are
+// resolved by the caller before the call.
+type ForkOpts struct {
+	SourceSessionID string // backend session id to fork from (REQUIRED; ok=false if empty)
+	Name            string // display label for the new session (warden agent id)
+	Model           string // already-resolved model id
+	Mode            string // permission/approval mode
+	// Workdir is the fork's OWN worktree (a fresh sibling off the source's branch).
+	// A fork inherently runs in a different cwd than the source's recorded one
+	// (dir-scoped discover-then-pin needs each agent its own cwd), and codex, seeing
+	// the mismatch, otherwise prompts an interactive "Choose working directory" picker
+	// whose default is the SOURCE dir (the wrong, unsafe choice). The adapter sets it
+	// to the fork worktree so the implementation can pin the working root explicitly
+	// (codex: `-C <dir>`) and suppress that picker. Verified live, codex 0.142.3.
+	Workdir string
+}
+
 // ContextInjector is an optional Backend extension implemented by agents that have
 // NO launch-time system-prompt flag (Caps.SystemPromptInject=false) but DO read a
 // rules file (AGENTS.md) from their working directory on startup — Codex is the

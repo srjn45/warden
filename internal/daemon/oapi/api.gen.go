@@ -616,10 +616,13 @@ type SpawnRequest struct {
 	Cwd     string `json:"cwd,omitempty"`
 
 	// Force bypass the memory-pressure spawn gate
-	Force  bool   `json:"force,omitempty"`
-	InRepo bool   `json:"in_repo,omitempty"`
-	Model  string `json:"model,omitempty"`
-	Name   string `json:"name,omitempty"`
+	Force bool `json:"force,omitempty"`
+
+	// ForkFrom id of an existing agent whose recorded session this spawn should FORK (codex fork): the new agent branches the source agent's conversation into a divergent session. Requires a backend implementing SessionForker and a source agent whose backend session id is already pinned. Empty = a normal (non-fork) spawn.
+	ForkFrom string `json:"fork_from,omitempty"`
+	InRepo   bool   `json:"in_repo,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Name     string `json:"name,omitempty"`
 
 	// ParentId id of the agent that spawned this one; empty = root
 	ParentId       string `json:"parent_id,omitempty"`

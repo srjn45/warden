@@ -2,8 +2,11 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
+	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register codex for fork resolution
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -35,4 +38,89 @@ func TestAdapterTypedSpawnNormalizes(t *testing.T) {
 	sess, err := a.Spawn(context.Background(), SpawnRequest{Type: "bogus", Repo: t.TempDir()})
 	require.NoError(t, err)
 	require.Equal(t, store.TypeOther, sess.Type, "unknown type collapses to other")
+}
+
+// newForkAdapter wires a real codex-capable lifecycle (FakeRunner reporting no
+// pre-existing worktree) behind the adapter, with a fakeStore holding one pinned
+// source codex agent. It returns the adapter and runner so a fork test can inspect
+// the git/tmux argv the resolved fork produced.
+func newForkAdapter(t *testing.T, src *store.Session) (Lifecycle, *lifecycle.FakeRunner) {
+	t.Helper()
+	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{
+		"git worktree list --porcelain": {Out: "worktree /repo\nHEAD abc\nbranch refs/heads/main\n"},
+	}}
+	lc := lifecycle.New(fr, &lifecycle.FakeConfig{})
+	lc.PromptsDir = "/state/prompts"
+	st := newFakeStore()
+	if src != nil {
+		require.NoError(t, st.Insert(context.Background(), src))
+	}
+	return NewLifecycleAdapter(lc, st), fr
+}
+
+// TestAdapterForkResolvesSource is the daemon-side fork seam: the adapter (which owns
+// the store) resolves the source agent ONCE and hands lifecycle the read-back values
+// (pinned session id → the launch line; branch → the worktree base; repo → where the
+// sibling worktree lives), keeping lifecycle store-free.
+func TestAdapterForkResolvesSource(t *testing.T) {
+	src := &store.Session{
+		ID: "src-agent", Backend: "codex", Repo: "/repo",
+		Branch: "src-branch", ClaudeSessionID: "11111111-2222-3333-4444-555555555555",
+	}
+	a, fr := newForkAdapter(t, src)
+
+	_, err := a.Spawn(context.Background(), SpawnRequest{
+		Type: "development", Ticket: "fork-1", Backend: "codex", ForkFrom: "src-agent",
+	})
+	require.NoError(t, err)
+
+	var sawWorktree, sawLaunch bool
+	for _, c := range fr.Calls {
+		argv := c.Argv
+		if len(argv) == 7 && argv[0] == "git" && argv[1] == "worktree" && argv[2] == "add" &&
+			argv[5] == "fork-1" && argv[6] == "src-branch" {
+			sawWorktree = true
+		}
+		if len(argv) >= 6 && argv[0] == "tmux" && argv[1] == "send-keys" && argv[3] == "fork-1" &&
+			strings.Contains(argv[4], "codex fork '11111111-2222-3333-4444-555555555555'") {
+			sawLaunch = true
+		}
+	}
+	require.True(t, sawWorktree, "fork worktree based off the source's branch")
+	require.True(t, sawLaunch, "launch forks the source's pinned session id")
+}
+
+// TestAdapterForkSourceNotPinned proves the §5 guard: a source whose backend session
+// id is not yet discovered → ErrForkSourceNotPinned, before any spawn side effects.
+func TestAdapterForkSourceNotPinned(t *testing.T) {
+	src := &store.Session{ID: "src-agent", Backend: "codex", Repo: "/repo", Branch: "src-branch"} // ClaudeSessionID ""
+	a, _ := newForkAdapter(t, src)
+
+	_, err := a.Spawn(context.Background(), SpawnRequest{
+		Type: "development", Ticket: "fork-1", Backend: "codex", ForkFrom: "src-agent",
+	})
+	require.ErrorIs(t, err, lifecycle.ErrForkSourceNotPinned)
+}
+
+// TestAdapterForkSourceMissing surfaces a clean store error when fork_from names an
+// agent that does not exist.
+func TestAdapterForkSourceMissing(t *testing.T) {
+	a, _ := newForkAdapter(t, nil)
+	_, err := a.Spawn(context.Background(), SpawnRequest{
+		Type: "development", Ticket: "fork-1", Backend: "codex", ForkFrom: "ghost",
+	})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, store.ErrNotFound) || strings.Contains(err.Error(), "not found"))
+}
+
+// TestAdapterForkSourceNoBranch rejects a fork whose source has no branch to base the
+// sibling worktree on (§7 requires basing off the source branch HEAD).
+func TestAdapterForkSourceNoBranch(t *testing.T) {
+	src := &store.Session{ID: "src-agent", Backend: "codex", Repo: "/repo", ClaudeSessionID: "uuid"} // no Branch
+	a, _ := newForkAdapter(t, src)
+	_, err := a.Spawn(context.Background(), SpawnRequest{
+		Type: "development", Ticket: "fork-1", Backend: "codex", ForkFrom: "src-agent",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no branch")
 }
