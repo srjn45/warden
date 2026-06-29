@@ -36,6 +36,7 @@ Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. 
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
 | `handoff_agent` / `rotate_agent` | Hand off work — delegate to new/`to` existing agent, or `retire`→successor in place; `rotate_agent` is an alias for `handoff_agent {retire:true}` |
+| `fork_agent` | Fork an agent's recorded session into a new managed agent (branches the conversation; Codex-only; source keeps running) — wraps `spawn_agent` with `fork_from` set, mirrors `wd fork` |
 | `ctx_set` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `ctx_cas` / `ctx_append` | Compare-and-set / append-to-list context writes (lock-free coordination) |
 | `send_message` / `read_inbox` / `wait_for_message` | Directed messaging, incl. a blocking long-poll wait |
@@ -56,7 +57,7 @@ Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. 
 | `search` / `history` / `audit_log` | Full-text search / archived agents / the action audit trail |
 | `export_sessions` / `import_sessions` / `list_plugins` | Serialize / load session metadata / list registered plugins |
 
-> **Full parity (67 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, and `rotate`/`handoff`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`); see the [feature catalog](/warden/reference/features/).
+> **Full parity (69 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, `rotate`/`handoff`, and `fork`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`) plus the worktree-local `review`/`models` superpowers; see the [feature catalog](/warden/reference/features/).
 
 Example orchestrator prompts:
 

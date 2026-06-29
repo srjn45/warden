@@ -13,6 +13,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 |---|---|
 | list / check / triage agents | `list_agents`; summarize by status. Call out `waiting_for_input` (needs them) and `errored`/`orphaned`. Show each agent's `subject` and `workdir`. |
 | spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Only add `type`+`repo` (+`branch`/`pr`/`worktree`) for a managed worktree tied to a repo/ticket. Add `model`, `permission_mode`/`supervised`, `tags` as needed. |
+| fork agent <id>'s session into a new one | `fork_agent {source: "<id>", prompt?}` — branches the source's recorded conversation into a NEW managed agent (fresh sibling worktree, dirty-tree carry; the source keeps running). **Codex-only** (a non-forking backend like Claude returns a clean "cannot fork"); the source's session id must already be pinned (let it run a turn first). See **Fork** below. |
 | what is agent <id> doing | `get_agent` (status, subject, workdir, events) + `get_agent_output` (recent terminal) → report concisely. |
 | tell / ask agent <id> to do Y | `send_to_agent` (id as `ticket`, plus `text`). Echo back what you sent. |
 | tear down / clean up <id> (full) | `stop_agent` — **the primary teardown verb.** Default = terminate + clear record + remove worktree. Subtractive flags: `keep_record`, `keep_worktree` (`keep_worktree` alone == old `done`); `hard` purges; `pr`+`base` open a PR first; `force`/`delete_adopted_branch` for the worktree. Safe order: PR → terminate → clear record → remove worktree. DESTRUCTIVE (removes the worktree) — **confirm with the user first**. |
@@ -43,6 +44,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | browse the archive | MCP `history {since?, type?, limit?}` / `warden history` (`--since 24h|7d|2w|date`, `--type`, `--limit`) |
 | hand off / delegate work (one verb, three modes) | `/warden handoff` — see below. New delegate (default) / `--to <id>` (existing agent) keep you running; `--retire` reaps you into a same-worktree successor. MCP `handoff_agent {prompt, context?, to?|repo/type/… | retire+ticket}` |
 | rotate yourself into a fresh agent | `/warden handoff --retire` (alias: `/warden rotate`) — self-succession, see below; remote: MCP `rotate_agent {ticket, resume_prompt, resume_file?}` or `handoff_agent {retire:true, ticket, prompt}` |
+| fork an agent's session into a new agent | `warden fork <agent> ["<prompt>"]` (shorthand for `warden start --fork-from <agent>`); MCP `fork_agent {source, prompt?, name?, model?, type?, force?}`. **Codex-only** — see **Fork** below |
 
 ## Spawn options worth knowing
 
@@ -250,3 +252,45 @@ Same two-phase, human-reviewed shape as the retire mode:
    mode confirms delivery and whether the recipient was woken. **You are never
    retired** — this is delegation, not succession. If new-mode spawn is blocked by
    the memory-pressure gate, add `--force` to spawn anyway.
+
+## Fork — branch an agent's session into a new agent (`warden fork` / `fork_agent`)
+
+Fork is the **third** way to put an agent's work into a new agent, and the only one
+that **keeps the conversation**. Where handoff/rotate carry the *task* but drop the
+*conversation*, a fork **branches the source's recorded session sideways**: it
+continues the source agent's conversation/reasoning (the backend's session rollout)
+in a divergent timeline as its own managed agent — a fresh sibling worktree off the
+source's branch HEAD, seeded with the source's uncommitted **tracked** changes
+(dirty-tree carry), with its own tmux session warden monitors and tears down. **The
+source agent keeps running, untouched.**
+
+| verb | what moves | the source |
+| --- | --- | --- |
+| **fork** | the **whole conversation**, branched into a new timeline | keeps running |
+| **snapshot** restore | rewinds **one** timeline to a checkpoint | the same agent |
+| **rotate** / **handoff** | the **task only** (fresh conversation) | retired (`--retire`) or kept (delegate/`--to`) |
+
+Drive it from either surface (it's a managed spawn, so it has **MCP + CLI parity** —
+unlike the CLI-only `wd review` / `wd models` superpowers):
+
+```sh
+warden fork agent-7                  # fork agent-7, continue its conversation
+warden fork agent-7 "now try X"      # fork and seed a divergent first prompt
+```
+
+MCP: `fork_agent {source: "<id>", prompt?, name?, model?, type?, permission_mode?, force?}`
+— a thin wrapper over `spawn_agent` with `fork_from` set (no new endpoint).
+
+Worth knowing:
+
+- **Codex-only today.** Fork is gated by the backend's native session fork
+  (`agentbackend.SessionForker`, which **Codex** implements). A backend without one
+  (e.g. Claude) returns a clean "cannot fork" — don't treat that as an error to work
+  around; it's the "add on top, never restrict" rule.
+- **Pin the session first.** The source's backend session id must already exist — if
+  the source hasn't run a turn yet, fork says so; let it run, then retry.
+- **Tracked changes only.** The dirty-tree carry seeds the source's **tracked**
+  uncommitted changes; untracked / `.gitignore`'d build artifacts are not carried.
+- **Inherits repo + backend** (resolved daemon-side); `--type` defaults to
+  `development` (a fork needs its own worktree). If the memory-pressure gate warns,
+  add `--force` / `force:true`.

@@ -87,7 +87,7 @@ capability is missing:
 | **System-prompt injection** | Warden delivers its pipeline/collab/git hints via a rules file the agent reads on startup (`InjectContext`: `AGENTS.md` for Codex/OpenCode/Cursor/Antigravity, `CRUSH.md`, `.goosehints`); only a backend that auto-reads no such file (Aider) skips the hints entirely — no invalid flags ever reach the agent |
 | **Session-id control** | Warden discovers the agent-generated id post-launch (`DiscoverSessionID`, e.g. Codex) and pins it, or falls back to a workdir-based transcript path, instead of assigning one |
 
-## Backend superpowers (`wd review`, `wd models`)
+## Backend superpowers (`wd review`, `wd models`, `wd fork`)
 
 Degradation is the *deficit* side — making a feature warden has work everywhere.
 The flip side is **surfacing a backend's native strengths** that Claude doesn't
@@ -97,12 +97,16 @@ have, as first-class verbs added *on top* (never a restriction):
 |---|---|---|
 | **`wd review`** | the backend's OWN one-shot diff reviewer against the worktree (agent-native counterpart to `wd check` / a `pr-review` agent); `--json` emits neutral machine-readable findings | **Codex** (`codex review` / `codex exec review`) |
 | **`wd models`** | the backend's **live** runtime model menu (vs warden's static aliases); ids feed `--model` verbatim, listing spends no quota | **Antigravity** (`agy models`), **Cursor** (`cursor-agent --list-models`) |
+| **`wd fork`** | branch the source agent's recorded **conversation/reasoning** into a new managed agent — a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Shorthand for `start --fork-from` | **Codex** (`codex fork`) |
 
-Both are **CLI-only by design** — like `wd check` they exec in the agent's worktree
-with no daemon round-trip, so they have no MCP/web/TUI twin. Each is an optional,
-type-asserted interface (`Reviewer`/`StructuredReviewer`, `ModelLister`); a backend
-that doesn't implement one simply isn't offered the verb (Claude degrades non-zero
-with a pointer to the alternative). Cursor's server-side `--auto-review` ("Smart
+`wd review` and `wd models` are **CLI-only by design** — like `wd check` they exec
+in the agent's worktree with no daemon round-trip, so they have no MCP/web/TUI twin.
+Each is an optional, type-asserted interface (`Reviewer`/`StructuredReviewer`,
+`ModelLister`); a backend that doesn't implement one simply isn't offered the verb
+(Claude degrades non-zero with a pointer to the alternative). **`wd fork` is the
+exception** — it's a managed spawn that crosses the daemon (a thin wrapper over the
+`fork_from` spawn field, gated by the `SessionForker` interface), so it has **MCP +
+CLI parity** via the `fork_agent` tool. Cursor's server-side `--auto-review` ("Smart
 Auto") is surfaced not as a verb but as the `auto-review` **permission mode**. Full
 walkthrough: [Backend superpowers](/warden/guides/backend-superpowers/).
 

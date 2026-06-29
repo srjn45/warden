@@ -474,8 +474,9 @@ Backends differ in capabilities; warden **degrades gracefully** rather than
 crashing when one lacks a capability (e.g. spend shows tokens-not-dollars for a
 bring-your-own-model backend; rotate/handoff re-spawn fresh when resume is
 unavailable). It also surfaces some backends' **native superpowers** as
-first-class verbs — `warden review` (Codex's diff reviewer) and `warden models`
-(Antigravity/Cursor's live model menu); see
+first-class verbs — `warden review` (Codex's diff reviewer), `warden models`
+(Antigravity/Cursor's live model menu), and `warden fork` (branch a Codex
+session into a new managed agent — see [`warden fork`](#warden-fork)); see
 [Agent-native superpowers](#agent-native-superpowers--warden-review--warden-models).
 See the design (`docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`, §5)
 and roadmap item #52.
@@ -1215,6 +1216,17 @@ warden worktree prune --include-archived  # widen scope to archived records
 ### `warden handoff`
 
 The single verb for passing work to another agent, with three modes. Default mode spawns a fresh delegate in its own isolated worktree; `--to <id>` delivers the handoff into an existing agent's inbox (waking it) — both **keep the source running** and inline the handoff content into the recipient's prompt/message. `--retire` (requires `--confirm`) is the **self-succession** mode: it spawns a successor in the calling agent's **same** worktree and reaps the caller — exactly what the `warden rotate` alias runs (see above). `--retire` and `--to` are mutually exclusive. Phase 1 (writing the handoff) is `/warden`-skill-driven.
+
+### `warden fork`
+
+Shorthand for `warden start --fork-from <agent>` — fork an existing agent's recorded session into a **new** managed agent. A fork branches the source's conversation/reasoning (Codex's session rollout) into a divergent session and continues it as its own agent: a fresh sibling worktree off the source's branch HEAD, seeded with the source's uncommitted **tracked** changes (dirty-tree carry; untracked/`.gitignore`'d build artifacts are not carried), with its own tmux session warden manages and tears down. **The source agent keeps running, untouched** — fork branches *sideways*, unlike `snapshot` (rewinds one timeline) or `rotate`/`handoff` (carry the task, drop the conversation).
+
+```sh
+warden fork agent-7                  # fork agent-7, continue its conversation
+warden fork agent-7 "now try X"      # fork and seed a divergent first prompt
+```
+
+Only backends with a native session fork are forkable — **Codex** today (`codex fork`); forking one without (e.g. Claude) reports a clean "cannot fork". The source's backend session id must already be pinned (let it run a turn first). The fork inherits the source's repo + backend; `--type` defaults to `development`. Unlike `warden review` / `warden models`, fork is a managed spawn that crosses the daemon, so it has **MCP + CLI parity** — the `fork_agent` MCP tool is the orchestrator twin (a thin wrapper over `spawn_agent` with `fork_from` set, no new endpoint).
 
 ### `warden token generate|show|rotate`
 

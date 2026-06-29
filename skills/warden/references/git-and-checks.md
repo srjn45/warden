@@ -56,6 +56,11 @@ round-trip, so there is **no MCP tool**; run them through the CLI (`wd review` /
   is a metadata read (no generation), so it costs no quota. Implemented by
   **Antigravity** and **Cursor**; static-model backends (Claude) exit non-zero.
 
+A **third** Codex superpower — **`wd fork`** (branch an agent's session into a new
+managed agent) — is a spawn-family verb, not a check-family one, and unlike these two
+it has an MCP twin (`fork_agent`). It lives in
+[references/agents.md](agents.md) with the other spawn/handoff verbs.
+
 ## Snapshots — checkpoint & roll back
 
 MCP `snapshot_create` / `snapshot_list` / `snapshot_restore` (CLI `wd snapshot
