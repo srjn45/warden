@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -600,6 +601,72 @@ func (Cursor) InjectContext(workdir, text string) error {
 // token usage is deferred (docs/agent-backends/cursor.md).
 func (Cursor) Pricing() (agentbackend.PricingTable, bool) {
 	return agentbackend.PricingTable{}, false
+}
+
+// --- Model menu -------------------------------------------------------------
+
+// cursorListModelsCmd runs `cursor-agent --list-models` and returns its stdout. It is
+// a package var so the parser test can exercise ListModels without the real binary.
+// Listing the menu is a metadata read — `--list-models` is documented as "List
+// available models and exit", it does NOT start a chat or a turn — so it costs no
+// generation allowance against the hosted plan (verified live, cursor-agent
+// 2026.06.26-7079533: exit 0, clean stdout, no turn started, plan untouched).
+var cursorListModelsCmd = func() ([]byte, error) {
+	return exec.Command("cursor-agent", "--list-models").Output()
+}
+
+// ListModels implements agentbackend.ModelLister. Cursor is hosted with a live,
+// multi-vendor menu (Composer, Claude, GPT/Codex, Gemini, Grok, …) the operator's
+// account/plan can change, so warden surfaces the real `cursor-agent --list-models`
+// output rather than a hard-coded alias table. The returned ids feed warden's
+// `--model` flag verbatim — they are the exact ids `--model` accepts (and that the
+// tool's own "use --model <id>" tip points at). ok=false on any command error (binary
+// missing, not signed in) so `wd models` degrades cleanly.
+func (Cursor) ListModels() ([]string, bool) {
+	out, err := cursorListModelsCmd()
+	if err != nil {
+		return nil, false
+	}
+	return parseCursorModels(out), true
+}
+
+// parseCursorModels normalizes `cursor-agent --list-models` stdout into a clean
+// []string of model ids. The command prints an "Available models" header, a blank
+// line, then one model per line as "<id> - <Display Name>", and a trailing blank line
+// + "Tip: …" footer (verified live, cursor-agent 2026.06.26-7079533):
+//
+//	Available models
+//
+//	auto - Auto
+//	gpt-5.3-codex-low - Codex 5.3 Low
+//	…
+//	glm-5.2-max - GLM 5.2 Max
+//
+//	Tip: use --model <id> (or /model <id> …) to switch. …
+//
+// so the parse keeps only lines carrying the " - " id/name separator (the header and
+// the Tip footer have none and drop out), takes the id to the left of the first
+// separator, trims it, and preserves order. Returns an empty (never nil) slice when
+// there is nothing to list, so JSON callers emit [] not null.
+func parseCursorModels(out []byte) []string {
+	models := []string{}
+	sc := bufio.NewScanner(strings.NewReader(string(out)))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		// Model lines are "<id> - <Display Name>"; the header/tip lines carry no
+		// " - " separator and are skipped.
+		idx := strings.Index(line, " - ")
+		if idx < 0 {
+			continue
+		}
+		if id := strings.TrimSpace(line[:idx]); id != "" {
+			models = append(models, id)
+		}
+	}
+	return models
 }
 
 // --- Capabilities -----------------------------------------------------------

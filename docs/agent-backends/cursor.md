@@ -301,3 +301,24 @@ reachable, not flatten them away. Future enhancements should surface, not suppre
 - **`--output-format json|stream-json`** — structured headless output (with a `usage`
   token block) useful for warden's classify/summarize offload and a future Tier-A
   transcript capture.
+
+---
+
+## Superpowers surfaced (#52, step 6)
+
+Two of the superpowers above are now actually wired through warden, not just noted:
+
+- **Live model menu via `wd models`** — Cursor implements `agentbackend.ModelLister`
+  (`ListModels` runs `cursor-agent --list-models` and parses the `<id> - <Display
+  Name>` lines down to ids), so `wd models --backend cursor` prints the account's live
+  catalog — Composer, GPT-5.x/Codex, Claude Opus/Sonnet, Gemini, Grok, … — one id per
+  line (`--json` for an array). These are the exact ids `--model` accepts (including
+  parameterized forms like `claude-opus-4-8[context=1m,effort=high,fast=false]`). The
+  verb is generic: it type-asserts `ModelLister`, so cursor lit up with no CLI change.
+  `--list-models` is a metadata read ("List available models and exit") — it starts no
+  chat and spends none of the hosted plan's generation allowance.
+- **`--auto-review` (Smart Auto) as a permission mode** — already mapped: warden's
+  `auto-review` permission mode emits `--auto-review` (see the modes table above and
+  `Capabilities().PermissionModes`), so a server-side classifier auto-runs safe tool
+  calls and prompts only for the risky ones — a finer-grained posture than warden's
+  binary prompt/skip.

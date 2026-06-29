@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -325,4 +326,79 @@ func TestCursorRegistered(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Cursor", b.DisplayName())
 	require.Equal(t, "cursor-agent", b.Binary())
+}
+
+// --- Model menu (live `cursor-agent --list-models`) -------------------------
+
+// TestCursorImplementsModelLister locks the ModelLister seam for cursor: unlike Claude
+// (static alias table), Cursor exposes a live hosted menu, so it MUST implement
+// agentbackend.ModelLister — that is what lights up `wd models` for cursor with no
+// change to the generic verb.
+func TestCursorImplementsModelLister(t *testing.T) {
+	_, ok := agentbackend.Backend(Cursor{}).(agentbackend.ModelLister)
+	require.True(t, ok, "Cursor has a live model menu; wd models must offer it")
+}
+
+// TestParseCursorModels locks the parser against the REAL `cursor-agent --list-models`
+// output captured live (testdata/cursor/models.txt, cursor-agent 2026.06.26-7079533):
+// an "Available models" header, blank-separated "<id> - <Display Name>" lines, and a
+// trailing "Tip: …" footer. Only the ids (left of " - ") are kept, in order; the
+// header and footer (no " - ") drop out. The ids are the exact `--model` labels.
+func TestParseCursorModels(t *testing.T) {
+	out := cursorFixture(t, "models.txt")
+	got := parseCursorModels([]byte(out))
+
+	require.NotEmpty(t, got)
+	require.Equal(t, "auto", got[0], "first listed id is 'auto'")
+	require.Equal(t, "glm-5.2-max", got[len(got)-1], "last listed id")
+
+	// A representative spread of the live ids must round-trip verbatim (these feed
+	// --model directly).
+	for _, id := range []string{"composer-2.5-fast", "claude-opus-4-8-thinking-high", "gpt-5.5-high", "gemini-3.5-flash"} {
+		require.Contains(t, got, id)
+	}
+
+	// The header and the Tip footer must NOT leak into the menu.
+	require.NotContains(t, got, "Available models")
+	for _, m := range got {
+		require.NotContains(t, m, "Tip:", "the trailing tip line must not be parsed as a model")
+		require.NotContains(t, m, " ", "ids carry no spaces (the display name is dropped)")
+	}
+}
+
+// TestParseCursorModelsTrimsAndDropsBlanks covers the edge shapes the parser handles:
+// surrounding whitespace, blank lines, lines without the " - " separator, and the
+// id/name split. Never nil so JSON emits [].
+func TestParseCursorModelsTrimsAndDropsBlanks(t *testing.T) {
+	in := "Available models\n\n  foo - Foo Model  \n\nbar-baz - Bar Baz\njust a sentence with no separator\n"
+	require.Equal(t, []string{"foo", "bar-baz"}, parseCursorModels([]byte(in)))
+	require.Equal(t, []string{}, parseCursorModels(nil), "empty input ⇒ empty (non-nil) slice")
+}
+
+// TestCursorListModels drives ListModels through the stubbed `cursor-agent
+// --list-models` runner (the fixture stands in for the live binary) and asserts it
+// normalizes the menu to ids.
+func TestCursorListModels(t *testing.T) {
+	orig := cursorListModelsCmd
+	t.Cleanup(func() { cursorListModelsCmd = orig })
+	cursorListModelsCmd = func() ([]byte, error) {
+		return []byte(cursorFixture(t, "models.txt")), nil
+	}
+	models, ok := Cursor{}.ListModels()
+	require.True(t, ok)
+	require.NotEmpty(t, models)
+	require.Equal(t, "auto", models[0])
+	require.Contains(t, models, "composer-2.5-fast")
+}
+
+// TestCursorListModelsDegradesOnError: a command error (binary missing / not signed
+// in) returns ok=false so `wd models` reports a clean degrade, never a crash.
+func TestCursorListModelsDegradesOnError(t *testing.T) {
+	orig := cursorListModelsCmd
+	t.Cleanup(func() { cursorListModelsCmd = orig })
+	cursorListModelsCmd = func() ([]byte, error) {
+		return nil, errors.New("exec: cursor-agent: not found")
+	}
+	_, ok := Cursor{}.ListModels()
+	require.False(t, ok, "a command error degrades to ok=false")
 }
