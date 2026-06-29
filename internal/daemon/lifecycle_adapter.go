@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/pressure"
@@ -48,6 +49,28 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 	// flipping an interactive spawn onto the typed/managed-worktree path.)
 	if req.Type != "" {
 		lr.Type = store.NormalizeType(req.Type)
+	}
+	// Fork (codex fork superpower, #52): the adapter owns the store, so it resolves
+	// the source agent here ONCE and hands lifecycle the read-back values — lifecycle
+	// stays store-free (see lifecycle.SpawnRequest fork fields). It reads the source's
+	// PINNED backend session id (the codex rollout UUID the fork branches from; empty
+	// ⇒ ErrForkSourceNotPinned, §5) and its branch (the fork worktree's base, §7), and
+	// pins the fork to the source's repo so the worktree is a sibling off that branch.
+	if req.ForkFrom != "" {
+		src, err := a.store.Get(ctx, req.ForkFrom)
+		if err != nil {
+			return nil, err
+		}
+		if src.ClaudeSessionID == "" {
+			return nil, lifecycle.ErrForkSourceNotPinned
+		}
+		if src.Branch == "" {
+			return nil, fmt.Errorf("fork source %s has no branch to base the fork on", req.ForkFrom)
+		}
+		lr.ForkFrom = req.ForkFrom
+		lr.ForkSourceSessionID = src.ClaudeSessionID
+		lr.ForkSourceBranch = src.Branch
+		lr.Repo = src.Repo // base + worktree live in the source agent's repo
 	}
 	return a.lc.Spawn(ctx, lr)
 }

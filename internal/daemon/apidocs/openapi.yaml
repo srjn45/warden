@@ -1706,6 +1706,14 @@ components:
         backend: { type: string, description: "agent backend id (claude, aider, …); empty = claude (the default)" }
         tags: { type: array, items: { type: string } }
         parent_id: { type: string, description: "id of the agent that spawned this one; empty = root" }
+        fork_from:
+          type: string
+          description: >
+            id of an existing agent whose recorded session this spawn should FORK
+            (codex fork): the new agent branches the source agent's conversation
+            into a divergent session. Requires a backend implementing SessionForker
+            and a source agent whose backend session id is already pinned. Empty =
+            a normal (non-fork) spawn.
 
     Verdict:
       x-go-type: pressure.Verdict

@@ -50,6 +50,7 @@ type SpawnRequest struct {
 	Backend        string   `json:"backend"`         // agent backend id (claude, aider, …); empty = claude (back-compat)
 	Tags           []string `json:"tags"`            // optional free-form labels for grouping/filtering (#30)
 	ParentID       string   `json:"parent_id"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	ForkFrom       string   `json:"fork_from"`       // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
 }
 
 // AdoptParams are the resolved inputs the handler passes to Lifecycle.Adopt.

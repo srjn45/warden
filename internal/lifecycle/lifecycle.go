@@ -218,6 +218,34 @@ func (l *Lifecycle) promptArg(b agentbackend.Backend, promptFile string) string 
 	return b.LaunchPromptArg(promptFile)
 }
 
+// buildLaunch returns the bare backend launch command for a spawn — the base the
+// spawn paths then concatenate hint/prompt/exit suffixes onto. For a normal spawn
+// (req.ForkFrom == "") it returns exactly b.LaunchCmd(...), so the assembled launch
+// line is byte-identical to the pre-fork path. For a fork it builds the command via
+// the backend's SessionForker instead: a backend that does not implement it (Claude,
+// by construction) degrades to a clean "cannot fork" error rather than launching a
+// bare agent. The source's pinned backend session id and branch are already resolved
+// by the daemon adapter (lifecycle is store-free); this only shapes the command.
+func (l *Lifecycle) buildLaunch(b agentbackend.Backend, req SpawnRequest, sess *store.Session, mode string) (string, error) {
+	if req.ForkFrom == "" {
+		return b.LaunchCmd(agentbackend.LaunchOpts{
+			SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+		}), nil
+	}
+	fk, ok := b.(agentbackend.SessionForker)
+	if !ok {
+		return "", fmt.Errorf("backend %s cannot fork a session", b.ID())
+	}
+	cmd, ok := fk.ForkCmd(agentbackend.ForkOpts{
+		SourceSessionID: req.ForkSourceSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+		Workdir: sess.Workdir, // the fork's own worktree → codex -C, suppresses the working-dir picker
+	})
+	if !ok {
+		return "", fmt.Errorf("backend %s cannot fork session %q", b.ID(), req.ForkSourceSessionID)
+	}
+	return cmd, nil
+}
+
 // guardSettings returns the Claude --settings launch fragment for the isolation/
 // git/check/root guard hooks, but only for the Claude backend: the hooks are
 // installed via Claude Code's settings mechanism, which other backends don't
@@ -469,6 +497,17 @@ type SpawnRequest struct {
 	Backend        string   // agent backend id (claude, aider, …); empty = claude (the default)
 	Tags           []string // optional free-form labels for grouping/filtering (#30)
 	ParentID       string   // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+
+	// Fork fields (codex fork superpower, #52). Set by the daemon adapter when a
+	// spawn carries fork_from: the adapter (which owns the store) resolves the
+	// source agent ONCE and hands lifecycle the already-read values, so lifecycle
+	// stays store-free. ForkFrom non-empty ⇒ this is a fork: build the launch
+	// command via the backend's SessionForker instead of LaunchCmd, and base the
+	// worktree off ForkSourceBranch. ForkSourceSessionID is the source backend's
+	// PINNED session id (codex rollout UUID) the fork branches from.
+	ForkFrom            string // source agent id (provenance / "this is a fork" signal); empty = normal spawn
+	ForkSourceSessionID string // source backend session id (pinned) to fork from
+	ForkSourceBranch    string // source agent's branch — the fork worktree's base (§7)
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -573,6 +612,11 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 	if err := safeGitRef(req.PR); err != nil {
 		return "", false, false, err
 	}
+	// ForkSourceBranch flows into `git worktree add` as a positional start point;
+	// reject an option-like value before git could parse it as a flag.
+	if err := safeGitRef(req.ForkSourceBranch); err != nil {
+		return "", false, false, err
+	}
 	exists, err := l.worktreeExists(ctx, req.Repo, rel)
 	if err != nil {
 		return "", false, false, err
@@ -619,7 +663,15 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 	if branch == "" {
 		branch = id
 	}
-	if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, "-b", branch); err != nil {
+	// A fork bases its branch off the SOURCE agent's branch HEAD (§7), so the forked
+	// conversation continues against the committed state it diverged from — a fresh
+	// SIBLING worktree, not the repo default and not shared with the source. A normal
+	// spawn appends no start point and branches off the repo's current HEAD as before.
+	args := []string{"worktree", "add", rel, "-b", branch}
+	if req.ForkFrom != "" && req.ForkSourceBranch != "" {
+		args = append(args, req.ForkSourceBranch)
+	}
+	if out, err := l.run.Run(ctx, req.Repo, "git", args...); err != nil {
 		return "", false, false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 	}
 	return branch, true, true, nil
@@ -1024,6 +1076,12 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	if req.Cwd == "" {
 		return nil, fmt.Errorf("free-form spawn requires a launch dir (cwd)")
 	}
+	// A fork needs its own worktree (dir-scoped discover-then-pin, §5/§7); a free-form
+	// spawn has none. Free-form fork is explicitly deferred (design §4.2) — reject it
+	// rather than launch a fork that would share the caller's cwd and mis-pin.
+	if req.ForkFrom != "" {
+		return nil, fmt.Errorf("fork requires a typed (worktree-backed) spawn; free-form fork is not supported")
+	}
 	sess.Workdir = req.Cwd
 
 	// launchPrompt is the trailing claude argument. Empty for an interactive
@@ -1084,6 +1142,13 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 // start a tmux session in it, and auto-launch claude. On any post-resource
 // failure it rolls back via cleanupFailedSpawn (a worktree only when WE made it).
 func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *store.Session) (*store.Session, error) {
+	// A fork MUST run in its own worktree: discover-then-pin is dir-scoped, so a fork
+	// sharing the source's tree (or the bare repo) would mis-pin both ends (§5/§7). The
+	// fork worktree is also what the launch command is based off the SOURCE branch in
+	// (ensureWorktree). Reject a fork that would not get its own worktree.
+	if req.ForkFrom != "" && !wantWorktree(req) {
+		return nil, fmt.Errorf("fork requires its own worktree; spawn a worktree-backed type without --in-repo")
+	}
 	workdir := req.Repo
 	worktreeCreated := false
 	if wantWorktree(req) {
@@ -1136,9 +1201,12 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	); err != nil {
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
-	launch := b.LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
-	}) + l.pipelineHint(b) + l.collabHint(b) + l.gitConventionsHint(b) + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
+	base, err := l.buildLaunch(b, req, sess, mode)
+	if err != nil {
+		l.cleanupFailedSpawn(sess, true, worktreeCreated)
+		return nil, err
+	}
+	launch := base + l.pipelineHint(b) + l.collabHint(b) + l.gitConventionsHint(b) + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -1388,15 +1456,16 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 }
 
 var (
-	ErrDirtyWorktree      = errors.New("worktree has uncommitted changes (use --force)")
-	ErrUnpushedCommits    = errors.New("worktree has unpushed commits (use --force)")
-	ErrAlreadyRunning     = errors.New("agent is already running (use send/attach)")
-	ErrNoSessionID        = errors.New("no pinned claude session id; re-spawn instead")
-	ErrWorkdirMissing     = errors.New("agent workdir is gone; re-spawn instead")
-	ErrNoTranscript       = errors.New("no transcript to resume")
-	ErrNoWorktree         = errors.New("session has no worktree")
-	ErrWorktreeAgentAlive = errors.New("agent is still running; terminate it before removing its worktree")
-	ErrTmuxGone           = errors.New("tmux session not found")
+	ErrDirtyWorktree       = errors.New("worktree has uncommitted changes (use --force)")
+	ErrUnpushedCommits     = errors.New("worktree has unpushed commits (use --force)")
+	ErrAlreadyRunning      = errors.New("agent is already running (use send/attach)")
+	ErrNoSessionID         = errors.New("no pinned claude session id; re-spawn instead")
+	ErrWorkdirMissing      = errors.New("agent workdir is gone; re-spawn instead")
+	ErrNoTranscript        = errors.New("no transcript to resume")
+	ErrForkSourceNotPinned = errors.New("fork source agent's session id is not yet known; let it run one turn, then retry")
+	ErrNoWorktree          = errors.New("session has no worktree")
+	ErrWorktreeAgentAlive  = errors.New("agent is still running; terminate it before removing its worktree")
+	ErrTmuxGone            = errors.New("tmux session not found")
 )
 
 // CleanupTarget carries the fields Cleanup needs (filled from the store doc).

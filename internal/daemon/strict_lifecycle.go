@@ -38,6 +38,7 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		Backend:        b.Backend,
 		Tags:           b.Tags,
 		ParentID:       b.ParentId,
+		ForkFrom:       b.ForkFrom,
 	}
 }
 

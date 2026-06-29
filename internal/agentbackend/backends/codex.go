@@ -111,6 +111,41 @@ func (Codex) ResumeCmd(agentbackend.ResumeOpts) (string, bool) {
 	return "codex resume --last", true
 }
 
+// ForkCmd implements agentbackend.SessionForker. It forks the EXPLICIT source
+// rollout UUID (never `--last`: the fork runs in a different worktree/cwd than the
+// source, and `--last` is cwd-scoped — it would miss or mis-pick). Model/sandbox map
+// exactly as LaunchCmd (codex fork accepts -m/-s/-a, verified codex 0.142.3). The
+// initial prompt rides the existing LaunchPromptArg seam (trailing positional), not
+// this method. ok=false when SourceSessionID is empty: the caller reports a clean
+// "cannot fork" rather than launching a bare `codex fork` with no source.
+//
+// `-C <workdir>` pins the working root to the fork's OWN worktree. This is load-bearing,
+// NOT cosmetic: a warden fork always launches in a different cwd than the source's
+// recorded one (§7), and codex 0.142.3, seeing the mismatch, otherwise shows an
+// interactive "Choose working directory to fork this session" picker whose default is
+// the SOURCE dir — running the fork in the source's tree would corrupt both and break
+// dir-scoped discover-then-pin (§5). Passing -C suppresses that picker (verified live
+// on the $0 rig) while still minting the fork's own id under the fork worktree's cwd.
+func (Codex) ForkCmd(o agentbackend.ForkOpts) (string, bool) {
+	if o.SourceSessionID == "" {
+		return "", false
+	}
+	cmd := "codex fork " + shellQuoteArg(o.SourceSessionID)
+	if o.Workdir != "" {
+		cmd += " -C " + shellQuoteArg(o.Workdir)
+	}
+	if o.Model != "" {
+		cmd += " -m " + shellQuoteArg(o.Model)
+	}
+	if sb, never := codexSandbox(o.Mode); sb != "" {
+		cmd += " -s " + sb
+		if never {
+			cmd += " -a never"
+		}
+	}
+	return cmd, true
+}
+
 // ReviewCmd implements agentbackend.Reviewer: it returns the argv for a one-shot
 // `codex review` run in the agent's worktree (the CLI verb `wd review` execs it
 // locally and streams the findings to the operator — the agent-native counterpart

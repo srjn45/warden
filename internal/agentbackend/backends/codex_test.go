@@ -81,6 +81,94 @@ func TestCodexLaunchPromptArg(t *testing.T) {
 	require.Equal(t, ` "$(cat '/state/prompts/job-1')"`, got)
 }
 
+// TestCodexImplementsSessionForker locks the seam: Codex exposes `codex fork`, so
+// it must be type-assertable as a SessionForker for the lifecycle fork branch.
+func TestCodexImplementsSessionForker(t *testing.T) {
+	_, ok := agentbackend.Backend(Codex{}).(agentbackend.SessionForker)
+	require.True(t, ok, "Codex forks sessions via `codex fork`")
+}
+
+// TestCodexForkCmd checks the fork launch-line shaping: the EXPLICIT source UUID is
+// always quoted (never `--last`, §4.3), and -m/-s/-a map exactly as LaunchCmd. An
+// empty source id returns ok=false so the caller reports a clean "cannot fork"
+// instead of launching a bare `codex fork`.
+func TestCodexForkCmd(t *testing.T) {
+	tests := []struct {
+		name   string
+		opts   agentbackend.ForkOpts
+		want   string
+		wantOK bool
+	}{
+		{
+			name:   "empty source id ⇒ not forkable",
+			opts:   agentbackend.ForkOpts{Model: "m", Mode: "default"},
+			want:   "",
+			wantOK: false,
+		},
+		{
+			name:   "explicit id + model, default mode (codex posture applies)",
+			opts:   agentbackend.ForkOpts{SourceSessionID: "11111111-2222-3333-4444-555555555555", Model: "qwen2.5-coder:3b", Mode: "default"},
+			want:   "codex fork '11111111-2222-3333-4444-555555555555' -m 'qwen2.5-coder:3b'",
+			wantOK: true,
+		},
+		{
+			name:   "workdir pins -C right after the id (suppresses the cross-cwd picker)",
+			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Workdir: "/repo/.worktrees/fork-1", Model: "m", Mode: "workspace-write"},
+			want:   "codex fork 'id' -C '/repo/.worktrees/fork-1' -m 'm' -s workspace-write",
+			wantOK: true,
+		},
+		{
+			name:   "read-only sandbox passes through",
+			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Model: "m", Mode: "read-only"},
+			want:   "codex fork 'id' -m 'm' -s read-only",
+			wantOK: true,
+		},
+		{
+			name:   "danger-full-access also pins -a never",
+			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Model: "m", Mode: "danger-full-access"},
+			want:   "codex fork 'id' -m 'm' -s danger-full-access -a never",
+			wantOK: true,
+		},
+		{
+			name:   "empty model omits -m (BYO config provider)",
+			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Mode: "default"},
+			want:   "codex fork 'id'",
+			wantOK: true,
+		},
+		{
+			name:   "Name is ignored (codex mints its own id)",
+			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Name: "fork-1", Mode: "default"},
+			want:   "codex fork 'id'",
+			wantOK: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := Codex{}.ForkCmd(tt.opts)
+			require.Equal(t, tt.wantOK, ok)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestCodexForkQuotesSourceID is the command-injection guard for the fork source id:
+// a UUID positional carrying shell metacharacters must be single-quoted so it cannot
+// break out of the line typed into a tmux pane.
+func TestCodexForkQuotesSourceID(t *testing.T) {
+	got, ok := Codex{}.ForkCmd(agentbackend.ForkOpts{SourceSessionID: "id'; touch /tmp/pwned #", Mode: "default"})
+	require.True(t, ok)
+	require.Equal(t, `codex fork 'id'\''; touch /tmp/pwned #'`, got)
+}
+
+// TestCodexForkNeverUsesLast guards §4.3: the fork must pass the explicit source id,
+// never `--last` (which is cwd-scoped and would miss the fork's separate worktree).
+func TestCodexForkNeverUsesLast(t *testing.T) {
+	got, ok := Codex{}.ForkCmd(agentbackend.ForkOpts{SourceSessionID: "id", Mode: "default"})
+	require.True(t, ok)
+	require.NotContains(t, got, "--last")
+	require.Contains(t, got, "codex fork 'id'")
+}
+
 func TestCodexHeadlessCmd(t *testing.T) {
 	argv, ok := Codex{}.HeadlessCmd("classify this")
 	require.True(t, ok)
