@@ -473,7 +473,11 @@ warden start "implement the add function" --backend goose --dir .
 Backends differ in capabilities; warden **degrades gracefully** rather than
 crashing when one lacks a capability (e.g. spend shows tokens-not-dollars for a
 bring-your-own-model backend; rotate/handoff re-spawn fresh when resume is
-unavailable). See the design (`docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`, §5)
+unavailable). It also surfaces some backends' **native superpowers** as
+first-class verbs — `warden review` (Codex's diff reviewer) and `warden models`
+(Antigravity/Cursor's live model menu); see
+[Agent-native superpowers](#agent-native-superpowers--warden-review--warden-models).
+See the design (`docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`, §5)
 and roadmap item #52.
 
 ---
@@ -999,6 +1003,23 @@ warden check [name]      # run the project's .warden/check.yml checks; reports o
 ```
 
 Rails: no commit/push on `main`/`master`, no dirty-tree sync, pre-commit-hook failures surfaced as a result. All four are also MCP tools.
+
+### Agent-native superpowers — `warden review` / `warden models`
+
+Some backends ship native capabilities Claude Code doesn't, and warden surfaces them as first-class verbs (added *on top* — never a restriction). Like `warden check`, these **exec in the agent's worktree with no daemon round-trip**, so they are **CLI-only by design** (no MCP twin).
+
+```sh
+warden review                  # the backend reviews its OWN uncommitted diff and streams findings
+warden review --base main      # review the branch's changes against a base instead
+warden review --prompt "focus on error handling"
+warden review --json           # neutral machine-readable findings: {summary, verdict, findings[]}
+warden models                  # the backend's LIVE model menu (one id per line; --json for an array)
+```
+
+- **`warden review`** — the agent-native counterpart to `warden check` (configured test/lint) and a `pr-review` agent (a whole reviewer session): it runs the backend's own one-shot reviewer against the worktree. **Codex** implements it (`codex review`); backends without a native reviewer (e.g. Claude) exit non-zero pointing you at `warden check` / `pr-review`. `--json` runs the structured form (`codex exec review`) and normalizes the backend's native output into one neutral findings shape; review quality rides the backend's configured model.
+- **`warden models`** — the live runtime model menu (vs warden's static `opus`/`sonnet`/`haiku`/`fable` aliases). **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`) implement it; the ids feed `--model` verbatim. Listing is a metadata read, so it spends no quota. Backends with a static model set (Claude) degrade non-zero ("pass `--model` with a known id").
+
+Both take `--backend <id>` to target a specific backend (default: the current agent's). See [Agent backends](#agent-backends---backend).
 
 ### `warden search <query…>` / `warden history`
 
