@@ -108,6 +108,15 @@ type Config struct {
 	// deprecation warning at daemon startup.
 	AllowNonLoopback bool `yaml:"allow_nonloopback"`
 
+	// TrustedProxies lists IPs/CIDRs of reverse proxies or tunnels that front the
+	// daemon (e.g. a Cloudflare Tunnel forwarding over loopback). It affects the
+	// AUDIT ACTOR ONLY: when the immediate peer is one of these, the audit log
+	// resolves the real client from X-Forwarded-For instead of recording the
+	// proxy's address. It is deliberately NOT used for the auth-failure throttle
+	// (which keeps the spoof-resistant RemoteAddr key). Empty ⇒ actor is always
+	// the peer address. Accepts bare IPs and CIDRs (IPv4/IPv6).
+	TrustedProxies []string `yaml:"trusted_proxies"`
+
 	// Migrated from previously-scattered os.Getenv reads.
 	PipelineKeepDone       bool          `yaml:"pipeline_keep_done"`
 	ModelDefault           string        `yaml:"model_default"`
@@ -166,6 +175,7 @@ var schema = []setting{
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
 	{"allow_nonloopback", "DEPRECATED and inert: this no longer bypasses authentication. A bearer token (WARDEN_TOKEN) is now mandatory for any non-loopback bind. Setting it true only logs a deprecation warning. Values: true | false"},
+	{"trusted_proxies", "Reverse proxies / tunnels that front the daemon (e.g. a Cloudflare Tunnel forwarding over loopback). Audit-actor-only: when the immediate peer is one of these, the audit log resolves the real client from X-Forwarded-For instead of recording the proxy address. NOT used for the auth-failure throttle. Values: list of IPs and/or CIDRs (IPv4/IPv6); empty disables it"},
 	{"pipeline_keep_done", "Keep a pipeline job's agent alive after the job completes. Values: true | false"},
 	{"model_default", "Default model for new agents. Values: a claude model id or alias (sonnet, opus, haiku, fable)"},
 	{"pipeline_hint", "Append the pipeline-decomposition hint to standalone agents. Values: true | false"},

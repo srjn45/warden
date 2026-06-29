@@ -1332,6 +1332,16 @@ the daemon refuses to start on a non-loopback address without `WARDEN_TOKEN`.
 (The old `allow_nonloopback` escape hatch is deprecated and inert — it no longer
 disables auth; setting it only logs a warning.)
 
+**Audit attribution behind a proxy.** Through a Cloudflare Tunnel / reverse proxy
+that forwards over loopback, the daemon's peer address is the proxy
+(`127.0.0.1`), so the audit log would record every remote action as `127.0.0.1`.
+Set `trusted_proxies` (the proxy's IP/CIDR) and the **audit actor** is resolved
+from `X-Forwarded-For` instead — the real client IP. This affects the audit trail
+only; the auth-failure throttle deliberately keeps the spoof-resistant peer IP
+(`X-Forwarded-For` is client-controlled, and one bad client behind a shared proxy
+must not throttle everyone). `X-Forwarded-For` is honored **only** when the peer
+is a configured trusted proxy, so a direct client cannot forge an actor.
+
 **Read-only token.** To share view-only access — a wall dashboard, a teammate
 who should watch but not act — set an optional second token,
 `WARDEN_READONLY_TOKEN`. A request bearing it may read everything (every GET plus
@@ -1370,6 +1380,7 @@ daemon address for a single command.
 | Setting | Default | Description |
 |---|---|---|
 | `addr` | `127.0.0.1:8765` | Daemon listen/connect address. A non-loopback address **requires** `WARDEN_TOKEN` (bearer-token auth) — see [Remote access](#remote-access-phone-tablet-another-machine). The daemon refuses a non-loopback bind without a token |
+| `trusted_proxies` | _(none)_ | Reverse proxies / tunnels fronting the daemon (list of IPs/CIDRs). When the immediate peer is one of these, the **audit log** resolves the real client from `X-Forwarded-For` instead of recording the proxy address. Audit-actor only — the auth-failure throttle still keys on the peer IP. An invalid entry fails startup |
 | `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |

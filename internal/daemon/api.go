@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"sync"
@@ -138,6 +139,9 @@ type Server struct {
 	// audit is the append-only action trail (audit.jsonl). nil ⇒ auditing off;
 	// recordAudit is then a no-op. See audit_hook.go.
 	audit *audit.Writer
+	// auditTrustedProxies lists proxy/tunnel nets whose X-Forwarded-For the audit
+	// actor resolution trusts (see auditActor). nil ⇒ actor is the peer address.
+	auditTrustedProxies []*net.IPNet
 	// snap captures/lists/restores worktree+transcript snapshots (#46). nil ⇒ the
 	// feature is unconfigured; snapshots additionally gates the endpoints (config
 	// `snapshots`). See snapshot_routes.go.

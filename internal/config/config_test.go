@@ -57,6 +57,18 @@ worktree:
 	require.True(t, c.MetricsEnabled)
 }
 
+func TestLoad_TrustedProxies(t *testing.T) {
+	// Absent ⇒ nil (feature off).
+	require.Nil(t, Load(tmpConfig(t, "addr: 127.0.0.1:8765\n")).TrustedProxies)
+
+	c := Load(tmpConfig(t, `
+trusted_proxies:
+  - 127.0.0.1
+  - 10.0.0.0/8
+`))
+	require.Equal(t, []string{"127.0.0.1", "10.0.0.0/8"}, c.TrustedProxies)
+}
+
 func TestLoad_RateLimitResumePrompt_Default(t *testing.T) {
 	path := tmpConfig(t, "") // empty file → all defaults
 	c := Load(path)
