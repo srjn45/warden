@@ -70,7 +70,13 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		lr.ForkFrom = req.ForkFrom
 		lr.ForkSourceSessionID = src.ClaudeSessionID
 		lr.ForkSourceBranch = src.Branch
-		lr.Repo = src.Repo // base + worktree live in the source agent's repo
+		lr.ForkSourceWorkdir = src.Workdir // read-side of the PR-2 dirty-tree carry (§7)
+		lr.Repo = src.Repo                 // base + worktree live in the source agent's repo
+		// A fork MUST run the source's backend — the SessionForker that minted the
+		// session is the only one that can branch it (forking a codex session with the
+		// claude backend would hit the clean "cannot fork"). Pin it from the source so
+		// the wrappers don't have to restate --backend (and a mismatched one can't win).
+		lr.Backend = src.Backend
 	}
 	return a.lc.Spawn(ctx, lr)
 }

@@ -345,6 +345,7 @@ type SpawnParams struct {
 	Backend        string
 	Tags           []string
 	ParentID       string
+	ForkFrom       string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
 }
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
@@ -355,6 +356,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
 		"model": p.Model, "backend": p.Backend, "tags": p.Tags, "parent_id": p.ParentID,
+		"fork_from": p.ForkFrom,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		var se *StatusError

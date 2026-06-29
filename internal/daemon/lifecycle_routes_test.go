@@ -275,6 +275,34 @@ func TestPostSpawn(t *testing.T) {
 	require.Equal(t, store.TypeDevelopment, fl.spawned.Type)
 }
 
+// TestPostSpawnForkSkipsRepoRequirement locks the fork-validation gap: a typed spawn
+// normally requires a repo, but a FORK's repo is resolved from the source agent by the
+// lifecycle adapter (fork_from), so `wd fork` / `fork_agent` send no repo. Validation
+// must therefore NOT reject a repo-less spawn when fork_from is set (a plain repo-less
+// typed spawn still 400s).
+func TestPostSpawnForkSkipsRepoRequirement(t *testing.T) {
+	fl := &fakeLife{}
+	ts := lifeServer(t, newFakeStore(), fl)
+	defer ts.Close()
+
+	// Repo-less typed spawn WITHOUT fork_from → 400 (the existing rule).
+	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "noRepo"})
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+	require.Nil(t, fl.spawned)
+
+	// Repo-less typed spawn WITH fork_from → passes validation and reaches Spawn (the
+	// adapter would fill the repo from the source).
+	body, _ = json.Marshal(SpawnRequest{Type: "development", Ticket: "fork-1", ForkFrom: "src-agent"})
+	resp, err = http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+	require.Equal(t, "fork-1", fl.spawned.ID, "a fork spawn must reach Spawn without a caller repo")
+}
+
 func TestPostSpawnRejectsUnsafeTicket(t *testing.T) {
 	// A ticket flows straight into the session id, which becomes a filesystem
 	// path component (the prompt file) and a tmux session name. It must be

@@ -69,6 +69,15 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			}
 			typ := stringFlagOr(cmd, "type", pre.Type)
 
+			// A fork is intrinsically a managed (worktree-backed) spawn (§7): it bases a
+			// fresh sibling worktree off the source's branch, which the free-form (cwd)
+			// path has no worktree for. So --fork-from defaults the type to development
+			// when none was given, routing it onto the typed path below.
+			forkFrom, _ := cmd.Flags().GetString("fork-from")
+			if forkFrom != "" && typ == "" {
+				typ = "development"
+			}
+
 			// A prompt template fills the (free-form) spawn prompt; it has no role
 			// in typed mode, where the daemon generates the prompt from the ticket.
 			if tplName, _ := cmd.Flags().GetString("prompt-template"); tplName != "" && typ != "" {
@@ -155,7 +164,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			backend, _ := cmd.Flags().GetString("backend")
 			tagsFlag, _ := cmd.Flags().GetString("tags")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag),
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom,
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -192,6 +201,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
 	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
+	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
 	return cmd
 }
 

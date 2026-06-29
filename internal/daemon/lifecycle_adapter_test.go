@@ -90,6 +90,45 @@ func TestAdapterForkResolvesSource(t *testing.T) {
 	require.True(t, sawLaunch, "launch forks the source's pinned session id")
 }
 
+// TestAdapterForkThreadsWorkdirAndBackend proves PR-2's additions to the daemon seam:
+// the adapter hands lifecycle the source's WORKDIR (the read-side of the dirty-tree
+// carry — `git stash create` in the source, applied into the fork) and pins the fork
+// to the source's BACKEND, so the SessionForker that minted the session is the one
+// that branches it and the wrappers needn't restate --backend (the request below
+// carries none).
+func TestAdapterForkThreadsWorkdirAndBackend(t *testing.T) {
+	src := &store.Session{
+		ID: "src-agent", Backend: "codex", Repo: "/repo", Workdir: "/repo/.worktrees/src-agent",
+		Branch: "src-branch", ClaudeSessionID: "11111111-2222-3333-4444-555555555555",
+	}
+	a, fr := newForkAdapter(t, src)
+	fr.Responses["git stash create warden fork dirty-carry"] = lifecycle.FakeResp{Out: "stashsha\n"}
+
+	_, err := a.Spawn(context.Background(), SpawnRequest{
+		Type: "development", Ticket: "fork-1", ForkFrom: "src-agent", // no Backend on the request
+	})
+	require.NoError(t, err)
+
+	var sawStashCreate, sawStashApply, sawCodexFork bool
+	for _, c := range fr.Calls {
+		if c.Dir == "/repo/.worktrees/src-agent" && len(c.Argv) >= 3 &&
+			c.Argv[0] == "git" && c.Argv[1] == "stash" && c.Argv[2] == "create" {
+			sawStashCreate = true
+		}
+		if c.Dir == "/repo/.worktrees/fork-1" && len(c.Argv) >= 4 &&
+			c.Argv[1] == "stash" && c.Argv[2] == "apply" && c.Argv[3] == "stashsha" {
+			sawStashApply = true
+		}
+		if len(c.Argv) >= 5 && c.Argv[0] == "tmux" && c.Argv[1] == "send-keys" &&
+			strings.Contains(c.Argv[4], "codex fork") {
+			sawCodexFork = true
+		}
+	}
+	require.True(t, sawStashCreate, "carry builds a stash from the source workdir")
+	require.True(t, sawStashApply, "carry applies the source stash into the fork worktree")
+	require.True(t, sawCodexFork, "fork inherits the source's codex backend even with no --backend on the request")
+}
+
 // TestAdapterForkSourceNotPinned proves the §5 guard: a source whose backend session
 // id is not yet discovered → ErrForkSourceNotPinned, before any spawn side effects.
 func TestAdapterForkSourceNotPinned(t *testing.T) {
