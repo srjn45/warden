@@ -38,6 +38,19 @@ The token value is identical to a normal one — what makes it read-only is the 
 
 > Need per-teammate tokens with individual expiry or revocation? That's a future escalation (a token registry); today there is one full token and one optional read-only token.
 
+## Audit attribution behind a proxy
+
+Through a tunnel or reverse proxy that forwards over loopback, the daemon sees the proxy (`127.0.0.1`) as the peer, so the audit log would attribute every remote action to `127.0.0.1`. Set `trusted_proxies` to your proxy's IP/CIDR and the **audit actor** is resolved from `X-Forwarded-For` instead — the real client IP.
+
+```yaml
+# ~/.warden/config.yaml
+trusted_proxies:
+  - 127.0.0.1        # a local cloudflared / nginx forwarding over loopback
+  - 10.0.0.0/8       # or a LAN proxy range
+```
+
+This affects the audit trail only — the auth-failure throttle keeps the spoof-resistant peer IP (`X-Forwarded-For` is client-controlled). `X-Forwarded-For` is honored **only** when the immediate peer is a configured trusted proxy, so a direct client cannot forge an actor.
+
 ## Container deployment
 
 A multi-stage `Dockerfile` and `docker-compose.yml` package the daemon for containerized remote access; the auth model above carries over unchanged.

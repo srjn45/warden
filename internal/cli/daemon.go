@@ -104,6 +104,10 @@ func newDaemonCmd() *cobra.Command {
 			if err := requireReadonlyHasPrimary(authToken, readonlyToken); err != nil {
 				return err
 			}
+			trustedProxies, err := daemon.ParseTrustedProxies(cfg.TrustedProxies)
+			if err != nil {
+				return err
+			}
 			// allow_nonloopback used to bypass this token requirement; that hole is
 			// closed (audit #7) — a bearer token is now mandatory for any
 			// non-loopback bind. The field is retained as an inert, deprecated
@@ -262,6 +266,7 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
 			srv.SetAudit(audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl")))
+			srv.SetAuditTrustedProxies(trustedProxies)
 			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)
 			mrec, err := metrics.NewRecorder(filepath.Join(cfg.DataDir, "metrics"))
 			if err != nil {
