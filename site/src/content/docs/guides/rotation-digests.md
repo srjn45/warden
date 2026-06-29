@@ -19,6 +19,12 @@ warden handoff --retire --confirm \
 - Rotation **reuses the worktree by cwd and never removes it** (a compile-time invariant: the rotator interface omits worktree removal).
 - `--retire` is **mutually exclusive** with `--to` — retire reaps the caller, while the delegate / `--to` modes keep it running.
 
+:::tip[Want to keep the conversation, not just the task?]
+Rotate/handoff carry the **task** into a fresh agent but **drop the conversation**.
+To branch an agent's **recorded session** (its conversation/reasoning) sideways into
+a new agent while the source keeps running, use [`warden fork`](/warden/guides/backend-superpowers/#wd-fork--branch-an-agents-session-into-a-new-agent) — a Codex-only superpower.
+:::
+
 ## Completion digest (`warden digest`)
 
 Summarize what an agent accomplished — files touched, branch, number of turns, and a short narrative (best-effort, via `claude -p`). Also available as a web **Digest** panel and, in the cockpit, the `d` key (opens a scrollable digest for the selected agent).

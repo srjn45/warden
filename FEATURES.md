@@ -4,7 +4,7 @@ The authoritative inventory of **every** warden capability and where you can dri
 it. warden exposes its features across five surfaces:
 
 - **CLI** — the `warden` binary (aliased `wd`); always available.
-- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **67 tools**.
+- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **69 tools**.
 - **Skill** — the `/warden` Claude Code skill that prefers MCP, falls back to CLI.
 - **Web** — the browser mission-control GUI (`warden daemon` + the web app).
 - **TUI** — the terminal cockpit (`warden tui`).
@@ -54,6 +54,7 @@ default; each in its own tmux session, most in a git worktree).
 | Backend selection (Claude / Aider / OpenCode / Codex / Crush / Goose / Cursor / Antigravity) | `start --backend` | `spawn_agent` (`backend`) | ✓ | — | — | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — only `claude` is stable; `aider`, `opencode`, `codex`, `crush`, `goose`, `cursor`, and `antigravity` are 🧪 experimental |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
+| Fork an agent's session into a new managed agent (Codex-only; branches the conversation, source keeps running; dirty-tree carry) | `fork` | `fork_agent` | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 
 ## 2. Task types & worktrees
 
@@ -267,7 +268,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**67 tools**, including the
+Every fleet/data feature is reachable over MCP (**69 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §15 (plus interactive `attach`/`repl`, the local-config `preset` /
@@ -282,4 +283,4 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
-`create_schedule`, `delete_schedule`.
+`create_schedule`, `delete_schedule`, `fork_agent`.

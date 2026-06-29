@@ -228,6 +228,30 @@ interfaces each mode uses:
 retire mode (`warden handoff --retire` / `handoff_agent {retire:true}`) — same
 flags, same behavior.
 
+### Fork — branch an agent's session sideways (`warden fork` / `fork_agent`)
+
+`warden fork <agent> ["<prompt>"]` (shorthand for `warden start --fork-from
+<agent>`) forks an existing agent's recorded session into a **new** managed agent.
+Where handoff/rotate **carry the task but drop the conversation**, a fork
+**branches the conversation/reasoning itself**: it continues the source's session
+rollout (Codex's `codex fork`) in a divergent timeline as its own managed agent —
+a fresh sibling worktree off the source's branch HEAD, seeded with the source's
+uncommitted **tracked** changes (dirty-tree carry, default-on; untracked /
+`.gitignore`'d build artifacts are not carried), with its own tmux session warden
+monitors and tears down. **The source agent keeps running, untouched** — fork
+branches *sideways*, contrasting with `snapshot` (rewinds one timeline) and
+`rotate`/`handoff` (reap or delegate the task). The fork inherits the source's repo
++ backend; `--type` defaults to `development`.
+
+Fork is **backend-gated**: only backends implementing `agentbackend.SessionForker`
+are forkable — **Codex** today; forking a non-forking backend (e.g. Claude)
+reports a clean "cannot fork" (additive, on-top — Claude is untouched). The
+source's backend session id must already be pinned (it must have run a turn). Like
+handoff/rotate it is a **thin wrapper over the one `fork_from` spawn field — no new
+daemon endpoint** — so unlike the worktree-local `wd review` / `wd models`
+superpowers it crosses the daemon and has **MCP + CLI parity** via the `fork_agent`
+MCP tool (design step 6, #52).
+
 ---
 
 ## 8. Terminal UI (cockpit)
@@ -281,7 +305,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage
-the fleet through tool calls. **67 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **69 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:
@@ -298,6 +322,7 @@ stay CLI-only). Tools exposed:
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
 | `handoff_agent` / `rotate_agent` | Hand off work — delegate to new/`to` existing agent, or `retire`→successor in place; `rotate_agent` is an alias for `handoff_agent {retire:true}` |
+| `fork_agent` | Fork an agent's recorded session into a new managed agent (branches the conversation; Codex-only; dirty-tree carry; source keeps running) — thin wrapper over `spawn_agent` with `fork_from` set, mirroring `warden fork` |
 | `ctx_set` / `ctx_cas` / `ctx_append` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `send_message` / `read_inbox` / `wait_for_message` | Directed messaging (park/wake) |
 | `get_collaboration_status` / `who_is_editing_file` | File-conflict detection |

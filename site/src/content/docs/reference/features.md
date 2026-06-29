@@ -8,7 +8,7 @@ in the repository — the authoritative inventory of **every** warden capability
 which surface can drive it.
 
 warden exposes its features across five surfaces — the **CLI** (`warden`, aliased
-`wd`), **MCP** (67 structured tools for an orchestrating agent), the **/warden
+`wd`), **MCP** (69 structured tools for an orchestrating agent), the **/warden
 skill**, the **web** GUI, and the **TUI** cockpit.
 
 **Coverage legend:** ✓ supported · — not applicable / not present on that surface ·
@@ -42,6 +42,7 @@ default; each in its own tmux session, most in a git worktree).
 | List the backend's live model menu | `models` (`--backend`, `--json`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
+| Fork an agent's session into a new managed agent (Codex-only; branches the conversation, source keeps running; dirty-tree carry) | `fork` | `fork_agent` | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 
 ## 2. Task types & worktrees
 
@@ -254,7 +255,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**67 tools**, including the
+Every fleet/data feature is reachable over MCP (**69 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §15 (plus interactive `attach`/`repl`, the local-config `preset` /
@@ -269,4 +270,4 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
-`create_schedule`, `delete_schedule`.
+`create_schedule`, `delete_schedule`, `fork_agent`.

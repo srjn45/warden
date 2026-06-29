@@ -97,14 +97,14 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   launchd/systemd) — do not guess at state. There may be a systemd unit
   (`warden.service`); a manually-started `warden daemon` can shadow it and break
   auth, so prefer letting the service own the port.
-- **MCP tools and the CLI wrap the same daemon REST API** (67 MCP tools), so prefer
+- **MCP tools and the CLI wrap the same daemon REST API** (69 MCP tools), so prefer
   MCP and fall back to CLI only when MCP is blocked (see above). **Every fleet/data
   feature is reachable from MCP *and* CLI** — pipelines (all verbs incl.
   pause/resume/retry/edit-job/emit/delete/validate/templates), schedules
   (create/list/delete), git/check lifecycle, snapshots, ctx/msg, approvals +
   auto-approve + permission-mode, branches/collab, insights, savings, metrics,
-  search/history, audit log, worktree list/prune, plugins, export/import, and
-  rotate/handoff. The only **CLI-only** verbs are host/process/interactive/secret
+  search/history, audit log, worktree list/prune, plugins, export/import,
+  rotate/handoff, and **fork** (`fork_agent`). The only **CLI-only** verbs are host/process/interactive/secret
   ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `setup`,
   `tutorial`, `completion`, and the local-config `preset` / `prompt-template`
   authoring commands — by design (see the [feature catalog](../../FEATURES.md)).
@@ -117,7 +117,7 @@ flags, fields, and rails.
 
 | You need to… | Reference |
 |---|---|
-| spawn / triage / message / terminate agents; **handoff** work to another agent — new delegate, `--to` an existing one, or `--retire` yourself into a same-worktree successor (`rotate` is an alias); restore/adopt; model, permission-mode, presets, prompt templates, tags, search, history | [references/agents.md](references/agents.md) |
+| spawn / triage / message / terminate agents; **handoff** work to another agent — new delegate, `--to` an existing one, or `--retire` yourself into a same-worktree successor (`rotate` is an alias); **fork** an agent's session into a new one (`fork_agent`, Codex-only); restore/adopt; model, permission-mode, presets, prompt templates, tags, search, history | [references/agents.md](references/agents.md) |
 | build & run a **pipeline** — authoring the YAML, worktree modes, templates, `run_if`, pause/resume, retry, MCP vs CLI | [references/pipelines.md](references/pipelines.md) |
 | do an agent's **git** (commit/push/sync) and **checks**; **snapshot**/restore; understand the **boundary-enforcement hooks** (isolation/root/git/check guards) | [references/git-and-checks.md](references/git-and-checks.md) |
 | **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |

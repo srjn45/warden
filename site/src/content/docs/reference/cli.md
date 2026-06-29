@@ -98,6 +98,7 @@ Flags:
       --branch string            new branch (development) or checkout target (pr-review)
       --dir string               directory to launch the agent from (default: current directory)
       --force                    spawn even when the memory-pressure gate warns
+      --fork-from string         fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
   -h, --help                     help for start
       --in-repo                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
       --model string             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting)
@@ -113,6 +114,45 @@ Flags:
       --type string              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
       --worktree                 create a scratch worktree for analysis/spike
 ```
+
+## warden fork
+
+```text
+Fork an existing agent's recorded session into a NEW warden-managed agent.
+
+A fork branches the source agent's conversation/reasoning (codex's session rollout)
+into a divergent session and continues it as its own managed agent: a fresh sibling
+worktree off the source's branch HEAD, seeded with the source's uncommitted tracked
+changes (dirty-tree carry), with its own tmux session warden monitors and tears
+down. The source agent keeps running, untouched — fork branches sideways, unlike
+snapshot (rewinds one timeline) or rotate/handoff (carry the task, drop the
+conversation).
+
+This is the shorthand for `warden start --fork-from <agent>` — a managed spawn
+whose launch command is the backend's fork verb. Only backends with a native session
+fork are forkable (codex today); forking one without (e.g. claude) reports a clean
+"cannot fork". The source's backend session id must already be pinned — if it has not
+run a turn yet the fork reports that, and you retry once it has.
+
+NOTE: `git stash create` carries only TRACKED changes; the source's untracked /
+.gitignore'd build artifacts are not seeded into the fork.
+
+  warden fork agent-7                  fork agent-7, continue its conversation
+  warden fork agent-7 "now try X"      fork and seed a divergent first prompt
+
+Usage:
+  warden fork <agent> ["<prompt>"] [flags]
+
+Flags:
+      --force                    fork even when the memory-pressure gate warns
+  -h, --help                     help for fork
+      --model string             model override for the fork (default: the source/backend default)
+      --name string              optional human-friendly name for the fork
+      --permission-mode string   permission mode for the fork: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config)
+      --type string              worktree-backed task type for the fork (must isolate in its own worktree) (default "development")
+```
+
+Mirrors the `fork_agent` MCP tool (same args), so fork has **MCP + CLI parity** — unlike the worktree-local `wd review` / `wd models` superpowers it crosses the daemon (a thin wrapper over `warden start --fork-from`, no new endpoint). Implemented by **Codex** (`codex fork`); backends without a native session fork report a clean "cannot fork". See the [Backend superpowers](/warden/guides/backend-superpowers/) guide.
 
 ## warden ls
 
