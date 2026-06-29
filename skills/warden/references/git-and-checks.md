@@ -32,6 +32,30 @@ Per-entry `dir:` supports monorepos; config is the single source of truth.
 **Use this instead of `go test` / `npm test` / `make verify` in Bash.** It is the
 biggest raw-token win — you read a compact summary, not hundreds of log lines.
 
+## Backend superpowers — `review` / `models` (CLI-only)
+
+Some backends ship native extras warden surfaces as first-class verbs. Both are
+**CLI-only** — like `wd check` they exec in the agent's worktree with no daemon
+round-trip, so there is **no MCP tool**; run them through the CLI (`wd review` /
+`wd models`).
+
+- **`wd review`** — ask the agent's backend to review its OWN diff: the
+  agent-native counterpart to `wd check` (configured test/lint) and a `pr-review`
+  agent (a whole reviewer session). It runs the backend's own one-shot reviewer
+  against the worktree and streams findings. Defaults to the uncommitted working
+  tree; `--base <branch>` reviews against a base, `--prompt "<text>"` adds
+  instructions, `--backend <id>` targets a backend. `--json` emits a neutral,
+  machine-readable result `{summary, verdict, findings[]}` to stdout (backend
+  progress on stderr) — parse that when self-checking your own change before
+  `wd done`. Implemented by **Codex**; backends without a native reviewer (e.g.
+  Claude) exit non-zero pointing you back at `wd check` / a `pr-review` agent —
+  use those instead there. Review quality rides the backend's configured model.
+- **`wd models`** — list the backend's **live** model menu (vs warden's static
+  `opus`/`sonnet`/`haiku`/`fable` aliases). The printed ids feed `--model`
+  verbatim; `--json` for an array, `--backend <id>` to target a backend. Listing
+  is a metadata read (no generation), so it costs no quota. Implemented by
+  **Antigravity** and **Cursor**; static-model backends (Claude) exit non-zero.
+
 ## Snapshots — checkpoint & roll back
 
 MCP `snapshot_create` / `snapshot_list` / `snapshot_restore` (CLI `wd snapshot

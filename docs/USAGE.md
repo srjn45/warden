@@ -515,6 +515,67 @@ warden check          # run every configured check
 warden check test     # run just the "test" entry
 ```
 
+### `warden review [--base <branch>] [--prompt <text>] [--backend <id>] [--json]` (agent-native diff review)
+
+`warden review` asks the agent's **backend** to review its OWN diff — the
+agent-native counterpart to `warden check`. Where `warden check` runs the
+project's configured test/lint commands and a `pr-review` agent stands up a whole
+reviewer session, `warden review` execs the backend's own one-shot reviewer
+(**Codex**: `codex review`) in the agent's worktree and streams the findings to
+you. Like a check it runs **locally with no daemon round-trip** (so it is
+CLI-only), and the model/provider comes from the backend's own config — the
+$0-local Ollama rig and a paid setup both work unchanged.
+
+By default it reviews the uncommitted working tree (staged + unstaged +
+untracked); `--base <branch>` reviews the branch's changes against a base instead;
+`--prompt` adds extra instructions; `--backend` targets a specific backend
+(default: the current agent's).
+
+`--json` emits a machine-readable result: warden runs the backend's structured
+review (Codex: `codex exec review`), normalizes the backend's NATIVE output into a
+neutral findings shape and prints it to stdout (backend progress goes to stderr):
+
+```json
+{
+  "summary":  "overall human-readable explanation",
+  "verdict":  "the backend's overall verdict (codex: overall_correctness)",
+  "findings": [
+    { "file": "internal/x.go", "line": 42, "severity": "error", "title": "…", "message": "…" }
+  ]
+}
+```
+
+Review quality rides the backend's configured model — a tiny local model may
+report no findings; the operator's real model is where this earns its keep.
+Backends without a native reviewer (e.g. Claude) are **not offered the verb** — it
+exits non-zero pointing you at `warden check` or a `pr-review` agent.
+
+```sh
+warden review                       # review my uncommitted changes, stream findings
+warden review --base main           # review this branch against main
+warden review --json                # neutral machine-readable findings
+warden review --backend codex --json
+```
+
+### `warden models [--backend <id>] [--json]` (live backend model menu)
+
+`warden models` lists the **live, currently-available model menu** the agent's
+backend exposes — the agent-native counterpart to warden's static `opus`/`sonnet`/
+`haiku`/`fable` aliases. Backends whose model set is a runtime, multi-vendor menu
+implement it: **Antigravity** (`agy models` — Gemini/Claude/GPT-OSS variants) and
+**Cursor** (`cursor-agent --list-models`). The ids print one per line (or `--json`
+for an array) and feed `--model` verbatim. Listing is a metadata read (the
+backend's own list subcommand, not a generation request), so it spends no
+hosted-tier quota; like `warden review` it runs locally (CLI-only). Backends with
+a static model set (e.g. Claude) have no live menu and exit non-zero pointing you
+at `--model` with a known id.
+
+```sh
+warden models                       # the current agent's backend menu, one id per line
+warden models --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude Opus 4.6 (Thinking), …
+warden models --backend cursor --json
+```
+
 ### `warden adopt [--session-id <uuid>] [--dir <path>]`
 Register an existing Claude session into warden.
 

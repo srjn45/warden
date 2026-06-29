@@ -551,6 +551,71 @@ warden check [name]          Run the checks declared in .warden/check.yml and re
 
 These are also MCP tools (`commit`, `push`, `sync`, `check`). See the [Lifecycle & rails](/warden/guides/lifecycle-and-rails/) guide for the boundary-enforcement hooks that steer agents onto them.
 
+## warden review
+
+```text
+Ask this agent's backend to review its own diff — the agent-native counterpart
+to `wd check`. Where `wd check` runs the project's configured test/lint commands
+and `pr-review` stands up a whole reviewer session, `wd review` invokes the
+backend's OWN one-shot reviewer (Codex: `codex review`) against the worktree and
+streams its findings to you — additive and on-top, no review session to manage.
+
+By default it reviews the uncommitted working tree (staged + unstaged +
+untracked); pass --base <branch> to review the branch's changes against a base
+instead. The review runs locally in the agent's worktree (like a check); the
+model/provider comes from the backend's own config, so the $0-local Ollama rig
+and a paid setup both work unchanged.
+
+Pass --json for a machine-readable result: warden runs the backend's structured
+review (Codex: `codex exec review`), normalizes the backend's NATIVE review
+output into a neutral findings shape ({summary, verdict, findings[]}), and prints
+that JSON to stdout (the backend's own progress goes to stderr). Note: review
+quality rides the backend's configured model — a tiny local model may report no
+findings; the operator's real model is where this earns its keep.
+
+Backends without a native review (e.g. Claude) are not offered the verb — it
+exits non-zero pointing you at `wd check` or a `pr-review` agent.
+
+Usage:
+  warden review [flags]
+
+Flags:
+      --backend string   review for this backend id (default: the current agent's backend)
+      --base string      review changes against this base branch (default: the uncommitted working tree)
+  -h, --help             help for review
+      --json             emit machine-readable findings (neutral JSON) instead of streaming the prose review
+      --prompt string    optional extra review instructions for the backend's reviewer
+```
+
+**CLI-only by design** — like `wd check`, it execs in the agent's worktree with no daemon round-trip, so there is no MCP twin. Implemented by **Codex** (`codex review` / `codex exec review`); other backends without a native reviewer exit non-zero. See the [Backend superpowers](/warden/guides/backend-superpowers/) guide.
+
+## warden models
+
+```text
+Show the live, currently-available model menu the agent's backend exposes — the
+agent-native counterpart to warden's static model aliases. Backends whose model
+set is a runtime, multi-vendor menu (Antigravity: `agy models`, listing Gemini,
+Claude, and GPT-OSS variants) report exactly which ids they will accept on
+--model right now, so you don't have to guess from a hard-coded table.
+
+Listing is a metadata read — it runs the backend's own list subcommand, not a
+generation request — so it does not spend a hosted backend's request quota. The
+menu prints one id per line; pass --json for a JSON array instead.
+
+Backends with a static model set (e.g. Claude) have no live menu and are not
+offered the verb — it exits non-zero pointing you at `--model` with a known id.
+
+Usage:
+  warden models [flags]
+
+Flags:
+      --backend string   list models for this backend id (default: the current agent's backend)
+  -h, --help             help for models
+      --json             emit the menu as a JSON array instead of one id per line
+```
+
+**CLI-only by design** (local worktree exec, no daemon round-trip). Implemented by **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`); the ids feed `--model` verbatim. See the [Backend superpowers](/warden/guides/backend-superpowers/) guide.
+
 ## warden collab
 
 ```text
