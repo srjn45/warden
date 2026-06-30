@@ -349,3 +349,26 @@ type ContextInjector interface {
 	// clobber). An empty workdir or text is a no-op (returns nil).
 	InjectContext(workdir, text string) error
 }
+
+// SystemPromptFiler is an optional Backend extension for a flag-based backend
+// (SystemPromptInject=true) that can take its system-prompt addendum from a FILE
+// read at launch instead of as an inline literal. It is the file-backed
+// counterpart to SystemPromptFlag: same flag, but the value is a shell command
+// substitution that reads the file when the launch command runs.
+//
+// Why this exists: warden's collab/git/pipeline addendum is ~1.6 KB. Typed inline
+// after the other launch flags, the whole command exceeds the tty canonical-mode
+// line limit (MAX_CANON / MAX_INPUT = 1024 bytes on macOS/BSD; larger on Linux),
+// so the kernel silently DROPS every byte past 1024 — the command is truncated
+// mid-flag and the agent never starts. File-backing the addendum (the same
+// mechanism the prompt already uses via "$(cat …)") keeps the typed line tiny and
+// platform-independent. A backend that does not implement this falls back to the
+// inline SystemPromptFlag, so behaviour is unchanged where the file path is
+// unavailable (e.g. no hints dir configured).
+type SystemPromptFiler interface {
+	// SystemPromptFileFlag returns the launch fragment (leading space, so it
+	// concatenates onto LaunchCmd) that injects the contents of path as a
+	// system-prompt addendum, reading path when the launch command runs. ok=false
+	// means the backend cannot file-back and the caller should use SystemPromptFlag.
+	SystemPromptFileFlag(path string) (fragment string, ok bool)
+}

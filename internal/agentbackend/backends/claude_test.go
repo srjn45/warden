@@ -246,6 +246,20 @@ func TestSystemPromptFlag(t *testing.T) {
 	require.True(t, strings.HasPrefix(frag, " "), "leading space so it concatenates onto LaunchCmd")
 }
 
+// TestSystemPromptFileFlag locks the file-backed addendum form: Claude reads the
+// system-prompt text from a file at launch via "$(cat <path>)", so a large addendum
+// stays off the typed command line (the tty canonical-mode limit truncates a >1024 B
+// launch line on macOS/BSD). The path is single-quoted; outer double quotes pass the
+// file contents to Claude as one argument.
+func TestSystemPromptFileFlag(t *testing.T) {
+	filer, ok := agentbackend.Backend(Claude{}).(agentbackend.SystemPromptFiler)
+	require.True(t, ok, "Claude must implement SystemPromptFiler")
+	frag, ok := filer.SystemPromptFileFlag("/state/hints/agent-1")
+	require.True(t, ok)
+	require.Equal(t, ` --append-system-prompt "$(cat '/state/hints/agent-1')"`, frag)
+	require.True(t, strings.HasPrefix(frag, " "), "leading space so it concatenates onto LaunchCmd")
+}
+
 // TestClaudeNotContextInjector regression-locks the InjectContext seam: Claude
 // delivers its addendum via the launch-time --append-system-prompt flag and must NOT
 // implement agentbackend.ContextInjector, so the AGENTS.md injection path never runs

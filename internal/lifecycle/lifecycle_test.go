@@ -176,6 +176,40 @@ func TestSpawnTypedSeedsPromptArg(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
+// When a HintsDir is configured, the collab/git/pipeline addendum is written to a
+// per-agent file and the launch line references it via a single
+// --append-system-prompt "$(cat <file>)" — instead of inlining ~1.6 KB of text.
+// This keeps the typed command well under the tty canonical-mode line limit
+// (1024 B on macOS/BSD) that would otherwise truncate it so the agent never starts.
+func TestSpawnFileBacksSystemPromptHints(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.HintsDir = "/state/hints"
+	s, err := lc.Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
+	})
+	require.NoError(t, err)
+
+	// The three enabled hints are joined (blank line between) and written to the
+	// per-agent hints file, 0600 via umask 077, through the runner.
+	hintFile := "/state/hints/" + s.ID
+	wantText := pipelineHintGuidance + "\n\n" + collabHintGuidance + "\n\n" + gitConventionsGuidance
+	require.Contains(t, fr.calledArgs(),
+		[]string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", wantText, hintFile})
+
+	// The launch line carries ONE file-backed flag, not the inline guidance text.
+	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") +
+		` --append-system-prompt "$(cat ` + shellQuoteArg(hintFile) + `)"`
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+
+	// Regression guard: the typed launch line must stay well under the 1024-byte
+	// macOS/BSD canonical-mode limit (the inline form was ~1126 B and truncated).
+	require.Less(t, len(launch), 1024, "file-backed launch line must fit the tty line limit")
+	require.NotContains(t, launch, collabHintGuidance, "guidance text must not be inlined on the command line")
+}
+
 func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
 	// new-session fails AFTER we created the worktree → the worktree we created
 	// must be force-removed so a failed spawn doesn't leak it.

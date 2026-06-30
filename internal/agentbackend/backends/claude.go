@@ -357,6 +357,16 @@ func (Claude) SystemPromptFlag(text string) (string, bool) {
 	return " --append-system-prompt " + shellQuoteArg(text), true
 }
 
+// SystemPromptFileFlag returns the same --append-system-prompt flag, but with the
+// value read from path at launch via a "$(cat …)" command substitution. This keeps
+// a large addendum off the typed command line (see SystemPromptFiler: a >1024-byte
+// launch line is truncated by the tty canonical-mode buffer on macOS/BSD, so the
+// agent never starts). The path is single-quoted for the shell; the surrounding
+// double quotes pass the file's contents to Claude as one argument.
+func (Claude) SystemPromptFileFlag(path string) (string, bool) {
+	return ` --append-system-prompt "$(cat ` + shellQuoteArg(path) + `)"`, true
+}
+
 // Pricing returns Claude's per-model rates, delegating to internal/spend so the
 // spend report and this table can never disagree.
 func (Claude) Pricing() (agentbackend.PricingTable, bool) {
