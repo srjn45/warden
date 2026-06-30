@@ -94,7 +94,7 @@ Usage:
 
 Flags:
       --auto-restart             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --backend string           agent backend to drive: claude|aider|opencode|codex|crush|goose. Only claude is fully tested and stable; all others are 🧪 experimental / work-in-progress. aider & opencode are bring-your-own-model (pass --model); codex uses BYO provider config; crush is config-driven TUI (no initial prompt at launch); goose uses GOOSE_PROVIDER/GOOSE_MODEL env. All non-claude backends show tokens-only spend. See docs: concepts/agent-backends
+      --backend string           agent backend to drive: claude|aider|opencode|codex|crush|goose|cursor|antigravity. Only claude is fully tested and stable; all others are 🧪 experimental / work-in-progress. aider & opencode are bring-your-own-model (pass --model); codex uses BYO provider config; crush is config-driven TUI (no initial prompt at launch); goose uses GOOSE_PROVIDER/GOOSE_MODEL env; cursor uses hosted model catalog (pass --model to override, cursor-agent --list-models / wd models), resumes dir-scoped (--continue); antigravity (agy) defaults gemini-3.5-flash (pass --model, agy models / wd models), resumes dir-scoped (agy -c). All non-claude backends show tokens-only spend. See docs: concepts/agent-backends
       --branch string            new branch (development) or checkout target (pr-review)
       --dir string               directory to launch the agent from (default: current directory)
       --force                    spawn even when the memory-pressure gate warns
