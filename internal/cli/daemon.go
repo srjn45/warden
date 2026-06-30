@@ -141,6 +141,11 @@ func newDaemonCmd() *cobra.Command {
 			// file goes in this single shared dir (keyed by agent id), not a
 			// per-agent directory.
 			lc.PromptsDir = filepath.Join(cfg.DataDir, "prompts")
+			// A flag-based backend's collab/git/pipeline addendum is written here
+			// (keyed by agent id) and referenced via --append-system-prompt "$(cat …)"
+			// so the launch line stays short — a long inline addendum overruns the tty
+			// canonical-mode line limit (1024 B on macOS/BSD) and the agent won't start.
+			lc.HintsDir = filepath.Join(cfg.DataDir, "hints")
 			lc.ExitsDir = filepath.Join(cfg.DataDir, "exits")
 			lc.SettingsDir = filepath.Join(cfg.DataDir, "settings")
 			// The isolation-guard PreToolUse hook is the warden binary itself

@@ -109,6 +109,54 @@ func systemPromptHint(b agentbackend.Backend, enabled bool, guidance string) str
 	return frag
 }
 
+// hintSpec pairs one config-gated guidance string with whether it is enabled, so
+// systemPromptHints can assemble the launch addendum from a variable set of hints.
+type hintSpec struct {
+	enabled bool
+	text    string
+}
+
+// systemPromptHints returns the launch fragment that injects the enabled guidance
+// in specs as a system-prompt addendum for backend b, file-backing the text when
+// possible. The enabled guidance is concatenated (blank line between) and, when the
+// backend implements SystemPromptFiler AND a HintsDir is configured, written to a
+// per-agent file referenced via a single --append-system-prompt "$(cat <file>)" —
+// keeping the typed launch line short so it never exceeds the tty canonical-mode
+// limit (1024 bytes on macOS/BSD) that would otherwise truncate it and stop the
+// agent from starting. When file-backing is unavailable (no HintsDir, a non-filer
+// backend, or a write failure) it falls back to the historical inline form: one
+// SystemPromptFlag fragment per enabled hint, byte-identical to the prior behavior.
+// A backend that cannot inject a system prompt (SystemPromptFlag ok=false, e.g.
+// Aider) contributes nothing either way.
+func (l *Lifecycle) systemPromptHints(ctx context.Context, b agentbackend.Backend, id string, specs ...hintSpec) string {
+	var texts []string
+	for _, s := range specs {
+		if s.enabled && s.text != "" {
+			texts = append(texts, s.text)
+		}
+	}
+	if len(texts) == 0 {
+		return ""
+	}
+	if filer, ok := b.(agentbackend.SystemPromptFiler); ok && l.HintsDir != "" {
+		path, err := l.writeHintsFile(ctx, id, strings.Join(texts, "\n\n"))
+		if err != nil {
+			slog.Warn("spawn: write hints file failed; falling back to inline addendum", "agent", id, "err", err)
+		} else if frag, ok := filer.SystemPromptFileFlag(path); ok {
+			return frag
+		}
+	}
+	// Inline fallback: reproduce the pre-file-backing launch byte-for-byte (one
+	// --append-system-prompt per enabled hint, in order).
+	var sb strings.Builder
+	for _, t := range texts {
+		if frag, ok := b.SystemPromptFlag(t); ok {
+			sb.WriteString(frag)
+		}
+	}
+	return sb.String()
+}
+
 // hintGuidance returns guidance when enabled, else "" — the raw-text counterpart to
 // systemPromptHint, used to assemble a ContextInjector backend's rules file. Where
 // SystemPromptFlag shapes guidance into a launch-line fragment, the injection path
@@ -445,6 +493,15 @@ type Lifecycle struct {
 	// dir the agent runs in — agents launch in the caller's cwd. Interactive
 	// (empty-prompt) agents write no file. Overridable in tests.
 	PromptsDir string
+	// HintsDir is a shared dir (the daemon sets it, e.g. ~/.warden/hints) where a
+	// flag-based backend's system-prompt addendum (collab/git/pipeline guidance) is
+	// written, keyed by agent id, so the launch line references it via
+	// --append-system-prompt "$(cat <file>)" instead of carrying ~1.6 KB of inline
+	// text. That inline text would push the typed command past the tty canonical-mode
+	// line limit (1024 bytes on macOS/BSD), truncating it so the agent never starts.
+	// Empty (tests / older configs) disables file-backing — the addendum then rides
+	// the launch line inline exactly as before. Never the dir the agent runs in.
+	HintsDir string
 	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
 	// each agent's shell records claude's exit status, keyed by agent id. Empty
 	// (tests) disables exit capture — agents then fall back to orphaned-only
@@ -1167,9 +1224,12 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	); err != nil {
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
+	hints := l.systemPromptHints(ctx, b, sess.ID,
+		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
+		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
-	}) + l.pipelineHint(b) + l.collabHint(b) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
+	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
 		l.cleanupFailedSpawn(sess, true, false)
@@ -1260,7 +1320,11 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, err
 	}
-	launch := base + l.pipelineHint(b) + l.collabHint(b) + l.gitConventionsHint(b) + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
+	hints := l.systemPromptHints(ctx, b, sess.ID,
+		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
+		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
+		hintSpec{l.cfg.GetGitConventions(), gitConventionsGuidance})
+	launch := base + hints + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
@@ -1907,6 +1971,25 @@ func (l *Lifecycle) writePromptFile(ctx context.Context, id, prompt string) (str
 	return path, nil
 }
 
+// writeHintsFile persists the assembled system-prompt addendum to <HintsDir>/<id>
+// and returns the path, so the launch line can reference it via
+// --append-system-prompt "$(cat <file>)" rather than inlining ~1.6 KB of text (see
+// HintsDir / systemPromptHints). It mirrors writePromptFile: the file is created
+// 0600 (umask 077) and the write goes through the runner so tests fake it.
+func (l *Lifecycle) writeHintsFile(ctx context.Context, id, text string) (string, error) {
+	if l.HintsDir == "" {
+		return "", fmt.Errorf("hints dir not configured")
+	}
+	if out, err := l.run.Run(ctx, "", "mkdir", "-m", "700", "-p", l.HintsDir); err != nil {
+		return "", fmt.Errorf("mkdir hints dir: %w: %s", err, out)
+	}
+	path := filepath.Join(l.HintsDir, id)
+	if out, err := l.run.Run(ctx, "", "sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", text, path); err != nil {
+		return "", fmt.Errorf("write hints file: %w: %s", err, out)
+	}
+	return path, nil
+}
+
 // SpawnJob launches one pipeline-job agent: optionally creating a git worktree
 // (off HEAD or off BaseBranch), starting a tmux session with the pipeline
 // identity env, and auto-typing the composed prompt into claude.
@@ -1978,9 +2061,11 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	); err != nil {
 		slog.Warn("spawn job: context injection failed", "agent", id, "backend", b.ID(), "err", err)
 	}
+	hints := l.systemPromptHints(ctx, b, id,
+		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
-	}) + l.collabHint(b) + l.promptArg(b, promptFile) + l.exitSuffix(id)
+	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
