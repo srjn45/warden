@@ -261,6 +261,13 @@ memory system. Build only if the commingling is actually felt.
 source decision, the curation/freshness model, and the per-backend projection +
 cost budget before writing code.
 
+> **Design spec (2026-06-30, #52 now complete):** see
+> [`docs/superpowers/specs/2026-06-30-project-memory-design.md`](superpowers/specs/2026-06-30-project-memory-design.md)
+> — resolves the three open questions (canonical source = warden-owned committed
+> `.warden/memory.md`; debounced verify-before-trust curation; per-backend projection
+> table) and finds the projection **rides the existing #52 seam — no new `Backend`
+> interface**.
+
 ---
 
 ## 📊 Priority Matrix (reassessed 2026-06-26)
