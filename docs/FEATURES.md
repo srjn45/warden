@@ -366,6 +366,7 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 | Feature | Description |
 |---|---|
 | **Resource metrics** | `internal/metrics` collects per-agent process-tree RSS/CPU, system memory/swap/pressure, and daemon self-stats. Exposed via `GET /api/v1/metrics` + `GET /api/v1/metrics/history`. |
+| **Memory-pressure spawn gate** | `internal/pressure` reads macOS `kern.memorystatus_vm_pressure_level` (sampled every 5s) and decides each spawn. A spawn is **blocked** (`428` + confirmation payload, re-run with `--force`) only at **critical** pressure or when live agents reach `worktree.spawn_gate_max_agents`. **Warn** pressure is **advisory** — the spawn proceeds and the daemon logs it — because warn is a common, recoverable state and hard-gating there just trained reflexive `--force`. The `GET /api/v1/pressure` gauge reports the level (UI colours warn amber, critical red) and whether spawns are currently blocked. Master switch `worktree.spawn_gate`. |
 | **`warden stats`** | CLI view of the resource metrics. |
 | **Metrics recorder** | Optional 15s JSONL recorder (the `metrics` setting). |
 | **Agent performance history** | The recorder's samples roll up per agent into runtime, peak/latest/trend RSS, avg/peak CPU, context-token trend, and changed-file count, plus conservative anomaly warnings (climbing memory, climbing/critical context, pinned CPU). Surfaced via `warden stats --history [--agent ID]` and `GET /api/v1/metrics/history?summary=true[&agent=ID]`. |
@@ -405,7 +406,7 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `tokens.warn` | `200000` | Warning threshold in context tokens (resets with critical if critical ≤ warn) |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
 | `allow_nonloopback` | `false` | **Deprecated / inert** — no longer bypasses auth; a token is mandatory for any non-loopback bind |
-| `worktree.spawn_gate` / `worktree.spawn_gate_max_agents` | `true` / `5` | Soft warning before spawning when many agents are live |
+| `worktree.spawn_gate` / `worktree.spawn_gate_max_agents` | `true` / `5` | Soft spawn gate. Blocks (428, needs `--force`) only at **critical** OS memory pressure or when live agents reach the cap; **warn**-level pressure is **advisory** (spawns proceed, logged). A `0` cap disables the count trigger (pressure-only gating). |
 | `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd` | `false` / `0` / `0` | Soft warning before spawning when measured model spend has reached a $ cap (see §30) |
 | `metrics` | `true` | Record per-agent metrics to disk |
 | `pipeline_keep_done` / `pipeline_hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |

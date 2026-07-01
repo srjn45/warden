@@ -52,7 +52,7 @@ Common settings (run `warden config` for the complete, live list):
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |
 | `local_llm.enabled` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
 | `metrics` | `true` | Record per-agent performance history for `warden stats --history` |
-| `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate and a hard cap on concurrent agents (0 = no cap) |
+| `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
 | `pipeline_keep_done` / `pipeline_hint` | — | Pipeline retention + the decomposition nudge |
 | `savings` | `true` | Record the token-savings ledger (`warden savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden savings --audit` (may hold sensitive output) |
