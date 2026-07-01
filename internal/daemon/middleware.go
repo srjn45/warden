@@ -142,9 +142,22 @@ const (
 	// maxBodyBytes caps a request body (JSON POSTs); GETs and the WS upgrade
 	// read no body, so this is a no-op for them.
 	maxBodyBytes int64 = 1 << 20
-	// writeTimeoutDur bounds non-streaming handler execution. Streaming routes
-	// (SSE, WS attach, message long-poll) are exempt — see isStreamingPath.
+	// writeTimeoutDur bounds fast (data/action) handler execution. Streaming
+	// routes (SSE, WS attach, message long-poll) are exempt — see
+	// isStreamingPath — and slow lifecycle routes get slowWriteTimeoutDur.
 	writeTimeoutDur = 30 * time.Second
+	// slowWriteTimeoutDur bounds the handful of lifecycle/action routes that do
+	// real work: git worktree checkout on spawn (materializes a whole tree — for
+	// a large monorepo this alone can run for minutes), push/sync, running the
+	// project's tests, pipeline reconciliation. These legitimately exceed the 30s
+	// fast-path budget — the CLI client already allots them a 5-minute deadline
+	// (client.longTimeout) — so the daemon must not cut them at 30s. Before this
+	// existed, the global 30s guard returned a 503 ("request timed out") and, for
+	// spawn, SIGKILLed git mid-checkout (cancelled request context), leaking a
+	// half-built worktree. Set ABOVE the client deadline so the client's own
+	// timeout is the effective cap and this is only a backstop against a
+	// genuinely wedged handler.
+	slowWriteTimeoutDur = 10 * time.Minute
 )
 
 // isStreamingPath reports whether a request targets a long-lived endpoint that
@@ -157,6 +170,40 @@ func isStreamingPath(r *http.Request) bool {
 		strings.HasSuffix(p, "/messages/wait")
 }
 
+// isSlowPath reports whether a request targets a lifecycle/action route that
+// does real, possibly-minutes-long work (git, network, running tests, pipeline
+// reconciliation) and so must run under slowWriteTimeoutDur rather than the 30s
+// fast-path budget. This set mirrors the routes the CLI client budgets
+// longTimeout (5min) for (internal/client.longTimeout call sites) — keep the two
+// in sync. Matching is by path suffix and deliberately generous: over-matching a
+// route that is actually fast is harmless (it finishes well inside either
+// budget), whereas under-matching a genuinely slow route reintroduces the 503
+// regression. Streaming paths are handled first in writeTimeout, so the
+// "/events/stream" SSE feed never reaches here (only the fast "/events" hook
+// ingestion, which is intentionally NOT slow).
+func isSlowPath(r *http.Request) bool {
+	p := r.URL.Path
+	switch {
+	case strings.HasSuffix(p, "/spawn"),
+		strings.HasSuffix(p, "/adopt"),
+		strings.HasSuffix(p, "/check"),
+		strings.HasSuffix(p, "/prune"),
+		strings.HasSuffix(p, "/git/push"),
+		strings.HasSuffix(p, "/git/sync"),
+		strings.HasSuffix(p, "/remove-worktree"),
+		strings.HasSuffix(p, "/create-pr"),
+		strings.HasSuffix(p, "/digest"),
+		strings.HasSuffix(p, "/snapshots"),
+		strings.HasSuffix(p, "/restore"),
+		strings.HasSuffix(p, "/start"),
+		strings.HasSuffix(p, "/resume"),
+		strings.HasSuffix(p, "/emit"),
+		strings.HasSuffix(p, "/retry"):
+		return true
+	}
+	return false
+}
+
 // maxBytes returns middleware that caps each request body at n bytes.
 func maxBytes(n int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -167,17 +214,23 @@ func maxBytes(n int64) func(http.Handler) http.Handler {
 	}
 }
 
-// writeTimeout returns middleware that bounds handler execution at d, except for
-// streaming paths (which would break under http.TimeoutHandler's buffering).
-func writeTimeout(d time.Duration) func(http.Handler) http.Handler {
+// writeTimeout returns middleware that bounds handler execution, using the fast
+// budget for ordinary data/action routes and the slow budget for lifecycle
+// routes that do real work (isSlowPath). Streaming paths are exempt entirely —
+// http.TimeoutHandler buffers the response, breaking Flush/Hijack.
+func writeTimeout(fast, slow time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		timed := http.TimeoutHandler(next, d, `{"error":"request timed out"}`)
+		fastH := http.TimeoutHandler(next, fast, `{"error":"request timed out"}`)
+		slowH := http.TimeoutHandler(next, slow, `{"error":"request timed out"}`)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isStreamingPath(r) {
+			switch {
+			case isStreamingPath(r):
 				next.ServeHTTP(w, r)
-				return
+			case isSlowPath(r):
+				slowH.ServeHTTP(w, r)
+			default:
+				fastH.ServeHTTP(w, r)
 			}
-			timed.ServeHTTP(w, r)
 		})
 	}
 }

@@ -41,6 +41,10 @@ warden setup --yes      # non-interactive: install all missing deps
 | `SUBJECT` stays empty | Poller hasn't refreshed yet (it's throttled and only runs when pane content changes), or `CLAUDE_PROJECTS_DIR` is wrong. |
 | `pr-review needs --pr or --branch` | pr-review requires one of those flags. |
 | `remove-worktree` refuses | The agent is still running (terminate it first) or the worktree has uncommitted/unpushed work — the guard is protecting it. Commit/push, or use `--force`. (`done` no longer touches the worktree.) |
+| Spawn fails with `daemon error (503): request timed out` | In a very large monorepo `git worktree add` (a full working-tree checkout) can take minutes. Spawn (and push/sync/check/prune/…) now get a 10-minute daemon budget instead of 30s. If a spawn is still cut, a partial worktree is now cleaned up automatically. Ensure your daemon is up to date (rebuild + restart). |
+| `stop`/`terminate`/`delete` says `session not found` for an agent `ls` shows | Fixed: these now resolve by the same **name or id** `ls` displays (previously only the id/ticket worked). Rebuild + restart the daemon if it predates this fix. |
+| `warden prune` wants to remove a worktree with real work | Fixed: an orphan worktree carrying unmerged commits (ahead of the default branch) is now held back unless `--force`, alongside the existing dirty/unpushed guard. |
+| `wd doctor` never flags a bad `local_llm.model` | Fixed: doctor now FAILS when the configured local model isn't installed in ollama (run `ollama pull <model>` or fix `local_llm.model`); the daemon also logs a loud error at startup. |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json`. The poller still updates it, just less promptly. |
 | Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |
 

@@ -34,7 +34,7 @@ Available Commands:
   daemon              Run the warden hub (HTTP API + poller; the single writer to the file store)
   delete              Clear an agent's stored record (archives by default; --hard to purge)
   digest              Summarize what an agent accomplished (files, branch, turns, narrative)
-  doctor              Run preflight checks (required binaries, daemon, data dir)
+  doctor              Run preflight checks (required binaries, daemon, data dir, configured local model)
   done                Terminate an agent and clear its record (does NOT remove the worktree)
   export              Serialize agent session metadata to JSON on stdout
   force-compact       Override force-compact for one agent (interrupt → /compact → resume)

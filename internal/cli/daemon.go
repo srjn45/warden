@@ -158,8 +158,23 @@ func newDaemonCmd() *cobra.Command {
 			// operator opts in, so the default build never reaches out to Ollama.
 			// Classify routes through it first and falls back to Claude on any error.
 			if cfg.LocalLLM.Enabled {
-				lc.LLM = llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, cfg.LocalLLMTimeoutDuration())
+				o := llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, cfg.LocalLLMTimeoutDuration())
+				lc.LLM = o
 				slog.Info("local LLM enabled", "url", cfg.LocalLLM.URL, "model", cfg.LocalLLM.Model)
+				// Validate the configured model is actually pulled: if it isn't, every
+				// classify/summarize call 404s and silently escalates to a full Claude
+				// process (a steady poller-driven load spike). Log a loud, actionable
+				// ERROR at startup so the operator fixes it (pull the model or change
+				// local_llm.model) — `wd doctor` also flags this. Best-effort: an
+				// unreachable ollama here is not fatal (the model may still be pulled).
+				vctx, vcancel := context.WithTimeout(context.Background(), 3*time.Second)
+				if installed, err := o.InstalledModels(vctx); err != nil {
+					slog.Warn("local LLM: could not verify configured model is installed", "model", cfg.LocalLLM.Model, "err", err)
+				} else if !llm.ModelInstalled(cfg.LocalLLM.Model, installed) {
+					slog.Error("local LLM: configured model is NOT installed in ollama — every classify/summarize will fall back to a full Claude process; run `ollama pull <model>` or fix local_llm.model",
+						"model", cfg.LocalLLM.Model, "installed", installed)
+				}
+				vcancel()
 			}
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)

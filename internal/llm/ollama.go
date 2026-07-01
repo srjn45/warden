@@ -46,6 +46,71 @@ func NewOllama(url, model string, timeout time.Duration) *Ollama {
 	return &Ollama{url: url, model: model, http: &http.Client{Timeout: timeout}}
 }
 
+// ollamaTagsResponse is the shape of GET /api/tags: the locally-pulled models.
+type ollamaTagsResponse struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
+}
+
+// InstalledModels returns the names of the models pulled into the local Ollama
+// server (GET /api/tags), e.g. ["qwen3.5:2b", "qwen2.5-coder:7b"]. It exists so
+// warden can verify that a configured local_llm.model is actually present before
+// relying on it — otherwise every classify/summarize call 404s and silently
+// escalates to a full Claude process. Transport/status/decode failures return an
+// error so the caller degrades (treats the model set as unknown, not empty).
+func (o *Ollama) InstalledModels(ctx context.Context) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.url+"/api/tags", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := o.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama tags: %w", err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	if err != nil {
+		return nil, fmt.Errorf("ollama tags read: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ollama tags: status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	var out ollamaTagsResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("ollama tags decode: %w", err)
+	}
+	names := make([]string, 0, len(out.Models))
+	for _, m := range out.Models {
+		names = append(names, m.Name)
+	}
+	return names, nil
+}
+
+// ModelInstalled reports whether the configured model name is among installed.
+// Ollama defaults an untagged reference to the ":latest" tag, so an untagged
+// config (e.g. "llama3") matches an installed "llama3:latest" and vice versa. An
+// empty configured name is never considered installed.
+func ModelInstalled(configured string, installed []string) bool {
+	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		return false
+	}
+	norm := func(s string) string {
+		if !strings.Contains(s, ":") {
+			return s + ":latest"
+		}
+		return s
+	}
+	want := norm(configured)
+	for _, m := range installed {
+		if norm(strings.TrimSpace(m)) == want {
+			return true
+		}
+	}
+	return false
+}
+
 type ollamaRequest struct {
 	Model  string `json:"model"`
 	Prompt string `json:"prompt"`

@@ -388,7 +388,9 @@ so existing stores are unaffected). Capabilities differ per backend and warden
 
 All commands accept `--addr` to point at a non-default daemon (overrides
 the `addr` config setting). `<TICKET>` is the agent ID — a Jira key for managed agents,
-or an `agent-xxxx` ID for prompt-spawned ones.
+or an `agent-xxxx` ID for prompt-spawned ones. Agent-addressed commands
+(`stop`/`terminate`/`delete`/`remove-worktree`/`done`/`restore`/`send`/`digest`/`create-pr`)
+resolve by **either** the agent's `name` **or** its id — the same identifiers `warden ls` shows.
 
 ### `warden` / `warden tui`
 Open the tmux-composited cockpit (see §7). Bare `warden` with no

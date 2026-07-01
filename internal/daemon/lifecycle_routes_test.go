@@ -417,6 +417,35 @@ func TestHandleTerminate(t *testing.T) {
 	require.Equal(t, store.StatusDone, got.Status, "terminate marks the record done")
 }
 
+func TestHandleTerminateResolvesByName(t *testing.T) {
+	// `warden stop/terminate <name>` must resolve the same name `ls` shows, not
+	// only the agent id/ticket. Terminate an agent addressed by its name.
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "cs-pba", Status: store.StatusWorking})
+	fl := &fakeLife{}
+	srv := lifeServer(t, fs, fl)
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/cs-pba/terminate", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "A-1", fl.terminated, "terminate by name must kill the resolved agent's tmux session")
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Equal(t, store.StatusDone, got.Status, "the resolved record must be marked done")
+}
+
+func TestHandleRemoveWorktreeResolvesByName(t *testing.T) {
+	// remove-worktree by name must resolve + clear the resolved record's worktree.
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "cs-pba", Worktree: ".worktrees/A-1", Status: store.StatusDone})
+	srv := lifeServer(t, fs, &fakeLife{})
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/cs-pba/remove-worktree", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Equal(t, "", got.Worktree, "the resolved record's worktree must be cleared")
+}
+
 func TestHandleDeleteArchivesByDefault(t *testing.T) {
 	fs := newFakeStore()
 	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})

@@ -59,14 +59,19 @@ func (e *ErrConfirmationRequired) Error() string {
 }
 
 // Per-operation default deadlines, applied only when the caller's context has
-// no deadline of its own. Reads are quick; spawn/adopt/remove-worktree run
-// synchronously on the daemon (git worktree add, transcript scan) and can take
-// far longer than a read — a single blanket client timeout would abort a
-// slow-but-successful spawn while the daemon kept working, orphaning sessions.
+// no deadline of its own. Reads are quick; spawn/adopt/remove-worktree/check run
+// synchronously on the daemon (git worktree add, running the test suite,
+// transcript scan) and can take far longer than a read — a single blanket client
+// timeout would abort a slow-but-successful spawn while the daemon kept working,
+// orphaning sessions. longTimeout is kept ABOVE the daemon's slow-route write
+// budget (daemon.slowWriteTimeoutDur, 10m) so the daemon stays authoritative: it
+// returns success or its own clean (cleanup-aware) timeout before the client
+// gives up. In a very large monorepo even a single `git worktree add` (a full
+// working-tree checkout) can run for minutes, so this is deliberately generous.
 // Vars (not consts) so tests can shrink them.
 var (
 	defaultTimeout = 30 * time.Second
-	longTimeout    = 5 * time.Minute
+	longTimeout    = 12 * time.Minute
 )
 
 type Client struct {

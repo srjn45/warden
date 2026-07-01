@@ -86,6 +86,41 @@ func TestPruneClassifiesOwnership(t *testing.T) {
 	require.NotContains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", ".worktrees/live-1"})
 }
 
+// A clean, pushed orphan whose branch still carries commits ahead of the repo's
+// default branch is HELD BACK (not removed) without --force: it is real committed
+// work the operator has not merged, which prune must never silently delete.
+func TestPruneHoldsBackOrphanWithCommittedWork(t *testing.T) {
+	porcelain := mainEntry() + wtEntry("work-1", "work-1")
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: porcelain},
+		// guard: clean tree, and pushed (no unpushed commits, no error).
+		"git -C /repo/.worktrees/work-1 status --porcelain":   {Out: ""},
+		"git -C /repo/.worktrees/work-1 log @{u}.. --oneline": {Out: ""},
+		// but the branch has 3 commits ahead of the default branch.
+		"git -C /repo/.worktrees/work-1 rev-list --count main..HEAD": {Out: "3\n"},
+	}}
+	res, err := New(fr, &FakeConfig{}).PruneWorktrees(context.Background(), "/repo", PruneOpts{})
+	require.NoError(t, err)
+	by := pruneByPath(res)
+	require.Equal(t, PruneSkip, by[".worktrees/work-1"].Action, "an orphan with unmerged commits must be held back")
+	require.NotContains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "remove", ".worktrees/work-1"},
+		"prune must not remove an orphan carrying committed work")
+}
+
+// --force overrides the committed-work hold-back, so an operator can still
+// reclaim an orphan with commits deliberately.
+func TestPruneForceRemovesOrphanWithCommittedWork(t *testing.T) {
+	porcelain := mainEntry() + wtEntry("work-1", "work-1")
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain":                              {Out: porcelain},
+		"git -C /repo/.worktrees/work-1 rev-list --count main..HEAD": {Out: "3\n"},
+	}}
+	res, err := New(fr, &FakeConfig{}).PruneWorktrees(context.Background(), "/repo", PruneOpts{Force: true})
+	require.NoError(t, err)
+	by := pruneByPath(res)
+	require.Equal(t, PruneRemove, by[".worktrees/work-1"].Action, "--force reclaims even an orphan with commits")
+}
+
 // --include-archived makes an archived-owned worktree eligible; its branch is
 // deleted by recorded provenance (BranchCreated), not the orphan name rule.
 func TestPruneIncludeArchivedReclaims(t *testing.T) {

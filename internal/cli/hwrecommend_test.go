@@ -98,6 +98,40 @@ func TestLocalLLMAdvice(t *testing.T) {
 	require.Contains(t, undetected.detail, "qwen2.5-coder:1.5b")
 }
 
+func TestCheckLocalModelInstalled(t *testing.T) {
+	installed := func(models []string, err error) func() ([]string, error) {
+		return func() ([]string, error) { return models, err }
+	}
+
+	// disabled → not-applicable, never a failure.
+	off := checkLocalModelInstalled(config.Config{LocalLLM: config.LocalLLMConfig{Enabled: false}}, installed(nil, nil))
+	require.True(t, off.ok)
+	require.False(t, off.required)
+
+	// enabled + configured model IS installed → ok.
+	present := checkLocalModelInstalled(
+		config.Config{LocalLLM: config.LocalLLMConfig{Enabled: true, Model: "qwen3.5:2b"}},
+		installed([]string{"qwen3.5:2b"}, nil))
+	require.True(t, present.ok)
+	require.Contains(t, present.detail, "qwen3.5:2b")
+
+	// enabled + configured model NOT installed → a REQUIRED failure (the report's ask).
+	missing := checkLocalModelInstalled(
+		config.Config{LocalLLM: config.LocalLLMConfig{Enabled: true, Model: "qwen3:14b"}},
+		installed([]string{"qwen3.5:2b"}, nil))
+	require.False(t, missing.ok)
+	require.True(t, missing.required, "a configured-but-missing model must fail doctor")
+	require.Contains(t, missing.detail, "qwen3:14b")
+	require.Contains(t, missing.detail, "ollama pull")
+
+	// ollama unreachable → warn (can't verify), not a hard failure.
+	unreachable := checkLocalModelInstalled(
+		config.Config{LocalLLM: config.LocalLLMConfig{Enabled: true, Model: "qwen3:14b"}},
+		installed(nil, errors.New("connection refused")))
+	require.False(t, unreachable.ok)
+	require.False(t, unreachable.required, "if ollama can't be reached we can't verify — warn, don't fail")
+}
+
 func TestFormatReportIncludesAdvisory(t *testing.T) {
 	// An advisory checkResult prints as informational and never flips the verdict.
 	results := []checkResult{
