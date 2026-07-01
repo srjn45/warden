@@ -59,8 +59,14 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	gateOn := s.spawnGate
 	s.pressMu.RUnlock()
 	if gateOn && !sr.Force {
-		if v := s.spawnVerdict(ctx); v.Elevated {
+		v := s.spawnVerdict(ctx)
+		if v.Elevated {
 			return oapi.SpawnAgent428JSONResponse{ConfirmationRequired: true, Verdict: v}, nil
+		}
+		if v.Advisory {
+			// Warn-level pressure no longer blocks (see pressure.Evaluate); we
+			// spawn but leave a breadcrumb so the state is visible in daemon logs.
+			slog.Warn("spawning under memory pressure", "reason", v.Reason)
 		}
 	}
 	// Budget (cost) gate: a soft gate on measured Claude spend, sibling to the

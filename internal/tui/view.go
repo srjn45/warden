@@ -4,16 +4,19 @@ import (
 	"fmt"
 
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/pressure"
 )
 
 // pressureChip renders the header memory-pressure gauge. Empty until the first
-// sample arrives (Level 0 = no sample yet); amber when elevated, grey otherwise.
+// sample arrives (Level 0 = no sample yet). Coloured by level, not by Elevated:
+// warn (advisory) and above show amber, normal is grey — Elevated now means only
+// "blocking a spawn" (critical/count), so warn would otherwise look normal here.
 func pressureChip(p client.PressureStatus) string {
 	if p.Level == 0 {
 		return ""
 	}
 	style := stIdle
-	if p.Elevated {
+	if p.Level >= int(pressure.Warn) {
 		style = stAttention
 	}
 	return style.Render(fmt.Sprintf("pressure: %s · %d/%d", p.LevelName, p.AgentCount, p.MaxAgents))

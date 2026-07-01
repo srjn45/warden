@@ -49,6 +49,21 @@ func TestHandleSpawnGateWarns(t *testing.T) {
 	}
 }
 
+// TestHandleSpawnGateWarnProceeds guards the advisory semantics: warn-level
+// pressure (with the count trigger disabled) must NOT block a non-forced spawn —
+// it is advisory, so the spawn proceeds with 201.
+func TestHandleSpawnGateWarnProceeds(t *testing.T) {
+	fs := newFakeStore()
+	// spawnGateMax=0 disables the count co-trigger, isolating the pressure path.
+	s := &Server{store: fs, life: &fakeLife{}, spawnGate: true, spawnGateMax: 0, pressLevel: pressure.Warn}
+
+	resp := postSpawn(t, s, SpawnRequest{Prompt: "do x", Cwd: t.TempDir()})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("warn-pressure spawn status = %d, want 201 (advisory, not blocking)", resp.StatusCode)
+	}
+}
+
 func TestHandleSpawnGateForceBypasses(t *testing.T) {
 	fs := newFakeStore()
 	s := &Server{store: fs, life: &fakeLife{}, spawnGate: true, spawnGateMax: 1, pressLevel: pressure.Critical}

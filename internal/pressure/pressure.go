@@ -54,33 +54,50 @@ func ParseSysctl(raw string) (Level, error) {
 }
 
 // Verdict is the gate decision. It crosses the wire (daemon → clients).
+//
+// Elevated means the spawn is BLOCKED (428, requires force). Advisory means the
+// spawn PROCEEDS but the caller should surface Reason — it is a non-blocking
+// heads-up. The two are mutually exclusive: a blocking verdict is never also
+// advisory.
 type Verdict struct {
 	Elevated   bool   `json:"elevated"`
+	Advisory   bool   `json:"advisory"`
 	Level      Level  `json:"level"`
 	AgentCount int    `json:"agent_count"`
 	MaxAgents  int    `json:"max_agents"`
 	Reason     string `json:"reason"`
 }
 
-// Evaluate decides whether a spawn should warn. Elevated when the OS level is
-// at least Warn OR the live agent count has reached maxAgents. A maxAgents <= 0
-// disables the count co-trigger (level-only gating).
+// Evaluate decides the gate verdict for a spawn.
+//
+// A spawn is BLOCKED (Elevated) only when the OS pressure is Critical (imminent
+// swap) OR the live agent count has reached maxAgents. Warn is deliberately NOT
+// blocking: it is a common, usually-recoverable macOS state, and hard-gating
+// every spawn there just trained operators to --force reflexively. Warn instead
+// yields an ADVISORY verdict — the spawn proceeds and the caller surfaces the
+// reason. A maxAgents <= 0 disables the count co-trigger (pressure-only gating).
 func Evaluate(level Level, agentCount, maxAgents int) Verdict {
-	byPressure := level >= Warn
+	byCritical := level >= Critical
 	byCount := maxAgents > 0 && agentCount >= maxAgents
+	elevated := byCritical || byCount
+	// Warn is advisory only, and is subsumed when the spawn already blocks.
+	advisory := level == Warn && !elevated
 	v := Verdict{
-		Elevated:   byPressure || byCount,
+		Elevated:   elevated,
+		Advisory:   advisory,
 		Level:      level,
 		AgentCount: agentCount,
 		MaxAgents:  maxAgents,
 	}
 	switch {
-	case byPressure && byCount:
+	case byCritical && byCount:
 		v.Reason = fmt.Sprintf("pressure: %s · %d agents live ≥ %d", level, agentCount, maxAgents)
-	case byPressure:
+	case byCritical:
 		v.Reason = fmt.Sprintf("pressure: %s", level)
 	case byCount:
 		v.Reason = fmt.Sprintf("%d agents live ≥ %d", agentCount, maxAgents)
+	case advisory:
+		v.Reason = fmt.Sprintf("pressure: %s (advisory — spawning anyway)", level)
 	}
 	return v
 }

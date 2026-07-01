@@ -43,6 +43,7 @@ warden setup --yes      # non-interactive: install all missing deps
 | `remove-worktree` refuses | The agent is still running (terminate it first) or the worktree has uncommitted/unpushed work — the guard is protecting it. Commit/push, or use `--force`. (`done` no longer touches the worktree.) |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json`. The poller still updates it, just less promptly. |
 | Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |
+| Every spawn asks for `--force` ("memory pressure") | The spawn gate blocks **only** at **critical** OS pressure or when live agents hit `worktree.spawn_gate_max_agents`. **Warn**-level pressure is advisory and no longer blocks. Still gated? Either you're at genuine critical pressure (terminate/rotate an agent to relieve it, or `--force`) or you've hit the agent cap (raise `worktree.spawn_gate_max_agents`, or set it to `0` to disable the count trigger). Restart the daemon after changing config. |
 
 ## Cockpit-specific
 
