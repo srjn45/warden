@@ -82,6 +82,27 @@ func TestOllamaCompleteHonoursContextCancel(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOllamaInstalledModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/tags", r.URL.Path)
+		_, _ = io.WriteString(w, `{"models":[{"name":"qwen3.5:2b"},{"name":"qwen2.5-coder:7b"}]}`)
+	}))
+	defer srv.Close()
+
+	got, err := NewOllama(srv.URL, "m", time.Second).InstalledModels(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []string{"qwen3.5:2b", "qwen2.5-coder:7b"}, got)
+}
+
+func TestModelInstalled(t *testing.T) {
+	installed := []string{"qwen3.5:2b", "qwen2.5-coder:7b", "llama3:latest"}
+	require.True(t, ModelInstalled("qwen3.5:2b", installed), "exact match")
+	require.True(t, ModelInstalled("llama3", installed), "untagged config matches :latest")
+	require.True(t, ModelInstalled("llama3:latest", installed), "explicit :latest matches")
+	require.False(t, ModelInstalled("qwen3:14b", installed), "a model not installed is reported missing")
+	require.False(t, ModelInstalled("", installed), "empty config is never 'installed'")
+}
+
 func TestNewOllamaDefaultsAndNormalises(t *testing.T) {
 	o := NewOllama("  http://example:1234/  ", "m", 0)
 	require.Equal(t, "http://example:1234", o.url, "trailing slash and surrounding space are trimmed")

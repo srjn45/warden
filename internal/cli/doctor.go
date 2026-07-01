@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/llm"
 )
 
 // doctorVersion is the reported warden version. There is no build-stamped
@@ -128,7 +129,7 @@ func formatReport(version string, results []checkResult) string {
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Run preflight checks (required binaries, daemon, data dir)",
+		Short: "Run preflight checks (required binaries, daemon, data dir, configured local model)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.Load(configPathFor(cmd))
@@ -151,6 +152,13 @@ func newDoctorCmd() *cobra.Command {
 				return exec.Command(name, args...).Output()
 			}
 			results = append(results, localLLMAdvice(cfg, detectMemoryGB(runCmd, runtime.GOOS, systemRAMGB)))
+
+			// Verify a configured local_llm.model is actually pulled into ollama —
+			// a missing one silently escalates every classify/summarize to Claude.
+			results = append(results, checkLocalModelInstalled(cfg, func() ([]string, error) {
+				o := llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, 3*time.Second)
+				return o.InstalledModels(cmd.Context())
+			}))
 
 			fmt.Fprint(cmd.OutOrStdout(), formatReport(doctorVersion, results))
 			if !allRequiredPass(results) {

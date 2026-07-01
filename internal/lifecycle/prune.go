@@ -119,6 +119,25 @@ func (l *Lifecycle) worktreeState(ctx context.Context, repo, rel string) string 
 	}
 }
 
+// worktreeHasCommitsAhead reports whether the worktree at abs has commits on its
+// HEAD that are not reachable from base (the repo's default branch) — i.e. real
+// unmerged committed work. Used by prune to protect an orphan worktree from
+// removal even when it is clean and pushed. Conservative on uncertainty: an empty
+// base (default branch unknown) or any git error returns false so this never
+// invents a reason to hold back — the dirty/unpushed guard is the primary net and
+// the no-upstream case is already covered there (guard treats it as unpushed).
+func (l *Lifecycle) worktreeHasCommitsAhead(ctx context.Context, abs, base string) bool {
+	if base == "" {
+		return false
+	}
+	out, err := l.run.Run(ctx, "", "git", "-C", abs, "rev-list", "--count", base+"..HEAD")
+	if err != nil {
+		return false
+	}
+	n := strings.TrimSpace(out)
+	return n != "" && n != "0"
+}
+
 // WorktreeListing is one row of `warden worktree ls`: a git worktree under
 // .worktrees joined to its owning record (if any) plus its guard state.
 type WorktreeListing struct {
@@ -226,6 +245,20 @@ func (l *Lifecycle) PruneWorktrees(ctx context.Context, repo string, opts PruneO
 		if res.State != "clean" && !opts.Force {
 			res.Action = PruneSkip
 			res.Reason = res.State + " (use --force)"
+			results = append(results, res)
+			continue
+		}
+		// Extra caution for a true orphan (no owning record): even a clean, pushed
+		// worktree can carry real committed work the operator never merged. The
+		// guard catches dirty/unpushed, but a clean orphan branch with commits
+		// ahead of the repo's default branch would otherwise be silently removed —
+		// the reported "prune flagged worktrees with real committed work" false
+		// positive. Hold it back unless --force. Archived-owned worktrees are
+		// exempt: reclaiming them is an explicit --include-archived opt-in with
+		// known provenance.
+		if sess == nil && !opts.Force && l.worktreeHasCommitsAhead(ctx, e.Path, defaultBranch) {
+			res.Action = PruneSkip
+			res.Reason = "orphan has unmerged commits ahead of " + defaultBranch + " (use --force)"
 			results = append(results, res)
 			continue
 		}

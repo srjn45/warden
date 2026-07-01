@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -131,10 +130,7 @@ func (s *Server) RunCheck(ctx context.Context, req oapi.RunCheckRequestObject) (
 // CreatePR implements POST /api/v1/sessions/{id}/create-pr. Idempotent: an
 // already-open PR comes back as a non-error result.
 func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (oapi.CreatePRResponseObject, error) {
-	sess, err := s.store.Get(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "session not found")
-	}
+	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -180,10 +176,7 @@ func (s *Server) GetPressure(ctx context.Context, _ oapi.GetPressureRequestObjec
 // GetDigest implements GET /api/v1/sessions/{id}/digest. A reaped pipeline job's
 // snapshot is served directly; otherwise the digest is rebuilt live.
 func (s *Server) GetDigest(ctx context.Context, req oapi.GetDigestRequestObject) (oapi.GetDigestResponseObject, error) {
-	sess, err := s.store.Get(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "session not found")
-	}
+	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}

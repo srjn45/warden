@@ -226,6 +226,32 @@ func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
 		"a worktree we created must be rolled back on spawn failure")
 }
 
+func TestSpawnCleansUpPartialWorktreeWhenAddFails(t *testing.T) {
+	// `git worktree add` itself fails (or is SIGKILLed mid-checkout, leaving a
+	// registered/locked partial worktree). ensureWorktree must transactionally
+	// clean up that partial worktree AND the branch it was creating, so a failed
+	// spawn never leaves an orphaned (locked) worktree behind.
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+	}}
+	fr.FailIf = func(argv []string) error {
+		if len(argv) >= 3 && argv[0] == "git" && argv[1] == "worktree" && argv[2] == "add" {
+			return errStub("worktree add killed mid-checkout")
+		}
+		return nil
+	}
+	_, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
+	})
+	require.Error(t, err)
+	require.Contains(t, fr.calledArgs(),
+		[]string{"git", "-C", "/repo", "worktree", "remove", "--force", ".worktrees/PROJ-350"},
+		"a partial worktree from a failed add must be force-removed")
+	require.Contains(t, fr.calledArgs(),
+		[]string{"git", "-C", "/repo", "branch", "-D", "PROJ-350"},
+		"the branch a failed add was creating must be deleted")
+}
+
 func TestSpawnLogsWorktreeRollbackFailure(t *testing.T) {
 	// new-session fails AFTER we created the worktree, AND the rollback itself
 	// fails. The failed rollback must be LOGGED (not silently dropped) so the

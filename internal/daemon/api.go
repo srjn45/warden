@@ -355,7 +355,7 @@ func (s *Server) router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(recoverMiddleware)
 	r.Use(maxBytes(maxBodyBytes))
-	r.Use(writeTimeout(writeTimeoutDur))
+	r.Use(writeTimeout(writeTimeoutDur, slowWriteTimeoutDur))
 
 	// Unauthenticated: a liveness probe (for tunnels/proxies) and the static UI.
 	// The compiled SPA holds no secrets — serving its shell to anyone is what

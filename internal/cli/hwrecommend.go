@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/llm"
 )
 
 // recommendModel maps detected accelerator/host memory (GB) to a recommended
@@ -88,6 +89,37 @@ func systemRAMGB() (float64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// checkLocalModelInstalled verifies that a configured local_llm.model is actually
+// pulled into ollama. This closes the gap the advisory recommendation (below)
+// left open: doctor used to recommend a hardware-fit model while never noticing
+// the CONFIGURED one was absent, so every classify/summarize 404'd and silently
+// escalated to a full Claude process. lister returns the installed model names
+// (injected for testability; the production caller queries ollama's /api/tags).
+//
+// Outcomes:
+//   - local_llm disabled or no model set → not applicable (ok, advisory-only).
+//   - lister errors (ollama down/unreachable) → warn: we can't verify, but a
+//     missing ollama is not itself a hard failure (it's an optional binary).
+//   - model present → ok.
+//   - model absent → a REQUIRED failure with a pull hint.
+func checkLocalModelInstalled(cfg config.Config, lister func() ([]string, error)) checkResult {
+	const name = "local model"
+	model := strings.TrimSpace(cfg.LocalLLM.Model)
+	if !cfg.GetLocalLLM() || model == "" {
+		return checkResult{name: name, ok: true, required: false, detail: "local_llm off or no model set — nothing to verify"}
+	}
+	installed, err := lister()
+	if err != nil {
+		return checkResult{name: name, ok: false, required: false,
+			detail: fmt.Sprintf("cannot reach ollama to verify %q is installed (%v); start ollama or run `ollama pull %s`", model, err, model)}
+	}
+	if llm.ModelInstalled(model, installed) {
+		return checkResult{name: name, ok: true, required: true, detail: fmt.Sprintf("configured model %q is installed ✓", model)}
+	}
+	return checkResult{name: name, ok: false, required: true,
+		detail: fmt.Sprintf("configured model %q is NOT installed in ollama — run `ollama pull %s`, or set local_llm.model to an installed model (`wd config path`)", model, model)}
 }
 
 // localLLMAdvice builds the doctor's hardware-aware model recommendation. It is

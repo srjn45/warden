@@ -368,9 +368,12 @@ func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (
 
 func newStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "stop <TICKET>",
+		Use:   "stop <AGENT>",
 		Short: "Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)",
 		Long: `Stop an agent. The single umbrella teardown verb.
+
+<AGENT> is any identifier ` + "`wd ls`" + ` shows — the agent's name, its id, or its
+ticket. All teardown verbs resolve by name-or-id.
 
 By default ` + "`wd stop <TICKET>`" + ` does a FULL teardown: terminate the
 tmux+claude session, clear (archive) the record, and remove the git worktree +
@@ -432,7 +435,7 @@ a failed push leaves the agent running.`,
 // newTerminateCmd is a thin alias for `stop --keep-record --keep-worktree`.
 func newTerminateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "terminate <TICKET>",
+		Use:   "terminate <AGENT>",
 		Short: "Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -449,7 +452,7 @@ func newTerminateCmd() *cobra.Command {
 // newDeleteCmd is a thin alias for `stop` that only clears the record.
 func newDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete <TICKET>",
+		Use:   "delete <AGENT>",
 		Short: "Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -470,7 +473,7 @@ func newDeleteCmd() *cobra.Command {
 // preserving the always-ask confirmation prompt.
 func newRemoveWorktreeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "remove-worktree <TICKET>",
+		Use:   "remove-worktree <AGENT>",
 		Short: "Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -497,7 +500,7 @@ func newRemoveWorktreeCmd() *cobra.Command {
 // record while keeping the worktree, with the PR-first ordering.
 func newDoneCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "done <TICKET>",
+		Use:   "done <AGENT>",
 		Short: "Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

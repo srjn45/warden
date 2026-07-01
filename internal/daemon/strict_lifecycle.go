@@ -172,26 +172,41 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 	return oapi.AdoptSession201JSONResponse{Session: *sess, Warning: warn}, nil
 }
 
-// TerminateSession implements POST /api/v1/sessions/{id}/terminate.
-func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSessionRequestObject) (oapi.TerminateSessionResponseObject, error) {
-	sess, err := s.store.Get(ctx, req.Id)
+// resolveSession looks up a session by the same name-or-id GetSession accepts, so
+// every session-addressed mutation resolves the identifiers `ls` shows (an
+// agent's name AS WELL AS its id/ticket), not the id alone — previously
+// stop/terminate/remove-worktree 404'd on a name that `ls` displayed. Returns a
+// 404 errStatus on ErrNotFound. Callers MUST use the returned sess.ID for any
+// subsequent store write, since the passed ref may be a name, not the id the
+// store keys on.
+func (s *Server) resolveSession(ctx context.Context, ref string) (*store.Session, error) {
+	sess, err := s.store.GetByNameOrID(ctx, ref)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, errStatus(http.StatusNotFound, "session not found")
 	}
 	if err != nil {
 		return nil, err
 	}
+	return sess, nil
+}
+
+// TerminateSession implements POST /api/v1/sessions/{id}/terminate.
+func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSessionRequestObject) (oapi.TerminateSessionResponseObject, error) {
+	sess, err := s.resolveSession(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 		return nil, err
 	}
-	if err := s.store.UpdateStatus(ctx, req.Id, store.StatusDone); err != nil {
+	if err := s.store.UpdateStatus(ctx, sess.ID, store.StatusDone); err != nil {
 		return nil, err
 	}
 	s.notify()
 	// Terminate sets the session done directly (no poller swap), so reconcile the
 	// owning pipeline job here too — otherwise it stays stuck running.
 	s.reconcileJobOnTerminal(sess, store.StatusDone)
-	s.recordAuditCtx(ctx, audit.ActionTerminate, req.Id, nil)
+	s.recordAuditCtx(ctx, audit.ActionTerminate, sess.ID, nil)
 	return oapi.TerminateSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "terminated"}}, nil
 }
 
@@ -220,19 +235,17 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	if req.Body != nil {
 		hard = req.Body.Hard
 	}
-	sess, err := s.store.Get(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "session not found")
-	}
+	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}
+	id := sess.ID // req.Id may be a name; key all store writes on the resolved id
 	// A parent that still has live children is tombstoned rather than removed:
 	// tear down its tmux so no live pane remains, but keep the record active and
 	// terminal so the children stay anchored under it in the sub-tree view
 	// (design §6). It is reaped once its last live child ends (Phase 3). Silent —
 	// no confirmation; the live-child count surfaces in the TUI header (Phase 4).
-	if kids := s.liveChildren(ctx, req.Id); len(kids) > 0 {
+	if kids := s.liveChildren(ctx, id); len(kids) > 0 {
 		if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 			return nil, err
 		}
@@ -240,12 +253,12 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 		if hard {
 			term = store.StatusOrphaned // force-kill semantics
 		}
-		if err := s.store.UpdateStatus(ctx, req.Id, term); err != nil && !errors.Is(err, store.ErrNotFound) {
+		if err := s.store.UpdateStatus(ctx, id, term); err != nil && !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
 		s.notify()
 		s.reconcileJobOnTerminal(sess, term)
-		s.recordAuditCtx(ctx, audit.ActionDelete, req.Id, map[string]string{
+		s.recordAuditCtx(ctx, audit.ActionDelete, id, map[string]string{
 			"tombstoned":    "true",
 			"hard":          strconv.FormatBool(hard),
 			"live_children": strconv.Itoa(len(kids)),
@@ -258,16 +271,16 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	}
 	var derr error
 	if hard {
-		derr = s.store.Delete(ctx, req.Id)
+		derr = s.store.Delete(ctx, id)
 	} else {
-		derr = s.store.Archive(ctx, req.Id)
+		derr = s.store.Archive(ctx, id)
 	}
 	if derr != nil && !errors.Is(derr, store.ErrNotFound) {
 		return nil, derr
 	}
 	// Only a hard delete drops the agent's inbox; an archive keeps it. Best-effort.
 	if hard && s.mbox != nil {
-		_ = s.mbox.DeleteInbox(req.Id)
+		_ = s.mbox.DeleteInbox(id)
 	}
 	// Retention policy (worktree_keep_done=false): guarded best-effort removal after
 	// a successful archive of a worktree-owning session.
@@ -275,7 +288,7 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 		s.removeDoneWorktreeBestEffort(sess)
 	}
 	s.notify()
-	s.recordAuditCtx(ctx, audit.ActionDelete, req.Id, map[string]string{"hard": strconv.FormatBool(hard)})
+	s.recordAuditCtx(ctx, audit.ActionDelete, id, map[string]string{"hard": strconv.FormatBool(hard)})
 	return oapi.DeleteSession200JSONResponse{Status: "deleted", Warning: warn}, nil
 }
 
@@ -285,10 +298,7 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 	if req.Body != nil {
 		force, deleteAdopted = req.Body.Force, req.Body.DeleteAdoptedBranch
 	}
-	sess, err := s.store.Get(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "session not found")
-	}
+	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +314,7 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 			return nil, err
 		}
 	}
-	if err := s.store.ClearWorktree(ctx, req.Id); err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err := s.store.ClearWorktree(ctx, sess.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
 	s.notify()
@@ -313,10 +323,7 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 
 // RestoreSession implements POST /api/v1/sessions/{id}/restore.
 func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequestObject) (oapi.RestoreSessionResponseObject, error) {
-	sess, err := s.store.Get(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "session not found")
-	}
+	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +339,7 @@ func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequ
 			return nil, err
 		}
 	}
-	if err := s.store.UpdateStatus(ctx, req.Id, store.StatusSpawning); err != nil {
+	if err := s.store.UpdateStatus(ctx, sess.ID, store.StatusSpawning); err != nil {
 		return nil, err
 	}
 	s.notify()
@@ -341,10 +348,7 @@ func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequ
 
 // SendInput implements POST /api/v1/sessions/{id}/input.
 func (s *Server) SendInput(ctx context.Context, req oapi.SendInputRequestObject) (oapi.SendInputResponseObject, error) {
-	sess, err := s.store.Get(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "session not found")
-	}
+	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}

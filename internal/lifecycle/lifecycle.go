@@ -680,6 +680,29 @@ func wrapWorktreeError(err error, output, path string) error {
 	return fmt.Errorf("%w: %s", err, output)
 }
 
+// cleanupPartialWorktree best-effort reverses a `git worktree add` that failed
+// partway — most importantly when the daemon's request context is cancelled
+// mid-checkout (e.g. a spawn that outran its budget) and git is SIGKILLed,
+// leaving a registered — sometimes locked — worktree that would otherwise orphan
+// (the exact "locked orphan worktree" symptom). It runs on a detached context
+// (the request context may already be cancelled) and every step is best-effort,
+// logged rather than returned: unlock, force-remove, prune the admin metadata,
+// and delete the branch we were creating (branch == "" for a detached/adopted
+// checkout, so a user's existing branch is never deleted). Only ever called for
+// the path this spawn was creating — ensureWorktree returns early for an adopted,
+// pre-existing worktree — so force-removal can never touch a user's tree.
+func (l *Lifecycle) cleanupPartialWorktree(repo, rel, branch string) {
+	ctx := context.Background()
+	_, _ = l.run.Run(ctx, "", "git", "-C", repo, "worktree", "unlock", rel)
+	_, _ = l.run.Run(ctx, "", "git", "-C", repo, "worktree", "remove", "--force", rel)
+	if out, err := l.run.Run(ctx, "", "git", "-C", repo, "worktree", "prune"); err != nil {
+		slog.Warn("spawn cleanup: prune partial worktree failed", "worktree", rel, "err", err, "out", strings.TrimSpace(out))
+	}
+	if branch != "" {
+		_, _ = l.run.Run(ctx, "", "git", "-C", repo, "branch", "-D", branch)
+	}
+}
+
 // worktreeExists checks `git worktree list --porcelain` for an absolute path.
 func (l *Lifecycle) worktreeExists(ctx context.Context, repo, rel string) (bool, error) {
 	entries, err := l.gitWorktrees(ctx, repo)
@@ -728,6 +751,7 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 	if req.Type == store.TypePRReview && req.Branch == "" {
 		// Detached worktree, then let gh resolve + fetch the PR branch.
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", "--detach", rel); err != nil {
+			l.cleanupPartialWorktree(req.Repo, rel, "") // detached: no branch of ours to delete
 			return "", false, false, wrapWorktreeError(fmt.Errorf("git worktree add --detach: %w", err), out, rel)
 		}
 		abs := filepath.Join(req.Repo, rel)
@@ -752,6 +776,7 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 	}
 	if req.Type == store.TypePRReview { // checkout the given existing branch (adopted)
 		if out, err := l.run.Run(ctx, req.Repo, "git", "worktree", "add", rel, req.Branch); err != nil {
+			l.cleanupPartialWorktree(req.Repo, rel, "") // adopted branch: never delete it
 			return "", false, false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 		}
 		return req.Branch, true, false, nil
@@ -770,6 +795,7 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 		args = append(args, req.ForkSourceBranch)
 	}
 	if out, err := l.run.Run(ctx, req.Repo, "git", args...); err != nil {
+		l.cleanupPartialWorktree(req.Repo, rel, branch) // -b created this branch: delete it too
 		return "", false, false, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 	}
 	return branch, true, true, nil
