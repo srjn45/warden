@@ -23,7 +23,7 @@ func formatPluginList(enabled bool, specs []plugin.Spec) string {
 	case enabled:
 		b.WriteString("plugin system: ENABLED\n")
 	default:
-		b.WriteString("plugin system: disabled (set `plugins: true` in config to activate)\n")
+		b.WriteString("plugin system: disabled (set `plugins.enabled: true` in config to activate)\n")
 	}
 	if len(specs) == 0 {
 		b.WriteString("no plugins registered (plugins.registry is empty)\n")

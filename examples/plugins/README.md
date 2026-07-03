@@ -45,6 +45,13 @@ changes warden's control flow.
 `pre-spawn`, `post-spawn`, `pre-commit`, `post-commit`, `pre-check`,
 `post-check`, `pre-teardown`. (`-spawn`, `-commit`, and `-check` are wired today.)
 
+## Two worked examples
+
+| example | language | shows |
+| ------- | -------- | ----- |
+| [`post-commit-notifier/`](post-commit-notifier/notifier.sh) | POSIX shell | the smallest end-to-end exercise — append a line to a log every time a hook fires |
+| [`desktop-notify/`](desktop-notify/) | Go (compiled binary) | the recommended production shape — typed structs, per-event policy, an OS desktop notification on a **failed check**, with a log fallback |
+
 ## Example: post-commit notifier
 
 [`post-commit-notifier/notifier.sh`](post-commit-notifier/notifier.sh) appends a
@@ -54,13 +61,14 @@ the protocol.
 Register it by adding to `~/.warden/config.yaml`:
 
 ```yaml
-plugins: true            # opt-in master switch (off by default)
-plugin_registry:
-  - name: notifier
-    path: /absolute/path/to/examples/plugins/post-commit-notifier/notifier.sh
-    events:
-      - post-commit
-      - post-spawn
+plugins:
+  enabled: true          # opt-in master switch (off by default)
+  registry:
+    - name: notifier
+      path: /absolute/path/to/examples/plugins/post-commit-notifier/notifier.sh
+      events:
+        - post-commit
+        - post-spawn
 ```
 
 Then restart the daemon and watch it fire:
@@ -77,14 +85,15 @@ isolation policy (`worktree: true` isolates it in its own git worktree by
 default, exactly like the built-in write-agent types):
 
 ```yaml
-plugins: true
-plugin_registry:
-  - name: lint-bot
-    path: /absolute/path/to/your/lint-bot
-    events: [post-spawn]
-    task_types:
-      - name: lint-bot      # now a valid `wd start --type lint-bot ...`
-        worktree: true
+plugins:
+  enabled: true
+  registry:
+    - name: lint-bot
+      path: /absolute/path/to/your/lint-bot
+      events: [post-spawn]
+      task_types:
+        - name: lint-bot    # now a valid `wd start --type lint-bot ...`
+          worktree: true
 ```
 
 Custom type names must not collide with a built-in (`development`, `analysis`,
