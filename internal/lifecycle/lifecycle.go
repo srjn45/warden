@@ -1110,6 +1110,15 @@ func (l *Lifecycle) RunClaudeP(ctx context.Context, arg string) (string, error) 
 	return l.runClaudeP(ctx, arg)
 }
 
+// LocalLLM exposes the optional local-model completer (nil when local_llm is off) so
+// the memory-curation proposer can prefer the $0 local path before degrading to
+// headless claude -p — the same offload preference Summarize/Classify use.
+func (l *Lifecycle) LocalLLM() llm.Completer { return l.LLM }
+
+// RecordOffload books a fully-offloaded local-model call to the savings ledger, so a
+// curation pass served by the local LLM is credited exactly like Summarize/Classify.
+func (l *Lifecycle) RecordOffload(agent, prompt string) { l.recordOffload(agent, prompt) }
+
 // recentActivity returns recent conversation text: the tail of the agent's
 // transcript file (by pinned session id or newest .jsonl), else the tmux pane.
 func (l *Lifecycle) recentActivity(ctx context.Context, sess *store.Session) string {

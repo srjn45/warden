@@ -34,7 +34,17 @@ func (m *Memory) Render(budget int) string {
 	if budget <= 0 {
 		budget = DefaultBudget
 	}
-	if len(m.Entries) == 0 {
+
+	// Only LIVE entries are projected: a tombstoned (superseded/aged-out) or
+	// stale-flagged entry stays in the committed file for the diff reviewer but is
+	// never fed to an agent (§4.2). Trim accounting counts only live entries too.
+	live := 0
+	for i := range m.Entries {
+		if m.Entries[i].Live() {
+			live++
+		}
+	}
+	if live == 0 {
 		return ""
 	}
 
@@ -53,6 +63,9 @@ func (m *Memory) Render(budget int) string {
 	used := len(projectionHeader)
 	kept := 0
 	for _, idx := range order {
+		if !m.Entries[idx].Live() {
+			continue
+		}
 		line := "\n" + renderLine(m.Entries[idx])
 		// Reserve room for a possible trim note if anything ends up dropped.
 		if used+len(line) > budget {
@@ -71,7 +84,7 @@ func (m *Memory) Render(budget int) string {
 			b.WriteString(renderLine(e))
 		}
 	}
-	if dropped := len(m.Entries) - kept; dropped > 0 {
+	if dropped := live - kept; dropped > 0 {
 		note := fmt.Sprintf("\n(… %d more entr%s trimmed to fit the memory budget)", dropped, plural(dropped))
 		// Only append the note if it itself fits; the cap is hard.
 		if b.Len()+len(note) <= budget {

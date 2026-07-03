@@ -61,8 +61,11 @@ func newMemoryCmd() *cobra.Command {
 			"Use --raw to print the file verbatim, --path for just the resolved path (handy in\n" +
 			"scripts), and --edit to open it in $EDITOR (auto-creating it first if missing).\n\n" +
 			"This verb is CLI-local (like `wd check` / `wd review`): it reads/writes the file\n" +
-			"directly with no daemon round-trip. Note: auto-curation from fleet digests is\n" +
-			"deliberately deferred to a later change — today you curate this file by hand.",
+			"directly with no daemon round-trip. You curate the file by hand here; warden can\n" +
+			"ALSO auto-propose entries from completion digests when the `memory_curate` config\n" +
+			"key is on (default off) — those proposals land as `unverified` entries in the\n" +
+			"working tree only (never committed/pushed), so the committed diff is the review\n" +
+			"gate. See the Project memory concept page.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, err := os.Getwd()

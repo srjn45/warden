@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
@@ -362,6 +363,85 @@ func TestEmitReapsAgentAndSnapshotsDigest(t *testing.T) {
 	if p.Job("b").Status != pipeline.JobRunning {
 		t.Fatalf("dependent b should have spawned, got %s", p.Job("b").Status)
 	}
+}
+
+// fakeCurator captures the signal Emit hands the memory-curation seam.
+type fakeCurator struct {
+	mu      sync.Mutex
+	workdir string
+	sigs    []curate.Signal
+}
+
+func (c *fakeCurator) Enqueue(_ context.Context, workdir string, sig curate.Signal) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.workdir = workdir
+	c.sigs = append(c.sigs, sig)
+}
+
+// TestEmitEnqueuesCuration: on a job completing, the executor feeds its digest to the
+// curator (the completion-digest hook the auto-curation attaches to), carrying the
+// job's workdir and the digest's task/summary/files as the extraction Signal.
+func TestEmitEnqueuesCuration(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "analyze", Worktree: "fresh", Status: pipeline.JobPending}},
+	})
+	e := NewExecutor(ps, newFakeStore(), &fakeLife{}, nil, func() {})
+	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest {
+		return digest.Digest{Task: "analyze auth", Summary: "mapped the login flow",
+			Files: []digest.FileChange{{Path: "internal/auth/login.go"}}}
+	}
+	fc := &fakeCurator{}
+	e.SetCurator(fc)
+
+	if err := e.Reconcile(context.Background(), "p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Emit(context.Background(), "p", "a", "done"); err != nil {
+		t.Fatal(err)
+	}
+	e.snapWG.Wait()
+
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if len(fc.sigs) != 1 {
+		t.Fatalf("curator enqueued %d signals, want 1", len(fc.sigs))
+	}
+	if fc.workdir != "/r/.worktrees/p-a" {
+		t.Errorf("enqueued workdir = %q, want the job worktree", fc.workdir)
+	}
+	sig := fc.sigs[0]
+	if sig.Task != "analyze auth" || sig.Summary != "mapped the login flow" || sig.Agent != "p-a" {
+		t.Errorf("signal = %+v, want task/summary/agent from digest+session", sig)
+	}
+	if len(sig.Files) != 1 || sig.Files[0] != "internal/auth/login.go" {
+		t.Errorf("signal files = %v", sig.Files)
+	}
+}
+
+// TestEmitNoCuratorIsNoop: with no curator wired (memory_curate default OFF), Emit
+// completes normally and does not panic.
+func TestEmitNoCuratorIsNoop(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("pipeline.NewStore: %v", err)
+	}
+	_ = ps.Create(&pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		Jobs: []pipeline.Job{{ID: "a", Prompt: "x", Worktree: "fresh", Status: pipeline.JobPending}},
+	})
+	e := NewExecutor(ps, newFakeStore(), &fakeLife{}, nil, func() {})
+	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest { return digest.Digest{} }
+	_ = e.Reconcile(context.Background(), "p")
+	if err := e.Emit(context.Background(), "p", "a", "done"); err != nil {
+		t.Fatal(err)
+	}
+	e.snapWG.Wait()
 }
 
 // A reaped (terminated) done job's session transition must not flip the job off `done`.

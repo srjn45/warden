@@ -18,12 +18,14 @@ import (
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/ctxtokens"
+	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/logging"
 	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -296,6 +298,19 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled, cfg.Tokens.Warn, cfg.Tokens.Critical)
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(cfg.PipelineKeepDone)
+			// Memory auto-curation (#53 PR-2), opt-in via memory_curate (default OFF).
+			// The proposer prefers the $0 local model (lc.LocalLLM), degrading to
+			// headless claude -p (lc.RunClaudeP); the curator debounces per repo and
+			// writes UNVERIFIED proposals to the working tree only — never commits.
+			if cfg.MemoryCurate {
+				proposer := curate.LLMProposer{
+					Run:    lc.RunClaudeP,
+					LLM:    lc.LocalLLM(),
+					Record: lc.RecordOffload,
+				}
+				exec.SetCurator(curate.New(&memory.Store{}, proposer))
+				slog.Info("memory auto-curation enabled (proposals only; committed diff is the review gate)")
+			}
 
 			// One notifier seam drives every alert channel: the platform
 			// (desktop) notifier, plus the webhook when configured. Both the

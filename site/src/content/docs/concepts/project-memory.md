@@ -87,13 +87,43 @@ projection is purely additive.
 memory_inject: true   # default; set false to disable launch-time projection
 ```
 
-## Curating it
+## Curating it — by hand, or auto-proposed (gated)
 
-Today you curate `.warden/memory.md` **by hand** — `wd memory --edit` opens it in
-`$EDITOR`, and the committed diff is the review gate. Automatic curation from
-fleet digests (proposed, timestamped, `unverified` entries a human promotes) is a
-deliberate later change; PR-1 ships the zero-risk half: projecting a
-human-curated file.
+You can always curate `.warden/memory.md` **by hand** — `wd memory --edit` opens it
+in `$EDITOR`, and the committed diff is the review gate.
+
+warden can also **auto-propose** entries for you, off by default behind
+**`memory_curate`**. When enabled, warden runs a debounced curation pass on the
+existing completion-digest hook: as agents finish, it reads their digests +
+transcripts + the current memory and extracts **durable, reusable facts** (where
+things live, how to run X, project invariants), discarding per-task noise. It is
+deliberately conservative and **never authoritative**:
+
+- **Proposals, not authority.** New entries land as
+  `- [unverified · <date> · <provenance>] <fact>` — a timestamped, attributed
+  *claim*, projected with a "may be stale, verify before relying" caveat, never a
+  silent truth.
+- **Verify-before-trust.** An entry promotes to `trusted` only on **corroboration**
+  — a second agent re-observing it, or a human approving the diff. A single
+  sighting never auto-trusts.
+- **Supersession & age-out.** A newer fact that contradicts an older one
+  **supersedes** it (the old line is struck with a tombstone for the reviewer);
+  un-recorroborated entries **age out** past a TTL; a fact whose named path no
+  longer exists is **flagged stale** by a deterministic check.
+- **The committed diff is the human gate.** The pass writes proposals to the
+  **working tree only** — it **never commits and never pushes**. A human (or a
+  reviewing agent) approves the `.warden/memory.md` diff in a PR before it reaches
+  teammates. This is the core mitigation against memory *poisoning*: one agent's
+  wrong belief can never silently mislead the whole fleet.
+- **`$0` by default.** The pass prefers the local model (`local_llm`), degrading to
+  headless `claude -p` only where configured — and it always runs off the critical
+  path.
+
+```yaml
+# ~/.warden/config.yaml
+memory_curate: false   # default OFF (opt-in — the risky half); proposals are
+                       # gated by the committed diff, never auto-trusted
+```
 
 ## See also
 

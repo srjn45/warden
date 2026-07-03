@@ -104,6 +104,7 @@ default; each in its own tmux session, most in a git worktree).
 | Who is editing a file | `collab who-is-editing` | `who_is_editing_file` | ✓ | ✓ | — | [shared-context-messages](https://srjn45.github.io/warden/multi-agent/shared-context-messages/) |
 | Project memory — show/edit `.warden/memory.md` | `memory` (`--raw`, `--path`, `--edit`) | **CLI-only** (local, no daemon round-trip) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 | Project memory — projected into every spawn (`memory_inject`) | config (`memory_inject`, default on) | automatic (all backends but aider) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
+| Project memory — auto-curation from digests (`memory_curate`) | config (`memory_curate`, default **off**) | automatic on completion (proposes `unverified` entries to the working tree; never commits) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 
 ## 6. Approvals & permissions
 
