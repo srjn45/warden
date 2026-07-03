@@ -75,3 +75,15 @@ auto_approve:
 ```
 
 With **no rules** configured, an enabled policy keeps the simple legacy behavior: it auto-answers every recognized, non-destructive prompt by pressing the least-privilege affirmative. Multi-select / text-entry / unrecognized prompts always fall back to manual. Both layers are also MCP tools: `set_auto_approve` (toggle) and `set_auto_approve_policy` (rules).
+
+## The circuit breaker
+
+Auto-approving a prompt should unblock the agent. When the **identical** prompt keeps re-appearing after being approved — the agent is re-running a failing command (expired credentials, a broken login) and re-asking forever — approving again just burns CPU and tokens. The breaker halts auto-approval after `max_repeats` consecutive identical approvals (default **10**), records an `approval_loop` anomaly on the agent, fires your notifier, and leaves the prompt unanswered so the agent surfaces as `waiting_for_input`.
+
+```yaml
+auto_approve:
+  enabled: true
+  max_repeats: 10   # 0 = default (10); negative = breaker off
+```
+
+A different prompt, or roughly ten quiet minutes, resets the run. Per-agent overrides inherit the default's `max_repeats` unless they set their own. When the breaker fires, read the agent's output and fix the failing command — don't just re-approve.

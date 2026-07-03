@@ -96,3 +96,14 @@ With **no rules** an enabled policy is the simple legacy toggle (approve every
 recognized, non-destructive prompt — `auto_approve: true` still works). Skips
 multi-select/text-entry/unrecognized (falls back to manual); never retries on
 failure; logs every attempt.
+
+**Circuit breaker** (always on): when the *identical* prompt keeps re-appearing
+after being approved (the agent re-runs a failing command and re-asks), warden
+stops auto-approving it after `max_repeats` consecutive identical approvals
+(default 10), records an `approval_loop` anomaly event, notifies the operator,
+and leaves the prompt for a human — the agent then shows as `waiting_for_input`.
+Configure via `auto_approve.max_repeats` (0 = default, negative = off; per-agent
+overrides inherit the default when unset). A different prompt, or ~10 quiet
+minutes, resets the run. If you see the "auto-approve halted" anomaly on an
+agent, read its output — the underlying command is failing (e.g. expired
+credentials) and needs a human fix, not another approval.
