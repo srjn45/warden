@@ -137,10 +137,12 @@ Then grant access once: **System Settings → Privacy & Security → Full Disk A
 
 ### Logs
 
-- stdout: `/tmp/warden.daemon.log`
-- stderr: `/tmp/warden.daemon.err`
-
-On Linux these are also visible via `journalctl --user -u warden`.
+- **macOS (launchd):** files under `/tmp`
+  - stdout: `/tmp/warden.daemon.log`
+  - stderr: `/tmp/warden.daemon.err`
+- **Linux (systemd):** the systemd journal — the unit sets `StandardOutput=journal` / `StandardError=journal` so logs survive reboots even where `/tmp` is a tmpfs (Fedora, Arch, …):
+  - `journalctl --user -u warden -f` (follow live)
+  - `journalctl --user -u warden -n 100` (last 100 lines)
 
 > **Notifications:** off by default. When enabled with `WARDEN_NOTIFY=on`, the daemon posts a macOS notification when an agent enters `waiting_for_input`, `idle` (stuck), `orphaned`, or `errored`. These appear only when the daemon runs in your GUI login session (a terminal, or a launchd **user agent**); a headless/system daemon logs them instead.
 

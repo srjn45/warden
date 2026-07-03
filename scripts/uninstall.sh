@@ -56,6 +56,11 @@ if claude_available; then
 fi
 
 info "uninstall complete"
-warn "preserved (not removed): session store ~/.warden and logs $LOG_OUT, $LOG_ERR"
-info "to purge logs:          rm -f $LOG_OUT $LOG_ERR"
+if [ "$OS_PLATFORM" = "linux" ]; then
+  warn "preserved (not removed): session store ~/.warden"
+  info "daemon logs live in the systemd journal (journalctl --user -u warden) and are rotated by systemd"
+else
+  warn "preserved (not removed): session store ~/.warden and logs $LOG_OUT, $LOG_ERR"
+  info "to purge logs:          rm -f $LOG_OUT $LOG_ERR"
+fi
 info "to purge session store: rm -rf ~/.warden   (deletes all agent records)"

@@ -90,9 +90,12 @@ warden daemon      # or: warden daemon --addr 127.0.0.1:9000
 Verify and inspect logs:
 
 ```sh
-curl -s localhost:8765/healthz   # {"status":"ok"}
-tail -f /tmp/warden.daemon.log # stdout  (launchd)
-tail -f /tmp/warden.daemon.err # stderr  (launchd)
+curl -s localhost:8765/healthz         # {"status":"ok"}
+# macOS (launchd) — logs are files under /tmp:
+tail -f /tmp/warden.daemon.log         # stdout
+tail -f /tmp/warden.daemon.err         # stderr
+# Linux (systemd) — logs go to the journal, not /tmp:
+journalctl --user -u warden -f         # stdout + stderr, follow live
 ```
 
 Stop / restart the launchd service:
@@ -1655,7 +1658,7 @@ warden done prreview-...
 | Symptom | Likely cause / fix |
 |---|---|
 | Any command hangs or errors connecting | Daemon not running. `curl localhost:8765/healthz`; start it (§3). |
-| `healthz` fails / daemon won't start | Data dir not writable. Check the `data_dir` config setting (default `~/.warden`) and `/tmp/warden.daemon.err`. |
+| `healthz` fails / daemon won't start | Data dir not writable. Check the `data_dir` config setting (default `~/.warden`) and the daemon logs — macOS: `/tmp/warden.daemon.err`; Linux: `journalctl --user -u warden -e`. |
 | New agent stuck at `classifying…` / type is `other` | `claude` not on the daemon's PATH. Type falls back to `other`; functionality is otherwise fine. |
 | `SUBJECT` stays empty | Poller hasn't refreshed yet (it's throttled and only runs when pane content changes), or the `claude_projects_dir` config setting is wrong. |
 | `pr-review needs --pr or --branch` | pr-review requires one of those flags. |

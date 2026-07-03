@@ -334,17 +334,21 @@ The daemon starts automatically at each login session and restarts on crash
 ```
 
 **Uninstall** (stops and removes the service, binary, skill link, and MCP
-registration; **preserves** `~/.warden` and logs):
+registration; **preserves** `~/.warden`):
 
 ```sh
 ./scripts/uninstall.sh
 ./scripts/uninstall.sh --keep-binary   # leave ~/.local/bin/warden in place
 ```
 
-Logs:
-- stdout: `/tmp/warden.daemon.log`
-- stderr: `/tmp/warden.daemon.err`
-- or live: `journalctl --user -u warden -f`
+Logs go to the systemd journal (the unit sets `StandardOutput=journal` /
+`StandardError=journal`), so they survive reboots even where `/tmp` is a tmpfs
+(Fedora, Arch, …):
+
+```sh
+journalctl --user -u warden -f        # follow live
+journalctl --user -u warden -n 100    # last 100 lines
+```
 
 > **Notifications:** off by default. Set `notify.enabled: true` in the config file to enable (the deprecated `notify: true` also works). The
 > daemon calls `notify-send` (libnotify) when it's on `PATH`; install it with

@@ -352,6 +352,11 @@ Notes:
   `RunAtLoad`/start-at-login behavior across logins.
 - Set `TERM` explicitly (same reason the launchd daemon does): a service-managed
   process inherits no terminal, and tmux/PTY attach needs it.
+- **Log to the journal** (`StandardOutput=journal` / `StandardError=journal`),
+  *not* `append:/tmp/warden.daemon.*`: on Fedora/Arch and other distros `/tmp` is
+  a tmpfs cleared on reboot / by systemd-tmpfiles, so file logs silently vanish.
+  View with `journalctl --user -u warden -f`. (The macOS launchd path keeps
+  `/tmp/warden.daemon.{log,err}`, which persist there.)
 - The install script should branch on `uname` (or a `--service-manager` flag):
   launchd on Darwin, systemd on Linux. The label, health probe, skill copy, and
   MCP registration steps are platform-independent and stay shared.

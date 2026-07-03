@@ -303,11 +303,19 @@ report_health() {
     sleep 0.2
   done
   err "daemon did not become healthy at $url"
+  show_recent_daemon_logs
+  return 1
+}
+
+# show_recent_daemon_logs — dump the tail of the daemon's error output to help
+# diagnose a failed health check. Default (macOS/launchd) reads the log file;
+# the Linux override below reads the systemd journal instead, since the unit
+# logs via StandardError=journal rather than a file under /tmp.
+show_recent_daemon_logs() {
   if [ -f "$LOG_ERR" ]; then
     warn "last lines of $LOG_ERR:"
     tail -n 15 "$LOG_ERR" >&2 || true
   fi
-  return 1
 }
 
 # --- PATH advisory --------------------------------------------------------
@@ -400,5 +408,12 @@ if [ "$OS_PLATFORM" = "linux" ]; then
     else
       load_service
     fi
+  }
+
+  # On Linux the unit logs to the journal, not a file — read it back with
+  # journalctl instead of tailing a (nonexistent) /tmp log file.
+  show_recent_daemon_logs() {
+    warn "last lines of the daemon journal (journalctl --user -u warden):"
+    journalctl --user -u warden -n 15 --no-pager >&2 2>/dev/null || true
   }
 fi
