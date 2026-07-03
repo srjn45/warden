@@ -203,6 +203,11 @@ drive the fleet:
   warden tool calls — no cloud-model tokens. **It conducts, never implements** (no
   edit/write/bash in its registry — code work is delegated by spawning an
   agent).
+- **Local project grounding (`memory_ground`, default on):** `/memory <question>`
+  (`/mem`/`/ask`), or the `project_memory` tool, answers "where does X live?" from
+  the repo's `.warden/memory.md` **locally** (local model, `$0`, no cloud round-trip).
+  Read-only; cites each entry's trust + provenance; degrades to the matching entries
+  verbatim with no local model; "not in project memory" for an absent/empty file.
 
 Starts without a model (the `/` commands and `!`-shell always work); only the NL
 half needs `local_llm: true`. `!`-prefixed lines run in a persistent embedded shell,

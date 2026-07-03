@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/llm"
+	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/repl"
 )
 
@@ -26,8 +27,8 @@ you to your shell prompt.
 
 Two ways to drive it:
   • Deterministic ` + "`/` commands" + ` (no model): /agents, /spawn <prompt>, /tell <id> <text>,
-    /pipelines, … — typing / pops a live, filtering menu of verbs; Tab also
-    completes verbs and live agent ids. Type /help for the list.
+    /memory <question>, /pipelines, … — typing / pops a live, filtering menu of verbs;
+    Tab also completes verbs and live agent ids. Type /help for the list.
   • Natural language: any other line is planned by the local LLM into warden tool
     calls, each confirmed before it runs.
 
@@ -72,6 +73,18 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 			// output to the same terminal. A shell that won't start (no PTY) is not
 			// fatal — `!` simply reports it's unavailable.
 			cwd, _ := os.Getwd()
+			// PR-3 (#53): local grounding of project questions from .warden/memory.md.
+			// Read-only and $0 — it REMOVES cloud round-trips, so it is default on
+			// (memory_ground). Wire the LOCAL model only when local_llm is enabled;
+			// with none the grounder degrades to returning the matched entries
+			// verbatim (still $0), never escalating to a paid model.
+			if cfg.GetMemoryGround() {
+				var comp llm.Completer
+				if cfg.GetLocalLLM() {
+					comp = chat // *llm.Ollama implements llm.Completer
+				}
+				sess.EnableGrounding(repl.NewGrounder(cwd, &memory.Store{}, comp))
+			}
 			var sh repl.ShellRunner
 			if s, err := repl.NewShell(cwd, out); err == nil {
 				defer s.Close()

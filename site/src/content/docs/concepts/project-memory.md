@@ -125,6 +125,48 @@ memory_curate: false   # default OFF (opt-in — the risky half); proposals are
                        # gated by the committed diff, never auto-trusted
 ```
 
+## Ask project memory locally — grounding (`memory_ground`)
+
+Projection *adds* input tokens to every spawn. **Grounding** is the opposite lever:
+in [`wd repl`](/warden/multi-agent/repl/) you can **ask** the memory a question and
+warden answers it **locally**, *removing* a cloud round-trip instead of adding one.
+
+Ask it two ways — the deterministic **`/memory <question>`** command (aliases
+`/mem`, `/ask`), or, in the natural-language half, the model-callable
+**`project_memory`** tool warden picks for "where does X live?" / "how do I run Y?"
+questions:
+
+```text
+warden › /memory where does the daemon API live?
+The daemon API is spec-first — edit openapi.yaml, then `make generate`.
+
+grounded in .warden/memory.md:
+- [trusted · 2026-06-30 · agent a1b2 · sha 04e2aed] The daemon API is spec-first:
+  edit openapi.yaml then `make generate`; never hand-write handlers.
+```
+
+It is deliberately narrow and safe:
+
+- **Local-only, `$0`.** Grounding runs on the local model (`local_llm`) and holds no
+  cloud/escalation path — it is structurally free and can **never** escalate to a paid
+  model. Grounding-style questions also classify to the local tier, so a bare
+  natural-language project question plans locally, never in the cloud.
+- **Read-only.** It reads `.warden/memory.md` the same way projection does and
+  **never creates or writes it** (that stays curation's job). An absent or empty file
+  answers `not in project memory` — no crash, no auto-create.
+- **Grounded, with trust surfaced.** Answers are composed **only** from the matching
+  entries and cite each one's **trust** (`unverified` / `trusted` / `human`) and
+  **provenance**, so a stale hint visibly reads as a hint. If the memory can't answer,
+  it says so plainly rather than inventing.
+- **Degrades cleanly.** With no local model configured it returns the matching
+  entries **verbatim** (still `$0`) instead of escalating.
+
+```yaml
+# ~/.warden/config.yaml
+memory_ground: true    # default ON — it only REMOVES cost (a local answer instead
+                       # of a cloud round-trip); read-only, never writes memory
+```
+
 ## See also
 
 - [`wd memory` in the CLI reference](/warden/reference/cli/#warden-memory)

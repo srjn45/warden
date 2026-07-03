@@ -74,6 +74,18 @@ func NewSession(chat llm.Chatter, d Daemon, reg *Registry, gate confirmer, route
 	return &Session{chat: chat, daem: d, reg: reg, gate: gate, tier: router}
 }
 
+// EnableGrounding registers the local project-memory grounding tool
+// (project_memory) on this session's registry — the $0, local-only PR-3 verb that
+// answers project questions from .warden/memory.md. The caller config-gates it
+// (memory_ground); a nil grounder is a no-op. It mirrors how AddMonitoring rides
+// the same loop/gate: read-only, auto-executed, never a cloud round-trip.
+func (s *Session) EnableGrounding(g *Grounder) {
+	if g == nil {
+		return
+	}
+	s.reg.AddGrounding(g)
+}
+
 // Handle runs one operator line to completion (the model yields prose) or to the
 // turn budget. Read-only calls auto-execute; mutating calls go through the gate;
 // every tool result feeds back so the model sees what happened.

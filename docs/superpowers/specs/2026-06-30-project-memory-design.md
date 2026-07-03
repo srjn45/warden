@@ -429,12 +429,26 @@ spawn-local to avoid it.
     debounces to ONE pass; the pass writes the tree only (never commits); the
     deterministic staleness check flags a vanished path.
 
-- **PR-3 (separable follow-on) — REPL #50 local grounding (the adjacent win).** Answer
-  project questions from `.warden/memory.md` **locally** via the #50 REPL (`internal/repl`
-  exists). This is the cleanest token lever in the whole feature: it **removes** cloud
-  round-trips (vs. injection, which *adds* tokens) by serving "where does X live?" from
-  the canonical memory with a local model. Separable and explicitly noted as a follow-on,
-  not part of the core projection.
+- **PR-3 (separable follow-on) — REPL #50 local grounding (the adjacent win). ✅ SHIPPED.**
+  Answer project questions from `.warden/memory.md` **locally** via the #50 REPL. This is
+  the cleanest token lever in the whole feature: it **removes** cloud round-trips (vs.
+  injection, which *adds* tokens) by serving "where does X live?" from the canonical
+  memory with a local model. Implemented as `repl.Grounder` — the SAME SHAPE as
+  `repl.Monitor` (a bounded call over facts through the existing `llm.Completer` seam),
+  registered as a read-only tool `project_memory` via `Registry.AddGrounding` and reachable
+  deterministically as the `/memory` (`/mem`, `/ask`) command. Read-only: it reads
+  `.warden/memory.md` with the memory store's `Locate` + `os.ReadFile` discipline (never
+  `Load`/`Resolve`, which auto-create), so an absent/empty file answers "not in project
+  memory" and the file is **never** written (PR-2 owns writes). It is **local-tier only**:
+  the grounder holds ONLY a local `Completer` (no `Escalator`), so it is structurally `$0`
+  and can never escalate to a paid model; grounding-style questions also classify **T0** via
+  the existing tier-classify heuristic, so a bare NL project question routes to the local
+  plan. With no local model configured it **degrades** to returning the matching entries
+  verbatim (still `$0`). Answers cite each entry's **trust** (`unverified`/`trusted`/`human`)
+  and **provenance** so a stale hint reads visibly as a hint. Config-gated by the new
+  **`memory_ground`** key (default **ON** — it only *removes* cost). No new `internal/memory`
+  public API, no daemon/openapi/MCP change (grounding is REPL-local). Separable and
+  explicitly a follow-on, not part of the core projection.
 
 ### 6.2 Explicitly kept dropped / out of scope
 

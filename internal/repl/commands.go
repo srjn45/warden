@@ -101,6 +101,13 @@ var commandList = []command{
 			}
 			return one("ctx_get", map[string]any{"key": id})
 		}},
+	{name: "/memory", aliases: []string{"/mem", "/ask"}, usage: "/memory <question...>", summary: "answer a project question locally from .warden/memory.md ($0)",
+		build: func(a []string) ([]ToolCall, error) {
+			if len(a) == 0 {
+				return nil, errors.New("usage: /memory <question...>")
+			}
+			return one("project_memory", map[string]any{"question": strings.Join(a, " ")})
+		}},
 	{name: "/pipelines", aliases: []string{"/pl"}, usage: "/pipelines", summary: "list all pipelines",
 		build: func([]string) ([]ToolCall, error) { return one("pipeline_list", map[string]any{}) }},
 	{name: "/pipeline", usage: "/pipeline <id>", summary: "full detail for one pipeline",

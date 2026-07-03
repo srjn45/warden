@@ -97,6 +97,15 @@ aged-out tombstones kept for context; `<!-- stale: … -->` marks a fact whose n
 path vanished. Never trust an `unverified` entry blindly, and never `wd commit` a
 memory diff you have not read.
 
+**Ask project memory locally (`memory_ground`, default on).** In `wd repl` you can
+*ask* this memory a question instead of re-deriving the answer: `/memory <question>`
+(aliases `/mem`, `/ask`), or the model-callable `project_memory` tool, answers "where
+does X live?" / "how do I run Y?" **locally** from `.warden/memory.md` — served on the
+local model at `$0`, no cloud round-trip, so it *removes* tokens rather than adding
+them. It is read-only (never writes memory; an absent/empty file answers "not in
+project memory") and cites each entry's trust + provenance, so treat an `unverified`
+citation as a hint to verify, same as the injected block above.
+
 ## Snapshots — checkpoint & roll back
 
 MCP `snapshot_create` / `snapshot_list` / `snapshot_restore` (CLI `wd snapshot
