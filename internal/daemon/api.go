@@ -329,8 +329,9 @@ type Lifecycle interface {
 	// GitBranch / GitNumstat read git state in dir (best-effort, "" on error).
 	GitBranch(ctx context.Context, dir string) string
 	GitNumstat(ctx context.Context, dir string) string
-	// MemoryPressure reads the current macOS memory-pressure level (Normal on
-	// non-macOS / error). Used by the sampler loop and the spawn gate.
+	// MemoryPressure reads the current OS memory-pressure level (macOS sysctl /
+	// Linux PSI; Normal on other platforms or any read error). Used by the
+	// sampler loop and the spawn gate.
 	MemoryPressure(ctx context.Context) (pressure.Level, error)
 }
 

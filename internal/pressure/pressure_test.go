@@ -80,3 +80,35 @@ func TestLevelString(t *testing.T) {
 		t.Fatal("unmapped level should be 'unknown'")
 	}
 }
+
+func TestParsePSI(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    Level
+		wantErr bool
+	}{
+		{"idle", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n", Normal, false},
+		{"light load below thresholds", "some avg10=12.40 avg60=8.00 avg300=2.00 total=100\nfull avg10=1.20 avg60=0.50 avg300=0.10 total=10\n", Normal, false},
+		{"warn by some", "some avg10=25.00 avg60=10.00 avg300=3.00 total=100\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n", Warn, false},
+		{"warn by full", "some avg10=10.00 avg60=4.00 avg300=1.00 total=100\nfull avg10=5.00 avg60=2.00 avg300=0.50 total=10\n", Warn, false},
+		{"critical by full", "some avg10=40.00 avg60=30.00 avg300=10.00 total=100\nfull avg10=20.00 avg60=15.00 avg300=5.00 total=10\n", Critical, false},
+		{"critical by some", "some avg10=61.00 avg60=50.00 avg300=20.00 total=100\nfull avg10=10.00 avg60=8.00 avg300=3.00 total=10\n", Critical, false},
+		{"some-only file still parses", "some avg10=70.00 avg60=50.00 avg300=20.00 total=100\n", Critical, false},
+		{"empty", "", 0, true},
+		{"garbage", "cpu usage 42%\n", 0, true},
+		{"bad avg10 value", "some avg10=notanumber avg60=0.00 avg300=0.00 total=0\n", 0, true},
+	}
+	for _, c := range cases {
+		got, err := ParsePSI(c.raw)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("%s: ParsePSI(%q) = %v, want error", c.name, c.raw, got)
+			}
+			continue
+		}
+		if err != nil || got != c.want {
+			t.Errorf("%s: ParsePSI(%q) = (%v,%v), want (%v,nil)", c.name, c.raw, got, err, c.want)
+		}
+	}
+}
