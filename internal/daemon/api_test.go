@@ -236,6 +236,16 @@ func (f *fakeStore) UpdatePermissionMode(_ context.Context, id string, mode stri
 	s.PermissionMode = mode
 	return nil
 }
+func (f *fakeStore) UpdateRole(_ context.Context, id string, role string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	s.Role = role
+	return nil
+}
 
 func testServer(t *testing.T, fs *fakeStore) *httptest.Server {
 	t.Helper()
