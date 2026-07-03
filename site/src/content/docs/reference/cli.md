@@ -696,7 +696,7 @@ Flags:
       --raw    print the file verbatim instead of the rendered view
 ```
 
-**CLI-local** (like `wd check` / `wd review`): reads/writes `.warden/memory.md` directly, no daemon round-trip. The curated file is **projected into every spawned agent** via `memory_inject` (default on), and warden can **auto-propose** entries from completion digests via `memory_curate` (default off; proposals are `unverified` and written to the working tree only, never committed). See the [Project memory](/warden/concepts/project-memory/) concept.
+**CLI-local** (like `wd check` / `wd review`): reads/writes `.warden/memory.md` directly, no daemon round-trip. The curated file is **projected into every spawned agent** via `memory_inject` (default on), and warden can **auto-propose** entries from completion digests via `memory_curate` (default off; proposals are `unverified` and written to the working tree only, never committed). In `wd repl` you can also **ask** it a question locally — `/memory <q>` or the `project_memory` tool — served on the local model at `$0` via `memory_ground` (default on; read-only, cites trust + provenance). See the [Project memory](/warden/concepts/project-memory/) concept.
 
 ## warden collab
 
@@ -868,8 +868,12 @@ Aliases: interactive, i.
 A real line editor (arrow keys, persisted history, reverse-search, a live `/`
 menu that filters as you type, Tab completion) that closes with Ctrl-D. Drive it
 with deterministic `/` commands (no model:
-/agents, /spawn <prompt>, /tell <id> <text>, … — type /help) or with natural
-language (planned by the local LLM, each call confirmed).
+/agents, /spawn <prompt>, /tell <id> <text>, /memory <question>, … — type /help)
+or with natural language (planned by the local LLM, each call confirmed).
+
+Ask project questions locally: /memory <question> (aliases /mem, /ask), or the
+`project_memory` tool, answers "where does X live?" from .warden/memory.md on the
+local model at $0 (config `memory_ground`, default on).
 
 Guided argument forms: when a `/` command needs more than you typed, warden
 collects the arguments interactively — a numbered pick-list for fields with a

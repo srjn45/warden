@@ -610,6 +610,17 @@ flagged stale. It prefers the `$0` local model. See the
 [Project memory](https://srjn45.github.io/warden/concepts/project-memory/) concept
 page.
 
+In `warden repl` you can also **ask** this memory a question — `/memory <q>` (`/mem`,
+`/ask`), or the model-callable `project_memory` tool — and warden answers "where does
+X live?" / "how do I run Y?" **locally** from `.warden/memory.md` (config-gated by
+`memory_ground`, default on). Unlike projection (which *adds* input tokens), grounding
+*removes* a cloud round-trip: it is served on the **local model only**, so it is
+structurally `$0` and never escalates to a paid model; with no local model configured
+it degrades to returning the matching entries verbatim. It is read-only (an
+absent/empty file answers "not in project memory", never auto-created) and cites each
+entry's trust (`unverified`/`trusted`/`human`) + provenance so a stale hint reads as a
+hint.
+
 ```sh
 warden memory                       # path + the rendered view injected into agents
 warden memory --raw                 # the file verbatim

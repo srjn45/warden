@@ -787,6 +787,7 @@ func TestConfigImplementsProviderAccessors(t *testing.T) {
 	require.Equal(t, "claude-sonnet-4-6", c.GetModelDefault())
 	require.True(t, c.GetPipelineHint())
 	require.True(t, c.GetMemoryInject())
+	require.True(t, c.GetMemoryGround())
 	require.True(t, c.GetIsolationGuard())
 	require.True(t, c.GetGitConventions())
 	require.True(t, c.GetRootGuard())

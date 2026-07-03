@@ -128,6 +128,7 @@ type Config struct {
 	CollabHint             bool          `yaml:"collab_hint"`
 	MemoryInject           bool          `yaml:"memory_inject"`
 	MemoryCurate           bool          `yaml:"memory_curate"`
+	MemoryGround           bool          `yaml:"memory_ground"`
 	BranchTrackEnabled     bool          `yaml:"branch_track_enabled"`
 	BranchTrackInterval    string        `yaml:"branch_track_interval"`
 	Snapshots              bool          `yaml:"snapshots"`
@@ -196,6 +197,7 @@ var schema = []setting{
 	{"collab_hint", "Append the conflict-check hint to spawned agents so they coordinate on shared files. Values: true | false"},
 	{"memory_inject", "Project the repo's curated .warden/memory.md (durable cross-agent facts) into every spawned agent via its system-prompt seam (Claude: --append-system-prompt; other backends: their AGENTS.md/CRUSH.md/.goosehints warden block). Off or an empty/absent memory file is byte-identical to no injection. Values: true | false"},
 	{"memory_curate", "Auto-propose durable memory entries from completion digests into .warden/memory.md (#53 PR-2). On agent/job completion a debounced, extraction-not-dump pass writes UNVERIFIED, timestamped, provenance-tagged proposals to the WORKING TREE ONLY — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to trusted only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Prefers the $0 local model (local_llm), degrading to headless claude -p only when configured. Default OFF (opt-in). Values: true | false"},
+	{"memory_ground", "Answer project questions (\"where does X live?\", \"how do I run Y?\") locally in `wd repl` from the repo's .warden/memory.md (#53 PR-3), via the project_memory tool and the /memory command. Served on the LOCAL model only (local_llm) — it REMOVES cloud round-trips rather than adding tokens, so it is default ON. Read-only: it never creates or writes memory (an absent/empty file answers \"not in project memory\"). With no local model configured it degrades to returning the matching entries verbatim ($0), never escalating to a paid model. Answers cite each entry's trust (unverified/trusted/human) and provenance so a stale hint reads as a hint. Values: true | false"},
 	{"branch_track_enabled", "Monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts. Values: true | false"},
 	{"branch_track_interval", "Branch-tracker scan interval. Values: Go duration (e.g. 2m, 5m)"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
@@ -257,6 +259,7 @@ func defaults() Config {
 		CollabHint:             true,
 		MemoryInject:           true,
 		MemoryCurate:           false, // opt-in: the risky half (proposals gated by the committed diff)
+		MemoryGround:           true,  // $0 local-only lever: it only REMOVES cloud round-trips
 		BranchTrackEnabled:     false,
 		BranchTrackInterval:    "2m",
 		Snapshots:              true,
@@ -1024,6 +1027,12 @@ func (c Config) GetMemoryInject() bool { return c.MemoryInject }
 // risky half — it proposes UNVERIFIED entries into the working tree only, gated by
 // the committed diff, and never commits or pushes.
 func (c Config) GetMemoryCurate() bool { return c.MemoryCurate }
+
+// GetMemoryGround reports whether `wd repl` answers project questions locally from
+// .warden/memory.md (#53 PR-3). Default on: it is the token-REMOVING lever (serves
+// "where does X live?" from the local model, no cloud call), read-only, and degrades
+// to the raw matching entries when no local model is configured.
+func (c Config) GetMemoryGround() bool { return c.MemoryGround }
 
 // GetGitConventions reports whether the git-conventions hint (steer agents to
 // wd commit/push/sync over raw git Bash) is appended to spawned agents.
