@@ -111,13 +111,16 @@ aurs:
 # HOMEBREW_TAP_TOKEN secret (a PAT with write access to srjn45/homebrew-tap) —
 # absent, the cask is generated into dist/ but not pushed. The post-install
 # hook clears Gatekeeper quarantine, since release binaries are not notarized.
+# NOTE: repository.token must be a BARE `{{ .Env.VAR }}` — goreleaser validates
+# this field and rejects any conditional/plain-text interpolation. The
+# token-absent case is handled by skip_upload below, not by gating the token.
 homebrew_casks:
   - name: warden
     ids: [warden]
     repository:
       owner: srjn45
       name: homebrew-tap
-      token: '{{ if .Env.HOMEBREW_TAP_TOKEN }}{{ .Env.HOMEBREW_TAP_TOKEN }}{{ end }}'
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Casks
     homepage: https://srjn45.github.io/warden/
     description: "Spawn, monitor, and tear down a fleet of coding agents (worktree isolation, cost tracking, TUI/web cockpit)"
