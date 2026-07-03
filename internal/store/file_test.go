@@ -30,6 +30,16 @@ func newFileStore(t *testing.T) *FileStore {
 	return st
 }
 
+// writeLegacy seeds a legacy per-file JSON record under <dir>/<sub>/<id>.json
+// (sub is "sessions" or "closed"), the read-only format NewFileStore imports on
+// first open. It creates the legacy dir if needed.
+func writeLegacy(t *testing.T, dir, sub string, s *Session) {
+	t.Helper()
+	legacyDir := filepath.Join(dir, sub)
+	require.NoError(t, os.MkdirAll(legacyDir, 0o700))
+	require.NoError(t, atomicWriteJSON(filepath.Join(legacyDir, s.ID+".json"), s))
+}
+
 func TestFileInsertGet(t *testing.T) {
 	ctx := context.Background()
 	st := newFileStore(t)
@@ -123,19 +133,24 @@ func TestFileListSortedByUpdatedDesc(t *testing.T) {
 	require.Equal(t, "agent-aaaa", list[0].ID, "most recently updated first")
 }
 
-func TestFileListSkipsCorruptFile(t *testing.T) {
+func TestFileImportSkipsCorruptLegacyFile(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := NewFileStore(dir)
-	require.NoError(t, err)
-	require.NoError(t, st.Insert(ctx, sample()))
-	// Drop a junk .json file into sessions/.
+	// Seed a legacy sessions/ dir with one good record and one junk file BEFORE
+	// the first open, so the corrupt file is exercised on the import path (List
+	// itself now reads the FileDB, which stray files can't corrupt).
+	writeLegacy(t, dir, "sessions", sample())
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sessions", "broken.json"), []byte("{not json"), 0o644))
 
+	st, err := NewFileStore(dir)
+	require.NoError(t, err, "one corrupt legacy file must not fail import")
+	t.Cleanup(func() { _ = st.Close(ctx) })
+
 	list, err := st.List(ctx)
-	require.NoError(t, err, "one corrupt file must not fail List")
-	require.Len(t, list, 1)
+	require.NoError(t, err)
+	require.Len(t, list, 1, "the good legacy record imported; the corrupt one was skipped")
 	require.Equal(t, "PROJ-350", list[0].ID)
+	require.FileExists(t, filepath.Join(dir, importedMarker), "import still writes the sentinel")
 }
 
 func TestFileArchiveRemovesFromActive(t *testing.T) {
@@ -148,7 +163,10 @@ func TestFileArchiveRemovesFromActive(t *testing.T) {
 	require.NoError(t, st.Archive(ctx, "PROJ-350"))
 	_, err = st.Get(ctx, "PROJ-350")
 	require.ErrorIs(t, err, ErrNotFound, "archived session gone from active")
-	require.FileExists(t, filepath.Join(dir, "closed", "PROJ-350.json"))
+	closed, err := st.ListClosed(ctx)
+	require.NoError(t, err)
+	require.Len(t, closed, 1)
+	require.Equal(t, "PROJ-350", closed[0].ID, "archived session lives in the closed collection")
 }
 
 func TestFileInsertAfterArchive(t *testing.T) {
@@ -182,10 +200,10 @@ func TestFileArchiveOverwritesExistingClosed(t *testing.T) {
 	require.NoError(t, st.Insert(ctx, second))
 	require.NoError(t, st.Archive(ctx, "PROJ-350"))
 
-	data, err := os.ReadFile(filepath.Join(dir, "closed", "PROJ-350.json"))
+	closed, err := st.ListClosed(ctx)
 	require.NoError(t, err)
-	require.Contains(t, string(data), "second run")
-	require.NotContains(t, string(data), "first run")
+	require.Len(t, closed, 1, "re-archive overwrites the existing closed record, not appends")
+	require.Equal(t, "second run", closed[0].Subject)
 }
 
 func TestFileDelete(t *testing.T) {
@@ -451,21 +469,19 @@ func TestSetRestart(t *testing.T) {
 	require.Equal(t, StatusErrored, got.Status) // SetRestart must not touch status
 }
 
-func TestNewFileStoreDirsAre0700(t *testing.T) {
+func TestNewFileStoreDbDirIs0700(t *testing.T) {
 	dir := t.TempDir()
 	fs, err := NewFileStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer fs.Close(context.Background())
-	for _, sub := range []string{"sessions", "closed"} {
-		info, err := os.Stat(filepath.Join(dir, sub))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm() != 0o700 {
-			t.Fatalf("%s mode = %o, want 700", sub, info.Mode().Perm())
-		}
+	info, err := os.Stat(filepath.Join(dir, "sessions-db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("sessions-db mode = %o, want 700", info.Mode().Perm())
 	}
 }
 

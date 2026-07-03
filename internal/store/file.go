@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/srjn45/filedbv2/engine"
+	"github.com/srjn45/filedbv2/filedb"
+	"github.com/srjn45/filedbv2/query"
 )
 
 // ErrBadID is returned when a session id contains path separators or "..".
@@ -43,41 +48,110 @@ func safeSessionRef(ref string) error {
 	return nil
 }
 
-// FileStore persists each session as one pretty-printed JSON file under
-// <dir>/sessions/<id>.json. Archived sessions move to <dir>/closed/<id>.json.
-// The daemon is the only holder; an RWMutex serializes its concurrent callers
-// (HTTP handlers, poller, classify goroutine). Writes go through a temp file +
-// rename, so a concurrent reader never observes a partially written file. (This
-// guards torn reads, not power-loss durability — the store is not fsync'd; for a
-// localhost session store the last write surviving a crash is not a requirement.)
+// FileStore persists sessions in an embedded FileDB (github.com/srjn45/filedbv2)
+// rooted at <dir>/sessions-db/: live sessions in an "active" collection and
+// archived ones in a "closed" collection, each record keyed by the session id.
+// A write appends one record instead of rewriting a whole per-session JSON file
+// (the write-amplification the previous FileStore carried). The collections are
+// opened with SyncModeNone: like the previous implementation this is a localhost
+// session store, so the last write surviving a power-loss is not a requirement
+// (append-only segments rule out torn reads regardless).
+//
+// The daemon is the only holder. A single mutex serialises the compound
+// read-modify-write methods (Insert's uniqueness scan + write, Update/mutate,
+// UpdateStatusIf, FinalizeExit, Archive), mirroring mailbox; FileDB does its own
+// per-collection locking, so the store mutex only guards the read-then-write
+// critical sections. Read-only methods take it too for a behaviour-identical
+// faithful port of the previous RWMutex model.
 type FileStore struct {
-	mu       sync.RWMutex
-	dir      string
-	sessions string
-	closed   string
+	mu     sync.Mutex
+	db     *filedb.DB
+	active *engine.Collection
+	closed *engine.Collection
 }
 
-// NewFileStore creates the data dir layout and returns a ready store.
+// importedMarker names the sentinel written (last) once the one-time legacy-JSON
+// import into the FileDB collections has completed. Its presence means the
+// FileDB is authoritative and no re-import runs; its absence means the import
+// never finished, so the next open wipes the (derived) sessions-db and retries
+// from the intact legacy JSON. See NewFileStore / importLegacy.
+const importedMarker = ".sessions-filedb-imported"
+
+// NewFileStore opens (creating if needed) the FileDB-backed session store rooted
+// at <dir>/sessions-db/ and, on first open, imports any legacy <dir>/sessions/
+// and <dir>/closed/ JSON into it (subsuming the old provenance backfill). The
+// import is guarded by importedMarker and is directory-atomic: if the sentinel
+// is absent (never imported, or a prior attempt died partway) the derived
+// sessions-db is wiped and rebuilt from the read-only legacy JSON, then the
+// sentinel is written LAST — so a crash mid-import loses nothing.
 func NewFileStore(dir string) (*FileStore, error) {
-	fs := &FileStore{
-		dir:      dir,
-		sessions: filepath.Join(dir, "sessions"),
-		closed:   filepath.Join(dir, "closed"),
-	}
-	if err := os.MkdirAll(fs.sessions, 0o700); err != nil {
+	dbDir := filepath.Join(dir, "sessions-db")
+	sentinel := filepath.Join(dir, importedMarker)
+
+	imported, err := fileExists(sentinel)
+	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(fs.closed, 0o700); err != nil {
+	if !imported {
+		// Wipe any partial/failed prior attempt so the import starts from a clean
+		// slate (a half-loaded collection would abort LoadJSONL on ErrDuplicateKey).
+		// Safe: sessions-db holds nothing not reproducible from the legacy JSON
+		// until the sentinel says the import finished.
+		if err := os.RemoveAll(dbDir); err != nil {
+			return nil, err
+		}
+	}
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := fs.migrateProvenance(); err != nil {
+
+	db, err := filedb.Open(dbDir, filedb.WithSyncMode(engine.SyncModeNone))
+	if err != nil {
 		return nil, err
+	}
+	active, err := db.Collection("active")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	closed, err := db.Collection("closed")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	fs := &FileStore{db: db, active: active, closed: closed}
+
+	if !imported {
+		if err := importLegacy(dir, active, closed); err != nil {
+			db.Close()
+			return nil, err
+		}
+		// Sentinel LAST: only now is the FileDB authoritative.
+		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	return fs, nil
 }
 
-// provenanceMarker names the sentinel that records the one-shot provenance
-// backfill has run, so it never re-touches records written after the migration.
+// fileExists reports whether path exists, distinguishing a genuine stat error
+// from a plain not-exist.
+func fileExists(path string) (bool, error) {
+	if _, err := os.Stat(path); err == nil {
+		return true, nil
+	} else if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else {
+		return false, err
+	}
+}
+
+// provenanceMarker names the sentinel the OLD FileStore wrote once its one-shot
+// provenance backfill had run. It is now read-only INPUT to the importer: if it
+// is present the legacy JSON already carries explicit provenance flags (import
+// them verbatim, no re-backfill); if absent, the importer backfills during
+// import. The old marker is never written anymore and can be left on disk.
 const provenanceMarker = ".provenance-migrated"
 
 // backfillProvenance infers created/adopted provenance for a legacy record that
@@ -91,46 +165,85 @@ func backfillProvenance(s *Session) {
 	s.BranchCreated = s.Branch != "" && s.Branch == s.ID
 }
 
-// migrateProvenance backfills the provenance flags onto every pre-existing
-// active and archived record exactly once (guarded by a sentinel file), then
-// rewrites them. Running before the daemon serves any request, it needs no lock.
-// Records written after the marker exists keep the explicit flags spawn records,
-// so a legitimately-adopted (WorktreeCreated=false) record is never clobbered.
-func (fs *FileStore) migrateProvenance() error {
-	marker := filepath.Join(fs.dir, provenanceMarker)
-	if _, err := os.Stat(marker); err == nil {
-		return nil // already migrated
-	} else if !errors.Is(err, os.ErrNotExist) {
+// importLegacy performs the one-time import of the legacy per-file JSON into the
+// FileDB collections, folding the old provenance backfill into the same pass.
+// Each legacy dir is decoded file-by-file (skip+warn on corrupt/unsafe-id,
+// matching the old listDir), then loaded into its collection with LoadJSONL,
+// which is atomic per collection (all-or-nothing). A missing legacy dir (fresh
+// install) is simply an empty import.
+func importLegacy(dir string, active, closed *engine.Collection) error {
+	// Did the old code already backfill explicit provenance flags into the legacy
+	// JSON? If so, import them verbatim so an adopted (WorktreeCreated=false)
+	// record is never clobbered; otherwise infer them now.
+	provDone, err := fileExists(filepath.Join(dir, provenanceMarker))
+	if err != nil {
 		return err
 	}
-	for _, dir := range []string{fs.sessions, fs.closed} {
-		entries, err := os.ReadDir(dir)
+	srcs := []struct {
+		dir string
+		col *engine.Collection
+	}{
+		{filepath.Join(dir, "sessions"), active},
+		{filepath.Join(dir, "closed"), closed},
+	}
+	for _, src := range srcs {
+		buf, err := legacyNDJSON(src.dir, provDone)
 		if err != nil {
 			return err
 		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-				continue
-			}
-			path := filepath.Join(dir, e.Name())
-			s, err := readSession(path)
-			if err != nil {
-				slog.Warn("filestore: provenance migration skipping unreadable session", "file", e.Name(), "err", err)
-				continue
-			}
-			backfillProvenance(s)
-			if err := atomicWriteJSON(path, s); err != nil {
-				return err
-			}
+		if buf.Len() == 0 {
+			continue // no legacy dir, or no readable records
+		}
+		if _, err := src.col.LoadJSONL(&buf, "id"); err != nil {
+			return err
 		}
 	}
-	return os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
+	return nil
+}
+
+// legacyNDJSON decodes every *.json in srcDir individually and returns the good
+// records as an NDJSON buffer (one Session per line, keyed by "id"). Corrupt or
+// unsafe-id files are skipped with a warning — a bad file never blocks the
+// upgrade — so the batch handed to LoadJSONL is always parseable and its
+// all-or-nothing guarantee then protects only against a write-side failure. When
+// provDone is false the provenance flags are backfilled during this pass.
+func legacyNDJSON(srcDir string, provDone bool) (bytes.Buffer, error) {
+	var buf bytes.Buffer
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return buf, nil // no legacy dir → nothing to import
+		}
+		return buf, err
+	}
+	enc := json.NewEncoder(&buf) // Encode writes one compact JSON line + newline
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue // skips .tmp-* temp files too
+		}
+		s, err := readSession(filepath.Join(srcDir, e.Name()))
+		if err != nil {
+			slog.Warn("filestore: import skipping unreadable legacy session", "file", e.Name(), "err", err)
+			continue
+		}
+		if err := safeID(s.ID); err != nil {
+			slog.Warn("filestore: import skipping legacy session with unsafe id", "file", e.Name(), "id", s.ID)
+			continue
+		}
+		if !provDone {
+			backfillProvenance(s)
+		}
+		if err := enc.Encode(s); err != nil {
+			return buf, err
+		}
+	}
+	return buf, nil
 }
 
 func safeID(id string) error {
-	// "/" and "\" plus ".." guard against path traversal (the id is a filename
-	// component); ":" is a tmux target separator (session:window) that would
-	// silently break `tmux -t <id>` targeting.
+	// "/" and "\" plus ".." guard against path traversal (the id was a filename
+	// component historically and is a tmux target now); ":" is a tmux target
+	// separator (session:window) that would silently break `tmux -t <id>`.
 	if id == "" || strings.ContainsAny(id, `/\:`) || strings.Contains(id, "..") {
 		return ErrBadID
 	}
@@ -140,9 +253,6 @@ func safeID(id string) error {
 // SafeID reports whether id is a valid session id (no path separators or "..").
 // Exported for callers that validate a candidate id before insert (e.g. adopt).
 func SafeID(id string) error { return safeID(id) }
-
-func (fs *FileStore) activePath(id string) string { return filepath.Join(fs.sessions, id+".json") }
-func (fs *FileStore) closedPath(id string) string { return filepath.Join(fs.closed, id+".json") }
 
 var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
 
@@ -159,7 +269,8 @@ func ValidateName(name string) error {
 }
 
 // atomicWriteJSON marshals v and writes it to path via a temp file + rename, so
-// readers never observe a partial file.
+// readers never observe a partial file. Retained for tests that seed legacy JSON
+// files; the store's own writes go through the FileDB collections.
 func atomicWriteJSON(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -182,7 +293,7 @@ func atomicWriteJSON(path string, v any) error {
 }
 
 // readSession loads and decodes a session file, mapping a missing file to
-// ErrNotFound.
+// ErrNotFound. It backs the legacy-JSON importer and is fuzz-tested.
 func readSession(path string) (*Session, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -198,21 +309,66 @@ func readSession(path string) (*Session, error) {
 	return &s, nil
 }
 
-// listDir reads every session JSON in dir, newest-updated first. It is the
-// shared body of List (active) and ListClosed (archived).
-func listDir(dir string) ([]*Session, error) {
-	entries, err := os.ReadDir(dir)
+// toRecord decomposes a Session into a FileDB record body via a JSON round-trip,
+// so its fields stay real in the store (indexable in future) rather than an
+// opaque blob. Always round-trip through JSON — never read typed business logic
+// off the raw map — because a map[string]any returns numbers as float64, times
+// as strings, etc.; the JSON round-trip through Session's own tags is lossless.
+// The engine stamps the reserved _key on InsertWithKey/Upsert/UpdateByKey, so it
+// must NOT be present here.
+func toRecord(s *Session) (map[string]any, error) {
+	b, err := json.Marshal(s)
 	if err != nil {
 		return nil, err
 	}
-	var out []*Session
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-			continue // skips .tmp-* temp files too
-		}
-		s, err := readSession(filepath.Join(dir, e.Name()))
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// fromRecord reconstructs a Session from a record body. The reserved _key the
+// engine stamped into the map is harmlessly dropped on unmarshal (Session has no
+// _key json tag).
+func fromRecord(d map[string]any) (*Session, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+	var s Session
+	if err := json.Unmarshal(b, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// getFrom reads the session keyed id from col, mapping a key miss to ErrNotFound.
+func getFrom(col *engine.Collection, id string) (*Session, error) {
+	r, err := col.GetByKey(id)
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return fromRecord(r.Data)
+}
+
+// scanAll returns every session in col, newest-updated first. An undecodable
+// record is skipped with a warning rather than failing the whole scan (matching
+// the old listDir's corrupt-file tolerance).
+func scanAll(col *engine.Collection) ([]*Session, error) {
+	results, err := col.Scan(query.MatchAll)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Session, 0, len(results))
+	for _, r := range results {
+		s, err := fromRecord(r.Data)
 		if err != nil {
-			slog.Warn("filestore: skipping unreadable session", "file", e.Name(), "err", err)
+			key, _ := r.Data[engine.KeyField].(string)
+			slog.Warn("filestore: skipping undecodable session record", "key", key, "err", err)
 			continue
 		}
 		out = append(out, s)
@@ -221,10 +377,15 @@ func listDir(dir string) ([]*Session, error) {
 	return out, nil
 }
 
-// listLocked reads all active sessions without acquiring a lock. The caller must
-// hold fs.mu (read or write).
-func (fs *FileStore) listLocked(ctx context.Context) ([]*Session, error) {
-	return listDir(fs.sessions)
+// writeActive persists s back into the active collection (whole-record atomic
+// update). The caller must hold fs.mu and have confirmed the record exists.
+func (fs *FileStore) writeActive(s *Session) error {
+	rec, err := toRecord(s)
+	if err != nil {
+		return err
+	}
+	_, err = fs.active.UpdateByKey(s.ID, rec)
+	return err
 }
 
 func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
@@ -244,9 +405,11 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	// Check name uniqueness INSIDE lock to prevent race condition
+	// Check name uniqueness INSIDE lock to prevent race condition. It stays an
+	// O(n) active scan (as the old listLocked loop); a name unique-index is a
+	// documented future optimization.
 	if s.Name != "" {
-		sessions, err := fs.listLocked(ctx)
+		sessions, err := scanAll(fs.active)
 		if err != nil {
 			return err
 		}
@@ -257,11 +420,12 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 		}
 	}
 
-	path := fs.activePath(s.ID)
-	if _, err := os.Stat(path); err == nil {
-		return ErrExists
-	} else if !errors.Is(err, os.ErrNotExist) {
+	exists, err := fs.active.Exists(s.ID)
+	if err != nil {
 		return err
+	}
+	if exists {
+		return ErrExists
 	}
 	now := time.Now().UTC()
 	if s.CreatedAt.IsZero() {
@@ -271,16 +435,26 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 	if s.Events == nil {
 		s.Events = []Event{}
 	}
-	return atomicWriteJSON(path, s)
+	rec, err := toRecord(s)
+	if err != nil {
+		return err
+	}
+	if _, _, err := fs.active.InsertWithKey(s.ID, rec); err != nil {
+		if errors.Is(err, engine.ErrDuplicateKey) {
+			return ErrExists
+		}
+		return err
+	}
+	return nil
 }
 
 func (fs *FileStore) Get(ctx context.Context, id string) (*Session, error) {
 	if err := safeID(id); err != nil {
 		return nil, err
 	}
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
-	return readSession(fs.activePath(id))
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return getFrom(fs.active, id)
 }
 
 func (fs *FileStore) GetByNameOrID(ctx context.Context, nameOrID string) (*Session, error) {
@@ -288,11 +462,11 @@ func (fs *FileStore) GetByNameOrID(ctx context.Context, nameOrID string) (*Sessi
 		return nil, err
 	}
 
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
 
 	// First pass: scan for exact name match
-	sessions, err := fs.listLocked(ctx)
+	sessions, err := scanAll(fs.active)
 	if err != nil {
 		return nil, err
 	}
@@ -303,26 +477,26 @@ func (fs *FileStore) GetByNameOrID(ctx context.Context, nameOrID string) (*Sessi
 	}
 
 	// Second pass: fall back to ID lookup
-	return readSession(fs.activePath(nameOrID))
+	return getFrom(fs.active, nameOrID)
 }
 
 func (fs *FileStore) List(ctx context.Context) ([]*Session, error) {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
-	return fs.listLocked(ctx)
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return scanAll(fs.active)
 }
 
 // ListClosed returns all archived (closed) sessions, newest-updated first.
 func (fs *FileStore) ListClosed(ctx context.Context) ([]*Session, error) {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
-	return listDir(fs.closed)
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return scanAll(fs.closed)
 }
 
 // Update is the general transactional read-modify-write primitive (see the Store
 // interface doc): it loads the active session, applies fn, and — unless fn
 // returns an error, which aborts leaving the stored session untouched — bumps
-// UpdatedAt and writes it back atomically under the write lock. mutate and the
+// UpdatedAt and writes it back atomically under the store lock. mutate and the
 // remaining narrow setters funnel through here, so there is one CAS-safe
 // read-modify-write path.
 func (fs *FileStore) Update(ctx context.Context, id string, fn func(s *Session) error) error {
@@ -331,7 +505,7 @@ func (fs *FileStore) Update(ctx context.Context, id string, fn func(s *Session) 
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	s, err := readSession(fs.activePath(id))
+	s, err := getFrom(fs.active, id)
 	if err != nil {
 		return err
 	}
@@ -339,12 +513,12 @@ func (fs *FileStore) Update(ctx context.Context, id string, fn func(s *Session) 
 		return err
 	}
 	s.UpdatedAt = time.Now().UTC()
-	return atomicWriteJSON(fs.activePath(id), s)
+	return fs.writeActive(s)
 }
 
 // mutate is the infallible-fn convenience over Update, for the narrow setters
 // that can never fail their mutation. It runs the read-check-write under the
-// write lock.
+// store lock.
 func (fs *FileStore) mutate(id string, fn func(*Session)) error {
 	return fs.Update(context.Background(), id, func(s *Session) error {
 		fn(s)
@@ -365,7 +539,7 @@ func (fs *FileStore) UpdateStatusIf(ctx context.Context, id string, expected, ne
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	s, err := readSession(fs.activePath(id))
+	s, err := getFrom(fs.active, id)
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
 	}
@@ -377,7 +551,7 @@ func (fs *FileStore) UpdateStatusIf(ctx context.Context, id string, expected, ne
 	}
 	s.Status = next
 	s.UpdatedAt = time.Now().UTC()
-	if err := atomicWriteJSON(fs.activePath(id), s); err != nil {
+	if err := fs.writeActive(s); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -391,7 +565,7 @@ func (fs *FileStore) FinalizeExit(ctx context.Context, id string, expected, next
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	s, err := readSession(fs.activePath(id))
+	s, err := getFrom(fs.active, id)
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
 	}
@@ -413,7 +587,7 @@ func (fs *FileStore) FinalizeExit(ctx context.Context, id string, expected, next
 		})
 	}
 	s.UpdatedAt = now
-	if err := atomicWriteJSON(fs.activePath(id), s); err != nil {
+	if err := fs.writeActive(s); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -579,24 +753,31 @@ func (fs *FileStore) AppendEventStatus(ctx context.Context, id string, ev Event,
 // Compile-time check that FileStore satisfies the full Store interface.
 var _ Store = (*FileStore)(nil)
 
-// Archive moves the session to closed/<id>.json (soft delete). It writes the
-// closed copy first and removes the active file second, so a crash between the
+// Archive moves the session to the closed collection (soft delete). It writes the
+// closed copy first and removes the active record second, so a crash between the
 // two leaves the session recoverable in active, never lost (at worst it appears
-// in both). An existing closed/<id>.json for the same id is overwritten.
+// in both). An existing closed record for the same id is overwritten (Upsert).
 func (fs *FileStore) Archive(ctx context.Context, id string) error {
 	if err := safeID(id); err != nil {
 		return err
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	s, err := readSession(fs.activePath(id))
+	s, err := getFrom(fs.active, id)
 	if err != nil {
 		return err
 	}
-	if err := atomicWriteJSON(fs.closedPath(id), s); err != nil {
+	rec, err := toRecord(s)
+	if err != nil {
 		return err
 	}
-	return os.Remove(fs.activePath(id))
+	if _, err := fs.closed.Upsert(id, rec); err != nil {
+		return err
+	}
+	if err := fs.active.DeleteByKey(id); err != nil && !errors.Is(err, engine.ErrKeyNotFound) {
+		return err
+	}
+	return nil
 }
 
 func (fs *FileStore) Delete(ctx context.Context, id string) error {
@@ -605,22 +786,20 @@ func (fs *FileStore) Delete(ctx context.Context, id string) error {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	err := os.Remove(fs.activePath(id))
-	if errors.Is(err, os.ErrNotExist) {
+	err := fs.active.DeleteByKey(id)
+	if errors.Is(err, engine.ErrKeyNotFound) {
 		return ErrNotFound
 	}
 	return err
 }
 
 func (fs *FileStore) Ping(ctx context.Context) error {
-	info, err := os.Stat(fs.sessions)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("filestore: %s is not a directory", fs.sessions)
-	}
-	return nil
+	// A cheap liveness check on the active collection (its index read) stands in
+	// for the old sessions/ dir-stat.
+	_, err := fs.active.Count(query.MatchAll)
+	return err
 }
 
-func (fs *FileStore) Close(ctx context.Context) error { return nil }
+// Close flushes the FileDB index and stops its background compaction goroutine.
+// The daemon defers it on shutdown. (The old FileStore.Close was a no-op.)
+func (fs *FileStore) Close(ctx context.Context) error { return fs.db.Close() }
