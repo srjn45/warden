@@ -87,7 +87,8 @@ type gitCommitArgs struct {
 	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit; defaults to the current directory"`
 }
 type gitPushArgs struct {
-	Dir string `json:"dir,omitempty" jsonschema:"worktree to push; defaults to the current directory"`
+	Dir   string `json:"dir,omitempty" jsonschema:"worktree to push; defaults to the current directory"`
+	Force bool   `json:"force,omitempty" jsonschema:"push with --force-with-lease after a rebase or amend — overwrites your own remote branch but aborts if a teammate pushed to it since your last fetch"`
 }
 type gitSyncArgs struct {
 	Base string `json:"base,omitempty" jsonschema:"base branch to rebase onto; defaults to main"`
@@ -351,9 +352,9 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "push",
-		Description: "Push the current worktree branch to origin (sets upstream). warden refuses to push protected branches (main/master) directly — push your agent branch and open a PR. Returns {branch, remote, pushed}.",
+		Description: "Push the current worktree branch to origin (sets upstream). warden refuses to push protected branches (main/master) directly — push your agent branch and open a PR. Pass force=true to push with --force-with-lease after a rebase or amend (safe force: overwrites your own remote branch, aborts if a teammate pushed since your last fetch). Returns {branch, remote, pushed, forced}.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitPushArgs) (*mcpsdk.CallToolResult, any, error) {
-		res, err := s.cl.GitPush(ctx, sessionID(), mcpDir(a.Dir))
+		res, err := s.cl.GitPush(ctx, sessionID(), mcpDir(a.Dir), a.Force)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

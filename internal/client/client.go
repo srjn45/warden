@@ -439,10 +439,11 @@ func (c *Client) GitCommit(ctx context.Context, session, dir, message string) (l
 }
 
 // GitPush pushes dir's current branch to origin (protected-branch refusal).
-// Uses longTimeout — push is a network round-trip.
-func (c *Client) GitPush(ctx context.Context, session, dir string) (lifecycle.PushResult, error) {
+// force sends git push --force-with-lease. Uses longTimeout — push is a network
+// round-trip.
+func (c *Client) GitPush(ctx context.Context, session, dir string, force bool) (lifecycle.PushResult, error) {
 	var res lifecycle.PushResult
-	body := map[string]string{"session": session, "dir": dir}
+	body := map[string]any{"session": session, "dir": dir, "force": force}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/git/push", body, &res); err != nil {
 		return lifecycle.PushResult{}, err
 	}

@@ -13,6 +13,7 @@ All four are CLI commands **and** MCP tools, and all take `--json`. They run on 
 warden commit -m "fix: handle nil token"   # stage + commit the whole worktree
 warden commit                              # …or let warden write the message
 warden push                                # push the branch to origin (sets upstream)
+warden push --force-with-lease             # …after a rebase/amend (safe force)
 warden sync --base main                    # fetch + rebase onto origin/main
 warden check                               # run every configured check
 warden check test                          # run one (test / lint / build / …)
@@ -22,7 +23,8 @@ warden check test                          # run one (test / lint / build / …)
 
 The verbs refuse the mistakes a raw git session makes:
 
-- **No commits or pushes on `main`/`master`** — push your agent branch and open a PR.
+- **No commits or pushes on `main`/`master`** — push your agent branch and open a PR (this holds even for `--force-with-lease`).
+- **Force pushes use `--force-with-lease` only** — `warden push --force-with-lease` overwrites your own remote branch after a rebase/amend but aborts if a teammate pushed to it since your last fetch; warden never issues a bare `git push --force`.
 - **`sync` refuses a dirty tree** (commit first) and, on conflict, leaves the rebase in progress reporting *only* the conflicting files.
 - **Pre-commit hooks run**, and a hook failure comes back as a structured result instead of a wall of output.
 - **Each action is linked to the agent** for the audit trail.

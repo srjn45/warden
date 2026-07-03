@@ -109,7 +109,7 @@ func (f *fakeDaemon) GitCommit(context.Context, string, string, string) (lifecyc
 	f.commitCalls++
 	return lifecycle.CommitResult{}, nil
 }
-func (f *fakeDaemon) GitPush(context.Context, string, string) (lifecycle.PushResult, error) {
+func (f *fakeDaemon) GitPush(context.Context, string, string, bool) (lifecycle.PushResult, error) {
 	f.pushCalls++
 	return lifecycle.PushResult{}, nil
 }

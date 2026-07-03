@@ -42,7 +42,7 @@ type Daemon interface {
 	Restore(ctx context.Context, id string) error
 	Approve(ctx context.Context, id string, option int, fingerprint string) error
 	GitCommit(ctx context.Context, session, dir, message string) (lifecycle.CommitResult, error)
-	GitPush(ctx context.Context, session, dir string) (lifecycle.PushResult, error)
+	GitPush(ctx context.Context, session, dir string, force bool) (lifecycle.PushResult, error)
 	GitSync(ctx context.Context, session, dir, base string) (lifecycle.SyncResult, error)
 	Check(ctx context.Context, session, dir, name string) (lifecycle.CheckResult, error)
 	CtxSet(ctx context.Context, key, value, by string) (client.ContextEntry, error)

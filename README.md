@@ -1026,11 +1026,12 @@ First-class, deterministic commands that move git and test/lint/build work off t
 warden commit            # stage + commit the agent's worktree (message auto-filled if omitted)
 warden commit -m "fix: …"
 warden push              # push the worktree's branch
+warden push --force-with-lease  # safe force after a rebase/amend
 warden sync              # rebase-sync against the upstream (refuses on a dirty tree)
 warden check [name]      # run the project's .warden/check.yml checks; reports only failures
 ```
 
-Rails: no commit/push on `main`/`master`, no dirty-tree sync, pre-commit-hook failures surfaced as a result. All four are also MCP tools.
+Rails: no commit/push on `main`/`master`, no dirty-tree sync, pre-commit-hook failures surfaced as a result. Force pushes are always `--force-with-lease` (never a bare `--force`), so a rebased branch can't clobber a teammate's push. All four are also MCP tools.
 
 ### Agent-native superpowers — `warden review` / `warden models`
 
@@ -1387,7 +1388,7 @@ Once registered, the orchestrator session can call these tools directly:
 | `ctx_set` / `ctx_get` / `ctx_list` / `ctx_cas` / `ctx_append` | Read/write the shared-context key/value blackboard agents collaborate through (with compare-and-swap and append) |
 | `send_message` / `read_inbox` / `wait_for_message` | Send a directed message to an agent (wakes it if parked) / read this agent's inbox / block until a message arrives |
 | `list_approvals` / `approve` | List recognized pending tool-permission prompts / answer one by option number |
-| `commit` / `push` / `sync` | Git lifecycle on the agent's pinned worktree (staged commit with auto-message, push, rebase-sync) returning compact structs instead of raw git output |
+| `commit` / `push` / `sync` | Git lifecycle on the agent's pinned worktree (staged commit with auto-message, push — `force` uses `--force-with-lease`, rebase-sync) returning compact structs instead of raw git output |
 | `check` | Run the project's `.warden/check.yml` checks, returning pass/fail with output for only the failing ones |
 | `get_collaboration_status` / `who_is_editing_file` | File-conflict view across the fleet / who (if anyone) is editing a given file |
 | `create_pipeline` / `start_pipeline` / `show_pipeline` / `list_pipelines` / `cancel_pipeline` | Drive a DAG pipeline — create from a YAML spec, start entry jobs, inspect, list, cancel |

@@ -680,7 +680,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/GitDirRequest" }
+            schema: { $ref: "#/components/schemas/GitPushRequest" }
       responses:
         "200":
           description: Push result
@@ -2029,6 +2029,13 @@ components:
         session: { type: string, description: "calling agent id ('' = human run); pins to the agent's worktree" }
         dir: { type: string, description: "worktree directory (human fallback)" }
 
+    GitPushRequest:
+      allOf:
+        - $ref: "#/components/schemas/GitDirRequest"
+        - type: object
+          properties:
+            force: { type: boolean, description: "push with --force-with-lease (safe force: overwrites your own rebase/amend, aborts if the remote moved)" }
+
     GitCommitRequest:
       allOf:
         - $ref: "#/components/schemas/GitDirRequest"
@@ -2074,6 +2081,7 @@ components:
         branch: { type: string }
         remote: { type: string }
         pushed: { type: boolean }
+        forced: { type: boolean }
         output: { type: string }
 
     SyncResult:

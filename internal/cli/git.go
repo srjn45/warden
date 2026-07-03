@@ -70,26 +70,35 @@ func newCommitCmd() *cobra.Command {
 
 func newPushCmd() *cobra.Command {
 	var asJSON bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push the current branch to origin (warden rails + bookkeeping)",
 		Long: "Push the current worktree branch to origin, setting upstream.\n\n" +
 			"warden refuses to push protected branches (main/master) directly — push your\n" +
-			"agent branch and open a PR.",
+			"agent branch and open a PR.\n\n" +
+			"Pass --force-with-lease after a rebase or amend to overwrite your remote\n" +
+			"branch. warden only ever uses --force-with-lease (never a bare --force), so\n" +
+			"the push aborts if a teammate pushed to your branch since your last fetch.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, session := gitTarget()
-			res, err := clientFor(cmd).GitPush(context.Background(), session, dir)
+			res, err := clientFor(cmd).GitPush(context.Background(), session, dir, force)
 			if err != nil {
 				return err
 			}
 			if asJSON {
 				return emitJSON(cmd, res)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "pushed %s -> %s\n", res.Branch, res.Remote)
+			if res.Forced {
+				fmt.Fprintf(cmd.OutOrStdout(), "force-pushed (--force-with-lease) %s -> %s\n", res.Branch, res.Remote)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "pushed %s -> %s\n", res.Branch, res.Remote)
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force-with-lease", false, "push with --force-with-lease (safe force after a rebase/amend)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
 	return cmd
 }

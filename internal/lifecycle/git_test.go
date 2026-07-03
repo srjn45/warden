@@ -111,7 +111,7 @@ func TestPushRefusesProtectedBranch(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git rev-parse --abbrev-ref HEAD": {Out: "main\n"},
 	}}
-	_, err := New(fr, &FakeConfig{}).Push(context.Background(), "/wt")
+	_, err := New(fr, &FakeConfig{}).Push(context.Background(), "/wt", false)
 	require.Error(t, err)
 	require.NotContains(t, fr.calledArgs(), []string{"git", "push", "-u", "origin", "main"})
 }
@@ -120,12 +120,35 @@ func TestPushHappyPath(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git rev-parse --abbrev-ref HEAD": {Out: "feature-x\n"},
 	}}
-	res, err := New(fr, &FakeConfig{}).Push(context.Background(), "/wt")
+	res, err := New(fr, &FakeConfig{}).Push(context.Background(), "/wt", false)
 	require.NoError(t, err)
 	require.True(t, res.Pushed)
+	require.False(t, res.Forced)
 	require.Equal(t, "feature-x", res.Branch)
 	require.Equal(t, "origin", res.Remote)
 	require.Contains(t, fr.calledArgs(), []string{"git", "push", "-u", "origin", "feature-x"})
+	require.NotContains(t, fr.calledArgs(), []string{"git", "push", "-u", "--force-with-lease", "origin", "feature-x"})
+}
+
+func TestPushForceWithLease(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git rev-parse --abbrev-ref HEAD": {Out: "feature-x\n"},
+	}}
+	res, err := New(fr, &FakeConfig{}).Push(context.Background(), "/wt", true)
+	require.NoError(t, err)
+	require.True(t, res.Pushed)
+	require.True(t, res.Forced)
+	require.Contains(t, fr.calledArgs(), []string{"git", "push", "-u", "--force-with-lease", "origin", "feature-x"},
+		"force push must use --force-with-lease, never a bare --force")
+}
+
+func TestForcePushStillRefusesProtectedBranch(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git rev-parse --abbrev-ref HEAD": {Out: "main\n"},
+	}}
+	_, err := New(fr, &FakeConfig{}).Push(context.Background(), "/wt", true)
+	require.Error(t, err, "force does not bypass the protected-branch rail")
+	require.NotContains(t, fr.calledArgs(), []string{"git", "push", "-u", "--force-with-lease", "origin", "main"})
 }
 
 func TestSyncRefusesDirtyTree(t *testing.T) {

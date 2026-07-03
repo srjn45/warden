@@ -473,8 +473,12 @@ the agent has to read:
   current branch. Refuses protected branches (`main`/`master`), runs pre-commit
   hooks and surfaces **only** a failure, and links the commit to the agent
   record. Returns `{committed, sha, branch, files}`; a clean tree is a no-op.
-- **`warden push`** — pushes the current branch to `origin` (sets upstream).
-  Refuses to push `main`/`master` directly — push your agent branch and open a PR.
+- **`warden push [--force-with-lease]`** — pushes the current branch to `origin`
+  (sets upstream). Refuses to push `main`/`master` directly — push your agent
+  branch and open a PR. After a rebase or amend, `--force-with-lease` overwrites
+  your remote branch; warden only ever uses `--force-with-lease` (never a bare
+  `--force`), so the push aborts if a teammate pushed to your branch since your
+  last fetch. Returns `{branch, remote, pushed, forced}`.
 - **`warden sync [--base main]`** — fetches `origin` and rebases the current
   branch onto `origin/<base>`. Refuses a dirty tree (commit first). On a conflict
   it leaves the rebase in progress and reports **only** the conflicting files for
@@ -488,6 +492,7 @@ config flag, on by default; `git status/log/diff` stay free).
 ```sh
 warden commit -m "fix the auth redirect loop"
 warden push
+warden push --force-with-lease   # after a rebase/amend (safe force)
 warden sync --base main
 ```
 
@@ -1197,7 +1202,7 @@ Tools exposed:
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Recent terminal output of a specific agent |
 | `commit` | Stage+commit the worktree on its branch — rails (no main/master), pre-commit hooks parsed to surface only failures, SHA linked to the agent. Returns `{committed, sha, branch, files}` |
-| `push` | Push the current branch to origin (refuses `main`/`master` directly) |
+| `push` | Push the current branch to origin (refuses `main`/`master` directly); `force: true` uses `--force-with-lease` |
 | `sync` | Fetch + rebase onto `origin/<base>` (default `main`); on conflict returns only the conflicting files |
 | `check` | Run the project's configured `.warden/check.yml` checks (tests/lint/build); returns pass/fail with output for only the failing checks. `name` runs one, omit to run all |
 | `terminate_agent` | Stop an agent (kill tmux + claude); keeps record + worktree. Reversible via `restore_agent` — the default "stop" action |

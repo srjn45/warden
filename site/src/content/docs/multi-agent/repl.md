@@ -33,7 +33,7 @@ Every `/` command maps to one warden verb; reads run immediately, mutations pass
 | `/spawn <prompt…>` | spawn an agent to do a task |
 | `/tell <id> <text…>` (`/send`) · `/msg <id> <body…>` | type into a session · send a directed message |
 | `/stop <id>` · `/restore <id>` · `/rm <id> [--hard]` | stop (reversible) · restore · clear record |
-| `/commit <id> [msg…]` · `/push <id>` · `/sync <id> [base]` · `/check <id> [name]` | the git + check lifecycle |
+| `/commit <id> [msg…]` · `/push <id> [force]` · `/sync <id> [base]` · `/check <id> [name]` | the git + check lifecycle (`/push <id> force` → `--force-with-lease`) |
 | `/memory <question…>` (`/mem`, `/ask`) | answer a project question locally from `.warden/memory.md` (`$0`) |
 | `/pipelines` (`/pl`) · `/pipeline <id>` · `/cancel <id>` | list · inspect · cancel a pipeline |
 | `/ctx [prefix]` · `/ctx-get <key>` · `/ctx-set <key> <value…>` | the shared-context blackboard |
