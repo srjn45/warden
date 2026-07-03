@@ -96,6 +96,7 @@ Flags:
       --config string   config file path (default ~/.warden/config.yaml)
   -h, --help            help for warden
       --repl            run the REPL (wd repl) in the cockpit master pane instead of a shell (default: repl config setting)
+      --tmux-native     lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)
   -v, --version         version for warden
 
 Use "warden [command] --help" for more information about a command.
@@ -2713,8 +2714,9 @@ Usage:
   warden tui [flags]
 
 Flags:
-  -h, --help   help for tui
-      --repl   run the REPL (wd repl) in the master pane instead of a shell (default: repl config setting)
+  -h, --help          help for tui
+      --repl          run the REPL (wd repl) in the master pane instead of a shell (default: repl config setting)
+      --tmux-native   lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
