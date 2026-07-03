@@ -78,7 +78,7 @@ func newDaemonCmd() *cobra.Command {
 			// Install the structured logger before any further daemon work, so
 			// the chosen level/format applies to the rest of startup. Flags win
 			// over config; an invalid flag value is a hard error.
-			level, format := cfg.LogLevel, cfg.LogFormat
+			level, format := cfg.Log.Level, cfg.Log.Format
 			if v, _ := cmd.Flags().GetString("log-level"); v != "" {
 				if !logging.ValidLevel(v) {
 					return fmt.Errorf("invalid --log-level %q (want one of %s)", v, strings.Join(logging.Levels, ", "))
@@ -204,7 +204,7 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetAutoApprovePersist(func(p approval.Policy) error {
 				return config.WriteAutoApprove(cfgPath, p)
 			})
-			if cfg.CollabEnabled {
+			if cfg.Collab.Enabled {
 				srv.SetCollabInterval(cfg.CollabIntervalDuration())
 			} else {
 				srv.SetCollabInterval(0)
@@ -271,8 +271,8 @@ func newDaemonCmd() *cobra.Command {
 			// (Valid/DefaultWorktree/NormalizeType) recognizes custom task types,
 			// and the fail-open dispatcher is wired into the spawn/commit/check
 			// lifecycle points.
-			if cfg.PluginsEnabled {
-				reg, perr := plugin.Load(cfg.Plugins)
+			if cfg.Plugins.Enabled {
+				reg, perr := plugin.Load(cfg.Plugins.Registry)
 				if perr != nil {
 					slog.Error("plugins: config invalid, running with plugins disabled", "err", perr)
 				} else {
@@ -297,12 +297,12 @@ func newDaemonCmd() *cobra.Command {
 			}
 			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled, cfg.Tokens.Warn, cfg.Tokens.Critical)
 			exec.SetDigestFn(srv.BuildDigest)
-			exec.SetKeepDoneAgents(cfg.PipelineKeepDone)
-			// Memory auto-curation (#53 PR-2), opt-in via memory_curate (default OFF).
+			exec.SetKeepDoneAgents(cfg.Pipeline.KeepDone)
+			// Memory auto-curation (#53 PR-2), opt-in via memory.curate (default OFF).
 			// The proposer prefers the $0 local model (lc.LocalLLM), degrading to
 			// headless claude -p (lc.RunClaudeP); the curator debounces per repo and
 			// writes UNVERIFIED proposals to the working tree only — never commits.
-			if cfg.MemoryCurate {
+			if cfg.Memory.Curate {
 				proposer := curate.LLMProposer{
 					Run:    lc.RunClaudeP,
 					LLM:    lc.LocalLLM(),
@@ -323,15 +323,15 @@ func newDaemonCmd() *cobra.Command {
 			// through the same operator notifier seam (desktop + webhook) and
 			// scans on the configured interval; left disabled its Run returns
 			// immediately (interval 0).
-			if cfg.BranchTrackEnabled {
+			if cfg.BranchTrack.Enabled {
 				srv.SetBranchTrackNotifier(notifier)
 				srv.SetBranchTrackInterval(cfg.BranchTrackIntervalDuration())
 			} else {
 				srv.SetBranchTrackInterval(0)
 			}
 			notifyHook := daemon.NotifyOnTransition(notifier)
-			restarter := daemon.NewRestarter(life, st, cfg.AutoRestartMax, cfg.AutoRestartResetDuration())
-			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimitAutoResume, cfg.RateLimitResumePrompt)
+			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
+			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
@@ -360,7 +360,7 @@ func newDaemonCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("log-level", "", "log verbosity: debug | info | warn | error (overrides log_level config)")
-	cmd.Flags().String("log-format", "", "log output format: text | json (overrides log_format config)")
+	cmd.Flags().String("log-level", "", "log verbosity: debug | info | warn | error (overrides log.level config)")
+	cmd.Flags().String("log-format", "", "log output format: text | json (overrides log.format config)")
 	return cmd
 }

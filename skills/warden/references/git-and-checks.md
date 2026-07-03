@@ -70,7 +70,7 @@ it (rendered as it is injected), `--raw` prints it verbatim, `--path` prints the
 resolved path, `--edit` opens it in `$EDITOR`. CLI-local like `wd check`/`wd review`
 — no daemon round-trip, no MCP twin.
 
-**It is projected into every spawned agent automatically** (config `memory_inject`,
+**It is projected into every spawned agent automatically** (config `memory.inject`,
 default on): the curated file rides your system prompt (Claude via
 `--append-system-prompt`; codex/cursor/opencode/antigravity via `AGENTS.md`; crush
 via `CRUSH.md`; goose via `.goosehints`; aider degrade-skips). So the block you may
@@ -85,7 +85,7 @@ with `wd memory --edit` — the committed diff is the team's review gate. Keep e
 compact and navigational, not prose. warden READS but never rewrites your
 CLAUDE.md/AGENTS.md/CONVENTIONS.md — `.warden/memory.md` is warden's own.
 
-**Auto-curation (`memory_curate`, default off).** When enabled, warden *also*
+**Auto-curation (`memory.curate`, default off).** When enabled, warden *also*
 proposes entries for you: on completion it extracts durable facts from finished
 agents' digests and writes them back as `- [unverified · <date> · <provenance>]
 <fact>`. These are **proposals, never authority** — they are written to the
@@ -97,7 +97,7 @@ aged-out tombstones kept for context; `<!-- stale: … -->` marks a fact whose n
 path vanished. Never trust an `unverified` entry blindly, and never `wd commit` a
 memory diff you have not read.
 
-**Ask project memory locally (`memory_ground`, default on).** In `wd repl` you can
+**Ask project memory locally (`memory.ground`, default on).** In `wd repl` you can
 *ask* this memory a question instead of re-deriving the answer: `/memory <question>`
 (aliases `/mem`, `/ask`), or the model-callable `project_memory` tool, answers "where
 does X live?" / "how do I run Y?" **locally** from `.warden/memory.md` — served on the

@@ -26,7 +26,7 @@ func formatPluginList(enabled bool, specs []plugin.Spec) string {
 		b.WriteString("plugin system: disabled (set `plugins: true` in config to activate)\n")
 	}
 	if len(specs) == 0 {
-		b.WriteString("no plugins registered (plugin_registry is empty)\n")
+		b.WriteString("no plugins registered (plugins.registry is empty)\n")
 		return b.String()
 	}
 	// Report config errors the daemon would reject, without aborting the listing.
@@ -85,7 +85,7 @@ func newPluginCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plugin",
 		Short: "Inspect warden's plugin system (#47): custom task types + lifecycle hooks",
-		Long: "Plugins are external executables registered in config (plugin_registry) that " +
+		Long: "Plugins are external executables registered in config (plugins.registry) that " +
 			"declare custom agent task types and subscribe to lifecycle hook events (pre/post " +
 			"spawn, commit, check, teardown), invoked over a JSON-over-stdio protocol. The " +
 			"system is OFF by default — plugins run external code — and every hook fails open " +

@@ -75,7 +75,7 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 			cwd, _ := os.Getwd()
 			// PR-3 (#53): local grounding of project questions from .warden/memory.md.
 			// Read-only and $0 — it REMOVES cloud round-trips, so it is default on
-			// (memory_ground). Wire the LOCAL model only when local_llm is enabled;
+			// (memory.ground). Wire the LOCAL model only when local_llm is enabled;
 			// with none the grounder degrades to returning the matched entries
 			// verbatim (still $0), never escalating to a paid model.
 			if cfg.GetMemoryGround() {

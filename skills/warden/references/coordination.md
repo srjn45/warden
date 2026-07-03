@@ -52,13 +52,13 @@ check first and coordinate via `send_message` rather than overwriting.**
 - CLI `warden collab conflicts` / `warden collab who-is-editing <file>`.
 - Also check `read_inbox` for file-conflict warnings the daemon delivers.
 
-Tunable via `collab_enabled` / `collab_interval` / `collab_hint`. Spawned agents
+Tunable via `collab.enabled` / `collab.interval` / `collab.hint`. Spawned agents
 get a system-prompt hint to do exactly this before editing shared files.
 
 ## Branch & CI tracking (read-only, informational)
 
-Opt-in daemon monitor (`branch_track_enabled`, off by default;
-`branch_track_interval` default `2m`). Per active agent with a branch it reports
+Opt-in daemon monitor (`branch_track.enabled`, off by default;
+`branch_track.interval` default `2m`). Per active agent with a branch it reports
 its **GitHub CI status** (`gh run list` in the worktree) and its **standing vs
 `origin/main`** (commits behind/ahead, whether merged).
 

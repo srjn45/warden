@@ -595,12 +595,12 @@ seam the collab/pipeline/git hints ride — **Claude** via `--append-system-prom
 (file-backed, so it never bloats the launch line), **codex/cursor/opencode/antigravity**
 via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via
 `.goosehints`; **aider** degrade-skips (neither seam). 7/8 backends project with zero
-new adapter code. Config-gated by `memory_inject` (default on); off, or an empty/absent
+new adapter code. Config-gated by `memory.inject` (default on); off, or an empty/absent
 file, is byte-identical to no injection. warden READS but never rewrites your
 CLAUDE.md/AGENTS.md/CONVENTIONS.md — `.warden/memory.md` is warden's own.
 
 You curate it **by hand** (`--edit`), and warden can optionally **auto-propose**
-entries behind `memory_curate` (default **off**). When enabled, a debounced pass on
+entries behind `memory.curate` (default **off**). When enabled, a debounced pass on
 the completion-digest hook extracts durable facts from finished agents and writes
 **`unverified`, timestamped, provenance-tagged** proposals — to the **working tree
 only**. It **never commits or pushes**, so the committed diff is the human review
@@ -613,7 +613,7 @@ page.
 In `warden repl` you can also **ask** this memory a question — `/memory <q>` (`/mem`,
 `/ask`), or the model-callable `project_memory` tool — and warden answers "where does
 X live?" / "how do I run Y?" **locally** from `.warden/memory.md` (config-gated by
-`memory_ground`, default on). Unlike projection (which *adds* input tokens), grounding
+`memory.ground`, default on). Unlike projection (which *adds* input tokens), grounding
 *removes* a cloud round-trip: it is served on the **local model only**, so it is
 structurally `$0` and never escalates to a paid model; with no local model configured
 it degrades to returning the matching entries verbatim. It is read-only (an
@@ -695,7 +695,7 @@ Run the hub (HTTP API + poller). Normally launchd's job; run by hand to debug.
 Logging is structured (`log/slog`). `--log-level` is one of `debug | info | warn
 | error` (default `info`); `--log-format` is `text` (human-readable, default) or
 `json` (one object per line, for log shippers). Both flags override the
-`log_level` / `log_format` config keys. Output goes to stderr.
+`log.level` / `log.format` config keys. Output goes to stderr.
 
 ```bash
 warden daemon --log-level debug --log-format json
@@ -867,7 +867,7 @@ mirroring the memory-pressure spawn gate. `warden ls` also gains a **COST** colu
 Opt-in, read-only view of each active agent's branch health: its **GitHub CI
 status** (latest `gh run list` in the worktree) and its **standing vs `origin/main`**
 (commits behind/ahead, merged?). The daemon monitor behind it (enable with
-`branch_track_enabled`, tune `branch_track_interval`) delivers **non-blocking**
+`branch_track.enabled`, tune `branch_track.interval`) delivers **non-blocking**
 alerts — an inbox note (+ desktop ping) on a new CI failure, an inbox nudge on a
 merged or far-behind branch. Every `gh`/git call fails open. Also at
 `GET /api/v1/collab/branches` and the `get_branch_status` MCP tool. See
@@ -907,7 +907,7 @@ protocol. **Default off** (`plugins: true` to enable). `list` shows registered
 plugins, their paths, declared custom task types (with isolation policy), subscribed
 hook events, and any config errors. Hooks are advisory and fail-open — a missing,
 slow, or crashing plugin is logged and skipped, never blocking an agent. Configure
-via `plugins` + a `plugin_registry` list; a worked example lives under
+via `plugins.enabled` + a `plugins.registry` list; a worked example lives under
 `examples/plugins/`. See [FEATURES.md §26](FEATURES.md).
 
 ### `warden doctor`
@@ -1509,26 +1509,26 @@ daemon address for a single command.
 | `tokens.compact_resume_prompt` | _(built-in)_ | Message sent to a force-compacted agent once compaction lands so it resumes its work |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive). Both thresholds reset to defaults if critical ≤ warn |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
-| `log_level` | `info` | Minimum severity the daemon logs (`debug`/`info`/`warn`/`error`). Overridden by `warden daemon --log-level` |
-| `log_format` | `text` | Daemon log output format: `text` (human-readable) or `json` (structured, one object per line). Overridden by `warden daemon --log-format` |
+| `log.level` | `info` | Minimum severity the daemon logs (`debug`/`info`/`warn`/`error`). Overridden by `warden daemon --log-level` |
+| `log.format` | `text` | Daemon log output format: `text` (human-readable) or `json` (structured, one object per line). Overridden by `warden daemon --log-format` |
 | `savings` | `true` | Record the token reductions warden's lifecycle features earn to an append-only ledger, surfaced by `warden savings` and `GET /api/v1/savings` (403 when off) |
 | `savings_samples` | `false` | Retain opt-in raw-vs-kept **provenance samples** for `warden savings --audit`. WARNING: samples hold substrings of real build/test/git output, which may be sensitive. Requires `savings` |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`). Off → the schedule routes 403 and the reconcile loop is a no-op |
-| `branch_track_enabled` | `false` | Enable the per-agent branch monitor (`warden branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
-| `branch_track_interval` | `2m` | Poll interval for the branch monitor when `branch_track_enabled` is on |
+| `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
+| `branch_track.interval` | `2m` | Poll interval for the branch monitor when `branch_track.enabled` is on |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden snapshot`) and its `snapshot_*` MCP tools |
 | `insights` | `true` | Enable history-mined insights (`warden insights` + the `insights` MCP tool) |
 | `tutorial` | `true` | Show the first-run walkthrough nudge (`warden tutorial`). Off suppresses the hint entirely |
 | `api_docs` | `true` | Serve the OpenAPI spec + Swagger UI at `/api/docs` |
-| `plugins` | `false` | Enable the plugin system (custom task types + lifecycle hooks). **Default off** — plugins run external code |
-| `plugin_registry` | _(empty)_ | List of registered plugins (name, path, subscribed events, declared task types). Only consulted when `plugins` is on |
+| `plugins.enabled` | `false` | Enable the plugin system (custom task types + lifecycle hooks). **Default off** — plugins run external code |
+| `plugins.registry` | _(empty)_ | List of registered plugins (name, path, subscribed events, declared task types). Only consulted when `plugins.enabled` is on |
 
 `warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`,
-`metrics`, `allow_nonloopback`, `auto_approve`, `local_llm.enabled`, `pipeline_keep_done` / `pipeline_hint`,
-the `auto_restart_*` knobs, the `rate_limit_*` knobs (§12.1), and the
-`log_level` / `log_format` logging knobs.
+`metrics`, `allow_nonloopback`, `auto_approve`, `local_llm.enabled`, `pipeline.keep_done` / `pipeline.hint`,
+the `auto_restart.*` knobs, the `rate_limit.*` knobs (§12.1), and the
+`log.level` / `log.format` logging knobs.
 
-> **Config namespacing:** Settings are organized into five YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`) are deprecated aliases — they still load correctly and are permanently migrated when `warden config init` is re-run.
+> **Config namespacing:** Related settings are organized into YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`, `pipeline`, `auto_restart`, `collab`, `memory`, `branch_track`, `rate_limit`, `http`, `log`, `plugins`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, `collab_enabled`, `memory_inject`, `log_level`, `plugin_registry`) are deprecated aliases — they still load correctly, emit a one-time deprecation warning, and are permanently migrated into the nested form when `warden config init` is re-run.
 
 > The old `WARDEN_*` configuration environment variables are no longer read — the
 > daemon warns once at startup if any are still set. `WARDEN_TOKEN` and
@@ -1598,14 +1598,10 @@ Config settings for the daemon (in `~/.warden/config.yaml`; restart the daemon
 after editing):
 
 ```yaml
-# Disable auto-resume (manual intervention only)
-rate_limit_auto_resume: false
-
-# Change retry interval (default: 30m)
-rate_limit_retry_interval: 15m
-
-# Change safety buffer after parsed time (default: 1m)
-rate_limit_buffer: 2m
+rate_limit:
+  auto_resume: false   # disable auto-resume (manual intervention only)
+  retry_interval: 15m  # change retry interval (default: 30m)
+  buffer: 2m           # change safety buffer after parsed time (default: 1m)
 ```
 
 ### Manual intervention

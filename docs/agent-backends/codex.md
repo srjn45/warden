@@ -223,7 +223,7 @@ The write is deliberately careful:
 The same addendum is injected on every spawn path that would have appended the flag:
 free-form (pipeline + collab), typed/worktree agents (pipeline + collab + git), and
 pipeline jobs (collab). Each hint is gated by its config setting
-(`pipeline_hint` / `collab_hint` / `git_conventions`), exactly as the flag path is.
+(`pipeline.hint` / `collab.hint` / `git_conventions`), exactly as the flag path is.
 
 ## Codex-specific superpowers worth preserving (don't lowest-common-denominator)
 

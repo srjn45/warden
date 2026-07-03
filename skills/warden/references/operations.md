@@ -135,18 +135,20 @@ Notable settings (see the generated file for the full set with defaults):
 - **Approvals:** `approvals`, `auto_approve`.
 - **Spawn / worktree / restart:** `worktree.spawn_gate`/`worktree.spawn_gate_max_agents`,
   `tokens.budget_gate`/`tokens.budget_daily_usd`/`tokens.budget_weekly_usd` (soft $ cap on spawn),
-  `worktree.keep_done`/`worktree.auto_prune`, `pipeline_keep_done`/`pipeline_hint`,
-  `auto_restart_max`/`auto_restart_reset`, `rate_limit_auto_resume`.
+  `worktree.keep_done`/`worktree.auto_prune`, `pipeline.keep_done`/`pipeline.hint`,
+  `auto_restart.max`/`auto_restart.reset`, `rate_limit.auto_resume`.
 - **Boundary guards:** `rails.isolation_guard`, `rails.root_guard`, `rails.git_redirect`,
   `rails.check_redirect`, `rails.git_conventions` (see git-and-checks.md).
 - **Local LLM / REPL:** `local_llm.enabled` (+ `local_llm.url`/`.model`/`.timeout`),
   `local_llm.tier`/`.escalate`/`.classifier`, `local_llm.repl`.
 - **Deprecated flat-key aliases:** old keys like `token_guard`, `local_llm_url`, `notify`,
-  `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect` still work and
-  migrate automatically — prefer the namespaced form in new config files.
-- **Misc:** `metrics`, `snapshots`, `insights`, `plugins`/`plugin_registry`,
-  `scheduler_enabled`, `api_docs`, `collab_*`, `branch_track_*`, `tutorial`,
-  `allow_nonloopback`, `log_level`/`log_format`.
+  `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, `collab_enabled`,
+  `memory_inject`, `pipeline_hint`, `auto_restart_max`, `rate_limit_buffer`, `http_timeout_slow`,
+  `log_level`, `plugin_registry` still work and migrate automatically (a one-time deprecation
+  warning) — prefer the namespaced form in new config files.
+- **Misc:** `metrics`, `snapshots`, `insights`, `plugins.enabled`/`plugins.registry`,
+  `scheduler_enabled`, `api_docs`, `collab.*`, `branch_track.*`, `tutorial`,
+  `allow_nonloopback`, `log.level`/`log.format`.
 
 > The old `WARDEN_*` env vars are no longer read (the daemon warns once if set).
 > The per-agent IPC vars warden injects (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`,
@@ -203,7 +205,7 @@ drive the fleet:
   warden tool calls — no cloud-model tokens. **It conducts, never implements** (no
   edit/write/bash in its registry — code work is delegated by spawning an
   agent).
-- **Local project grounding (`memory_ground`, default on):** `/memory <question>`
+- **Local project grounding (`memory.ground`, default on):** `/memory <question>`
   (`/mem`/`/ask`), or the `project_memory` tool, answers "where does X live?" from
   the repo's `.warden/memory.md` **locally** (local model, `$0`, no cloud round-trip).
   Read-only; cites each entry's trust + provenance; degrades to the matching entries
@@ -237,8 +239,8 @@ set `local_llm_model` by hand (no `config set`; `wd config path` locates the YAM
   hooks** via an external executable over JSON-over-stdio. Default **off** (`plugins`
   gate; plugins run external code). Hooks are advisory and fail-open (a `pre-` hook
   cannot veto). MCP `list_plugins` (CLI `wd plugin list`) shows registered plugins,
-  paths, custom types, and subscribed events. Configure with `plugins` +
-  `plugin_registry`; example under `examples/plugins/`.
+  paths, custom types, and subscribed events. Configure with `plugins.enabled` +
+  `plugins.registry`; example under `examples/plugins/`.
 
 ## Fleet inspection — search, history, metrics, worktrees
 

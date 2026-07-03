@@ -13,7 +13,7 @@ func newBranchesCmd() *cobra.Command {
 		Short: "Per-agent CI + branch-vs-main status",
 		Long: "Show each tracked agent's branch: its latest GitHub CI run and how it " +
 			"sits against origin/main (behind/ahead/merged).\n\n" +
-			"Read-only. Requires the branch tracker to be enabled (branch_track_enabled); " +
+			"Read-only. Requires the branch tracker to be enabled (branch_track.enabled); " +
 			"a disabled tracker reports no branches.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

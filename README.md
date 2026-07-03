@@ -526,13 +526,15 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
 | `auto_approve` | `false` | Auto-answer recognized permission prompts. Bare on/off, or an allow/deny **rule policy** (by tool / glob / regex / paths, with per-agent overrides) — see `warden auto-approve` |
 | `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST a JSON payload to `webhook_url` on attention + context-size alerts (a Slack incoming-webhook URL works out of the box); runs alongside `notify.enabled` |
-| `collab_enabled` / `collab_interval` / `collab_hint` | `true` / … / `true` | File-conflict detection across worktrees, scan interval, and the spawn-time coordination hint |
+| `collab.enabled` / `collab.interval` / `collab.hint` | `true` / … / `true` | File-conflict detection across worktrees, scan interval, and the spawn-time coordination hint |
 | `rails.isolation_guard` / `rails.git_redirect` / `rails.check_redirect` / `rails.git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
-| `log_level` / `log_format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
+| `log.level` / `log.format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
 | `local_llm.enabled` (+ `.url`/`.model`/`.timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden repl` (its `/` commands work without it) |
 | `local_llm.repl` | `false` | Start the cockpit master pane in `warden repl` mode instead of a plain shell |
 
-`warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`, `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline_keep_done` / `pipeline_hint`, `worktree.keep_done` / `worktree.auto_prune`, the `auto_restart_*` and `rate_limit_*` knobs, and the REPL tier knobs (`local_llm.tier` / `local_llm.escalate` / `local_llm.classifier`).
+`warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`, `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline.keep_done` / `pipeline.hint`, `worktree.keep_done` / `worktree.auto_prune`, the `auto_restart.*` and `rate_limit.*` knobs, and the REPL tier knobs (`local_llm.tier` / `local_llm.escalate` / `local_llm.classifier`).
+
+> Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`, `collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`, `plugins.*`, alongside the existing `rails.*` / `tokens.*` / `notify.*` / `worktree.*` / `local_llm.*`). The old flat keys (`collab_enabled`, `log_level`, `memory_inject`, …) still load as **deprecated aliases** — they work but emit a one-time deprecation warning; `warden config` rewrites them into the nested form.
 
 > **Config namespacing:** Settings are grouped into five YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`) are still accepted as deprecated aliases and migrate to the namespaced form automatically when `warden config init` is re-run.
 
@@ -1010,7 +1012,7 @@ warden collab conflicts                 # current cross-agent file conflicts
 warden collab who-is-editing <file>     # which agents (if any) are touching a file
 ```
 
-Tunable via the `collab_enabled` / `collab_interval` / `collab_hint` config settings; also exposed as the `get_collaboration_status` / `who_is_editing_file` MCP tools and a **File conflicts** card on the dashboard.
+Tunable via the `collab.enabled` / `collab.interval` / `collab.hint` config settings; also exposed as the `get_collaboration_status` / `who_is_editing_file` MCP tools and a **File conflicts** card on the dashboard.
 
 ### Git & check lifecycle — `warden commit` / `push` / `sync` / `check`
 
@@ -1054,11 +1056,11 @@ warden memory --edit           # open it in $EDITOR (auto-creates it first)
 warden memory --path           # just the resolved path (scriptable; no auto-create)
 ```
 
-At **every spawn** warden projects the budgeted, navigational render into the agent's system prompt through the same seam the collab/pipeline/git hints ride: **Claude** via `--append-system-prompt` (file-backed, so it never bloats the launch line), **codex / cursor / opencode / antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips. **7 of 8 backends project with zero new adapter code.** It is config-gated by `memory_inject` (default on) — off, or an empty/absent file, makes the launch **byte-identical** to no injection. warden **reads but never rewrites** your CLAUDE.md/AGENTS.md/CONVENTIONS.md; `.warden/memory.md` is warden's own. `warden memory` is CLI-local like `warden check`/`warden review` (no daemon round-trip, no MCP twin).
+At **every spawn** warden projects the budgeted, navigational render into the agent's system prompt through the same seam the collab/pipeline/git hints ride: **Claude** via `--append-system-prompt` (file-backed, so it never bloats the launch line), **codex / cursor / opencode / antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips. **7 of 8 backends project with zero new adapter code.** It is config-gated by `memory.inject` (default on) — off, or an empty/absent file, makes the launch **byte-identical** to no injection. warden **reads but never rewrites** your CLAUDE.md/AGENTS.md/CONVENTIONS.md; `.warden/memory.md` is warden's own. `warden memory` is CLI-local like `warden check`/`warden review` (no daemon round-trip, no MCP twin).
 
-**Auto-curation (`memory_curate`, default OFF).** warden can also *propose* memory for you: on the existing completion-digest hook, a debounced extraction pass reads finished agents' digests + the current memory and writes **durable, reusable facts** back as `- [unverified · <date> · <provenance>] <fact>`. It is deliberately never authoritative — proposals land in the **working tree only** (warden **never commits and never pushes** them, so the committed diff is the human review gate), promote to `trusted` only when corroborated by a second agent or a human, **supersede** older contradicting facts (struck with a tombstone), **age out** past a TTL, and get **flagged stale** when a named path vanishes. It prefers the `$0` local model and never sits on a paid critical path. This is the core defence against memory *poisoning*: one agent's wrong belief can never silently mislead the fleet.
+**Auto-curation (`memory.curate`, default OFF).** warden can also *propose* memory for you: on the existing completion-digest hook, a debounced extraction pass reads finished agents' digests + the current memory and writes **durable, reusable facts** back as `- [unverified · <date> · <provenance>] <fact>`. It is deliberately never authoritative — proposals land in the **working tree only** (warden **never commits and never pushes** them, so the committed diff is the human review gate), promote to `trusted` only when corroborated by a second agent or a human, **supersede** older contradicting facts (struck with a tombstone), **age out** past a TTL, and get **flagged stale** when a named path vanishes. It prefers the `$0` local model and never sits on a paid critical path. This is the core defence against memory *poisoning*: one agent's wrong belief can never silently mislead the fleet.
 
-**Local grounding (`memory_ground`, default ON).** In `warden repl` you can also *ask* this memory a question — `/memory <q>` (`/mem`/`/ask`), or the model-callable `project_memory` tool — and warden answers "where does X live?" / "how do I run Y?" **locally** from `.warden/memory.md`. This is the token-*removing* lever of the feature: unlike projection (which *adds* input tokens per turn), grounding *removes* a cloud round-trip by serving the answer from the local model. It is read-only (never creates or writes memory), cites each entry's trust (`unverified`/`trusted`/`human`) + provenance so a stale hint reads as a hint, stays on the **local tier only** (structurally `$0` — it can never escalate to a paid model), and with no local model configured degrades to returning the matching entries verbatim. An absent/empty file answers "not in project memory".
+**Local grounding (`memory.ground`, default ON).** In `warden repl` you can also *ask* this memory a question — `/memory <q>` (`/mem`/`/ask`), or the model-callable `project_memory` tool — and warden answers "where does X live?" / "how do I run Y?" **locally** from `.warden/memory.md`. This is the token-*removing* lever of the feature: unlike projection (which *adds* input tokens per turn), grounding *removes* a cloud round-trip by serving the answer from the local model. It is read-only (never creates or writes memory), cites each entry's trust (`unverified`/`trusted`/`human`) + provenance so a stale hint reads as a hint, stays on the **local tier only** (structurally `$0` — it can never escalate to a paid model), and with no local model configured degrades to returning the matching entries verbatim. An absent/empty file answers "not in project memory".
 
 ### `warden search <query…>` / `warden history`
 
@@ -1182,7 +1184,7 @@ warden branches                       # table of per-agent CI + base-branch stan
 warden branches --json
 ```
 
-The daemon monitor behind it (enable with `branch_track_enabled`) delivers **non-blocking** alerts — an inbox note to the agent (and a desktop ping to you) on a new CI failure, an inbox nudge on a merged or far-behind branch. Every `gh`/git call fails open. Also exposed via `GET /api/v1/collab/branches` and the `get_branch_status` MCP tool.
+The daemon monitor behind it (enable with `branch_track.enabled`) delivers **non-blocking** alerts — an inbox note to the agent (and a desktop ping to you) on a new CI failure, an inbox nudge on a merged or far-behind branch. Every `gh`/git call fails open. Also exposed via `GET /api/v1/collab/branches` and the `get_branch_status` MCP tool.
 
 ### `warden insights`
 
@@ -1293,7 +1295,7 @@ warden's **interactive mode**: a proper terminal REPL to drive the fleet, with a
 
 - **Deterministic `/` commands (no model)** — `/agents`, `/spawn <prompt>`, `/tell <id> <text>`, `/memory <question>`, `/pipelines`, … Typing `/` pops a live, filtering menu of matching verbs (each with its summary); `/help` lists them all. These keep working even when the local model is slow or wrong. When a command needs more input, a **guided argument form** collects it — numbered pick-lists for known fields (model, permission, type), free text for the rest — opening automatically for a missing required arg or on a `+`-suffixed verb (`/spawn+`); a local model, if present, pre-fills each field with a suggestion you can accept, override, or clear.
 - **Natural language (local LLM)** — any other line is planned into **confirmed** warden tool calls without spending cloud-model tokens. It conducts; it never implements — all code work is delegated by spawning an agent.
-- **Local project grounding (`$0`)** — ask a project question ("where does the spawn gate live?", "how do I run the tests?") via `/memory <q>` (`/mem`/`/ask`) or the `project_memory` tool and warden answers it **locally** from `.warden/memory.md`, citing each entry's trust + provenance. It *removes* a cloud round-trip (rather than adding tokens like injection); read-only, degrades to the matching entries verbatim with no local model, default on via `memory_ground`.
+- **Local project grounding (`$0`)** — ask a project question ("where does the spawn gate live?", "how do I run the tests?") via `/memory <q>` (`/mem`/`/ask`) or the `project_memory` tool and warden answers it **locally** from `.warden/memory.md`, citing each entry's trust + provenance. It *removes* a cloud round-trip (rather than adding tokens like injection); read-only, degrades to the matching entries verbatim with no local model, default on via `memory.ground`.
 
 It **starts without a local model** (the `/` commands and `!`-shell always work); only the natural-language half needs `local_llm: true`. Every mutating action passes a mandatory confirm gate. Run standalone, or as the cockpit master pane via the `repl` config / `--repl` flag (Alt+t toggles it with a raw shell). See [docs/FEATURES.md §17](docs/FEATURES.md).
 
@@ -1309,7 +1311,7 @@ Inspect the **plugin** registry — external executables that extend warden with
 warden plugin list                    # registered plugins: paths, custom task types, subscribed hook events, config errors
 ```
 
-Hooks (`pre/post-spawn`, `pre/post-commit`, `pre/post-check`) are **advisory and fail-open** — a missing, slow, or crashing plugin is logged and skipped, never blocking an agent. Configure via `plugins` + a `plugin_registry` list in `~/.warden/config.yaml`; a worked example lives under [`examples/plugins/`](examples/plugins/). See [docs/FEATURES.md §26](docs/FEATURES.md).
+Hooks (`pre/post-spawn`, `pre/post-commit`, `pre/post-check`) are **advisory and fail-open** — a missing, slow, or crashing plugin is logged and skipped, never blocking an agent. Configure via `plugins.enabled` + a `plugins.registry` list in `~/.warden/config.yaml`; a worked example lives under [`examples/plugins/`](examples/plugins/). See [docs/FEATURES.md §26](docs/FEATURES.md).
 
 ### `warden.daemon`
 

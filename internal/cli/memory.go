@@ -56,13 +56,13 @@ func newMemoryCmd() *cobra.Command {
 			"the memory — the SAME projection warden injects into every spawned agent's system\n" +
 			"prompt (Claude via --append-system-prompt; other backends via their AGENTS.md /\n" +
 			"CRUSH.md / .goosehints warden block). So `wd memory` shows exactly what the next\n" +
-			"agent will read. Toggle the injection with the `memory_inject` config key (default\n" +
+			"agent will read. Toggle the injection with the `memory.inject` config key (default\n" +
 			"on); off, or an empty/absent file, is byte-identical to no injection.\n\n" +
 			"Use --raw to print the file verbatim, --path for just the resolved path (handy in\n" +
 			"scripts), and --edit to open it in $EDITOR (auto-creating it first if missing).\n\n" +
 			"This verb is CLI-local (like `wd check` / `wd review`): it reads/writes the file\n" +
 			"directly with no daemon round-trip. You curate the file by hand here; warden can\n" +
-			"ALSO auto-propose entries from completion digests when the `memory_curate` config\n" +
+			"ALSO auto-propose entries from completion digests when the `memory.curate` config\n" +
 			"key is on (default off) — those proposals land as `unverified` entries in the\n" +
 			"working tree only (never committed/pushed), so the committed diff is the review\n" +
 			"gate. See the Project memory concept page.",

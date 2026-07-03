@@ -438,7 +438,7 @@ Flags:
       --json   output as JSON
 ```
 
-Enable the background monitor with `branch_track_enabled` (tune `branch_track_interval`). Alerts are **non-blocking**: an inbox note (+ desktop ping) on a new CI failure, an inbox nudge on a merged or far-behind branch. Also at `GET /api/v1/collab/branches` and the `get_branch_status` MCP tool.
+Enable the background monitor with `branch_track.enabled` (tune `branch_track.interval`). Alerts are **non-blocking**: an inbox note (+ desktop ping) on a new CI failure, an inbox nudge on a merged or far-behind branch. Also at `GET /api/v1/collab/branches` and the `get_branch_status` MCP tool.
 
 ## warden insights
 
@@ -673,7 +673,7 @@ With no flags it prints the resolved path and the budgeted, navigational view of
 the memory — the SAME projection warden injects into every spawned agent's system
 prompt (Claude via --append-system-prompt; other backends via their AGENTS.md /
 CRUSH.md / .goosehints warden block). So `wd memory` shows exactly what the next
-agent will read. Toggle the injection with the `memory_inject` config key (default
+agent will read. Toggle the injection with the `memory.inject` config key (default
 on); off, or an empty/absent file, is byte-identical to no injection.
 
 Use --raw to print the file verbatim, --path for just the resolved path (handy in
@@ -681,7 +681,7 @@ scripts), and --edit to open it in $EDITOR (auto-creating it first if missing).
 
 This verb is CLI-local (like `wd check` / `wd review`): it reads/writes the file
 directly with no daemon round-trip. You curate the file by hand here; warden can
-ALSO auto-propose entries from completion digests when the `memory_curate` config
+ALSO auto-propose entries from completion digests when the `memory.curate` config
 key is on (default off) — those proposals land as `unverified` entries in the
 working tree only (never committed/pushed), so the committed diff is the review
 gate. See the Project memory concept page.
@@ -696,7 +696,7 @@ Flags:
       --raw    print the file verbatim instead of the rendered view
 ```
 
-**CLI-local** (like `wd check` / `wd review`): reads/writes `.warden/memory.md` directly, no daemon round-trip. The curated file is **projected into every spawned agent** via `memory_inject` (default on), and warden can **auto-propose** entries from completion digests via `memory_curate` (default off; proposals are `unverified` and written to the working tree only, never committed). In `wd repl` you can also **ask** it a question locally — `/memory <q>` or the `project_memory` tool — served on the local model at `$0` via `memory_ground` (default on; read-only, cites trust + provenance). See the [Project memory](/warden/concepts/project-memory/) concept.
+**CLI-local** (like `wd check` / `wd review`): reads/writes `.warden/memory.md` directly, no daemon round-trip. The curated file is **projected into every spawned agent** via `memory.inject` (default on), and warden can **auto-propose** entries from completion digests via `memory.curate` (default off; proposals are `unverified` and written to the working tree only, never committed). In `wd repl` you can also **ask** it a question locally — `/memory <q>` or the `project_memory` tool — served on the local model at `$0` via `memory.ground` (default on; read-only, cites trust + provenance). See the [Project memory](/warden/concepts/project-memory/) concept.
 
 ## warden collab
 
@@ -873,7 +873,7 @@ or with natural language (planned by the local LLM, each call confirmed).
 
 Ask project questions locally: /memory <question> (aliases /mem, /ask), or the
 `project_memory` tool, answers "where does X live?" from .warden/memory.md on the
-local model at $0 (config `memory_ground`, default on).
+local model at $0 (config `memory.ground`, default on).
 
 Guided argument forms: when a `/` command needs more than you typed, warden
 collects the arguments interactively — a numbered pick-list for fields with a
