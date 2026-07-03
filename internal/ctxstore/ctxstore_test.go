@@ -85,6 +85,11 @@ func TestPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	s1, _ := New(dir)
 	s1.Set("k", "v", "a")
+	// The store is now embedded (FileDB): a reopen models a daemon restart, so
+	// close the first handle (flushing its index) before opening a new one.
+	if err := s1.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 	s2, err := New(dir)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)

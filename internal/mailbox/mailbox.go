@@ -1,7 +1,19 @@
 // Package mailbox is a daemon-owned per-recipient message store — the durable
-// inbox behind agent-to-agent directed messages. Each recipient's messages live
-// in one JSON file (<dir>/<id>.json), rewritten atomically (temp file + rename)
-// under a mutex. Localhost session-store scale, like internal/ctxstore.
+// inbox behind agent-to-agent directed messages.
+//
+// Messages are persisted as records in an embedded FileDB "messages" collection
+// (github.com/srjn45/filedbv2): one append-only NDJSON collection under the data
+// dir, each record keyed by "<to>:<id>" with a secondary index on the recipient
+// ("to") field for O(matches) per-inbox lookup. Appending a message writes a
+// single record instead of rewriting a recipient's whole inbox file. The
+// collection is opened with SyncModeNone: like the previous per-file
+// implementation this is a localhost session store, so the last write surviving
+// a power-loss is not a requirement (append-only segments rule out torn reads).
+//
+// Compound operations (Append and its compaction, MarkRead, TakeFirstUnread,
+// DeleteInbox) are serialised by a store mutex, matching the previous
+// single-mutex model; the per-inbox message id remains a high-water mark so
+// compaction never recycles an id still referenced by a client or a MarkRead.
 //
 // The `from` field is advisory provenance, not an authenticated identity: warden
 // assumes a single trusted local user, so callers must not make security
@@ -10,26 +22,29 @@
 package mailbox
 
 import (
-	"encoding/json"
 	"errors"
-	"log/slog"
 	"os"
-	"path/filepath"
+	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/srjn45/filedbv2/engine"
+	"github.com/srjn45/filedbv2/filedb"
+	"github.com/srjn45/filedbv2/query"
 	"github.com/srjn45/warden/internal/store"
 )
 
-// ErrBadRecipient is returned when a recipient id is unsafe as a filename.
+// ErrBadRecipient is returned when a recipient id is unsafe.
 var ErrBadRecipient = errors.New("invalid recipient")
 
+// toField is the secondary-indexed record field carrying the recipient id.
+const toField = "to"
+
 // retention bounds on a single inbox. An inbox is only ever appended to or
-// marked-read, and every op rewrites the whole file, so without bounds a
-// long-lived agent's inbox grows without limit and each op gets slower. Append
-// compacts to these limits; unread messages are never dropped.
+// marked-read; without bounds a long-lived agent's inbox grows without limit and
+// each per-inbox scan gets slower. Append compacts to these limits; unread
+// messages are never dropped.
 const (
 	// maxInboxMessages caps total retained messages; the cap only sheds
 	// already-read messages (oldest first), never unread work.
@@ -49,64 +64,95 @@ type Message struct {
 	Read bool      `json:"read"`
 }
 
-// Store persists each recipient's messages in its own JSON file.
+// Store persists messages in an embedded FileDB "messages" collection.
 type Store struct {
 	mu  sync.Mutex
+	db  *filedb.DB
+	col *engine.Collection
 	dir string
 }
 
-// New creates dir (if needed) and returns a ready store.
+// New creates dir (if needed) and returns a store backed by a FileDB "messages"
+// collection rooted at dir, with a secondary index on the recipient field.
 func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return &Store{dir: dir}, nil
-}
-
-// path maps a recipient id to its inbox file, rejecting unsafe ids.
-func (s *Store) path(to string) (string, error) {
-	if err := store.SafeID(to); err != nil {
-		return "", ErrBadRecipient
+	db, err := filedb.Open(dir, filedb.WithSyncMode(engine.SyncModeNone))
+	if err != nil {
+		return nil, err
 	}
-	return filepath.Join(s.dir, to+".json"), nil
+	col, err := db.Collection("messages")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := col.EnsureIndex(toField); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, col: col, dir: dir}, nil
 }
 
-// load reads a recipient's messages; a missing file is an empty slice.
-func (s *Store) load(path string) ([]Message, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+// msgKey is the collection record key for a message: "<to>:<id>". A recipient id
+// never contains ":" (store.SafeID rejects it), so the composite is unambiguous.
+func msgKey(to, id string) string { return to + ":" + id }
+
+// toRecord marshals a Message to a record body. TS is stored as an RFC3339Nano
+// string; the recipient key is the collection record key, not a body field.
+func toRecord(m Message) map[string]any {
+	return map[string]any{
+		"id":    m.ID,
+		"from":  m.From,
+		toField: m.To,
+		"body":  m.Body,
+		"ts":    m.TS.Format(time.RFC3339Nano),
+		"read":  m.Read,
+	}
+}
+
+// toMessage reconstructs a Message from a record body.
+func toMessage(d map[string]any) Message {
+	m := Message{}
+	m.ID, _ = d["id"].(string)
+	m.From, _ = d["from"].(string)
+	m.To, _ = d[toField].(string)
+	m.Body, _ = d["body"].(string)
+	m.Read, _ = d["read"].(bool)
+	if s, ok := d["ts"].(string); ok {
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			m.TS = t
+		}
+	}
+	return m
+}
+
+// idLess orders per-inbox ids numerically, i.e. arrival order.
+func idLess(a, b string) bool {
+	ai, _ := strconv.Atoi(a)
+	bi, _ := strconv.Atoi(b)
+	return ai < bi
+}
+
+// inbox returns to's messages in arrival order (ascending id). Caller holds mu.
+// A recipient with no messages yields an empty, non-nil slice.
+func (s *Store) inbox(to string) ([]Message, error) {
+	ids, ok := s.col.IndexLookup(toField, to)
+	if !ok || len(ids) == 0 {
 		return []Message{}, nil
 	}
-	if err != nil {
-		return nil, err
+	ms := make([]Message, 0, len(ids))
+	for _, id := range ids {
+		r, err := s.col.Get(id)
+		if err != nil {
+			// The index only maps to live ids and we hold mu, so a read miss is
+			// unexpected; skip it rather than blanking the whole inbox.
+			continue
+		}
+		ms = append(ms, toMessage(r.Data))
 	}
-	var ms []Message
-	if err := json.Unmarshal(data, &ms); err != nil {
-		return nil, err
-	}
+	sort.Slice(ms, func(i, j int) bool { return idLess(ms[i].ID, ms[j].ID) })
 	return ms, nil
-}
-
-// save writes messages via temp file + rename so readers never see a partial file.
-func (s *Store) save(path string, ms []Message) error {
-	data, err := json.MarshalIndent(ms, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
 }
 
 // nextID returns the next per-inbox id as a high-water mark (max existing id +
@@ -123,12 +169,11 @@ func nextID(ms []Message) string {
 	return strconv.Itoa(max + 1)
 }
 
-// compact bounds an inbox so a long-lived agent's file (and the per-op rewrite
-// cost) stays small. It never drops unread messages (undelivered work); it drops
-// read messages older than readTTL, and if the result still exceeds maxN it
-// sheds the oldest read messages until within the cap (unread are kept even past
-// the cap). Input is assumed in arrival order (ascending TS); that order is
-// preserved.
+// compact bounds an inbox so a long-lived agent's per-inbox scan cost stays
+// small. It never drops unread messages (undelivered work); it drops read
+// messages older than readTTL, and if the result still exceeds maxN it sheds the
+// oldest read messages until within the cap (unread are kept even past the cap).
+// Input is assumed in arrival order (ascending TS); that order is preserved.
 func compact(ms []Message, maxN int, readTTL time.Duration) []Message {
 	cutoff := time.Now().Add(-readTTL)
 	kept := make([]Message, 0, len(ms))
@@ -159,141 +204,153 @@ func compact(ms []Message, maxN int, readTTL time.Duration) []Message {
 // and TS, then compacting the inbox to its retention bounds. The freshly
 // appended message is unread, so compaction never drops it.
 func (s *Store) Append(m Message) (Message, error) {
-	path, err := s.path(m.To)
-	if err != nil {
-		return Message{}, err
+	if err := store.SafeID(m.To); err != nil {
+		return Message{}, ErrBadRecipient
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ms, err := s.load(path)
+	cur, err := s.inbox(m.To)
 	if err != nil {
 		return Message{}, err
 	}
-	m.ID = nextID(ms)
+	m.ID = nextID(cur)
 	m.TS = time.Now().UTC()
 	m.Read = false
-	ms = append(ms, m)
-	ms = compact(ms, maxInboxMessages, readRetention)
-	if err := s.save(path, ms); err != nil {
+	if _, _, err := s.col.InsertWithKey(msgKey(m.To, m.ID), toRecord(m)); err != nil {
 		return Message{}, err
+	}
+	// Compact over the pre-existing messages plus the new one, then delete the
+	// records the compaction shed. The new (unread) message is always kept.
+	full := append(cur, m)
+	kept := compact(full, maxInboxMessages, readRetention)
+	keptIDs := make(map[string]bool, len(kept))
+	for _, k := range kept {
+		keptIDs[k.ID] = true
+	}
+	for _, old := range full {
+		if keptIDs[old.ID] {
+			continue
+		}
+		if err := s.col.DeleteByKey(msgKey(m.To, old.ID)); err != nil && !errors.Is(err, engine.ErrKeyNotFound) {
+			return Message{}, err
+		}
 	}
 	return m, nil
 }
 
 // Messages returns to's inbox in arrival order (read-only). Always non-nil.
 func (s *Store) Messages(to string) ([]Message, error) {
-	path, err := s.path(to)
-	if err != nil {
-		return nil, err
+	if err := store.SafeID(to); err != nil {
+		return nil, ErrBadRecipient
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.load(path)
+	return s.inbox(to)
 }
 
 // All returns every message across all recipients' inboxes (read-only, no
 // mark-read), in unspecified order. Backs the daemon's global, read-only
-// message-traffic view. Temp files from in-flight atomic writes (.tmp-*) and any
-// non-.json entry are skipped. An unreadable/corrupt inbox is skipped-and-logged
-// rather than failing the whole call: this view is best-effort observability, so
-// one bad file must not blank out everyone else's traffic. (Messages(to) stays
-// strict — a caller asking for a specific inbox should hear that it's corrupt.)
+// message-traffic view. It reads the collection directly, so stray files in the
+// data dir are inherently ignored.
 func (s *Store) All() ([]Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ents, err := os.ReadDir(s.dir)
+	results, err := s.col.Scan(query.MatchAll)
 	if err != nil {
 		return nil, err
 	}
-	out := []Message{}
-	for _, ent := range ents {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
-			continue
-		}
-		ms, err := s.load(filepath.Join(s.dir, ent.Name()))
-		if err != nil {
-			slog.Warn("mailbox: skipping unreadable inbox", "file", ent.Name(), "err", err)
-			continue
-		}
-		out = append(out, ms...)
+	out := make([]Message, 0, len(results))
+	for _, r := range results {
+		out = append(out, toMessage(r.Data))
 	}
 	return out, nil
 }
 
-// DeleteInbox removes a recipient's entire inbox file. A missing file is a
-// no-op (nil) — inboxes are created lazily, so "never had one" and "had one,
-// now cleared" are the same end state. Backs cleanup when an agent is
-// hard-deleted; safe because nothing (pipelines included) reads another agent's
-// inbox to make progress.
+// DeleteInbox removes a recipient's entire inbox. A recipient with no messages
+// is a no-op (nil). Backs cleanup when an agent is hard-deleted; safe because
+// nothing (pipelines included) reads another agent's inbox to make progress.
 func (s *Store) DeleteInbox(to string) error {
-	path, err := s.path(to)
-	if err != nil {
-		return err
+	if err := store.SafeID(to); err != nil {
+		return ErrBadRecipient
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	ids, ok := s.col.IndexLookup(toField, to)
+	if !ok {
+		return nil
+	}
+	for _, id := range ids {
+		r, err := s.col.Get(id)
+		if err != nil {
+			continue
+		}
+		if err := s.col.DeleteByKey(r.Key); err != nil && !errors.Is(err, engine.ErrKeyNotFound) {
+			return err
+		}
 	}
 	return nil
 }
 
 // MarkRead flags the given message IDs read in to's inbox. Unknown IDs are
-// ignored; a no-op (nothing changed) avoids a rewrite.
+// ignored; an already-read message is left untouched.
 func (s *Store) MarkRead(to string, ids []string) error {
-	path, err := s.path(to)
-	if err != nil {
-		return err
-	}
-	want := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		want[id] = true
+	if err := store.SafeID(to); err != nil {
+		return ErrBadRecipient
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ms, err := s.load(path)
-	if err != nil {
-		return err
-	}
-	changed := false
-	for i := range ms {
-		if want[ms[i].ID] && !ms[i].Read {
-			ms[i].Read = true
-			changed = true
+	for _, id := range ids {
+		key := msgKey(to, id)
+		r, err := s.col.GetByKey(key)
+		if errors.Is(err, engine.ErrKeyNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		m := toMessage(r.Data)
+		if m.Read {
+			continue
+		}
+		m.Read = true
+		if _, err := s.col.UpdateByKey(key, toRecord(m)); err != nil {
+			return err
 		}
 	}
-	if !changed {
-		return nil
-	}
-	return s.save(path, ms)
+	return nil
 }
 
 // TakeFirstUnread atomically finds the oldest unread message in to's inbox
 // matching from ("" = any sender), marks it read, and returns it. ok is false
 // when nothing matches.
 func (s *Store) TakeFirstUnread(to, from string) (Message, bool, error) {
-	path, err := s.path(to)
-	if err != nil {
-		return Message{}, false, err
+	if err := store.SafeID(to); err != nil {
+		return Message{}, false, ErrBadRecipient
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ms, err := s.load(path)
+	ms, err := s.inbox(to)
 	if err != nil {
 		return Message{}, false, err
 	}
-	for i := range ms {
-		if ms[i].Read {
+	for _, m := range ms {
+		if m.Read {
 			continue
 		}
-		if from != "" && ms[i].From != from {
+		if from != "" && m.From != from {
 			continue
 		}
-		ms[i].Read = true
-		if err := s.save(path, ms); err != nil {
+		m.Read = true
+		if _, err := s.col.UpdateByKey(msgKey(to, m.ID), toRecord(m)); err != nil {
 			return Message{}, false, err
 		}
-		return ms[i], true, nil
+		return m, true, nil
 	}
 	return Message{}, false, nil
+}
+
+// Close flushes and releases the underlying FileDB collection (stopping its
+// background compaction goroutine). The daemon calls it on shutdown.
+func (s *Store) Close() error {
+	return s.db.Close()
 }
