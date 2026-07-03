@@ -38,6 +38,52 @@ func TestLatestContextTokensSkipsMalformedLines(t *testing.T) {
 	}
 }
 
+func TestLatestContextTokensCompactBoundaryResetsGauge(t *testing.T) {
+	// A landed /compact writes a compact_boundary line but NO new assistant
+	// turn until the next prompt — the boundary's postTokens is the current
+	// fill, not the stale pre-compact assistant usage above it.
+	jsonl := `{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":20,"cache_read_input_tokens":181000,"cache_creation_input_tokens":705}}}
+{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","compactMetadata":{"trigger":"manual","preTokens":181725,"postTokens":12062}}
+{"type":"user","message":{"role":"user","content":"This session is being continued..."},"isCompactSummary":true}`
+	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	if !ok || got != 12062 {
+		t.Fatalf("got=%d ok=%v, want 12062 true", got, ok)
+	}
+}
+
+func TestLatestContextTokensAssistantAfterBoundaryWins(t *testing.T) {
+	// Once the next prompt produces a fresh assistant turn, its usage is the
+	// gauge again — the boundary only covers the gap.
+	jsonl := `{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":10,"cache_read_input_tokens":180000,"cache_creation_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"auto","preTokens":180010,"postTokens":9000}}
+{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":15,"cache_read_input_tokens":40000,"cache_creation_input_tokens":100}}}`
+	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	if !ok || got != 15+40000+100 {
+		t.Fatalf("got=%d ok=%v, want %d true", got, ok, 15+40000+100)
+	}
+}
+
+func TestLatestContextTokensBoundaryWithoutMetadata(t *testing.T) {
+	// A boundary missing compactMetadata still marks a reset — an unmeasured
+	// one reads as 0, which beats reporting the stale critical level.
+	jsonl := `{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":10,"cache_read_input_tokens":180000,"cache_creation_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}`
+	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	if !ok || got != 0 {
+		t.Fatalf("got=%d ok=%v, want 0 true", got, ok)
+	}
+}
+
+func TestLatestContextTokensOtherSystemLinesIgnored(t *testing.T) {
+	// Non-boundary system lines must not disturb the gauge.
+	jsonl := `{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+{"type":"system","subtype":"local_command","content":"..."}`
+	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	if !ok || got != 50 {
+		t.Fatalf("got=%d ok=%v, want 50 true", got, ok)
+	}
+}
+
 func TestClassify(t *testing.T) {
 	const warn, crit = 200, 400
 	cases := []struct {
