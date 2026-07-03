@@ -34,6 +34,7 @@ export default defineConfig({
           { label: 'Agents & lifecycle', slug: 'concepts/agents-lifecycle' },
           { label: 'Worktrees & task types', slug: 'concepts/worktrees-task-types' },
           { label: 'Agent backends', slug: 'concepts/agent-backends' },
+          { label: 'Project memory', slug: 'concepts/project-memory' },
         ]},
         { label: 'Guides', items: [
           { label: 'Spawn & watch agents', slug: 'guides/spawn-and-watch' },

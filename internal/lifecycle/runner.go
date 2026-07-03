@@ -117,6 +117,9 @@ type FakeConfig struct {
 	// RootGuardOff disables the PreToolUse root-guard hook; the zero value leaves
 	// it on, matching the production default.
 	RootGuardOff bool
+	// MemoryInjectOff disables .warden/memory.md projection; the zero value leaves
+	// it on, matching the production default.
+	MemoryInjectOff bool
 }
 
 func (f *FakeConfig) GetDefaultPermissionMode() string {
@@ -131,6 +134,10 @@ func (f *FakeConfig) GetModelDefault() string { return f.ModelDefault }
 func (f *FakeConfig) GetPipelineHint() bool { return !f.PipelineHintOff }
 
 func (f *FakeConfig) GetCollabHint() bool { return !f.CollabHintOff }
+
+// GetMemoryInject mirrors production's default-on: the zero value projects
+// .warden/memory.md; set MemoryInjectOff to exercise the disabled path.
+func (f *FakeConfig) GetMemoryInject() bool { return !f.MemoryInjectOff }
 
 func (f *FakeConfig) GetIsolationGuard() bool { return !f.IsolationGuardOff }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/srjn45/warden/internal/agentbackend"
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register the Claude backend (and future adapters)
 	"github.com/srjn45/warden/internal/llm"
+	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
@@ -241,6 +242,44 @@ const gitConventionsGuidance = "Prefer warden git tools over raw git Bash: wd co
 // agents — the ones that commit — alongside collabHint/guardSettingsFlag.
 func (l *Lifecycle) gitConventionsHint(b agentbackend.Backend) string {
 	return systemPromptHint(b, l.cfg.GetGitConventions(), gitConventionsGuidance)
+}
+
+// memStore returns the memory reader for launch-time projection, defaulting to a
+// zero-value Store (git-shelling repo-root resolution) when none is injected.
+func (l *Lifecycle) memStore() *memory.Store {
+	if l.MemStore != nil {
+		return l.MemStore
+	}
+	return &memory.Store{}
+}
+
+// memoryGuidance renders the repo's curated .warden/memory.md as a projection
+// string for an agent spawning in dir (#53 PR-1), or "" when memory_inject is off,
+// the file is absent/empty, or resolution fails. It is ONE MORE guidance string
+// threaded through the SAME systemPromptHint / injectContext assembly the
+// collab/pipeline/git hints already ride — Claude via --append-system-prompt, the
+// six file-drop backends via their AGENTS.md/CRUSH.md/.goosehints warden block,
+// aider degrade-skips (neither seam). Read-only: it never auto-creates the file, so
+// a repo with no memory.md — and memory_inject off — leaves the launch byte-identical
+// to today (the regression-lock). Any failure degrades to "" and never blocks a
+// spawn: memory is additive, exactly like its sibling hints.
+func (l *Lifecycle) memoryGuidance(ctx context.Context, dir string) string {
+	if !l.cfg.GetMemoryInject() {
+		return ""
+	}
+	path, err := l.memStore().Locate(ctx, dir)
+	if err != nil {
+		slog.Debug("spawn: resolve project memory path failed; skipping projection", "dir", dir, "err", err)
+		return ""
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("spawn: read project memory failed; skipping projection", "path", path, "err", err)
+		}
+		return ""
+	}
+	return memory.Parse(string(raw)).RenderDefault()
 }
 
 // launchModel resolves the model id passed to a backend's LaunchCmd. Claude
@@ -502,6 +541,12 @@ type Lifecycle struct {
 	// Empty (tests / older configs) disables file-backing — the addendum then rides
 	// the launch line inline exactly as before. Never the dir the agent runs in.
 	HintsDir string
+	// MemStore reads the repo's curated .warden/memory.md for launch-time projection
+	// (#53 PR-1). The zero value (nil) uses a default memory.Store, which resolves the
+	// repo root by shelling `git rev-parse`; tests inject a Store with a stub RepoRoot
+	// to stay hermetic. Projection is read-only — it never auto-creates the file (that
+	// is the `wd memory` verb's job), so a repo with no memory.md projects nothing.
+	MemStore *memory.Store
 	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
 	// each agent's shell records claude's exit status, keyed by agent id. Empty
 	// (tests) disables exit capture — agents then fall back to orphaned-only
@@ -550,6 +595,7 @@ type ConfigProvider interface {
 	GetModelDefault() string
 	GetPipelineHint() bool
 	GetCollabHint() bool
+	GetMemoryInject() bool
 	GetIsolationGuard() bool
 	GetGitConventions() bool
 	GetGitRedirect() bool
@@ -1244,15 +1290,18 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	// deliver the same pipeline/collab addendum by writing it into the workdir before
 	// launch. A flag-based backend (Claude) skips this — its hints ride the launch
 	// line below instead. A write failure degrades (no hints) but does not fail spawn.
+	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
 		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+		mem,
 	); err != nil {
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
 	hints := l.systemPromptHints(ctx, b, sess.ID,
 		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
-		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance})
+		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
+		hintSpec{l.cfg.GetMemoryInject(), mem})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
@@ -1334,10 +1383,12 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	// (created above) before launch. A flag-based backend (Claude) skips this — its
 	// hints ride the launch line below instead. A write failure degrades (no hints)
 	// but does not fail spawn.
+	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
 		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
 		hintGuidance(l.cfg.GetGitConventions(), gitConventionsGuidance),
+		mem,
 	); err != nil {
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
@@ -1349,7 +1400,8 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	hints := l.systemPromptHints(ctx, b, sess.ID,
 		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
-		hintSpec{l.cfg.GetGitConventions(), gitConventionsGuidance})
+		hintSpec{l.cfg.GetGitConventions(), gitConventionsGuidance},
+		hintSpec{l.cfg.GetMemoryInject(), mem})
 	launch := base + hints + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
@@ -2082,13 +2134,16 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	// deliver the same collab addendum by writing it into the workdir before launch.
 	// A flag-based backend (Claude) skips this — its hint rides the launch line below.
 	// A write failure degrades (no hints) but does not fail spawn.
+	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
 		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+		mem,
 	); err != nil {
 		slog.Warn("spawn job: context injection failed", "agent", id, "backend", b.ID(), "err", err)
 	}
 	hints := l.systemPromptHints(ctx, b, id,
-		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance})
+		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
+		hintSpec{l.cfg.GetMemoryInject(), mem})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)

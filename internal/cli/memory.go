@@ -53,13 +53,16 @@ func newMemoryCmd() *cobra.Command {
 			"auto-created on first use — no `wd init`, no registration. warden READS but never\n" +
 			"rewrites your CLAUDE.md / AGENTS.md / CONVENTIONS.md; this file is warden's own.\n\n" +
 			"With no flags it prints the resolved path and the budgeted, navigational view of\n" +
-			"the memory (the same projection a future release will inject at agent launch).\n" +
+			"the memory — the SAME projection warden injects into every spawned agent's system\n" +
+			"prompt (Claude via --append-system-prompt; other backends via their AGENTS.md /\n" +
+			"CRUSH.md / .goosehints warden block). So `wd memory` shows exactly what the next\n" +
+			"agent will read. Toggle the injection with the `memory_inject` config key (default\n" +
+			"on); off, or an empty/absent file, is byte-identical to no injection.\n\n" +
 			"Use --raw to print the file verbatim, --path for just the resolved path (handy in\n" +
 			"scripts), and --edit to open it in $EDITOR (auto-creating it first if missing).\n\n" +
 			"This verb is CLI-local (like `wd check` / `wd review`): it reads/writes the file\n" +
-			"directly with no daemon round-trip. Note: launch-time projection into agents and\n" +
-			"auto-curation from fleet digests are deliberately deferred to later changes — this\n" +
-			"is the reader only.",
+			"directly with no daemon round-trip. Note: auto-curation from fleet digests is\n" +
+			"deliberately deferred to a later change — today you curate this file by hand.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, err := os.Getwd()
