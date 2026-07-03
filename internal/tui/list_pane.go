@@ -60,6 +60,11 @@ type listPaneModel struct {
 	digestID      string                // agent id the digest is for
 	w, h          int
 	ready         bool
+	// killWindow scopes the `q`/`ctrl+c` teardown to the cockpit's tmux *window*
+	// instead of the whole session. It is set in the tmux-native cockpit, where
+	// the cockpit is a window inside the user's own session — killing the session
+	// there would take the user's entire tmux session down with it.
+	killWindow bool
 }
 
 // quitCmd is what `q`/`ctrl+c` runs: tear the whole cockpit down (killCockpitCmd
@@ -68,7 +73,7 @@ type listPaneModel struct {
 // their shell; on the web the daemon notices the session vanished and tells the
 // browser to leave the full-screen TUI (→ home) — see daemon.bridgeTmux.
 func (m listPaneModel) quitCmd() tea.Cmd {
-	return tea.Sequence(killCockpitCmd(), tea.Quit)
+	return tea.Sequence(killCockpitCmd(m.killWindow), tea.Quit)
 }
 
 func newListPane(a api, detailPane string) listPaneModel {
@@ -730,10 +735,10 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		if id := m.selectedID(); id != "" {
-			return m, switchClientCmd(id)
+			return m, switchClientCmd(id, m.killWindow)
 		}
 		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.SessionID != "" {
-			return m, switchClientCmd(it.pjJob.SessionID)
+			return m, switchClientCmd(it.pjJob.SessionID, m.killWindow)
 		}
 	case "d":
 		if s := m.selected(); s != nil {
@@ -871,33 +876,48 @@ func newAgentNameLabel(name string) string {
 	return name
 }
 
-// killCockpitCmd tears down the whole cockpit by killing the tmux session that
-// hosts this pane. Run from inside the session, `tmux kill-session` (no target)
-// kills the current session, taking the detail + master panes down with it.
-// If we are not inside tmux (kill-session fails), the subsequent tea.Quit still
-// exits cleanly.
-func killCockpitCmd() tea.Cmd {
+// killCockpitArgs returns the tmux command(s) `q`/`ctrl+c` runs to tear the
+// cockpit down, run from inside the list pane. In the classic cockpit the
+// cockpit owns its own session, so it drops the <prefix> Enter override
+// buildCockpit installed and kills the whole session (no target = current).
+// In the tmux-native cockpit (killWindow) the cockpit is just one window in the
+// user's own session, so we kill only that window — killing the session would
+// take the user's entire tmux session down — and we leave their key bindings
+// untouched (the native build never rebinds Enter).
+func killCockpitArgs(killWindow bool) [][]string {
+	if killWindow {
+		return [][]string{{"kill-window"}}
+	}
+	return [][]string{{"unbind-key", "Enter"}, {"kill-session"}}
+}
+
+// killCockpitCmd tears the cockpit down. All calls are best-effort (harmless if
+// not inside tmux); the subsequent tea.Quit still exits cleanly either way.
+func killCockpitCmd(killWindow bool) tea.Cmd {
 	return func() tea.Msg {
-		// Drop the binding buildCockpit installed that overrides a tmux default
-		// (<prefix> Enter = copy-mode), then kill the session. All best-effort
-		// (harmless if not inside tmux).
-		_ = exec.Command("tmux", "unbind-key", "Enter").Run()
-		_ = exec.Command("tmux", "kill-session").Run()
+		for _, argv := range killCockpitArgs(killWindow) {
+			_ = exec.Command("tmux", argv...).Run()
+		}
 		return nil
 	}
 }
 
 // switchClientCmd moves the cockpit's tmux client to the selected agent's
-// session. The list pane runs inside the cockpit's tmux session, where
-// `tmux attach` refuses to nest — `switch-client` is the correct primitive.
-// buildCockpit binds <prefix> Enter to switch-client -l; we flash that hint so
-// the user knows how to get back to the dashboard.
-func switchClientCmd(id string) tea.Cmd {
+// session. The list pane runs inside a tmux session, where `tmux attach` refuses
+// to nest — `switch-client` is the correct primitive. In the classic cockpit
+// buildCockpit binds <prefix> Enter to switch-client -l; the native cockpit does
+// not rebind anything, so it points the user at tmux's default <prefix> L
+// (switch-client -l). We flash the right hint so the user can get back.
+func switchClientCmd(id string, killWindow bool) tea.Cmd {
+	hint := "warden: press Ctrl-b Enter to return to the dashboard"
+	if killWindow {
+		hint = "warden: press Ctrl-b L to return to the dashboard"
+	}
 	return func() tea.Msg {
 		if err := exec.Command("tmux", "switch-client", "-t", id).Run(); err != nil {
 			return attachDoneMsg{err: err}
 		}
-		_ = exec.Command("tmux", "display-message", "warden: press Ctrl-b Enter to return to the dashboard").Run()
+		_ = exec.Command("tmux", "display-message", hint).Run()
 		return attachDoneMsg{err: nil}
 	}
 }
@@ -979,9 +999,13 @@ func openAgentDetailCmd(detailPane, agentID string) tea.Cmd {
 }
 
 // RunListPane runs the top-left cockpit pane; detailPane is the tmux id of the
-// detail pane it drives (opened on Enter).
-func RunListPane(a api, detailPane string) error {
-	p := tea.NewProgram(newListPane(a, detailPane), tea.WithAltScreen())
+// detail pane it drives (opened on Enter). killWindow scopes the `q` teardown to
+// the cockpit window instead of the whole session — set in the tmux-native
+// cockpit, where the cockpit lives inside the user's own tmux session.
+func RunListPane(a api, detailPane string, killWindow bool) error {
+	m := newListPane(a, detailPane)
+	m.killWindow = killWindow
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

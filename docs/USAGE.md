@@ -397,7 +397,10 @@ resolve by **either** the agent's `name` **or** its id — the same identifiers 
 
 ### `warden` / `warden tui`
 Open the tmux-composited cockpit (see §7). Bare `warden` with no
-subcommand does the same thing. Requires tmux (see §7).
+subcommand does the same thing. Requires tmux (see §7). Launched from **inside**
+an existing tmux session it lays out as a native window in that session instead
+of nesting (`--tmux-native`, auto-enabled when `$TMUX` is set — see §7
+"Launching from inside an existing tmux session").
 
 ### `warden start [TICKET|"<prompt>"] [flags]`
 Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
@@ -1049,12 +1052,39 @@ Each cockpit launch creates an independent tmux session (named
 `warden-tui-<pid>`), so opening two terminals and running `warden tui` in
 each gives you two separate cockpits, each with its own shell.
 
+### Launching from inside an existing tmux session
+
+If you run `warden tui` (or bare `warden`) **from inside a tmux session**, warden
+detects `$TMUX` and lays the cockpit out as a **native tmux window** in your
+*current* session (named `warden-cockpit`) instead of building its own session to
+attach to — a plain `tmux attach` refuses to nest, and nesting two tmux sessions
+means dueling prefix keys and status-bar confusion. The native window uses your
+own tmux's keybindings, copy-mode, and resizing directly; there is no inner/outer
+prefix conflict because it is all one session:
+
+- Its two panes (the **list** on the left, the **detail** on the right) are real
+  tmux panes — navigate them with your usual tmux keys (`Ctrl-b ←/→`, `Ctrl-b o`).
+- **Enter** opens the selected agent live in the detail pane; **`a`** zooms it
+  full-screen (`Ctrl-b L` returns you to the cockpit window).
+- **`q`** closes only the cockpit *window* — your other tmux windows and the
+  session itself are left untouched.
+
+warden prints a one-line notice when it does this. To force the classic
+own-session cockpit instead (e.g. for a screen recording), unset `$TMUX`:
+`env -u TMUX warden tui`. You can force the native window explicitly with
+`warden tui --tmux-native` (it requires `$TMUX`).
+
+> The native window is intentionally leaner than the classic cockpit: it drops
+> the dedicated master shell/REPL pane (your own tmux already gives you shells a
+> keypress away with `Ctrl-b c`) and the extra `Alt`-arrow / `Alt-t` bindings (so
+> it never touches your personal tmux config). Everything else — the live list,
+> new-agent form, approvals, digests, full-screen attach — works the same.
+
 ### Requirements
 
 The cockpit requires **tmux ≥ 3.1** — it composites real tmux panes. There is no
-single-pane fallback: if tmux isn't installed, or you run `warden tui` from
-**inside an existing tmux session** (which would nest sessions), the cockpit
-can't build its panes and exits with an error. Run it from a plain terminal.
+single-pane fallback: from a plain terminal (not inside tmux) it builds its own
+session and attaches; if tmux isn't installed at all it exits with an error.
 
 The list pane polls the daemon about once a second, so the daemon must be
 running before you open the TUI.
