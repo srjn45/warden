@@ -1,4 +1,4 @@
-.PHONY: build test test-integration bench fuzz cover lint fmt fmt-check generate generate-check verify verify-fast run-daemon ui ui-dev web-deps web-test release install-skill install-hooks install uninstall reinstall
+.PHONY: build test test-integration bench fuzz cover lint fmt fmt-check generate generate-check gendocs gendocs-check verify verify-fast run-daemon ui ui-dev web-deps web-test release install-skill install-hooks install uninstall reinstall
 
 # Stamp commit/date into source builds so `warden version` is useful locally.
 # Release builds get these (plus the version tag) from goreleaser's ldflags.
@@ -53,6 +53,22 @@ generate-check: generate
 	@if ! git diff --quiet -- internal/daemon/oapi; then \
 		echo "internal/daemon/oapi is out of date — run 'make generate' and commit the result:"; \
 		git --no-pager diff --stat -- internal/daemon/oapi; \
+		exit 1; \
+	fi
+
+# Regenerate the CLI reference (site/src/content/docs/reference/cli.md) by
+# walking the real cobra command tree. The command tree is the single source of
+# truth; the page is committed so the website builds without a codegen step.
+gendocs:
+	go run ./cmd/gendocs
+
+# CI guard: regenerate the CLI reference and fail if the committed page drifts —
+# i.e. someone changed a command's Use/Short/Long or flags without running
+# `make gendocs` (so cli.md can never merge stale). Mirrors generate-check.
+gendocs-check: gendocs
+	@if ! git diff --quiet -- site/src/content/docs/reference/cli.md; then \
+		echo "site/src/content/docs/reference/cli.md is out of date — run 'make gendocs' and commit the result:"; \
+		git --no-pager diff --stat -- site/src/content/docs/reference/cli.md; \
 		exit 1; \
 	fi
 
