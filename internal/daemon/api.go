@@ -115,6 +115,10 @@ type Server struct {
 	mcollector *metrics.Collector
 	mrecorder  *metrics.Recorder
 	metricsOn  bool // metrics config setting — gates the disk recorder goroutine
+	// HTTP write budgets (http_timeout_fast / http_timeout_slow config settings);
+	// zero values fall back to writeTimeoutDur / slowWriteTimeoutDur in router().
+	writeFast time.Duration
+	writeSlow time.Duration
 	// Context-token bands reused by the metrics-history anomaly detector so its
 	// "context climbing/critical" warnings line up with the poller's guard. 0 ⇒
 	// the corresponding check is disabled.
@@ -355,7 +359,14 @@ func (s *Server) router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(recoverMiddleware)
 	r.Use(maxBytes(maxBodyBytes))
-	r.Use(writeTimeout(writeTimeoutDur, slowWriteTimeoutDur))
+	fast, slow := s.writeFast, s.writeSlow
+	if fast <= 0 {
+		fast = writeTimeoutDur
+	}
+	if slow <= 0 {
+		slow = slowWriteTimeoutDur
+	}
+	r.Use(writeTimeout(fast, slow))
 
 	// Unauthenticated: a liveness probe (for tunnels/proxies) and the static UI.
 	// The compiled SPA holds no secrets — serving its shell to anyone is what

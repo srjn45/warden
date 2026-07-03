@@ -140,6 +140,14 @@ type Config struct {
 	RateLimitAutoResume    bool          `yaml:"rate_limit_auto_resume"`
 	RateLimitResumePrompt  string        `yaml:"rate_limit_resume_prompt"`
 
+	// HTTP write budgets for the daemon API. Fast bounds ordinary data/action
+	// routes; slow bounds the lifecycle routes that do real, possibly-minutes-long
+	// work (spawn's worktree checkout, commit/push hooks, running checks). These
+	// are backstops against a wedged handler, not pacing devices — keep them
+	// generous, especially in large monorepos where git operations are slow.
+	HTTPTimeoutFast string `yaml:"http_timeout_fast"`
+	HTTPTimeoutSlow string `yaml:"http_timeout_slow"`
+
 	// Structured logging (internal/logging).
 	LogLevel  string `yaml:"log_level"`
 	LogFormat string `yaml:"log_format"`
@@ -171,7 +179,7 @@ var schema = []setting{
 	{"data_dir", "Directory for warden state (sessions, inbox, pipelines, metrics). Values: absolute path"},
 	{"claude_projects_dir", "Claude Code transcript root. Values: absolute path"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
-	{"auto_approve", "Auto-approve policy. With NO rules configured this is the simple on/off toggle (enabled answers every recognized, non-destructive prompt). With rules, the daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, regex, paths} — tool/pattern are case-insensitive, regex is a Go regexp), agents (per-agent overrides keyed by agent name or id, each its own {enabled, allow_sticky, rules} block that replaces the default for that agent)."},
+	{"auto_approve", "Auto-approve policy. With NO rules configured this is the simple on/off toggle (enabled answers every recognized, non-destructive prompt). With rules, the daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, regex, paths} — tool/pattern are case-insensitive, regex is a Go regexp), max_repeats (circuit breaker: how many times the IDENTICAL prompt may be consecutively approved for one agent before auto-approve halts and escalates to a human; 0 = default 10, negative = off), agents (per-agent overrides keyed by agent name or id, each its own {enabled, allow_sticky, rules, max_repeats} block that replaces the default for that agent)."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
 	{"allow_nonloopback", "DEPRECATED and inert: this no longer bypasses authentication. A bearer token (WARDEN_TOKEN) is now mandatory for any non-loopback bind. Setting it true only logs a deprecation warning. Values: true | false"},
@@ -197,6 +205,8 @@ var schema = []setting{
 	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
 	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
 	{"rate_limit_resume_prompt", "Text to send when resuming a rate-limited agent. Empty = bare keypress (no injected user turn). Values: any string"},
+	{"http_timeout_fast", "Daemon write budget for ordinary data/action routes (list, status, send, …). A backstop against a wedged handler, not a pacing device. Values: Go duration (e.g. 30s)"},
+	{"http_timeout_slow", "Daemon write budget for slow lifecycle routes (spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Keep generous — in a large monorepo a single git worktree add or hook run can take minutes. Values: Go duration (e.g. 10m)"},
 	{"log_level", "Minimum severity the daemon logs. Values: debug | info | warn | error"},
 	{"log_format", "Daemon log output format. Values: text (human-readable) | json (structured)"},
 
@@ -254,6 +264,8 @@ func defaults() Config {
 		RateLimitBuffer:        "1m",
 		RateLimitAutoResume:    true,
 		RateLimitResumePrompt:  "",
+		HTTPTimeoutFast:        "30s",
+		HTTPTimeoutSlow:        "10m",
 		LogLevel:               logging.DefaultLevel,
 		LogFormat:              logging.DefaultFormat,
 		Rails: RailsConfig{
@@ -396,6 +408,8 @@ func validate(c *Config) {
 	c.BranchTrackInterval = validDuration(c.BranchTrackInterval, d.BranchTrackInterval)
 	c.RateLimitRetryInterval = validDuration(c.RateLimitRetryInterval, d.RateLimitRetryInterval)
 	c.RateLimitBuffer = validDuration(c.RateLimitBuffer, d.RateLimitBuffer)
+	c.HTTPTimeoutFast = validDuration(c.HTTPTimeoutFast, d.HTTPTimeoutFast)
+	c.HTTPTimeoutSlow = validDuration(c.HTTPTimeoutSlow, d.HTTPTimeoutSlow)
 	if strings.TrimSpace(c.LocalLLM.URL) == "" {
 		c.LocalLLM.URL = d.LocalLLM.URL
 	}
@@ -1051,6 +1065,18 @@ func (c Config) GetLocalLLM() bool { return c.LocalLLM.Enabled }
 // before warden falls back to Claude.
 func (c Config) LocalLLMTimeoutDuration() time.Duration {
 	return durOr(c.LocalLLM.Timeout, 20*time.Second)
+}
+
+// HTTPTimeoutFastDuration returns the daemon write budget for ordinary
+// data/action routes (http_timeout_fast).
+func (c Config) HTTPTimeoutFastDuration() time.Duration {
+	return durOr(c.HTTPTimeoutFast, 30*time.Second)
+}
+
+// HTTPTimeoutSlowDuration returns the daemon write budget for slow lifecycle
+// routes — spawn, commit/push, checks, snapshots (http_timeout_slow).
+func (c Config) HTTPTimeoutSlowDuration() time.Duration {
+	return durOr(c.HTTPTimeoutSlow, 10*time.Minute)
 }
 
 // GetLocalLLMEscalate reports whether the REPL may escalate an over-tier

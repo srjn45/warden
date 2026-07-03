@@ -427,11 +427,12 @@ func (c *Client) Guard(ctx context.Context, session, tool, path string) (GuardVe
 // GitCommit stages+commits dir's changes via the daemon's rail-enforcing commit
 // (protected-branch refusal, pre-commit hook parsing, bookkeeping). session is
 // the calling agent's id ("" for a human run); when set the daemon pins the
-// action to that agent's own worktree.
+// action to that agent's own worktree. Uses longTimeout — commit runs the
+// repo's own pre-commit hooks, which in a large monorepo can take minutes.
 func (c *Client) GitCommit(ctx context.Context, session, dir, message string) (lifecycle.CommitResult, error) {
 	var res lifecycle.CommitResult
 	body := map[string]string{"session": session, "dir": dir, "message": message}
-	if err := c.do(ctx, http.MethodPost, "/git/commit", body, &res); err != nil {
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/git/commit", body, &res); err != nil {
 		return lifecycle.CommitResult{}, err
 	}
 	return res, nil

@@ -43,6 +43,15 @@ func (s *Server) SetCollabInterval(d time.Duration) { s.collabInterval = d }
 // value disables the tracker (Run returns immediately).
 func (s *Server) SetBranchTrackInterval(d time.Duration) { s.branchTrackInterval = d }
 
+// SetWriteTimeouts overrides the HTTP write budgets (http_timeout_fast /
+// http_timeout_slow config settings): fast bounds ordinary data/action routes,
+// slow bounds lifecycle routes that do real work (spawn/check/push/commit/…).
+// Non-positive values keep the built-in defaults (30s / 10m). Call before
+// Start — the budgets are baked into the router.
+func (s *Server) SetWriteTimeouts(fast, slow time.Duration) {
+	s.writeFast, s.writeSlow = fast, slow
+}
+
 // SetBranchTrackNotifier wires the operator notifier the branch tracker fans CI
 // failures out to. No-op if the tracker was never constructed.
 func (s *Server) SetBranchTrackNotifier(n notify.Notifier) {
