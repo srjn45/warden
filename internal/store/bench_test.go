@@ -47,8 +47,9 @@ func seedStore(b *testing.B, n int) *FileStore {
 	return st
 }
 
-// BenchmarkInsert measures the cost of a single Insert (temp-file write +
-// atomic rename), the per-spawn store cost on the hot path.
+// BenchmarkInsert measures the cost of a single Insert (a FileDB record append
+// after the active-collection name-uniqueness scan), the per-spawn store cost on
+// the hot path.
 func BenchmarkInsert(b *testing.B) {
 	ctx := context.Background()
 	st, err := NewFileStore(b.TempDir())

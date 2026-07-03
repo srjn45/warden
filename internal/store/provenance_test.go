@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -101,23 +99,14 @@ func TestListClosed(t *testing.T) {
 	require.True(t, closed[0].BranchCreated)
 }
 
-// TestProvenanceMigration verifies the one-shot backfill applied at store-open:
-// a legacy record whose branch equals its id is warden-created (both flags
-// true), while a user-named branch (≠ id) is conservatively adopted (branch
-// flag false). The migration runs over both active and closed collections.
+// TestProvenanceMigration verifies the backfill folded into the legacy-JSON
+// import: a legacy record whose branch equals its id is warden-created (both
+// flags true), while a user-named branch (≠ id) is conservatively adopted
+// (branch flag false). The backfill runs over both the active and closed legacy
+// dirs when the old .provenance-migrated marker is absent.
 func TestProvenanceMigration(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-
-	// First open creates the layout; close it so we can drop legacy files in
-	// before the migration runs on the next open.
-	st0, err := NewFileStore(dir)
-	require.NoError(t, err)
-	require.NoError(t, st0.Close(ctx))
-
-	// Remove the marker the empty-corpus migration wrote, so re-opening with
-	// legacy files actually runs the backfill.
-	require.NoError(t, os.Remove(filepath.Join(dir, provenanceMarker)))
 
 	// Legacy active record: branch == id → warden-created.
 	wardenBranch := &Session{
@@ -134,9 +123,11 @@ func TestProvenanceMigration(t *testing.T) {
 		ID: "dev-cccc", TmuxSession: "dev-cccc", Repo: "/repo",
 		Worktree: ".worktrees/dev-cccc", Branch: "dev-cccc", Status: StatusDone,
 	}
-	require.NoError(t, atomicWriteJSON(filepath.Join(dir, "sessions", "dev-aaaa.json"), wardenBranch))
-	require.NoError(t, atomicWriteJSON(filepath.Join(dir, "sessions", "dev-bbbb.json"), userBranch))
-	require.NoError(t, atomicWriteJSON(filepath.Join(dir, "closed", "dev-cccc.json"), closedBranch))
+	// Seed the legacy dirs BEFORE the first open, so the import backfills them (no
+	// .provenance-migrated marker present).
+	writeLegacy(t, dir, "sessions", wardenBranch)
+	writeLegacy(t, dir, "sessions", userBranch)
+	writeLegacy(t, dir, "closed", closedBranch)
 
 	st, err := NewFileStore(dir)
 	require.NoError(t, err)
