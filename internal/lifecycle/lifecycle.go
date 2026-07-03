@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -574,6 +575,11 @@ type Lifecycle struct {
 	// nil disables recording. Called inline on the offload path, so it must be cheap
 	// and must not panic.
 	SavingsHook func(feature, agent string, rawTokens, keptTokens int, rawSample, keptSample string)
+	// goos and readPSI are the platform seams for MemoryPressure: runtime.GOOS
+	// and a /proc/pressure/memory read in production, injected by tests so both
+	// kernel sources are exercised on any host.
+	goos    string
+	readPSI func() (string, error)
 }
 
 // recordOffload reports a fully-offloaded local-model call to the savings hook (if
@@ -604,7 +610,7 @@ type ConfigProvider interface {
 }
 
 func New(r Runner, cfg ConfigProvider) *Lifecycle {
-	return &Lifecycle{run: r, cfg: cfg, backend: agentbackend.Default()}
+	return &Lifecycle{run: r, cfg: cfg, backend: agentbackend.Default(), goos: runtime.GOOS, readPSI: readPSIFile}
 }
 
 // backendFor resolves the backend for a session by its Backend field, falling
@@ -1061,10 +1067,24 @@ func (l *Lifecycle) CommitWorktree(ctx context.Context, dir, message string) (bo
 	return true, nil
 }
 
-// MemoryPressure reads the macOS memory-pressure level via sysctl. Best-effort:
-// on any error (sysctl missing on non-macOS, unparseable output) it degrades to
-// pressure.Normal with no error, so the spawn gate falls back to count-only.
+// MemoryPressure reads the OS memory-pressure level: Linux's PSI memory file
+// (/proc/pressure/memory) on linux, the memorystatus sysctl on macOS (and on
+// any other GOOS, where the sysctl attempt simply fails). Best-effort: on any
+// error (file/sysctl missing, PSI disabled via psi=0, unparseable output) it
+// degrades to pressure.Normal with no error, so the spawn gate falls back to
+// count-only.
 func (l *Lifecycle) MemoryPressure(ctx context.Context) (pressure.Level, error) {
+	if l.goos == "linux" && l.readPSI != nil {
+		raw, err := l.readPSI()
+		if err != nil {
+			return pressure.Normal, nil
+		}
+		lvl, perr := pressure.ParsePSI(raw)
+		if perr != nil {
+			return pressure.Normal, nil
+		}
+		return lvl, nil
+	}
 	out, err := l.run.Run(ctx, "", "sysctl", "-n", "kern.memorystatus_vm_pressure_level")
 	if err != nil {
 		return pressure.Normal, nil
@@ -1074,6 +1094,14 @@ func (l *Lifecycle) MemoryPressure(ctx context.Context) (pressure.Level, error) 
 		return pressure.Normal, nil
 	}
 	return lvl, nil
+}
+
+// readPSIFile reads /proc/pressure/memory. On a kernel booted with psi=0 the
+// file exists but the read fails (EOPNOTSUPP), which the caller degrades to
+// Normal like any other error.
+func readPSIFile() (string, error) {
+	b, err := os.ReadFile("/proc/pressure/memory")
+	return string(b), err
 }
 
 // RunClaudeP exposes the bounded headless `claude -p` runner (the same plumbing

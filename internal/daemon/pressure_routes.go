@@ -8,7 +8,7 @@ import (
 )
 
 // pressureSampleInterval is how often the sampler refreshes the cached level.
-// Cheap (one sysctl); kept short so the gauge and gate react quickly.
+// Cheap (one sysctl / procfs read); kept short so the gauge and gate react quickly.
 const pressureSampleInterval = 5 * time.Second
 
 // samplePressure refreshes the cached level once.
