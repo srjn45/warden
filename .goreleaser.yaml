@@ -38,6 +38,111 @@ archives:
       - README.md
       - THIRD-PARTY-NOTICES.md
 
+# Linux packages (.deb / .rpm / Arch .pkg.tar.zst), built from the linux
+# binaries above and attached to the GitHub release alongside the archives.
+# tmux + git are weak dependencies (apt/dnf install them by default, minimal
+# systems can opt out): the CLI/doctor/setup surfaces run without them, and
+# `warden setup` installs anything missing interactively.
+nfpms:
+  - id: packages
+    package_name: warden
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    vendor: srjn45
+    homepage: https://srjn45.github.io/warden/
+    maintainer: Srajan Pathak <29410402+srjn45@users.noreply.github.com>
+    description: |-
+      Run a fleet of coding agents without losing your mind.
+      Spawns, monitors, and tears down coding-agent sessions — each in its own
+      isolated git worktree — with real cost tracking, DAG pipelines, and a
+      live TUI/web cockpit. Single binary, local daemon, no SaaS, no telemetry.
+    license: Apache-2.0
+    formats: [deb, rpm, archlinux]
+    contents:
+      # Short alias, mirroring what scripts/install.sh sets up.
+      - src: /usr/bin/warden
+        dst: /usr/bin/wd
+        type: symlink
+      - src: ./LICENSE
+        dst: /usr/share/doc/warden/LICENSE
+      - src: ./NOTICE
+        dst: /usr/share/doc/warden/NOTICE
+      - src: ./THIRD-PARTY-NOTICES.md
+        dst: /usr/share/doc/warden/THIRD-PARTY-NOTICES.md
+    overrides:
+      deb:
+        recommends: [tmux, git]
+        suggests: [gh]
+      rpm:
+        recommends: [tmux, git]
+        suggests: [gh]
+
+# AUR (Arch User Repository): publishes the warden-bin PKGBUILD on tag push.
+# Gated on the AUR_KEY secret (the SSH private key registered with the AUR
+# account that owns the warden-bin package base) — absent, the PKGBUILD is
+# still generated into dist/ but nothing is pushed, so a release never fails
+# on missing one-time setup. See docs/SHIPPING.md for the setup steps.
+aurs:
+  - name: warden-bin
+    ids: [warden]
+    homepage: https://srjn45.github.io/warden/
+    description: "Spawn, monitor, and tear down a fleet of coding agents (worktree isolation, cost tracking, TUI/web cockpit)"
+    maintainers: ["Srajan Pathak <srajanpathak45 at gmail dot com>"]
+    license: Apache-2.0
+    private_key: '{{ envOrDefault "AUR_KEY" "" }}'
+    git_url: "ssh://aur@aur.archlinux.org/warden-bin.git"
+    skip_upload: '{{ if envOrDefault "AUR_KEY" "" }}false{{ else }}true{{ end }}'
+    provides: [warden]
+    conflicts: [warden]
+    depends: [tmux, git]
+    optdepends:
+      - "github-cli: PR/issue operations in agent workflows"
+      - "ollama: local-LLM offload (wd repl conductor, commit narration)"
+    package: |-
+      install -Dm755 "./warden" "${pkgdir}/usr/bin/warden"
+      ln -s warden "${pkgdir}/usr/bin/wd"
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/warden-bin/LICENSE"
+      install -Dm644 "./NOTICE" "${pkgdir}/usr/share/licenses/warden-bin/NOTICE"
+      install -Dm644 "./THIRD-PARTY-NOTICES.md" "${pkgdir}/usr/share/licenses/warden-bin/THIRD-PARTY-NOTICES.md"
+    commit_author:
+      name: goreleaser
+      email: 29410402+srjn45@users.noreply.github.com
+
+# Homebrew tap (macOS): `brew install --cask srjn45/tap/warden`. Gated on the
+# HOMEBREW_TAP_TOKEN secret (a PAT with write access to srjn45/homebrew-tap) —
+# absent, the cask is generated into dist/ but not pushed. The post-install
+# hook clears Gatekeeper quarantine, since release binaries are not notarized.
+homebrew_casks:
+  - name: warden
+    ids: [warden]
+    repository:
+      owner: srjn45
+      name: homebrew-tap
+      token: '{{ envOrDefault "HOMEBREW_TAP_TOKEN" "" }}'
+    directory: Casks
+    homepage: https://srjn45.github.io/warden/
+    description: "Spawn, monitor, and tear down a fleet of coding agents (worktree isolation, cost tracking, TUI/web cockpit)"
+    skip_upload: '{{ if envOrDefault "HOMEBREW_TAP_TOKEN" "" }}false{{ else }}true{{ end }}'
+    dependencies:
+      - formula: tmux
+      - formula: git
+    caveats: |
+      warden drives coding-agent CLIs you install separately — e.g. Claude Code:
+        https://docs.claude.com/claude-code
+      Start here:
+        warden setup      # check/install runtime deps
+        warden tutorial   # guided tour
+      The repo's install script also creates a `wd` alias; with the cask, add
+      your own: alias wd=warden
+    commit_author:
+      name: goreleaser
+      email: 29410402+srjn45@users.noreply.github.com
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/warden"]
+          end
+
 checksum:
   name_template: "checksums.txt"
 
