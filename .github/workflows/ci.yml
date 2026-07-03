@@ -40,6 +40,22 @@ jobs:
         # hand-edited) so the two can never silently drift.
         run: make generate-check
 
+  gendocs:
+    name: CLI reference up to date
+    # site/src/content/docs/reference/cli.md is generated from the cobra command
+    # tree (cmd/gendocs). Regenerate and fail if the committed page is stale —
+    # i.e. a command's Use/Short/Long or flags changed without `make gendocs`.
+    # Runs unfiltered because any internal/cli change can move the help output.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: cli reference codegen up to date
+        run: make gendocs-check
+
   test-go:
     name: Test (Go)
     # Runs on macOS to match the development platform (tmux-driven sessions,

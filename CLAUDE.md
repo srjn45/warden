@@ -36,8 +36,11 @@ A feature is not done until **all** affected docs are updated. Check each of:
 - Check whether the feature changes the **CLI tool's help/manual** and update it
   if so. Command help text lives with the cobra commands in `internal/cli/`
   (`Use`, `Short`, `Long`, flag descriptions).
-- Keep the CLI reference (`site/src/content/docs/reference/cli.md`) in sync with
-  the actual `--help` output.
+- The CLI reference (`site/src/content/docs/reference/cli.md`) is **generated**
+  from the cobra command tree by `cmd/gendocs` — never hand-edit it. After
+  changing any command's `Use`/`Short`/`Long` or flags, run `make gendocs` and
+  commit the result. CI (`make gendocs-check`) fails the build if the committed
+  page is stale, so this can no longer drift.
 
 ---
 
