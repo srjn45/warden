@@ -119,7 +119,10 @@ func (s *Server) classifyAndUpdate(id, prompt string) {
 	if err != nil {
 		t = store.TypeOther // never block: fall back to "other"
 	}
-	if err := s.store.UpdateType(ctx, id, t); err != nil {
+	if err := s.store.Update(ctx, id, func(sess *store.Session) error {
+		sess.Type = t
+		return nil
+	}); err != nil {
 		slog.Warn("classify update failed", "agent", id, "err", err)
 		return
 	}
@@ -142,7 +145,10 @@ func (s *Server) nameAndUpdate(id, prompt string) {
 	if name == "" {
 		return // could not find a free variant; leave the agent unnamed
 	}
-	if err := s.store.UpdateName(ctx, id, name); err != nil {
+	if err := s.store.Update(ctx, id, func(sess *store.Session) error {
+		sess.Name = name
+		return nil
+	}); err != nil {
 		slog.Warn("name update failed", "agent", id, "err", err)
 		return
 	}

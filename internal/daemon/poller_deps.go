@@ -28,10 +28,16 @@ func (d *pollerDeps) UpdateStatusIf(ctx context.Context, id string, expected, ne
 	return d.store.UpdateStatusIf(ctx, id, expected, next)
 }
 func (d *pollerDeps) UpdatePane(ctx context.Context, id, ex string) error {
-	return d.store.UpdatePane(ctx, id, ex)
+	return d.store.Update(ctx, id, func(s *store.Session) error {
+		s.LastPaneExcerpt = ex
+		return nil
+	})
 }
 func (d *pollerDeps) UpdateSubject(ctx context.Context, id, subject string) error {
-	return d.store.UpdateSubject(ctx, id, subject)
+	return d.store.Update(ctx, id, func(s *store.Session) error {
+		s.Subject = subject
+		return nil
+	})
 }
 func (d *pollerDeps) Summarize(ctx context.Context, s *store.Session) (string, error) {
 	return d.lc.Summarize(ctx, s)
