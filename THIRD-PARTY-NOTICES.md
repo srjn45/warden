@@ -49,6 +49,7 @@ commit whenever dependencies change; CI fails if this file is stale._
 | `github.com/segmentio/encoding` | MIT | [link](https://github.com/segmentio/encoding/blob/v0.5.4/LICENSE) |
 | `github.com/spf13/cobra` | Apache-2.0 | [link](https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt) |
 | `github.com/spf13/pflag` | BSD-3-Clause | [link](https://github.com/spf13/pflag/blob/v1.0.9/LICENSE) |
+| `github.com/srjn45/filedbv2` | MIT | [link](https://github.com/srjn45/filedbv2/blob/v0.2.1/LICENSE) |
 | `github.com/standard-webhooks/standard-webhooks/libraries/go` | MIT | [link](https://github.com/standard-webhooks/standard-webhooks/blob/libraries/v0.0.1/libraries/LICENSE) |
 | `github.com/tidwall/gjson` | MIT | [link](https://github.com/tidwall/gjson/blob/v1.18.0/LICENSE) |
 | `github.com/tidwall/match` | MIT | [link](https://github.com/tidwall/match/blob/v1.1.1/LICENSE) |
