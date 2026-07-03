@@ -88,9 +88,9 @@ aurs:
     description: "Spawn, monitor, and tear down a fleet of coding agents (worktree isolation, cost tracking, TUI/web cockpit)"
     maintainers: ["Srajan Pathak <srajanpathak45 at gmail dot com>"]
     license: Apache-2.0
-    private_key: '{{ if isEnvSet "AUR_KEY" }}{{ .Env.AUR_KEY }}{{ end }}'
+    private_key: '{{ if .Env.AUR_KEY }}{{ .Env.AUR_KEY }}{{ end }}'
     git_url: "ssh://aur@aur.archlinux.org/warden-bin.git"
-    skip_upload: '{{ if isEnvSet "AUR_KEY" }}false{{ else }}true{{ end }}'
+    skip_upload: '{{ if .Env.AUR_KEY }}false{{ else }}true{{ end }}'
     provides: [warden]
     conflicts: [warden]
     depends: [tmux, git]
@@ -117,11 +117,11 @@ homebrew_casks:
     repository:
       owner: srjn45
       name: homebrew-tap
-      token: '{{ if isEnvSet "HOMEBREW_TAP_TOKEN" }}{{ .Env.HOMEBREW_TAP_TOKEN }}{{ end }}'
+      token: '{{ if .Env.HOMEBREW_TAP_TOKEN }}{{ .Env.HOMEBREW_TAP_TOKEN }}{{ end }}'
     directory: Casks
     homepage: https://srjn45.github.io/warden/
     description: "Spawn, monitor, and tear down a fleet of coding agents (worktree isolation, cost tracking, TUI/web cockpit)"
-    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    skip_upload: '{{ if .Env.HOMEBREW_TAP_TOKEN }}false{{ else }}true{{ end }}'
     dependencies:
       - formula: tmux
       - formula: git
