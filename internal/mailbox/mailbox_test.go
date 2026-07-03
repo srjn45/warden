@@ -121,6 +121,11 @@ func TestPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	s1, _ := New(dir)
 	s1.Append(Message{To: "agent-1", From: "x", Body: "kept"})
+	// The store is now embedded (FileDB): a reopen models a daemon restart, so
+	// close the first handle (flushing its index) before opening a new one.
+	if err := s1.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 	s2, err := New(dir)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -210,30 +215,6 @@ func TestAllGathersEveryInbox(t *testing.T) {
 	}
 }
 
-func TestAllSkipsCorruptInbox(t *testing.T) {
-	dir := t.TempDir()
-	s, _ := New(dir)
-	s.Append(Message{To: "agent-1", From: "x", Body: "a"})
-	s.Append(Message{To: "agent-2", From: "y", Body: "b"})
-	// Corrupt one inbox: a single bad file must not blank out the whole view.
-	if err := os.WriteFile(filepath.Join(dir, "agent-3.json"), []byte("{not json"), 0o600); err != nil {
-		t.Fatalf("write corrupt inbox: %v", err)
-	}
-
-	all, err := s.All()
-	if err != nil {
-		t.Fatalf("All must not fail on one corrupt inbox: %v", err)
-	}
-	if len(all) != 2 {
-		t.Fatalf("want the 2 readable messages, got %d: %+v", len(all), all)
-	}
-
-	// A direct read of the corrupt inbox, by contrast, stays strict.
-	if _, err := s.Messages("agent-3"); err == nil {
-		t.Fatalf("Messages on a corrupt inbox must return an error")
-	}
-}
-
 func TestAllEmptyDir(t *testing.T) {
 	s, _ := New(t.TempDir())
 	all, err := s.All()
@@ -258,19 +239,16 @@ func TestAllIgnoresTempFiles(t *testing.T) {
 	}
 }
 
-func TestDeleteInboxRemovesFile(t *testing.T) {
+func TestDeleteInboxRemovesMessages(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := New(dir)
 	s.Append(Message{To: "agent-x", From: "y", Body: "hi"})
-	if _, err := os.Stat(filepath.Join(dir, "agent-x.json")); err != nil {
-		t.Fatalf("inbox file should exist before delete: %v", err)
+	if msgs, _ := s.Messages("agent-x"); len(msgs) != 1 {
+		t.Fatalf("inbox should have 1 message before delete, got %d", len(msgs))
 	}
 
 	if err := s.DeleteInbox("agent-x"); err != nil {
 		t.Fatalf("DeleteInbox: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "agent-x.json")); !os.IsNotExist(err) {
-		t.Fatalf("inbox file should be gone, stat err=%v", err)
 	}
 	msgs, err := s.Messages("agent-x")
 	if err != nil {
@@ -278,6 +256,10 @@ func TestDeleteInboxRemovesFile(t *testing.T) {
 	}
 	if len(msgs) != 0 {
 		t.Fatalf("want empty inbox after delete, got %d", len(msgs))
+	}
+	// The deleted inbox must not resurface in the global view either.
+	if all, _ := s.All(); len(all) != 0 {
+		t.Fatalf("want no messages in All() after delete, got %d", len(all))
 	}
 }
 

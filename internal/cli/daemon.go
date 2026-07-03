@@ -131,10 +131,17 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 
+			// ctxstore is now an embedded FileDB store with background goroutines;
+			// close it on shutdown to flush its index and stop the compaction loop.
+			defer cstore.Close()
+
 			mbox, err := mailbox.New(filepath.Join(cfg.DataDir, "inbox"))
 			if err != nil {
 				return err
 			}
+
+			// mailbox is an embedded FileDB store (see cstore above); close on shutdown.
+			defer mbox.Close()
 
 			runner := lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}
 			lc := lifecycle.New(runner, cfg)
