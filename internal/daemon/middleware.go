@@ -145,6 +145,8 @@ const (
 	// writeTimeoutDur bounds fast (data/action) handler execution. Streaming
 	// routes (SSE, WS attach, message long-poll) are exempt — see
 	// isStreamingPath — and slow lifecycle routes get slowWriteTimeoutDur.
+	// Both budgets are defaults only: `http_timeout_fast` / `http_timeout_slow`
+	// in config override them (Server.SetWriteTimeouts).
 	writeTimeoutDur = 30 * time.Second
 	// slowWriteTimeoutDur bounds the handful of lifecycle/action routes that do
 	// real work: git worktree checkout on spawn (materializes a whole tree — for
@@ -188,6 +190,9 @@ func isSlowPath(r *http.Request) bool {
 		strings.HasSuffix(p, "/adopt"),
 		strings.HasSuffix(p, "/check"),
 		strings.HasSuffix(p, "/prune"),
+		// commit runs the repo's own pre-commit hooks (vet/lint/tests), which in
+		// a large monorepo routinely exceed the fast budget.
+		strings.HasSuffix(p, "/git/commit"),
 		strings.HasSuffix(p, "/git/push"),
 		strings.HasSuffix(p, "/git/sync"),
 		strings.HasSuffix(p, "/remove-worktree"),

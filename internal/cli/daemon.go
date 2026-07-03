@@ -196,6 +196,7 @@ func newDaemonCmd() *cobra.Command {
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
 			srv.SetAuth(authToken, readonlyToken)
+			srv.SetWriteTimeouts(cfg.HTTPTimeoutFastDuration(), cfg.HTTPTimeoutSlowDuration())
 			// Persist auto-approve policy changes (PUT /auto-approve/policy) back to
 			// the config file so runtime rule edits survive a restart.
 			srv.SetAutoApprovePersist(func(p approval.Policy) error {
