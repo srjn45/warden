@@ -1,6 +1,6 @@
 # Warden Future Enhancements & Feature Roadmap
 
-**Last Updated:** 2026-06-27
+**Last Updated:** 2026-07-03
 **Current Version:** v5.20.0
 
 This document tracks **pending** improvements and new features for warden, organized
@@ -89,6 +89,51 @@ warden's ≤10-agent scale:
   handoffs, shared context already express grouped work).
 - **SSE replay + multi-cache layer** — an optimization for a load (100+ agents)
   warden doesn't carry; straight serial recomputation is correct at this scale.
+
+#### 54. Plugin protocol v2 (gating plugins) — *explicitly deferred; likely never*
+**Effort:** large (a second, harder product — fail-closed semantics + capability
+model + security review)
+**Context:** plugin system v1 shipped as #47 (see FEATURES.md); design in
+`docs/superpowers/specs/2026-06-25-warden-plugin-system-design.md`.
+
+The obvious sequel to #47 is a protocol v2 where plugins can **gate** — return a
+decision warden honors (approve/deny a prompt, block a commit, veto a spawn,
+enforce a spend cap). **Deliberately deferred, recorded here so the reasoning
+isn't relitigated.** Assessed 2026-07-03:
+
+- **No capability gap.** Every gating feature v2 would host already exists in
+  core and works: auto-approve policy + circuit breaker, cost governance,
+  memory curation, and the per-agent PreToolUse gates (`guard` / `git-guard` /
+  `check-guard` in `internal/cli`). v2 would *relocate* working code behind a
+  riskier interface, not enable anything new.
+- **Gating inverts v1's cheapness.** v1 is small *because* it's fail-open (any
+  failure → log and skip; a hook can never block an agent). A gating plugin
+  must fail **closed**, which buys: blocking semantics, timeout policy that
+  stalls agents on third-party code, typed decision payloads, a capability
+  grant model, likely long-lived plugin processes, and a security review of
+  "arbitrary external code in the approval path of a security product" —
+  permanently, as a versioned-protocol compatibility promise.
+- **Identity conflict.** Warden is safe out of the box and
+  [[warden-adds-on-top-never-strips]]. A gating plugin is third-party code that
+  can strip (deny/block/stall); once safety logic *can* live in a plugin, the
+  pressure to move the breaker there follows, and default-on safety erodes.
+- **Zero demand.** v1 has no third-party ecosystem yet; no user has named a
+  gating need that core config can't express.
+
+**Revisit only if ALL three hold:** (a) a real third-party v1 plugin ecosystem
+exists, (b) multiple users articulate a gating need not expressible as core
+config, and (c) the fail-closed security review is funded. Until then, answer
+gating pressure with **declarative core policy config** (path patterns, spend
+thresholds, branch rules) — ~90% of the value, none of the trust problem — and
+note that v1 plugins already get surprisingly far by **calling back into warden
+as a normal client** (`wd send-message`, `wd snapshot`, …) on observed events.
+
+**What IS worth building instead** (grows the ecosystem that could ever justify
+v2): 2–3 more official observer plugins (chat webhook, metrics JSONL, the
+OS-notifier as a released artifact) and, once ≥3 plugins exist, a **plugin
+manager** (`warden plugin install`) with a signed index + pinned SHA256 —
+install ≠ enable, `plugins.enabled` stays off by default. Spec-first when
+picked up.
 
 ---
 
@@ -312,6 +357,11 @@ they're worth the effort:
 - **Jira integration** (#33) — user's loop is GitHub, not Jira.
 - **Goroutine batch concurrency** (#36) — only matters past ~100 concurrent agents;
   not the current scale.
+- **Plugin protocol v2 — gating plugins** (#54) — explicitly deferred, likely
+  never: no capability gap (all gating lives in core), fail-closed inverts v1's
+  cheap fail-open posture, and it conflicts with default-on safety. Revisit only
+  behind the three-condition test in §54; meet gating demand with declarative
+  core policy config instead.
 
 ---
 
