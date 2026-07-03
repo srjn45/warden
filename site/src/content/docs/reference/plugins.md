@@ -47,5 +47,18 @@ Inspect what's loaded:
 warden plugin list   # paths, custom task types (+ isolation), subscribed events, config errors
 ```
 
-A worked example (a post-commit notifier) lives under `examples/plugins/` in the
-repository.
+## Worked examples
+
+Two runnable examples live under [`examples/plugins/`](https://github.com/srjn45/warden/tree/main/examples/plugins)
+in the repository:
+
+- **`post-commit-notifier/`** — a POSIX-shell one-liner that appends a line to a
+  log every time a hook fires. The smallest possible end-to-end exercise of the
+  protocol.
+- **`desktop-notify/`** — a compiled Go binary in the recommended production
+  shape: typed request/response structs, per-event policy, and an OS-native
+  desktop notification when an agent's **check fails** (macOS `osascript`, Linux
+  `notify-send`), with a log-file fallback for headless boxes. Its `render()`
+  function is the one place to edit to change *when* and *what* you're alerted
+  about — swap the notifier call for a Slack/Discord webhook and you have a new
+  plugin on the same skeleton.
