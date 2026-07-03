@@ -455,15 +455,15 @@ func NewRegistry() *Registry {
 		},
 		{
 			Schema: llm.ToolSchema{Name: "push",
-				Description: "Push an agent's worktree branch to origin (sets upstream).",
-				Parameters:  objSchema(map[string]any{"agent": strProp("agent id"), "dir": strProp("worktree dir")}, "agent")},
+				Description: "Push an agent's worktree branch to origin (sets upstream). Pass force=true to push with --force-with-lease after a rebase/amend.",
+				Parameters:  objSchema(map[string]any{"agent": strProp("agent id"), "dir": strProp("worktree dir"), "force": boolProp("push with --force-with-lease")}, "agent")},
 			Mutating: true,
 			invoke: func(ctx context.Context, d Daemon, a map[string]any) (string, error) {
 				agent, err := requireStr(a, "agent")
 				if err != nil {
 					return "", err
 				}
-				res, err := d.GitPush(ctx, agent, argStr(a, "dir"))
+				res, err := d.GitPush(ctx, agent, argStr(a, "dir"), argBool(a, "force"))
 				if err != nil {
 					return "", err
 				}

@@ -15,7 +15,7 @@ place of git tool-spam.
 | Tool | Does | Rails |
 |---|---|---|
 | `commit {message?, dir?}` | Stage + commit everything on the branch in one call. Returns `{committed, sha, branch, files}` or a hook failure to fix. | Refuses `main`/`master`; runs pre-commit hooks and returns **only** a failure; links the commit to the agent. **Pass `message` when you can** (you made the change, you know the intent); omit it and warden writes one from the diff (local model, else a deterministic conventional-commit floor — a blank commit is impossible). |
-| `push {dir?}` | Push the branch. | — |
+| `push {dir?, force?}` | Push the branch (sets upstream). Pass `force: true` after a rebase/amend to overwrite the remote branch. Returns `{branch, remote, pushed, forced}`. | Refuses `main`/`master`. Force is always `--force-with-lease` (never a bare `--force`), so it aborts if a teammate pushed to your branch since your last fetch. |
 | `sync {dir?}` | Rebase-sync onto the upstream. | Refuses a dirty tree; on conflict leaves it in progress carrying only the conflicting files (then resolve + continue). |
 
 `wd done <id> --create-pr` pushes the branch and opens a GitHub PR before

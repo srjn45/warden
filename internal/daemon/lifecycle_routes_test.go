@@ -63,6 +63,7 @@ type fakeLife struct {
 	gitCommitResult lifecycle.CommitResult
 	gitCommitErr    error
 	gitPushDir      string
+	gitPushForce    bool
 	gitPushResult   lifecycle.PushResult
 	gitPushErr      error
 	gitSyncDir      string
@@ -229,10 +230,11 @@ func (f *fakeLife) Commit(_ context.Context, dir, message string) (lifecycle.Com
 	return f.gitCommitResult, f.gitCommitErr
 }
 
-func (f *fakeLife) Push(_ context.Context, dir string) (lifecycle.PushResult, error) {
+func (f *fakeLife) Push(_ context.Context, dir string, force bool) (lifecycle.PushResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gitPushDir = dir
+	f.gitPushForce = force
 	return f.gitPushResult, f.gitPushErr
 }
 

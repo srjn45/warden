@@ -163,12 +163,14 @@ func TestGitCommit(t *testing.T) {
 
 func TestGitPush(t *testing.T) {
 	var c capture
-	ts := jsonServer(t, &c, 0, `{"branch":"feat","remote":"origin","pushed":true}`)
-	res, err := New(ts.URL).GitPush(context.Background(), "A-1", "/repo")
+	ts := jsonServer(t, &c, 0, `{"branch":"feat","remote":"origin","pushed":true,"forced":true}`)
+	res, err := New(ts.URL).GitPush(context.Background(), "A-1", "/repo", true)
 	require.NoError(t, err)
 	require.Equal(t, "/api/v1/git/push", c.path)
 	require.Equal(t, "A-1", c.body["session"])
+	require.Equal(t, true, c.body["force"])
 	require.True(t, res.Pushed)
+	require.True(t, res.Forced)
 	require.Equal(t, "origin", res.Remote)
 }
 

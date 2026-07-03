@@ -26,7 +26,7 @@ func TestMethodsSurfaceStatusErrors(t *testing.T) {
 		"Search":          func() error { _, e := c.Search(ctx, SearchParams{Query: "x"}); return e },
 		"History":         func() error { _, e := c.History(ctx, HistoryParams{}); return e },
 		"GitCommit":       func() error { _, e := c.GitCommit(ctx, "", "/d", "m"); return e },
-		"GitPush":         func() error { _, e := c.GitPush(ctx, "", "/d"); return e },
+		"GitPush":         func() error { _, e := c.GitPush(ctx, "", "/d", false); return e },
 		"Check":           func() error { _, e := c.Check(ctx, "", "/d", ""); return e },
 		"ListWorktrees":   func() error { _, e := c.ListWorktrees(ctx, "/r"); return e },
 		"Prune":           func() error { _, e := c.Prune(ctx, PruneParams{Repo: "/r"}); return e },

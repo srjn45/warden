@@ -176,8 +176,8 @@ func (a *lifecycleAdapter) Commit(ctx context.Context, dir, message string) (lif
 	return a.lc.Commit(ctx, dir, message)
 }
 
-func (a *lifecycleAdapter) Push(ctx context.Context, dir string) (lifecycle.PushResult, error) {
-	return a.lc.Push(ctx, dir)
+func (a *lifecycleAdapter) Push(ctx context.Context, dir string, force bool) (lifecycle.PushResult, error) {
+	return a.lc.Push(ctx, dir, force)
 }
 
 func (a *lifecycleAdapter) Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error) {

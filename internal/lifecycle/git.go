@@ -47,6 +47,7 @@ type PushResult struct {
 	Branch string `json:"branch"`
 	Remote string `json:"remote"`
 	Pushed bool   `json:"pushed"`
+	Forced bool   `json:"forced,omitempty"` // pushed with --force-with-lease
 	Output string `json:"output,omitempty"`
 	// RawBytes is the raw `git push` output warden consumed; see CommitResult.RawBytes.
 	RawBytes int `json:"-"`
@@ -294,8 +295,11 @@ func baseName(f string) string {
 }
 
 // Push pushes dir's current branch to origin (setting upstream), enforcing the
-// protected-branch rail so an agent cannot push main/master directly.
-func (l *Lifecycle) Push(ctx context.Context, dir string) (PushResult, error) {
+// protected-branch rail so an agent cannot push main/master directly. When force
+// is set warden uses --force-with-lease: a rebased/amended branch overwrites its
+// remote only if no one else has pushed to it since the last fetch, so a
+// concurrent teammate's work is never silently clobbered (unlike a bare --force).
+func (l *Lifecycle) Push(ctx context.Context, dir string, force bool) (PushResult, error) {
 	branch := l.GitBranch(ctx, dir)
 	if branch == "" {
 		return PushResult{}, fmt.Errorf("not a git repository: %s", dir)
@@ -303,11 +307,18 @@ func (l *Lifecycle) Push(ctx context.Context, dir string) (PushResult, error) {
 	if protectedBranches[branch] {
 		return PushResult{}, fmt.Errorf("refusing to push protected branch %q directly — push your agent branch and open a PR", branch)
 	}
-	out, err := l.run.Run(ctx, dir, "git", "push", "-u", "origin", branch)
+	args := []string{"push", "-u"}
+	if force {
+		// --force-with-lease aborts if the remote branch moved since our last
+		// fetch, so it overwrites our own rebase/amend but never a teammate's push.
+		args = append(args, "--force-with-lease")
+	}
+	args = append(args, "origin", branch)
+	out, err := l.run.Run(ctx, dir, "git", args...)
 	if err != nil {
 		return PushResult{}, fmt.Errorf("git push: %w: %s", err, strings.TrimSpace(out))
 	}
-	return PushResult{Branch: branch, Remote: "origin", Pushed: true, Output: strings.TrimSpace(out), RawBytes: len(out), RawSample: savings.TruncateSample(out)}, nil
+	return PushResult{Branch: branch, Remote: "origin", Pushed: true, Forced: force, Output: strings.TrimSpace(out), RawBytes: len(out), RawSample: savings.TruncateSample(out)}, nil
 }
 
 // Sync fetches origin/base and rebases dir's branch onto it. It refuses a dirty

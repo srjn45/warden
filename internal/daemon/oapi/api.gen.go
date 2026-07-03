@@ -428,6 +428,18 @@ type GitDirRequest struct {
 	Session string `json:"session,omitempty"`
 }
 
+// GitPushRequest defines model for GitPushRequest.
+type GitPushRequest struct {
+	// Dir worktree directory (human fallback)
+	Dir string `json:"dir,omitempty"`
+
+	// Force push with --force-with-lease (safe force: overwrites your own rebase/amend, aborts if the remote moved)
+	Force bool `json:"force,omitempty"`
+
+	// Session calling agent id ('' = human run); pins to the agent's worktree
+	Session string `json:"session,omitempty"`
+}
+
 // GitSyncRequest defines model for GitSyncRequest.
 type GitSyncRequest struct {
 	Base string `json:"base,omitempty"`
@@ -913,7 +925,7 @@ type IngestEventJSONRequestBody = EventRequest
 type GitCommitJSONRequestBody = GitCommitRequest
 
 // GitPushJSONRequestBody defines body for GitPush for application/json ContentType.
-type GitPushJSONRequestBody = GitDirRequest
+type GitPushJSONRequestBody = GitPushRequest
 
 // GitSyncJSONRequestBody defines body for GitSync for application/json ContentType.
 type GitSyncJSONRequestBody = GitSyncRequest

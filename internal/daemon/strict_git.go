@@ -55,7 +55,7 @@ func (s *Server) GitCommit(ctx context.Context, req oapi.GitCommitRequestObject)
 
 // GitPush implements POST /api/v1/git/push (protected-branch refusal).
 func (s *Server) GitPush(ctx context.Context, req oapi.GitPushRequestObject) (oapi.GitPushResponseObject, error) {
-	var b oapi.GitDirRequest
+	var b oapi.GitPushRequest
 	if req.Body != nil {
 		b = *req.Body
 	}
@@ -63,7 +63,7 @@ func (s *Server) GitPush(ctx context.Context, req oapi.GitPushRequestObject) (oa
 	if err != nil {
 		return nil, err
 	}
-	res, err := s.life.Push(ctx, dir)
+	res, err := s.life.Push(ctx, dir, b.Force)
 	if err != nil {
 		return nil, errStatus(http.StatusConflict, err.Error())
 	}
@@ -142,7 +142,7 @@ func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (
 	if dir == "" {
 		return nil, errStatus(http.StatusConflict, "agent has no working directory — cannot open a PR")
 	}
-	if _, err := s.life.Push(ctx, dir); err != nil {
+	if _, err := s.life.Push(ctx, dir, false); err != nil {
 		return nil, errStatus(http.StatusConflict, "push failed: "+err.Error())
 	}
 	d := s.buildDigest(ctx, sess)

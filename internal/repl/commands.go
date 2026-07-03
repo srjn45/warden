@@ -171,13 +171,20 @@ var commandList = []command{
 			}
 			return one("commit", args)
 		}},
-	{name: "/push", usage: "/push <id>", summary: "push an agent's branch", takesAgentID: true,
+	{name: "/push", usage: "/push <id> [force]", summary: "push an agent's branch (add force for --force-with-lease)", takesAgentID: true,
 		build: func(a []string) ([]ToolCall, error) {
-			id, err := needID(a, "/push <id>")
+			id, err := needID(a, "/push <id> [force]")
 			if err != nil {
 				return nil, err
 			}
-			return one("push", map[string]any{"agent": id})
+			args := map[string]any{"agent": id}
+			for _, t := range a[1:] {
+				switch t {
+				case "force", "--force", "--force-with-lease":
+					args["force"] = true
+				}
+			}
+			return one("push", args)
 		}},
 	{name: "/sync", usage: "/sync <id> [base]", summary: "rebase an agent's branch on its base", takesAgentID: true,
 		build: func(a []string) ([]ToolCall, error) {

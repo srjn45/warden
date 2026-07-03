@@ -1952,12 +1952,17 @@ Push the current worktree branch to origin, setting upstream.
 warden refuses to push protected branches (main/master) directly — push your
 agent branch and open a PR.
 
+Pass --force-with-lease after a rebase or amend to overwrite your remote
+branch. warden only ever uses --force-with-lease (never a bare --force), so
+the push aborts if a teammate pushed to your branch since your last fetch.
+
 Usage:
   warden push [flags]
 
 Flags:
-  -h, --help   help for push
-      --json   emit the raw result as JSON
+      --force-with-lease   push with --force-with-lease (safe force after a rebase/amend)
+  -h, --help               help for push
+      --json               emit the raw result as JSON
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
