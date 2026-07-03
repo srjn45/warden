@@ -33,3 +33,8 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Publisher gates: when a secret is unset these are empty strings and
+          # the matching publisher (AUR / Homebrew tap) skips its upload, so a
+          # release never fails on missing one-time setup (docs/SHIPPING.md).
+          AUR_KEY: ${{ secrets.AUR_KEY }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

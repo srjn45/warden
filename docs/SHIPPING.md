@@ -356,10 +356,35 @@ Notes:
   launchd on Darwin, systemd on Linux. The label, health probe, skill copy, and
   MCP registration steps are platform-independent and stay shared.
 
-### 4.5 Homebrew tap (primary macOS channel)
+### 4.4a Native packages & publishers — SHIPPED (one-time setup below)
 
-**Goal:** the headline install for the macOS-first audience is
-`brew install srajanpathak/tap/warden`.
+`.goreleaser.yaml` now builds, on every `v*` tag:
+
+- **`.deb` / `.rpm` / Arch `.pkg.tar.zst`** (`nfpms`) — attached to the GitHub
+  release; include the `/usr/bin/wd` symlink and tmux/git as weak deps.
+- **AUR `warden-bin`** (`aurs`) — PKGBUILD + .SRCINFO pushed to
+  `ssh://aur@aur.archlinux.org/warden-bin.git`.
+- **Homebrew cask** (`homebrew_casks`) — pushed to `srjn45/homebrew-tap`
+  (`brew install --cask srjn45/tap/warden`), with a post-install hook that
+  clears the Gatekeeper quarantine (release binaries are not notarized).
+
+Both *publishers* are gated on repo secrets so a release never fails on
+missing setup — absent the secret, the artifact is generated into `dist/` but
+not pushed. **One-time activation:**
+
+1. **AUR** — create an AUR account, upload an SSH public key to it, then add
+   the *private* key as the `AUR_KEY` GitHub Actions secret. The first tag
+   push after that creates the `warden-bin` package base automatically.
+2. **Homebrew** — create the (public) `srjn45/homebrew-tap` repo, mint a
+   fine-grained PAT with **Contents: write** on that repo only, and add it as
+   the `HOMEBREW_TAP_TOKEN` secret.
+
+### 4.5 Homebrew tap (primary macOS channel) — superseded by §4.4a
+
+**Original goal:** the headline install for the macOS-first audience is
+`brew install srajanpathak/tap/warden`. Shipped as a **cask** (not the formula
+sketched below) via GoReleaser's `homebrew_casks` — the `brews` formula pipe is
+deprecated upstream. The notes below are kept for the design considerations.
 
 GoReleaser can generate and push the formula automatically from the release
 archives. Add a `brews:` block to `.goreleaser.yaml` pointing at a tap repo

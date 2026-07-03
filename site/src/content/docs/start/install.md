@@ -36,6 +36,27 @@ warden --version
 
 > **macOS Gatekeeper:** downloaded binaries are unsigned, so the first run may be blocked. Clear the quarantine flag once: `xattr -d com.apple.quarantine $(which warden)` (or right-click → Open). Building from source — option 3 — avoids this.
 
+### 1b. Package managers (Homebrew / deb / rpm / AUR)
+
+Every release also ships native packages — all include the `wd` alias and the embedded web dashboard:
+
+```sh
+# macOS — Homebrew tap (clears the Gatekeeper quarantine for you)
+brew install --cask srjn45/tap/warden
+
+# Debian / Ubuntu
+curl -fsSLO https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_linux_amd64.deb
+sudo apt install ./warden_1.0.0_linux_amd64.deb
+
+# Fedora / RHEL
+sudo dnf install https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_linux_amd64.rpm
+
+# Arch (AUR)
+yay -S warden-bin
+```
+
+(Adjust the version/arch in the URLs. The `.deb`/`.rpm` pull in `tmux` and `git` as recommended packages; `warden setup` installs anything still missing.)
+
 ### 2. `go install` (Go toolchain)
 
 ```sh
