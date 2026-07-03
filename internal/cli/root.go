@@ -71,10 +71,11 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newCompletionCmd())
 	root.AddCommand(newVersionCmd())
 	root.Args = cobra.NoArgs
-	var rootRepl bool
+	var rootRepl, rootTmuxNative bool
 	root.Flags().BoolVar(&rootRepl, "repl", false, "run the REPL (wd repl) in the cockpit master pane instead of a shell (default: repl config setting)")
+	root.Flags().BoolVar(&rootTmuxNative, "tmux-native", false, "lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)")
 	root.RunE = func(cmd *cobra.Command, args []string) error {
-		return runCockpit(clientFor(cmd), cockpitUsesRepl(cmd, rootRepl))
+		return runCockpit(clientFor(cmd), cockpitUsesRepl(cmd, rootRepl), cockpitTmuxNative(cmd, rootTmuxNative))
 	}
 	return root
 }
