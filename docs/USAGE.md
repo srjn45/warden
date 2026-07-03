@@ -1532,7 +1532,7 @@ daemon address for a single command.
 |---|---|---|
 | `addr` | `127.0.0.1:8765` | Daemon listen/connect address. A non-loopback address **requires** `WARDEN_TOKEN` (bearer-token auth) — see [Remote access](#remote-access-phone-tablet-another-machine). The daemon refuses a non-loopback bind without a token |
 | `trusted_proxies` | _(none)_ | Reverse proxies / tunnels fronting the daemon (list of IPs/CIDRs). When the immediate peer is one of these, the **audit log** resolves the real client from `X-Forwarded-For` instead of recording the proxy address. Audit-actor only — the auth-failure throttle still keys on the peer IP. An invalid entry fails startup |
-| `data_dir` | `~/.warden` | Directory for warden state: session JSON (`sessions/`, `closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
+| `data_dir` | `~/.warden` | Directory for warden state: the embedded FileDB session store (`sessions-db/`, with a one-time-imported read-only JSON backup in `sessions/`+`closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
