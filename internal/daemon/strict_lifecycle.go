@@ -546,7 +546,10 @@ func (s *Server) SetName(ctx context.Context, req oapi.SetNameRequestObject) (oa
 			}
 		}
 	}
-	if err := s.store.UpdateName(ctx, req.Id, name); err != nil {
+	if err := s.store.Update(ctx, req.Id, func(sess *store.Session) error {
+		sess.Name = name
+		return nil
+	}); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}

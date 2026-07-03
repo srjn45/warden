@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -246,15 +247,49 @@ func TestFileUpdateTypeAndSubjectAndPane(t *testing.T) {
 	ctx := context.Background()
 	st := newFileStore(t)
 	require.NoError(t, st.Insert(ctx, sample()))
-	require.NoError(t, st.UpdateType(ctx, "PROJ-350", TypeDevelopment))
-	require.NoError(t, st.UpdateSubject(ctx, "PROJ-350", "review auth module"))
-	require.NoError(t, st.UpdatePane(ctx, "PROJ-350", "esc to interrupt"))
+	// The former single-field setters (UpdateType/UpdateSubject/UpdatePane) now go
+	// through the general Update primitive; a single fn can mutate several fields at
+	// once atomically.
+	require.NoError(t, st.Update(ctx, "PROJ-350", func(s *Session) error {
+		s.Type = TypeDevelopment
+		s.Subject = "review auth module"
+		s.LastPaneExcerpt = "esc to interrupt"
+		return nil
+	}))
 
 	got, err := st.Get(ctx, "PROJ-350")
 	require.NoError(t, err)
 	require.Equal(t, TypeDevelopment, got.Type)
 	require.Equal(t, "review auth module", got.Subject)
 	require.Equal(t, "esc to interrupt", got.LastPaneExcerpt)
+}
+
+func TestFileUpdateAbortsOnError(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	require.NoError(t, st.Insert(ctx, sample()))
+	// Capture the pre-update snapshot so we can assert nothing was written.
+	before, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+
+	sentinel := errors.New("abort")
+	err = st.Update(ctx, "PROJ-350", func(s *Session) error {
+		s.Subject = "should not persist"
+		return sentinel
+	})
+	require.ErrorIs(t, err, sentinel)
+
+	got, err := st.Get(ctx, "PROJ-350")
+	require.NoError(t, err)
+	require.Equal(t, before.Subject, got.Subject, "a returning-error fn must leave the stored session unchanged")
+	require.Equal(t, before.UpdatedAt, got.UpdatedAt, "an aborted Update must not bump UpdatedAt")
+}
+
+func TestFileUpdateNotFound(t *testing.T) {
+	ctx := context.Background()
+	st := newFileStore(t)
+	err := st.Update(ctx, "PROJ-350", func(s *Session) error { return nil })
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestFileAppendEvent(t *testing.T) {

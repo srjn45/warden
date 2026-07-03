@@ -319,9 +319,13 @@ func (fs *FileStore) ListClosed(ctx context.Context) ([]*Session, error) {
 	return listDir(fs.closed)
 }
 
-// mutate loads the active session, applies fn, bumps UpdatedAt, and writes it
-// back atomically — the read-check-write runs under the write lock.
-func (fs *FileStore) mutate(id string, fn func(*Session)) error {
+// Update is the general transactional read-modify-write primitive (see the Store
+// interface doc): it loads the active session, applies fn, and — unless fn
+// returns an error, which aborts leaving the stored session untouched — bumps
+// UpdatedAt and writes it back atomically under the write lock. mutate and the
+// remaining narrow setters funnel through here, so there is one CAS-safe
+// read-modify-write path.
+func (fs *FileStore) Update(ctx context.Context, id string, fn func(s *Session) error) error {
 	if err := safeID(id); err != nil {
 		return err
 	}
@@ -331,9 +335,21 @@ func (fs *FileStore) mutate(id string, fn func(*Session)) error {
 	if err != nil {
 		return err
 	}
-	fn(s)
+	if err := fn(s); err != nil {
+		return err
+	}
 	s.UpdatedAt = time.Now().UTC()
 	return atomicWriteJSON(fs.activePath(id), s)
+}
+
+// mutate is the infallible-fn convenience over Update, for the narrow setters
+// that can never fail their mutation. It runs the read-check-write under the
+// write lock.
+func (fs *FileStore) mutate(id string, fn func(*Session)) error {
+	return fs.Update(context.Background(), id, func(s *Session) error {
+		fn(s)
+		return nil
+	})
 }
 
 func (fs *FileStore) UpdateStatus(ctx context.Context, id string, status Status) error {
@@ -430,18 +446,6 @@ func signalName(sig int) string {
 	return ""
 }
 
-func (fs *FileStore) UpdateType(ctx context.Context, id string, t Type) error {
-	return fs.mutate(id, func(s *Session) { s.Type = t })
-}
-
-func (fs *FileStore) UpdateSubject(ctx context.Context, id, subject string) error {
-	return fs.mutate(id, func(s *Session) { s.Subject = subject })
-}
-
-func (fs *FileStore) UpdateName(ctx context.Context, id, name string) error {
-	return fs.mutate(id, func(s *Session) { s.Name = name })
-}
-
 func (fs *FileStore) SetSessionID(ctx context.Context, id, sessionID string) error {
 	// The pinned id is discovered by parsing a backend's own transcript/output and
 	// later interpolated into a resume command, so validate it here too — the same
@@ -450,10 +454,6 @@ func (fs *FileStore) SetSessionID(ctx context.Context, id, sessionID string) err
 		return err
 	}
 	return fs.mutate(id, func(s *Session) { s.ClaudeSessionID = sessionID })
-}
-
-func (fs *FileStore) UpdatePane(ctx context.Context, id, excerpt string) error {
-	return fs.mutate(id, func(s *Session) { s.LastPaneExcerpt = excerpt })
 }
 
 func (fs *FileStore) SetRestart(ctx context.Context, id string, count int, at time.Time) error {

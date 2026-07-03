@@ -30,6 +30,15 @@ type Store interface {
 	// ListClosed returns all archived (closed) sessions. Archived records still
 	// legitimately own their worktree, so prune consults them before reclaiming.
 	ListClosed(ctx context.Context) ([]*Session, error)
+	// Update is the general transactional read-modify-write primitive: it loads the
+	// active session, invokes fn with a pointer to the current in-memory record, and
+	// (unless fn returns an error, which aborts the whole update leaving the stored
+	// session unchanged) bumps UpdatedAt and writes it back — the whole cycle atomic
+	// under the store's per-store lock. Prefer it for any single-/dual-field mutation
+	// rather than growing a new bespoke setter on this interface. A missing session
+	// returns ErrNotFound. CAS-style callers that must key off the current status and
+	// report whether a swap happened still use UpdateStatusIf/FinalizeExit.
+	Update(ctx context.Context, id string, fn func(s *Session) error) error
 	UpdateStatus(ctx context.Context, id string, status Status) error
 	// UpdateStatusIf is a compare-and-swap: it sets status to next only if the
 	// stored status still equals expected, reporting whether the swap happened.
@@ -41,22 +50,16 @@ type Store interface {
 	// — all in one atomic write. The poller uses it to finalize an agent from its
 	// exit-file without clobbering a status a SessionEnd hook already set.
 	FinalizeExit(ctx context.Context, id string, expected, next Status, code int) (bool, error)
-	UpdateType(ctx context.Context, id string, t Type) error
-	UpdateSubject(ctx context.Context, id, subject string) error
 	// SetSessionID pins the backend session id (ClaudeSessionID) for a session.
 	// Used by the poller's discover-then-pin path: a non-pinning backend mints its
 	// own id at launch, which warden discovers post-launch and persists here so the
 	// transcript path + resume key off the exact id instead of dir-scoping.
 	SetSessionID(ctx context.Context, id, sessionID string) error
-	// UpdateName sets (or, when blank, clears) the human-friendly agent name.
-	// Format and uniqueness are the caller's responsibility (see ValidateName).
-	UpdateName(ctx context.Context, id, name string) error
 	AppendEvent(ctx context.Context, id string, ev Event) error
 	// AppendEventStatus appends ev and, when status is non-empty, sets status —
 	// in a single atomic update. The hooks endpoint uses it so an event and its
 	// status transition can never land half-applied.
 	AppendEventStatus(ctx context.Context, id string, ev Event, status Status) error
-	UpdatePane(ctx context.Context, id, excerpt string) error
 	// SetRestart records an auto-restart attempt's counter and timestamp.
 	SetRestart(ctx context.Context, id string, count int, at time.Time) error
 	// UpdateContext persists the context-window gauge (tokens + state band),
