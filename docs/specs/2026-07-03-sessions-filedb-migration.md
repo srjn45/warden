@@ -1,7 +1,8 @@
 # Migrating `internal/store` (session storage) onto embedded FileDB
 
 **Date:** 2026-07-03
-**Status:** Design (not yet implemented — docs-only)
+**Status:** ✅ Implemented (PR #222) — the store now runs on embedded FileDB per this
+design; the layout, import path, and rollback below describe the shipped behavior.
 **Owner:** Srajan Pathak
 **Branch / worktree:** `sessions-filedb-design` (`.worktrees/sessions-filedb-design`)
 **Scope:** `internal/store` (`file.go`, `store.go`, `portability.go`,

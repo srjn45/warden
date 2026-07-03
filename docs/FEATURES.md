@@ -18,7 +18,7 @@ on-disk state:
 |---|---|
 | **Single-binary distribution** | `warden` bundles the daemon, CLI clients, MCP server, TUI, and (in release builds) the embedded web GUI. `wd` is an installed symlink. |
 | **Local daemon** | The single writer to the session store. Serves a loopback REST API (`127.0.0.1:8765`) and runs a background poller that keeps each agent's status and subject fresh. |
-| **File-based JSON store** | Sessions persisted as JSON files under `~/.warden` (`sessions/`, `closed/`) — no database to run. |
+| **Embedded FileDB session store** | Sessions persist in an embedded FileDB (`github.com/srjn45/filedbv2`, `SyncModeNone`) rooted at `~/.warden/sessions-db/` — an `active` collection for live sessions and a `closed` collection for archived ones, each record keyed by session id. A mutation appends one record instead of rewriting a whole per-session JSON file, and there's still no database server to run. On the first launch after upgrading, warden imports the legacy `sessions/`+`closed/` JSON once and keeps those files as a read-only cold backup (see [§31 Session storage & upgrade migration](#31-session-storage--upgrade-migration)). |
 | **Claude Code lifecycle hooks** | A hook script posts `SessionStart`/`Notification`/`Stop`/`SubagentStop`/`SessionEnd` to the daemon so status updates in real time without polling. Fails soft (never blocks the agent). |
 | **launchd auto-start (macOS)** | Installs as an auto-starting, crash-restarting background service. |
 | **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
@@ -886,3 +886,56 @@ MCP tool: both axes are already exposed over MCP (`spend`, `savings`), and the
 top-level `wd spend` / `wd savings` remain as aliases. Resource footprint
 (memory/CPU/pressure) is a **different axis** and stays under `wd stats` (§ Live
 resource metrics), deliberately not folded into `wd cost`.
+
+---
+
+## 31. Session storage & upgrade migration
+
+Sessions are persisted by an **embedded FileDB** (`github.com/srjn45/filedbv2`,
+opened with `SyncModeNone`) rather than one JSON file per session. The store is
+rooted at `~/.warden/sessions-db/` and holds two collections, each record keyed
+by session id:
+
+- **`active/`** — live sessions. `Get` and every mutator target this collection,
+  so "active-only" semantics stay structural (an archived session is invisible to
+  `Get` and immutable to mutators).
+- **`closed/`** — archived sessions. `warden archive` writes the closed copy
+  first, then deletes the active record — so a crash between the two leaves the
+  session recoverable in `active`, never lost.
+
+A mutation now **appends one record** instead of rewriting a whole per-session
+JSON file (the write-amplification the old file store carried, the same pattern
+already retired for `ctxstore`/`mailbox`). This is an **internal storage swap
+only**: the `store.Store` interface is byte-for-byte unchanged, so the daemon
+REST API, the CLI/MCP clients, and `warden export`/`import` behave identically —
+there is still no database server to run.
+
+### Upgrading from a JSON-file store
+
+On the **first daemon launch after upgrading**, warden performs a **one-time
+import**:
+
+1. It decodes every legacy `~/.warden/sessions/*.json` and `~/.warden/closed/*.json`
+   individually into the new `active`/`closed` collections (a corrupt or
+   unsafe-id file is skipped with a warning, never blocking the upgrade).
+2. It folds in the old provenance backfill (the former `.provenance-migrated`
+   pass), so no separate migration step is needed.
+3. It writes a `~/.warden/.sessions-filedb-imported` sentinel **last**, only
+   after both collections load successfully.
+
+The legacy `sessions/` and `closed/` directories are **read-only from this point
+and kept as a cold backup** — this release never deletes them (a later release
+will, behind its own guard). The import is **atomic at the directory level**: if
+it fails partway (e.g. disk full), the sentinel is not written, so the next boot
+wipes the half-built `sessions-db/` and re-imports from the intact legacy JSON —
+no data is lost.
+
+> **Downgrade caveat (release-note item).** Because the legacy JSON is left
+> intact, downgrading to a pre-migration binary still reads your **pre-upgrade**
+> history — nothing from before the upgrade is ever lost. But sessions **created
+> or mutated after** the upgrade live only in `sessions-db/`, and a downgrade
+> cannot see them (post-upgrade writes are FileDB-only). This is inherent to any
+> forward migration.
+
+Design detail lives in
+[`docs/specs/2026-07-03-sessions-filedb-migration.md`](specs/2026-07-03-sessions-filedb-migration.md).
