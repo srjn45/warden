@@ -578,6 +578,36 @@ warden models --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude Opus 4
 warden models --backend cursor --json
 ```
 
+### `warden memory [--raw] [--path] [--edit]` (project memory)
+
+warden owns one committed, backend-neutral **project memory** — `.warden/memory.md`
+(beside `.warden/check.yml`), keyed implicitly by the repo root (`git rev-parse
+--show-toplevel`, auto-created on first use, no `wd init`). It holds durable
+cross-agent facts — where things live, how to run X, project invariants — so the
+**next** agent (any backend) doesn't re-pay the rediscovery tax. `warden memory`
+prints the resolved path and the budgeted, navigational render; `--raw` prints the
+file verbatim, `--path` prints just the path (scriptable, no auto-create), `--edit`
+opens it in `$EDITOR`. Like `warden check`/`warden review` it is CLI-local (no
+daemon round-trip, no MCP twin).
+
+The curated file is **projected into every spawned agent** via the same system-prompt
+seam the collab/pipeline/git hints ride — **Claude** via `--append-system-prompt`
+(file-backed, so it never bloats the launch line), **codex/cursor/opencode/antigravity**
+via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via
+`.goosehints`; **aider** degrade-skips (neither seam). 7/8 backends project with zero
+new adapter code. Config-gated by `memory_inject` (default on); off, or an empty/absent
+file, is byte-identical to no injection. warden READS but never rewrites your
+CLAUDE.md/AGENTS.md/CONVENTIONS.md — `.warden/memory.md` is warden's own, curated by
+hand (the committed diff is the review gate; auto-curation from digests is a later
+change).
+
+```sh
+warden memory                       # path + the rendered view injected into agents
+warden memory --raw                 # the file verbatim
+warden memory --edit                # open in $EDITOR (auto-creates it first)
+warden memory --path                # just the resolved path (scriptable)
+```
+
 ### `warden adopt [--session-id <uuid>] [--dir <path>]`
 Register an existing Claude session into warden.
 

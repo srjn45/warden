@@ -56,6 +56,7 @@ Common settings (run `warden config` for the complete, live list):
 | `metrics` | `true` | Record per-agent performance history for `warden stats --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
 | `pipeline_keep_done` / `pipeline_hint` | — | Pipeline retention + the decomposition nudge |
+| `memory_inject` | `true` | Project the repo's curated `.warden/memory.md` into every spawned agent's system prompt (Claude → `--append-system-prompt`; other backends → their `AGENTS.md`/`CRUSH.md`/`.goosehints` warden block). Off, or an empty/absent file, is byte-identical to no injection. See [Project memory](/warden/concepts/project-memory/) |
 | `savings` | `true` | Record the token-savings ledger (`warden savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden savings --audit` (may hold sensitive output) |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`) |

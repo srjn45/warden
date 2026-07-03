@@ -126,6 +126,7 @@ type Config struct {
 	CollabEnabled          bool          `yaml:"collab_enabled"`
 	CollabInterval         string        `yaml:"collab_interval"`
 	CollabHint             bool          `yaml:"collab_hint"`
+	MemoryInject           bool          `yaml:"memory_inject"`
 	BranchTrackEnabled     bool          `yaml:"branch_track_enabled"`
 	BranchTrackInterval    string        `yaml:"branch_track_interval"`
 	Snapshots              bool          `yaml:"snapshots"`
@@ -192,6 +193,7 @@ var schema = []setting{
 	{"collab_enabled", "Warn agents when another agent is editing the same file. Values: true | false"},
 	{"collab_interval", "File-conflict scan interval. Values: Go duration (e.g. 10s, 30s)"},
 	{"collab_hint", "Append the conflict-check hint to spawned agents so they coordinate on shared files. Values: true | false"},
+	{"memory_inject", "Project the repo's curated .warden/memory.md (durable cross-agent facts) into every spawned agent via its system-prompt seam (Claude: --append-system-prompt; other backends: their AGENTS.md/CRUSH.md/.goosehints warden block). Off or an empty/absent memory file is byte-identical to no injection. Values: true | false"},
 	{"branch_track_enabled", "Monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts. Values: true | false"},
 	{"branch_track_interval", "Branch-tracker scan interval. Values: Go duration (e.g. 2m, 5m)"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
@@ -251,6 +253,7 @@ func defaults() Config {
 		CollabEnabled:          true,
 		CollabInterval:         "10s",
 		CollabHint:             true,
+		MemoryInject:           true,
 		BranchTrackEnabled:     false,
 		BranchTrackInterval:    "2m",
 		Snapshots:              true,
@@ -1006,6 +1009,12 @@ func (c Config) GetIsolationGuard() bool { return c.Rails.IsolationGuard }
 // GetCollabHint reports whether the conflict-check hint is appended to spawned
 // agents so they coordinate on files other agents are editing.
 func (c Config) GetCollabHint() bool { return c.CollabHint }
+
+// GetMemoryInject reports whether the repo's curated .warden/memory.md is
+// projected into spawned agents via the system-prompt seam (#53 PR-1). Default
+// on; off (or an empty/absent memory file) makes a spawn byte-identical to no
+// projection.
+func (c Config) GetMemoryInject() bool { return c.MemoryInject }
 
 // GetGitConventions reports whether the git-conventions hint (steer agents to
 // wd commit/push/sync over raw git Bash) is appended to spawned agents.

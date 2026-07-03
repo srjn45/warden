@@ -384,7 +384,15 @@ spawn-local to avoid it.
   shape as `wd check`/`wd review`. Useful immediately (a human can hand-author memory)
   and de-risks PR-1's keying. *Could fold into PR-1.*
 
-- **PR-1 — Projection of a human-curated memory (the core win, zero poisoning risk).**
+- **PR-1 — Projection of a human-curated memory (the core win, zero poisoning risk). ✅ SHIPPED.**
+  Implemented: `memoryGuidance` is threaded through lifecycle's existing
+  `systemPromptHint` / `injectContext` assembly (all three spawn paths), config-gated
+  by the new `memory_inject` key (default on). Projection is **read-only** (it never
+  auto-creates the file — that stays the `wd memory` verb's job — so a repo with no
+  memory.md, and `memory_inject` off, both leave the Claude launch byte-identical; a
+  regression-lock test asserts this). 7/8 backends project via the existing seam; aider
+  degrade-skips. The `internal/memory` public API (`Store.Locate`, `Parse`,
+  `Memory.Render`/`RenderDefault`) was reused unchanged.
   - `internal/memory`: locate/parse/render `.warden/memory.md`, budgeted (§4.3).
   - Implicit project keying: derive the repo root from `git rev-parse --show-toplevel`
     (warden already shells `rev-parse`, `git.go:125`); **no `wd init` gate**;

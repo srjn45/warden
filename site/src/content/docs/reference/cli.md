@@ -46,6 +46,7 @@ Available Commands:
   llm                 Local-LLM helpers for the REPL (wd repl)
   ls                  List all active agent sessions
   mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
+  memory              Show or edit this repo's warden project memory (.warden/memory.md)
   msg                 Send and receive directed messages between agents
   pipeline            Define and run DAG pipelines of agent jobs
   plugin              Inspect the plugin registry (custom task types + lifecycle hooks)
@@ -655,6 +656,44 @@ Flags:
 ```
 
 **CLI-only by design** (local worktree exec, no daemon round-trip). Implemented by **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`); the ids feed `--model` verbatim. See the [Backend superpowers](/warden/guides/backend-superpowers/) guide.
+
+## warden memory
+
+```text
+Show or edit warden's project memory for the current repo — the committed,
+backend-neutral .warden/memory.md (beside .warden/check.yml) holding durable,
+cross-agent facts: where things live, how to run X, project invariants. Keeping
+them here means the NEXT agent (any backend) doesn't re-pay the rediscovery tax.
+
+The file is keyed implicitly by the repo root (git rev-parse --show-toplevel) and
+auto-created on first use — no `wd init`, no registration. warden READS but never
+rewrites your CLAUDE.md / AGENTS.md / CONVENTIONS.md; this file is warden's own.
+
+With no flags it prints the resolved path and the budgeted, navigational view of
+the memory — the SAME projection warden injects into every spawned agent's system
+prompt (Claude via --append-system-prompt; other backends via their AGENTS.md /
+CRUSH.md / .goosehints warden block). So `wd memory` shows exactly what the next
+agent will read. Toggle the injection with the `memory_inject` config key (default
+on); off, or an empty/absent file, is byte-identical to no injection.
+
+Use --raw to print the file verbatim, --path for just the resolved path (handy in
+scripts), and --edit to open it in $EDITOR (auto-creating it first if missing).
+
+This verb is CLI-local (like `wd check` / `wd review`): it reads/writes the file
+directly with no daemon round-trip. Note: auto-curation from fleet digests is
+deliberately deferred to a later change — today you curate this file by hand.
+
+Usage:
+  warden memory [flags]
+
+Flags:
+  -e, --edit   open the memory file in $EDITOR (auto-creates it first)
+  -h, --help   help for memory
+      --path   print just the resolved file path (scriptable; no auto-create)
+      --raw    print the file verbatim instead of the rendered view
+```
+
+**CLI-local** (like `wd check` / `wd review`): reads/writes `.warden/memory.md` directly, no daemon round-trip. The curated file is **projected into every spawned agent** via `memory_inject` (default on). See the [Project memory](/warden/concepts/project-memory/) concept.
 
 ## warden collab
 

@@ -1022,6 +1022,19 @@ warden models                  # the backend's LIVE model menu (one id per line;
 
 Both take `--backend <id>` to target a specific backend (default: the current agent's). See [Agent backends](#agent-backends---backend).
 
+### `warden memory` — project memory projected into every spawn
+
+warden owns one committed, backend-neutral **project memory** — `.warden/memory.md` (beside `.warden/check.yml`), keyed implicitly by the repo root and holding durable cross-agent facts ("where X lives", "run Y via `warden check`", project invariants). The point: **the next agent — any backend — doesn't re-pay the rediscovery tax** the last one already paid.
+
+```sh
+warden memory                  # show the resolved path + the rendered view injected into agents
+warden memory --raw            # print the file verbatim
+warden memory --edit           # open it in $EDITOR (auto-creates it first)
+warden memory --path           # just the resolved path (scriptable; no auto-create)
+```
+
+At **every spawn** warden projects the budgeted, navigational render into the agent's system prompt through the same seam the collab/pipeline/git hints ride: **Claude** via `--append-system-prompt` (file-backed, so it never bloats the launch line), **codex / cursor / opencode / antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips. **7 of 8 backends project with zero new adapter code.** It is config-gated by `memory_inject` (default on) — off, or an empty/absent file, makes the launch **byte-identical** to no injection. warden **reads but never rewrites** your CLAUDE.md/AGENTS.md/CONVENTIONS.md; `.warden/memory.md` is warden's own, curated by hand (the committed diff is the review gate). `warden memory` is CLI-local like `warden check`/`warden review` (no daemon round-trip, no MCP twin).
+
 ### `warden search <query…>` / `warden history`
 
 ```sh

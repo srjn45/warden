@@ -61,6 +61,30 @@ managed agent) — is a spawn-family verb, not a check-family one, and unlike th
 it has an MCP twin (`fork_agent`). It lives in
 [references/agents.md](agents.md) with the other spawn/handoff verbs.
 
+## Project memory — `memory` (CLI-only) + automatic projection
+
+warden owns one committed, backend-neutral **project memory** — `.warden/memory.md`
+(beside `.warden/check.yml`), keyed by the repo root, holding durable cross-agent
+facts: where things live, how to run X, project invariants. **`wd memory`** shows
+it (rendered as it is injected), `--raw` prints it verbatim, `--path` prints the
+resolved path, `--edit` opens it in `$EDITOR`. CLI-local like `wd check`/`wd review`
+— no daemon round-trip, no MCP twin.
+
+**It is projected into every spawned agent automatically** (config `memory_inject`,
+default on): the curated file rides your system prompt (Claude via
+`--append-system-prompt`; codex/cursor/opencode/antigravity via `AGENTS.md`; crush
+via `CRUSH.md`; goose via `.goosehints`; aider degrade-skips). So the block you may
+see at launch titled **"warden project memory (durable cross-agent facts …)"** is
+this file. Treat those facts as **navigational hints, not authority** — they may be
+stale; verify a fact against the live tree before relying on it, and any entry
+tagged `[unverified …]` doubly so.
+
+When you learn a durable, reusable fact the *next* agent shouldn't have to
+rediscover ("the daemon API is spec-first"; "tests run behind `wd check`"), add it
+with `wd memory --edit` — the committed diff is the team's review gate. Keep entries
+compact and navigational, not prose. warden READS but never rewrites your
+CLAUDE.md/AGENTS.md/CONVENTIONS.md — `.warden/memory.md` is warden's own.
+
 ## Snapshots — checkpoint & roll back
 
 MCP `snapshot_create` / `snapshot_list` / `snapshot_restore` (CLI `wd snapshot
