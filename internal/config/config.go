@@ -81,6 +81,64 @@ type LocalLLMConfig struct {
 	Repl       bool   `yaml:"repl"`
 }
 
+// PipelineConfig groups pipeline-execution settings.
+type PipelineConfig struct {
+	KeepDone bool `yaml:"keep_done"`
+	Hint     bool `yaml:"hint"`
+}
+
+// AutoRestartConfig groups the auto-restart supervisor settings.
+type AutoRestartConfig struct {
+	Max   int    `yaml:"max"`
+	Reset string `yaml:"reset"`
+}
+
+// CollabConfig groups the file-conflict collaboration settings.
+type CollabConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Interval string `yaml:"interval"`
+	Hint     bool   `yaml:"hint"`
+}
+
+// MemoryConfig groups the project-memory (.warden/memory.md) settings.
+type MemoryConfig struct {
+	Inject bool `yaml:"inject"`
+	Curate bool `yaml:"curate"`
+	Ground bool `yaml:"ground"`
+}
+
+// BranchTrackConfig groups the branch/CI tracker settings.
+type BranchTrackConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Interval string `yaml:"interval"`
+}
+
+// RateLimitConfig groups the rate-limit auto-resume scheduler settings.
+type RateLimitConfig struct {
+	RetryInterval string `yaml:"retry_interval"`
+	Buffer        string `yaml:"buffer"`
+	AutoResume    bool   `yaml:"auto_resume"`
+	ResumePrompt  string `yaml:"resume_prompt"`
+}
+
+// HTTPConfig groups the daemon HTTP write-budget settings.
+type HTTPConfig struct {
+	TimeoutFast string `yaml:"timeout_fast"`
+	TimeoutSlow string `yaml:"timeout_slow"`
+}
+
+// LogConfig groups the structured-logging settings.
+type LogConfig struct {
+	Level  string `yaml:"level"`
+	Format string `yaml:"format"`
+}
+
+// PluginsConfig groups the plugin-system settings.
+type PluginsConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	Registry []plugin.Spec `yaml:"registry"`
+}
+
 // ---------------------------------------------------------------------------
 // Top-level Config
 // ---------------------------------------------------------------------------
@@ -90,10 +148,12 @@ type LocalLLMConfig struct {
 // are stored as Go duration strings (e.g. "5m"); use the typed accessor methods
 // (AutoRestartResetDuration, etc.) to read them.
 //
-// Five groups of settings have been moved into namespaced YAML blocks (rails,
-// tokens, notify, worktree, local_llm). Old flat keys (e.g. token_guard) are
-// transparently migrated at load time and are kept as deprecated aliases — they
-// still work but emit a deprecation warning once per daemon start.
+// Related settings are grouped into namespaced YAML blocks (rails, tokens,
+// notify, worktree, local_llm, pipeline, auto_restart, collab, memory,
+// branch_track, rate_limit, http, log, plugins). Old flat keys (e.g.
+// token_guard, collab_enabled) are transparently migrated at load time and are
+// kept as deprecated aliases — they still work but emit a deprecation warning
+// once per daemon start.
 type Config struct {
 	Addr                  string          `yaml:"addr"`
 	DataDir               string          `yaml:"data_dir"`
@@ -117,52 +177,37 @@ type Config struct {
 	// the peer address. Accepts bare IPs and CIDRs (IPv4/IPv6).
 	TrustedProxies []string `yaml:"trusted_proxies"`
 
-	// Migrated from previously-scattered os.Getenv reads.
-	PipelineKeepDone       bool          `yaml:"pipeline_keep_done"`
-	ModelDefault           string        `yaml:"model_default"`
-	PipelineHint           bool          `yaml:"pipeline_hint"`
-	AutoRestartMax         int           `yaml:"auto_restart_max"`
-	AutoRestartReset       string        `yaml:"auto_restart_reset"`
-	CollabEnabled          bool          `yaml:"collab_enabled"`
-	CollabInterval         string        `yaml:"collab_interval"`
-	CollabHint             bool          `yaml:"collab_hint"`
-	MemoryInject           bool          `yaml:"memory_inject"`
-	MemoryCurate           bool          `yaml:"memory_curate"`
-	MemoryGround           bool          `yaml:"memory_ground"`
-	BranchTrackEnabled     bool          `yaml:"branch_track_enabled"`
-	BranchTrackInterval    string        `yaml:"branch_track_interval"`
-	Snapshots              bool          `yaml:"snapshots"`
-	Tutorial               bool          `yaml:"tutorial"`
-	Insights               bool          `yaml:"insights"`
-	ApiDocs                bool          `yaml:"api_docs"`
-	SchedulerEnabled       bool          `yaml:"scheduler_enabled"`
-	PluginsEnabled         bool          `yaml:"plugins"`
-	Plugins                []plugin.Spec `yaml:"plugin_registry"`
-	RateLimitRetryInterval string        `yaml:"rate_limit_retry_interval"`
-	RateLimitBuffer        string        `yaml:"rate_limit_buffer"`
-	RateLimitAutoResume    bool          `yaml:"rate_limit_auto_resume"`
-	RateLimitResumePrompt  string        `yaml:"rate_limit_resume_prompt"`
-
-	// HTTP write budgets for the daemon API. Fast bounds ordinary data/action
-	// routes; slow bounds the lifecycle routes that do real, possibly-minutes-long
-	// work (spawn's worktree checkout, commit/push hooks, running checks). These
-	// are backstops against a wedged handler, not pacing devices — keep them
-	// generous, especially in large monorepos where git operations are slow.
-	HTTPTimeoutFast string `yaml:"http_timeout_fast"`
-	HTTPTimeoutSlow string `yaml:"http_timeout_slow"`
-
-	// Structured logging (internal/logging).
-	LogLevel  string `yaml:"log_level"`
-	LogFormat string `yaml:"log_format"`
+	ModelDefault     string `yaml:"model_default"`
+	Snapshots        bool   `yaml:"snapshots"`
+	Tutorial         bool   `yaml:"tutorial"`
+	Insights         bool   `yaml:"insights"`
+	ApiDocs          bool   `yaml:"api_docs"`
+	SchedulerEnabled bool   `yaml:"scheduler_enabled"`
 
 	// Namespaced configuration groups. Each replaces a set of flat keys that are
 	// now deprecated aliases (see migrateFlatToNamespaced). Old flat keys are
 	// still transparently loaded by translating them at parse time.
-	Rails    RailsConfig    `yaml:"rails"`
-	Tokens   TokensConfig   `yaml:"tokens"`
-	Notify   NotifyConfig   `yaml:"notify"`
-	Worktree WorktreeConfig `yaml:"worktree"`
-	LocalLLM LocalLLMConfig `yaml:"local_llm"`
+	//
+	// HTTP holds the daemon's write budgets: TimeoutFast bounds ordinary
+	// data/action routes; TimeoutSlow bounds the lifecycle routes that do real,
+	// possibly-minutes-long work (spawn's worktree checkout, commit/push hooks,
+	// running checks). These are backstops against a wedged handler, not pacing
+	// devices — keep them generous, especially in large monorepos where git
+	// operations are slow.
+	Rails       RailsConfig       `yaml:"rails"`
+	Tokens      TokensConfig      `yaml:"tokens"`
+	Notify      NotifyConfig      `yaml:"notify"`
+	Worktree    WorktreeConfig    `yaml:"worktree"`
+	LocalLLM    LocalLLMConfig    `yaml:"local_llm"`
+	Pipeline    PipelineConfig    `yaml:"pipeline"`
+	AutoRestart AutoRestartConfig `yaml:"auto_restart"`
+	Collab      CollabConfig      `yaml:"collab"`
+	Memory      MemoryConfig      `yaml:"memory"`
+	BranchTrack BranchTrackConfig `yaml:"branch_track"`
+	RateLimit   RateLimitConfig   `yaml:"rate_limit"`
+	HTTP        HTTPConfig        `yaml:"http"`
+	Log         LogConfig         `yaml:"log"`
+	Plugins     PluginsConfig     `yaml:"plugins"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -187,34 +232,12 @@ var schema = []setting{
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
 	{"allow_nonloopback", "DEPRECATED and inert: this no longer bypasses authentication. A bearer token (WARDEN_TOKEN) is now mandatory for any non-loopback bind. Setting it true only logs a deprecation warning. Values: true | false"},
 	{"trusted_proxies", "Reverse proxies / tunnels that front the daemon (e.g. a Cloudflare Tunnel forwarding over loopback). Audit-actor-only: when the immediate peer is one of these, the audit log resolves the real client from X-Forwarded-For instead of recording the proxy address. NOT used for the auth-failure throttle. Values: list of IPs and/or CIDRs (IPv4/IPv6); empty disables it"},
-	{"pipeline_keep_done", "Keep a pipeline job's agent alive after the job completes. Values: true | false"},
 	{"model_default", "Default model for new agents. Values: a claude model id or alias (sonnet, opus, haiku, fable)"},
-	{"pipeline_hint", "Append the pipeline-decomposition hint to standalone agents. Values: true | false"},
-	{"auto_restart_max", "Max auto-restart attempts for an errored opted-in agent. Values: integer >= 0"},
-	{"auto_restart_reset", "Sustained-health window that resets the restart counter. Values: Go duration (e.g. 5m, 1h)"},
-	{"collab_enabled", "Warn agents when another agent is editing the same file. Values: true | false"},
-	{"collab_interval", "File-conflict scan interval. Values: Go duration (e.g. 10s, 30s)"},
-	{"collab_hint", "Append the conflict-check hint to spawned agents so they coordinate on shared files. Values: true | false"},
-	{"memory_inject", "Project the repo's curated .warden/memory.md (durable cross-agent facts) into every spawned agent via its system-prompt seam (Claude: --append-system-prompt; other backends: their AGENTS.md/CRUSH.md/.goosehints warden block). Off or an empty/absent memory file is byte-identical to no injection. Values: true | false"},
-	{"memory_curate", "Auto-propose durable memory entries from completion digests into .warden/memory.md (#53 PR-2). On agent/job completion a debounced, extraction-not-dump pass writes UNVERIFIED, timestamped, provenance-tagged proposals to the WORKING TREE ONLY — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to trusted only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Prefers the $0 local model (local_llm), degrading to headless claude -p only when configured. Default OFF (opt-in). Values: true | false"},
-	{"memory_ground", "Answer project questions (\"where does X live?\", \"how do I run Y?\") locally in `wd repl` from the repo's .warden/memory.md (#53 PR-3), via the project_memory tool and the /memory command. Served on the LOCAL model only (local_llm) — it REMOVES cloud round-trips rather than adding tokens, so it is default ON. Read-only: it never creates or writes memory (an absent/empty file answers \"not in project memory\"). With no local model configured it degrades to returning the matching entries verbatim ($0), never escalating to a paid model. Answers cite each entry's trust (unverified/trusted/human) and provenance so a stale hint reads as a hint. Values: true | false"},
-	{"branch_track_enabled", "Monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts. Values: true | false"},
-	{"branch_track_interval", "Branch-tracker scan interval. Values: Go duration (e.g. 2m, 5m)"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
 	{"tutorial", "Print a one-line first-run hint pointing at `wd tutorial` until the walkthrough is completed (it writes a tutorial-complete marker in data_dir). The hint is non-blocking and only shown on an interactive TTY; this gate disables it. Values: true | false"},
 	{"insights", "Enable the AI-powered insights engine (wd insights + MCP insights): mine agent history for duration outliers, co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could run in parallel. Deterministic by default; narrated by the local model when local_llm is on. Values: true | false"},
 	{"api_docs", "Serve the OpenAPI spec + interactive Swagger UI at /api/docs (public, like the static UI shell; the spec describes the API shape but holds no secrets). Values: true | false"},
 	{"scheduler_enabled", "Enable the native scheduler (#15): recurring (--cron) and single-shot (--at) triggers that fire an agent spawn or a pipeline on a daemon-owned timer (wd schedule create/list/delete). OFF by default — the daemon must be running for schedules to fire, so this is deliberately opt-in. Values: true | false"},
-	{"plugins", "Enable the plugin system (#47): load the external plugin executables in plugin_registry, register their custom agent task types, and invoke their subscribed lifecycle hooks over a JSON-over-stdio protocol. OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Values: true | false"},
-	{"plugin_registry", "Plugins loaded when `plugins` is true. A list of entries, each with: name, path (the plugin executable), events (subscribed lifecycle hooks; any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree}). Empty by default. Values: list"},
-	{"rate_limit_retry_interval", "Fallback wait before retrying after a rate limit. Values: Go duration (e.g. 30m, 1h)"},
-	{"rate_limit_buffer", "Extra wait added on top of a parsed rate-limit reset time. Values: Go duration (e.g. 1m)"},
-	{"rate_limit_auto_resume", "Auto-resume agents after a rate limit clears. Values: true | false"},
-	{"rate_limit_resume_prompt", "Text to send when resuming a rate-limited agent. Empty = bare keypress (no injected user turn). Values: any string"},
-	{"http_timeout_fast", "Daemon write budget for ordinary data/action routes (list, status, send, …). A backstop against a wedged handler, not a pacing device. Values: Go duration (e.g. 30s)"},
-	{"http_timeout_slow", "Daemon write budget for slow lifecycle routes (spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Keep generous — in a large monorepo a single git worktree add or hook run can take minutes. Values: Go duration (e.g. 10m)"},
-	{"log_level", "Minimum severity the daemon logs. Values: debug | info | warn | error"},
-	{"log_format", "Daemon log output format. Values: text (human-readable) | json (structured)"},
 
 	// Namespaced groups — each replaces a set of deprecated flat keys.
 	{"rails", "Guard and boundary-hook settings (previously flat keys: git_conventions, git_redirect, check_redirect, root_guard, isolation_guard). Sub-keys: git_conventions, git_redirect, check_redirect, root_guard, isolation_guard. Flat keys still load as deprecated aliases."},
@@ -222,6 +245,15 @@ var schema = []setting{
 	{"notify", "Notification settings (previously flat keys: notify, webhook_enabled, webhook_url). Sub-keys: enabled (was notify), webhook_enabled, webhook_url. Flat keys still load as deprecated aliases."},
 	{"worktree", "Worktree-retention and spawn-gate settings (previously flat keys: spawn_gate, spawn_gate_max_agents, worktree_keep_done, worktree_auto_prune). Sub-keys: spawn_gate, spawn_gate_max_agents, keep_done, auto_prune. Flat keys still load as deprecated aliases."},
 	{"local_llm", "Local-model, REPL, and LLM-offload settings (previously flat keys: local_llm, local_llm_url, local_llm_model, local_llm_timeout, local_llm_escalate, local_llm_tier, local_llm_classifier, repl). Sub-keys: enabled (was local_llm), url, model, timeout, escalate, tier, classifier, repl. Flat keys still load as deprecated aliases."},
+	{"pipeline", "Pipeline-execution settings (previously flat keys: pipeline_keep_done, pipeline_hint). Sub-keys: keep_done (keep a pipeline job's agent alive after it completes), hint (append the pipeline-decomposition hint to standalone agents). Flat keys still load as deprecated aliases. Values: true | false"},
+	{"auto_restart", "Auto-restart supervisor for errored opted-in agents (previously flat keys: auto_restart_max, auto_restart_reset). Sub-keys: max (integer >= 0, max restart attempts), reset (Go duration, e.g. 5m — sustained-health window that resets the counter). Flat keys still load as deprecated aliases."},
+	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — scan interval), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
+	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
+	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
+	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — resume agents after a rate limit clears), resume_prompt (text to send when resuming; empty = bare keypress). Flat keys still load as deprecated aliases."},
+	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
+	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
+	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
 }
 
 // fileHeader is the comment written at the very top of a generated config file.
@@ -246,37 +278,15 @@ func defaults() Config {
 			AllowSticky: false,
 			Rules:       approval.Rules{Allow: []approval.Rule{}, Deny: []approval.Rule{}},
 		},
-		DefaultPermissionMode:  "auto",
-		MetricsEnabled:         true,
-		AllowNonLoopback:       false,
-		PipelineKeepDone:       false,
-		ModelDefault:           "claude-sonnet-4-6", // current "sonnet" alias; keep in sync with lifecycle.DefaultModel
-		PipelineHint:           true,
-		AutoRestartMax:         3,
-		AutoRestartReset:       "5m",
-		CollabEnabled:          true,
-		CollabInterval:         "10s",
-		CollabHint:             true,
-		MemoryInject:           true,
-		MemoryCurate:           false, // opt-in: the risky half (proposals gated by the committed diff)
-		MemoryGround:           true,  // $0 local-only lever: it only REMOVES cloud round-trips
-		BranchTrackEnabled:     false,
-		BranchTrackInterval:    "2m",
-		Snapshots:              true,
-		Tutorial:               true,
-		Insights:               true,
-		ApiDocs:                true,
-		SchedulerEnabled:       false,
-		PluginsEnabled:         false,
-		Plugins:                []plugin.Spec{},
-		RateLimitRetryInterval: "30m",
-		RateLimitBuffer:        "1m",
-		RateLimitAutoResume:    true,
-		RateLimitResumePrompt:  "",
-		HTTPTimeoutFast:        "30s",
-		HTTPTimeoutSlow:        "10m",
-		LogLevel:               logging.DefaultLevel,
-		LogFormat:              logging.DefaultFormat,
+		DefaultPermissionMode: "auto",
+		MetricsEnabled:        true,
+		AllowNonLoopback:      false,
+		ModelDefault:          "claude-sonnet-4-6", // current "sonnet" alias; keep in sync with lifecycle.DefaultModel
+		Snapshots:             true,
+		Tutorial:              true,
+		Insights:              true,
+		ApiDocs:               true,
+		SchedulerEnabled:      false,
 		Rails: RailsConfig{
 			GitConventions: true,
 			GitRedirect:    true,
@@ -318,6 +328,46 @@ func defaults() Config {
 			Tier:       "auto",
 			Classifier: "heuristic",
 			Repl:       false,
+		},
+		Pipeline: PipelineConfig{
+			KeepDone: false,
+			Hint:     true,
+		},
+		AutoRestart: AutoRestartConfig{
+			Max:   3,
+			Reset: "5m",
+		},
+		Collab: CollabConfig{
+			Enabled:  true,
+			Interval: "10s",
+			Hint:     true,
+		},
+		Memory: MemoryConfig{
+			Inject: true,
+			Curate: false, // opt-in: the risky half (proposals gated by the committed diff)
+			Ground: true,  // $0 local-only lever: it only REMOVES cloud round-trips
+		},
+		BranchTrack: BranchTrackConfig{
+			Enabled:  false,
+			Interval: "2m",
+		},
+		RateLimit: RateLimitConfig{
+			RetryInterval: "30m",
+			Buffer:        "1m",
+			AutoResume:    true,
+			ResumePrompt:  "",
+		},
+		HTTP: HTTPConfig{
+			TimeoutFast: "30s",
+			TimeoutSlow: "10m",
+		},
+		Log: LogConfig{
+			Level:  logging.DefaultLevel,
+			Format: logging.DefaultFormat,
+		},
+		Plugins: PluginsConfig{
+			Enabled:  false,
+			Registry: []plugin.Spec{},
 		},
 	}
 }
@@ -407,18 +457,18 @@ func validate(c *Config) {
 	if c.Tokens.Critical <= c.Tokens.Warn { // inverted/degenerate → defaults
 		c.Tokens.Warn, c.Tokens.Critical = d.Tokens.Warn, d.Tokens.Critical
 	}
-	if c.AutoRestartMax < 0 {
-		c.AutoRestartMax = d.AutoRestartMax
+	if c.AutoRestart.Max < 0 {
+		c.AutoRestart.Max = d.AutoRestart.Max
 	}
-	c.LogLevel = validLogLevel(c.LogLevel, d.LogLevel)
-	c.LogFormat = validLogFormat(c.LogFormat, d.LogFormat)
-	c.AutoRestartReset = validDuration(c.AutoRestartReset, d.AutoRestartReset)
-	c.CollabInterval = validDuration(c.CollabInterval, d.CollabInterval)
-	c.BranchTrackInterval = validDuration(c.BranchTrackInterval, d.BranchTrackInterval)
-	c.RateLimitRetryInterval = validDuration(c.RateLimitRetryInterval, d.RateLimitRetryInterval)
-	c.RateLimitBuffer = validDuration(c.RateLimitBuffer, d.RateLimitBuffer)
-	c.HTTPTimeoutFast = validDuration(c.HTTPTimeoutFast, d.HTTPTimeoutFast)
-	c.HTTPTimeoutSlow = validDuration(c.HTTPTimeoutSlow, d.HTTPTimeoutSlow)
+	c.Log.Level = validLogLevel(c.Log.Level, d.Log.Level)
+	c.Log.Format = validLogFormat(c.Log.Format, d.Log.Format)
+	c.AutoRestart.Reset = validDuration(c.AutoRestart.Reset, d.AutoRestart.Reset)
+	c.Collab.Interval = validDuration(c.Collab.Interval, d.Collab.Interval)
+	c.BranchTrack.Interval = validDuration(c.BranchTrack.Interval, d.BranchTrack.Interval)
+	c.RateLimit.RetryInterval = validDuration(c.RateLimit.RetryInterval, d.RateLimit.RetryInterval)
+	c.RateLimit.Buffer = validDuration(c.RateLimit.Buffer, d.RateLimit.Buffer)
+	c.HTTP.TimeoutFast = validDuration(c.HTTP.TimeoutFast, d.HTTP.TimeoutFast)
+	c.HTTP.TimeoutSlow = validDuration(c.HTTP.TimeoutSlow, d.HTTP.TimeoutSlow)
 	if strings.TrimSpace(c.LocalLLM.URL) == "" {
 		c.LocalLLM.URL = d.LocalLLM.URL
 	}
@@ -602,6 +652,46 @@ var flatKeyGroups = []keyGroup{
 		{"local_llm_classifier", "classifier"},
 		{"repl", "repl"},
 		{"orchestrator", "repl"}, // pre-rename legacy alias
+	}},
+	{"pipeline", []keyAlias{
+		{"pipeline_keep_done", "keep_done"},
+		{"pipeline_hint", "hint"},
+	}},
+	{"auto_restart", []keyAlias{
+		{"auto_restart_max", "max"},
+		{"auto_restart_reset", "reset"},
+	}},
+	{"collab", []keyAlias{
+		{"collab_enabled", "enabled"},
+		{"collab_interval", "interval"},
+		{"collab_hint", "hint"},
+	}},
+	{"memory", []keyAlias{
+		{"memory_inject", "inject"},
+		{"memory_curate", "curate"},
+		{"memory_ground", "ground"},
+	}},
+	{"branch_track", []keyAlias{
+		{"branch_track_enabled", "enabled"},
+		{"branch_track_interval", "interval"},
+	}},
+	{"rate_limit", []keyAlias{
+		{"rate_limit_retry_interval", "retry_interval"},
+		{"rate_limit_buffer", "buffer"},
+		{"rate_limit_auto_resume", "auto_resume"},
+		{"rate_limit_resume_prompt", "resume_prompt"},
+	}},
+	{"http", []keyAlias{
+		{"http_timeout_fast", "timeout_fast"},
+		{"http_timeout_slow", "timeout_slow"},
+	}},
+	{"log", []keyAlias{
+		{"log_level", "level"},
+		{"log_format", "format"},
+	}},
+	{"plugins", []keyAlias{
+		{"plugins", "enabled"},
+		{"plugin_registry", "registry"},
 	}},
 }
 
@@ -1006,7 +1096,7 @@ func (c Config) GetModelDefault() string { return c.ModelDefault }
 
 // GetPipelineHint reports whether the pipeline-decomposition hint is appended
 // to standalone agents.
-func (c Config) GetPipelineHint() bool { return c.PipelineHint }
+func (c Config) GetPipelineHint() bool { return c.Pipeline.Hint }
 
 // GetIsolationGuard reports whether the PreToolUse isolation-guard hook is
 // installed into spawned agents (blocks edits that escape the agent's worktree).
@@ -1014,25 +1104,25 @@ func (c Config) GetIsolationGuard() bool { return c.Rails.IsolationGuard }
 
 // GetCollabHint reports whether the conflict-check hint is appended to spawned
 // agents so they coordinate on files other agents are editing.
-func (c Config) GetCollabHint() bool { return c.CollabHint }
+func (c Config) GetCollabHint() bool { return c.Collab.Hint }
 
 // GetMemoryInject reports whether the repo's curated .warden/memory.md is
 // projected into spawned agents via the system-prompt seam (#53 PR-1). Default
 // on; off (or an empty/absent memory file) makes a spawn byte-identical to no
 // projection.
-func (c Config) GetMemoryInject() bool { return c.MemoryInject }
+func (c Config) GetMemoryInject() bool { return c.Memory.Inject }
 
 // GetMemoryCurate reports whether auto-curation of .warden/memory.md from
 // completion digests is enabled (#53 PR-2). Default OFF (opt-in): this is the
 // risky half — it proposes UNVERIFIED entries into the working tree only, gated by
 // the committed diff, and never commits or pushes.
-func (c Config) GetMemoryCurate() bool { return c.MemoryCurate }
+func (c Config) GetMemoryCurate() bool { return c.Memory.Curate }
 
 // GetMemoryGround reports whether `wd repl` answers project questions locally from
 // .warden/memory.md (#53 PR-3). Default on: it is the token-REMOVING lever (serves
 // "where does X live?" from the local model, no cloud call), read-only, and degrades
 // to the raw matching entries when no local model is configured.
-func (c Config) GetMemoryGround() bool { return c.MemoryGround }
+func (c Config) GetMemoryGround() bool { return c.Memory.Ground }
 
 // GetGitConventions reports whether the git-conventions hint (steer agents to
 // wd commit/push/sync over raw git Bash) is appended to spawned agents.
@@ -1095,15 +1185,15 @@ func (c Config) LocalLLMTimeoutDuration() time.Duration {
 }
 
 // HTTPTimeoutFastDuration returns the daemon write budget for ordinary
-// data/action routes (http_timeout_fast).
+// data/action routes (http.timeout_fast).
 func (c Config) HTTPTimeoutFastDuration() time.Duration {
-	return durOr(c.HTTPTimeoutFast, 30*time.Second)
+	return durOr(c.HTTP.TimeoutFast, 30*time.Second)
 }
 
 // HTTPTimeoutSlowDuration returns the daemon write budget for slow lifecycle
-// routes — spawn, commit/push, checks, snapshots (http_timeout_slow).
+// routes — spawn, commit/push, checks, snapshots (http.timeout_slow).
 func (c Config) HTTPTimeoutSlowDuration() time.Duration {
-	return durOr(c.HTTPTimeoutSlow, 10*time.Minute)
+	return durOr(c.HTTP.TimeoutSlow, 10*time.Minute)
 }
 
 // GetLocalLLMEscalate reports whether the REPL may escalate an over-tier
@@ -1131,39 +1221,39 @@ func (c Config) GetLocalLLMClassifier() string {
 func (c Config) GetRepl() bool { return c.LocalLLM.Repl }
 
 // GetPluginsEnabled reports whether the plugin system (#47) is enabled (the
-// daemon loads plugin_registry, registers custom task types, and wires the
+// daemon loads plugins.registry, registers custom task types, and wires the
 // lifecycle-hook dispatcher only when this is true).
-func (c Config) GetPluginsEnabled() bool { return c.PluginsEnabled }
+func (c Config) GetPluginsEnabled() bool { return c.Plugins.Enabled }
 
-// GetPlugins returns the registered plugin specs (config key plugin_registry).
+// GetPlugins returns the registered plugin specs (config key plugins.registry).
 // They are only loaded when GetPluginsEnabled is true.
-func (c Config) GetPlugins() []plugin.Spec { return c.Plugins }
+func (c Config) GetPlugins() []plugin.Spec { return c.Plugins.Registry }
 
 // AutoRestartResetDuration returns the sustained-health window that resets the
 // auto-restart counter.
 func (c Config) AutoRestartResetDuration() time.Duration {
-	return durOr(c.AutoRestartReset, 5*time.Minute)
+	return durOr(c.AutoRestart.Reset, 5*time.Minute)
 }
 
 // RateLimitRetryIntervalDuration returns the fallback wait before retrying a
 // rate-limited agent.
 func (c Config) RateLimitRetryIntervalDuration() time.Duration {
-	return durOr(c.RateLimitRetryInterval, 30*time.Minute)
+	return durOr(c.RateLimit.RetryInterval, 30*time.Minute)
 }
 
 // CollabIntervalDuration returns the file-conflict scan interval.
 func (c Config) CollabIntervalDuration() time.Duration {
-	return durOr(c.CollabInterval, 10*time.Second)
+	return durOr(c.Collab.Interval, 10*time.Second)
 }
 
 // BranchTrackIntervalDuration returns the branch-tracker scan interval.
 func (c Config) BranchTrackIntervalDuration() time.Duration {
-	return durOr(c.BranchTrackInterval, 2*time.Minute)
+	return durOr(c.BranchTrack.Interval, 2*time.Minute)
 }
 
 // RateLimitBufferDuration returns the buffer added to a parsed rate-limit reset.
 func (c Config) RateLimitBufferDuration() time.Duration {
-	return durOr(c.RateLimitBuffer, time.Minute)
+	return durOr(c.RateLimit.Buffer, time.Minute)
 }
 
 func durOr(s string, def time.Duration) time.Duration {

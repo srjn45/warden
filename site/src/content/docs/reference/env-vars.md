@@ -44,7 +44,7 @@ Common settings (run `warden config` for the complete, live list):
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers |
 | `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (by tool / glob / regex / paths, with per-agent overrides); manage with `warden auto-approve` |
 | `auto_approve.max_repeats` | `10` | Circuit breaker: consecutive identical approvals allowed per agent before auto-approve halts and escalates to a human (`0` = default, negative = off) |
-| `http_timeout_fast` / `http_timeout_slow` | `30s` / `10m` | Daemon write budgets: fast bounds ordinary data/action routes; slow bounds lifecycle routes (spawn's worktree checkout, commit/push hooks, checks). Backstops against a wedged handler — keep generous, especially in large monorepos |
+| `http.timeout_fast` / `http.timeout_slow` | `30s` / `10m` | Daemon write budgets: fast bounds ordinary data/action routes; slow bounds lifecycle routes (spawn's worktree checkout, commit/push hooks, checks). Backstops against a wedged handler — keep generous, especially in large monorepos |
 | `tokens.guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
 | `tokens.warn_alert` | `true` | Fire a desktop notification once per upward crossing into warning/critical |
 | `tokens.auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting |
@@ -55,22 +55,29 @@ Common settings (run `warden config` for the complete, live list):
 | `local_llm.enabled` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
 | `metrics` | `true` | Record per-agent performance history for `warden stats --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
-| `pipeline_keep_done` / `pipeline_hint` | — | Pipeline retention + the decomposition nudge |
-| `memory_inject` | `true` | Project the repo's curated `.warden/memory.md` into every spawned agent's system prompt (Claude → `--append-system-prompt`; other backends → their `AGENTS.md`/`CRUSH.md`/`.goosehints` warden block). Off, or an empty/absent file, is byte-identical to no injection. See [Project memory](/warden/concepts/project-memory/) |
-| `memory_curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md`. A debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Prefers the `$0` local model, degrading to `claude -p` only where configured. Opt-in. See [Project memory](/warden/concepts/project-memory/) |
+| `pipeline.keep_done` / `pipeline.hint` | — | Pipeline retention + the decomposition nudge |
+| `memory.inject` | `true` | Project the repo's curated `.warden/memory.md` into every spawned agent's system prompt (Claude → `--append-system-prompt`; other backends → their `AGENTS.md`/`CRUSH.md`/`.goosehints` warden block). Off, or an empty/absent file, is byte-identical to no injection. See [Project memory](/warden/concepts/project-memory/) |
+| `memory.curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md`. A debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Prefers the `$0` local model, degrading to `claude -p` only where configured. Opt-in. See [Project memory](/warden/concepts/project-memory/) |
 | `savings` | `true` | Record the token-savings ledger (`warden savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden savings --audit` (may hold sensitive output) |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`) |
-| `branch_track_enabled` | `false` | Enable the per-agent branch monitor (`warden branches`) |
-| `branch_track_interval` | `2m` | Poll interval for the branch monitor |
+| `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden branches`) |
+| `branch_track.interval` | `2m` | Poll interval for the branch monitor |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden snapshot`) |
 | `insights` | `true` | Enable history-mined insights (`warden insights`) |
 | `tutorial` | `true` | Show the first-run walkthrough nudge (`warden tutorial`) |
 | `api_docs` | `true` | Serve the OpenAPI spec + Swagger UI at `/api/docs` |
-| `plugins` | `false` | Enable the plugin system. **Default off** — plugins run external code |
-| `plugin_registry` | _(empty)_ | List of registered plugins (name, path, events, task_types). Only used when `plugins` is on |
+| `plugins.enabled` | `false` | Enable the plugin system. **Default off** — plugins run external code |
+| `plugins.registry` | _(empty)_ | List of registered plugins (name, path, events, task_types). Only used when `plugins.enabled` is on |
 | `allow_nonloopback` | `false` | **Deprecated / inert** — no longer bypasses auth. A token is mandatory for any non-loopback bind; setting this only logs a deprecation warning |
-| `log_level` / `log_format` | `info` / `text` | Daemon log verbosity and format (`text`/`json`) |
+| `log.level` / `log.format` | `info` / `text` | Daemon log verbosity and format (`text`/`json`) |
 
-There are more (`auto_restart_*`, `rate_limit_*`, `worktree_keep_done` /
-`worktree_auto_prune`, …) — `warden config` is the authoritative, live list.
+There are more (`auto_restart.*`, `rate_limit.*`, `worktree.keep_done` /
+`worktree.auto_prune`, …) — `warden config` is the authoritative, live list.
+
+Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`,
+`collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`,
+`plugins.*`, alongside `rails.*` / `tokens.*` / `notify.*` / `worktree.*` /
+`local_llm.*`). The old flat keys (`collab_enabled`, `log_level`, `memory_inject`, …)
+still load as **deprecated aliases** — they work but emit a one-time deprecation
+warning, and `warden config` rewrites them into the nested form on its next run.

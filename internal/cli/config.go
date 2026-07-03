@@ -85,8 +85,8 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"default_permission_mode", cfg.DefaultPermissionMode},
 			{"model_default", cfg.ModelDefault},
 			{"auto_approve", fmt.Sprintf("%t", cfg.AutoApprove.Enabled)},
-			{"pipeline_hint", fmt.Sprintf("%t", cfg.PipelineHint)},
-			{"pipeline_keep_done", fmt.Sprintf("%t", cfg.PipelineKeepDone)},
+			{"pipeline.hint", fmt.Sprintf("%t", cfg.Pipeline.Hint)},
+			{"pipeline.keep_done", fmt.Sprintf("%t", cfg.Pipeline.KeepDone)},
 			{"tutorial", fmt.Sprintf("%t", cfg.Tutorial)},
 		}},
 		{"notifications & metrics (notify.*)", [][2]string{
@@ -122,21 +122,21 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"rails.root_guard", fmt.Sprintf("%t", cfg.Rails.RootGuard)},
 			{"rails.isolation_guard", fmt.Sprintf("%t", cfg.Rails.IsolationGuard)},
 		}},
-		{"auto-restart", [][2]string{
-			{"auto_restart_max", fmt.Sprintf("%d", cfg.AutoRestartMax)},
-			{"auto_restart_reset", cfg.AutoRestartReset},
+		{"auto-restart (auto_restart.*)", [][2]string{
+			{"auto_restart.max", fmt.Sprintf("%d", cfg.AutoRestart.Max)},
+			{"auto_restart.reset", cfg.AutoRestart.Reset},
 		}},
-		{"rate limit", [][2]string{
-			{"rate_limit_auto_resume", fmt.Sprintf("%t", cfg.RateLimitAutoResume)},
-			{"rate_limit_retry_interval", cfg.RateLimitRetryInterval},
-			{"rate_limit_buffer", cfg.RateLimitBuffer},
+		{"rate limit (rate_limit.*)", [][2]string{
+			{"rate_limit.auto_resume", fmt.Sprintf("%t", cfg.RateLimit.AutoResume)},
+			{"rate_limit.retry_interval", cfg.RateLimit.RetryInterval},
+			{"rate_limit.buffer", cfg.RateLimit.Buffer},
 		}},
-		{"collaboration", [][2]string{
-			{"collab_enabled", fmt.Sprintf("%t", cfg.CollabEnabled)},
-			{"collab_interval", cfg.CollabInterval},
-			{"collab_hint", fmt.Sprintf("%t", cfg.CollabHint)},
-			{"branch_track_enabled", fmt.Sprintf("%t", cfg.BranchTrackEnabled)},
-			{"branch_track_interval", cfg.BranchTrackInterval},
+		{"collaboration (collab.*, branch_track.*)", [][2]string{
+			{"collab.enabled", fmt.Sprintf("%t", cfg.Collab.Enabled)},
+			{"collab.interval", cfg.Collab.Interval},
+			{"collab.hint", fmt.Sprintf("%t", cfg.Collab.Hint)},
+			{"branch_track.enabled", fmt.Sprintf("%t", cfg.BranchTrack.Enabled)},
+			{"branch_track.interval", cfg.BranchTrack.Interval},
 		}},
 		{"local model / REPL (local_llm.*)", [][2]string{
 			{"local_llm.enabled", fmt.Sprintf("%t", cfg.LocalLLM.Enabled)},

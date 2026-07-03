@@ -31,7 +31,7 @@ func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
 	require.Equal(t, "auto", c.DefaultPermissionMode)
 	require.Equal(t, 5, c.Worktree.SpawnGateMax)
 	require.Equal(t, "claude-sonnet-4-6", c.ModelDefault)
-	require.True(t, c.PipelineHint)
+	require.True(t, c.Pipeline.Hint)
 }
 
 func TestLoadReadsFileValues(t *testing.T) {
@@ -51,8 +51,8 @@ worktree:
 	require.True(t, c.AutoApprove.Enabled)
 	require.Equal(t, 8, c.Worktree.SpawnGateMax)
 	require.Equal(t, "opus", c.ModelDefault)
-	require.Equal(t, 7, c.AutoRestartMax)
-	require.Equal(t, "10m", c.AutoRestartReset)
+	require.Equal(t, 7, c.AutoRestart.Max)
+	require.Equal(t, "10m", c.AutoRestart.Reset)
 	// A key absent from the file keeps its default.
 	require.True(t, c.MetricsEnabled)
 }
@@ -72,13 +72,13 @@ trusted_proxies:
 func TestLoad_RateLimitResumePrompt_Default(t *testing.T) {
 	path := tmpConfig(t, "") // empty file → all defaults
 	c := Load(path)
-	require.Equal(t, "", c.RateLimitResumePrompt, "default must be empty (keypress-only)")
+	require.Equal(t, "", c.RateLimit.ResumePrompt, "default must be empty (keypress-only)")
 }
 
 func TestLoad_RateLimitResumePrompt_Set(t *testing.T) {
 	path := tmpConfig(t, "rate_limit_resume_prompt: continue\n")
 	c := Load(path)
-	require.Equal(t, "continue", c.RateLimitResumePrompt)
+	require.Equal(t, "continue", c.RateLimit.ResumePrompt)
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +272,144 @@ func TestLoad_Orchestrator_LegacyAlias(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Namespaced: pipeline / auto_restart / collab / memory / branch_track /
+// rate_limit / http / plugins groups (new blocks; flat keys still migrate)
+// ---------------------------------------------------------------------------
+
+func TestLoad_Pipeline_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "pipeline:\n  keep_done: true\n  hint: false\n"))
+	require.True(t, c.Pipeline.KeepDone)
+	require.False(t, c.Pipeline.Hint)
+}
+
+func TestLoad_Pipeline_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "pipeline_keep_done: true\npipeline_hint: false\n"))
+	require.True(t, c.Pipeline.KeepDone)
+	require.False(t, c.Pipeline.Hint)
+}
+
+func TestLoad_AutoRestart_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "auto_restart:\n  max: 9\n  reset: 3m\n"))
+	require.Equal(t, 9, c.AutoRestart.Max)
+	require.Equal(t, "3m", c.AutoRestart.Reset)
+}
+
+func TestLoad_AutoRestart_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "auto_restart_max: 9\nauto_restart_reset: 3m\n"))
+	require.Equal(t, 9, c.AutoRestart.Max)
+	require.Equal(t, "3m", c.AutoRestart.Reset)
+}
+
+func TestLoad_Collab_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "collab:\n  enabled: false\n  interval: 30s\n  hint: false\n"))
+	require.False(t, c.Collab.Enabled)
+	require.Equal(t, "30s", c.Collab.Interval)
+	require.False(t, c.Collab.Hint)
+}
+
+func TestLoad_Collab_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "collab_enabled: false\ncollab_interval: 30s\ncollab_hint: false\n"))
+	require.False(t, c.Collab.Enabled)
+	require.Equal(t, "30s", c.Collab.Interval)
+	require.False(t, c.Collab.Hint)
+}
+
+func TestLoad_Memory_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "memory:\n  inject: false\n  curate: true\n  ground: false\n"))
+	require.False(t, c.Memory.Inject)
+	require.True(t, c.Memory.Curate)
+	require.False(t, c.Memory.Ground)
+}
+
+func TestLoad_Memory_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "memory_inject: false\nmemory_curate: true\nmemory_ground: false\n"))
+	require.False(t, c.Memory.Inject)
+	require.True(t, c.Memory.Curate)
+	require.False(t, c.Memory.Ground)
+}
+
+func TestLoad_BranchTrack_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "branch_track:\n  enabled: true\n  interval: 5m\n"))
+	require.True(t, c.BranchTrack.Enabled)
+	require.Equal(t, "5m", c.BranchTrack.Interval)
+}
+
+func TestLoad_BranchTrack_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "branch_track_enabled: true\nbranch_track_interval: 5m\n"))
+	require.True(t, c.BranchTrack.Enabled)
+	require.Equal(t, "5m", c.BranchTrack.Interval)
+}
+
+func TestLoad_RateLimit_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "rate_limit:\n  retry_interval: 45m\n  buffer: 2m\n  auto_resume: false\n  resume_prompt: go\n"))
+	require.Equal(t, "45m", c.RateLimit.RetryInterval)
+	require.Equal(t, "2m", c.RateLimit.Buffer)
+	require.False(t, c.RateLimit.AutoResume)
+	require.Equal(t, "go", c.RateLimit.ResumePrompt)
+}
+
+func TestLoad_RateLimit_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "rate_limit_retry_interval: 45m\nrate_limit_buffer: 2m\nrate_limit_auto_resume: false\nrate_limit_resume_prompt: go\n"))
+	require.Equal(t, "45m", c.RateLimit.RetryInterval)
+	require.Equal(t, "2m", c.RateLimit.Buffer)
+	require.False(t, c.RateLimit.AutoResume)
+	require.Equal(t, "go", c.RateLimit.ResumePrompt)
+}
+
+func TestLoad_HTTP_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "http:\n  timeout_fast: 45s\n  timeout_slow: 15m\n"))
+	require.Equal(t, "45s", c.HTTP.TimeoutFast)
+	require.Equal(t, "15m", c.HTTP.TimeoutSlow)
+	require.Equal(t, 15.0, c.HTTPTimeoutSlowDuration().Minutes())
+}
+
+func TestLoad_HTTP_FlatDeprecated(t *testing.T) {
+	c := Load(tmpConfig(t, "http_timeout_fast: 45s\nhttp_timeout_slow: 15m\n"))
+	require.Equal(t, "45s", c.HTTP.TimeoutFast)
+	require.Equal(t, "15m", c.HTTP.TimeoutSlow)
+}
+
+func TestLoad_Plugins_Namespaced(t *testing.T) {
+	c := Load(tmpConfig(t, "plugins:\n  enabled: true\n  registry:\n    - name: p1\n      path: /bin/p1\n"))
+	require.True(t, c.Plugins.Enabled)
+	require.True(t, c.GetPluginsEnabled())
+	require.Len(t, c.Plugins.Registry, 1)
+	require.Equal(t, "p1", c.Plugins.Registry[0].Name)
+}
+
+func TestLoad_Plugins_FlatDeprecated(t *testing.T) {
+	// The pre-namespace form: a scalar `plugins: true` plus `plugin_registry`.
+	c := Load(tmpConfig(t, "plugins: true\nplugin_registry:\n  - name: p1\n    path: /bin/p1\n"))
+	require.True(t, c.Plugins.Enabled)
+	require.Len(t, c.Plugins.Registry, 1)
+	require.Equal(t, "p1", c.Plugins.Registry[0].Name)
+}
+
+func TestReconcileMigratesFlatPluginKeys(t *testing.T) {
+	path := tmpConfig(t, "plugins: true\nplugin_registry:\n  - name: p1\n    path: /bin/p1\n")
+	require.NoError(t, Reconcile(path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(data)
+
+	require.NotContains(t, text, "plugins: true") // scalar flat key gone
+	require.NotContains(t, text, "\nplugin_registry:")
+	require.Contains(t, text, "plugins:")
+
+	c := Load(path)
+	require.True(t, c.Plugins.Enabled)
+	require.Len(t, c.Plugins.Registry, 1)
+
+	// Second reconcile is a no-op.
+	before := text
+	require.NoError(t, Reconcile(path))
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, string(after))
+}
+
+// ---------------------------------------------------------------------------
 // Both flat and namespaced present: namespaced wins
 // ---------------------------------------------------------------------------
 
@@ -307,29 +445,36 @@ func TestLoadValidPermissionModes(t *testing.T) {
 
 func TestLoadLogDefaults(t *testing.T) {
 	c := Load(filepath.Join(t.TempDir(), "absent.yaml"))
-	require.Equal(t, "info", c.LogLevel)
-	require.Equal(t, "text", c.LogFormat)
+	require.Equal(t, "info", c.Log.Level)
+	require.Equal(t, "text", c.Log.Format)
 }
 
-func TestLoadValidLogSettings(t *testing.T) {
+func TestLoadValidLogSettings_Namespaced(t *testing.T) {
+	path := tmpConfig(t, "log:\n  level: debug\n  format: json\n")
+	c := Load(path)
+	require.Equal(t, "debug", c.Log.Level)
+	require.Equal(t, "json", c.Log.Format)
+}
+
+func TestLoadValidLogSettings_FlatDeprecated(t *testing.T) {
 	path := tmpConfig(t, "log_level: debug\nlog_format: json\n")
 	c := Load(path)
-	require.Equal(t, "debug", c.LogLevel)
-	require.Equal(t, "json", c.LogFormat)
+	require.Equal(t, "debug", c.Log.Level)
+	require.Equal(t, "json", c.Log.Format)
 }
 
 func TestLoadInvalidLogSettingsFallBack(t *testing.T) {
 	path := tmpConfig(t, "log_level: chatty\nlog_format: xml\n")
 	c := Load(path)
-	require.Equal(t, "info", c.LogLevel)
-	require.Equal(t, "text", c.LogFormat)
+	require.Equal(t, "info", c.Log.Level)
+	require.Equal(t, "text", c.Log.Format)
 }
 
 func TestLoadLogLevelNormalizesCase(t *testing.T) {
-	path := tmpConfig(t, "log_level: DEBUG\nlog_format: JSON\n")
+	path := tmpConfig(t, "log:\n  level: DEBUG\n  format: JSON\n")
 	c := Load(path)
-	require.Equal(t, "debug", c.LogLevel)
-	require.Equal(t, "json", c.LogFormat)
+	require.Equal(t, "debug", c.Log.Level)
+	require.Equal(t, "json", c.Log.Format)
 }
 
 // ---------------------------------------------------------------------------
@@ -339,8 +484,8 @@ func TestLoadLogLevelNormalizesCase(t *testing.T) {
 func TestLoadBadDurationFallsBack(t *testing.T) {
 	path := tmpConfig(t, "auto_restart_reset: not-a-duration\nrate_limit_buffer: 0s\n")
 	c := Load(path)
-	require.Equal(t, "5m", c.AutoRestartReset)
-	require.Equal(t, "1m", c.RateLimitBuffer)
+	require.Equal(t, "5m", c.AutoRestart.Reset)
+	require.Equal(t, "1m", c.RateLimit.Buffer)
 }
 
 func TestLoadEmptyRequiredStringsFallBack(t *testing.T) {
@@ -375,11 +520,13 @@ func TestReconcileCreatesFullFile(t *testing.T) {
 	}
 	require.Contains(t, text, "Default permission mode for new agents")
 	// Namespaced blocks are present with sub-keys.
-	require.Contains(t, text, "rails:")
-	require.Contains(t, text, "tokens:")
-	require.Contains(t, text, "notify:")
-	require.Contains(t, text, "worktree:")
-	require.Contains(t, text, "local_llm:")
+	for _, block := range []string{
+		"rails:", "tokens:", "notify:", "worktree:", "local_llm:",
+		"pipeline:", "auto_restart:", "collab:", "memory:", "branch_track:",
+		"rate_limit:", "http:", "log:", "plugins:",
+	} {
+		require.Contains(t, text, block)
+	}
 
 	// The generated file round-trips into a valid Config.
 	c := Load(path)
@@ -390,6 +537,15 @@ func TestReconcileCreatesFullFile(t *testing.T) {
 	require.False(t, c.Notify.Enabled)
 	require.True(t, c.Worktree.SpawnGate)
 	require.False(t, c.LocalLLM.Enabled)
+	require.True(t, c.Pipeline.Hint)
+	require.Equal(t, 3, c.AutoRestart.Max)
+	require.True(t, c.Collab.Enabled)
+	require.True(t, c.Memory.Inject)
+	require.False(t, c.BranchTrack.Enabled)
+	require.True(t, c.RateLimit.AutoResume)
+	require.Equal(t, "30s", c.HTTP.TimeoutFast)
+	require.Equal(t, "info", c.Log.Level)
+	require.False(t, c.Plugins.Enabled)
 }
 
 func TestReconcileAddsOnlyMissingKeys(t *testing.T) {
@@ -775,7 +931,7 @@ func TestDefaultsCoverEverySchemaKey(t *testing.T) {
 func TestDurationAccessors(t *testing.T) {
 	path := tmpConfig(t, "auto_restart_reset: 90s\nrate_limit_retry_interval: 45m\nrate_limit_buffer: 2m\n")
 	c := Load(path)
-	require.Equal(t, "90s", c.AutoRestartReset) // valid strings are preserved verbatim
+	require.Equal(t, "90s", c.AutoRestart.Reset) // valid strings are preserved verbatim
 	require.Equal(t, int64(90), int64(c.AutoRestartResetDuration().Seconds()))
 	require.Equal(t, 45.0, c.RateLimitRetryIntervalDuration().Minutes())
 	require.Equal(t, 2.0, c.RateLimitBufferDuration().Minutes())

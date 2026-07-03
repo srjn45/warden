@@ -29,15 +29,16 @@ only for plugins you trust.
 
 ## Registering plugins
 
-Set the `plugins` gate and a `plugin_registry` list in `~/.warden/config.yaml`:
+Set the `plugins.enabled` gate and a `plugins.registry` list in `~/.warden/config.yaml`:
 
 ```yaml
-plugins: true
-plugin_registry:
-  - name: notify-commit
-    path: /usr/local/bin/warden-notify-commit
-    events: [post-commit]
-    task_types: []
+plugins:
+  enabled: true
+  registry:
+    - name: notify-commit
+      path: /usr/local/bin/warden-notify-commit
+      events: [post-commit]
+      task_types: []
 ```
 
 Inspect what's loaded:

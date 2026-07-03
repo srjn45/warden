@@ -35,7 +35,7 @@ func TestConfigInitThenShow(t *testing.T) {
 	require.Contains(t, out, "default_permission_mode")
 	require.Contains(t, out, "auto")
 	require.Contains(t, out, "[daemon]")
-	require.Contains(t, out, "[rate limit]")
+	require.Contains(t, out, "[rate limit (rate_limit.*)]")
 }
 
 func TestConfigShowMissingFileNotesDefaults(t *testing.T) {

@@ -78,13 +78,14 @@ Claude — cache-stable:
 
 ## Toggling it
 
-Projection is config-gated by **`memory_inject`** (default **on**). Turn it off,
+Projection is config-gated by **`memory.inject`** (default **on**). Turn it off,
 or leave the file empty/absent, and a spawn is **byte-identical** to no injection —
 projection is purely additive.
 
 ```yaml
 # ~/.warden/config.yaml
-memory_inject: true   # default; set false to disable launch-time projection
+memory:
+  inject: true   # default; set false to disable launch-time projection
 ```
 
 ## Curating it — by hand, or auto-proposed (gated)
@@ -93,7 +94,7 @@ You can always curate `.warden/memory.md` **by hand** — `wd memory --edit` ope
 in `$EDITOR`, and the committed diff is the review gate.
 
 warden can also **auto-propose** entries for you, off by default behind
-**`memory_curate`**. When enabled, warden runs a debounced curation pass on the
+**`memory.curate`**. When enabled, warden runs a debounced curation pass on the
 existing completion-digest hook: as agents finish, it reads their digests +
 transcripts + the current memory and extracts **durable, reusable facts** (where
 things live, how to run X, project invariants), discarding per-task noise. It is
@@ -121,11 +122,12 @@ deliberately conservative and **never authoritative**:
 
 ```yaml
 # ~/.warden/config.yaml
-memory_curate: false   # default OFF (opt-in — the risky half); proposals are
-                       # gated by the committed diff, never auto-trusted
+memory:
+  curate: false   # default OFF (opt-in — the risky half); proposals are
+                  # gated by the committed diff, never auto-trusted
 ```
 
-## Ask project memory locally — grounding (`memory_ground`)
+## Ask project memory locally — grounding (`memory.ground`)
 
 Projection *adds* input tokens to every spawn. **Grounding** is the opposite lever:
 in [`wd repl`](/warden/multi-agent/repl/) you can **ask** the memory a question and
@@ -163,8 +165,9 @@ It is deliberately narrow and safe:
 
 ```yaml
 # ~/.warden/config.yaml
-memory_ground: true    # default ON — it only REMOVES cost (a local answer instead
-                       # of a cloud round-trip); read-only, never writes memory
+memory:
+  ground: true    # default ON — it only REMOVES cost (a local answer instead
+                  # of a cloud round-trip); read-only, never writes memory
 ```
 
 ## See also
