@@ -1914,6 +1914,12 @@ components:
         enabled: { type: boolean }
         allow_sticky: { type: boolean }
         rules: { $ref: "#/components/schemas/AutoApproveRules" }
+        max_repeats:
+          type: integer
+          description: >
+            Circuit breaker: how many times the identical prompt may be
+            consecutively auto-approved for one agent before auto-approve
+            halts and escalates to a human. 0 = default (10), negative = off.
         agents:
           type: object
           additionalProperties: { $ref: "#/components/schemas/AutoApprovePolicy" }

@@ -36,11 +36,30 @@ type Policy struct {
 	Enabled     bool  `yaml:"enabled" json:"enabled"`
 	AllowSticky bool  `yaml:"allow_sticky" json:"allow_sticky"`
 	Rules       Rules `yaml:"rules" json:"rules"`
+	// MaxRepeats caps how many times the IDENTICAL prompt may be consecutively
+	// auto-approved for one agent before the circuit breaker trips and escalates
+	// to a human (the agent is looping, not progressing). 0 ⇒ DefaultMaxRepeats;
+	// negative ⇒ breaker disabled. Resolve with EffectiveMaxRepeats.
+	MaxRepeats int `yaml:"max_repeats,omitempty" json:"max_repeats,omitempty"`
 	// Agents maps an agent name (or id) to a policy override. An override fully
 	// replaces the default's rules + allow_sticky for that agent and may enable
-	// auto-approve for it alone; the master Enabled switch is inherited (OR'd).
+	// auto-approve for it alone; the master Enabled switch is inherited (OR'd)
+	// and an unset (0) MaxRepeats inherits the default policy's value.
 	// Nested overrides ignore their own Agents map. nil ⇒ no per-agent policies.
 	Agents map[string]Policy `yaml:"agents,omitempty" json:"agents,omitempty"`
+}
+
+// EffectiveMaxRepeats resolves the circuit-breaker cap: the configured value,
+// DefaultMaxRepeats when unset (0), and 0 (disabled) when negative.
+func (p Policy) EffectiveMaxRepeats() int {
+	switch {
+	case p.MaxRepeats < 0:
+		return 0
+	case p.MaxRepeats == 0:
+		return DefaultMaxRepeats
+	default:
+		return p.MaxRepeats
+	}
 }
 
 // Validate reports the first malformed regex in the policy (default rules and
@@ -95,6 +114,9 @@ func (p Policy) For(names ...string) Policy {
 		}
 		if ov, ok := p.Agents[n]; ok {
 			ov.Enabled = p.Enabled || ov.Enabled
+			if ov.MaxRepeats == 0 {
+				ov.MaxRepeats = p.MaxRepeats
+			}
 			ov.Agents = nil
 			return ov
 		}
