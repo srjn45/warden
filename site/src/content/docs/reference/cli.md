@@ -2659,7 +2659,7 @@ Global Flags:
 
 ```text
 Rotate the daemon's bearer token: generate a fresh 256-bit secret, write it to
-/home/srjn45/.warden/token.env (chmod 600), and restart the managed warden service so
+~/.warden/token.env (chmod 600), and restart the managed warden service so
 the new token takes effect immediately. The new token is printed to stdout.
 
 After rotating, update remote clients (paste the new token into the mobile
@@ -2684,7 +2684,7 @@ Global Flags:
 
 ```text
 Print the bearer token local clients resolve: WARDEN_TOKEN if exported,
-otherwise the token a managed install persists in /home/srjn45/.warden/token.env.
+otherwise the token a managed install persists in ~/.warden/token.env.
 
 Use this to retrieve the secret to paste into the mobile web dashboard. The token
 is printed to stdout (so it pipes cleanly); its source is noted on stderr.

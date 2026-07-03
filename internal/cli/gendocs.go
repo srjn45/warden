@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -87,5 +88,14 @@ func GenerateReference() (string, error) {
 	if err := walk(root); err != nil {
 		return "", err
 	}
-	return b.String(), nil
+
+	doc := b.String()
+	// Some help text bakes in an absolute path resolved from $HOME at command
+	// construction (e.g. `warden token`'s default token file). Rewrite the home
+	// prefix to `~` so the generated page is byte-identical across machines —
+	// otherwise the CI staleness gate would flip on every contributor's home dir.
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		doc = strings.ReplaceAll(doc, home, "~")
+	}
+	return doc, nil
 }
