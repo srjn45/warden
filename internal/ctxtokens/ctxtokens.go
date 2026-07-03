@@ -2,7 +2,8 @@
 // Claude Code transcript JSONL and classifies it against warn/critical
 // thresholds. The gauge is the most recent assistant turn's input + cached
 // tokens — the same quantity /context reports, obtained passively (no keystroke
-// injection, no TUI scraping).
+// injection, no TUI scraping) — or, when a compaction landed after that turn,
+// the boundary's post-compact fill.
 package ctxtokens
 
 import (
@@ -22,6 +23,7 @@ const (
 
 type usageRecord struct {
 	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
 	Message struct {
 		Usage *struct {
 			InputTokens              int `json:"input_tokens"`
@@ -29,11 +31,20 @@ type usageRecord struct {
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
+	CompactMetadata *struct {
+		PostTokens int `json:"postTokens"`
+	} `json:"compactMetadata"`
 }
 
 // LatestContextTokens scans a transcript JSONL stream and returns the context
-// fill of the LAST assistant turn that carried a usage block:
-// input_tokens + cache_read_input_tokens + cache_creation_input_tokens.
+// fill of the LAST reading: an assistant turn's usage block
+// (input_tokens + cache_read_input_tokens + cache_creation_input_tokens) or a
+// compaction boundary's post-compact fill. The boundary matters: a landed
+// /compact writes {"type":"system","subtype":"compact_boundary"} with
+// compactMetadata.postTokens but NO new assistant turn until the next prompt,
+// so without it the gauge would stay stuck at the pre-compact (critical)
+// level and warden would keep re-sending /compact to an already-compacted,
+// unprompted agent.
 // ok=false means no model turn has been recorded yet (a just-spawned agent),
 // in which case tokens is 0 and callers should treat the gauge as unknown.
 // Malformed lines are skipped (not fatal); only the scanner's own error band is
@@ -51,12 +62,23 @@ func LatestContextTokens(r io.Reader) (tokens int, ok bool) {
 		if err := json.Unmarshal(line, &rec); err != nil {
 			continue
 		}
+		// Keep overwriting; the last reading in the stream wins.
+		if rec.Type == "system" && rec.Subtype == "compact_boundary" {
+			// postTokens is what survived the compaction (0 when the metadata
+			// is absent — still a reset, just an unmeasured one).
+			tokens = 0
+			if rec.CompactMetadata != nil {
+				tokens = rec.CompactMetadata.PostTokens
+			}
+			ok = true
+			continue
+		}
 		if rec.Type != "assistant" || rec.Message.Usage == nil {
 			continue
 		}
 		u := rec.Message.Usage
 		tokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
-		ok = true // keep overwriting; the last assistant usage wins
+		ok = true
 	}
 	return tokens, ok
 }
