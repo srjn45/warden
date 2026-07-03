@@ -9,8 +9,12 @@ Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
 __ENVFILE__
 Restart=always
 RestartSec=2
-StandardOutput=append:/tmp/warden.daemon.log
-StandardError=append:/tmp/warden.daemon.err
+# Log to the systemd journal rather than files under /tmp. On many distros
+# (Fedora, Arch, …) /tmp is a tmpfs cleared on reboot / by systemd-tmpfiles, so
+# append:/tmp/... logs silently vanish. The journal survives reboots and is the
+# systemd-native sink — view with: journalctl --user -u warden -f
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target

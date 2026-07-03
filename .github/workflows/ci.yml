@@ -95,3 +95,31 @@ jobs:
         run: make release
       - name: Smoke-test the binary
         run: ./bin/warden --help
+
+  # Runtime smoke test on non-Ubuntu Linux distros. .goreleaser.yaml ships
+  # deb/rpm/arch packages, but nothing else in CI verifies the binary actually
+  # runs on a Fedora/Arch userspace — a distro-specific runtime regression
+  # (missing shared lib, an accidental CGO dependency, a path assumption) would
+  # otherwise only surface after release. We build the binary the same way the
+  # release does (CGO_ENABLED=0 static) on the ubuntu runner, then execute it
+  # inside each distro's container image and assert `--help` exits 0.
+  distro-smoke:
+    name: Distro smoke (${{ matrix.image }})
+    needs: [lint]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [fedora:latest, archlinux:latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build linux binary (static, like the release)
+        run: CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o warden ./cmd/warden
+      - name: Run --help inside ${{ matrix.image }}
+        run: |
+          docker run --rm -v "$PWD/warden:/usr/local/bin/warden:ro" "${{ matrix.image }}" \
+            sh -c 'set -e; warden --help; warden daemon --help; echo "smoke OK on $(cat /etc/os-release | grep ^PRETTY_NAME=)"'
