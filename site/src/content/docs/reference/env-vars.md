@@ -43,6 +43,8 @@ Common settings (run `warden config` for the complete, live list):
 | `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST notifications to a webhook (a Slack incoming-webhook URL works out of the box) |
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers |
 | `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (by tool / glob / regex / paths, with per-agent overrides); manage with `warden auto-approve` |
+| `auto_approve.max_repeats` | `10` | Circuit breaker: consecutive identical approvals allowed per agent before auto-approve halts and escalates to a human (`0` = default, negative = off) |
+| `http_timeout_fast` / `http_timeout_slow` | `30s` / `10m` | Daemon write budgets: fast bounds ordinary data/action routes; slow bounds lifecycle routes (spawn's worktree checkout, commit/push hooks, checks). Backstops against a wedged handler — keep generous, especially in large monorepos |
 | `tokens.guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
 | `tokens.warn_alert` | `true` | Fire a desktop notification once per upward crossing into warning/critical |
 | `tokens.auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting |

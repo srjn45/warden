@@ -139,6 +139,16 @@ own `{enabled, allow_sticky, rules}` block that replaces the default for that ag
 simple legacy toggle — it approves every recognized, non-destructive prompt. So
 `auto_approve: true` keeps working unchanged.
 
+**Circuit breaker** (always on): when the *identical* prompt keeps re-appearing
+after being approved — the agent is re-running a failing command and re-asking,
+so approval isn't unblocking it — warden stops auto-approving after
+`max_repeats` consecutive identical approvals (default 10), records an
+`approval_loop` anomaly event, fires the operator notification, and leaves the
+prompt to a human (the agent shows `waiting_for_input`). `max_repeats: 0` uses
+the default; a negative value disables the breaker; per-agent overrides inherit
+the default's value when unset. A different prompt, or ~10 quiet minutes,
+resets the run.
+
 **Configuration:**
 ```yaml
 # ~/.warden/config.yaml

@@ -29,13 +29,34 @@ coding agents (Claude Code by default, plus other backends via `--backend`; each
 its own tmux session, most in a git worktree) and the work around them. You drive it through the **warden MCP tools** (when registered)
 or the **`warden` CLI** (always available).
 
-**MCP first, CLI as the fallback.** When the warden MCP tools are registered,
-**always prefer them** — they are structured tool calls that return compact typed
-results, need no shell, and don't trip Bash-permission prompts. Drop to the
-`warden`/`wd` CLI **only when MCP is unavailable** — typically because org-level
-policy blocks MCP servers, or for the handful of admin verbs that are CLI-only
-(listed per capability). When MCP is blocked, the CLI loses no capability; reach
-for it without hesitation.
+**Detect which surface you have, then commit to it — don't probe.** Look at
+your tool list once: if `mcp__warden__*` tools are present, **prefer them** —
+structured tool calls that return compact typed results, need no shell, and
+don't trip Bash-permission prompts. If they are **absent**, the warden MCP
+server is not registered in this session (common under org-managed MCP
+allowlists) — do **not** attempt or search for MCP tools; go **straight to the
+`warden`/`wd` CLI** via Bash and treat it as the primary surface, not a
+degraded one. Every fleet/data capability has a CLI verb (each reference file
+carries the CLI map), so a CLI-only session loses no capability. The handful of
+admin verbs that are CLI-only are listed per capability.
+
+### CLI-only fast path (no `mcp__warden__*` tools in this session)
+
+The everyday verbs, so the common path needs no reference-file round-trip:
+
+| Task | CLI |
+|---|---|
+| list / triage | `warden ls` (`--json`, `--watch`) |
+| one agent's status / output | `warden status <id>` · `warden tail <id>` |
+| spawn from a prompt | `warden start "<prompt>"` (`--name`, `--model`, `--backend`) |
+| message an agent | `warden send <id> "<text>"` |
+| stop (full teardown, confirm first) | `warden stop <id>` |
+| finish, keep worktree | `warden done <id>` (`--create-pr`) |
+| git lifecycle / checks | `wd commit` / `wd push` / `wd sync` / `wd check [name]` |
+| pipelines | `warden pipeline create -f spec.yaml` → `warden pipeline start/show <id>` |
+
+For anything beyond these, open the matching reference file — each carries the
+full CLI map next to the MCP tools.
 
 You put agents to work three ways, and warden also owns the deterministic plumbing
 around an agent (git, checks, snapshots, coordination):
