@@ -9,12 +9,21 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// Curator is the memory auto-curation seam (#53 PR-2): the executor hands it one
+// Signal per completed job on the EXISTING completion-digest hook, and it debounces a
+// per-repo curation pass that PROPOSES unverified memory entries into the working
+// tree (never commits/pushes). nil ⇒ curation disabled (the memory_curate default).
+type Curator interface {
+	Enqueue(ctx context.Context, workdir string, sig curate.Signal)
+}
 
 // digestSnapshotTimeout bounds the background completion-digest snapshot taken
 // when a job emits. The builder may shell out to a `claude -p` narrator, so an
@@ -56,6 +65,7 @@ type Executor struct {
 	notify func() // signals SSE subscribers that state changed (may be nil)
 
 	digestFn func(context.Context, *store.Session) digest.Digest // nil ⇒ skip snapshot
+	curator  Curator                                             // nil ⇒ memory auto-curation disabled
 	keepDone bool                                                // pipeline_keep_done config setting — keep done agents alive
 	snapWG   sync.WaitGroup                                      // tracks in-flight digest snapshots (test sync)
 }
@@ -75,6 +85,10 @@ func (e *Executor) SetDigestFn(fn func(context.Context, *store.Session) digest.D
 // SetKeepDoneAgents, when true, leaves a completed job's agent alive (skips the
 // reap) so its tmux pane stays attachable for debugging.
 func (e *Executor) SetKeepDoneAgents(v bool) { e.keepDone = v }
+
+// SetCurator wires the memory auto-curation seam (#53 PR-2); nil (the default) leaves
+// curation off. Set once at construction, before concurrent use.
+func (e *Executor) SetCurator(c Curator) { e.curator = c }
 
 // JobDigest returns a job's stored completion-digest snapshot, or nil.
 func (e *Executor) JobDigest(pid, jobID string) *digest.Digest {
@@ -453,6 +467,14 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 						j.Digest = &d
 					}
 				})
+				// Feed the completion digest to memory auto-curation (#53 PR-2). This
+				// is the EXISTING completion-digest hook the design attaches to; the
+				// curator DEBOUNCES per repo so a burst of job completions coalesces
+				// into one pass, and it writes PROPOSALS to the working tree only —
+				// never commits or pushes. Best-effort and off the critical path.
+				if e.curator != nil && s.Workdir != "" {
+					e.curator.Enqueue(context.Background(), s.Workdir, signalFromDigest(s, d))
+				}
 				if e.notify != nil {
 					e.notify()
 				}
@@ -460,6 +482,24 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		}
 	}
 	return e.Reconcile(ctx, pid)
+}
+
+// signalFromDigest projects a completed job's digest + session into the neutral
+// curate.Signal the curation pass reads — the agent id and any produced branch become
+// the entry provenance, the files/summary the extraction evidence. It carries no
+// digest/curate coupling beyond this one adapter.
+func signalFromDigest(s *store.Session, d digest.Digest) curate.Signal {
+	files := make([]string, 0, len(d.Files))
+	for _, f := range d.Files {
+		files = append(files, f.Path)
+	}
+	return curate.Signal{
+		Task:    d.Task,
+		Summary: d.Summary,
+		Files:   files,
+		Branch:  d.Branch,
+		Agent:   s.ID,
+	}
 }
 
 // SweepDoneJobSessions deletes the session records of pipeline jobs that have

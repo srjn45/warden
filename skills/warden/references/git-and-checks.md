@@ -85,6 +85,18 @@ with `wd memory --edit` — the committed diff is the team's review gate. Keep e
 compact and navigational, not prose. warden READS but never rewrites your
 CLAUDE.md/AGENTS.md/CONVENTIONS.md — `.warden/memory.md` is warden's own.
 
+**Auto-curation (`memory_curate`, default off).** When enabled, warden *also*
+proposes entries for you: on completion it extracts durable facts from finished
+agents' digests and writes them back as `- [unverified · <date> · <provenance>]
+<fact>`. These are **proposals, never authority** — they are written to the
+**working tree only** (warden never commits or pushes them), so a human approves the
+`.warden/memory.md` diff before it reaches teammates. If you review such a diff:
+`unverified` entries are single-sighting hints (promote to `trusted` only if you can
+corroborate them against the live tree); struck (`~~…~~`) lines are superseded or
+aged-out tombstones kept for context; `<!-- stale: … -->` marks a fact whose named
+path vanished. Never trust an `unverified` entry blindly, and never `wd commit` a
+memory diff you have not read.
+
 ## Snapshots — checkpoint & roll back
 
 MCP `snapshot_create` / `snapshot_list` / `snapshot_restore` (CLI `wd snapshot

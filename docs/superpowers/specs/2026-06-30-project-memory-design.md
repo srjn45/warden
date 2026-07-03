@@ -408,15 +408,26 @@ spawn-local to avoid it.
     is unchanged. This alone solves the cross-agent rediscovery tax for human-curated
     facts.
 
-- **PR-2 — Auto-curation from digests, gated as proposals (the hard, risky half).**
-  - The completion-triggered, debounced extraction pass (§4.2) via the existing
-    `Narrator`/`HeadlessCmd`/local-LLM plumbing; **$0** on the local-LLM path.
-  - Writes **`unverified`, timestamped, provenance-tagged** entries as **proposals**;
-    verify-before-trust promotion; supersession/age-out. The committed diff is the human
-    gate. **Never auto-trusted.**
-  - $0-local on the same rig: complete a couple of agents, assert candidate entries are
-    proposed (not silently trusted), and that a contradicting later entry supersedes an
-    earlier one.
+- **PR-2 — Auto-curation from digests, gated as proposals (the hard, risky half). ✅ SHIPPED.**
+  - The completion-triggered, debounced extraction pass (§4.2) is wired onto the
+    EXISTING completion-digest hook (the executor's digest snapshot in `Emit`); a new
+    neutral `internal/curate` package debounces per repo (coalescing a burst of
+    completions into ONE pass) and reuses warden's `$0`-preferring offload
+    (`LLMProposer`: local LLM first, degrading to headless `claude -p` only where
+    configured). Config-gated by the new **`memory_curate`** key (default **OFF** —
+    the risky half is opt-in, unlike PR-1's default-on `memory_inject`).
+  - Writes **`unverified`, timestamped, provenance-tagged** entries as **proposals** to
+    the **working tree only — never commits, never pushes** (the never-auto-commit
+    invariant, proven by a test over a real git repo). Verify-before-trust promotion
+    (corroboration by a second agent → `trusted`); supersession-on-contradiction with a
+    struck tombstone; TTL age-out; a deterministic path-existence staleness check. The
+    additive `internal/memory` WRITE helpers (`Entry.Raw`/`Tombstone`/`Stale`,
+    `Memory.Serialize`, `Entry.Canonical`) keep the human diff minimal (untouched
+    entries re-emit verbatim). **Never auto-trusted.**
+  - Hermetic tests (no real LLM/git for the unit layer): candidates proposed
+    `unverified` not `trusted`; contradiction supersedes with tombstone; a burst
+    debounces to ONE pass; the pass writes the tree only (never commits); the
+    deterministic staleness check flags a vanished path.
 
 - **PR-3 (separable follow-on) — REPL #50 local grounding (the adjacent win).** Answer
   project questions from `.warden/memory.md` **locally** via the #50 REPL (`internal/repl`

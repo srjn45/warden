@@ -597,9 +597,18 @@ via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via
 `.goosehints`; **aider** degrade-skips (neither seam). 7/8 backends project with zero
 new adapter code. Config-gated by `memory_inject` (default on); off, or an empty/absent
 file, is byte-identical to no injection. warden READS but never rewrites your
-CLAUDE.md/AGENTS.md/CONVENTIONS.md — `.warden/memory.md` is warden's own, curated by
-hand (the committed diff is the review gate; auto-curation from digests is a later
-change).
+CLAUDE.md/AGENTS.md/CONVENTIONS.md — `.warden/memory.md` is warden's own.
+
+You curate it **by hand** (`--edit`), and warden can optionally **auto-propose**
+entries behind `memory_curate` (default **off**). When enabled, a debounced pass on
+the completion-digest hook extracts durable facts from finished agents and writes
+**`unverified`, timestamped, provenance-tagged** proposals — to the **working tree
+only**. It **never commits or pushes**, so the committed diff is the human review
+gate; proposals promote to `trusted` only on corroboration, contradictions supersede
+(tombstone) older entries, un-recorroborated entries age out, and vanished paths are
+flagged stale. It prefers the `$0` local model. See the
+[Project memory](https://srjn45.github.io/warden/concepts/project-memory/) concept
+page.
 
 ```sh
 warden memory                       # path + the rendered view injected into agents

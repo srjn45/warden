@@ -127,6 +127,7 @@ type Config struct {
 	CollabInterval         string        `yaml:"collab_interval"`
 	CollabHint             bool          `yaml:"collab_hint"`
 	MemoryInject           bool          `yaml:"memory_inject"`
+	MemoryCurate           bool          `yaml:"memory_curate"`
 	BranchTrackEnabled     bool          `yaml:"branch_track_enabled"`
 	BranchTrackInterval    string        `yaml:"branch_track_interval"`
 	Snapshots              bool          `yaml:"snapshots"`
@@ -194,6 +195,7 @@ var schema = []setting{
 	{"collab_interval", "File-conflict scan interval. Values: Go duration (e.g. 10s, 30s)"},
 	{"collab_hint", "Append the conflict-check hint to spawned agents so they coordinate on shared files. Values: true | false"},
 	{"memory_inject", "Project the repo's curated .warden/memory.md (durable cross-agent facts) into every spawned agent via its system-prompt seam (Claude: --append-system-prompt; other backends: their AGENTS.md/CRUSH.md/.goosehints warden block). Off or an empty/absent memory file is byte-identical to no injection. Values: true | false"},
+	{"memory_curate", "Auto-propose durable memory entries from completion digests into .warden/memory.md (#53 PR-2). On agent/job completion a debounced, extraction-not-dump pass writes UNVERIFIED, timestamped, provenance-tagged proposals to the WORKING TREE ONLY — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to trusted only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Prefers the $0 local model (local_llm), degrading to headless claude -p only when configured. Default OFF (opt-in). Values: true | false"},
 	{"branch_track_enabled", "Monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts. Values: true | false"},
 	{"branch_track_interval", "Branch-tracker scan interval. Values: Go duration (e.g. 2m, 5m)"},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
@@ -254,6 +256,7 @@ func defaults() Config {
 		CollabInterval:         "10s",
 		CollabHint:             true,
 		MemoryInject:           true,
+		MemoryCurate:           false, // opt-in: the risky half (proposals gated by the committed diff)
 		BranchTrackEnabled:     false,
 		BranchTrackInterval:    "2m",
 		Snapshots:              true,
@@ -1015,6 +1018,12 @@ func (c Config) GetCollabHint() bool { return c.CollabHint }
 // on; off (or an empty/absent memory file) makes a spawn byte-identical to no
 // projection.
 func (c Config) GetMemoryInject() bool { return c.MemoryInject }
+
+// GetMemoryCurate reports whether auto-curation of .warden/memory.md from
+// completion digests is enabled (#53 PR-2). Default OFF (opt-in): this is the
+// risky half — it proposes UNVERIFIED entries into the working tree only, gated by
+// the committed diff, and never commits or pushes.
+func (c Config) GetMemoryCurate() bool { return c.MemoryCurate }
 
 // GetGitConventions reports whether the git-conventions hint (steer agents to
 // wd commit/push/sync over raw git Bash) is appended to spawned agents.

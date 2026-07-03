@@ -680,8 +680,11 @@ Use --raw to print the file verbatim, --path for just the resolved path (handy i
 scripts), and --edit to open it in $EDITOR (auto-creating it first if missing).
 
 This verb is CLI-local (like `wd check` / `wd review`): it reads/writes the file
-directly with no daemon round-trip. Note: auto-curation from fleet digests is
-deliberately deferred to a later change — today you curate this file by hand.
+directly with no daemon round-trip. You curate the file by hand here; warden can
+ALSO auto-propose entries from completion digests when the `memory_curate` config
+key is on (default off) — those proposals land as `unverified` entries in the
+working tree only (never committed/pushed), so the committed diff is the review
+gate. See the Project memory concept page.
 
 Usage:
   warden memory [flags]
@@ -693,7 +696,7 @@ Flags:
       --raw    print the file verbatim instead of the rendered view
 ```
 
-**CLI-local** (like `wd check` / `wd review`): reads/writes `.warden/memory.md` directly, no daemon round-trip. The curated file is **projected into every spawned agent** via `memory_inject` (default on). See the [Project memory](/warden/concepts/project-memory/) concept.
+**CLI-local** (like `wd check` / `wd review`): reads/writes `.warden/memory.md` directly, no daemon round-trip. The curated file is **projected into every spawned agent** via `memory_inject` (default on), and warden can **auto-propose** entries from completion digests via `memory_curate` (default off; proposals are `unverified` and written to the working tree only, never committed). See the [Project memory](/warden/concepts/project-memory/) concept.
 
 ## warden collab
 
