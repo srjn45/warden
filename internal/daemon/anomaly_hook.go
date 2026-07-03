@@ -21,6 +21,8 @@ func AnomalyMessage(sess *store.Session, a poller.Anomaly) (title, body string) 
 		title = "warden — possible loop"
 	case "context_precrash":
 		title = "warden — compact to avoid crash"
+	case "approval_loop":
+		title = "warden — auto-approve halted"
 	default:
 		title = "warden — anomaly"
 	}

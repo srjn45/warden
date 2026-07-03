@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -220,6 +221,12 @@ type Poller struct {
 	AutoApprovePolicy approval.Policy
 	policyMu          sync.RWMutex
 
+	// approveBreaker halts auto-approval of an identical prompt that keeps
+	// re-appearing after being approved (the approval isn't unblocking the
+	// agent — e.g. it re-runs a failing command and re-asks forever). Internally
+	// locked; shared by the approval worker and session teardown.
+	approveBreaker *approval.Breaker
+
 	// ApprovalEvents is a buffered channel for approval opportunities.
 	// Published when: (1) status transitions to waiting_for_input, OR
 	// (2) pane changes while already in waiting_for_input.
@@ -342,6 +349,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		loopFlagged:     map[string]bool{},
 		preCrashFlagged: map[string]bool{},
 		forceCompact:    map[string]fcState{},
+		approveBreaker:  approval.NewBreaker(),
 		CheckEvery:      20 * time.Second,
 		CompactCooldown: 2 * time.Minute,
 		ApprovalEvents:  make(chan ApprovalEvent, 100),
@@ -451,6 +459,24 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 	}
 	if a.AffirmativeSticky && !pol.AllowSticky {
 		slog.Debug("auto-approve skipped: only a sticky affirmative (allow_sticky off)", "agent", s.ID)
+		return
+	}
+
+	// Circuit breaker: an identical prompt that keeps re-appearing after being
+	// approved means approving is not unblocking the agent — stop feeding the
+	// loop and escalate to a human. The prompt then sits unanswered, so the
+	// agent surfaces as waiting_for_input.
+	maxRepeats := pol.EffectiveMaxRepeats()
+	sig := a.Action + "\x00" + a.Question
+	if ok, trippedNow := p.approveBreaker.Allow(s.ID, sig, maxRepeats); !ok {
+		if trippedNow {
+			slog.Warn("auto-approve circuit breaker tripped", "agent", s.ID, "action", a.Action, "repeats", maxRepeats)
+			p.raiseAnomaly(ctx, s, Anomaly{
+				Kind: anomalyApprovalLoop,
+				Detail: fmt.Sprintf("auto-approve halted: the identical prompt (%s) was approved %d times in a row without unblocking the agent — answer it manually or interrupt the agent",
+					a.Action, maxRepeats),
+			})
+		}
 		return
 	}
 
@@ -606,7 +632,7 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 &&
 		len(p.pendingCompact) == 0 && len(p.paneHistory) == 0 &&
 		len(p.loopFlagged) == 0 && len(p.preCrashFlagged) == 0 &&
-		len(p.forceCompact) == 0 {
+		len(p.forceCompact) == 0 && p.approveBreaker.Len() == 0 {
 		return
 	}
 	live := make(map[string]struct{}, len(sessions))
@@ -648,6 +674,7 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 			delete(p.forceCompact, id)
 		}
 	}
+	p.approveBreaker.Prune(live)
 }
 
 // dispatchSummary launches a background summarizer for s unless one is already

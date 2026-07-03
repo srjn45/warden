@@ -1430,3 +1430,50 @@ func TestAutoApprovalEndToEnd(t *testing.T) {
 	require.Equal(t, 2, d.sendCount(), "both prompts should be auto-approved")
 	require.Equal(t, "1", d.lastSentKey("tmux-123"), "auto-approval should send option 1")
 }
+
+// TestTryAutoApproveCircuitBreaker proves the identical-prompt circuit breaker:
+// the poller approves the same prompt at most MaxRepeats times in a row, then
+// halts, raises a one-shot "approval_loop" anomaly, and leaves the prompt to a
+// human. A different prompt starts a fresh run.
+func TestTryAutoApproveCircuitBreaker(t *testing.T) {
+	const promptA = "Bash(aws sts get-caller-identity)\nDo you want to proceed?\n ❯ 1. Yes\n   2. No"
+	const promptB = "Bash(git status)\nDo you want to proceed?\n ❯ 1. Yes\n   2. No"
+
+	d := &stubDeps{}
+	p := New(d, 30*time.Second)
+	pol := allowAllPolicy()
+	pol.MaxRepeats = 3
+	p.AutoApprovePolicy = pol
+	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+
+	ctx := context.Background()
+	for i := 0; i < 10; i++ {
+		p.tryAutoApprove(ctx, s, promptA)
+	}
+	require.Equal(t, 3, d.sendCount(), "identical prompt must stop being approved at MaxRepeats")
+
+	evs := d.recordedEvents("agent-1")
+	require.Len(t, evs, 1, "the trip must raise exactly one anomaly event")
+	require.Equal(t, "anomaly", evs[0].Type)
+	require.Contains(t, evs[0].Detail, "auto-approve halted")
+
+	// A different prompt is a fresh run and is approved again.
+	p.tryAutoApprove(ctx, s, promptB)
+	require.Equal(t, 4, d.sendCount(), "a different prompt must reset the breaker")
+}
+
+// TestTryAutoApproveBreakerDefault proves the breaker is on by default (unset
+// MaxRepeats falls back to approval.DefaultMaxRepeats) rather than unlimited.
+func TestTryAutoApproveBreakerDefault(t *testing.T) {
+	const prompt = "Bash(aws sts get-caller-identity)\nDo you want to proceed?\n ❯ 1. Yes\n   2. No"
+	d := &stubDeps{}
+	p := New(d, 30*time.Second)
+	p.AutoApprovePolicy = allowAllPolicy() // MaxRepeats unset
+	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+
+	for i := 0; i < approval.DefaultMaxRepeats+20; i++ {
+		p.tryAutoApprove(context.Background(), s, prompt)
+	}
+	require.Equal(t, approval.DefaultMaxRepeats, d.sendCount(),
+		"an unset policy must still cap identical approvals at the default")
+}

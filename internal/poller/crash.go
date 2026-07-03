@@ -6,7 +6,7 @@ package poller
 // always records a durable "anomaly" event, so the signal survives even when no
 // notifier is wired. Kind is one of the anomaly* constants.
 type Anomaly struct {
-	Kind   string // anomalyOOM | anomalyLoop | anomalyPreCrash
+	Kind   string // anomalyOOM | anomalyLoop | anomalyPreCrash | anomalyApprovalLoop
 	Detail string // human-readable, ready to show in a notification or event log
 }
 
@@ -20,6 +20,10 @@ const (
 	// auto-compacted (it is still working), warning the operator to /compact it
 	// before the growing context window crashes the process.
 	anomalyPreCrash = "context_precrash"
+	// anomalyApprovalLoop marks an agent whose identical approval prompt kept
+	// re-appearing after being auto-approved: the circuit breaker halted further
+	// approvals and the prompt now waits for a human.
+	anomalyApprovalLoop = "approval_loop"
 )
 
 // oomExitCode is the shell exit status of a process killed by SIGKILL (128+9).
