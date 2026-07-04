@@ -41,6 +41,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		Backend:        req.Backend,
 		Tags:           req.Tags,
 		ParentID:       req.ParentID,
+		Role:           req.Role,
 	}
 	// Normalize only a typed spawn. Free-form (Type empty) is keyed on cwd, not the
 	// prompt: leaving Type empty keeps lifecycle.Spawn on the cwd-launch path and the
@@ -125,6 +126,10 @@ func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *store.Session) er
 
 func (a *lifecycleAdapter) Restore(ctx context.Context, sess *store.Session) error {
 	return a.lc.Restore(ctx, sess)
+}
+
+func (a *lifecycleAdapter) SwitchRole(ctx context.Context, sess *store.Session) error {
+	return a.lc.SwitchRole(ctx, sess)
 }
 
 func (a *lifecycleAdapter) NewestClaudeSession(_ context.Context, cwd string) (string, error) {

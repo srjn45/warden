@@ -1649,6 +1649,18 @@ func EnsureExtendedKeys(ctx context.Context, run Runner) {
 // so a backend without resume (Caps.Resume=false, e.g. Aider) fails cleanly
 // instead of stranding an empty session (design §5: !Resume ⇒ start fresh).
 func (l *Lifecycle) resumeInTmux(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode string) error {
+	return l.resumeInTmuxWithHints(ctx, b, id, cwd, claudeID, model, mode, "")
+}
+
+// resumeInTmuxWithHints is resumeInTmux with an extra system-prompt hints fragment
+// appended to the resume command. The plain Restore/Adopt paths pass "" (a resume
+// re-injects nothing, matching pre-roles behavior); the role-switch path (SwitchRole)
+// passes the flag-based backend's --append-system-prompt fragment so the freshly
+// resolved persona is re-injected onto Claude. Injecting backends contribute an
+// empty fragment here — their persona rides the AGENTS.md rules file rewritten by
+// injectContext before this call — so hints is "" for them and the resume is
+// byte-identical to the plain path.
+func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode, hints string) error {
 	cmd, ok := b.ResumeCmd(agentbackend.ResumeOpts{
 		SessionID: claudeID, Name: id, Model: l.launchModel(b, model), Mode: mode,
 	})
@@ -1658,7 +1670,7 @@ func (l *Lifecycle) resumeInTmux(ctx context.Context, b agentbackend.Backend, id
 	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
 		return err
 	}
-	resume := cmd + l.exitSuffix(id)
+	resume := cmd + hints + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, resume, "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
 	}
@@ -1700,6 +1712,64 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	return l.resumeInTmux(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode)
+}
+
+// SwitchRole re-injects the persona for sess.Role (already persisted by the caller
+// via store.UpdateRole) onto a resumable agent and relaunches it so the new persona
+// takes effect immediately. A plain resume re-injects nothing (see resumeInTmux), so
+// switching a role has to re-run the spawn-time injection: it rewrites the AGENTS.md
+// rules file (injecting backends) AND re-appends Claude's --append-system-prompt
+// (flag backends), threading the freshly resolved persona ahead of the config-gated
+// collab/git/pipeline hints exactly as spawnTyped does. The in-flight turn is
+// discarded (the tmux session is killed and resumed) — switching a role is an
+// explicit operator action, like force-compact. Resume-only: a backend that cannot
+// resume (Aider) or an agent with no pinned session / missing workdir is refused so
+// the role stays persisted (it applies on the next fresh launch) rather than
+// stranding the agent.
+func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
+	b := l.backendFor(sess.Backend)
+	if !b.Capabilities().Resume {
+		return fmt.Errorf("backend %s does not support resume — cannot re-inject a role on a running agent (the role is saved and applies on the next fresh launch)", b.ID())
+	}
+	if b.Capabilities().SessionIDControl && sess.ClaudeSessionID == "" {
+		return ErrNoSessionID
+	}
+	if fi, err := os.Stat(sess.Workdir); err != nil || !fi.IsDir() {
+		return ErrWorkdirMissing
+	}
+	if l.transcriptPath(sess) == "" {
+		return ErrNoTranscript
+	}
+	// Kill the live tmux session (if any) so the relaunch below re-creates it. Unlike
+	// Restore we do NOT refuse a running agent — switching a role deliberately
+	// relaunches it.
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", sess.TmuxSession); err == nil {
+		l.killSession(sess.TmuxSession)
+	}
+	// Re-run the spawn-time injection with the freshly resolved persona prepended
+	// ahead of the config-gated hints (mirrors spawnTyped's injectContext call).
+	persona := personaGuidance(sess.Role)
+	mem := l.memoryGuidance(ctx, sess.Workdir)
+	if err := l.injectContext(b, sess.Workdir,
+		persona,
+		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
+		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+		hintGuidance(l.cfg.GetGitConventions(), gitConventionsGuidance),
+		mem,
+	); err != nil {
+		slog.Warn("switch-role: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
+	}
+	mode := sess.PermissionMode
+	if mode == "" {
+		mode = l.cfg.GetDefaultPermissionMode()
+	}
+	hints := l.systemPromptHints(ctx, b, sess.ID,
+		hintSpec{persona != "", persona},
+		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
+		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
+		hintSpec{l.cfg.GetGitConventions(), gitConventionsGuidance},
+		hintSpec{l.cfg.GetMemoryInject(), mem})
+	return l.resumeInTmuxWithHints(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode, hints)
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects

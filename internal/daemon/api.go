@@ -51,6 +51,7 @@ type SpawnRequest struct {
 	Tags           []string `json:"tags"`            // optional free-form labels for grouping/filtering (#30)
 	ParentID       string   `json:"parent_id"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	ForkFrom       string   `json:"fork_from"`       // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
+	Role           string   `json:"role"`            // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
 }
 
 // AdoptParams are the resolved inputs the handler passes to Lifecycle.Adopt.
@@ -297,6 +298,9 @@ type Lifecycle interface {
 	Teardown(ctx context.Context, sess *store.Session) error
 	// Restore recreates and resumes a lost session from its stored doc.
 	Restore(ctx context.Context, sess *store.Session) error
+	// SwitchRole re-injects the persona for sess.Role and relaunches the agent so
+	// the new role takes effect (a plain resume re-injects nothing).
+	SwitchRole(ctx context.Context, sess *store.Session) error
 	// NewestClaudeSession returns the claude session id of the newest transcript
 	// for cwd (ErrNoTranscript when none).
 	NewestClaudeSession(ctx context.Context, cwd string) (string, error)

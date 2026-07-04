@@ -547,6 +547,12 @@ type RemoveWorktreeRequest struct {
 // RestoreResult defines model for RestoreResult.
 type RestoreResult = snapshot.RestoreResult
 
+// RoleInfo A built-in agent role for the picker (name + one-line description).
+type RoleInfo struct {
+	Description string `json:"description"`
+	Name        string `json:"name"`
+}
+
 // SavingsFeature Rolled-up token saving for one lifecycle feature.
 type SavingsFeature struct {
 	Events  int    `json:"events,omitempty"`
@@ -643,7 +649,10 @@ type SpawnRequest struct {
 	Prompt         string `json:"prompt,omitempty"`
 
 	// Repo required in typed mode
-	Repo   string   `json:"repo,omitempty"`
+	Repo string `json:"repo,omitempty"`
+
+	// Role built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset.
+	Role   string   `json:"role,omitempty"`
 	Tags   []string `json:"tags,omitempty"`
 	Ticket string   `json:"ticket,omitempty"`
 
@@ -884,6 +893,12 @@ type SetPermissionModeJSONBody struct {
 // SetPermissionModeJSONBodyPermissionMode defines parameters for SetPermissionMode.
 type SetPermissionModeJSONBodyPermissionMode string
 
+// SetRoleJSONBody defines parameters for SetRole.
+type SetRoleJSONBody struct {
+	// Role built-in role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general
+	Role string `json:"role,omitempty"`
+}
+
 // ListSnapshotsParams defines parameters for ListSnapshots.
 type ListSnapshotsParams struct {
 	// Session Filter to one session
@@ -980,6 +995,9 @@ type SetPermissionModeJSONRequestBody SetPermissionModeJSONBody
 
 // RemoveWorktreeJSONRequestBody defines body for RemoveWorktree for application/json ContentType.
 type RemoveWorktreeJSONRequestBody = RemoveWorktreeRequest
+
+// SetRoleJSONRequestBody defines body for SetRole for application/json ContentType.
+type SetRoleJSONRequestBody SetRoleJSONBody
 
 // CreateSnapshotJSONRequestBody defines body for CreateSnapshot for application/json ContentType.
 type CreateSnapshotJSONRequestBody = SnapshotCreateRequest
@@ -1103,6 +1121,9 @@ type ServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(w http.ResponseWriter, r *http.Request)
+	// List the built-in agent roles
+	// (GET /api/v1/roles)
+	ListRoles(w http.ResponseWriter, r *http.Request)
 	// Aggregated token-savings summary
 	// (GET /api/v1/savings)
 	GetSavings(w http.ResponseWriter, r *http.Request, params GetSavingsParams)
@@ -1169,6 +1190,9 @@ type ServerInterface interface {
 	// Restore (re-create + resume) a lost session
 	// (POST /api/v1/sessions/{id}/restore)
 	RestoreSession(w http.ResponseWriter, r *http.Request, id SessionId)
+	// Set an agent's built-in role
+	// (PATCH /api/v1/sessions/{id}/role)
+	SetRole(w http.ResponseWriter, r *http.Request, id SessionId)
 	// Terminate an agent
 	// (POST /api/v1/sessions/{id}/terminate)
 	TerminateSession(w http.ResponseWriter, r *http.Request, id SessionId)
@@ -1418,6 +1442,12 @@ func (_ Unimplemented) PruneWorktrees(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List the built-in agent roles
+// (GET /api/v1/roles)
+func (_ Unimplemented) ListRoles(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Aggregated token-savings summary
 // (GET /api/v1/savings)
 func (_ Unimplemented) GetSavings(w http.ResponseWriter, r *http.Request, params GetSavingsParams) {
@@ -1547,6 +1577,12 @@ func (_ Unimplemented) RemoveWorktree(w http.ResponseWriter, r *http.Request, id
 // Restore (re-create + resume) a lost session
 // (POST /api/v1/sessions/{id}/restore)
 func (_ Unimplemented) RestoreSession(w http.ResponseWriter, r *http.Request, id SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set an agent's built-in role
+// (PATCH /api/v1/sessions/{id}/role)
+func (_ Unimplemented) SetRole(w http.ResponseWriter, r *http.Request, id SessionId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2715,6 +2751,26 @@ func (siw *ServerInterfaceWrapper) PruneWorktrees(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListRoles operation middleware
+func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetSavings operation middleware
 func (siw *ServerInterfaceWrapper) GetSavings(w http.ResponseWriter, r *http.Request) {
 
@@ -3497,6 +3553,38 @@ func (siw *ServerInterfaceWrapper) RestoreSession(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// SetRole operation middleware
+func (siw *ServerInterfaceWrapper) SetRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetRole(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // TerminateSession operation middleware
 func (siw *ServerInterfaceWrapper) TerminateSession(w http.ResponseWriter, r *http.Request) {
 
@@ -3924,6 +4012,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/prune", wrapper.PruneWorktrees)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/roles", wrapper.ListRoles)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/savings", wrapper.GetSavings)
 	})
 	r.Group(func(r chi.Router) {
@@ -3988,6 +4079,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/sessions/{id}/restore", wrapper.RestoreSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/sessions/{id}/role", wrapper.SetRole)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/sessions/{id}/terminate", wrapper.TerminateSession)
@@ -5071,6 +5165,29 @@ func (response PruneWorktrees200JSONResponse) VisitPruneWorktreesResponse(w http
 	return err
 }
 
+type ListRolesRequestObject struct {
+}
+
+type ListRolesResponseObject interface {
+	VisitListRolesResponse(w http.ResponseWriter) error
+}
+
+type ListRoles200JSONResponse struct {
+	Roles []RoleInfo `json:"roles"`
+}
+
+func (response ListRoles200JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSavingsRequestObject struct {
 	Params GetSavingsParams
 }
@@ -5909,6 +6026,59 @@ func (response RestoreSession404JSONResponse) VisitRestoreSessionResponse(w http
 	return err
 }
 
+type SetRoleRequestObject struct {
+	Id   SessionId `json:"id"`
+	Body *SetRoleJSONRequestBody
+}
+
+type SetRoleResponseObject interface {
+	VisitSetRoleResponse(w http.ResponseWriter) error
+}
+
+type SetRole200JSONResponse struct {
+	Role string `json:"role"`
+}
+
+func (response SetRole200JSONResponse) VisitSetRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRole400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetRole400JSONResponse) VisitSetRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetRole404JSONResponse) VisitSetRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type TerminateSessionRequestObject struct {
 	Id SessionId `json:"id"`
 }
@@ -6292,6 +6462,9 @@ type StrictServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(ctx context.Context, request PruneWorktreesRequestObject) (PruneWorktreesResponseObject, error)
+	// List the built-in agent roles
+	// (GET /api/v1/roles)
+	ListRoles(ctx context.Context, request ListRolesRequestObject) (ListRolesResponseObject, error)
 	// Aggregated token-savings summary
 	// (GET /api/v1/savings)
 	GetSavings(ctx context.Context, request GetSavingsRequestObject) (GetSavingsResponseObject, error)
@@ -6358,6 +6531,9 @@ type StrictServerInterface interface {
 	// Restore (re-create + resume) a lost session
 	// (POST /api/v1/sessions/{id}/restore)
 	RestoreSession(ctx context.Context, request RestoreSessionRequestObject) (RestoreSessionResponseObject, error)
+	// Set an agent's built-in role
+	// (PATCH /api/v1/sessions/{id}/role)
+	SetRole(ctx context.Context, request SetRoleRequestObject) (SetRoleResponseObject, error)
 	// Terminate an agent
 	// (POST /api/v1/sessions/{id}/terminate)
 	TerminateSession(ctx context.Context, request TerminateSessionRequestObject) (TerminateSessionResponseObject, error)
@@ -7456,6 +7632,30 @@ func (sh *strictHandler) PruneWorktrees(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// ListRoles operation middleware
+func (sh *strictHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
+	var request ListRolesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRoles(ctx, request.(ListRolesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRoles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRolesResponseObject); ok {
+		if err := validResponse.VisitListRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetSavings operation middleware
 func (sh *strictHandler) GetSavings(w http.ResponseWriter, r *http.Request, params GetSavingsParams) {
 	var request GetSavingsRequestObject
@@ -8104,6 +8304,39 @@ func (sh *strictHandler) RestoreSession(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RestoreSessionResponseObject); ok {
 		if err := validResponse.VisitRestoreSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetRole operation middleware
+func (sh *strictHandler) SetRole(w http.ResponseWriter, r *http.Request, id SessionId) {
+	var request SetRoleRequestObject
+
+	request.Id = id
+
+	var body SetRoleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetRole(ctx, request.(SetRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetRoleResponseObject); ok {
+		if err := validResponse.VisitSetRoleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

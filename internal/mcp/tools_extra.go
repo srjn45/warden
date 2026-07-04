@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/preset"
 	"github.com/srjn45/warden/internal/prompttemplate"
+	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -122,6 +123,10 @@ type autoApprovePolicyArgs struct {
 type setPermissionModeArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	Mode   string `json:"mode" jsonschema:"permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan"`
+}
+type setRoleArgs struct {
+	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
+	Role   string `json:"role" jsonschema:"built-in role name: general|orchestrator|implementer|auto-merger|reviewer (general/empty clears the persona)"`
 }
 type setForceCompactArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
@@ -435,6 +440,31 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("permission mode for " + a.Ticket + " set to " + a.Mode), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_role",
+		Description: "Switch a running agent's built-in role (general|orchestrator|implementer|auto-merger|reviewer). Persists the role and relaunches the agent so the new persona re-injects (its in-flight turn is discarded); general/empty clears the persona. Mirrors `warden set-role <id> <role>`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setRoleArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, ok := role.Get(strings.TrimSpace(a.Role))
+		if !ok {
+			return textResult("error: unknown role " + strconv.Quote(a.Role) + " (valid: " + strings.Join(role.Names(), ", ") + ")"), nil, nil
+		}
+		if err := s.cl.SetRole(ctx, a.Ticket, r.Name); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("role for " + a.Ticket + " set to " + r.Name), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_roles",
+		Description: "List warden's built-in agent roles (name + description) for a role picker — the same fixed catalog `spawn_agent`'s role param and `set_role` accept. Read-only; local.",
+	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		roles := make([]map[string]string, 0)
+		for _, r := range role.All() {
+			roles = append(roles, map[string]string{"name": r.Name, "description": r.Description})
+		}
+		return jsonResultAny(map[string]any{"roles": roles})
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

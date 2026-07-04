@@ -266,6 +266,64 @@ func TestSetPermissionModeCmdInvalid(t *testing.T) {
 	}
 }
 
+// --- set-role / role list ---
+
+func TestSetRoleCmd(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"PATCH /api/v1/sessions/A-1/role": `{"role":"reviewer"}`,
+	}, nil, body))
+	out, err := runCLI(t, addr, "set-role", "A-1", "reviewer")
+	if err != nil {
+		t.Fatalf("set-role: %v", err)
+	}
+	if !strings.Contains(out, `role set to "reviewer" for A-1`) {
+		t.Fatalf("set-role output: %q", out)
+	}
+	if !strings.Contains(body["/api/v1/sessions/A-1/role"], `"role":"reviewer"`) {
+		t.Fatalf("role not forwarded: %q", body["/api/v1/sessions/A-1/role"])
+	}
+}
+
+func TestSetRoleCmdInvalid(t *testing.T) {
+	// A bad role name is caught client-side before any daemon call.
+	if _, err := runCLI(t, "", "set-role", "A-1", "nonsense"); err == nil {
+		t.Fatal("expected an error for an unknown role")
+	}
+}
+
+func TestRoleListCmd(t *testing.T) {
+	// Driven off the local registry; no daemon needed.
+	out, err := runCLI(t, "", "role", "list")
+	if err != nil {
+		t.Fatalf("role list: %v", err)
+	}
+	for _, want := range []string{"general", "orchestrator", "implementer", "auto-merger", "reviewer"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("role list missing %q: %q", want, out)
+		}
+	}
+}
+
+func TestStartCmdRoleForwarded(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/spawn": `{"id":"A-9","status":"spawning"}`,
+	}, nil, body))
+	if _, err := runCLI(t, addr, "start", "do a thing", "--role", "reviewer"); err != nil {
+		t.Fatalf("start --role: %v", err)
+	}
+	if !strings.Contains(body["/api/v1/spawn"], `"role":"reviewer"`) {
+		t.Fatalf("role not forwarded on spawn: %q", body["/api/v1/spawn"])
+	}
+}
+
+func TestStartCmdRoleInvalid(t *testing.T) {
+	if _, err := runCLI(t, "", "start", "do a thing", "--role", "nonsense"); err == nil {
+		t.Fatal("expected an error for an unknown --role")
+	}
+}
+
 // --- send / tail / digest ---
 
 func TestSendCmd(t *testing.T) {

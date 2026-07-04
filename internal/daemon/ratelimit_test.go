@@ -34,6 +34,8 @@ func (f *fakeRateLimitLife) Restore(_ context.Context, sess *store.Session) erro
 	return f.restoreErr
 }
 
+func (f *fakeRateLimitLife) SwitchRole(_ context.Context, _ *store.Session) error { return nil }
+
 func (f *fakeRateLimitLife) Input(_ context.Context, tmuxSession, text string) error {
 	f.inputCalls++
 	f.lastInput = text

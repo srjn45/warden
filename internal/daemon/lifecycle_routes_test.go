@@ -21,65 +21,68 @@ import (
 
 // fakeLife implements daemon.Lifecycle for route tests.
 type fakeLife struct {
-	mu              sync.Mutex
-	spawned         *store.Session
-	lastInput       string
-	output          string
-	outputErr       error
-	classifyResult  store.Type
-	classified      string
-	nameResult      string
-	namedPrompt     string
-	spawnedCwd      string
-	tornDown        string
-	restoreErr      error
-	restored        string
-	terminated      string
-	removedWT       string
-	removeWTForce   bool
-	removeWTErr     error
-	newestClaude    string
-	newestErr       error
-	adoptResult     *store.Session
-	adoptErr        error
-	adoptParams     AdoptParams
-	lastKey         string
-	commitCalls     int
-	committedDir    string
-	committedMsg    string
-	commitResult    bool
-	commitErr       error
-	lwRepo          string
-	lwActive        int
-	lwArchived      int
-	lwResult        []lifecycle.WorktreeListing
-	lwErr           error
-	pruneRepo       string
-	pruneOpts       lifecycle.PruneOpts
-	pruneResult     []lifecycle.PruneResult
-	pruneErr        error
-	gitCommitDir    string
-	gitCommitMsg    string
-	gitCommitResult lifecycle.CommitResult
-	gitCommitErr    error
-	gitPushDir      string
-	gitPushForce    bool
-	gitPushResult   lifecycle.PushResult
-	gitPushErr      error
-	gitSyncDir      string
-	gitSyncBase     string
-	gitSyncResult   lifecycle.SyncResult
-	gitSyncErr      error
-	checkDir        string
-	checkName       string
-	checkResult     lifecycle.CheckResult
-	checkErr        error
-	prDir           string
-	prTitle         string
-	prBody          string
-	prBase          string
-	prResult        lifecycle.PRResult
-	prErr           error
+	mu               sync.Mutex
+	spawned          *store.Session
+	lastInput        string
+	output           string
+	outputErr        error
+	classifyResult   store.Type
+	classified       string
+	nameResult       string
+	namedPrompt      string
+	spawnedCwd       string
+	tornDown         string
+	restoreErr       error
+	restored         string
+	switchRoleErr    error
+	switchedRole     string
+	switchedRoleName string
+	terminated       string
+	removedWT        string
+	removeWTForce    bool
+	removeWTErr      error
+	newestClaude     string
+	newestErr        error
+	adoptResult      *store.Session
+	adoptErr         error
+	adoptParams      AdoptParams
+	lastKey          string
+	commitCalls      int
+	committedDir     string
+	committedMsg     string
+	commitResult     bool
+	commitErr        error
+	lwRepo           string
+	lwActive         int
+	lwArchived       int
+	lwResult         []lifecycle.WorktreeListing
+	lwErr            error
+	pruneRepo        string
+	pruneOpts        lifecycle.PruneOpts
+	pruneResult      []lifecycle.PruneResult
+	pruneErr         error
+	gitCommitDir     string
+	gitCommitMsg     string
+	gitCommitResult  lifecycle.CommitResult
+	gitCommitErr     error
+	gitPushDir       string
+	gitPushForce     bool
+	gitPushResult    lifecycle.PushResult
+	gitPushErr       error
+	gitSyncDir       string
+	gitSyncBase      string
+	gitSyncResult    lifecycle.SyncResult
+	gitSyncErr       error
+	checkDir         string
+	checkName        string
+	checkResult      lifecycle.CheckResult
+	checkErr         error
+	prDir            string
+	prTitle          string
+	prBody           string
+	prBase           string
+	prResult         lifecycle.PRResult
+	prErr            error
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -161,6 +164,13 @@ func (f *fakeLife) Teardown(_ context.Context, sess *store.Session) error {
 func (f *fakeLife) Restore(_ context.Context, sess *store.Session) error {
 	f.restored = sess.ID
 	return f.restoreErr
+}
+func (f *fakeLife) SwitchRole(_ context.Context, sess *store.Session) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.switchedRole = sess.ID
+	f.switchedRoleName = sess.Role
+	return f.switchRoleErr
 }
 func (f *fakeLife) NewestClaudeSession(_ context.Context, cwd string) (string, error) {
 	if f.newestErr != nil {
@@ -840,6 +850,81 @@ func TestHandleRestoreMapsPreconditionErrors(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestHandleSetRolePersistsAndRelaunches(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusIdle})
+	fl := &fakeLife{}
+	srv := lifeServer(t, fs, fl)
+
+	body := bytes.NewReader([]byte(`{"role":"reviewer"}`))
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/sessions/A-1/role", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Equal(t, "reviewer", got.Role)
+	require.Equal(t, "A-1", fl.switchedRole)
+	require.Equal(t, "reviewer", fl.switchedRoleName)
+	require.Equal(t, store.StatusSpawning, got.Status)
+}
+
+func TestHandleSetRoleGeneralStoresEmpty(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Role: "reviewer", Status: store.StatusIdle})
+	srv := lifeServer(t, fs, &fakeLife{})
+
+	body := bytes.NewReader([]byte(`{"role":"general"}`))
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/sessions/A-1/role", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	got, _ := fs.Get(context.Background(), "A-1")
+	require.Equal(t, "", got.Role) // general canonicalizes to "" so the record stays byte-identical
+}
+
+func TestHandleSetRoleRejectsUnknown(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1"})
+	srv := lifeServer(t, fs, &fakeLife{})
+
+	body := bytes.NewReader([]byte(`{"role":"nonsense"}`))
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/sessions/A-1/role", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestHandleListRoles(t *testing.T) {
+	srv := lifeServer(t, newFakeStore(), &fakeLife{})
+	resp, err := http.Get(srv.URL + "/api/v1/roles")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out struct {
+		Roles []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"roles"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NotEmpty(t, out.Roles)
+	require.Equal(t, "general", out.Roles[0].Name) // general first
+	names := map[string]bool{}
+	for _, r := range out.Roles {
+		names[r.Name] = true
+	}
+	require.True(t, names["reviewer"])
+	require.True(t, names["orchestrator"])
 }
 
 func TestPostSpawnForwardsCwd(t *testing.T) {

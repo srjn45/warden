@@ -66,6 +66,7 @@ func (f *fakeRestartLife) Restore(_ context.Context, sess *store.Session) error 
 	f.restored = append(f.restored, sess.ID)
 	return nil
 }
+func (f *fakeRestartLife) SwitchRole(_ context.Context, _ *store.Session) error { return nil }
 
 // restartStore records SetRestart/AppendEvent/UpdateStatus; minimal store fake.
 type restartStore struct {

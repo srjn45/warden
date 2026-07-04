@@ -265,6 +265,50 @@ func TestClientSetPermissionMode(t *testing.T) {
 	require.Equal(t, "acceptEdits", gotBody["permission_mode"])
 }
 
+func TestClientSpawnSendsRole(t *testing.T) {
+	var got map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		w.Write([]byte(`{"id":"a1"}`))
+	}))
+	defer ts.Close()
+	_, err := New(ts.URL).Spawn(context.Background(), SpawnParams{Prompt: "x", Role: "reviewer"})
+	require.NoError(t, err)
+	require.Equal(t, "reviewer", got["role"])
+}
+
+func TestClientSetRole(t *testing.T) {
+	var gotPath, gotMethod string
+	var gotBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Write([]byte(`{"role":"reviewer"}`))
+	}))
+	defer ts.Close()
+	err := New(ts.URL).SetRole(context.Background(), "abc123", "reviewer")
+	require.NoError(t, err)
+	require.Equal(t, http.MethodPatch, gotMethod)
+	require.Equal(t, "/api/v1/sessions/abc123/role", gotPath)
+	require.Equal(t, "reviewer", gotBody["role"])
+}
+
+func TestClientListRoles(t *testing.T) {
+	var gotPath, gotMethod string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		w.Write([]byte(`{"roles":[{"name":"general","description":""},{"name":"reviewer","description":"reviews a branch/PR"}]}`))
+	}))
+	defer ts.Close()
+	roles, err := New(ts.URL).ListRoles(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, http.MethodGet, gotMethod)
+	require.Equal(t, "/api/v1/roles", gotPath)
+	require.Len(t, roles, 2)
+	require.Equal(t, "reviewer", roles[1].Name)
+	require.Equal(t, "reviews a branch/PR", roles[1].Description)
+}
+
 func TestCtxSetSendsValueAndBy(t *testing.T) {
 	var gotPath, gotMethod, gotBody string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
