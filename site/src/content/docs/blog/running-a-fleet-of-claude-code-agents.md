@@ -63,8 +63,8 @@ CPU/memory:
 
 ![The warden web dashboard: the Cockpit home, then the Metrics tab with per-agent and fleet-total CPU/memory charts](/warden/media/web-monitor.gif)
 
-No SaaS, no login, no telemetry. It's a loopback REST API and a JSON store on
-disk. Runs on my laptop or a box I SSH into. By default nothing leaves the
+No SaaS, no login, no telemetry. It's a loopback REST API and an embedded
+file-backed store on disk. Runs on my laptop or a box I SSH into. By default nothing leaves the
 machine — the only outbound traffic is what you opt into (webhook/Slack alerts,
 remote access, or `--calibrate`).
 
@@ -95,8 +95,8 @@ Every design decision bent toward "you should be able to try this in 60 seconds
 and trust it with your repos":
 
 - **One Go binary** (`warden`, aliased `wd`). No runtime, no containers required.
-- **A local daemon** as the single writer to a file-based JSON store. No
-  Postgres, no Redis, no cloud account.
+- **A local daemon** as the single writer to an embedded, file-backed store. No
+  Postgres, no Redis, no cloud account — no database server at all.
 - **Self-hosted and free**, Apache-2.0. It's your machine and your data.
 
 ```sh

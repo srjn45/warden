@@ -283,7 +283,11 @@ detail pane for the selected agent.
 | **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). |
 | **Native scrolling** | Per-agent tmux sessions enable `mouse on` + raised `history-limit` for wheel/copy-mode scrolling of long output. |
 
-> Requires tmux ≥ 3.1; must run from a plain terminal (not nested inside tmux).
+> Requires tmux ≥ 3.1. From a plain terminal it builds its own tmux session;
+> from **inside an existing tmux session** it lays out as a **native tmux
+> window** in that session instead of nesting (auto-detected via `$TMUX`;
+> force with `warden tui --tmux-native`, or force the classic own-session
+> cockpit with `env -u TMUX warden tui`). See USAGE.md §7.
 
 ---
 

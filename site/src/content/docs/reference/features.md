@@ -8,7 +8,7 @@ in the repository — the authoritative inventory of **every** warden capability
 which surface can drive it.
 
 warden exposes its features across five surfaces — the **CLI** (`warden`, aliased
-`wd`), **MCP** (71 structured tools for an orchestrating agent), the **/warden
+`wd`), **MCP** (72 structured tools for an orchestrating agent), the **/warden
 skill**, the **web** GUI, and the **TUI** cockpit.
 
 **Coverage legend:** ✓ supported · — not applicable / not present on that surface ·
@@ -35,6 +35,7 @@ default; each in its own tmux session, most in a git worktree).
 | Finish cleanly (commit/push guard) | `done` (= `stop --keep-worktree`) | `terminate_agent` (`force`) | ✓ | ✓ | `x` | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Terminate | `terminate` (= `stop --keep-record --keep-worktree`) | `terminate_agent` | ✓ | ✓ | `x` | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Restore an orphaned agent | `restore` | `restore_agent` | ✓ | ✓ | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
+| Recover an archived-but-alive agent (tombstone-reaper safety net) | `recover` | `recover_agents` | ✓ | — | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
 | Delete / hard-purge | `delete` (= `stop --keep-worktree`, record only) | `delete_agent` | ✓ | ✓ | `D` | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Tags (group / filter) | `start --tag`, `ls --tag` | `spawn_agent` (`tags`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
@@ -43,6 +44,7 @@ default; each in its own tmux session, most in a git worktree).
 | Switch a running agent's role (relaunch re-injects) | `set-role` | `set_role` | ✓ | — | — | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | List the built-in role catalog | `role list` | `list_roles` | ✓ | ✓ (Role select) | list | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | List the backend's live model menu | `models` (`--backend`, `--json`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
+| Backend selection (Claude / Aider / OpenCode / Codex / Crush / Goose / Cursor / Antigravity) | `start --backend` | `spawn_agent` (`backend`) | ✓ | — | — | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — only `claude` is stable; `aider`, `opencode`, `codex`, `crush`, `goose`, `cursor`, and `antigravity` are 🧪 experimental |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Fork an agent's session into a new managed agent (Codex-only; branches the conversation, source keeps running; dirty-tree carry) | `fork` | `fork_agent` | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
@@ -202,7 +204,8 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 | Metrics: per-agent + fleet-total CPU/mem, per-agent context, fleet size, tokens saved (2-col responsive) | Metrics (`/metrics`) | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Archive (history) | Archive (`/archive`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | In-browser attach terminal | Agent (`/agent/<id>`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Full-screen **TUI** launcher — the three-pane cockpit streamed edge-to-edge into the browser (same panes, shortcuts, real shells & live agent sessions; Ctrl+Q exits) | top-bar ▢ TUI button (`/tui`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Full-screen **TUI** launcher — the three-pane cockpit streamed edge-to-edge into the browser (same panes, shortcuts, real shells & live agent sessions; Ctrl+Q exits); **self-healing** (survives daemon restarts; a wedged session is auto-rebuilt, or force one with `warden tui --rebuild-web-cockpit`) | top-bar ▢ TUI button (`/tui`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Per-agent backend logo on cards + **group-by Agent** (claude/aider/…; empty ⇒ claude) | Cockpit (`/cockpit`) | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) |
 | Context & messages | header 🗒 overlay | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Spawn modal (+ New agent) — incl. a **Role** dropdown (built-in role picker, defaults `general`) | header button | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | Bulk actions | Bulk action bar | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
@@ -219,7 +222,7 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 
 | Feature | Where | Docs |
 |---|---|---|
-| Agent list + live status | main pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Agent list + live status (incl. per-agent **backend** token; empty ⇒ claude) | main pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Inspector (`i`) — agent & pipeline detail | inspector | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Approvals cockpit (`a`) | cockpit | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Digest (`d`) | inspector | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
@@ -228,6 +231,7 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 | Spawn / attach / terminate / delete | keybindings | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Role picker in the new-agent form (`ctrl+r`; built-in catalog, defaults `general`) | new-agent form | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | Shift-to-select (native copy under tmux mouse mode) | help hint | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Native tmux window when launched inside tmux (no nesting; auto via `$TMUX`) | `tui --tmux-native` | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 
 ## 14. Orchestration surfaces
 
@@ -250,7 +254,8 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | Feature | CLI | Why CLI-only | Docs |
 |---|---|---|---|
 | Run / manage the daemon | `daemon` | process control on the host | [install](https://srjn45.github.io/warden/start/install/) |
-| Bearer token generate / show / rotate | `token` | the secret that protects every other surface | [remote-access](https://srjn45.github.io/warden/guides/remote-access/) |
+| Bearer token generate / show / rotate (+ read-only token) | `token` | the secret that protects every other surface; `show --readonly` for the view-only `WARDEN_READONLY_TOKEN` | [remote-access](https://srjn45.github.io/warden/guides/remote-access/) |
+| Local-LLM model picker (memory-ranked) | `llm suggest` | reads host hardware to size the orchestrator model | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | Configuration view / init / path | `config` | local file authoring | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
 | Health / environment doctor | `doctor` | host diagnostics | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
 | Install missing dependencies | `setup` | installs host packages (brew/apt/dnf/pacman + official installers) | [install](https://srjn45.github.io/warden/start/install/) |
