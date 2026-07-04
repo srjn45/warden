@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { spawn, ApiError, ConfirmationRequiredError } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { spawn, listRoles, ApiError, ConfirmationRequiredError, type RoleInfo } from '../lib/api';
 import DirPicker from './DirPicker';
 
 export default function NewAgentModal({ onClose, onCreated }: {
@@ -9,16 +9,25 @@ export default function NewAgentModal({ onClose, onCreated }: {
   const [prompt, setPrompt] = useState('');
   const [dir, setDir] = useState<string | null>(null);
   const [supervised, setSupervised] = useState(false);
+  const [role, setRole] = useState('general');
+  const [roles, setRoles] = useState<RoleInfo[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<string | null>(null);
+
+  // Populate the role picker from the daemon's built-in catalog (general first).
+  // A failed fetch degrades to a general-only spawn rather than blocking it.
+  useEffect(() => {
+    listRoles().then(setRoles).catch(() => setRoles([]));
+  }, []);
 
   async function doSpawn(force: boolean) {
     setErr(null);
     if (!dir) { setErr('choose a directory to launch the agent from'); return; }
     setBusy(true);
     try {
-      const s = await spawn({ prompt, cwd: dir, supervised, force });
+      // "general" carries no persona; send "" so a plain spawn stays default.
+      const s = await spawn({ prompt, cwd: dir, supervised, role: role === 'general' ? '' : role, force });
       onCreated(s.id);
     } catch (e) {
       if (e instanceof ConfirmationRequiredError) {
@@ -47,6 +56,15 @@ export default function NewAgentModal({ onClose, onCreated }: {
         </label>
         <label>Launch directory
           <DirPicker value={dir} onChange={setDir} />
+        </label>
+        <label>Role
+          <select value={role} onChange={(e) => setRole(e.target.value)}>
+            {roles.length === 0 && <option value="general">general</option>}
+            {roles.map((r) => (
+              <option key={r.name} value={r.name}>{r.name}</option>
+            ))}
+          </select>
+          <span className="muted"> {roles.find((r) => r.name === role)?.description || 'no persona — behaves exactly like a plain agent'}</span>
         </label>
         <p className="muted">The type label is assigned automatically once it starts.</p>
         <label className="supervised-toggle">

@@ -51,11 +51,11 @@ func listCmd(a api) tea.Cmd {
 	}
 }
 
-func spawnCmd(a api, prompt, name, cwd string, force bool) tea.Cmd {
+func spawnCmd(a api, prompt, name, cwd, role string, force bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Name: name, Cwd: cwd, Force: force})
+		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Name: name, Cwd: cwd, Role: role, Force: force})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired
 			if errors.As(err, &cre) {

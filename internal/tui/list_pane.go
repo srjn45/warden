@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -36,6 +37,8 @@ type listPaneModel struct {
 	openedDirs    map[string]time.Time
 	dirCandidates []string
 	targetDir     string
+	roles         []role.Role // built-in role catalog for the new-agent picker
+	roleIdx       int         // selected role in the new-agent form (0 ⇒ general)
 	mode          mode
 	status        string
 	connected     bool
@@ -47,6 +50,7 @@ type listPaneModel struct {
 	pendingPrompt string
 	pendingName   string // name typed in the new-agent form, held across the pressure confirm
 	pendingDir    string
+	pendingRole   string                // role chosen in the new-agent form, held across the pressure confirm
 	renameID      string                // agent id being renamed (modeRename)
 	spawnVerdict  string                // reason text for the confirm prompt; "" when not confirming
 	pendingDelete string                // pid awaiting delete confirmation; "" when not confirming
@@ -88,6 +92,9 @@ func newListPane(a api, detailPane string) listPaneModel {
 	tn.CharLimit = 32
 	return listPaneModel{
 		api: a, ta: ta, ti: ti, tp: tp, tn: tn, detailPane: detailPane,
+		// roles is the fixed built-in catalog embedded in the binary (general
+		// first), so the picker is populated synchronously — no daemon round-trip.
+		roles:      role.All(),
 		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{}, connected: true,
 		vp: viewport.New(0, 0),
 	}
@@ -386,15 +393,21 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.tn.CursorEnd()
 			m.tn.Focus()
 			return m, nil
+		case tea.KeyCtrlR:
+			// Switch to the role picker. Defaults to general (no persona).
+			m.mode = modeNewAgentRole
+			m.ta.Blur()
+			return m, nil
 		case tea.KeyCtrlS:
 			// An empty prompt is intentional: it opens claude in the target dir
 			// and waits for the user to type instructions into Claude directly.
 			prompt := strings.TrimSpace(m.ta.Value())
 			name := strings.TrimSpace(m.tn.Value())
+			role := m.selectedRole()
 			m.mode = modeNormal
 			m.ta.Blur()
-			m.pendingPrompt, m.pendingName, m.pendingDir = prompt, name, m.targetDir
-			return m, spawnCmd(m.api, prompt, name, m.targetDir, false)
+			m.pendingPrompt, m.pendingName, m.pendingDir, m.pendingRole = prompt, name, m.targetDir, role
+			return m, spawnCmd(m.api, prompt, name, m.targetDir, role, false)
 		}
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
@@ -410,6 +423,35 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.tn, cmd = m.tn.Update(msg)
 		return m, cmd
+	case modeNewAgentRole:
+		switch msg.Type {
+		case tea.KeyEsc, tea.KeyEnter:
+			m.mode = modeNewAgent
+			m.ta.Focus()
+			return m, nil
+		case tea.KeyUp, tea.KeyLeft:
+			if len(m.roles) > 0 {
+				m.roleIdx = (m.roleIdx - 1 + len(m.roles)) % len(m.roles)
+			}
+			return m, nil
+		case tea.KeyDown, tea.KeyRight, tea.KeyTab:
+			if len(m.roles) > 0 {
+				m.roleIdx = (m.roleIdx + 1) % len(m.roles)
+			}
+			return m, nil
+		}
+		// j/k also cycle, matching the list's vim-style navigation.
+		switch msg.String() {
+		case "k":
+			if len(m.roles) > 0 {
+				m.roleIdx = (m.roleIdx - 1 + len(m.roles)) % len(m.roles)
+			}
+		case "j":
+			if len(m.roles) > 0 {
+				m.roleIdx = (m.roleIdx + 1) % len(m.roles)
+			}
+		}
+		return m, nil
 	case modeRename:
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -504,10 +546,10 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "f", "F":
 			m.mode = modeNormal
-			prompt, name, dir := m.pendingPrompt, m.pendingName, m.pendingDir
+			prompt, name, dir, role := m.pendingPrompt, m.pendingName, m.pendingDir, m.pendingRole
 			m.spawnVerdict = ""
 			m.status = "spawning (forced)…"
-			return m, spawnCmd(m.api, prompt, name, dir, true)
+			return m, spawnCmd(m.api, prompt, name, dir, role, true)
 		case "esc", "n", "N":
 			m.mode = modeNormal
 			m.spawnVerdict = ""
@@ -694,6 +736,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ta.Reset()
 		m.ta.Focus()
 		m.tn.Reset()
+		m.roleIdx = 0 // reset the role picker to general on every fresh form
 	case "o":
 		m.mode = modeOpenDir
 		m.tp.Reset()
@@ -847,10 +890,14 @@ func (m listPaneModel) View() string {
 	}
 	switch m.mode {
 	case modeNewAgent:
-		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: dir · ctrl+n: name · ctrl+s submit (blank = open Claude & wait) · esc cancel)") +
-			"\n" + m.ta.View() + "\n" + stMuted.Render("name: ") + newAgentNameLabel(m.tn.Value())
+		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: dir · ctrl+n: name · ctrl+r: role · ctrl+s submit (blank = open Claude & wait) · esc cancel)") +
+			"\n" + m.ta.View() +
+			"\n" + stMuted.Render("name: ") + newAgentNameLabel(m.tn.Value()) +
+			stMuted.Render("  ·  role: ") + m.selectedRoleName()
 	case modeNewAgentName:
 		footer = stPaneTitle.Render("Agent name (enter/esc back to prompt · blank = auto-name):") + " " + m.tn.View()
+	case modeNewAgentRole:
+		footer = stPaneTitle.Render("Role (↑/↓ or j/k select · enter/esc back to prompt):") + "\n" + m.rolePickerView()
 	case modeNewAgentDir:
 		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenDir:
@@ -865,6 +912,52 @@ func (m listPaneModel) View() string {
 		footer = stError.Render("Delete pipeline " + m.pendingDelete + "? y / N")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
+}
+
+// selectedRole returns the role name chosen in the new-agent form. The general
+// role (index 0 / no persona) canonicalizes to "" so a plain spawn stays
+// byte-identical to today.
+func (m listPaneModel) selectedRole() string {
+	if m.roleIdx <= 0 || m.roleIdx >= len(m.roles) {
+		return ""
+	}
+	name := m.roles[m.roleIdx].Name
+	if name == role.Default {
+		return ""
+	}
+	return name
+}
+
+// selectedRoleName is the display label for the chosen role (never blank).
+func (m listPaneModel) selectedRoleName() string {
+	if m.roleIdx >= 0 && m.roleIdx < len(m.roles) {
+		return m.roles[m.roleIdx].Name
+	}
+	return role.Default
+}
+
+// rolePickerView renders the built-in role catalog with the selected role
+// marked and its one-line description shown beneath.
+func (m listPaneModel) rolePickerView() string {
+	if len(m.roles) == 0 {
+		return stMuted.Render("(no roles)")
+	}
+	var b strings.Builder
+	for i, r := range m.roles {
+		if i == m.roleIdx {
+			b.WriteString(stCursor.Render("› " + r.Name))
+		} else {
+			b.WriteString(stMuted.Render("  " + r.Name))
+		}
+		if i < len(m.roles)-1 {
+			b.WriteString("  ")
+		}
+	}
+	desc := m.roles[m.roleIdx].Description
+	if desc == "" {
+		desc = "no persona — behaves exactly like a plain agent"
+	}
+	return b.String() + "\n" + stMuted.Render(desc)
 }
 
 // newAgentNameLabel renders the name chosen in the new-agent form, or a muted

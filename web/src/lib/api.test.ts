@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listSessions, spawn, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts } from './api';
+import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts } from './api';
 import { setToken, clearToken, onAuthRequired } from './token';
 
 function authHeader(call: unknown[]): string | null {
@@ -33,7 +33,7 @@ describe('api', () => {
     expect(url).toBe('/api/v1/spawn');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({
-      type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false, prompt: '', cwd: '', supervised: false, force: false,
+      type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false, prompt: '', cwd: '', supervised: false, role: '', force: false,
     });
   });
 
@@ -42,8 +42,23 @@ describe('api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await spawn({ prompt: 'do research on X' });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-      type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false, prompt: 'do research on X', cwd: '', supervised: false, force: false,
+      type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false, prompt: 'do research on X', cwd: '', supervised: false, role: '', force: false,
     });
+  });
+
+  it('spawn includes role when provided', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'agent-x' }, 201));
+    vi.stubGlobal('fetch', fetchMock);
+    await spawn({ prompt: 'do X', role: 'reviewer' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).role).toBe('reviewer');
+  });
+
+  it('listRoles GETs /roles and returns the catalog', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ roles: [{ name: 'general', description: '' }, { name: 'reviewer', description: 'reviews a branch' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await listRoles();
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/roles');
+    expect(out.map((r) => r.name)).toEqual(['general', 'reviewer']);
   });
 
   it('terminate POSTs to /sessions/{id}/terminate', async () => {

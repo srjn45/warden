@@ -41,8 +41,13 @@ export interface SpawnParams {
   prompt?: string;
   cwd?: string;
   supervised?: boolean;
+  role?: string;
   force?: boolean;
 }
+
+// RoleInfo is a built-in agent role for the picker (GET /roles): name + a
+// one-line description. The empty/"general" role injects no persona.
+export interface RoleInfo { name: string; description: string; }
 
 async function parse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -73,7 +78,7 @@ export async function spawn(p: SpawnParams): Promise<Session> {
       type: p.type ?? '', ticket: p.ticket ?? '', repo: p.repo ?? '',
       branch: p.branch ?? '', pr: p.pr ?? '', worktree: !!p.worktree,
       prompt: p.prompt ?? '', cwd: p.cwd ?? '', supervised: !!p.supervised,
-      force: !!p.force,
+      role: p.role ?? '', force: !!p.force,
     }),
   });
   if (res.status === 428) {
@@ -81,6 +86,13 @@ export async function spawn(p: SpawnParams): Promise<Session> {
     throw new ConfirmationRequiredError(body.verdict);
   }
   return parse<Session>(res);
+}
+
+// listRoles returns warden's built-in agent roles (GET /roles): general first,
+// then alphabetical. Used to populate the new-agent role picker.
+export async function listRoles(): Promise<RoleInfo[]> {
+  const data = await parse<{ roles: RoleInfo[] | null }>(await apiFetch('/roles'));
+  return data.roles ?? [];
 }
 
 export interface DirEntry { name: string; path: string; }
