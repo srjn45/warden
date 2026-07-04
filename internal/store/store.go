@@ -74,6 +74,10 @@ type Store interface {
 	SetForceCompact(ctx context.Context, id string, v *bool) error
 	// UpdatePermissionMode sets the permission mode for a session.
 	UpdatePermissionMode(ctx context.Context, id string, mode string) error
+	// UpdateRole sets the built-in role name for a session (empty = "general").
+	// The persona is re-resolved from the registry at launch, so only the name is
+	// stored; switching a role + resuming re-injects the new persona.
+	UpdateRole(ctx context.Context, id string, role string) error
 	// ClearWorktree blanks the Worktree and Branch fields (after the worktree is
 	// removed from disk), so the record no longer points at a gone worktree.
 	ClearWorktree(ctx context.Context, id string) error

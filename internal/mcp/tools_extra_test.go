@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,7 +44,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"digest", "get_metrics", "savings", "spend", "search", "history", "audit_log",
 		"list_worktrees", "list_plugins", "get_pressure",
 		"set_auto_approve", "set_auto_approve_policy", "set_force_compact",
-		"set_permission_mode", "prune_worktrees",
+		"set_permission_mode", "set_role", "list_roles", "prune_worktrees",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
 		"pause_pipeline", "resume_pipeline", "retry_pipeline_job",
 		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",
@@ -75,6 +76,49 @@ func TestValidatePipelineTool(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, textOf(bad), "invalid pipeline")
+}
+
+// TestListRolesTool returns the built-in role catalog without a daemon.
+func TestListRolesTool(t *testing.T) {
+	session := connectTo(t, "http://127.0.0.1:0")
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "list_roles"})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), `"general"`)
+	require.Contains(t, textOf(res), `"reviewer"`)
+}
+
+// TestSetRoleTool exercises the PATCH /sessions/{id}/role round-trip and the
+// client-side role validation.
+func TestSetRoleTool(t *testing.T) {
+	var hit, body string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = r.Method + " " + r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		_, _ = w.Write([]byte(`{"role":"reviewer"}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+	ctx := context.Background()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "set_role",
+		Arguments: map[string]any{"ticket": "A-1", "role": "reviewer"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, "PATCH /api/v1/sessions/A-1/role", hit)
+	require.Contains(t, body, `"role":"reviewer"`)
+	require.Contains(t, textOf(res), "set to reviewer")
+
+	// An unknown role is rejected before any daemon call.
+	bad, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "set_role",
+		Arguments: map[string]any{"ticket": "A-1", "role": "nonsense"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, textOf(bad), "unknown role")
 }
 
 // TestListPipelineTemplatesTool also needs no daemon.

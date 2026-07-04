@@ -24,6 +24,7 @@ import (
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -281,6 +282,64 @@ func (l *Lifecycle) memoryGuidance(ctx context.Context, dir string) string {
 		return ""
 	}
 	return memory.Parse(string(raw)).RenderDefault()
+}
+
+// resolveRole applies the requested built-in role to req: it validates the role
+// name and fills each unset spawn field from the role's defaults, with precedence
+// explicit request value > role default > global default. type/model/
+// permission_mode fill only when the request left them empty; auto_approve (a
+// bool with no tri-state) is OR-ed in so an explicit true and a role default of
+// true both enable it; tags are UNIONED onto the request's tags (normalized,
+// de-duplicated) rather than replacing them. It returns the resolved Role so the
+// caller can inject its persona, and mutates req in place. An empty role
+// normalizes to role.Default ("general"); an unknown name is an error.
+func resolveRole(req *SpawnRequest) (role.Role, error) {
+	name := req.Role
+	if name == "" {
+		name = role.Default
+	}
+	r, ok := role.Get(name)
+	if !ok {
+		return role.Role{}, fmt.Errorf("unknown role %q (known: %s)", name, strings.Join(role.Names(), ", "))
+	}
+	// Persist the canonical name, but keep the default (general) as "" so a plain
+	// agent's record stays byte-identical to today (role JSON-omitted). Non-default
+	// role names are exact (no aliases), so the input is already canonical.
+	if r.Name == role.Default {
+		req.Role = ""
+	} else {
+		req.Role = r.Name
+	}
+	d := r.Defaults
+	if req.Type == "" && d.Type != "" {
+		req.Type = store.Type(d.Type)
+	}
+	if req.Model == "" {
+		req.Model = d.Model
+	}
+	if req.PermissionMode == "" {
+		req.PermissionMode = d.PermissionMode
+	}
+	req.AutoApprove = req.AutoApprove || d.AutoApprove
+	if len(d.Tags) > 0 {
+		req.Tags = store.NormalizeTags(append(append([]string{}, req.Tags...), d.Tags...))
+	}
+	return r, nil
+}
+
+// personaGuidance returns the trimmed persona text for the built-in role named
+// name, or "" for the general/empty role (or an unknown name — defensive; Spawn
+// already validated it). It is re-resolved from the registry at every (re)launch
+// so switching a role + resuming re-injects the new persona; only the role NAME
+// is stored on the session, never the persona text. The persona is always
+// injected when non-empty — unlike the config-gated collab/pipeline/git hints —
+// since it is the agent's defining instruction, not an optional nudge.
+func personaGuidance(name string) string {
+	r, ok := role.Get(name)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(r.Persona)
 }
 
 // launchModel resolves the model id passed to a backend's LaunchCmd. Claude
@@ -637,9 +696,11 @@ type SpawnRequest struct {
 	Cwd            string   // free-form: dir to launch claude from (the caller's "master shell"); required
 	PermissionMode string   // explicit mode override; empty = use global default
 	AutoRestart    bool     // opt-in: auto-resume this agent when it errors (capped)
+	AutoApprove    bool     // opt-in: auto-approve yes/no prompts (also filled by a role default)
 	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
 	Backend        string   // agent backend id (claude, aider, …); empty = claude (the default)
 	Tags           []string // optional free-form labels for grouping/filtering (#30)
+	Role           string   // built-in role (persona + default flags); empty = "general" (no persona)
 	ParentID       string   // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 
 	// Fork fields (codex fork superpower, #52). Set by the daemon adapter when a
@@ -1215,6 +1276,12 @@ func readFileTail(path string, maxBytes int64) string {
 // the existing per-type worktree flow. Spawn resolves the id + claude session id
 // shared by both, then dispatches to spawnFreeForm or spawnTyped.
 func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
+	// Resolve the role FIRST: its defaults fill unset request fields, and a role
+	// default type (e.g. implementer ⇒ development) can flip a spawn from free-form
+	// to typed, so this must precede the freeMode decision below.
+	if _, err := resolveRole(&req); err != nil {
+		return nil, err
+	}
 	freeMode := req.Type == ""
 	if !freeMode {
 		req.Type = store.NormalizeType(string(req.Type))
@@ -1244,8 +1311,10 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Status:         store.StatusSpawning,
 		PermissionMode: req.PermissionMode,
 		AutoRestart:    req.AutoRestart,
+		AutoApprove:    req.AutoApprove,
 		Model:          req.Model,
 		Backend:        req.Backend,
+		Role:           req.Role,
 	}
 	// Record provenance, but never let an agent be its own parent (a self-id would
 	// create a degenerate cycle in the sub-tree view).
@@ -1327,8 +1396,12 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	// deliver the same pipeline/collab addendum by writing it into the workdir before
 	// launch. A flag-based backend (Claude) skips this — its hints ride the launch
 	// line below instead. A write failure degrades (no hints) but does not fail spawn.
+	// The role persona is prepended ahead of the collab/pipeline hints so it reads
+	// first; it is always injected when non-empty (general = "" = nothing).
+	persona := personaGuidance(sess.Role)
 	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
+		persona,
 		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
 		mem,
@@ -1336,6 +1409,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
 	hints := l.systemPromptHints(ctx, b, sess.ID,
+		hintSpec{persona != "", persona},
 		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
 		hintSpec{l.cfg.GetMemoryInject(), mem})
@@ -1420,8 +1494,12 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	// (created above) before launch. A flag-based backend (Claude) skips this — its
 	// hints ride the launch line below instead. A write failure degrades (no hints)
 	// but does not fail spawn.
+	// The role persona is prepended ahead of the collab/pipeline/git hints so it
+	// reads first; it is always injected when non-empty (general = "" = nothing).
+	persona := personaGuidance(sess.Role)
 	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
+		persona,
 		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
 		hintGuidance(l.cfg.GetGitConventions(), gitConventionsGuidance),
@@ -1435,6 +1513,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		return nil, err
 	}
 	hints := l.systemPromptHints(ctx, b, sess.ID,
+		hintSpec{persona != "", persona},
 		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
 		hintSpec{l.cfg.GetGitConventions(), gitConventionsGuidance},
@@ -1570,6 +1649,18 @@ func EnsureExtendedKeys(ctx context.Context, run Runner) {
 // so a backend without resume (Caps.Resume=false, e.g. Aider) fails cleanly
 // instead of stranding an empty session (design §5: !Resume ⇒ start fresh).
 func (l *Lifecycle) resumeInTmux(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode string) error {
+	return l.resumeInTmuxWithHints(ctx, b, id, cwd, claudeID, model, mode, "")
+}
+
+// resumeInTmuxWithHints is resumeInTmux with an extra system-prompt hints fragment
+// appended to the resume command. The plain Restore/Adopt paths pass "" (a resume
+// re-injects nothing, matching pre-roles behavior); the role-switch path (SwitchRole)
+// passes the flag-based backend's --append-system-prompt fragment so the freshly
+// resolved persona is re-injected onto Claude. Injecting backends contribute an
+// empty fragment here — their persona rides the AGENTS.md rules file rewritten by
+// injectContext before this call — so hints is "" for them and the resume is
+// byte-identical to the plain path.
+func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode, hints string) error {
 	cmd, ok := b.ResumeCmd(agentbackend.ResumeOpts{
 		SessionID: claudeID, Name: id, Model: l.launchModel(b, model), Mode: mode,
 	})
@@ -1579,7 +1670,7 @@ func (l *Lifecycle) resumeInTmux(ctx context.Context, b agentbackend.Backend, id
 	if err := l.newAgentSession(ctx, "", id, cwd); err != nil {
 		return err
 	}
-	resume := cmd + l.exitSuffix(id)
+	resume := cmd + hints + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", id, resume, "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys resume: %w: %s", err, out)
 	}
@@ -1621,6 +1712,64 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 		mode = l.cfg.GetDefaultPermissionMode()
 	}
 	return l.resumeInTmux(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode)
+}
+
+// SwitchRole re-injects the persona for sess.Role (already persisted by the caller
+// via store.UpdateRole) onto a resumable agent and relaunches it so the new persona
+// takes effect immediately. A plain resume re-injects nothing (see resumeInTmux), so
+// switching a role has to re-run the spawn-time injection: it rewrites the AGENTS.md
+// rules file (injecting backends) AND re-appends Claude's --append-system-prompt
+// (flag backends), threading the freshly resolved persona ahead of the config-gated
+// collab/git/pipeline hints exactly as spawnTyped does. The in-flight turn is
+// discarded (the tmux session is killed and resumed) — switching a role is an
+// explicit operator action, like force-compact. Resume-only: a backend that cannot
+// resume (Aider) or an agent with no pinned session / missing workdir is refused so
+// the role stays persisted (it applies on the next fresh launch) rather than
+// stranding the agent.
+func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
+	b := l.backendFor(sess.Backend)
+	if !b.Capabilities().Resume {
+		return fmt.Errorf("backend %s does not support resume — cannot re-inject a role on a running agent (the role is saved and applies on the next fresh launch)", b.ID())
+	}
+	if b.Capabilities().SessionIDControl && sess.ClaudeSessionID == "" {
+		return ErrNoSessionID
+	}
+	if fi, err := os.Stat(sess.Workdir); err != nil || !fi.IsDir() {
+		return ErrWorkdirMissing
+	}
+	if l.transcriptPath(sess) == "" {
+		return ErrNoTranscript
+	}
+	// Kill the live tmux session (if any) so the relaunch below re-creates it. Unlike
+	// Restore we do NOT refuse a running agent — switching a role deliberately
+	// relaunches it.
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", sess.TmuxSession); err == nil {
+		l.killSession(sess.TmuxSession)
+	}
+	// Re-run the spawn-time injection with the freshly resolved persona prepended
+	// ahead of the config-gated hints (mirrors spawnTyped's injectContext call).
+	persona := personaGuidance(sess.Role)
+	mem := l.memoryGuidance(ctx, sess.Workdir)
+	if err := l.injectContext(b, sess.Workdir,
+		persona,
+		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
+		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+		hintGuidance(l.cfg.GetGitConventions(), gitConventionsGuidance),
+		mem,
+	); err != nil {
+		slog.Warn("switch-role: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
+	}
+	mode := sess.PermissionMode
+	if mode == "" {
+		mode = l.cfg.GetDefaultPermissionMode()
+	}
+	hints := l.systemPromptHints(ctx, b, sess.ID,
+		hintSpec{persona != "", persona},
+		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
+		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
+		hintSpec{l.cfg.GetGitConventions(), gitConventionsGuidance},
+		hintSpec{l.cfg.GetMemoryInject(), mem})
+	return l.resumeInTmuxWithHints(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode, hints)
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects

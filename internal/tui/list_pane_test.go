@@ -48,6 +48,41 @@ func TestListPaneNewAgentNameFieldFlowsToSpawn(t *testing.T) {
 	require.Equal(t, "my-agent", f.spawned.Name)
 }
 
+func TestListPaneNewAgentRoleFieldFlowsToSpawn(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+	m = lstep(m, key("n"))
+	require.Equal(t, modeNewAgent, m.mode)
+	require.Equal(t, "", m.selectedRole(), "fresh form defaults to general (empty role)")
+	// ctrl+r opens the role picker; down cycles off general to the next role.
+	m = lstep(m, tea.KeyMsg{Type: tea.KeyCtrlR})
+	require.Equal(t, modeNewAgentRole, m.mode)
+	m = lstep(m, key("down"))
+	require.NotEqual(t, 0, m.roleIdx)
+	picked := m.selectedRole()
+	require.NotEqual(t, "", picked, "a non-general role resolves to its name")
+	// enter returns to the prompt, then ctrl+s submits carrying the role.
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeNewAgent, m.mode)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	require.NotNil(t, cmd)
+	cmd()
+	require.NotNil(t, f.spawned)
+	require.Equal(t, picked, f.spawned.Role)
+}
+
+func TestListPaneNewAgentDefaultsToGeneralRole(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9")
+	m = lstep(m, key("n"))
+	// Submit without touching the role picker: role stays empty (general).
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	require.NotNil(t, cmd)
+	cmd()
+	require.NotNil(t, f.spawned)
+	require.Equal(t, "", f.spawned.Role)
+}
+
 func TestListPaneRenameFromDetails(t *testing.T) {
 	f := &fakeAPI{}
 	m := newListPane(f, "%9")

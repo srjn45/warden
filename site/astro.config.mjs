@@ -38,6 +38,7 @@ export default defineConfig({
         ]},
         { label: 'Guides', items: [
           { label: 'Spawn & watch agents', slug: 'guides/spawn-and-watch' },
+          { label: 'Agent roles', slug: 'guides/agent-roles' },
           { label: 'The TUI cockpit', slug: 'guides/tui-cockpit' },
           { label: 'Web mission control', slug: 'guides/web-mission-control' },
           { label: 'Approvals & supervised mode', slug: 'guides/approvals-supervised' },

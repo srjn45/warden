@@ -351,6 +351,7 @@ type SpawnParams struct {
 	Tags           []string
 	ParentID       string
 	ForkFrom       string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
+	Role           string // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
 }
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
@@ -361,7 +362,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
 		"model": p.Model, "backend": p.Backend, "tags": p.Tags, "parent_id": p.ParentID,
-		"fork_from": p.ForkFrom,
+		"fork_from": p.ForkFrom, "role": p.Role,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		var se *StatusError
@@ -1140,6 +1141,32 @@ func (c *Client) PutAutoApprovePolicy(ctx context.Context, pol approval.Policy) 
 func (c *Client) SetPermissionMode(ctx context.Context, id string, mode string) error {
 	body := map[string]string{"permission_mode": mode}
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-mode", body, nil)
+}
+
+// RoleInfo is a built-in agent role for a picker (name + one-line description),
+// mirroring the daemon's GET /roles response items.
+type RoleInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// SetRole persists an agent's built-in role (empty ⇒ general) and relaunches it so
+// the new persona re-injects. The daemon validates the role name.
+func (c *Client) SetRole(ctx context.Context, id, roleName string) error {
+	body := map[string]string{"role": roleName}
+	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/role", body, nil)
+}
+
+// ListRoles returns warden's built-in roles (general first, then alphabetical) for
+// a role picker.
+func (c *Client) ListRoles(ctx context.Context) ([]RoleInfo, error) {
+	var resp struct {
+		Roles []RoleInfo `json:"roles"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/roles", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Roles, nil
 }
 
 // SetForceCompact sets an agent's force-compact override. state must be one of

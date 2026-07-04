@@ -12,6 +12,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/preset"
 	"github.com/srjn45/warden/internal/prompttemplate"
+	"github.com/srjn45/warden/internal/role"
 )
 
 // promptFromArgs returns the prompt for a free-form (no --type) spawn: the
@@ -80,6 +81,14 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				typ = "development"
 			}
 
+			// Resolve the built-in role up front so a bad name fails fast with a clear
+			// list (the daemon validates too). Empty/general = no persona. The role's
+			// default flags (type/model/etc.) are applied daemon-side.
+			roleName, _ := cmd.Flags().GetString("role")
+			if _, ok := role.Get(roleName); !ok {
+				return fmt.Errorf("unknown role %q (valid: %s)", roleName, strings.Join(role.Names(), ", "))
+			}
+
 			// A prompt template fills the (free-form) spawn prompt; it has no role
 			// in typed mode, where the daemon generates the prompt from the ticket.
 			if tplName, _ := cmd.Flags().GetString("prompt-template"); tplName != "" && typ != "" {
@@ -111,7 +120,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				model := stringFlagOr(cmd, "model", pre.Model)
 				backend, _ := cmd.Flags().GetString("backend")
 				tagsFlag, _ := cmd.Flags().GetString("tags")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag)})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), Role: roleName})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -166,7 +175,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			backend, _ := cmd.Flags().GetString("backend")
 			tagsFlag, _ := cmd.Flags().GetString("tags")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom,
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName,
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -203,6 +212,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
 	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
+	cmd.Flags().String("role", "", "built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer. Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
 	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
 	return cmd
 }

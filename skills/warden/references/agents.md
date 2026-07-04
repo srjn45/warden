@@ -12,7 +12,8 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | The user wants to… | Do this |
 |---|---|
 | list / check / triage agents | `list_agents`; summarize by status. Call out `waiting_for_input` (needs them) and `errored`/`orphaned`. Show each agent's `subject` and `workdir`. |
-| spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Only add `type`+`repo` (+`branch`/`pr`/`worktree`) for a managed worktree tied to a repo/ticket. Add `model`, `permission_mode`/`supervised`, `tags` as needed. |
+| spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Only add `type`+`repo` (+`branch`/`pr`/`worktree`) for a managed worktree tied to a repo/ticket. Add `model`, `permission_mode`/`supervised`, `tags`, `role` as needed. |
+| give an agent a role / persona | `spawn_agent {..., role: "reviewer"}` at spawn, or `set_role {ticket, role}` on a running agent (relaunches to re-inject; `general`/empty clears it). `list_roles` returns the catalog. See **Roles** below. |
 | fork agent <id>'s session into a new one | `fork_agent {source: "<id>", prompt?}` — branches the source's recorded conversation into a NEW managed agent (fresh sibling worktree, dirty-tree carry; the source keeps running). **Codex-only** (a non-forking backend like Claude returns a clean "cannot fork"); the source's session id must already be pinned (let it run a turn first). See **Fork** below. |
 | what is agent <id> doing | `get_agent` (status, subject, workdir, events) + `get_agent_output` (recent terminal) → report concisely. |
 | tell / ask agent <id> to do Y | `send_to_agent` (id as `ticket`, plus `text`). Echo back what you sent. |
@@ -32,6 +33,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | recent terminal output | `warden tail <id>` (`--lines N`) |
 | spawn from a prompt | `warden start "<prompt>"` |
 | spawn a managed worktree agent | `warden start <TICKET> --type <TYPE> --repo <repo>` |
+| spawn with a role / switch a role | `warden start "<prompt>" --role reviewer`; `warden set-role <id> <role>` (relaunches); `warden role list`. See **Roles** below |
 | send a message to an agent | `warden send <id> "<text>"` |
 | full teardown (terminate + clear record + remove worktree) | `warden stop <id>` (asks before removing the worktree unless `--yes`; `--keep-record`/`--keep-worktree` subtract steps; `--hard`; `--pr [--base <b>]` opens a PR first) |
 | terminate + clear record (keeps worktree) | `warden done <id>` (= `warden stop <id> --keep-worktree`; `--create-pr` pushes the branch and opens a GitHub PR before terminating, `--base` sets target, default main) |
@@ -51,6 +53,10 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 - **Model** — `--model` (CLI) / `model` (MCP). Aliases `opus`/`sonnet`/`haiku`/`fable`;
   config default `model_default`; fallback `claude-sonnet-4-6`. Shown in the MODEL
   column, preserved on restore.
+- **Role** — `--role` (CLI) / `role` (MCP): attach a built-in persona + default
+  flags. `general` (default, no persona) | `orchestrator` | `implementer` |
+  `auto-merger` | `reviewer`. The role's default flags fill only fields you leave
+  unset (explicit value wins; tags unioned). See **Roles** below.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
   Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.
   **Only `claude` is fully tested and stable**; all others are
@@ -134,6 +140,36 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   get a fresh-branch worktree (isolated in `.worktrees/<id>`; `--in-repo` shares the
   repo). `pr-review` checks out a PR branch (needs `--pr`/`--branch`).
   `analysis`/`spike` run in the repo unless `--worktree`. `other` = no worktree.
+
+## Roles
+
+A **role** attaches a named, persistent system-prompt **persona** to an agent
+plus a set of default spawn flags. Every agent has exactly one role; the default
+`general` injects no persona (a plain agent). The set is a **fixed built-in
+catalog** — no user-defined roles. Browse it with `warden role list` / MCP
+`list_roles`.
+
+| Role | Persona | Default flags |
+|---|---|---|
+| `general` | *(none — plain agent)* | — |
+| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, doesn't write feature code unless trivial | `permission_mode=auto` |
+| `implementer` | implements a task end-to-end on its own branch (code, tests, checks, commit, PR) | `type=development` |
+| `auto-merger` | owns getting an open PR merged — watches CI, fixes failures/conflicts, merges when green | `permission_mode=auto`, `auto_approve=on` |
+| `reviewer` | reviews a branch/PR for correctness, coverage, style; findings + verdict, no fixes unless asked | `type=pr-review` |
+
+Drive it:
+
+- **At spawn** — `warden start "<prompt>" --role reviewer` / `spawn_agent {role:"reviewer"}`.
+  The role's default flags fill only fields you left unset (**explicit value >
+  role default > global default**; tags unioned, `auto_approve` OR-ed).
+- **On a running agent** — `warden set-role <id> <role>` / `set_role {ticket, role}`.
+  This **relaunches** the agent so the new persona re-injects (its in-flight turn
+  is discarded, unlike `set-permission-mode`); `general`/empty clears the persona.
+- **UIs** — TUI new-agent `ctrl+r` picker; web **+ New agent** Role dropdown.
+
+Only the role **name** is persisted (`Session.Role`; empty ⇒ `general`); the
+persona re-resolves from the registry at every (re)launch, so nothing
+persona-shaped is stored and resuming after a switch re-injects automatically.
 
 ## Spawn gate
 

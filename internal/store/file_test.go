@@ -994,3 +994,51 @@ func TestUpdatePermissionModeNotFound(t *testing.T) {
 	err = st.UpdatePermissionMode(ctx, "nonexistent", "auto")
 	require.ErrorIs(t, err, ErrNotFound)
 }
+
+func TestUpdateRole(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Insert a session with no role (empty = general).
+	s := &Session{
+		ID:          "test-update-role",
+		TmuxSession: "tmux-1",
+		Repo:        "/repo",
+		Status:      StatusWorking,
+	}
+	require.NoError(t, st.Insert(ctx, s))
+
+	got, err := st.Get(ctx, "test-update-role")
+	require.NoError(t, err)
+	require.Equal(t, "", got.Role)
+
+	// Set a role.
+	require.NoError(t, st.UpdateRole(ctx, "test-update-role", "orchestrator"))
+	got, err = st.Get(ctx, "test-update-role")
+	require.NoError(t, err)
+	require.Equal(t, "orchestrator", got.Role)
+
+	// Switch to another role.
+	require.NoError(t, st.UpdateRole(ctx, "test-update-role", "reviewer"))
+	got, err = st.Get(ctx, "test-update-role")
+	require.NoError(t, err)
+	require.Equal(t, "reviewer", got.Role)
+
+	// Clear back to general (empty), which is JSON-omitted.
+	require.NoError(t, st.UpdateRole(ctx, "test-update-role", ""))
+	got, err = st.Get(ctx, "test-update-role")
+	require.NoError(t, err)
+	require.Equal(t, "", got.Role)
+}
+
+func TestUpdateRoleNotFound(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	err = st.UpdateRole(ctx, "nonexistent", "reviewer")
+	require.ErrorIs(t, err, ErrNotFound)
+}

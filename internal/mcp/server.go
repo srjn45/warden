@@ -45,6 +45,7 @@ type spawnArgs struct {
 	Model          string   `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to the model_default config setting (sonnet)"`
 	Backend        string   `json:"backend,omitempty" jsonschema:"agent backend to drive: claude (default), aider, or opencode. Backends differ in capabilities — aider & opencode are bring-your-own-model (set model, e.g. ollama_chat/qwen2.5-coder:3b or ollama/qwen2.5-coder:3b), with tokens-only spend. aider has no resume and runs an autonomous task that exits when done; opencode has a structured (Tier A) transcript and DOES resume the worktree's last session"`
 	Tags           []string `json:"tags,omitempty" jsonschema:"optional free-form labels for grouping/filtering (e.g. [\"backend\",\"urgent\"]); searchable and filterable via warden ls --tag"`
+	Role           string   `json:"role,omitempty" jsonschema:"built-in agent role: general (default, no persona) | orchestrator | implementer | auto-merger | reviewer. Injects the role's persona as a system-prompt addendum and applies its default flags (type/model/permission_mode/auto_approve/tags) to any field left unset"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -278,7 +279,7 @@ func NewServer(daemonBase string) *Server {
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree, InRepo: a.InRepo,
 			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
-			Name: a.Name, Model: a.Model, Backend: a.Backend, Tags: a.Tags, ParentID: sessionID(),
+			Name: a.Name, Model: a.Model, Backend: a.Backend, Tags: a.Tags, Role: a.Role, ParentID: sessionID(),
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired

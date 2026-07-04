@@ -14,6 +14,7 @@ import (
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/plugin"
+	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -39,6 +40,7 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		Tags:           b.Tags,
 		ParentID:       b.ParentId,
 		ForkFrom:       b.ForkFrom,
+		Role:           b.Role,
 	}
 }
 
@@ -516,6 +518,68 @@ func (s *Server) SetPermissionMode(ctx context.Context, req oapi.SetPermissionMo
 	}
 	s.notify()
 	return oapi.SetPermissionMode200JSONResponse{PermissionMode: mode}, nil
+}
+
+// SetRole implements PATCH /api/v1/sessions/{id}/role. It validates the role name
+// against the built-in registry (empty ⇒ general), persists the CANONICAL name
+// (general is stored as "" so a plain agent's record stays byte-identical to
+// today), then relaunches the agent so the new persona re-injects (a plain resume
+// re-injects nothing). Relaunch is best-effort: if the agent is not currently
+// resumable (no pinned session yet / missing workdir / a non-resuming backend) the
+// role is still persisted and applies on the next fresh launch — only a genuine
+// relaunch failure surfaces as an error.
+func (s *Server) SetRole(ctx context.Context, req oapi.SetRoleRequestObject) (oapi.SetRoleResponseObject, error) {
+	name := ""
+	if req.Body != nil {
+		name = strings.TrimSpace(req.Body.Role)
+	}
+	r, ok := role.Get(name)
+	if !ok {
+		return nil, errStatus(http.StatusBadRequest, "unknown role "+strconv.Quote(name)+" (known: "+strings.Join(role.Names(), ", ")+")")
+	}
+	// Canonicalize: general is stored as "" (keeps default agents byte-identical).
+	canonical := r.Name
+	if canonical == role.Default {
+		canonical = ""
+	}
+	sess, err := s.resolveSession(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.UpdateRole(ctx, sess.ID, canonical); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, errStatus(http.StatusNotFound, "session not found")
+		}
+		return nil, err
+	}
+	// Relaunch with the freshly resolved persona. Soft-fail the not-currently-
+	// resumable cases so the persisted role stands (it applies on the next launch).
+	sess.Role = canonical
+	if err := s.life.SwitchRole(ctx, sess); err != nil {
+		switch {
+		case errors.Is(err, lifecycle.ErrNoSessionID),
+			errors.Is(err, lifecycle.ErrWorkdirMissing),
+			errors.Is(err, lifecycle.ErrNoTranscript):
+			slog.Info("set-role: role persisted but agent not resumable now; applies on next launch", "agent", sess.ID, "err", err)
+		default:
+			return nil, err
+		}
+	} else if err := s.store.UpdateStatus(ctx, sess.ID, store.StatusSpawning); err != nil {
+		return nil, err
+	}
+	s.notify()
+	return oapi.SetRole200JSONResponse{Role: canonical}, nil
+}
+
+// ListRoles implements GET /api/v1/roles: the built-in role catalog (name +
+// description) for a picker. Read-only; driven off the role registry.
+func (s *Server) ListRoles(_ context.Context, _ oapi.ListRolesRequestObject) (oapi.ListRolesResponseObject, error) {
+	roles := role.All()
+	out := make([]oapi.RoleInfo, 0, len(roles))
+	for _, r := range roles {
+		out = append(out, oapi.RoleInfo{Name: r.Name, Description: r.Description})
+	}
+	return oapi.ListRoles200JSONResponse{Roles: out}, nil
 }
 
 // SetName implements PATCH /api/v1/sessions/{id}/name. A blank name clears it;

@@ -57,7 +57,7 @@ Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. 
 | `search` / `history` / `audit_log` | Full-text search / archived agents / the action audit trail |
 | `export_sessions` / `import_sessions` / `list_plugins` | Serialize / load session metadata / list registered plugins |
 
-> **Full parity (69 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, `rotate`/`handoff`, and `fork`. The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`) plus the worktree-local `review`/`models` superpowers; see the [feature catalog](/warden/reference/features/).
+> **Full parity (71 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, `rotate`/`handoff`, `fork`, and agent roles (`set_role`/`list_roles` + `spawn_agent`'s `role` param). The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`) plus the worktree-local `review`/`models` superpowers; see the [feature catalog](/warden/reference/features/).
 
 Example orchestrator prompts:
 

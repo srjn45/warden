@@ -1,0 +1,4 @@
+name: general
+description: The default role. Responds to user prompts with no special behavior.
+persona: ""
+defaults: {}

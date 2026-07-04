@@ -387,6 +387,74 @@ so existing stores are unaffected). Capabilities differ per backend and warden
 
 ---
 
+## 5.3. Agent roles (`--role`)
+
+A **role** is a named, persistent system-prompt **persona** attached to an agent,
+plus a set of default spawn flags. Every agent has exactly one role; the default
+is `general`, which injects no persona and behaves exactly as agents did before
+roles existed. The role set is a **fixed built-in catalog** — there are no
+user-defined roles.
+
+### The built-in roles
+
+```sh
+warden role list
+```
+
+| Role | Persona (summary) | Default flags |
+|---|---|---|
+| `general` | *(none — a plain agent)* | — |
+| `orchestrator` | Coordinates a fleet of warden agents to deliver a goal — plans and delegates via the warden MCP/CLI, doesn't write feature code itself unless trivial. | `--permission-mode auto` |
+| `implementer` | Implements a task end-to-end on its own branch: code, tests, project checks, commit, PR. | `--type development` |
+| `auto-merger` | Owns getting an open PR merged — monitors CI, fixes failures/conflicts, merges when green and approved. | `--permission-mode auto`, auto-approve on |
+| `reviewer` | Reviews a branch/PR for correctness, coverage, and style; produces findings + a merge/blocker verdict, no fixes unless asked. | `--type pr-review` |
+
+### Choosing a role at spawn
+
+```sh
+# Attach a role at spawn; its default flags fill any you leave unset
+warden start "review PR 1234 for correctness" --role reviewer
+
+# An explicit flag always overrides the role's default
+warden start PROJ-9 --role implementer --type spike   # spike wins over the role's development default
+```
+
+The role's defaults follow **precedence: explicit request value > role default >
+global default**. Default `tags` are **unioned** into whatever tags you passed
+(deduplicated), never replacing them; `auto_approve` is OR-ed in.
+
+Roles are also selectable in the UIs — the TUI new-agent form has a `ctrl+r` role
+picker, and the web **+ New agent** modal a **Role** dropdown (both default to
+`general`) — and over MCP via `spawn_agent`'s `role` param.
+
+### Switching a running agent's role
+
+```sh
+warden set-role agent-abc123 reviewer   # give the running agent the reviewer persona
+warden set-role agent-abc123 general    # clear the persona (back to a plain agent)
+```
+
+`set-role` persists the new role **name** and **relaunches** the agent so the
+persona takes effect — a persona only injects at (re)launch, so unlike
+`set-permission-mode` this discards the agent's in-flight turn. MCP equivalent:
+`set_role {ticket, role}`.
+
+### How it's stored and injected
+
+Only the role **name** is persisted (`Session.Role`; empty ⇒ `general`, so
+pre-roles stores need no migration). The persona is re-resolved from the embedded
+`internal/role` registry at every (re)launch — nothing persona-shaped is ever
+written to disk, so switching a role and resuming re-injects the new persona
+automatically. Injection reuses the **same seam** warden already uses for its
+collab/git/pipeline hints: Claude gets it via `--append-system-prompt` (file-backed
+under `HintsDir`, never inlined on the tmux launch line so the 1024-byte MAX_CANON
+limit is safe); the injecting backends (Codex/OpenCode/Cursor/Antigravity/Crush/Goose)
+get it prepended into their rules-file drop (`AGENTS.md` etc.); Aider, which has no
+injection seam, degrades silently like the other hints. An empty persona injects
+nothing, leaving a plain/`general` spawn byte-identical to before roles existed.
+
+---
+
 ## 6. Command reference
 
 All commands accept `--addr` to point at a non-default daemon (overrides
@@ -414,6 +482,18 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--worktree` | Create a scratch worktree for analysis/spike. |
 | `--in-repo` | Write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review). |
 | `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: the `model_default` config setting, or `claude-sonnet-4-6`. |
+| `--role` | Built-in agent role: `general` (default, no persona) / `orchestrator` / `implementer` / `auto-merger` / `reviewer`. Injects the role's persona and fills its default flags for any left unset (see §5.3). |
+
+### `warden role list` / `warden set-role <id> <role>`
+List the built-in role catalog (name + description), or switch a running agent's
+role. `set-role` persists the name and **relaunches** the agent so the new persona
+re-injects (its in-flight turn is discarded); `general`/`""` clears the persona.
+See §5.3 for the full role model.
+
+```sh
+warden role list
+warden set-role agent-abc123 reviewer
+```
 
 ### `warden ls`
 List all active sessions: `ID  TYPE  STATUS  AGE  DIR  SUBJECT`.

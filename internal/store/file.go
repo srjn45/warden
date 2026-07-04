@@ -691,6 +691,15 @@ func (fs *FileStore) UpdatePermissionMode(ctx context.Context, id string, mode s
 	})
 }
 
+// UpdateRole sets the built-in role for a session. Empty means the "general"
+// role (no persona). The role name (not the persona text) is what's persisted;
+// the persona is re-resolved from the registry at every (re)launch.
+func (fs *FileStore) UpdateRole(ctx context.Context, id string, role string) error {
+	return fs.mutate(id, func(s *Session) {
+		s.Role = role
+	})
+}
+
 func (fs *FileStore) ClearWorktree(ctx context.Context, id string) error {
 	return fs.mutate(id, func(s *Session) { s.Worktree = ""; s.Branch = "" })
 }

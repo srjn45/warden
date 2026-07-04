@@ -69,12 +69,14 @@ Available Commands:
   repl                Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
   restore             Recreate and resume a lost/orphaned agent (claude --resume)
   review              Run the agent backend's native diff review on the worktree
+  role                Inspect warden's built-in agent roles
   rotate              Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
   savings             Show the token reductions warden's lifecycle features have earned
   schedule            Schedule recurring (--cron) or single-shot (--at) agents and pipelines
   search              Full-text search agents by subject, prompt, type, name, branch, or pane text
   send                Type a message into an agent's claude session and press Enter
   set-permission-mode Set the permission mode for an agent
+  set-role            Switch an agent's built-in role (relaunches to re-inject the persona)
   setup               Install missing dependencies (tmux, git, claude; optional gh, ollama)
   snapshot            Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
   spend               Show measured Claude spend in dollars, per agent / repo / day
@@ -2085,6 +2087,43 @@ Global Flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden role
+
+```text
+Inspect warden's built-in agent roles
+
+Usage:
+  warden role [command]
+
+Available Commands:
+  list        List the built-in agent roles and their descriptions
+
+Flags:
+  -h, --help   help for role
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Use "warden role [command] --help" for more information about a command.
+```
+
+## warden role list
+
+```text
+List the built-in agent roles and their descriptions
+
+Usage:
+  warden role list [flags]
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden rotate
 
 ```text
@@ -2282,6 +2321,33 @@ Global Flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden set-role
+
+```text
+Switch a running agent's built-in role.
+
+The role's persona is injected as a system-prompt addendum; changing it relaunches
+the agent (its current turn is discarded) so the new persona takes effect. Set the
+role to "general" (or "") to clear the persona and behave like a plain agent.
+
+Valid roles (see `warden role list` for descriptions):
+  general | orchestrator | implementer | auto-merger | reviewer
+
+Examples:
+  warden set-role abc123 reviewer      # give the agent the reviewer persona
+  warden set-role abc123 general       # clear the persona
+
+Usage:
+  warden set-role <agent-id> <role> [flags]
+
+Flags:
+  -h, --help   help for set-role
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden setup
 
 ```text
@@ -2457,6 +2523,7 @@ Flags:
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
       --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
       --repo string                              repo path (default: current directory)
+      --role warden role list                    built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer. Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
       --set stringArray                          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
       --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
