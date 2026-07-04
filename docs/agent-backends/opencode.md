@@ -1,4 +1,4 @@
-# OpenCode backend
+# OpenCode backend (experimental)
 
 Adapter: `internal/agentbackend/backends/opencode.go` · Backend ID: `opencode` · #52
 
