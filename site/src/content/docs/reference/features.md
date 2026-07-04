@@ -8,7 +8,7 @@ in the repository — the authoritative inventory of **every** warden capability
 which surface can drive it.
 
 warden exposes its features across five surfaces — the **CLI** (`warden`, aliased
-`wd`), **MCP** (69 structured tools for an orchestrating agent), the **/warden
+`wd`), **MCP** (71 structured tools for an orchestrating agent), the **/warden
 skill**, the **web** GUI, and the **TUI** cockpit.
 
 **Coverage legend:** ✓ supported · — not applicable / not present on that surface ·
@@ -39,6 +39,9 @@ default; each in its own tmux session, most in a git worktree).
 | Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Tags (group / filter) | `start --tag`, `ls --tag` | `spawn_agent` (`tags`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Model selection | `start --model` / config | `spawn_agent` (`model`) | ✓ | ✓ | — | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
+| Agent role (built-in persona + default flags) at spawn | `start --role` | `spawn_agent` (`role`) | ✓ | ✓ (Role select) | `ctrl+r` (new-agent) | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
+| Switch a running agent's role (relaunch re-injects) | `set-role` | `set_role` | ✓ | — | — | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
+| List the built-in role catalog | `role list` | `list_roles` | ✓ | ✓ (Role select) | list | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | List the backend's live model menu | `models` (`--backend`, `--json`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
@@ -201,7 +204,7 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 | In-browser attach terminal | Agent (`/agent/<id>`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Full-screen **TUI** launcher — the three-pane cockpit streamed edge-to-edge into the browser (same panes, shortcuts, real shells & live agent sessions; Ctrl+Q exits) | top-bar ▢ TUI button (`/tui`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Context & messages | header 🗒 overlay | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
-| Spawn modal (+ New agent) | header button | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| Spawn modal (+ New agent) — incl. a **Role** dropdown (built-in role picker, defaults `general`) | header button | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | Bulk actions | Bulk action bar | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Conflicts panel / activity feed | Others (`/others`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Keyboard shortcuts + help | global | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
@@ -223,6 +226,7 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 | Pipeline view | pipeline pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Agent sub-trees (spawned agents nest under parent; `h`/`l` collapse; tombstone on parent delete) | main pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Spawn / attach / terminate / delete | keybindings | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Role picker in the new-agent form (`ctrl+r`; built-in catalog, defaults `general`) | new-agent form | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | Shift-to-select (native copy under tmux mouse mode) | help hint | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 
 ## 14. Orchestration surfaces
@@ -259,7 +263,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**69 tools**, including the
+Every fleet/data feature is reachable over MCP (**71 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §15 (plus interactive `attach`/`repl`, the local-config `preset` /
@@ -274,4 +278,4 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
-`create_schedule`, `delete_schedule`, `fork_agent`.
+`create_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`.

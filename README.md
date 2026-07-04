@@ -99,6 +99,7 @@ alias agents=warden
 
 Capability highlights from the **v5.x** line (full notes on the [releases page](https://github.com/srjn45/warden/releases); the complete catalog lives in [docs/FEATURES.md](docs/FEATURES.md)):
 
+- **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role reviewer`) or switch it on a running agent (`warden set-role <id> reviewer`, which relaunches to re-inject). Five built-in roles — `general` (default, no persona), `orchestrator`, `implementer`, `auto-merger`, `reviewer` — each carrying a persona plus default spawn flags (e.g. `reviewer` defaults `--type pr-review`, `auto-merger` turns on auto-approve). `warden role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-role-list--warden-set-role).
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
 - **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending cloud-model tokens); optionally hosts the cockpit master pane.
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
@@ -705,6 +706,7 @@ Flags:
 - `--worktree` — opt-in worktree for analysis/spike
 - `--in-repo` — write-type opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
 - `--model <model>` — per-agent model (id or alias `opus`/`sonnet`/`haiku`/`fable`); defaults to the `model_default` config setting
+- `--role <role>` — built-in agent role: `general` (default, no persona) · `orchestrator` · `implementer` · `auto-merger` · `reviewer`. Injects the role's persona as a system-prompt addendum and fills its default spawn flags (`--type`/`--model`/`--permission-mode`/auto-approve/tags) for any you leave unset (explicit flags still win). See [`warden role list`](#warden-role-list--warden-set-role)
 - `--tags <a,b>` — attach tags (lowercased, deduped); searchable and filterable with `warden ls --tag`
 - `--preset <name>` — seed spawn defaults from a saved preset (`warden preset save`); explicit flags still override
 - `--prompt-template <name> --set VAR=value` — fill a saved prompt template (`warden prompt-template save`) into the spawn prompt; repeat `--set` per variable. A positional prompt still wins; free-form only (no `--type`)
@@ -1245,6 +1247,49 @@ Change a running agent's permission mode (`acceptEdits`/`auto`/`bypassPermission
 warden set-permission-mode agent-abc123 dontAsk
 ```
 
+### `warden role list` / `warden set-role`
+
+A **role** is a named, persistent system-prompt **persona** attached to an
+agent, plus a set of default spawn flags. Every agent has exactly one role; the
+default is `general`, which injects no persona and behaves exactly as agents do
+today. The role set is a **fixed built-in catalog** (no user-defined roles):
+
+| Role | Persona | Default flags |
+|---|---|---|
+| `general` | *(none — plain agent)* | — |
+| `orchestrator` | coordinates a fleet of warden agents; plans and delegates, doesn't write feature code itself unless trivial | `--permission-mode auto` |
+| `implementer` | implements a task end-to-end on its own branch (code, tests, checks, commit, PR) | `--type development` |
+| `auto-merger` | owns getting an open PR merged: watches CI, fixes failures/conflicts, merges when green | `--permission-mode auto`, auto-approve on |
+| `reviewer` | reviews a branch/PR for correctness, coverage, and style; produces findings + a verdict, no fixes unless asked | `--type pr-review` |
+
+The persona is injected through the same system-prompt seam warden already uses
+for its collab/git/pipeline hints (Claude via `--append-system-prompt`, the
+injecting backends via their rules file); only the role **name** is persisted,
+so the persona re-resolves from the registry at every (re)launch — nothing
+persona-shaped is stored on disk. Role default flags fill only the fields you
+left unset (explicit `start` flags win); default tags are unioned in.
+
+```sh
+# List the built-in roles and their descriptions
+warden role list
+
+# Spawn an agent with a role (its default flags apply unless you override them)
+warden start "review PR 1234 for correctness" --role reviewer
+
+# Switch a running agent's role — relaunches to re-inject the new persona
+warden set-role agent-abc123 reviewer
+
+# Clear the persona (back to a plain agent)
+warden set-role agent-abc123 general
+```
+
+Roles are also drivable from the UIs (TUI new-agent `ctrl+r` picker, web
+**+ New agent** Role dropdown) and over MCP (`spawn_agent`'s `role` param,
+`set_role`, `list_roles`) — see [Orchestrator (MCP)](#orchestrator-mcp).
+`set-role` **relaunches** the agent (its in-flight turn is discarded) because a
+persona only takes effect at (re)launch, mirroring how `set-permission-mode`
+persists a value but a persona additionally needs a fresh launch.
+
 ### `warden worktree`
 
 The umbrella for warden's worktree operations — **list** and **prune**:
@@ -1376,7 +1421,8 @@ Once registered, the orchestrator session can call these tools directly:
 |---|---|
 | `list_agents` | List all active agents with their status, working directory, and subject |
 | `get_agent` | Get full detail (status, workdir, subject, events, worktree) for one agent |
-| `spawn_agent` | Spawn a new agent — pass a `prompt` for a quick auto-typed agent, or `type`+`repo` for a managed worktree; set `supervised: true` for `--permission-mode acceptEdits` instead of full bypass |
+| `spawn_agent` | Spawn a new agent — pass a `prompt` for a quick auto-typed agent, or `type`+`repo` for a managed worktree; set `supervised: true` for `--permission-mode acceptEdits` instead of full bypass; pass `role` to attach a built-in role persona + its default flags |
+| `set_role` / `list_roles` | Switch a running agent's built-in role (relaunches to re-inject the persona; `general`/empty clears it) / list the fixed built-in role catalog (name + description) for a picker |
 | `adopt_agent` | Register an existing Claude session: resume newest-for-dir under tmux, or live-register a running tmux session |
 | `send_to_agent` | Type a message into a specific agent's claude session |
 | `get_agent_output` | Return the recent terminal output of a specific agent |

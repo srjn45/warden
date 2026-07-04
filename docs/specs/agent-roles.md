@@ -1,6 +1,7 @@
 # Agent Roles
 
-Status: implementing (core stage). Issue: *agent roles*.
+Status: shipped (all four stages — core, surfaces, uis, docs — landed on the
+`agent-roles` branch). Issue: *agent roles*.
 
 A **role** is a named, persistent system-prompt PERSONA attached to an agent,
 plus an optional set of default spawn flags. Every agent has exactly one role;
