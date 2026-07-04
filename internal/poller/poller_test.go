@@ -713,6 +713,40 @@ func TestTickErroredAgentReclassifiesWhenAlive(t *testing.T) {
 	require.Equal(t, store.StatusWorking, gotTo, "errored+alive should reclassify to working")
 }
 
+// TestTickOrphanedAgentReclassifiesWhenAlive verifies that an agent marked
+// orphaned (e.g. by a daemon restart mis-tagging a live session before it
+// could rescan tmux) is reclassified once its tmux session is found alive
+// again, rather than being stuck orphaned forever.
+func TestTickOrphanedAgentReclassifiesWhenAlive(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{ID: "A", TmuxSession: "A", Status: store.StatusOrphaned}},
+		alive:    map[string]bool{"A": true},
+		panes:    map[string]string{"A": "esc to interrupt"},
+		updates:  map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	var gotTo store.Status
+	p.OnTransition = func(_ *store.Session, _, to store.Status) { gotTo = to }
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, store.StatusWorking, gotTo, "orphaned+alive should reclassify to working")
+}
+
+// TestTickOrphanedAgentSkippedWhenDead verifies that a genuinely dead
+// orphaned agent stays terminal (no reclassification, no busywork).
+func TestTickOrphanedAgentSkippedWhenDead(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{ID: "A", TmuxSession: "A", Status: store.StatusOrphaned}},
+		alive:    map[string]bool{"A": false},
+		panes:    map[string]string{},
+		updates:  map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	fired := false
+	p.OnTransition = func(*store.Session, store.Status, store.Status) { fired = true }
+	require.NoError(t, p.tick(context.Background()))
+	require.False(t, fired, "orphaned+dead session should be skipped with no transition")
+}
+
 // TestTickErroredAgentSkippedWhenDead verifies that an errored agent whose
 // tmux session is gone is still treated as terminal (no reclassification).
 func TestTickErroredAgentSkippedWhenDead(t *testing.T) {

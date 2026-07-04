@@ -560,10 +560,12 @@ func (p *Poller) tick(ctx context.Context) error {
 			// done before the poller read the file); errored/orphaned already
 			// cleared theirs in the finalize branch, making this a no-op there.
 			p.deps.ClearExit(ctx, s.ID)
-			// For errored agents: if the tmux session is still alive the error was
-			// transient (e.g. a rate-limit resume race) — fall through to reclassify
-			// so the TUI reflects the real state. done/orphaned are always skipped.
-			if s.Status != store.StatusErrored || !p.deps.SessionAlive(ctx, s.TmuxSession) {
+			// For errored or orphaned agents: if the tmux session is still alive the
+			// prior classification was stale (e.g. a rate-limit resume race, or the
+			// daemon restarting mid-poll and mis-tagging a live session as orphaned)
+			// — fall through to reclassify so the TUI reflects the real state. done
+			// is always terminal; errored/orphaned are only skipped while dead.
+			if (s.Status != store.StatusErrored && s.Status != store.StatusOrphaned) || !p.deps.SessionAlive(ctx, s.TmuxSession) {
 				continue
 			}
 		}
