@@ -196,6 +196,7 @@ func newDaemonCmd() *cobra.Command {
 			pl.ForceCompact = cfg.Tokens.ForceCompact
 			pl.CompactResumePrompt = cfg.Tokens.CompactResumePrompt
 			pl.AutoApprovePolicy = cfg.AutoApprove
+			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
 				return err
@@ -338,7 +339,7 @@ func newDaemonCmd() *cobra.Command {
 			}
 			notifyHook := daemon.NotifyOnTransition(notifier)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
-			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
+			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)

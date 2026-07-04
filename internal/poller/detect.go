@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/srjn45/warden/internal/approval"
 )
 
 // claudeLimitBannerRe matches Claude Code's limit banner. It requires a limit
@@ -17,8 +19,26 @@ import (
 // (misclassifying a working agent). All banner-dependent literals live here and
 // in sampleLimitBanner (test fixture) so a correction lands in one place.
 var claudeLimitBannerRe = regexp.MustCompile(
-	`(?i)(rate limit|usage limit|session limit|quota exceeded)[\s\S]{0,80}?resets\s`,
+	`(?i)(rate limit|usage limit|session limit|weekly limit|quota exceeded)[\s\S]{0,80}?resets\s`,
 )
+
+// claudeSpendLimitRe matches Claude Code's monthly-spend-cap banner. Unlike the
+// usage/session/weekly banners it carries NO reset time — a spend cap clears
+// only at billing rollover or when the user raises it at claude.ai — so a match
+// tells the scheduler to fall back to the (long) spend retry interval rather
+// than parse a reset clock-time. It anchors on the banner's distinctive verb
+// phrases ("hit your monthly spend limit" / "adjust your monthly spend limit"),
+// not a bare "spend limit", so ordinary agent prose about spend caps does not
+// match — the same fail-closed stance as claudeLimitBannerRe.
+var claudeSpendLimitRe = regexp.MustCompile(
+	`(?i)(hit your monthly spend limit|adjust your monthly spend limit)`,
+)
+
+// limitMenuWaitRe matches the "Stop and wait for limit to reset" choice on
+// Claude's rate-limit menu — the safe option that parks the agent until the
+// limit clears, as opposed to "Upgrade your plan". Case-insensitive and
+// tolerant of an optional article ("the limit").
+var limitMenuWaitRe = regexp.MustCompile(`(?i)wait\s+for\s+(the\s+)?limit\s+to\s+reset`)
 
 // limitBannerTailLines is how many trailing pane lines we inspect for the
 // banner. A real limit banner is the terminal state of the pane; anything that
@@ -36,13 +56,47 @@ const limitBannerTailLines = 6
 // since scrolled away is misread as a live limit.
 func detectRateLimit(pane string) (bool, time.Time, bool) {
 	tail := lastLines(pane, limitBannerTailLines)
-	if !claudeLimitBannerRe.MatchString(tail) {
+	switch {
+	case claudeLimitBannerRe.MatchString(tail):
+		// Parse the restore time from the banner region only, so the time-parse
+		// logic never keys on am/pm or clock-times elsewhere in the scrollback.
+		restoreTime, ok := ParseRestoreTime(tail)
+		return true, restoreTime, ok
+	case claudeSpendLimitRe.MatchString(tail):
+		// Monthly spend cap: the banner carries no reset time, so signal limited
+		// with ok=false and let the scheduler apply the long spend fallback.
+		return true, time.Time{}, false
+	default:
 		return false, time.Time{}, false
 	}
-	// Parse the restore time from the banner region only, so the time-parse
-	// logic never keys on am/pm or clock-times elsewhere in the scrollback.
-	restoreTime, ok := ParseRestoreTime(tail)
-	return true, restoreTime, ok
+}
+
+// SpendLimitBannerPresent reports whether pane's trailing lines show Claude's
+// monthly-spend-cap banner (as opposed to the resettable usage/session/weekly
+// banner). The daemon's scheduler uses this to pick the long spend retry
+// interval, since a spend cap carries no in-band reset time and will not clear
+// for hours or days.
+func SpendLimitBannerPresent(pane string) bool {
+	return claudeSpendLimitRe.MatchString(lastLines(pane, limitBannerTailLines))
+}
+
+// LimitMenuOption reports the 1-based option index of the "Stop and wait for
+// limit to reset" choice on Claude's rate-limit menu, or ok=false when the pane
+// is not that menu. It reuses approval.Parse so it keys on a real numbered menu
+// (a ❯ cursor plus a sequential 1..N option run), never a stray numbered list
+// in agent prose, and returns the matched index rather than assuming position 1
+// so a reordered menu still selects the safe wait option.
+func LimitMenuOption(pane string) (int, bool) {
+	a, ok := approval.Parse(pane)
+	if !ok {
+		return 0, false
+	}
+	for i, opt := range a.Options {
+		if limitMenuWaitRe.MatchString(opt) {
+			return i + 1, true
+		}
+	}
+	return 0, false
 }
 
 // LimitBannerPresent reports whether pane's trailing lines show Claude's limit

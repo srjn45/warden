@@ -136,7 +136,10 @@ Notable settings (see the generated file for the full set with defaults):
 - **Spawn / worktree / restart:** `worktree.spawn_gate`/`worktree.spawn_gate_max_agents`,
   `tokens.budget_gate`/`tokens.budget_daily_usd`/`tokens.budget_weekly_usd` (soft $ cap on spawn),
   `worktree.keep_done`/`worktree.auto_prune`, `pipeline.keep_done`/`pipeline.hint`,
-  `auto_restart.max`/`auto_restart.reset`, `rate_limit.auto_resume`.
+  `auto_restart.max`/`auto_restart.reset`, `rate_limit.auto_resume`
+  (auto-picks "Stop and wait" on Claude's limit menu + auto-resumes after any
+  session/weekly/monthly-spend limit clears; `rate_limit.retry_interval`,
+  `rate_limit.spend_retry_interval` default 6h, `rate_limit.buffer` tune timing).
 - **Boundary guards:** `rails.isolation_guard`, `rails.root_guard`, `rails.git_redirect`,
   `rails.check_redirect`, `rails.git_conventions` (see git-and-checks.md).
 - **Local LLM / REPL:** `local_llm.enabled` (+ `local_llm.url`/`.model`/`.timeout`),
