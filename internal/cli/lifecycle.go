@@ -308,6 +308,70 @@ func newRestoreCmd() *cobra.Command {
 	}
 }
 
+// newRecoverCmd backs `wd recover`: the safety net for the tombstone reaper
+// (internal/daemon/tombstone_reap.go). A record can only be archived out from
+// under a still-live tmux session by a stale orphaned status (the reaper now
+// reconfirms liveness before archiving one, but this covers whatever slips
+// through). Bare `wd recover` only reports candidates (archived records whose
+// tmux session is confirmed still alive) and changes nothing; --apply
+// re-inserts each one into the active store under its original id, so any
+// children (linked via parent_id) reconnect automatically.
+func newRecoverCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "recover",
+		Short: "Revive archived agent records whose tmux session is still alive (dry run unless --apply)",
+		Long: "Scans archived (closed) agent records for ones whose tmux session is\n" +
+			"confirmed still alive — a live session's record should never end up\n" +
+			"archived, but a stale orphaned status racing a daemon restart could\n" +
+			"previously slip one past the tombstone reaper. Bare `wd recover` only\n" +
+			"reports what it finds; --apply re-inserts each candidate into the active\n" +
+			"store under its original id. Any children (linked via parent_id, untouched\n" +
+			"by archiving) reconnect automatically — no need to recover them separately.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			apply, _ := cmd.Flags().GetBool("apply")
+			results, err := clientFor(cmd).Recover(cmd.Context(), apply)
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				if results == nil {
+					results = []client.RecoverResult{}
+				}
+				return printJSON(cmd.OutOrStdout(), results)
+			}
+			if len(results) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "no recoverable agents found (nothing archived has a live tmux session)")
+				return nil
+			}
+			for _, r := range results {
+				verb := "would recover"
+				if apply {
+					verb = "recovered"
+					if r.Error != "" {
+						verb = "FAILED to recover"
+					}
+				}
+				label := r.ID
+				if r.Name != "" {
+					label = fmt.Sprintf("%s (%s)", r.ID, r.Name)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s — tmux %q, workdir %s\n", verb, label, r.TmuxSession, r.Workdir)
+				if r.Error != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "    error: %s\n", r.Error)
+				}
+			}
+			if !apply {
+				fmt.Fprintf(cmd.OutOrStdout(), "\n%d candidate(s). Re-run with --apply to recover them.\n", len(results))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Bool("apply", false, "actually re-insert candidates (default: report only)")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
 // teardownOpts selects which teardown steps to run and how. The zero value is a
 // no-op; callers turn on the steps they want. It backs the single `stop`
 // umbrella command AND its four thin-wrapper aliases (terminate/delete/

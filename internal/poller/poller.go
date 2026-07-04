@@ -391,6 +391,15 @@ func (p *Poller) AutoApprovePolicySnapshot() approval.Policy {
 	return p.autoApprovePolicy()
 }
 
+// SessionAlive reports whether name's tmux session is currently alive, via the
+// same liveness check the tick loop uses. Exposed so other daemon components
+// (the tombstone reaper) can reconfirm liveness with an authoritative,
+// just-now check before treating a stale orphaned record as genuinely dead —
+// orphaned status can lag a session's real state for one tick.
+func (p *Poller) SessionAlive(ctx context.Context, name string) bool {
+	return p.deps.SessionAlive(ctx, name)
+}
+
 // SetAutoApprovePolicy atomically swaps the live auto-approve policy so the
 // daemon's PUT /auto-approve/policy handler can change rules without a restart.
 func (p *Poller) SetAutoApprovePolicy(pol approval.Policy) {

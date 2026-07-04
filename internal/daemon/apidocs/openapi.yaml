@@ -708,6 +708,37 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/PruneResult" }
 
+  /api/v1/recover:
+    post:
+      operationId: recoverAgents
+      tags: [Sessions]
+      summary: Revive archived agent records whose tmux session is still alive
+      description: >-
+        Scans archived (closed) records for ones whose tmux_session is
+        confirmed still alive (a tombstone can be wrongly reaped by a stale
+        orphaned status racing a daemon restart — see the poller/reaper
+        liveness reconfirm), and re-inserts each one's full original record
+        into the active store under its original id. Because a child's
+        parent_id is a one-way pointer, any children already reconnect with no
+        edits of their own. apply=false (the default) only reports candidates;
+        apply=true performs the recovery.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecoverRequest" }
+      responses:
+        "200":
+          description: Recovery candidates and (if apply) their outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/RecoverResult" }
+
   /api/v1/git/commit:
     post:
       operationId: gitCommit
@@ -1823,6 +1854,24 @@ components:
       properties:
         force: { type: boolean }
         delete_adopted_branch: { type: boolean }
+
+    RecoverRequest:
+      type: object
+      properties:
+        apply: { type: boolean, description: "false (default) = report candidates only; true = perform the recovery" }
+
+    RecoverResult:
+      type: object
+      required: [id, tmux_session, workdir, recovered]
+      properties:
+        id: { type: string }
+        tmux_session: { type: string }
+        workdir: { type: string }
+        name: { type: string }
+        subject: { type: string }
+        parent_id: { type: string }
+        recovered: { type: boolean, description: "true once actually re-inserted (always false on a dry run)" }
+        error: { type: string, description: "set when apply=true and the re-insert failed (e.g. a name collision)" }
 
     InputRequest:
       type: object

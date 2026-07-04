@@ -14,7 +14,7 @@ func TestReapTombstoneWhenLastChildEnds(t *testing.T) {
 	fs.data["parent"] = &store.Session{ID: "parent", Status: store.StatusDone} // tombstoned (terminal, tmux gone)
 	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
 
-	reapTombstones(context.Background(), fs, "parent")
+	reapTombstones(context.Background(), fs, "parent", nil)
 
 	require.NotContains(t, fs.data, "parent", "tombstone with no live children is reaped")
 	require.Contains(t, fs.closed, "parent", "reap uses Archive (retrievable)")
@@ -28,7 +28,7 @@ func TestReapTombstoneRetainedWithLiveChild(t *testing.T) {
 	fs.data["dead"] = &store.Session{ID: "dead", ParentID: "parent", Status: store.StatusDone}
 	fs.data["alive"] = &store.Session{ID: "alive", ParentID: "parent", Status: store.StatusWorking}
 
-	reapTombstones(context.Background(), fs, "parent")
+	reapTombstones(context.Background(), fs, "parent", nil)
 
 	require.Contains(t, fs.data, "parent", "a tombstone with ≥1 live child stays put")
 }
@@ -38,7 +38,7 @@ func TestReapLeavesChildlessTerminalAgent(t *testing.T) {
 	fs := newFakeStore()
 	fs.data["solo"] = &store.Session{ID: "solo", Status: store.StatusDone}
 
-	reapTombstones(context.Background(), fs, "solo")
+	reapTombstones(context.Background(), fs, "solo", nil)
 
 	require.Contains(t, fs.data, "solo", "a done agent with no children is left for the operator")
 }
@@ -49,7 +49,7 @@ func TestReapLeavesLiveParent(t *testing.T) {
 	fs.data["parent"] = &store.Session{ID: "parent", Status: store.StatusWorking}
 	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
 
-	reapTombstones(context.Background(), fs, "parent")
+	reapTombstones(context.Background(), fs, "parent", nil)
 
 	require.Contains(t, fs.data, "parent")
 }
@@ -63,11 +63,52 @@ func TestReapClimbsChain(t *testing.T) {
 	fs.data["c"] = &store.Session{ID: "c", ParentID: "p", Status: store.StatusDone}
 
 	// Start from the parent (as the lazy hook would, when child c ended).
-	reapTombstones(context.Background(), fs, "p")
+	reapTombstones(context.Background(), fs, "p", nil)
 
 	require.NotContains(t, fs.data, "p", "parent tombstone reaped")
 	require.NotContains(t, fs.data, "gp", "grandparent reaped once parent archived left it childless-of-live")
 	require.Contains(t, fs.data, "c")
+}
+
+// An orphaned parent whose tmux session is confirmed still alive is retained,
+// not archived — this is the exact incident class that motivated the
+// reconfirm check: a transient liveness blip can mis-classify a live session
+// as orphaned, and orphaned (unlike done/errored) is not on its own proof the
+// session ever died.
+func TestReapTombstoneOrphanedButAliveRetained(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
+	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	alive := func(context.Context, string) bool { return true }
+
+	reapTombstones(context.Background(), fs, "parent", alive)
+
+	require.Contains(t, fs.data, "parent", "orphaned status was stale — tmux confirms it's still alive")
+}
+
+// An orphaned parent whose tmux session is confirmed genuinely dead is still
+// reaped, same as done/errored.
+func TestReapTombstoneOrphanedAndDeadReaped(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
+	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	alive := func(context.Context, string) bool { return false }
+
+	reapTombstones(context.Background(), fs, "parent", alive)
+
+	require.NotContains(t, fs.data, "parent", "orphaned + confirmed dead is a genuine tombstone")
+}
+
+// A nil alive func (liveness can't be checked) is treated conservatively: an
+// orphaned parent is left in place rather than archived on an unconfirmed guess.
+func TestReapTombstoneOrphanedNoCheckerRetained(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
+	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+
+	reapTombstones(context.Background(), fs, "parent", nil)
+
+	require.Contains(t, fs.data, "parent", "no liveness checker available ⇒ assume alive, never archive blind")
 }
 
 // The lazy hook on FinalizeExit reaps the parent when a child is finalized.

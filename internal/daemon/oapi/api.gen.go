@@ -538,6 +538,27 @@ type PruneResult = lifecycle.PruneResult
 // PushResult defines model for PushResult.
 type PushResult = lifecycle.PushResult
 
+// RecoverRequest defines model for RecoverRequest.
+type RecoverRequest struct {
+	// Apply false (default) = report candidates only; true = perform the recovery
+	Apply bool `json:"apply,omitempty"`
+}
+
+// RecoverResult defines model for RecoverResult.
+type RecoverResult struct {
+	// Error set when apply=true and the re-insert failed (e.g. a name collision)
+	Error    string `json:"error,omitempty"`
+	Id       string `json:"id"`
+	Name     string `json:"name,omitempty"`
+	ParentId string `json:"parent_id,omitempty"`
+
+	// Recovered true once actually re-inserted (always false on a dry run)
+	Recovered   bool   `json:"recovered"`
+	Subject     string `json:"subject,omitempty"`
+	TmuxSession string `json:"tmux_session"`
+	Workdir     string `json:"workdir"`
+}
+
 // RemoveWorktreeRequest defines model for RemoveWorktreeRequest.
 type RemoveWorktreeRequest struct {
 	DeleteAdoptedBranch bool `json:"delete_adopted_branch,omitempty"`
@@ -963,6 +984,9 @@ type EmitPipelineJobJSONRequestBody EmitPipelineJobJSONBody
 // PruneWorktreesJSONRequestBody defines body for PruneWorktrees for application/json ContentType.
 type PruneWorktreesJSONRequestBody = PruneRequest
 
+// RecoverAgentsJSONRequestBody defines body for RecoverAgents for application/json ContentType.
+type RecoverAgentsJSONRequestBody = RecoverRequest
+
 // CreateScheduleJSONRequestBody defines body for CreateSchedule for application/json ContentType.
 type CreateScheduleJSONRequestBody = ScheduleCreateRequest
 
@@ -1121,6 +1145,9 @@ type ServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(w http.ResponseWriter, r *http.Request)
+	// Revive archived agent records whose tmux session is still alive
+	// (POST /api/v1/recover)
+	RecoverAgents(w http.ResponseWriter, r *http.Request)
 	// List the built-in agent roles
 	// (GET /api/v1/roles)
 	ListRoles(w http.ResponseWriter, r *http.Request)
@@ -1439,6 +1466,12 @@ func (_ Unimplemented) GetPressure(w http.ResponseWriter, r *http.Request) {
 // Reclaim orphan worktrees
 // (POST /api/v1/prune)
 func (_ Unimplemented) PruneWorktrees(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revive archived agent records whose tmux session is still alive
+// (POST /api/v1/recover)
+func (_ Unimplemented) RecoverAgents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2751,6 +2784,26 @@ func (siw *ServerInterfaceWrapper) PruneWorktrees(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// RecoverAgents operation middleware
+func (siw *ServerInterfaceWrapper) RecoverAgents(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecoverAgents(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRoles operation middleware
 func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
 
@@ -4012,6 +4065,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/prune", wrapper.PruneWorktrees)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/recover", wrapper.RecoverAgents)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/roles", wrapper.ListRoles)
 	})
 	r.Group(func(r chi.Router) {
@@ -5154,6 +5210,30 @@ type PruneWorktrees200JSONResponse struct {
 }
 
 func (response PruneWorktrees200JSONResponse) VisitPruneWorktreesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecoverAgentsRequestObject struct {
+	Body *RecoverAgentsJSONRequestBody
+}
+
+type RecoverAgentsResponseObject interface {
+	VisitRecoverAgentsResponse(w http.ResponseWriter) error
+}
+
+type RecoverAgents200JSONResponse struct {
+	Results []RecoverResult `json:"results"`
+}
+
+func (response RecoverAgents200JSONResponse) VisitRecoverAgentsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6462,6 +6542,9 @@ type StrictServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(ctx context.Context, request PruneWorktreesRequestObject) (PruneWorktreesResponseObject, error)
+	// Revive archived agent records whose tmux session is still alive
+	// (POST /api/v1/recover)
+	RecoverAgents(ctx context.Context, request RecoverAgentsRequestObject) (RecoverAgentsResponseObject, error)
 	// List the built-in agent roles
 	// (GET /api/v1/roles)
 	ListRoles(ctx context.Context, request ListRolesRequestObject) (ListRolesResponseObject, error)
@@ -7625,6 +7708,40 @@ func (sh *strictHandler) PruneWorktrees(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PruneWorktreesResponseObject); ok {
 		if err := validResponse.VisitPruneWorktreesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RecoverAgents operation middleware
+func (sh *strictHandler) RecoverAgents(w http.ResponseWriter, r *http.Request) {
+	var request RecoverAgentsRequestObject
+
+	var body RecoverAgentsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RecoverAgents(ctx, request.(RecoverAgentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RecoverAgents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RecoverAgentsResponseObject); ok {
+		if err := validResponse.VisitRecoverAgentsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
