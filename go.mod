@@ -16,7 +16,7 @@ require (
 	github.com/oapi-codegen/runtime v1.4.2
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
-	github.com/srjn45/filedbv2 v0.7.1-0.20260704154550-304cf5286297
+	github.com/srjn45/filedbv2 v0.8.0
 	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v3 v3.0.1
 )
