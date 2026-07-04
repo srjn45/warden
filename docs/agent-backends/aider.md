@@ -1,4 +1,4 @@
-# Aider backend
+# Aider backend (experimental)
 
 Adapter: `internal/agentbackend/backends/aider.go` · Backend ID: `aider` · #52
 
