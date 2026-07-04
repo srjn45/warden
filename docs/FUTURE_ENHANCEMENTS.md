@@ -248,8 +248,8 @@ lever on adoption.
 
 ## 🧠 Project Context & Memory
 
-#### 53. Backend-neutral project memory, curated from fleet digests — *reframed; worth a design pass (coupled to #52)*
-**Effort:** TBD (deep-dive later) — depends on the #52 backend interface
+#### 53. Backend-neutral project memory, curated from fleet digests — *shipped: PR-1/2/3 all merged (v8.5.0–v8.8.1) — see [FEATURES.md §22](FEATURES.md#22-lifecycle-commands--boundary-enforcement)*
+**Effort:** shipped (was TBD pre-design-pass) — the design section below is kept as historical record
 
 > **Reframed 2026-06-28** over two passes. Pass 1 nearly parked this as "just use
 > CLAUDE.md." Pass 2 corrected that: **warden is going multi-backend (#52), so
@@ -314,10 +314,13 @@ cleanest token-cost lever.
 `savings`/`spend`/`insights` (today a global blob) — a reporting nicety, not the
 memory system. Build only if the commingling is actually felt.
 
-**Status:** **worth a design pass**, gated on #52 maturing (the projection seam and
-≥2 real backends are the prerequisite and the demand signal). Scope the canonical-
-source decision, the curation/freshness model, and the per-backend projection +
-cost budget before writing code.
+**Status:** **shipped.** All three open design questions below were resolved and
+built as #53 PR-1 (projection), PR-2 (gated auto-curation), PR-3 (local REPL
+grounding) — canonical source = warden-owned committed `.warden/memory.md`,
+rides the existing #52 injection seam with no new `Backend` interface. See
+[FEATURES.md §22](FEATURES.md#22-lifecycle-commands--boundary-enforcement) for
+the shipped behavior; the rest of this section is kept as the historical design
+record.
 
 > **Design spec (2026-06-30, #52 now complete):** see
 > [`docs/superpowers/specs/2026-06-30-project-memory-design.md`](superpowers/specs/2026-06-30-project-memory-design.md)
@@ -342,21 +345,20 @@ for a single user.
 
 > **Tiers 1–3 are cleared** — the REPL (#50, `wd repl`) shipped (see
 > [FEATURES.md §17](FEATURES.md#17-interactive-mode--repl-wd-repl)), along with the
-> onboarding / extensibility batch (#42, #43, #46, #47, #48). Only Tiers 4–5
-> remain below: a few new early-stage bets (#51–#53) and the parked enterprise set.
+> onboarding / extensibility batch (#42, #43, #46, #47, #48). #52 and #53 have
+> since shipped too (see below); only #51 remains open here, alongside the
+> parked enterprise set.
 
 ### 🔮 Tier 4 — Future / large bets (usage-gated)
 - **Self-healing web cockpit session (#51)** — small (0.5–1 day) robustness item:
   make `EnsureWebCockpit` validate/rebuild a wedged cockpit instead of reusing it
   blindly. Low-moderate necessity; no day-to-day impact now that `q` exits cleanly.
-- **Pluggable agent backends (#52)** — early idea: drive console agents beyond
-  Claude Code via a backend interface. Biggest adoption lever; needs a design pass.
-- **Backend-neutral project memory from fleet digests (#53)** — *reframed; worth a
-  design pass, coupled to #52.* CLAUDE.md is Claude-only, so once warden is
-  multi-backend there is no shared memory substrate — warden becomes the natural
-  owner of one canonical memory projected into each backend via the existing
-  `SystemPromptInject` seam, curated from fleet digests. Dropped: `wd init` as a
-  gate and the "repo cleanliness" motivation. See §53.
+  The only item still open in this tier.
+- **Pluggable agent backends (#52)** — *shipped*: 8 backends (Claude + 7
+  non-Claude, experimental tier) via the `Backend` interface. See §52.
+- **Backend-neutral project memory from fleet digests (#53)** — *shipped*:
+  warden-owned `.warden/memory.md`, projected into every backend via the #52
+  injection seam, with gated auto-curation and local REPL grounding. See §53.
 - Inter-agent collaboration (#44) is closed: the file-conflict MVP +
   BranchTracker shipped and the rest was audited and dropped (see §44 above). A
   fresh demand signal would be needed to reopen any of it.
@@ -382,7 +384,8 @@ they're worth the effort:
 
 **The near-term queue is clear.** Everything Tier-1-through-Tier-3 has shipped,
 and inter-agent collaboration (#44) is closed (MVP + BranchTracker shipped, the
-rest dropped — see §44). What remains is all Tier 5 (parked): build only on a
+rest dropped — see §44). #52 and #53 have also shipped. What remains open is
+#51 (small, low-moderate necessity) and Tier 5 (parked): build only on a
 concrete demand signal, not speculatively.
 
 ---
