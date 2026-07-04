@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,6 +168,82 @@ func TestListNewestFirstAndSessionFilter(t *testing.T) {
 func TestGetMissingSnapshot(t *testing.T) {
 	_, err := newTestStore(t).Get("snap-doesnotexist")
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+// --- Legacy-JSON import (one-time upgrade off the per-file layout) ---
+
+func TestLegacyJSONImport(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "snapshots")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+
+	// Seed a legacy <id>.json + matching <id>.transcript, exactly as the old
+	// per-file store wrote them. TranscriptPath points at the flat blob that must
+	// stay untouched across the migration.
+	transcriptPath := filepath.Join(dir, "snap-legacy1.transcript")
+	require.NoError(t, os.WriteFile(transcriptPath, []byte("scrollback line\n"), 0o600))
+	legacy := &Snapshot{
+		ID:              "snap-legacy1",
+		SessionID:       "agent-1",
+		Message:         "old checkpoint",
+		CreatedAt:       time.Now().UTC().Add(-time.Hour),
+		Workdir:         "/wt",
+		Branch:          "feature-x",
+		HeadSHA:         "headsha",
+		StashSHA:        "stashsha",
+		DirtyFiles:      []string{"foo.go"},
+		TranscriptPath:  transcriptPath,
+		TranscriptLines: 1,
+	}
+	seedJSON := func(path string, snap *Snapshot) {
+		t.Helper()
+		b, err := json.MarshalIndent(snap, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, b, 0o600))
+	}
+	seedJSON(filepath.Join(dir, "snap-legacy1.json"), legacy)
+	// A corrupt legacy file must be skipped, not abort the whole import.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "snap-bad.json"), []byte("{not json"), 0o600))
+
+	// First open imports the legacy JSON into FileDB and drops the sentinel.
+	st, err := NewStore(dir)
+	require.NoError(t, err)
+
+	got, err := st.Get("snap-legacy1")
+	require.NoError(t, err)
+	require.Equal(t, "agent-1", got.SessionID)
+	require.Equal(t, "stashsha", got.StashSHA)
+	require.Equal(t, transcriptPath, got.TranscriptPath, "TranscriptPath still points at the untouched flat blob")
+
+	// The transcript blob was never moved or rewritten.
+	blob, err := os.ReadFile(got.TranscriptPath)
+	require.NoError(t, err)
+	require.Equal(t, "scrollback line\n", string(blob))
+
+	list, err := st.List("agent-1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"snap-legacy1"}, idsOf(list))
+
+	// The legacy JSON is left in place as a read-only backup (not deleted).
+	_, err = os.Stat(filepath.Join(dir, "snap-legacy1.json"))
+	require.NoError(t, err, "legacy JSON must be preserved as a backup")
+
+	// Sentinel written last, at the parent of dir.
+	_, err = os.Stat(filepath.Join(parent, importedMarker))
+	require.NoError(t, err, "import sentinel must exist after a successful import")
+	require.NoError(t, st.Close())
+
+	// A second open must NOT re-import: a legacy file added after the first import
+	// stays invisible because the sentinel short-circuits the scan.
+	seedJSON(filepath.Join(dir, "snap-legacy2.json"), &Snapshot{ID: "snap-legacy2", SessionID: "agent-1"})
+	st2, err := NewStore(dir)
+	require.NoError(t, err)
+	defer st2.Close()
+	_, err = st2.Get("snap-legacy2")
+	require.ErrorIs(t, err, ErrNotFound, "second open must not re-scan legacy JSON")
+	got, err = st2.Get("snap-legacy1")
+	require.NoError(t, err, "the originally imported record is still served from FileDB")
+	require.Equal(t, "old checkpoint", got.Message)
 }
 
 // --- Restore (FakeRunner) ---

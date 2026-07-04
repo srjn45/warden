@@ -642,7 +642,9 @@ Most of this needs no LLM.
 
 Checkpoint an agent at a known-good point — its **worktree state** *and* its
 **session transcript** — and roll back to it later. Config-gated by `snapshots`
-(default on); the daemon owns a JSON snapshot store under `<data_dir>/snapshots/`.
+(default on); the daemon owns the snapshot store — metadata in an embedded FileDB
+under `<data_dir>/snapshots-db/`, transcripts as flat blobs under
+`<data_dir>/snapshots/` (see §33 for the storage format and upgrade migration).
 
 - **`wd snapshot create [name] [-m msg]`** (CLI + MCP `snapshot_create`) — captures
   the worktree **non-destructively** via `git stash create` (it builds a commit
@@ -973,3 +975,27 @@ the upgrade), then writes a `~/.warden/.pipelines-filedb-imported` sentinel
 backup** — this release never deletes it. The import is **atomic**: if it fails
 partway, the sentinel is not written, so the next boot wipes the half-built
 `pipelines-db/` and re-imports from the intact legacy JSON — no data is lost.
+
+## 33. Snapshot storage & upgrade migration
+
+Snapshot **metadata** (`wd snapshot`) is persisted by the same **embedded FileDB**
+(`github.com/srjn45/filedbv2`, opened with `SyncModeNone`) as sessions, in a
+`snapshots` collection rooted at a sibling `~/.warden/snapshots-db/` directory,
+each record keyed by snapshot id. A capture **appends one record** instead of
+writing a whole per-snapshot JSON file, mirroring the sessions/`ctxstore`/`mailbox`
+swap. This is an internal storage change only: the store's `Put`/`Get`/`List` API
+is unchanged, so the snapshot REST routes and CLI behave identically.
+
+The captured **transcript stays a flat file** at `~/.warden/snapshots/<id>.transcript`
+(unchanged path) — deliberately kept *out* of the FileDB record so a multi-megabyte
+scrollback never bloats the metadata store. This is a design choice, not a
+regression: the record only carries a `transcript_path` pointer to that blob.
+
+On the first daemon launch after upgrading, warden runs a **one-time import**: it
+decodes every legacy `~/.warden/snapshots/<id>.json` into the collection (a corrupt
+or unsafe-id file is skipped with a warning, never blocking the upgrade), then
+writes a `~/.warden/.snapshots-filedb-imported` sentinel **last**. The legacy
+`<id>.json` files (and every `.transcript` blob) are **left in place as a
+read-only backup** — this release never deletes them. The import is atomic at the
+directory level: if it fails partway the sentinel is not written, so the next boot
+wipes the half-built `snapshots-db/` and re-imports from the intact legacy JSON.
