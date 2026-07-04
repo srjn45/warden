@@ -169,8 +169,8 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
 ## Web GUI & cockpit TUI
 
 - **Web GUI** — the daemon embeds a React dashboard at `http://localhost:8765` (no
-  separate server): URL-routed shell (`/cockpit` home · `/pipelines` · `/metrics` ·
-  `/archive` · `/others` · `/agent/<id>`), live fleet over SSE, Cockpit Fleet
+  separate server): URL-routed shell (`/cockpit` home · `/tui` · `/pipelines` ·
+  `/metrics` · `/archive` · `/others` · `/agent/<id>`), live fleet over SSE, Cockpit Fleet
   header + agent grid, Others catch-all (attention queue with one-click approvals,
   conflicts, activity; sits last), a Metrics tab (per-agent + fleet-total CPU/memory,
   per-agent context, fleet size, tokens saved; two-column responsive layout),
@@ -182,9 +182,10 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   an agents list, a shell pane, and a live detail pane. `n` new, `s` send, `a`
   attach, `d` digest, `i` approvals, `c` context/message inspector, `x`
   terminate/cancel, `?` help; `Alt+←/→/↑/↓` move pane focus; `Alt+t` toggles the
-  master pane between the REPL and a raw shell. Requires tmux ≥ 3.1; run
-  from a plain terminal (not nested in tmux). Hold **Shift** to select text
-  natively (tmux mouse mode eats plain drag).
+  master pane between the REPL and a raw shell. Requires tmux ≥ 3.1. Inside an
+  existing tmux session it lays out as a **native tmux window** in that session
+  instead of nesting (auto-detected via `$TMUX`; force with `--tmux-native`).
+  Hold **Shift** to select text natively (tmux mouse mode eats plain drag).
 - **Web cockpit self-heal** — the browser `/tui` view attaches to a single
   daemon-owned `warden-web-cockpit` tmux session. It's validated (three panes,
   list pane running the bloom app) and auto-rebuilt if wedged, so you normally

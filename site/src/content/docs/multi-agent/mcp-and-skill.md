@@ -33,6 +33,7 @@ Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. 
 | `send_to_agent` / `get_agent_output` / `digest` | Type into / read recent output / catch-up summary of an agent |
 | `stop_agent` | Umbrella teardown (default: terminate + clear record + remove worktree; `keep_record`/`keep_worktree` subtract, `hard`/`pr`/`force` modifiers) |
 | `terminate_agent` / `restore_agent` | Stop (reversible) / resume an agent |
+| `recover_agents` | Recover archived agent records whose tmux session is still alive (tombstone-reaper safety net; `apply:false` reports candidates only) |
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
 | `handoff_agent` / `rotate_agent` | Hand off work — delegate to new/`to` existing agent, or `retire`→successor in place; `rotate_agent` is an alias for `handoff_agent {retire:true}` |
@@ -52,9 +53,11 @@ Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. 
 | `retry_pipeline_job` / `edit_pipeline_job` / `emit_pipeline_output` | Per-job retry / edit a pending job / set handoff output |
 | `list_schedules` / `create_schedule` / `delete_schedule` | List / create / delete the daemon's cron/at schedules (403 when disabled) |
 | `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree + transcript checkpoints and rollback |
-| `insights` / `savings` | History-mined patterns / the token-savings ledger |
+| `insights` / `savings` / `spend` | History-mined patterns / the token-savings ledger / the $ spend rollup |
 | `get_metrics` / `get_pressure` | Live/historical resource metrics / memory-pressure gate verdict |
 | `search` / `history` / `audit_log` | Full-text search / archived agents / the action audit trail |
+| `set_force_compact` | Interrupt→`/compact`→resume a context-critical busy agent |
+| `library_list` | Browse presets + prompt templates + pipeline templates (one umbrella) |
 | `export_sessions` / `import_sessions` / `list_plugins` | Serialize / load session metadata / list registered plugins |
 
 > **Full parity (72 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`retry`/`edit-job`/`emit`/`delete`/`validate`), scheduling, `rotate`/`handoff`, `fork`, and agent roles (`set_role`/`list_roles` + `spawn_agent`'s `role` param). The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`) plus the worktree-local `review`/`models` superpowers; see the [feature catalog](/warden/reference/features/).

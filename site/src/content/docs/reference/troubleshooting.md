@@ -52,4 +52,4 @@ warden setup --yes      # non-interactive: install all missing deps
 
 ## Cockpit-specific
 
-The cockpit **requires tmux ≥ 3.1** — it composites real tmux panes. If tmux isn't installed, or you run `warden tui` from **inside an existing tmux session** (which would nest sessions), the cockpit can't build its panes and exits with an error. Run it from a plain terminal.
+The cockpit **requires tmux ≥ 3.1** — it composites real tmux panes; if tmux isn't installed it exits with an error. Running `warden tui` from **inside an existing tmux session** is fine: warden detects `$TMUX` and lays the cockpit out as a **native tmux window** in your current session instead of nesting (force with `--tmux-native`; force the classic own-session cockpit with `env -u TMUX warden tui`).

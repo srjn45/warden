@@ -23,4 +23,6 @@ is partially in scope as an attacker). See the latest review under
 
 ## Supported versions
 
-Security fixes target the latest `v5.x` release.
+Security fixes target the latest release (the newest tag on the
+[releases page](https://github.com/srjn45/warden/releases)); older release
+lines are not patched.
