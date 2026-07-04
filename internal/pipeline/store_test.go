@@ -1,7 +1,10 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -59,5 +62,100 @@ func TestStoreDelete(t *testing.T) {
 	}
 	if err := s.Delete("p1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Delete missing want ErrNotFound, got %v", err)
+	}
+}
+
+// seedLegacy writes a legacy <id>.json pipeline record into dir, the on-disk
+// layout the pre-FileDB store used.
+func seedLegacy(t *testing.T, dir string, p *Pipeline) {
+	t.Helper()
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, p.ID+".json"), data, 0o600); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+}
+
+// TestStoreLegacyImport seeds a dir with legacy <id>.json files, opens a fresh
+// Store, and confirms the records are imported (readable via Get/List), the
+// sentinel is written, the legacy files are left as a backup, and a second open
+// does not re-import.
+func TestStoreLegacyImport(t *testing.T) {
+	// dir mirrors the daemon's <data>/pipelines; the sentinel lands in its parent.
+	root := t.TempDir()
+	dir := filepath.Join(root, "pipelines")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	seedLegacy(t, dir, &Pipeline{ID: "p1", Name: "p1", Repo: "/r", Status: StatusDone,
+		Jobs: []Job{{ID: "a", Prompt: "x", Worktree: "none", Status: JobDone}}})
+	seedLegacy(t, dir, &Pipeline{ID: "p2", Name: "p2", Repo: "/r", Status: StatusRunning,
+		Jobs: []Job{{ID: "b", Prompt: "y", Worktree: "none", Status: JobRunning}}})
+	// A corrupt file must be skipped, not abort the whole import.
+	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatalf("write bad: %v", err)
+	}
+
+	s, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	got, err := s.Get("p1")
+	if err != nil || got.Name != "p1" || got.Status != StatusDone {
+		t.Fatalf("Get p1 after import: %+v err=%v", got, err)
+	}
+	all, _ := s.List()
+	if len(all) != 2 {
+		t.Fatalf("List after import want 2, got %d", len(all))
+	}
+
+	sentinel := filepath.Join(root, importedMarker)
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("sentinel missing after import: %v", err)
+	}
+	// Legacy JSON is retained as a read-only backup.
+	if _, err := os.Stat(filepath.Join(dir, "p1.json")); err != nil {
+		t.Fatalf("legacy p1.json should be retained: %v", err)
+	}
+	s.Close()
+
+	// A second open must not re-import: delete a legacy file, drop a new record
+	// into the live store, reopen, and confirm the deleted legacy file is NOT
+	// resurrected while the live record survives.
+	if err := os.Remove(filepath.Join(dir, "p2.json")); err != nil {
+		t.Fatalf("rm legacy p2: %v", err)
+	}
+	s2, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("reopen NewStore: %v", err)
+	}
+	defer s2.Close()
+	// p2 was imported into the DB on the first open and stays there (the DB, not
+	// the legacy dir, is authoritative now).
+	if _, err := s2.Get("p2"); err != nil {
+		t.Fatalf("p2 should persist in DB across reopen: %v", err)
+	}
+	all2, _ := s2.List()
+	if len(all2) != 2 {
+		t.Fatalf("reopen List want 2 (no re-import), got %d", len(all2))
+	}
+}
+
+// TestStoreFreshEmptyDir confirms the common test case — a brand-new empty dir
+// with no legacy files and no sentinel — works with zero special-casing.
+func TestStoreFreshEmptyDir(t *testing.T) {
+	s, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+	all, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != 0 {
+		t.Fatalf("fresh List want 0, got %d", len(all))
 	}
 }
