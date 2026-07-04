@@ -129,6 +129,7 @@ func printConfig(out io.Writer, cfg config.Config) {
 		{"rate limit (rate_limit.*)", [][2]string{
 			{"rate_limit.auto_resume", fmt.Sprintf("%t", cfg.RateLimit.AutoResume)},
 			{"rate_limit.retry_interval", cfg.RateLimit.RetryInterval},
+			{"rate_limit.spend_retry_interval", cfg.RateLimit.SpendRetryInterval},
 			{"rate_limit.buffer", cfg.RateLimit.Buffer},
 		}},
 		{"collaboration (collab.*, branch_track.*)", [][2]string{

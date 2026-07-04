@@ -172,6 +172,14 @@ type Poller struct {
 	// OnContextAlert, if set, fires once per upward threshold crossing.
 	OnContextAlert func(sess *store.Session, state ctxtokens.State, tokens int)
 
+	// RateLimitAutoResume mirrors rate_limit.auto_resume (set by the daemon after
+	// New). When true the poller auto-selects the "Stop and wait for limit to
+	// reset" choice on Claude's rate-limit menu so a limited agent parks itself;
+	// when false the menu is left for a human. It gates only the menu selection —
+	// the resume-after-clear scheduling lives in the daemon's RateLimitScheduler,
+	// which shares the same toggle.
+	RateLimitAutoResume bool
+
 	// OnSaving, if set, records a token-savings event (the daemon wires it to the
 	// savings ledger). The poller uses it for the auto-/compact win: when a
 	// compaction it issued lands, the reclaimed context tokens are recorded as a
@@ -492,6 +500,40 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 	}
 }
 
+// tryLimitMenu auto-selects the "Stop and wait for limit to reset" choice on
+// Claude's rate-limit menu (the safe option that parks the agent until the
+// limit clears, vs. "Upgrade your plan"). It is a no-op unless the pane is that
+// specific menu and rate_limit.auto_resume is on. Selecting the wait option
+// dismisses the menu so the limit banner surfaces on a later tick, at which
+// point the agent classifies as rate_limited and the daemon's scheduler drives
+// the resume-after-clear. The numeric key is sent as a single keystroke, the
+// same select-and-confirm mechanism tryAutoApprove uses for Claude's other
+// numbered menus.
+//
+// TODO(open-question): confirm on a LIVE limit hit that the menu confirms on the
+// bare number. Its footer reads "Enter to confirm", and the safe option is
+// pre-highlighted (❯), so bare Enter is the fallback if numeric quick-select
+// turns out not to apply here. This is the single place to change the keystroke,
+// kept in sync with the daemon's resumeKey TODO.
+func (p *Poller) tryLimitMenu(ctx context.Context, s *store.Session, pane string) {
+	if !p.RateLimitAutoResume {
+		return
+	}
+	idx, ok := LimitMenuOption(pane)
+	if !ok {
+		return
+	}
+	key := strconv.Itoa(idx)
+	if err := p.deps.SendKeys(ctx, s.TmuxSession, key); err != nil {
+		slog.Warn("rate-limit menu: failed to select wait option", "agent", s.ID, "err", err)
+		return
+	}
+	slog.Info("rate-limit menu: auto-selected wait-for-reset", "agent", s.ID, "option", key)
+	if p.OnChange != nil {
+		p.OnChange()
+	}
+}
+
 // runApprovalWorker consumes approval events and attempts auto-approval.
 // Runs until ctx is cancelled.
 func (p *Poller) runApprovalWorker(ctx context.Context) {
@@ -581,6 +623,12 @@ func (p *Poller) tick(ctx context.Context) error {
 					// The pane is actively churning — feed loop detection (the
 					// stuck timer only catches a STALE pane, never a busy loop).
 					p.trackLoop(ctx, s, excerpt)
+
+					// A freshly drawn rate-limit menu ("Stop and wait for limit to
+					// reset" / "Upgrade your plan") is auto-answered here so the agent
+					// parks instead of sitting on an unanswered menu. Gated on
+					// auto_resume; a no-op for any other pane.
+					p.tryLimitMenu(ctx, s, pane)
 
 					// Publish approval event if already waiting
 					if s.Status == store.StatusWaitingForInput && pane != "" {

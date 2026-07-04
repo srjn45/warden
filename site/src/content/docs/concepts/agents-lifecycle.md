@@ -35,6 +35,7 @@ description: How agents are spawned and auto-classified, and the commands that s
 | `working` | Actively doing work |
 | `waiting_for_input` | Paused on a question/notification — `send` it an answer |
 | `idle` | Alive but not currently working |
+| `rate_limited` | Hit a session, weekly, or monthly-spend limit — warden auto-picks "Stop and wait", parks the agent, and auto-resumes when the limit clears (tune via `rate_limit.*`) |
 | `done` | Finished |
 | `errored` | Hit an error |
 | `orphaned` | The daemon lost track of its tmux session |

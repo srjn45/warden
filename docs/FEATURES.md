@@ -425,7 +425,7 @@ alternate file; `--addr <host:port>` overrides the daemon address per-command.
 | `memory.ground` | `true` | Answer project questions (\"where does X live?\", \"how do I run Y?\") **locally** in `wd repl` from `.warden/memory.md` (see §22), via the `/memory` command and the `project_memory` tool. Served on the **local model only** — it **removes** cloud round-trips rather than adding tokens, so it is default on. Read-only (never creates/writes memory); with no local model it degrades to the matching entries verbatim (`$0`), never escalating to a paid model; answers cite each entry's trust + provenance |
 | `worktree.keep_done` / `worktree.auto_prune` | `true` / `false` | Keep a worktree after its agent is done / auto-reclaim orphaned worktrees |
 | `auto_restart.max` / `auto_restart.reset` | `3` / `5m` | Auto-restart attempts for an errored opted-in agent / health window that resets the counter |
-| `rate_limit.auto_resume` | `true` | Auto-resume agents after a rate limit clears (`rate_limit.retry_interval`, `rate_limit.buffer` tune timing) |
+| `rate_limit.auto_resume` | `true` | Auto-pick the "Stop and wait" limit-menu choice and auto-resume agents after any limit (session/weekly/monthly-spend) clears (`rate_limit.retry_interval`, `rate_limit.spend_retry_interval`, `rate_limit.buffer` tune timing) |
 | `log.level` / `log.format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
 | `rails.isolation_guard` | `true` | PreToolUse hook blocking an isolated agent from editing files outside its worktree (§22) |
 | `rails.git_conventions` | `true` | Append the prompt steer toward `wd commit`/`push`/`sync` over raw git Bash (§22) |

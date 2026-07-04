@@ -113,6 +113,66 @@ func TestDetectRateLimit_BannerScrolledAwayDoesNotMatch(t *testing.T) {
 	require.False(t, got, "banner outside the trailing window must not match")
 }
 
+// sampleSpendBanner is the best-known Claude Code monthly-spend-cap banner: it
+// carries NO reset time, so detection must classify it as limited while
+// reporting no parseable restore time.
+//
+// TODO(open-question): replace with the VERBATIM banner captured from a live
+// spend-cap hit. Keep in sync with claudeSpendLimitRe.
+const sampleSpendBanner = "You've hit your monthly spend limit · raise it at claude.ai/settings/usage/usage-credits to adjust your monthly spend limit."
+
+func TestDetectRateLimit_SpendBannerIsLimitedWithNoTime(t *testing.T) {
+	pane := "working...\n" + sampleSpendBanner
+	limited, restore, ok := detectRateLimit(pane)
+	require.True(t, limited, "spend-cap banner must classify as rate-limited")
+	require.False(t, ok, "spend-cap banner carries no parseable reset time")
+	require.True(t, restore.IsZero(), "spend-cap restore time must be zero")
+}
+
+func TestSpendLimitBannerPresent(t *testing.T) {
+	require.True(t, SpendLimitBannerPresent("noise\n"+sampleSpendBanner))
+	require.False(t, SpendLimitBannerPresent(sampleLimitBanner),
+		"the resettable usage banner is not a spend cap")
+	require.False(t, SpendLimitBannerPresent("we discussed the monthly budget earlier"),
+		"prose about budgets must not match")
+}
+
+func TestSpendBannerScrolledAwayDoesNotMatch(t *testing.T) {
+	pane := sampleSpendBanner + strings.Repeat("\nnormal work line", 20)
+	require.False(t, SpendLimitBannerPresent(pane),
+		"spend banner outside the trailing window must not match")
+}
+
+// sampleLimitMenu reproduces Claude's rate-limit choice menu: a ❯ cursor on the
+// safe "Stop and wait" option plus an "Upgrade your plan" alternative.
+const sampleLimitMenu = "What do you want to do?\n" +
+	"❯ 1. Stop and wait for limit to reset\n" +
+	"  2. Upgrade your plan\n" +
+	"Enter to confirm · Esc to cancel"
+
+func TestLimitMenuOption_SelectsWaitChoice(t *testing.T) {
+	idx, ok := LimitMenuOption(sampleLimitMenu)
+	require.True(t, ok, "the rate-limit menu must be recognized")
+	require.Equal(t, 1, idx, "the wait-for-reset choice is option 1")
+}
+
+func TestLimitMenuOption_FindsReorderedWaitChoice(t *testing.T) {
+	// The index is looked up by label, not assumed to be 1.
+	pane := "What do you want to do?\n" +
+		"❯ 1. Upgrade your plan\n" +
+		"  2. Stop and wait for limit to reset\n"
+	idx, ok := LimitMenuOption(pane)
+	require.True(t, ok)
+	require.Equal(t, 2, idx, "wait option must be found at its real position")
+}
+
+func TestLimitMenuOption_IgnoresNonMenuPane(t *testing.T) {
+	_, ok := LimitMenuOption("just some agent output\n❯ esc to interrupt")
+	require.False(t, ok, "a non-menu pane must not be treated as the limit menu")
+	_, ok = LimitMenuOption(sampleSpendBanner)
+	require.False(t, ok, "the spend banner is not the choice menu")
+}
+
 func TestParseRestoreTime_NoTimeInMessage(t *testing.T) {
 	_, ok := ParseRestoreTime("Rate limit exceeded. Try again later.")
 	require.False(t, ok, "a message with no clock-time must not parse")

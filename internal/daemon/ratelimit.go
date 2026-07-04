@@ -31,29 +31,36 @@ type RateLimitScheduler struct {
 	life  Lifecycle
 	store store.Store
 
-	retryInterval time.Duration
-	buffer        time.Duration
-	enabled       bool
-	resumePrompt  string // text to inject on resume; "" = bare keypress only
+	retryInterval      time.Duration
+	spendRetryInterval time.Duration
+	buffer             time.Duration
+	enabled            bool
+	resumePrompt       string // text to inject on resume; "" = bare keypress only
 
 	mu     sync.Mutex
 	timers map[string]*time.Timer
 }
 
-// NewRateLimitScheduler creates a new scheduler. The retry interval, buffer,
-// auto-resume toggle, and resume prompt are supplied by the caller from config
-// (rate_limit_retry_interval / rate_limit_buffer / rate_limit_auto_resume /
-// rate_limit_resume_prompt). An empty resumePrompt means resume with a bare
-// keypress and no injected user turn.
-func NewRateLimitScheduler(life Lifecycle, st store.Store, retryInterval, buffer time.Duration, autoResume bool, resumePrompt string) *RateLimitScheduler {
+// NewRateLimitScheduler creates a new scheduler. The retry interval, spend retry
+// interval, buffer, auto-resume toggle, and resume prompt are supplied by the
+// caller from config (rate_limit.retry_interval / rate_limit.spend_retry_interval
+// / rate_limit.buffer / rate_limit.auto_resume / rate_limit.resume_prompt).
+//
+// retryInterval is the fallback wait when a resettable limit (session/weekly)
+// shows no parseable reset time; spendRetryInterval is the (longer) fallback for
+// a monthly spend cap, which carries no reset time and will not clear for hours
+// or days. An empty resumePrompt means resume with a bare keypress and no
+// injected user turn.
+func NewRateLimitScheduler(life Lifecycle, st store.Store, retryInterval, spendRetryInterval, buffer time.Duration, autoResume bool, resumePrompt string) *RateLimitScheduler {
 	return &RateLimitScheduler{
-		life:          life,
-		store:         st,
-		timers:        make(map[string]*time.Timer),
-		retryInterval: retryInterval,
-		buffer:        buffer,
-		enabled:       autoResume,
-		resumePrompt:  resumePrompt,
+		life:               life,
+		store:              st,
+		timers:             make(map[string]*time.Timer),
+		retryInterval:      retryInterval,
+		spendRetryInterval: spendRetryInterval,
+		buffer:             buffer,
+		enabled:            autoResume,
+		resumePrompt:       resumePrompt,
 	}
 }
 
@@ -79,11 +86,18 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 	restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt)
 
 	var scheduleAt time.Time
-	if ok && restoreTime.After(time.Now()) {
-		// Success: use parsed time + buffer
+	switch {
+	case ok && restoreTime.After(time.Now()):
+		// A resettable limit (session/weekly) told us exactly when it clears:
+		// wake just after that, plus a small buffer for clock skew.
 		scheduleAt = restoreTime.Add(r.buffer)
-	} else {
-		// Fallback: retry in configured interval
+	case poller.SpendLimitBannerPresent(sess.LastPaneExcerpt):
+		// Monthly spend cap: no reset time in-band, and it will not clear for
+		// hours or days — retry on the long spend interval so we keep polling for
+		// the auto-resume without hammering a pane that stays capped.
+		scheduleAt = time.Now().Add(r.spendRetryInterval)
+	default:
+		// A resettable limit whose reset time we could not parse: retry soon.
 		scheduleAt = time.Now().Add(r.retryInterval)
 	}
 
@@ -229,6 +243,10 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 		if parsedTime, ok := poller.ParseRestoreTime(errMsg); ok {
 			scheduleAt = parsedTime.Add(r.buffer)
 			detail = "parsed restore time: " + parsedTime.Format(time.RFC3339)
+		} else if poller.SpendLimitBannerPresent(sess.LastPaneExcerpt) {
+			// Monthly spend cap: use the long spend interval, matching OnTransition.
+			scheduleAt = time.Now().Add(r.spendRetryInterval)
+			detail = "monthly spend cap, retrying in " + r.spendRetryInterval.String()
 		}
 
 		_ = r.store.SetRateLimit(ctx, sess.ID, scheduleAt, sess.RateLimitRetryCount+1)

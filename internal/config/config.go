@@ -115,10 +115,11 @@ type BranchTrackConfig struct {
 
 // RateLimitConfig groups the rate-limit auto-resume scheduler settings.
 type RateLimitConfig struct {
-	RetryInterval string `yaml:"retry_interval"`
-	Buffer        string `yaml:"buffer"`
-	AutoResume    bool   `yaml:"auto_resume"`
-	ResumePrompt  string `yaml:"resume_prompt"`
+	RetryInterval      string `yaml:"retry_interval"`
+	SpendRetryInterval string `yaml:"spend_retry_interval"`
+	Buffer             string `yaml:"buffer"`
+	AutoResume         bool   `yaml:"auto_resume"`
+	ResumePrompt       string `yaml:"resume_prompt"`
 }
 
 // HTTPConfig groups the daemon HTTP write-budget settings.
@@ -250,7 +251,7 @@ var schema = []setting{
 	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — scan interval), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
 	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
-	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — resume agents after a rate limit clears), resume_prompt (text to send when resuming; empty = bare keypress). Flat keys still load as deprecated aliases."},
+	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to send when resuming; empty = bare keypress). Flat keys still load as deprecated aliases."},
 	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
@@ -352,10 +353,11 @@ func defaults() Config {
 			Interval: "2m",
 		},
 		RateLimit: RateLimitConfig{
-			RetryInterval: "30m",
-			Buffer:        "1m",
-			AutoResume:    true,
-			ResumePrompt:  "",
+			RetryInterval:      "30m",
+			SpendRetryInterval: "6h",
+			Buffer:             "1m",
+			AutoResume:         true,
+			ResumePrompt:       "",
 		},
 		HTTP: HTTPConfig{
 			TimeoutFast: "30s",
@@ -466,6 +468,7 @@ func validate(c *Config) {
 	c.Collab.Interval = validDuration(c.Collab.Interval, d.Collab.Interval)
 	c.BranchTrack.Interval = validDuration(c.BranchTrack.Interval, d.BranchTrack.Interval)
 	c.RateLimit.RetryInterval = validDuration(c.RateLimit.RetryInterval, d.RateLimit.RetryInterval)
+	c.RateLimit.SpendRetryInterval = validDuration(c.RateLimit.SpendRetryInterval, d.RateLimit.SpendRetryInterval)
 	c.RateLimit.Buffer = validDuration(c.RateLimit.Buffer, d.RateLimit.Buffer)
 	c.HTTP.TimeoutFast = validDuration(c.HTTP.TimeoutFast, d.HTTP.TimeoutFast)
 	c.HTTP.TimeoutSlow = validDuration(c.HTTP.TimeoutSlow, d.HTTP.TimeoutSlow)
@@ -677,6 +680,7 @@ var flatKeyGroups = []keyGroup{
 	}},
 	{"rate_limit", []keyAlias{
 		{"rate_limit_retry_interval", "retry_interval"},
+		{"rate_limit_spend_retry_interval", "spend_retry_interval"},
 		{"rate_limit_buffer", "buffer"},
 		{"rate_limit_auto_resume", "auto_resume"},
 		{"rate_limit_resume_prompt", "resume_prompt"},
@@ -1239,6 +1243,12 @@ func (c Config) AutoRestartResetDuration() time.Duration {
 // rate-limited agent.
 func (c Config) RateLimitRetryIntervalDuration() time.Duration {
 	return durOr(c.RateLimit.RetryInterval, 30*time.Minute)
+}
+
+// RateLimitSpendRetryIntervalDuration returns the (longer) fallback wait before
+// retrying an agent parked on a monthly spend cap, which carries no reset time.
+func (c Config) RateLimitSpendRetryIntervalDuration() time.Duration {
+	return durOr(c.RateLimit.SpendRetryInterval, 6*time.Hour)
 }
 
 // CollabIntervalDuration returns the file-conflict scan interval.

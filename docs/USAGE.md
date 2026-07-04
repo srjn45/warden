@@ -1599,10 +1599,22 @@ Warden **automatically detects and handles** Claude API rate limits:
 
 ### Detection
 
-When an agent hits the API session limit, warden:
-1. Detects the rate limit from the agent's terminal output
-2. Transitions status to `rate_limited` (shown in **yellow/amber**)
-3. Schedules automatic resume when the limit expires
+When an agent hits a limit — a **session** (5-hour) limit, a **weekly** limit,
+or a **monthly spend cap** — warden:
+1. If Claude prompts a choice menu (*"Stop and wait for limit to reset"* /
+   *"Upgrade your plan"*), auto-selects **Stop and wait** so the agent parks
+   itself (gated on `rate_limit.auto_resume`; left for a human when off)
+2. Detects the resulting limit banner from the agent's terminal output
+3. Transitions status to `rate_limited` (shown in **yellow/amber**)
+4. Schedules an automatic resume and keeps retrying until the limit clears —
+   regardless of which limit it was
+
+A **session/weekly** banner usually prints its reset time (`resets 1:30pm
+(TZ)`), which warden parses to resume at the exact moment. A **monthly spend
+cap** banner ("You've hit your monthly spend limit …") carries *no* reset time
+and clears only at billing rollover or when you raise the cap, so warden falls
+back to a longer polling interval (`rate_limit.spend_retry_interval`, default
+6h) and auto-resumes the instant the cap lifts.
 
 ### Viewing rate-limited agents
 
@@ -1625,9 +1637,10 @@ rate limit:
 
 ### Auto-resume behavior
 
-- **Parsed timestamp**: Resumes at the exact time + 1 minute safety buffer
-- **No timestamp found**: Retries every 30 minutes until successful
-- **Still limited on retry**: Re-parses error for updated time, reschedules
+- **Parsed timestamp** (session/weekly): Resumes at the exact time + 1 minute safety buffer
+- **No timestamp found** (session/weekly): Retries every 30 minutes until successful
+- **Monthly spend cap** (no reset time): Retries every 6 hours until the cap clears
+- **Still limited on retry**: Re-checks the banner, reschedules on the matching interval
 - **Non-limit error**: Transitions to `errored` status
 
 ### Configuration
@@ -1637,9 +1650,10 @@ after editing):
 
 ```yaml
 rate_limit:
-  auto_resume: false   # disable auto-resume (manual intervention only)
-  retry_interval: 15m  # change retry interval (default: 30m)
-  buffer: 2m           # change safety buffer after parsed time (default: 1m)
+  auto_resume: false          # disable auto-resume + menu auto-select (manual only)
+  retry_interval: 15m         # session/weekly fallback when no reset time parses (default: 30m)
+  spend_retry_interval: 6h    # monthly spend-cap poll interval (default: 6h)
+  buffer: 2m                  # safety buffer after a parsed reset time (default: 1m)
 ```
 
 ### Manual intervention
