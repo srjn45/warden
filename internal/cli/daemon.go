@@ -224,6 +224,9 @@ func newDaemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// snapshot metadata is now an embedded FileDB store (see cstore above);
+			// close it on shutdown to flush its index and stop the compaction loop.
+			defer snapStore.Close()
 			srv.SetSnapshots(cfg.Snapshots, snapshot.New(runner, snapStore))
 			// Token-savings ledger: the store is created regardless of the gate so
 			// toggling savings on later doesn't lose prior data; the gate decides
