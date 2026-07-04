@@ -166,3 +166,8 @@ release:
   draft: false
   prerelease: auto
   name_template: "warden {{ .Tag }}"
+  # A later publisher (e.g. homebrew_casks) can fail after the GitHub release
+  # itself already succeeded. Without this, re-running the workflow for the
+  # same tag re-attempts every asset upload and fails with 422 already_exists
+  # instead of retrying just the step that actually failed.
+  mode: keep-existing
