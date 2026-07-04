@@ -62,7 +62,7 @@ synthetic write/edit fixture.
 | `LaunchCmd` (TUI)        | `crush` (`+ --yolo` for auto-approve)          | interactive Bubble Tea TUI — the core requirement |
 | `HeadlessCmd`            | `crush run --quiet "<prompt>"`                 | non-interactive one-shot; no permission prompts |
 | `ResumeCmd`              | `crush --session <id>` / `crush --continue`    | exact-id when a 16-hex id is pinned; else dir-scoped continue |
-| `LaunchPromptArg`        | *(none — returns `""`)*                         | **gap:** the TUI takes no initial prompt (see below) |
+| `LaunchPromptArg`        | *(none — returns `""`)*                         | interactive prompt is seeded post-launch via `PromptSeeder` |
 | `TranscriptPath`         | `crush session list --json` → `crush session show <id> --json` | SQLite-sourced via the CLI, like OpenCode's `export` |
 | `ParseTranscript`        | parses `session show` JSON                      | Tier A |
 | `SystemPromptFlag`       | *(unsupported)*                                 | no `--append-system-prompt` equivalent |
@@ -109,7 +109,7 @@ Permission-mode folding: warden's `yolo` / `auto` / `acceptEdits` /
 | Permission modes       | default / `yolo` | TUI prompt vs. `--yolo` auto-accept |
 | Pricing / spend $      | ❌ (deferred) | Crush **does** track cost/tokens natively in session meta; warden's usage reader is Claude-JSONL-specific and doesn't read it yet |
 | System-prompt inject   | ✅ via rules file | no launch-time `--append-system-prompt`, but warden delivers the same addendum out-of-band via the `CRUSH.md` context file Crush reads on startup (`InjectContext`). `SystemPromptInject` Caps stays `false` — it tracks the *launch flag* specifically. |
-| Initial-prompt seeding | ❌ (gap) | the interactive TUI takes no positional/flag prompt |
+| Initial-prompt seeding | ✅ via `PromptSeeder` | warden launches the bare TUI, waits for the ready footer, then types the task prompt and presses Enter |
 
 ## What works vs. what warden can't do yet
 
@@ -121,10 +121,10 @@ Permission-mode folding: warden's `yolo` / `auto` / `acceptEdits` /
   assistant turns, tool names, edited files).
 
 **Gaps (warden can't do these yet for Crush):**
-1. **No initial-prompt seeding into the TUI.** The interactive `crush` rejects a
-   positional prompt as an unknown command and has no prompt flag — only
-   `crush run` takes one. `LaunchPromptArg` returns `""`; the operator types the
-   first task after attaching, or the headless path is used. *Largest gap.*
+1. ~~**No initial-prompt seeding into the TUI.**~~
+   **Resolved** — warden launches the bare `crush` TUI, waits for the `ctrl+p commands`
+   footer, then seeds the task prompt and presses Enter via `PromptSeeder`
+   (`LaunchPromptArg` still returns `""` because Crush has no prompt flag).
 2. **No per-agent model on the TUI launch.** The TUI has no `-m`; the model is
    config-driven (`models.large`/`small`) or switched in-TUI. `LaunchCmd` omits
    the resolved model.
@@ -166,4 +166,4 @@ available to the agent and are candidates for deeper warden integration:
   without the dir-scoped fallback; the adapter already prefers a pinned id).
 - Wire warden spend/savings to Crush's native `meta` cost/tokens.
 - Map interactive TUI approvals (`DetectState`/`ParseApproval`).
-- Seed the initial task prompt (needs a Crush TUI prompt flag or the server API).
+- Richer programmatic TUI integration via `crush server` or a future prompt flag.
