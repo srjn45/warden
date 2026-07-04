@@ -271,6 +271,7 @@ func newDaemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer schedStore.Close()
 			srv.SetScheduler(cfg.SchedulerEnabled, schedStore, time.Minute)
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with

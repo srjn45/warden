@@ -1,7 +1,9 @@
 package schedule
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ func newTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	return st
 }
 
@@ -96,21 +99,95 @@ func TestStoreDelete(t *testing.T) {
 	}
 }
 
-// Persistence: a second Store over the same file sees what the first wrote.
+// Persistence: a second Store over the same path (after the first is closed,
+// mirroring a daemon restart) sees what the first wrote.
 func TestStorePersistsAcrossInstances(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schedules.json")
-	st1, _ := NewStore(path)
+	st1, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("open st1: %v", err)
+	}
 	st1.Create(mustNew(t, "keep")) //nolint:errcheck
+	if err := st1.Close(); err != nil {
+		t.Fatalf("close st1: %v", err)
+	}
 
 	st2, err := NewStore(path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
+	t.Cleanup(func() { _ = st2.Close() })
 	got, err := st2.Get("keep")
 	if err != nil {
 		t.Fatalf("Get after reopen: %v", err)
 	}
 	if got.Name != "keep" {
 		t.Fatalf("reopened name = %q", got.Name)
+	}
+}
+
+// TestStoreLegacyImport seeds a flat legacy schedules.json, then opens a fresh
+// FileDB-backed Store over the same path: the legacy entries must be readable,
+// the import sentinel must now exist, the legacy JSON must be left in place as a
+// read-only backup, and a second NewStore must not re-import or error.
+func TestStoreLegacyImport(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "schedules.json")
+
+	// Seed a legacy flat-JSON map keyed by schedule id, the format the old Store
+	// wrote and NewStore now imports once.
+	one := mustNew(t, "one")
+	two := mustNew(t, "two")
+	legacy := map[string]*Schedule{one.ID: one, two.ID: two}
+	data, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("seed legacy: %v", err)
+	}
+
+	st, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore (import): %v", err)
+	}
+	list, err := st.List()
+	if err != nil {
+		t.Fatalf("List after import: %v", err)
+	}
+	if len(list) != 2 || list[0].ID != "one" || list[1].ID != "two" {
+		t.Fatalf("imported entries wrong: %+v", list)
+	}
+
+	// The sentinel now marks the FileDB as authoritative.
+	sentinel := filepath.Join(dir, importedMarker)
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("import sentinel missing: %v", err)
+	}
+	// The legacy JSON is left untouched as a read-only backup.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("legacy schedules.json must be preserved: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("close st: %v", err)
+	}
+
+	// A second open must not re-import (adding a schedule then reopening proves
+	// the second NewStore reads the live FileDB, not the stale legacy JSON) and
+	// must not error.
+	st2, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("reopen must not re-import or error: %v", err)
+	}
+	t.Cleanup(func() { _ = st2.Close() })
+	if err := st2.Create(mustNew(t, "three")); err != nil {
+		t.Fatalf("Create after reopen: %v", err)
+	}
+	list2, err := st2.List()
+	if err != nil {
+		t.Fatalf("List after reopen: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("after reopen want 3 schedules (no re-import clobber), got %d: %+v", len(list2), list2)
 	}
 }
