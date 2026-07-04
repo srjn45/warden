@@ -4,7 +4,7 @@ The authoritative inventory of **every** warden capability and where you can dri
 it. warden exposes its features across five surfaces:
 
 - **CLI** — the `warden` binary (aliased `wd`); always available.
-- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **71 tools**.
+- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **72 tools**.
 - **Skill** — the `/warden` Claude Code skill that prefers MCP, falls back to CLI.
 - **Web** — the browser mission-control GUI (`warden daemon` + the web app).
 - **TUI** — the terminal cockpit (`warden tui`).
@@ -46,6 +46,7 @@ default; each in its own tmux session, most in a git worktree).
 | Finish cleanly (commit/push guard) | `done` (= `stop --keep-worktree`) | `terminate_agent` (`force`) | ✓ | ✓ | `x` | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Terminate | `terminate` (= `stop --keep-record --keep-worktree`) | `terminate_agent` | ✓ | ✓ | `x` | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Restore an orphaned agent | `restore` | `restore_agent` | ✓ | ✓ | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
+| Recover an archived-but-alive agent (tombstone-reaper safety net) | `recover` | `recover_agents` | ✓ | — | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
 | Delete / hard-purge | `delete` (= `stop --keep-worktree`, record only) | `delete_agent` | ✓ | ✓ | `D` | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Tags (group / filter) | `start --tag`, `ls --tag` | `spawn_agent` (`tags`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
@@ -276,7 +277,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**71 tools**, including the
+Every fleet/data feature is reachable over MCP (**72 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §15 (plus interactive `attach`/`repl`, the local-config `preset` /

@@ -824,6 +824,16 @@ Recreate and resume a lost/orphaned agent's tmux + claude session (`claude --res
 warden restore PROJ-350
 ```
 
+### `warden recover`
+
+The safety net for the tombstone reaper (which auto-archives a parent record once its whole sub-tree goes terminal): a stale `orphaned` status racing a daemon restart could previously let a genuinely-live session's record get archived out from under it. Bare `warden recover` scans **archived** records and only reports the ones whose tmux session is confirmed still alive; `--apply` re-inserts each candidate into the active store under its original id — any children (linked via `parent_id`, untouched by archiving) reconnect automatically.
+
+```sh
+warden recover                # report candidates only (dry run)
+warden recover --apply        # actually revive them
+warden recover --json         # scripting
+```
+
 ### `warden delete <TICKET>`
 
 Clear an agent's stored record (archives by default; `--hard` purges). Does not touch tmux or the worktree. Alias for `stop --keep-worktree` (record only).
@@ -1429,6 +1439,7 @@ Once registered, the orchestrator session can call these tools directly:
 | `stop_agent` | **Umbrella teardown.** Default = full teardown (terminate + clear record + remove worktree). `keep_record` / `keep_worktree` subtract steps (`keep_worktree` alone == the old `done`); `hard` purges the record; `pr`/`base` open a GitHub PR first while the agent is intact; `force`/`delete_adopted_branch` for the worktree guards. **Destructive** when it removes the worktree — only after explicit user confirmation |
 | `terminate_agent` | Stop an agent (kill tmux + the agent process); keeps the record and worktree. Reversible via `restore_agent` — the default "stop this agent" action |
 | `restore_agent` | Recreate and resume a lost/orphaned agent's session (`claude --resume`) |
+| `recover_agents` | Safety net for the tombstone reaper: revive **archived** records whose tmux session is confirmed still alive. `apply:false` (default) only reports candidates; `apply:true` re-inserts each one under its original id, reconnecting any children automatically |
 | `delete_agent` | Clear an agent's stored record (archives by default; `hard` purges). Does not touch tmux or the worktree |
 | `remove_worktree` | Remove an agent's git worktree + branch — **destructive**; refuses while the agent runs or has uncommitted/unpushed work unless `force` |
 | `ctx_set` / `ctx_get` / `ctx_list` / `ctx_cas` / `ctx_append` | Read/write the shared-context key/value blackboard agents collaborate through (with compare-and-swap and append) |
