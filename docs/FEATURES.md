@@ -806,8 +806,20 @@ keeping the concern as the default-off gate.
 | **Fail-soft loop** | A fire error is recorded in the schedule's `last_error` and logged; it never crashes the once-a-minute reconcile loop or stops other schedules firing. An agent-name collision fails just that fire (honest over silently renaming). |
 | **Read-only MCP + audit** | `list_schedules` (MCP) exposes the same view; create/delete are written to the audit log (`schedule_create` / `schedule_delete`). |
 
-Persisted atomically to `~/.warden/schedules.json`. Pure next-fire logic lives in
-`internal/schedule` (table-tested); the daemon's reconcile loop is
+Persisted by an **embedded FileDB** (`github.com/srjn45/filedbv2`, opened with
+`SyncModeNone`) rather than one flat JSON file: schedules live in a `schedules`
+collection rooted at `~/.warden/schedules-db/`, each record keyed by schedule id,
+so a write appends one record instead of rewriting the whole-store map (the same
+pattern used for sessions/`ctxstore`/`mailbox`). On the **first daemon launch
+after upgrading**, warden performs a **one-time import**: if a legacy
+`~/.warden/schedules.json` exists it is decoded and bulk-loaded into the new
+collection, then a `.schedules-filedb-imported` sentinel is written **last** (so
+a crash mid-import loses nothing — the derived `schedules-db/` is wiped and
+rebuilt from the intact legacy JSON on the next open). The legacy
+`schedules.json` is left in place as a read-only backup, never deleted. This is
+an **internal storage swap only**: the store's public API is unchanged, so the
+scheduler routes and reconcile loop behave identically. Pure next-fire logic
+lives in `internal/schedule` (table-tested); the daemon's reconcile loop is
 `internal/daemon/scheduler.go`.
 
 ---
