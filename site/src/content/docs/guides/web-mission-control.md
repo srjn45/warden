@@ -90,6 +90,13 @@ WebSocket PTY that powers a per-agent attach. Because it's the real session:
   full interactive UI. Shift+Enter is mapped to its newline.
 - **Shared across clients.** There's one web cockpit; the most-recently-active
   client drives the window size.
+- **Self-healing.** The cockpit lives in the tmux server, not the daemon, so it
+  outlives daemon restarts and reinstalls. Before reusing an existing session the
+  daemon checks it still has the right shape — three panes, with the top-left list
+  pane genuinely running `warden tui --pane=list` — and silently kills and
+  rebuilds a wedged one. You always land on a healthy cockpit, no manual
+  `tmux kill-session` required. To force a fresh rebuild yourself, run
+  `warden tui --rebuild-web-cockpit` (then reload the `/tui` view).
 
 It's built lazily on first attach and reused after that. While the terminal has
 focus the dashboard's global single-key shortcuts stay dormant (keys flow to the

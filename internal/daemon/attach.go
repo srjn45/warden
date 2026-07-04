@@ -103,8 +103,9 @@ func (s *Server) handleCockpitAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	run := lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}
 	// Plain-shell master pane (the `warden tui` default); useRepl is reserved for a
-	// future config toggle.
-	session, err := tui.EnsureWebCockpit(r.Context(), run, self, home, false)
+	// future config toggle. forceRebuild=false: reuse a healthy cockpit, but let
+	// EnsureWebCockpit self-heal (kill+rebuild) a wedged one transparently.
+	session, err := tui.EnsureWebCockpit(r.Context(), run, self, home, false, false)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "build cockpit: "+err.Error())
 		return

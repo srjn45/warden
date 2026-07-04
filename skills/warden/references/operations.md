@@ -185,6 +185,12 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   master pane between the REPL and a raw shell. Requires tmux ≥ 3.1; run
   from a plain terminal (not nested in tmux). Hold **Shift** to select text
   natively (tmux mouse mode eats plain drag).
+- **Web cockpit self-heal** — the browser `/tui` view attaches to a single
+  daemon-owned `warden-web-cockpit` tmux session. It's validated (three panes,
+  list pane running the bloom app) and auto-rebuilt if wedged, so you normally
+  needn't touch it. If a user reports a stuck/blank web TUI, run
+  `warden tui --rebuild-web-cockpit` to force a kill+rebuild (then have them
+  reload `/tui`) — no `tmux kill-session` needed.
 
 ## Interactive mode / REPL (`wd repl`)
 

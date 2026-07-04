@@ -1,23 +1,28 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/tui"
 )
 
 func newTUICmd() *cobra.Command {
 	var pane, detailPane, pipelineID, jobID, agentID string
-	var repl, tmuxNative, killWindow bool
+	var repl, tmuxNative, killWindow, rebuildWebCockpit bool
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Live terminal cockpit for agents",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if rebuildWebCockpit {
+				return rebuildWebCockpitSession()
+			}
 			a := clientFor(cmd)
 			switch pane {
 			case "list":
@@ -41,6 +46,7 @@ func newTUICmd() *cobra.Command {
 	cmd.Flags().StringVar(&jobID, "job", "", "internal: job id for --pane=jobdetail")
 	cmd.Flags().StringVar(&agentID, "agent", "", "internal: agent id for --pane=agentdetail")
 	cmd.Flags().BoolVar(&killWindow, "kill-window", false, "internal: `q` kills only the cockpit window, not the session (tmux-native list pane)")
+	cmd.Flags().BoolVar(&rebuildWebCockpit, "rebuild-web-cockpit", false, "kill and rebuild the daemon-owned web cockpit tmux session (the browser /tui view), then exit — an escape hatch for a wedged web cockpit")
 	for _, f := range []string{"pane", "detail-pane", "pipeline", "job", "agent", "kill-window"} {
 		_ = cmd.Flags().MarkHidden(f)
 	}
@@ -94,4 +100,28 @@ func runCockpit(a *client.Client, useRepl, native bool) error {
 		return tui.RunTmuxNativeCockpit(a, self, cwd)
 	}
 	return tui.RunCockpit(a, self, cwd, useRepl)
+}
+
+// rebuildWebCockpitSession forces a kill+rebuild of the daemon-owned web cockpit
+// tmux session (the one the browser /tui view attaches to). The web cockpit lives
+// in the user's shared tmux server rather than in the daemon, so a same-user CLI
+// invocation can reset it directly — no daemon round-trip or endpoint needed —
+// and the daemon's next attach finds the fresh, healthy session and reuses it.
+// It matches the daemon's build parameters (home cwd, plain-shell master pane) so
+// the rebuilt session is byte-for-byte what an attach would have produced.
+func rebuildWebCockpitSession() error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate warden binary: %w", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	run := lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}
+	if _, err := tui.EnsureWebCockpit(context.Background(), run, self, home, false, true); err != nil {
+		return fmt.Errorf("rebuild web cockpit: %w", err)
+	}
+	fmt.Fprintln(os.Stdout, "warden: rebuilt the web cockpit session ("+tui.WebCockpitSession+"); reload the browser /tui view to reconnect.")
+	return nil
 }

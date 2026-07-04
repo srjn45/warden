@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -223,18 +224,67 @@ func cleanStaleCockpits(run lifecycle.Runner) {
 // lets the most-recently-active client drive sizing.
 const WebCockpitSession = "warden-web-cockpit"
 
-// EnsureWebCockpit makes sure the daemon-owned web cockpit session exists,
-// building it (detached) on first call and reusing it thereafter, and returns
-// its tmux session name. It is the headless counterpart to RunCockpit: it builds
-// the same three-pane layout but never attaches — the browser attaches over the
-// daemon's WebSocket PTY bridge instead. self is the absolute path to the warden
-// binary (the panes re-exec it), masterCwd the directory the master/list panes
-// run in (agents spawned via `n` launch there), and useRepl selects the `wd
-// repl` master-pane flavor. Idempotent and safe to call on every attach.
-func EnsureWebCockpit(ctx context.Context, run lifecycle.Runner, self, masterCwd string, useRepl bool) (string, error) {
-	// has-session exits 0 only when the session already exists; reuse it.
+// cockpitHealthy reports whether an existing web cockpit session still has the
+// shape a fresh buildCockpit would produce: exactly three panes, with the
+// top-left pane (pane_at_top=1, pane_at_left=1 — the list pane) running the
+// warden binary (the `warden tui --pane=list` bloom app) rather than having been
+// dropped to a bare shell. A session left degraded — a partial build (wrong pane
+// count) from a daemon crash mid-buildCockpit, or a list pane that fell back to a
+// shell — reports false so the caller tears it down and rebuilds a fresh one,
+// making the cockpit self-healing. Any tmux error is treated as unhealthy.
+//
+// Only pane_current_command (the pane's live foreground process) is inspected —
+// `sh -c "warden tui …"` exec's into warden, so a healthy list pane reports the
+// warden binary's basename. self is the absolute path to the warden binary.
+func cockpitHealthy(ctx context.Context, run lifecycle.Runner, session, self string) bool {
+	out, err := run.Run(ctx, "", "tmux", "list-panes", "-t", session,
+		"-F", "#{pane_at_top}#{pane_at_left} #{pane_current_command}")
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 3 {
+		return false
+	}
+	want := filepath.Base(self)
+	for _, ln := range lines {
+		// "11" is the only top-left pane: the detail pane is top-RIGHT (10) and the
+		// master pane bottom-left (01), so this uniquely picks out the list pane.
+		pos, cmd, ok := strings.Cut(ln, " ")
+		if !ok || pos != "11" {
+			continue
+		}
+		return strings.TrimSpace(cmd) == want
+	}
+	return false // no top-left pane at all → degraded layout
+}
+
+// EnsureWebCockpit makes sure the daemon-owned web cockpit session exists AND is
+// healthy, building it (detached) on first call and reusing it thereafter, and
+// returns its tmux session name. It is the headless counterpart to RunCockpit: it
+// builds the same three-pane layout but never attaches — the browser attaches
+// over the daemon's WebSocket PTY bridge instead. self is the absolute path to
+// the warden binary (the panes re-exec it), masterCwd the directory the
+// master/list panes run in (agents spawned via `n` launch there), and useRepl
+// selects the `wd repl` master-pane flavor. Idempotent and safe to call on every
+// attach.
+//
+// An existing session is validated (cockpitHealthy) before reuse: a wedged
+// session — the web cockpit lives in the tmux server, not the daemon, so it
+// survives daemon restarts/reinstalls — is killed and rebuilt transparently, so
+// a client attaching always lands on a healthy cockpit. forceRebuild skips the
+// reuse check entirely and always kills+rebuilds (the `warden tui
+// --rebuild-web-cockpit` escape hatch), even when the session currently looks
+// healthy.
+func EnsureWebCockpit(ctx context.Context, run lifecycle.Runner, self, masterCwd string, useRepl, forceRebuild bool) (string, error) {
+	// has-session exits 0 only when the session already exists.
 	if _, err := run.Run(ctx, "", "tmux", "has-session", "-t", WebCockpitSession); err == nil {
-		return WebCockpitSession, nil
+		// Reuse it only when this isn't a forced rebuild and it's actually healthy;
+		// otherwise tear it down and rebuild a fresh one below.
+		if !forceRebuild && cockpitHealthy(ctx, run, WebCockpitSession, self) {
+			return WebCockpitSession, nil
+		}
+		_, _ = run.Run(ctx, "", "tmux", "kill-session", "-t", WebCockpitSession)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
