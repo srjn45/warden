@@ -192,7 +192,8 @@ current shipped matrix. Capsule summary:
   --last`) **upgraded to exact-id via discover-then-pin** (below); live state +
   approval detection; `AGENTS.md` injection; conversation forking; tokens-only.
 - **Crush** — JSON transcript via `crush session show --json`; **resumes dir-scoped**
-  (`--continue`); TUI takes no initial prompt; `CRUSH.md` injection; tokens-only.
+  (`--continue`); initial prompt auto-typed post-launch (`PromptSeeder`);
+  `CRUSH.md` injection; tokens-only.
 - **Goose** — JSON transcript via `goose session export`; **resumes name-deterministic**
   (`goose session -r --name <id>`); `.goosehints` injection; tokens-only.
 - **Cursor CLI** — hosted plan; rich native permission modes; **resumes dir-scoped**
