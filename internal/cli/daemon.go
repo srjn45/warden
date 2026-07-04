@@ -201,6 +201,9 @@ func newDaemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// pstore is now an embedded FileDB store with background goroutines
+			// (see cstore above); close it on shutdown to flush and stop compaction.
+			defer pstore.Close()
 			if err := daemon.HardenDataDir(cfg.DataDir); err != nil {
 				return err
 			}

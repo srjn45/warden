@@ -940,3 +940,24 @@ no data is lost.
 
 Design detail lives in
 [`docs/specs/2026-07-03-sessions-filedb-migration.md`](specs/2026-07-03-sessions-filedb-migration.md).
+
+## 32. Pipeline storage & upgrade migration
+
+Pipelines are persisted by the same **embedded FileDB**
+(`github.com/srjn45/filedbv2`, opened with `SyncModeNone`) rather than one JSON
+file per pipeline. The store lives in a `~/.warden/pipelines-db/` directory
+holding a single `pipelines` collection, each record keyed by its pipeline id, so
+a `create`/`edit-job`/`emit`/`retry` **appends one record** instead of rewriting
+a whole `<id>.json` file. As with sessions this is an **internal storage swap
+only** — `pipeline.Store`'s public API (`Create`/`Get`/`List`/`Update`/`Delete`)
+is unchanged, so the executor, the daemon pipeline routes, and the CLI/MCP/TUI
+surfaces behave identically.
+
+On the **first daemon launch after upgrading**, warden performs a **one-time
+import**: it decodes every legacy `~/.warden/pipelines/*.json` into the new
+collection (a corrupt or unsafe-id file is skipped with a warning, never blocking
+the upgrade), then writes a `~/.warden/.pipelines-filedb-imported` sentinel
+**last**. The legacy `pipelines/` directory is left **read-only as a cold
+backup** — this release never deletes it. The import is **atomic**: if it fails
+partway, the sentinel is not written, so the next boot wipes the half-built
+`pipelines-db/` and re-imports from the intact legacy JSON — no data is lost.
