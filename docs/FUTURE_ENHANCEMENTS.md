@@ -139,7 +139,7 @@ picked up.
 
 ## 🖥️ Web Cockpit / Full-Screen TUI
 
-#### 51. Self-healing web cockpit session — *not started*
+#### 51. Self-healing web cockpit session — *shipped*
 **Effort:** 0.5–1 day
 
 `EnsureWebCockpit` (`internal/tui/compositor.go`) is idempotent on a bare
@@ -155,15 +155,17 @@ This is **not a recurrence risk under normal use** — #151's `q` now runs
 `killCockpitCmd` and tears the whole session down cleanly — but there's no
 in-product recovery path when a session *does* end up wedged.
 
-Two options (pick one or both):
-- **Validate-and-rebuild** — on attach, verify the session has the expected pane
-  layout with the list pane running the bloom app; if not, kill and rebuild.
-  Makes the cockpit genuinely self-healing with no user action.
-- **Explicit rebuild affordance** — a `warden tui --rebuild-web-cockpit` flag /
-  daemon endpoint, surfaced as a small "↻ rebuild" control on the `/tui` screen,
-  so a wedged cockpit can be reset from the browser without shelling in.
+**Status:** Shipped — **both** options landed:
+- **Validate-and-rebuild** — `EnsureWebCockpit` now validates an existing session
+  (`cockpitHealthy`: exactly three panes, top-left list pane running the warden
+  bloom app) before reuse and transparently kills+rebuilds a wedged one, so every
+  attach lands on a healthy cockpit with no user action.
+- **Explicit rebuild affordance** — `warden tui --rebuild-web-cockpit` forces a
+  kill+rebuild even of a healthy session (a same-user CLI resets the shared tmux
+  session directly, no daemon endpoint needed). The optional in-browser "↻ rebuild"
+  control was left as a future nicety.
 
-**Necessity: low-moderate** — purely a robustness/recoverability gap, no
+**Necessity: low-moderate** — was purely a robustness/recoverability gap, no
 day-to-day impact now that `q` exits cleanly.
 
 ---
