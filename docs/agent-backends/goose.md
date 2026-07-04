@@ -55,7 +55,7 @@ interactive `goose session` completed with no paid API calls.
 | `HeadlessCmd`          | `goose run --no-session --quiet -t <prompt>`                         | One-shot; `--no-session` keeps it out of the store, `--quiet` prints only the model reply. |
 | `TranscriptPath`       | `goose session list --format json --working_dir <dir>` → `goose session export --session-id <id> --format json` | Dir-scoped resolve, then export to JSON. |
 | `ParseTranscript`      | parses the export's `conversation[]`                                 | Tier A. |
-| `LaunchPromptArg`      | _(none)_                                                             | **Gap** — see below. |
+| `LaunchPromptArg`      | _(none)_                                                             | **Resolved** — see below. |
 | `SystemPromptFlag`     | _(none on `session`)_                                                | `goose run --system` exists; interactive `session` has no equivalent. |
 | `InjectContext`        | writes `<workdir>/.goosehints`                                        | warden's collab/git/pipeline addendum is delivered via the `.goosehints` file Goose auto-loads on startup (the no-flag fallback). |
 
@@ -136,13 +136,11 @@ a dir-scoped `session-list.json`.
 - Runs $0-local against Ollama.
 
 **Gaps (honest, breadth-first)**
-- **No initial-task seeding into the interactive session.** `goose session`
-  accepts no initial-prompt argument (a positional is parsed as a subcommand; it
-  has no `-t`/`--message`). The only prompt-capable entry point is the headless
-  `goose run -t`, which is one-shot. So a warden-spawned _managed_ Goose agent
-  opens interactively but its task prompt is **not auto-typed** (it is still
-  written to warden's prompt file; an operator pastes it). `LaunchPromptArg`
-  returns `""` rather than break the `goose session` command.
+- ~~**No initial-task seeding into the interactive session.**~~ **Resolved** —
+  warden implements post-launch seeding via the `PromptSeeder` interface:
+  it waits for the 'goose is ready' banner, then types the task prompt and
+  presses Enter (`PromptText`/`ReadyMarker`). `LaunchPromptArg` still returns
+  `""` because the launch command itself accepts no initial-prompt argument.
 - **No warden-driven model/provider on launch.** Interactive `session` has no
   `--model`/`--provider`; warden relies on `GOOSE_PROVIDER`/`GOOSE_MODEL`.
 - **No warden-driven permission mode on launch.** `GOOSE_MODE` env/config only.
