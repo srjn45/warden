@@ -317,7 +317,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage
-the fleet through tool calls. **71 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **72 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:

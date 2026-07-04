@@ -765,6 +765,20 @@ safe "stop this agent" default; reversible with `warden restore`.
 Recreate and resume a lost/orphaned agent (`claude --resume`). Use only when the
 agent's tmux session is gone (status `orphaned`).
 
+### `warden recover [--apply] [--json]`
+Safety net for the tombstone reaper: scans **archived** records for ones whose
+tmux session is confirmed still alive (a stale `orphaned` status — see
+[§12](#12-status-values-youll-see) — racing a daemon restart could previously
+let one get archived out from under a live session). Bare `warden recover`
+only reports candidates; `--apply` re-inserts
+each one into the active store under its original id, so any children
+(linked via `parent_id`, untouched by archiving) reconnect automatically.
+
+```sh
+warden recover                # report candidates only (dry run)
+warden recover --apply        # actually revive them
+```
+
 ### `warden delete <TICKET> [--hard]`
 Clear an agent's stored record (archives by default; `--hard` purges). Leaves
 tmux and the worktree alone.
@@ -1096,8 +1110,10 @@ toggled with `h`/`l` (`←`/`→`), the same affordance pipelines use. Deleting 
 parent that still has live children keeps it as a muted **terminated tombstone**
 header (`terminated · N running`) with no terminal/attach pane, so the children
 never orphan; the daemon reaps the tombstone once the whole sub-tree goes
-terminal. `Enter` on a finished agent or tombstone opens its stored detail
-instead of attaching to a dead session.
+terminal (reconfirming the tombstone's tmux is actually dead first — an
+`orphaned` status alone isn't proof; `warden recover` is the fallback if a
+live one is ever archived anyway). `Enter` on a finished agent or tombstone
+opens its stored detail instead of attaching to a dead session.
 
 > **Getting back from an agent.** Attaching moves your single tmux client onto
 > the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to
@@ -1287,6 +1303,7 @@ Tools exposed:
 | `check` | Run the project's configured `.warden/check.yml` checks (tests/lint/build); returns pass/fail with output for only the failing checks. `name` runs one, omit to run all |
 | `terminate_agent` | Stop an agent (kill tmux + claude); keeps record + worktree. Reversible via `restore_agent` — the default "stop" action |
 | `restore_agent` | Recreate and resume a lost/orphaned agent (`claude --resume`) |
+| `recover_agents` | Safety net for the tombstone reaper: revive archived records whose tmux session is confirmed still alive. `apply:false` (default) only reports candidates; `apply:true` re-inserts each one under its original id |
 | `delete_agent` | Clear an agent's record (archives by default; `hard` purges) |
 | `remove_worktree` | Remove an agent's worktree + branch — **destructive**; refuses while running or with unsaved work unless `force` |
 
