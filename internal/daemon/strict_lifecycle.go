@@ -448,10 +448,28 @@ func (s *Server) PruneWorktrees(ctx context.Context, req oapi.PruneWorktreesRequ
 	if results == nil {
 		results = []lifecycle.PruneResult{}
 	}
-	if !b.DryRun {
-		s.notify()
-	}
 	return oapi.PruneWorktrees200JSONResponse{Results: results}, nil
+}
+
+// RecoverAgents implements POST /api/v1/recover.
+func (s *Server) RecoverAgents(ctx context.Context, req oapi.RecoverAgentsRequestObject) (oapi.RecoverAgentsResponseObject, error) {
+	apply := false
+	if req.Body != nil {
+		apply = req.Body.Apply
+	}
+	results, err := s.Recover(ctx, apply)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]oapi.RecoverResult, len(results))
+	for i, r := range results {
+		out[i] = oapi.RecoverResult{
+			Id: r.ID, TmuxSession: r.TmuxSession, Workdir: r.Workdir,
+			Name: r.Name, Subject: r.Subject, ParentId: r.ParentID,
+			Recovered: r.Recovered, Error: r.Error,
+		}
+	}
+	return oapi.RecoverAgents200JSONResponse{Results: out}, nil
 }
 
 // SetAutoApprove implements PATCH /api/v1/sessions/{id}/auto-approve.

@@ -525,6 +525,33 @@ func (c *Client) Prune(ctx context.Context, p PruneParams) ([]lifecycle.PruneRes
 	return resp.Results, nil
 }
 
+// RecoverResult is one archived record's recovery candidacy/outcome, mirroring
+// the daemon's /recover response.
+type RecoverResult struct {
+	ID          string `json:"id"`
+	TmuxSession string `json:"tmux_session"`
+	Workdir     string `json:"workdir"`
+	Name        string `json:"name,omitempty"`
+	Subject     string `json:"subject,omitempty"`
+	ParentID    string `json:"parent_id,omitempty"`
+	Recovered   bool   `json:"recovered"`
+	Error       string `json:"error,omitempty"`
+}
+
+// Recover scans archived records for ones whose tmux session is still alive.
+// apply=false (the default) only reports candidates; apply=true re-inserts
+// each one into the active store under its original id.
+func (c *Client) Recover(ctx context.Context, apply bool) ([]RecoverResult, error) {
+	body := map[string]any{"apply": apply}
+	var resp struct {
+		Results []RecoverResult `json:"results"`
+	}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/recover", body, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Results, nil
+}
+
 func (c *Client) Input(ctx context.Context, id, text string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/input", map[string]string{"text": text}, nil)
 }

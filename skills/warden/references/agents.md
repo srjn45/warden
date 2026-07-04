@@ -22,6 +22,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | clear / delete an agent's record | `delete_agent` (id, `hard?`) — archives by default. Alias for `stop_agent {keep_worktree:true}` (record only). |
 | remove an agent's worktree | `remove_worktree` (id, `force?`) — DESTRUCTIVE; **confirm with the user first**; terminate the agent first. Alias for `stop_agent {keep_record:true}` (worktree only). |
 | restore a lost/orphaned agent | `restore_agent` (id) — only for sessions whose tmux is gone (status `orphaned`); resumes the same conversation. |
+| revive an archived record whose tmux is still alive | `recover_agents` (`apply?`) — safety net for the tombstone reaper; bare call reports candidates, `apply:true` re-inserts them (children reconnect automatically via `parent_id`). |
 | adopt an existing Claude session | `adopt_agent` (dir?, session_id?, tmux_session?). |
 
 ## CLI command map
@@ -39,6 +40,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | terminate + clear record (keeps worktree) | `warden done <id>` (= `warden stop <id> --keep-worktree`; `--create-pr` pushes the branch and opens a GitHub PR before terminating, `--base` sets target, default main) |
 | remove the worktree | `warden remove-worktree <id>` (= `warden stop <id> --keep-record`; guarded; `--force` overrides) |
 | restore a lost/orphaned agent | `warden restore <id>` |
+| revive an archived record whose tmux is still alive | `warden recover` (dry-run; `--apply` to actually revive, `--json` for scripting) |
 | adopt an existing session | `warden adopt [--session-id <uuid>] [--dir <path>]` |
 | attach interactively | `warden attach <id>` |
 | completion digest | MCP `digest {ticket}` / `warden digest <id>` (`--json`) — files touched, branch, turn count, narrative |

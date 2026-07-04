@@ -108,6 +108,9 @@ type pruneArgs struct {
 	Force           bool   `json:"force,omitempty" jsonschema:"prune even dirty/unpushed worktrees"`
 	IncludeArchived bool   `json:"include_archived,omitempty" jsonschema:"also reconcile worktrees of archived (closed) agents"`
 }
+type recoverArgs struct {
+	Apply bool `json:"apply,omitempty" jsonschema:"false (default) only reports candidates; true re-inserts each one into the active store under its original id"`
+}
 type setAutoApproveArgs struct {
 	Ticket  string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	Enabled bool   `json:"enabled" jsonschema:"true to auto-answer this agent's recognized approval prompts, false to stop"`
@@ -476,6 +479,17 @@ func (s *Server) registerExtraTools() {
 			repo = mcpDir("")
 		}
 		res, err := s.cl.Prune(ctx, client.PruneParams{Repo: repo, DryRun: a.DryRun, Force: a.Force, IncludeArchived: a.IncludeArchived})
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(res)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "recover_agents",
+		Description: "Revive archived agent records whose tmux session is confirmed still alive — the safety net for the tombstone reaper, which should only ever archive a genuinely dead session but could previously be fooled by a stale orphaned status racing a daemon restart. apply=false (default) only reports candidates; apply=true re-inserts each one into the active store under its original id, reconnecting any children automatically (parent_id is untouched by archiving). Mirrors `warden recover`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a recoverArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.Recover(ctx, a.Apply)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

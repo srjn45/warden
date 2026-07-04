@@ -59,7 +59,7 @@ func (d *pollerDeps) FinalizeExit(ctx context.Context, id string, expected, next
 	// reap — the periodic sweep is the safety net.
 	if swapped && err == nil {
 		if s, gerr := d.store.Get(ctx, id); gerr == nil && s.ParentID != "" {
-			reapTombstones(ctx, d.store, s.ParentID)
+			reapTombstones(ctx, d.store, s.ParentID, d.SessionAlive)
 		}
 	}
 	return swapped, err

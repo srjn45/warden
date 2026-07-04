@@ -65,6 +65,7 @@ Available Commands:
   prompt-template     Save and list reusable, variabled prompt templates (fill with `warden start --prompt-template <name> --set VAR=value`)
   prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
   push                Push the current branch to origin (warden rails + bookkeeping)
+  recover             Revive archived agent records whose tmux session is still alive (dry run unless --apply)
   remove-worktree     Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
   repl                Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
   restore             Recreate and resume a lost/orphaned agent (claude --resume)
@@ -1965,6 +1966,30 @@ Flags:
       --force-with-lease   push with --force-with-lease (safe force after a rebase/amend)
   -h, --help               help for push
       --json               emit the raw result as JSON
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden recover
+
+```text
+Scans archived (closed) agent records for ones whose tmux session is
+confirmed still alive — a live session's record should never end up
+archived, but a stale orphaned status racing a daemon restart could
+previously slip one past the tombstone reaper. Bare `wd recover` only
+reports what it finds; --apply re-inserts each candidate into the active
+store under its original id. Any children (linked via parent_id, untouched
+by archiving) reconnect automatically — no need to recover them separately.
+
+Usage:
+  warden recover [flags]
+
+Flags:
+      --apply   actually re-insert candidates (default: report only)
+  -h, --help    help for recover
+      --json    output as JSON
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

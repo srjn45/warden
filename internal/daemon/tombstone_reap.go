@@ -29,7 +29,15 @@ import (
 //
 // Best-effort: any store error stops the walk. A visited-set guards against a
 // malformed parent cycle.
-func reapTombstones(ctx context.Context, st store.Store, startID string) {
+//
+// alive reconfirms tmux liveness for a node whose status is orphaned before
+// treating it as a genuine tombstone: orphaned status can lag reality for one
+// tick (e.g. a daemon restart racing tmux enumeration mis-classifies a session
+// that never actually died), and unlike done/errored — which only ever follow
+// a confirmed teardown — orphaned is not a reliable signal on its own that the
+// session is gone. A nil alive func is treated as "can't confirm, assume
+// alive" (the conservative default: never archive a live agent's record).
+func reapTombstones(ctx context.Context, st store.Store, startID string, alive func(ctx context.Context, tmuxSession string) bool) {
 	seen := make(map[string]bool)
 	climbed := false
 	for id := startID; id != "" && !seen[id]; {
@@ -41,6 +49,15 @@ func reapTombstones(ctx context.Context, st store.Store, startID string) {
 		}
 		if liveStatus(p.Status) {
 			return // a live parent still anchors the sub-tree
+		}
+		if p.Status == store.StatusOrphaned {
+			stillAlive := true // can't confirm ⇒ assume alive, never archive blind
+			if alive != nil {
+				stillAlive = alive(ctx, p.TmuxSession)
+			}
+			if stillAlive {
+				return // orphaned status was stale — the session never actually died
+			}
 		}
 
 		all, err := st.List(ctx)
@@ -83,11 +100,15 @@ func (s *Server) reapAllTombstones(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	var alive func(ctx context.Context, tmuxSession string) bool
+	if s.poller != nil {
+		alive = s.poller.SessionAlive
+	}
 	for _, p := range all {
 		if liveStatus(p.Status) {
 			continue
 		}
-		reapTombstones(ctx, s.store, p.ID)
+		reapTombstones(ctx, s.store, p.ID, alive)
 	}
 }
 

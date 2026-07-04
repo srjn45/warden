@@ -45,6 +45,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"list_worktrees", "list_plugins", "get_pressure",
 		"set_auto_approve", "set_auto_approve_policy", "set_force_compact",
 		"set_permission_mode", "set_role", "list_roles", "prune_worktrees",
+		"recover_agents",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
 		"pause_pipeline", "resume_pipeline", "retry_pipeline_job",
 		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",
