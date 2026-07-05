@@ -37,6 +37,10 @@ Owner inputs at kickoff (defaults apply if unspecified):
   `pay_per_use: []`, `allow_pay_per_use: false`.
 - **Version target:** minor bump (big feature, one tag — repo tagging style).
 
+Kickoff also arms the supervision substrate (once, before the spawn):
+confirm `rate_limit.auto_resume` + `auto_restart` are enabled on the daemon,
+and create the hourly heartbeat-sentinel schedule per §2.4.
+
 ## 1. Orchestrator protocol (applies to every stage)
 
 Division of labor: **each implementer owns its stage end-to-end** — worktree →
@@ -183,6 +187,45 @@ long stages and the long-lived orchestrator still need active management:
   guardian-style rotation) at stage boundaries, never mid-merge. Stage
   boundaries are the designed safe points: everything durable lives in git,
   the PR history, and the journal.
+
+### 2.4 Session limits & the heartbeat sentinel
+
+Two distinct failure modes, two distinct mechanisms — don't conflate them:
+
+**Rate/session limits (Max plan windows) — configuration, not steering.**
+warden's existing rate-limit machinery (`rate_limit.auto_resume`) detects the
+limit banner, parses the reset time when one is shown (else the
+`retry_interval`/`spend_retry_interval` fallbacks), and resumes the pane
+automatically. Kickoff confirms `rate_limit.auto_resume` and `auto_restart`
+are enabled on the daemon running this build. Because **all claude agents
+share one subscription**, the orchestrator and its children hit a window
+roughly together and resume together — a synchronized pause, not a failure:
+branch state is in git, PRs are on GitHub, the journal is on the blackboard.
+Nothing is lost by waiting a window out; no steering is needed or possible.
+
+**Idle drift — the heartbeat sentinel (manual stand-in for the guardian this
+plan is building in S5).** An LLM orchestrator can simply stop looping — end
+its turn and wait — without being limited or errored, and it cannot watch
+itself. Mitigation: an **hourly heartbeat via warden's own scheduler** (no
+external cron). Note the scheduler fires agent-spawns, not messages to
+existing agents — hence a sentinel, which is strictly stronger anyway: a bare
+nudge message cannot fix a dead orchestrator. `create_schedule` (cron
+`@hourly`, agent mode, claude/**haiku** — it only reads and nudges) spawning a
+short-lived sentinel whose entire brief is:
+
+1. Terminate + delete any previous sentinel instance (self-cleaning chain).
+2. Read `autopilot-impl/journal`, `git log origin/main`, `list_agents`,
+   `list_pipelines`: has anything progressed since the journal's last entry?
+3. Fleet rate-limited → exit (auto-resume owns that case).
+4. Progressing → exit silently (a healthy heartbeat costs almost nothing).
+5. Orchestrator alive but idle/looping with work outstanding → `send_message`:
+   "heartbeat: resume the §1 protocol — re-read the journal, check every
+   child, continue from the last incomplete stage."
+6. Orchestrator dead or errored → respawn it per §0 (the journal + §6 recovery
+   rules make this safe by construction).
+
+The schedule is created **at kickoff** — the sentinel, not the orchestrator,
+is the outermost supervisor — and deleted after the §5 release confirmation.
 
 ## 3. Stage graph
 
