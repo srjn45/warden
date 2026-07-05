@@ -11,16 +11,20 @@ a lowest common denominator.
 - **Tests / fixtures:** `antigravity_test.go`, `testdata/antigravity/`
 - **Tier:** **A** (structured transcript → digests run on real data)
 - **Backend id:** `antigravity` (the `--backend` value; the binary stays `agy`)
-- **Verified against:** `agy` v1.0.13, hosted free tier (Gemini 3.5 Flash), Linux
+- **Verified against:** `agy` v1.0.13, hosted free tier (Gemini 3.5 Flash), Linux;
+  the workspace-trust prompt and the tool-call transcript re-captured against
+  `agy` v1.0.16
 
 > **Hosted, quota-limited.** Antigravity is a Google-hosted agent on the user's free
 > tier (a daily-ish cap), **not** a $0-local backend. This adapter was verified with
 > the *minimum* live spend: one `agy -p` (capture a transcript fixture) and one
 > `agy -c -p` (verify resume) for the transcript work, plus two interactive turns on
 > the cheapest model (`Gemini 3.5 Flash (Low)`) to capture the idle / working /
-> approval pane fixtures for `DetectState` + `ParseApproval`. Everything else was
-> learned from `agy --help`, `agy models`, the bundled `antigravity_guide` skill docs,
-> and on-disk inspection.
+> approval pane fixtures for `DetectState` + `ParseApproval`. A follow-up pass
+> (v1.0.16) captured the workspace-trust prompt (free — it appears before any model
+> call) and spent one more request on a file-edit session to capture a tool-using
+> transcript. Everything else was learned from `agy --help`, `agy models`, the
+> bundled `antigravity_guide` skill docs, and on-disk inspection.
 
 ---
 
@@ -33,12 +37,12 @@ a lowest common denominator.
 | `ResumeCmd`          | `agy -c [--model <m>] [posture flag]`                         | Dir-scoped; `-c` continues the most recent conversation for the workspace. |
 | `HeadlessCmd`        | `agy --dangerously-skip-permissions -p <prompt>`             | One-shot print for warden's classify/summarize offload. |
 | `TranscriptPath`     | reads `~/.gemini/antigravity-cli/brain/<conv-id>/.system_generated/logs/transcript.jsonl` | conv-id resolved dir-scoped via `cache/last_conversations.json`. |
-| `ParseTranscript`    | parses the trajectory JSONL `USER_INPUT` / `PLANNER_RESPONSE` records | → neutral Turns. |
+| `ParseTranscript`    | parses the trajectory JSONL `USER_INPUT` / `PLANNER_RESPONSE` records (incl. `tool_calls`) | → neutral Turns with tool names + files changed. |
 | `SystemPromptFlag`   | — (unsupported)                                              | `agy` has no `--append-system-prompt` flag. |
 | `InjectContext`      | writes `<workdir>/AGENTS.md`                                 | warden's collab/git/pipeline addendum is delivered via the AGENTS.md rules file `agy` reads on startup (the no-flag fallback). |
 | `Pricing`            | — (unsupported)                                              | Google-hosted free tier; tokens shown in `/usage` TUI only, dollars not surfaced. |
 | `DetectState`        | classify the TUI status bar                                  | `? for shortcuts` ⇒ idle, `esc to cancel` / `Generating...` ⇒ working, a permission menu ⇒ needs-input. |
-| `ParseApproval`      | parse the `Do you want to proceed?` permission menu          | numbered options (`Yes` / `Yes, and always allow …` / `No`) → neutral `Approval`. |
+| `ParseApproval`      | parse the `Do you want to proceed?` permission menu **and** the launch-time workspace-trust prompt | numbered options (`Yes` / `Yes, and always allow …` / `No`), or the trust prompt's `Yes, I trust this folder` / `No, exit` → neutral `Approval`. |
 
 ### Models & permissions
 
@@ -89,7 +93,15 @@ It is **JSONL**, one record per line:
 ```
 
 Fields: `step_index`, `source` (`USER_EXPLICIT` / `MODEL` / `SYSTEM`), `type`,
-`status`, `created_at` (RFC3339), `content`.
+`status`, `created_at` (RFC3339), `content`. A `PLANNER_RESPONSE` that invokes a tool
+carries the calls under `tool_calls` instead of content (captured live, v1.0.16):
+
+```json
+{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-07-05T09:14:21Z","tool_calls":[{"name":"write_to_file","args":{"CodeContent":"\"hello from agy\\n\"","TargetFile":"\"/abs/path/hello.txt\"","Overwrite":"true","…":"…"}}]}
+```
+
+Note every `args` value is itself **JSON-encoded into the string** (a path arrives
+double-quoted); the adapter decodes through that.
 
 warden maps:
 
@@ -97,9 +109,16 @@ warden maps:
   prompt as `<USER_REQUEST>…</USER_REQUEST>` and appends `<ADDITIONAL_METADATA>` /
   `<USER_SETTINGS_CHANGE>` blocks; the adapter unwraps the request body and drops the
   metadata.
-- `PLANNER_RESPONSE` (source `MODEL`) → an **assistant** Turn.
+- `PLANNER_RESPONSE` (source `MODEL`) → an **assistant** Turn: its prose content when
+  present, and/or its `tool_calls` — each call's `name` (`write_to_file`,
+  `run_command`, …) becomes the Turn's tool, and a file-bearing call's decoded
+  `TargetFile` lands in `Files` (the digest's "what changed"). Verified against the
+  captured tool-using fixture: `write_to_file` extracts name + file, `run_command`
+  extracts name (no file args ⇒ no Files).
 - `CONVERSATION_HISTORY`, `CHECKPOINT`, `SYSTEM_MESSAGE` (source `SYSTEM`) — context,
   truncation summaries, and injected system notes → **ignored** (control metadata).
+- `CODE_ACTION`, `RUN_COMMAND` (source `MODEL`) — boilerplate execution-result
+  confirmations of a tool step already captured from `tool_calls` → **ignored**.
 
 ### Locating the conv-id (dir-scoped)
 
@@ -136,7 +155,9 @@ its own git worktree, this resolution is unambiguous.
   reused the same conv-id and the model recalled the prior turn's context.
 - Headless one-shots via `agy -p`.
 - **Digests** — the trajectory parses into structured Turns (Tier A): warden sees the
-  human prompts, the model replies, and their timestamps.
+  human prompts, the model replies, their timestamps, **and the tool calls / files
+  changed** (`tool_calls` on `PLANNER_RESPONSE`; verified against a captured
+  tool-using fixture, v1.0.16).
 - **Live state detection** — `DetectState` classifies `agy`'s TUI status bar (captured
   live against `agy` v1.0.13, Gemini 3.5 Flash): the `? for shortcuts` footer at rest
   ⇒ **idle**, the `esc to cancel` footer / `Generating...` spinner during a turn ⇒
@@ -149,15 +170,24 @@ its own git worktree, this resolution is unambiguous.
   approvals inbox and auto-approve for Antigravity agents. Captured under the **default**
   permission posture — `--dangerously-skip-permissions` raises no prompt, and the
   `agy -p` headless path is non-interactive.
+- **Workspace-trust prompt surfaced as an approval** — when `agy` launches in a
+  directory it has not trusted (every fresh warden worktree), it blocks on a
+  `Do you trust the contents of this project?` prompt **before any model call**.
+  `ParseApproval` normalizes it (the directory under question as the Action, the
+  `Yes, I trust this folder` / `No, exit` options, sticky affirmative — trusting
+  persists for the folder) so it reaches the approvals inbox instead of silently
+  stalling the agent. Captured live (v1.0.16).
 
 **Gaps (degraded, documented — not mis-handled)**
 
-- **No tool-call / files-changed extraction.** The captured fixture was a text-only
-  conversation, so `agy`'s tool-step record format is **unverified**. Rather than
-  guess field names, `ParseTranscript` leaves `ToolName`/`Files` empty — the digest's
-  "what changed" column degrades for Antigravity agents. Capturing a tool-using
-  transcript and wiring tool/file extraction is the obvious next step (it would cost
-  live quota, deferred from this frugal phase).
+- ~~**No tool-call / files-changed extraction.**~~ **Resolved** (v1.0.16) — a live
+  file-edit session was captured as a fixture, revealing the tool-step format:
+  `tool_calls` on `PLANNER_RESPONSE` records, each `{name, args}` with JSON-encoded
+  arg values. `ParseTranscript` now extracts the tool name and the decoded
+  `TargetFile` into `ToolName`/`Files` (fixture-locked tests cover `write_to_file`
+  and `run_command`). Only `TargetFile` is the live-verified file-bearing key —
+  `AbsolutePath` (the same tool family's read/edit key) is accepted defensively but
+  not fixture-proven.
 - **No session-id pinning.** `agy` assigns its own UUID and exposes no launch flag to
   set one. Worse than the other backends, warden's *own* placeholder session id is
   also a UUID, so it is **indistinguishable** from a real `agy` conv-id (unlike
@@ -166,13 +196,14 @@ its own git worktree, this resolution is unambiguous.
   the minted conv-id from `cache/last_conversations.json` after first launch and use
   exact-id `agy --conversation <uuid>` / direct `brain/<conv-id>/…` lookup
   (FUTURE_ENHANCEMENTS #52).
-- **Approval coverage is shell-command-only (so far).** `DetectState` + `ParseApproval`
-  are wired (see "Works today"), but the captured permission fixture was a **shell
-  command** (`Bash(echo …)`). `agy`'s file-edit / MCP-tool prompts almost certainly
+- **Approval coverage is shell-command + workspace-trust (so far).** `DetectState` +
+  `ParseApproval` are wired (see "Works today") for the two captured prompts: the
+  **shell-command** permission menu (`Bash(echo …)`) and the launch-time
+  **workspace-trust** prompt. `agy`'s file-edit / MCP-tool prompts almost certainly
   reuse the same `Do you want to proceed?` + numbered-menu shape the parser keys on,
-  but that was not captured this frugal phase (kept within the free-tier quota), so it
-  is unverified. The header-gated, sequential-1..N parser degrades to `(nil,false)`
-  rather than mis-parsing any prompt variant it has not seen.
+  but they were not captured (kept within the free-tier quota), so they are
+  unverified. The header-gated parsers degrade to `(nil,false)` rather than
+  mis-parsing any prompt variant they have not seen.
 - **No warden-side dollar pricing.** Antigravity is hosted on a Google free tier;
   `agy` shows token usage / session cost only in its `/usage` TUI panel and surfaces
   no per-call dollar figure on the CLI, and warden's spend table is Claude-specific.
