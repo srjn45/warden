@@ -1,4 +1,4 @@
-# Antigravity CLI backend (experimental)
+# Antigravity CLI backend (beta)
 
 warden's adapter for **Google's Antigravity CLI** (the `agy` binary), added
 breadth-first under #52. This is a thin, honest adapter: warden opens a tmux session
