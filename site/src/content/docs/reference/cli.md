@@ -2519,7 +2519,7 @@ Managed:     warden start TICKET --type <TYPE>        (isolated worktree)
 
 Backends (--backend): warden drives Claude Code by default. Accepted values:
   claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
-Only claude is fully tested; all others are experimental / WIP.
+Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
 Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
 OpenCode: BYO model (pass --model), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
@@ -2534,7 +2534,7 @@ Usage:
 
 Flags:
       --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --backend warden start --help              agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; others are experimental. See warden start --help for per-backend notes
+      --backend warden start --help              agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-backend notes
       --branch string                            new branch (development) or checkout target (pr-review)
       --dir string                               directory to launch the agent from (default: current directory)
       --force                                    spawn even when the memory-pressure gate warns

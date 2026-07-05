@@ -203,11 +203,13 @@ current shipped matrix. Capsule summary:
   **resumes dir-scoped** (`agy -c`); live state + approval detection; `AGENTS.md`
   injection; tokens-only.
 
-> **Note:** Every non-`claude` backend (Aider, OpenCode, Codex, Crush, Goose,
-> Cursor, Antigravity) is **experimental / work-in-progress**. Only Claude Code
-> (`--backend claude`, the default) is fully tested; the adapters are merged but
-> unverified at scale — functionality may be reduced (see gap lists and capability
-> flags in each `docs/agent-backends/*.md` page and the design spec).
+> **Note:** Only Claude Code (`--backend claude`, the default) is fully tested.
+> **Codex CLI** and **Antigravity CLI** graduated to **β beta** (live-verified
+> state, approval, and transcript fidelity, still maturing); the remaining
+> non-`claude` backends (Aider, OpenCode, Crush, Goose, Cursor) are
+> **experimental / work-in-progress** — functionality may be reduced (see gap
+> lists and capability flags in each `docs/agent-backends/*.md` page and the
+> design spec).
 
 **Follow-up infra — discover-then-pin session-id write-back (exact-id
 resume/transcript for id-minting backends):** id-minting backends mint their *own*

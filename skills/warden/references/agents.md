@@ -61,9 +61,10 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   unset (explicit value wins; tags unioned). See **Roles** below.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
   Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.
-  **Only `claude` is fully tested and stable**; all others are
-  🧪 **experimental / work-in-progress** — any non-`claude` value is experimental
-  and functionality may be reduced or unverified. Backends differ in capabilities
+  **Only `claude` is fully tested and stable**; `codex` and `antigravity` are
+  **β beta** (live-verified state, approval, and transcript fidelity, still
+  maturing); the rest are 🧪 **experimental / work-in-progress** — functionality
+  may be reduced or unverified. Backends differ in capabilities
   and warden degrades gracefully (it never crashes on a missing one).
   `aider` is bring-your-own-model — **you must pass `model`** (e.g.
   `ollama_chat/qwen2.5-coder:3b`); it has **no resume** (rotate/handoff re-spawn
