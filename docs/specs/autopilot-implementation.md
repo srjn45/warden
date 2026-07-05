@@ -19,17 +19,22 @@ release tag.
 Spawn the orchestrator against this file:
 
 ```
-spawn_agent role=orchestrator repo=<warden checkout> \
+spawn_agent role=orchestrator backend=claude model=sonnet repo=<warden checkout> \
   prompt="Execute docs/specs/autopilot-implementation.md end to end. \
-          Follow §1 protocol exactly; implement stages S1–S8 in §3; \
-          stop only at the §4 release-confirmation touchpoint."
+          Follow §1 protocol exactly; pick backends/models per §2; \
+          implement stages S1–S8 in §4; \
+          stop only at the §5 release-confirmation touchpoint."
 ```
 
 Owner inputs at kickoff (defaults apply if unspecified):
 
-- **Backend cost buckets** for the live stages (S7): default
-  `free: [antigravity]`, `subscription: [claude]`, `pay_per_use: []`,
-  `allow_pay_per_use: false`.
+- **Backends & models:** per the §2 matrix — implementation is **claude-only**
+  (owner has a Max 5x subscription); free-tier backends take only §2.2 side
+  tasks. If free-tier backends will be used, ensure they are trusted in this
+  repo now (first-run trust is a one-time operator step).
+- **Backend cost buckets** for the autopilot feature's own live-test config
+  (S7 rig): default `free: [antigravity]`, `subscription: [claude]`,
+  `pay_per_use: []`, `allow_pay_per_use: false`.
 - **Version target:** minor bump (big feature, one tag — repo tagging style).
 
 ## 1. Orchestrator protocol (applies to every stage)
@@ -39,7 +44,7 @@ code → tests → commit → PR → CI → fixes → merge → notify. The orch
 plans, spawns, periodically checks, heals, cleans up, and sequences — it does
 **not** merge PRs itself.
 
-For each stage, in order (parallel pairs noted in §2):
+For each stage, in order (parallel pairs noted in §3):
 
 1. **Clean up first:** before spawning anything, sweep children from previous
    stages — any completed agent or pipeline no longer needed is removed with
@@ -61,7 +66,11 @@ For each stage, in order (parallel pairs noted in §2):
    `send_message`; a child looping or idle past ~15 minutes with an open task
    gets a nudge, then a restart with a digest of its branch state
    (`git log --oneline`, `git status`, its last output) — resume the stage on
-   the existing branch, never restart it from scratch.
+   the existing branch, never restart it from scratch. Each check-in also
+   watches **context pressure** (`get_pressure`) — see §2.3 for the
+   compact/rotate ladder; never let a child die of context exhaustion mid-PR.
+   Free-tier children (§2.2) get a tighter check-in interval and a review
+   gate — they never self-merge.
 5. **Completion:** the implementer merges its own PR (duty cycle below) and
    notifies the orchestrator. On receiving the completion message, verify
    independently — the merge commit is on `origin/main` and the PR is closed —
@@ -115,7 +124,67 @@ For each stage, in order (parallel pairs noted in §2):
 - Frictionless-safeguards philosophy: generous defaults; guards fire only at
   extremes.
 
-## 2. Stage graph
+## 2. Backends, models & context budget
+
+### 2.1 Model matrix (claude backend for all implementation)
+
+Principle: **the minimal model that can hold the stage's contract**. Core
+daemon/contract work gets Opus; protocol-following and surface wiring get
+Sonnet. All implementation runs on the claude backend (owner's Max 5x plan).
+
+| Agent | Backend / model | Why |
+|---|---|---|
+| Orchestrator | claude / **sonnet** | Follows this written protocol; long-lived, so cheap+fast beats depth |
+| S1 toggle core | claude / **opus** | Config + spec-first endpoint + Controller state machine |
+| S2 init + TUI + web | claude / **sonnet** | Surface wiring over S1's contract; no new semantics |
+| S3 brain lifecycle | claude / **opus** | Ledger/digest correctness is the feature's backbone |
+| S4 `land` | claude / **opus** | Gate semantics + idempotency + typed errors |
+| S5 guardian + failover | claude / **opus** | Heal ladder + tier selection edge cases |
+| S6 guard + routing | claude / **opus** | Security-adjacent daemon guard + approval rerouting |
+| S7 E2E rig | claude / **opus** | Live debugging across every subsystem |
+| S8 docs + release | claude / **sonnet** | Prose + generated docs; may delegate drafts per §2.2 |
+
+All claude agents share one subscription's rate limits. Parallel pairs
+(S2∥S3, S4∥S6) are allowed but **optional** — if limits bite, run them
+sequentially; warden's rate-limit auto-resume handles resets either way.
+
+### 2.2 Free-tier side tasks (antigravity / codex) — monitored, never trusted blind
+
+Free-tier backends may carry **small, isolated, non-core** tasks so the claude
+budget goes to code: S8 doc drafts (guide/concepts prose), gap-doc write-ups,
+fixture/test-data authoring. Rules, which override the implementer duty cycle
+for these children:
+
+- Same isolation: own worktree, own branch, PR to main.
+- **No self-merge, ever.** The free-tier child stops at "PR open + CI green"
+  and notifies. The orchestrator (or a claude reviewer it spawns) reviews the
+  diff and performs the merge — free-tier output gets a review gate.
+- Tighter monitoring: shorter check-in interval; steer early, respawn a child
+  on claude/sonnet if a free-tier child is stuck twice on the same point.
+- Never assign anything on the critical path (S1–S7 code) to a free tier.
+- Trust prompts for these backends are cleared at kickoff (§0), not mid-run.
+
+### 2.3 Context budget — compact and rotate before it hurts
+
+Implementer stages are context-bounded by design (one stage per agent), but
+long stages and the long-lived orchestrator still need active management:
+
+- **Auto-compaction on:** run with warden's context auto-compaction enabled so
+  claude children `/compact` under pressure automatically.
+- **Check-in duty:** the orchestrator reads `get_pressure` each check-in; a
+  child at high pressure mid-stage gets `set_force_compact` at its next safe
+  point (between commits, never mid-edit).
+- **Rotate when compaction isn't enough:** if a child is context-critical
+  after compaction, `rotate_agent`/`handoff_agent` it — fresh context, same
+  branch and worktree; the brief is re-derivable from this file + the branch
+  state, so nothing is lost.
+- **The orchestrator itself:** keep the §1 journal current after every merge —
+  it makes the orchestrator cold-start-safe — and self-compact (or accept a
+  guardian-style rotation) at stage boundaries, never mid-merge. Stage
+  boundaries are the designed safe points: everything durable lives in git,
+  the PR history, and the journal.
+
+## 3. Stage graph
 
 ```
 S1 toggle core ──▶ S2 init + TUI + web        (S2 ∥ S3 — disjoint files)
@@ -129,7 +198,7 @@ Sequential merges into main; S2∥S3 and S4∥S6 may run concurrently because
 their file surfaces are disjoint — everything else waits for its dependency's
 merge (then re-sync main before spawning).
 
-## 3. Stage briefs
+## 4. Stage briefs
 
 ### S1 — Toggle core: config + Controller + endpoint + CLI + MCP (inert)
 
@@ -299,6 +368,9 @@ scoped to the owning stage's surface).
 ### S8 — Docs + release (second human touchpoint at the very end)
 
 **Goal:** CLAUDE.md Definition of Done, walked explicitly.
+**Delegation:** prose drafts (site guide, concepts page) may go to free-tier
+children under the §2.2 rules (review-gated, never self-merged); the S8
+claude implementer owns final wording, generated docs, and the release prep.
 **Files:** `README.md` (feature surface); root `FEATURES.md` matrix +
 `docs/FEATURES.md` prose (keep both catalogs + website mirror in sync);
 `docs/USAGE.md`; `site/src/content/docs/` — a guide (`guides/autopilot.md`:
@@ -317,15 +389,15 @@ confirmation before `git push` of any `v*` tag** (the push cuts the public
 GoReleaser release; ≤3 tags per push). This is the only mid-run human
 interaction and it is by design.
 
-## 4. Human touchpoints (exhaustive)
+## 5. Human touchpoints (exhaustive)
 
 1. **Kickoff** (§0): spawn the orchestrator; optionally override backend
    buckets / version target.
-2. **Release confirmation** (§8): approve the `v*` tag push. Everything
+2. **Release confirmation** (§4 S8): approve the `v*` tag push. Everything
    between is autonomous — stuck stages get respawned/steered by the
    orchestrator, never escalated, matching the feature's own §0 principle.
 
-## 5. Recovery rules for the orchestrator itself
+## 6. Recovery rules for the orchestrator itself
 
 - Persist progress after every merge (§1 step 7); on restart, re-read the
   journal + `git log origin/main` to find the last landed stage, re-adopt any
