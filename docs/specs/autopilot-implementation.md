@@ -128,6 +128,15 @@ For each stage, in order (parallel pairs noted in §3):
   change belongs to another stage, note it in the PR body and stop.
 - Frictionless-safeguards philosophy: generous defaults; guards fire only at
   extremes.
+- **Never restart, reinstall, or upgrade the supervising warden daemon
+  mid-run.** Merged PRs land on `main` but are **not** deployed to the warden
+  instance running this build — the systemd daemon keeps running the released
+  binary for the entire run. Anything that needs a live daemon built from new
+  code (S1 smoke, S7 rig) uses an **isolated daemon on an alt port**, started
+  and stopped by the stage that needs it. Rationale: a supervising-daemon
+  restart drops the scheduler (sentinel fires) and pollers mid-flight, and a
+  failed reinstall leaves nobody alive to recover it. The owner upgrades the
+  installed binary once, manually, after the S8 release.
 
 ## 2. Backends, models & context budget
 
