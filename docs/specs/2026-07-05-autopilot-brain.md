@@ -94,18 +94,20 @@ into "ask a human."
   `get_branch_status`, **merge green+mergeable workers into `autopilot/integration`
   only** (never main), clean up with `remove_worktree`/prune, pull the next task,
   repeat forever, never ask a human — reason and act.* Three hard playbook rules:
-  1. **Write-ahead ledger** — record every decision and task-state change in the
-     durable run ledger (below) *before* acting, so a restarted brain never
-     repeats a side-effectful action.
-  2. **Worker PRs base on `autopilot/integration`**, never main — the CI gate must
+  1. **Ledger hygiene** — keep the run ledger's task state + journal current.
+     Restart-safety itself is **by construction**, not persona discipline: all
+     side-effectful ops are daemon-mediated and recorded (store/audit/landings,
+     idempotent `land`), and the daemon injects a **recovery digest** (plan +
+     ledger + landings + live agents + recent audit) into every (re)spawned brain.
+  2. **Worker PRs base on `autopilot/integration`**, never main — the gate must
      validate against the branch the work will actually land on.
   3. **Refresh integration before landing** — if `autopilot/integration` is behind
-     main, merge main into it and wait for CI before landing more work.
-- **Durable run ledger** — the brain externalizes ALL run state (task ledger,
+     main, merge main into it and wait for the gate before landing more work.
+- **Durable run ledger** — the brain externalizes run state (task ledger,
   decisions, in-flight worker map) into a daemon-store-backed ledger (reserved
   ctx blackboard namespace `autopilot/<plan>`, reusing `ctx_set`/`ctx_get`). A
-  fresh brain cold-starts purely from plan file + ledger + `list_agents` — this is
-  what makes restart/rotation safe and "never park" meaningful (not an amnesiac
+  fresh brain cold-starts purely from the recovery digest — this is what makes
+  restart/rotation safe and "never park" meaningful (not an amnesiac
   resurrection).
 - **One long-lived brain per master-plan** is spawned when autopilot toggles ON,
   on the cheapest available backend (§4), with its plan file injected as its
@@ -123,6 +125,11 @@ into "ask a human."
   the brain: a wedged brain is restarted/rotated, not parked.
 - **Auto-resume** the brain on rate limit — reuse `internal/daemon/ratelimit.go`.
 - **Auto-restart** the brain on crash/error — reuse `internal/daemon/autorestart.go`.
+- **Worker approvals route to the brain, never a human** — a worker prompt the
+  auto-approve policy can't answer (unrecognized, breaker-tripped) is forwarded
+  to the brain's mailbox; the brain answers it (multi-choice defaults to the
+  agent's own recommendation). The human approvals inbox only mirrors these
+  events for visibility — nothing blocks on it while a run is active.
 
 ### 3. Heartbeat guardian (NEW, minimal Go — the one deterministic guardian)
 
@@ -209,12 +216,14 @@ background-loop wiring in `server.go`, the backend registry.
   this is orchestration-of-the-brain, not of the work.
 - **Guarded merge-into-integration action** — no MCP merge tool exists today. Add a
   `land`/`merge_agent` MCP tool + `wd land` that merges a worker branch into
-  `autopilot/integration` within warden's rail (gate on CI-green + mergeable) so
+  `autopilot/integration` within warden's rail (gate green + mergeable) so
   the brain merges safely instead of raw `gh`. **`land` is idempotent** — landing
   an already-landed branch is a recorded no-op success, so a brain restarted
   mid-action can safely re-issue it; the daemon records landings authoritatively.
-  The owner fast-forwards integration → main manually (or a separate opt-in
-  promotes it).
+  **Gate mode `auto`**: CI when the repo has workflows covering integration PRs,
+  else warden's own local `check` rail — a no-CI repo degrades gracefully, it
+  never dead-ends the run. The owner fast-forwards integration → main manually
+  (or a separate opt-in promotes it).
 - **Ownership guard (daemon-side)** — "autopilot touches only autopilot-owned
   agents" is enforced mechanically, not by persona: destructive tools
   (`terminate_agent`, `delete_agent`, `remove_worktree`, …) invoked by a brain
@@ -222,9 +231,15 @@ background-loop wiring in `server.go`, the backend registry.
 - **Toggle surface** (spec-first per the daemon-api-spec-first invariant):
   - `openapi.yaml`: `POST /autopilot {enabled}` + `GET /autopilot` (status: per-plan
     brains — plan, backend, in-flight workers, last heartbeat) → `make generate`.
-  - CLI `warden autopilot on|off|status` → `make gendocs`. MCP `set_autopilot` /
+  - CLI `warden autopilot on|off|status|init` → `make gendocs`. MCP `set_autopilot` /
     `autopilot_status`. TUI keybind + status (`internal/tui`, help in `view.go`).
     Web toggle + status panel (`web/src`).
+- **Enable-time preflight + `warden autopilot init`** — ALL friction is
+  front-loaded to the one moment the human is present: `init` scaffolds (plan
+  template, config block with detected backends, integration branch, CI hint);
+  enable preflights plan validity, backend auth/trust per ladder entry, `gh`
+  auth, branch existence, gate-mode resolution — and fails with the full
+  actionable list. After enable, no path waits on a human.
 
 ## Config schema (new `autopilot` block)
 
@@ -250,7 +265,9 @@ autopilot:
   merge:
     target_branch: autopilot/integration  # brain merges green workers here; owner ff → main
     strategy: squash
-    require_ci_green: true             # the gate (owner choice #2)
+    gate: auto                         # auto | ci | local — never merge red (owner
+                                       # choice #2); auto = CI when present, else
+                                       # warden's local `check` rail
     delete_branch: true                # delete worker branch after it lands
   guardian:
     interval: 60s
@@ -263,6 +280,11 @@ autopilot:
 ```
 
 ## Safety rails (fire only at extremes — frictionless)
+
+Meta-rail: **all friction is front-loaded to the enable-time preflight**; at
+runtime no path waits on a human. The docs carry a prominent warning that
+leaving autopilot on is inherently risky — the mitigations are the kill switch,
+the integration-branch boundary, and the audit log, never runtime prompts.
 
 - Merge target = `autopilot/integration`, never main directly; gate = CI-green +
   mergeable, never merge red (enforced by the `land` tool, not just persona). Main
@@ -301,6 +323,21 @@ autopilot:
 - **Notification channel** → pinned to `internal/notify` (guardian escalations,
   landings, run complete, pay-per-use gate hit).
 
+Second review pass (smoothness/frictionless focus):
+
+- **No-CI repos dead-ended at the gate** → gate mode `auto`: CI when present,
+  else warden's local `check` rail; "never merge red" holds in both.
+- **Unrecognized worker approvals parked in the human inbox** → forwarded to the
+  brain's mailbox; inbox mirrors only.
+- **Write-ahead intent depended on persona discipline** → recovery digest
+  composed by the daemon (store/audit/landings are already authoritative);
+  brain journaling is hygiene, not correctness.
+- **Runtime failures a human would have to fix at 3am** → enable-time preflight
+  + `warden autopilot init` (front-load ALL friction to enable).
+- **Mid-run plan-file typo could wedge the run** → keep last-good plan + notify.
+- **Worker parked hours on a far-off rate-limit reset** → brain may respawn the
+  task on the next ladder backend.
+
 ## Open risks to flag before building
 
 - **Brain reliability** — a capable backend is essential; failover order matters so
@@ -308,9 +345,10 @@ autopilot:
 - **Cost** — bounded by the cost-tier ladder (free → subscription → gated
   pay-per-use) + optional per-plan budget. Confirm which of the owner's backends
   fall in each bucket and whether `allow_pay_per_use` should ever be on.
-- **CI on integration PRs** — repo workflows may filter to `main` only; each
-  adopting repo must extend filters to `autopilot/integration` or the gate can
-  never go green.
+- **CI on integration PRs** — repo workflows may filter to `main` only; gate
+  mode `auto` degrades to local checks so the run never dead-ends, but adopters
+  should extend filters to `autopilot/integration` to earn the stronger gate
+  (preflight prints the hint).
 
 ---
 
@@ -321,11 +359,11 @@ Large, multi-phase; build as staged agents (bounded context). Dogfoods autopilot
 | Stage | Deliverable | Kind |
 |---|---|---|
 | **P0** | Formalize into `docs/specs/autopilot.md`: hierarchy, brain persona (incl. write-ahead/PR-base/refresh rules), run-ledger schema, endpoint contract, **idempotent `land` contract**, guardian algorithm (heartbeat + planned rotation), ownership guard, cost-tier selection | design |
-| **P1** | `autopilot` config block + `Controller` (master switch + bundle) + daemon endpoint (spec-first) + CLI/MCP/TUI/web toggle. **Visible but inert** switch. | implement |
+| **P1** | `autopilot` config block + `Controller` (master switch + bundle) + daemon endpoint (spec-first) + CLI/MCP/TUI/web toggle + `warden autopilot init` scaffolder + enable-time preflight. **Visible but inert** switch. | implement |
 | **P2** | Brain persona/role + per-plan brain lifecycle (spawn a headless brain per plan on the cheapest available backend, plan-file brief + full MCP). | implement |
 | **P3** | Keep-alive substrate retargeted to each brain (auto-approve/resume/restart, breaker-reroute) + heartbeat **guardian** + cost-tiered failover/rotation. | implement |
 | **P4** | Guarded `land` merge-into-integration tool (`wd land` + MCP) with the CI-green gate + worker cleanup. | implement |
-| **P5** | Docs/website/skill + `make gendocs` + tag & release (CLAUDE.md DoD). | docs/release |
+| **P5** | Docs/website/skill (incl. a prominent "unattended operation is risky" warning + adoption guide around `init`) + `make gendocs` + tag & release (CLAUDE.md DoD). | docs/release |
 
 P2–P4 depend on P1; P5 on all. Build **P1 end-to-end first** (inert switch wired
 through every surface) before the brain logic lands.

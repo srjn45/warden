@@ -12,6 +12,19 @@ persona. P1–P4 implement against this document.
 
 ---
 
+## 0. Design principle — frictionless after enable
+
+Autopilot's contract with the owner: **all friction is front-loaded into the
+moment of enabling** — the one moment a human is present. Enabling runs a
+preflight (§5.1) that surfaces every problem that would otherwise stall the run
+unattended (missing/invalid plan file, unauthenticated or untrusted backends,
+missing integration branch, no CI, dead `gh` auth) as actionable errors *now*.
+After enable, **no path may wait on a human**: every dead end routes to a
+machine — auto-approve, the brain, the guardian, or a gate fallback — never to
+a human inbox. The docs (P5) carry a prominent warning that unattended
+operation is inherently risky; the mitigations are auditability and the kill
+switch, **not** runtime confirmation prompts.
+
 ## 1. Concepts & ownership
 
 | Term | Definition |
@@ -20,7 +33,7 @@ persona. P1–P4 implement against this document.
 | **Run** | The daemon's execution of one plan: one brain + its workers + its ledger. Keyed by `run_id` (stable hash of repo + plan path). |
 | **Brain** | One long-lived headless agent per run, role `autopilot`, spawned by the Controller on the cheapest available backend. Orchestrates via existing MCP tools. |
 | **Worker** | Any agent or pipeline the brain spawns to do actual work. Tagged `autopilot` + `run:<run_id>`. |
-| **Ledger** | Durable, daemon-store-backed run state written by the brain (write-ahead) and by `land` (authoritative landings). |
+| **Ledger** | Durable, daemon-store-backed run state kept current by the brain and written authoritatively by the daemon (`land` landings, spawn/terminate records). |
 | **Integration branch** | `autopilot/integration` (configurable). The ONLY branch autopilot merges into. Owner fast-forwards it to main. |
 
 Ownership invariants:
@@ -55,9 +68,9 @@ active ──all tasks landed──▶ complete (brain torn down, ledger retaine
 ### 2.2 Task (ledger-tracked, brain-written)
 
 ```
-pending → assigned → in_progress → pr_open → gated (CI running)
+pending → assigned → in_progress → pr_open → gated (gate running, §6.1)
    gated → landed            (land succeeded; authoritative, daemon-written)
-   gated → fixing → gated    (CI red / conflict; brain heals worker or respawns)
+   gated → fixing → gated    (gate red / conflict; brain heals worker or respawns)
 any → replanned              (brain revises the plan decomposition; audit-logged)
 ```
 
@@ -90,6 +103,9 @@ done_when:                                       # optional acceptance criteria 
 
 Unknown fields are rejected (strict decode) so typos surface at enable time.
 The brain re-reads the file when its mtime changes (owner steering mid-flight).
+A **mid-run edit that fails validation never stops the run**: the run keeps the
+last-good plan, the owner is notified with the decode error, and the brain
+carries on — a steering typo must not wedge two weeks of work.
 
 ## 4. Run ledger
 
@@ -104,19 +120,19 @@ not trusted to the brain).
 | Key | Writer | Content |
 |---|---|---|
 | `autopilot/<run>/tasks` | brain (`ctx_cas`) | task ledger: `{id, state, worker_id, branch, pr, note, updated_at}[]` |
-| `autopilot/<run>/intent` | brain (write-ahead) | the single action the brain is ABOUT to take: `{action, target, params, at}` — cleared after the action completes |
 | `autopilot/<run>/landings` | **daemon** (`land`) | append-only: `{branch, sha, pr, landed_at}` |
 | `autopilot/<run>/journal` | brain | rolling decision log (bounded, newest-first) for cold-start context |
 
-**Write-ahead rule (persona-enforced, §9):** before any side-effectful call
-(spawn, send, land, terminate, remove_worktree) the brain writes `intent`, acts,
-then updates `tasks` and clears `intent`. A restarted brain reads `intent` first:
-if present, it verifies whether the action already happened (e.g. `land` is
-idempotent; `list_agents` shows a spawn) before re-issuing.
-
-**Cold start:** fresh brain = plan file + `tasks` + `landings` + `journal` +
-`list_agents` (live truth for in-flight workers). Nothing lives only in a brain's
-context.
+**Recovery by construction (not persona discipline):** correctness across brain
+restarts must not depend on the brain remembering to journal. Every
+side-effectful operation is daemon-mediated and already recorded — spawns and
+terminations in the store + audit log, landings written by the daemon inside
+`land` (which is idempotent, §6). At brain (re)spawn the daemon composes a
+**recovery digest** — plan file + `tasks` + `landings` + live `list_agents` +
+the run's recent audit entries — and injects it as the brain's opening brief.
+The brain keeps `tasks` and `journal` current as hygiene (they feed the status
+panel and enrich its successor's digest), but a lapse degrades observability,
+never correctness. Nothing lives only in a brain's context.
 
 ## 5. Daemon endpoint contract (spec-first: `openapi.yaml` → `make generate`)
 
@@ -147,14 +163,39 @@ GET  /autopilot                                    → 200 AutopilotStatus
 }
 ```
 
-409 on enable when: another daemon-registered run is active for the same repo,
-plan file missing/invalid, or integration branch name collides with a protected
-branch. Error body carries the reason verbatim.
+409 on enable when preflight fails (§5.1) — the body carries the full list of
+actionable failures, not just the first, so the owner fixes everything in one
+pass.
 
 Surfaces (all thin wrappers over these two routes): CLI `warden autopilot
-on|off|status`, MCP `set_autopilot`/`autopilot_status` (in
+on|off|status|init`, MCP `set_autopilot`/`autopilot_status` (in
 `internal/mcp/tools_extra.go`), TUI header badge + keybind, web toggle + status
 panel. Toggling is live — loops gate on the flag per tick; no daemon restart.
+A failed enable from TUI/web surfaces the preflight list verbatim with the hint
+to run `warden autopilot init`.
+
+### 5.1 Enable-time preflight & `warden autopilot init`
+
+`warden autopilot init` scaffolds adoption in one command: writes a template
+plan file (if absent), adds the `autopilot` config block pre-filled with the
+backends detected on this machine (owner assigns cost tiers), creates the
+integration branch off main (if absent), and prints a CI hint when workflows
+don't cover integration PRs.
+
+Enabling (`POST /autopilot`, any surface) runs a **preflight** and fails fast
+with an actionable list instead of stalling unattended later:
+
+- plan file exists and validates (strict decode);
+- every ladder backend is installed, authenticated, and **trusted in this
+  repo** — first-run trust prompts are a one-time operator step, so they
+  surface NOW, not mid-rotation at 3am;
+- `gh` is authenticated and can reach the remote;
+- integration branch exists (auto-created off main when missing);
+- no other active run on this repo; integration branch is not a protected name;
+- gate mode resolved (§6.1): CI covering integration PRs detected, or the
+  local-check fallback announced in the response.
+
+Preflight failures are the **only** human interaction autopilot ever requests.
 
 ## 6. `land` contract (new MCP tool + `wd land`)
 
@@ -165,9 +206,26 @@ panel. Toggling is live — loops gate on the flag per tick; no daemon restart.
 2. Target branch is autopilot-owned (`run:<run_id>` tagged agent or recorded
    worker branch).
 3. A PR exists whose base is the integration branch.
-4. Latest CI on the PR head SHA is **green** (via `branchtrack`; "no CI
-   configured" is a distinct error, not a pass — see master-plan risk).
+4. The gate (§6.1) is **green** for the PR head SHA.
 5. PR is mergeable (no conflicts).
+
+### 6.1 Gate modes — a no-CI repo must not dead-end
+
+`merge.gate: auto | ci | local` (default **`auto`**):
+
+- **`ci`** — latest CI run on the PR head SHA must be green (via `branchtrack`).
+  "No CI configured" is the typed error `ci_missing` — only possible in this
+  explicit mode.
+- **`local`** — no CI required: the daemon runs the repo's project checks
+  (the existing `check` rail, same as `wd check`) against the PR head worktree
+  and gates on that result.
+- **`auto`** — use `ci` when the repo has workflows covering integration PRs,
+  else fall back to `local`. Resolved once at preflight and reported in
+  `AutopilotStatus`, so the owner always knows which gate is live.
+
+"Never merge red" holds in every mode. Under `auto`, a repo without CI degrades
+to local checks instead of wedging the run — CI remains the stronger gate the
+adopter can graduate to.
 
 **Semantics:**
 - Merge strategy from config (default squash); delete worker branch if
@@ -177,8 +235,9 @@ panel. Toggling is live — loops gate on the flag per tick; no daemon restart.
   re-issuing after a mid-action restart is a no-op.
 - Never accepts `main` (or the repo default branch) as target or source-base.
 
-**Errors (enumerated for the brain to reason over):** `ci_pending`, `ci_red`,
-`ci_missing`, `not_mergeable`, `not_owned`, `run_disabled`, `wrong_base`.
+**Errors (enumerated for the brain to reason over):** `gate_pending`,
+`gate_red` (carries the failing check/CI summary), `ci_missing` (mode `ci`
+only), `not_mergeable`, `not_owned`, `run_disabled`, `wrong_base`.
 
 ## 7. Cost-tier backend selection
 
@@ -209,33 +268,48 @@ ledger (§4). Workers in flight are untouched; the new brain adopts them from
 `allow_pay_per_use: true`. Hitting the gate (nothing else available) emits a
 distinct notification so the owner can flip it deliberately.
 
-## 8. Ownership guard (daemon-side)
+## 8. Ownership guard & approval routing (daemon-side)
 
-A request-scoped check in the daemon handlers for destructive operations
-(`terminate_agent`, `delete_agent`, `remove_worktree`, `stop_agent`,
-`snapshot_restore`): when the **calling session** is a brain (role `autopilot`),
-the **target** must carry the `autopilot` tag and the caller's `run:<run_id>`
-tag; otherwise 403 `not_owned`. Manual/foreign agents are mechanically
-untouchable regardless of what the persona decides. (Caller identity: the brain's
-MCP connection is already an authenticated agent session; reuse that identity.)
+**Ownership guard.** A request-scoped check in the daemon handlers for
+destructive operations (`terminate_agent`, `delete_agent`, `remove_worktree`,
+`stop_agent`, `snapshot_restore`): when the **calling session** is a brain
+(role `autopilot`), the **target** must carry the `autopilot` tag and the
+caller's `run:<run_id>` tag; otherwise 403 `not_owned`. Manual/foreign agents
+are mechanically untouchable regardless of what the persona decides. (Caller
+identity: the brain's MCP connection is already an authenticated agent session;
+reuse that identity.)
+
+**Approval routing — no worker ever waits on a human.** While a run is active,
+a worker prompt that the auto-approve policy cannot answer (unrecognized
+prompt, tripped breaker, deny-matched but non-destructive) does **not** park in
+the human approvals inbox. The daemon forwards it to the brain's mailbox
+(`send_message`); the brain reads the pane/transcript and answers via
+`approve`/`send_to_agent` — yes/no per policy spirit, multi-choice defaulting
+to the agent's own recommended option unless the brain reasons otherwise. The
+human inbox still **mirrors** the event (visibility + audit), but nothing
+blocks on it. Human escalation remains the path only for non-autopilot agents.
 
 ## 9. Brain persona (`internal/role/roles/autopilot.yaml`, embedded)
 
 Defaults: `permission_mode` full-auto equivalent, `auto_approve: true`, tags
 `[autopilot]`. Persona playbook (condensed contract — full text authored in P2):
 
-1. Your brief is the plan file; re-read it when it changes. The ledger (§4) is
-   your memory — **write intent before every side-effectful action**, update task
-   state after, keep the journal current. Assume you can be restarted at any
-   moment and must be able to resume from the ledger alone.
+1. Your brief is the plan file plus the recovery digest injected at spawn;
+   re-read the plan when it changes. Keep the task ledger and journal current —
+   they feed the status panel and your successor's digest. Assume you can be
+   restarted at any moment: verify before re-issuing anything (`land` is
+   idempotent; `list_agents` shows what already exists).
 2. Decompose the goal into tasks; spawn workers (agents or pipelines) up to
    `max_parallel_workers`, each in its own worktree, PRs based on the
-   integration branch — never main.
+   integration branch — never main. Before parallelizing over the same area,
+   check `who_is_editing_file` and sequence instead of colliding.
 3. Monitor workers; steer stuck ones by reading transcripts and messaging;
-   respawn hopeless ones (snapshot first).
-4. Land only via `land`; on `ci_red`/`not_mergeable` fix via the worker (or a
+   answer forwarded approval prompts (§8) promptly; respawn hopeless ones
+   (snapshot first). A worker rate-limited with a far-off reset may have its
+   task respawned on the next available ladder backend instead of waiting.
+4. Land only via `land`; on `gate_red`/`not_mergeable` fix via the worker (or a
    fix-up worker), then re-land. If integration is behind main, refresh it
-   (merge main in, wait for CI) before landing more.
+   (merge main in, wait for the gate) before landing more.
 5. After landing: clean up the worker (terminate → remove_worktree; branch
    deletion is handled by `land`), mark the task landed, pull the next task.
 6. Verify `done_when` before declaring the run complete; then report and stop
@@ -247,6 +321,10 @@ Defaults: `permission_mode` full-auto equivalent, `auto_approve: true`, tags
 
 Enabling autopilot OR-bundles `auto_approve.enabled`, `rate_limit.auto_resume`,
 and `auto_restart` for autopilot-owned agents unless explicitly overridden.
+When the owner has configured no auto-approve rules, enabling installs a
+**generous default policy for autopilot-owned agents** (allow recognized
+non-destructive prompts; deny destructive patterns) so workers don't stall on
+day one — anything the policy still can't answer routes to the brain (§8).
 Defaults are generous (frictionless-safeguards philosophy): guards fire only at
 extremes.
 
@@ -255,16 +333,24 @@ extremes.
 - Automated promotion of integration → main (owner fast-forwards; a separate
   opt-in may come later).
 - Multi-repo plans; user-defined roles; cross-run prioritization.
-- Making CI exist: repos without CI get `ci_missing` at the gate — configuring CI
-  (and extending branch filters to the integration branch) is the adopter's job.
+- Making CI exist: repos without CI degrade to the local-check gate (§6.1)
+  automatically; configuring CI (and extending branch filters to the
+  integration branch) remains the adopter's job to earn the stronger gate.
 
 ## 12. Verification (contract-level)
 
-- **Ledger cold-start:** kill a brain mid-run (with `intent` set), restart, assert
-  no duplicated side effects and correct resumption.
+- **Recovery-digest cold-start:** kill a brain mid-run, restart, assert the
+  digest reconstructs run state and no side effects are duplicated.
 - **`land` idempotency:** land, restart brain, re-land same branch → `already_landed`.
-- **Gate:** red CI / pending CI / no CI / conflict each return their typed error
-  and merge nothing.
+- **Gate:** red / pending / conflict each return their typed error and merge
+  nothing; `gate: auto` on a no-CI repo resolves to `local` and gates on
+  project checks; `ci_missing` only under explicit `gate: ci`.
+- **Preflight:** enable with a missing plan file / untrusted backend / dead `gh`
+  auth → single 409 carrying ALL failures; `init` then a clean enable succeeds.
+- **Approval routing:** unrecognized worker prompt while a run is active →
+  brain mailbox message + mirrored inbox event; nothing blocks on a human.
+- **Plan-edit resilience:** corrupt the plan file mid-run → run keeps last-good
+  plan, owner notified, brain continues.
 - **Ownership guard:** brain-session terminate of a non-autopilot agent → 403.
 - **Tier ladder:** exhaust free tier → subscription selected; pay-per-use never
   selected while gated; `limited_until` expiry re-selects the cheaper tier.
