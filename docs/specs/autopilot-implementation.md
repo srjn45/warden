@@ -28,11 +28,11 @@ spawn_agent role=orchestrator backend=claude model=sonnet repo=<warden checkout>
 
 Owner inputs at kickoff (defaults apply if unspecified):
 
-- **Backends & models:** per the §2 matrix — implementation is **claude-only**
-  (owner has a Max 5x subscription); free-tier backends take the §2.4
-  heartbeat sentinel (always) and §2.2 side tasks (optional). Ensure the
-  chosen free-tier backend is trusted in this repo now (first-run trust is a
-  one-time operator step).
+- **Backends & models:** per the §2 matrix — implementation and supervision
+  (orchestrator + §2.4 sentinel) are **claude-only** (owner has a Max 5x
+  subscription); free-tier backends take only optional §2.2 side tasks. If
+  side tasks will be used, ensure the free-tier backend is trusted in this
+  repo now (first-run trust is a one-time operator step).
 - **Backend cost buckets** for the autopilot feature's own live-test config
   (S7 rig): default `free: [antigravity]`, `subscription: [claude]`,
   `pay_per_use: []`, `allow_pay_per_use: false`.
@@ -140,6 +140,7 @@ Sonnet. All implementation runs on the claude backend (owner's Max 5x plan).
 | Agent | Backend / model | Why |
 |---|---|---|
 | Orchestrator | claude / **sonnet** | Follows this written protocol; long-lived, so cheap+fast beats depth |
+| Heartbeat sentinel (§2.4) | claude / **sonnet** | Governs other agents — trust-sensitive; read + nudge only |
 | S1 toggle core | claude / **opus** | Config + spec-first endpoint + Controller state machine |
 | S2 init + TUI + web | claude / **sonnet** | Surface wiring over S1's contract; no new semantics |
 | S3 brain lifecycle | claude / **opus** | Ledger/digest correctness is the feature's backbone |
@@ -208,13 +209,20 @@ treat them as best-effort — **the sentinel is the reliable resume path**.
 in S5).** An hourly heartbeat via **warden's own scheduler** (no external
 cron). Two design points: the scheduler fires agent-spawns, not messages to
 existing agents — hence a sentinel, which is strictly stronger anyway (a bare
-nudge cannot fix a dead orchestrator); and the sentinel runs on a
-**free-tier backend (antigravity or codex), not claude** — all claude agents
-share one subscription, so a claude sentinel would be limited by exactly the
-window it exists to recover from. `create_schedule` (cron `@hourly`, agent
-mode) spawns a short-lived sentinel whose entire brief is:
+nudge cannot fix a dead orchestrator); and the sentinel runs on
+**claude / sonnet** — governing other agents is a trust-sensitive job the
+free tiers haven't earned. Sharing the claude subscription is acceptable
+because during a limit window **nothing progresses anyway** (all
+implementation is claude): a limited sentinel has nothing to resume that
+could act, and the **first hourly fire after the reset** is what performs the
+fleet-wide resume — worst-case lag stays under an hour, same as any backend.
+Sentinel fires that land mid-window will themselves sit at the limit banner;
+each fire uses a unique name and the next healthy sentinel sweeps them all.
+`create_schedule` (cron `@hourly`, agent mode) spawns a short-lived sentinel
+whose entire brief is:
 
-1. Terminate + delete any previous sentinel instance (self-cleaning chain).
+1. Terminate + delete **all** previous sentinel instances — including any
+   that got limit-stuck themselves (self-cleaning chain).
 2. Survey: `autopilot-impl/journal`, `git log origin/main`, `list_agents`,
    `list_pipelines` — has anything progressed since the journal's last entry?
 3. **Resume duty:** for every agent sitting at a rate-limit banner/menu
@@ -222,8 +230,8 @@ mode) spawns a short-lived sentinel whose entire brief is:
    input (`send_to_agent` / `approve` on the menu). If the window is still
    closed the banner just reappears — harmless; the next hourly fire retries.
    Worst case, resume lags the actual reset by under an hour.
-4. Progressing → exit silently (a healthy heartbeat costs ~nothing, and the
-   free tier makes it $0).
+4. Progressing → exit silently (a healthy heartbeat is a read-only pass and
+   costs a negligible slice of the subscription).
 5. Orchestrator alive but idle/looping with work outstanding → `send_message`:
    "heartbeat: resume the §1 protocol — re-read the journal, check every
    child and pipeline, continue from the last incomplete stage."
@@ -232,8 +240,6 @@ mode) spawns a short-lived sentinel whose entire brief is:
 
 The schedule is created **at kickoff** — the sentinel, not the orchestrator,
 is the outermost supervisor — and deleted after the §5 release confirmation.
-The free-tier backend must therefore be trusted in the repo at kickoff even
-if §2.2 side tasks are not used.
 
 ## 3. Stage graph
 
