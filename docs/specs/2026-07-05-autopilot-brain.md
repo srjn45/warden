@@ -93,10 +93,25 @@ into "ask a human."
   sending messages/rollbacks, run `check`, `commit`/`push`, open PRs, poll
   `get_branch_status`, **merge green+mergeable workers into `autopilot/integration`
   only** (never main), clean up with `remove_worktree`/prune, pull the next task,
-  repeat forever, never ask a human — reason and act.*
-- **One long-lived brain per master-plan/repo** is spawned when autopilot toggles
-  ON, on the cheapest available backend (§4), with its plan file injected as its
+  repeat forever, never ask a human — reason and act.* Three hard playbook rules:
+  1. **Write-ahead ledger** — record every decision and task-state change in the
+     durable run ledger (below) *before* acting, so a restarted brain never
+     repeats a side-effectful action.
+  2. **Worker PRs base on `autopilot/integration`**, never main — the CI gate must
+     validate against the branch the work will actually land on.
+  3. **Refresh integration before landing** — if `autopilot/integration` is behind
+     main, merge main into it and wait for CI before landing more work.
+- **Durable run ledger** — the brain externalizes ALL run state (task ledger,
+  decisions, in-flight worker map) into a daemon-store-backed ledger (reserved
+  ctx blackboard namespace `autopilot/<plan>`, reusing `ctx_set`/`ctx_get`). A
+  fresh brain cold-starts purely from plan file + ledger + `list_agents` — this is
+  what makes restart/rotation safe and "never park" meaningful (not an amnesiac
+  resurrection).
+- **One long-lived brain per master-plan** is spawned when autopilot toggles ON,
+  on the cheapest available backend (§4), with its plan file injected as its
   brief and full MCP access. **Headless** — surfaced only via the status panel.
+  **At most one active brain per repo** (Controller-validated): two plans landing
+  on the same integration branch would race.
 - The brain does planning/merging/cleanup **by calling the MCP tools that already
   exist** — so there is little-to-no new "executor" code. What may be missing is a
   **guarded merge-into-integration tool** (see New).
@@ -113,11 +128,18 @@ into "ask a human."
 
 A brain cannot watch itself. A tiny daemon loop (same pattern as
 `worktree_prune.go` / `scheduler.go`, launched from `server.go`) checks **each
-brain** is *progressing* — making tool calls / spawning / merging, not
-`looksLikeLoop` churn, not idle-stuck, not needs-input it can't answer. If a brain
-wedges: restart it (fresh context), or **rotate its backend down the cost ladder**
-(§4). Capped exponential backoff, notify each escalation, **never park** (owner
-choice #4).
+brain** is *progressing*. The primary heartbeat is **MCP tool-call recency from
+the audit log** — a headless brain that has made no tool call in N minutes while
+its run has pending work is wedged; this is far less false-positive-prone than
+pane parsing. Pane detectors (`looksLikeLoop`, needs-input) remain as secondary
+signals. If a brain wedges: restart it (fresh context, cold-start from the run
+ledger), or **rotate its backend down the cost ladder** (§4). Capped exponential
+backoff, notify each escalation, **never park** (owner choice #4).
+
+The guardian also performs **planned rotation**: at a context-pressure threshold
+(or a configurable cadence) it proactively rotates the brain — the run ledger
+makes this a cheap, lossless handoff instead of degrading via repeated
+auto-compaction over a weeks-long run.
 
 ### 4. Cost-tiered backend failover (NEW — "use any & all backends, cheapest first")
 
@@ -182,13 +204,21 @@ background-loop wiring in `server.go`, the backend registry.
 
 ### New (small surface)
 - **`internal/autopilot`** package — `Controller` (master switch + bundle +
-  per-plan brain lifecycle), heartbeat **guardian**, cost-tier failover policy. No
-  DAG executor (the brain plans) — this is orchestration-of-the-brain, not of the work.
+  per-plan brain lifecycle + one-brain-per-repo validation), heartbeat
+  **guardian**, cost-tier failover policy. No DAG executor (the brain plans) —
+  this is orchestration-of-the-brain, not of the work.
 - **Guarded merge-into-integration action** — no MCP merge tool exists today. Add a
   `land`/`merge_agent` MCP tool + `wd land` that merges a worker branch into
   `autopilot/integration` within warden's rail (gate on CI-green + mergeable) so
-  the brain merges safely instead of raw `gh`. The owner fast-forwards
-  integration → main manually (or a separate opt-in promotes it).
+  the brain merges safely instead of raw `gh`. **`land` is idempotent** — landing
+  an already-landed branch is a recorded no-op success, so a brain restarted
+  mid-action can safely re-issue it; the daemon records landings authoritatively.
+  The owner fast-forwards integration → main manually (or a separate opt-in
+  promotes it).
+- **Ownership guard (daemon-side)** — "autopilot touches only autopilot-owned
+  agents" is enforced mechanically, not by persona: destructive tools
+  (`terminate_agent`, `delete_agent`, `remove_worktree`, …) invoked by a brain
+  session are rejected when the target lacks the `autopilot` tag.
 - **Toggle surface** (spec-first per the daemon-api-spec-first invariant):
   - `openapi.yaml`: `POST /autopilot {enabled}` + `GET /autopilot` (status: per-plan
     brains — plan, backend, in-flight workers, last heartbeat) → `make generate`.
@@ -201,9 +231,11 @@ background-loop wiring in `server.go`, the backend registry.
 ```yaml
 autopilot:
   enabled: false
-  plans:                               # one brain per plan/repo, each on its own ladder
-    - file: autopilot.plan.yaml
+  plans:                               # one brain per plan, each on its own ladder;
+    - file: autopilot.plan.yaml        # at most ONE active plan per repo
     # - file: other-initiative.plan.yaml
+      # budget:                        # optional per-plan cost shaping (soft caps,
+      #   max_spawns_per_day: 0        # 0 = unlimited; frictionless defaults)
   brain:                               # default template applied to each plan's brain
     # cost-tiered backend ladder: free first, then subscription,
     # pay-per-use ONLY when allow_pay_per_use is true (owner permission).
@@ -222,19 +254,27 @@ autopilot:
     delete_branch: true                # delete worker branch after it lands
   guardian:
     interval: 60s
+    heartbeat_timeout: 10m             # no brain MCP call for this long w/ pending work ⇒ wedged
+    rotate_at_context: critical        # planned rotation threshold (ctxtokens level)
     backoff_min: 30s
     backoff_max: 6h                    # cap; never park (owner choice #4)
-    notify_each_escalation: true
+    notify_each_escalation: true       # via internal/notify (the pinned channel);
+                                       # also notifies on landings + run complete
 ```
 
 ## Safety rails (fire only at extremes — frictionless)
 
 - Merge target = `autopilot/integration`, never main directly; gate = CI-green +
   mergeable, never merge red (enforced by the `land` tool, not just persona). Main
-  moves only when the owner fast-forwards integration.
-- Autopilot touches only `autopilot`-owned agents (brain + its workers); manual
-  agents untouched. Toggle-off = instant kill switch for spawning/merging;
-  in-flight agents keep running.
+  moves only when the owner fast-forwards integration. `land` is idempotent —
+  restart-safe by construction.
+- Autopilot touches only `autopilot`-owned agents (brain + its workers) —
+  **enforced daemon-side** (destructive tools from a brain session are rejected
+  for non-autopilot targets), not just by persona. Manual agents untouched.
+  Toggle-off = instant kill switch for spawning/merging; in-flight agents keep
+  running.
+- At most one active brain per repo (Controller-validated) — no integration-branch
+  races between plans.
 - Guardian backoff-capped → no tight spend loop; notifies each escalation.
 - **Pay-per-use is opt-in only** (`allow_pay_per_use`): without permission warden
   will wait for a free/subscription tier to reset rather than spend per-call —
@@ -244,17 +284,33 @@ autopilot:
 - `wd` rail holds: commits/pushes still pass pre-commit vet + pre-push verify-fast;
   a broken tree blocks and the brain must fix it (no bypass).
 
+## Resolved design gaps (folded in from review)
+
+- **Brain context exhaustion over weeks-long runs** → durable run ledger +
+  guardian planned rotation (lossless handoff, not repeated auto-compaction).
+- **Idempotency across brain restarts** → write-ahead ledger rule in the persona +
+  idempotent `land` with daemon-recorded landings.
+- **CI gate validating the wrong base** → worker PRs must base on
+  `autopilot/integration`; confirm CI workflow branch filters cover it.
+- **Ownership by persona only** → daemon-side ownership guard on destructive tools.
+- **Wedge detection via pane heuristics** → primary heartbeat = brain MCP
+  tool-call recency from the audit log; pane detectors secondary.
+- **Integration-branch races between plans** → at most one active brain per repo.
+- **Integration drift vs main** → persona rule: refresh integration from main
+  before landing when behind.
+- **Notification channel** → pinned to `internal/notify` (guardian escalations,
+  landings, run complete, pay-per-use gate hit).
+
 ## Open risks to flag before building
 
-- **Integration branch drift** — `autopilot/integration` can accumulate many landed
-  workers before the owner ff's to main; needs periodic rebase/refresh vs main so
-  the CI gate stays meaningful (decided: never merge to main unattended).
 - **Brain reliability** — a capable backend is essential; failover order matters so
   a rate-limited lead never fully halts orchestration.
-- **"Never park" visibility** — infinite retry must notify loudly; confirm channel.
 - **Cost** — bounded by the cost-tier ladder (free → subscription → gated
-  pay-per-use). Confirm which of the owner's backends fall in each bucket and
-  whether `allow_pay_per_use` should ever be on.
+  pay-per-use) + optional per-plan budget. Confirm which of the owner's backends
+  fall in each bucket and whether `allow_pay_per_use` should ever be on.
+- **CI on integration PRs** — repo workflows may filter to `main` only; each
+  adopting repo must extend filters to `autopilot/integration` or the gate can
+  never go green.
 
 ---
 
@@ -264,7 +320,7 @@ Large, multi-phase; build as staged agents (bounded context). Dogfoods autopilot
 
 | Stage | Deliverable | Kind |
 |---|---|---|
-| **P0** | Formalize into `docs/specs/autopilot.md` (hierarchy, brain persona, config, endpoint, `land` contract) | design |
+| **P0** | Formalize into `docs/specs/autopilot.md`: hierarchy, brain persona (incl. write-ahead/PR-base/refresh rules), run-ledger schema, endpoint contract, **idempotent `land` contract**, guardian algorithm (heartbeat + planned rotation), ownership guard, cost-tier selection | design |
 | **P1** | `autopilot` config block + `Controller` (master switch + bundle) + daemon endpoint (spec-first) + CLI/MCP/TUI/web toggle. **Visible but inert** switch. | implement |
 | **P2** | Brain persona/role + per-plan brain lifecycle (spawn a headless brain per plan on the cheapest available backend, plan-file brief + full MCP). | implement |
 | **P3** | Keep-alive substrate retargeted to each brain (auto-approve/resume/restart, breaker-reroute) + heartbeat **guardian** + cost-tiered failover/rotation. | implement |
@@ -277,7 +333,10 @@ through every surface) before the brain logic lands.
 ## Verification approach
 
 - **Unit**: table-driven tests (mirroring `breaker_test.go`, `autorestart_test.go`)
-  for the guardian progress-detection, backoff/rotation policy, and `land` gate.
+  for the guardian progress-detection, backoff/rotation policy, `land` gate +
+  idempotency (re-land = no-op success), ownership guard (destructive tool vs
+  non-autopilot target rejected), and ledger cold-start (fresh brain reconstructs
+  run state from plan file + ledger + agent list).
 - **Integration ($0-ish rig)**: isolated daemon on an alt port (never systemd); a
   **free/cheap backend as the brain** (the local-LLM path is out, so use a real
   free backend for the rig); throwaway git repo seeded via `git commit-tree`; drive
