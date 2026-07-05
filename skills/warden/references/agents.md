@@ -87,8 +87,8 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `crush` is BYO-model (TUI is config-driven; headless `crush run` accepts model);
   it **DOES resume** (dir-scoped, `crush --continue`), has a **structured Tier-A
   transcript** (SQLite, via `crush session show --json`), gets **context injection**
-  (`CRUSH.md`), but **the TUI takes no initial prompt** (type it after attach) and
-  its approval prompts are **not yet parsed**; no priced spend.
+  (`CRUSH.md`), and the initial prompt is **auto-typed into the TUI after launch**
+  (`PromptSeeder`), but its approval prompts are **not yet parsed**; no priced spend.
   `goose` is BYO-provider (set `GOOSE_PROVIDER`/`GOOSE_MODEL` env before
   spawning; no `--model` flag on `goose session`); it **DOES resume**
   (name-deterministic — warden pins its own id as the Goose `--name`, so

@@ -2523,7 +2523,7 @@ Only claude is fully tested; all others are experimental / WIP.
 Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
 OpenCode: BYO model (pass --model), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
-Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); TUI takes no initial prompt.
+Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); initial prompt auto-typed post-launch.
 Goose: BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env), DOES resume (name-deterministic); no --model on session launch.
 Cursor: hosted model catalog; pass --model to override (cursor-agent --list-models / wd models); DOES resume (dir-scoped --continue); warden owns the worktree (cursor's own -w never passed).
 Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy models / wd models); DOES resume (dir-scoped agy -c).
