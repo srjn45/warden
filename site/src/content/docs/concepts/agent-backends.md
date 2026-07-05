@@ -36,7 +36,7 @@ Warden is fully tested only with **Claude Code**. All non-`claude` backends (Aid
 | **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped; initial prompt auto-typed post-launch via `PromptSeeder`; no priced spend |
 | **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic; no model flag on session launch; no priced spend |
 | **Cursor CLI** | `cursor` | C | 🧪 Experimental. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; **no structured transcript yet** ⇒ no digests; no priced spend |
-| **Antigravity CLI** | `antigravity` | A | 🧪 Experimental. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL ⇒ real digests; **resumes** dir-scoped; live state + approval detection; no priced spend |
+| **Antigravity CLI** | `antigravity` | A | 🧪 Experimental. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped; live state + approval/trust detection; no priced spend |
 
 ```sh
 # Claude (default)
@@ -200,9 +200,9 @@ walkthrough: [Backend superpowers](/warden/guides/backend-superpowers/).
 ## Antigravity specifics
 
 - **Hosted free tier, multi-vendor models:** the `agy` CLI (backend id `antigravity`) runs on Google's free tier (a daily-ish quota cap), and one agent can run Gemini, Claude, *and* GPT-OSS models under a single login (`agy models`). Tokens show in `agy`'s `/usage` TUI only — warden surfaces no dollars; spend shows tokens, savings omits the agent.
-- **Tier A transcript:** the durable conversation store is encrypted/proto, but `agy` also writes a **plaintext JSONL trajectory log** that warden parses into neutral Turns, so digests run on real structured data. (Tool-call/files-changed extraction is still degraded — the captured fixture was text-only.)
+- **Tier A transcript:** the durable conversation store is encrypted/proto, but `agy` also writes a **plaintext JSONL trajectory log** that warden parses into neutral Turns — including tool calls and files changed (`tool_calls` on planner records, verified against a captured file-edit fixture) — so digests run on real structured data.
 - **Resumes — dir-scoped:** `agy -c` continues the most recent conversation for the workspace (verified); exact-id resume lands with discover-then-pin.
 - **Initial prompt:** seeded via `-i`/`--prompt-interactive`, then stays interactive (a persistent loop, like Claude).
-- **Live state + approval detection:** warden classifies `agy`'s TUI status bar (idle / working / needs-input) and maps its `Do you want to proceed?` permission menu into the approvals inbox (shell-command shape verified; other prompt variants degrade safely until captured).
+- **Live state + approval/trust detection:** warden classifies `agy`'s TUI status bar (idle / working / needs-input) and maps its `Do you want to proceed?` permission menu **and** its launch-time workspace-trust prompt into the approvals inbox (shell-command + trust shapes verified; other prompt variants degrade safely until captured).
 - **Context injection (AGENTS.md):** `agy` has no `--append-system-prompt` flag, so warden delivers its pipeline/collab/git hints via the `AGENTS.md` rules file `agy` reads on startup (`InjectContext`); `SystemPromptInject` Caps stays `false` (it tracks a launch flag specifically).
 - Full gap doc: [`docs/agent-backends/antigravity.md`](https://github.com/srjn45/warden/blob/main/docs/agent-backends/antigravity.md)

@@ -187,6 +187,65 @@ func TestAntigravityParseTranscriptTolerant(t *testing.T) {
 	require.Equal(t, "reply", turns[1].Text)
 }
 
+// TestAntigravityParseTranscriptToolCalls parses the real captured tool-using
+// trajectory fixture (one interactive `agy` v1.0.16 session that created a file and
+// ran a shell command) and asserts the tool-call / files-changed extraction the
+// digest's "what changed" column depends on: each `tool_calls` record surfaces as an
+// assistant Turn carrying the tool name, and the file-bearing `write_to_file` call
+// carries the JSON-decoded TargetFile path in Files.
+func TestAntigravityParseTranscriptToolCalls(t *testing.T) {
+	f, err := os.Open(filepath.Join("testdata", "antigravity", "brain",
+		"7f05dc62-68b3-40a1-82b9-115546ed9592", ".system_generated", "logs", "transcript.jsonl"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	turns, err := Antigravity{}.ParseTranscript(f)
+	require.NoError(t, err)
+	require.Len(t, turns, 4, "user prompt, two tool steps, final prose reply")
+
+	require.Equal(t, "user", turns[0].Role)
+	require.Contains(t, turns[0].Text, "Create a new file named hello.txt")
+
+	// The write_to_file call: tool name + the JSON-decoded TargetFile (no stray quotes).
+	require.Equal(t, "assistant", turns[1].Role)
+	require.Equal(t, "write_to_file", turns[1].ToolName)
+	require.Equal(t, []string{"/home/srjn45/.gemini/antigravity-cli/scratch/hello.txt"}, turns[1].Files)
+	require.False(t, turns[1].Timestamp.IsZero(), "created_at timestamp applied to the tool turn")
+
+	// The run_command call: tool name, no file args ⇒ no Files.
+	require.Equal(t, "assistant", turns[2].Role)
+	require.Equal(t, "run_command", turns[2].ToolName)
+	require.Empty(t, turns[2].Files)
+
+	// The closing prose PLANNER_RESPONSE stays a plain assistant text turn.
+	require.Equal(t, "assistant", turns[3].Role)
+	require.Contains(t, turns[3].Text, "I have successfully")
+	require.Empty(t, turns[3].ToolName)
+}
+
+// TestAntigravityToolCallFoldsOntoProse covers a PLANNER_RESPONSE carrying BOTH prose
+// content and a tool call: the call folds onto the just-emitted text turn (the
+// Codex/Cursor fold shape) instead of duplicating a Turn.
+func TestAntigravityToolCallFoldsOntoProse(t *testing.T) {
+	stream := `{"step_index":0,"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-07-05T09:00:00Z","content":"Editing now.","tool_calls":[{"name":"write_to_file","args":{"TargetFile":"\"/w/a.go\""}}]}` + "\n"
+
+	turns, err := Antigravity{}.ParseTranscript(strings.NewReader(stream))
+	require.NoError(t, err)
+	require.Len(t, turns, 1)
+	require.Equal(t, "Editing now.", turns[0].Text)
+	require.Equal(t, "write_to_file", turns[0].ToolName)
+	require.Equal(t, []string{"/w/a.go"}, turns[0].Files)
+}
+
+// TestAgyArgString locks the args-value decoding: `agy` JSON-encodes every tool-call
+// arg into its string value, so a path arrives double-quoted and a bare literal
+// passes through as-is.
+func TestAgyArgString(t *testing.T) {
+	require.Equal(t, "/abs/path", agyArgString(`"/abs/path"`), "JSON-string value is unquoted")
+	require.Equal(t, "5000", agyArgString("5000"), "non-string literal passes through")
+	require.Equal(t, "", agyArgString(""), "missing arg stays empty")
+}
+
 // --- State / approval (live markers) ----------------------------------------
 
 // agyFixture reads a captured tmux-pane fixture from testdata/antigravity/.
@@ -208,6 +267,7 @@ func TestAntigravityDetectState(t *testing.T) {
 		{"state-idle.txt", agentbackend.StateIdle},
 		{"state-working.txt", agentbackend.StateWorking},
 		{"approval.txt", agentbackend.StateNeedsInput},
+		{"trust-prompt.txt", agentbackend.StateNeedsInput},
 	}
 	for _, tt := range tests {
 		t.Run(tt.fixture, func(t *testing.T) {
@@ -239,6 +299,25 @@ func TestAntigravityParseApproval(t *testing.T) {
 	require.Equal(t, 1, a.SelectedIdx, "the > cursor sits on option 1")
 	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the bare non-sticky Yes")
 	require.False(t, a.AffirmativeSticky, "option 1 is a one-shot grant, not a standing one")
+}
+
+// TestAntigravityParseApprovalTrust parses the captured workspace-trust prompt (shown
+// when `agy` launches in an untrusted directory, BEFORE any model call) into the
+// neutral Approval: the directory under question (Action), the trust header
+// (Question), both unnumbered options top-down, the ">"-cursored selection, and the
+// sticky affirmative — so the prompt reaches the approvals inbox instead of silently
+// stalling the agent.
+func TestAntigravityParseApprovalTrust(t *testing.T) {
+	a, ok := Antigravity{}.ParseApproval(agyFixture(t, "trust-prompt.txt"))
+	require.True(t, ok, "the captured workspace-trust prompt parses")
+
+	require.Equal(t, "Do you trust the contents of this project?", a.Question)
+	require.True(t, strings.HasSuffix(a.Action, "/agytrust.dHzcZl"),
+		"Action is the workspace path under the 'Accessing workspace:' label, got %q", a.Action)
+	require.Equal(t, []string{"Yes, I trust this folder", "No, exit"}, a.Options)
+	require.Equal(t, 1, a.SelectedIdx, "the > cursor sits on the trust option")
+	require.Equal(t, 1, a.AffirmativeIdx)
+	require.True(t, a.AffirmativeSticky, "trusting the folder is a standing grant")
 }
 
 // TestAntigravityParseApprovalNegative proves a non-approval pane (idle or working)

@@ -1,0 +1,50 @@
+Accessing workspace:
+
+/tmp/claude-1000/-home-srjn45-dev-warden--worktrees-development-ec875845/9d3d7661-b366-43d4-84c0-ed70771b32b9/scratchpad/agytrust.dHzcZl
+
+Do you trust the contents of this project?
+
+Antigravity CLI requires permission to read, edit, and execute files here.
+
+> Yes, I trust this folder
+  No, exit
+
+  ↑/↓ Navigate · enter Confirm
+                                                                                                                                                                               Gemini 3.5 Flash (Medium)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

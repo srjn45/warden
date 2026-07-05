@@ -27,9 +27,11 @@ func init() { agentbackend.Register(Antigravity{}) }
 // `step_payload` is an opaque proto) — neither readable by warden, and there is no
 // `export`/`dump` CLI verb — it ALSO writes a **plaintext JSONL** trajectory log to
 // `brain/<conv-id>/.system_generated/logs/transcript.jsonl`. This adapter parses
-// that JSONL into neutral Turns with good fidelity for the prompt/reply flow, so
-// digests run on real structured data. Captured live against the user's hosted free
-// tier (`agy -p` + `agy -c -p`, Gemini 3.5 Flash).
+// that JSONL into neutral Turns with good fidelity for the prompt/reply flow AND the
+// tool-call/files-changed records (`tool_calls` on PLANNER_RESPONSE), so digests run
+// on real structured data. Captured live against the user's hosted free tier
+// (`agy -p` + `agy -c -p` for the text flow; one interactive file-edit session for
+// the tool flow, `agy` v1.0.16, Gemini 3.5 Flash).
 //
 // Session-id handling: `agy` mints its own UUID conversation id and exposes no flag
 // to assign one up front (Caps.SessionIDControl=false). warden cannot pin the id —
@@ -197,13 +199,25 @@ func agyConvIDForDir(mapPath, workdir string) (string, bool) {
 
 // agyStep is one record of `agy`'s plaintext trajectory JSONL. Each line carries a
 // step index, the source (USER_EXPLICIT | MODEL | SYSTEM), a type, a status, an
-// RFC3339 created_at, and the textual content (empty for some control records).
+// RFC3339 created_at, and the textual content (empty for some control records). A
+// PLANNER_RESPONSE that invokes a tool carries the calls under `tool_calls` instead
+// of content (captured live, `agy` v1.0.16).
 type agyStep struct {
-	StepIndex int    `json:"step_index"`
-	Source    string `json:"source"`
-	Type      string `json:"type"`
-	CreatedAt string `json:"created_at"`
-	Content   string `json:"content"`
+	StepIndex int           `json:"step_index"`
+	Source    string        `json:"source"`
+	Type      string        `json:"type"`
+	CreatedAt string        `json:"created_at"`
+	Content   string        `json:"content"`
+	ToolCalls []agyToolCall `json:"tool_calls"`
+}
+
+// agyToolCall is one tool invocation on a PLANNER_RESPONSE record: the tool name
+// (`write_to_file`, `run_command`, …) plus its args map. Every args value is itself
+// a JSON-encoded literal (a path arrives as `"\"/abs/path\""`), so readers decode
+// through agyArgString.
+type agyToolCall struct {
+	Name string            `json:"name"`
+	Args map[string]string `json:"args"`
 }
 
 // agyUserRequestRe extracts the human prompt from `agy`'s USER_INPUT content, which
@@ -215,17 +229,17 @@ var agyUserRequestRe = regexp.MustCompile(`(?s)<USER_REQUEST>\s*(.*?)\s*</USER_R
 // []Turn. It reads the durable conversation records:
 //   - USER_INPUT (source USER_EXPLICIT) → a user Turn (the `<USER_REQUEST>` body is
 //     unwrapped; the appended metadata/settings blocks are dropped).
-//   - PLANNER_RESPONSE (source MODEL) → an assistant Turn.
+//   - PLANNER_RESPONSE (source MODEL) → an assistant Turn: its prose content when
+//     present, and/or its `tool_calls` — each call's name and any touched file
+//     (decoded from the args, see agyFilesFromCall) fold onto the preceding
+//     assistant Turn or start a new one, the same shape as the Codex/Cursor parsers.
 //
 // SYSTEM records (CONVERSATION_HISTORY, CHECKPOINT, SYSTEM_MESSAGE — context,
-// summaries, and injected system notes) are control metadata and ignored, as are any
-// other/unknown types. Malformed lines are skipped (best-effort, like the
-// Claude/Aider/OpenCode/Codex parsers); only a reader error is returned.
-//
-// Tool calls are NOT extracted (ToolName/Files stay empty): no tool-using `agy`
-// transcript was captured this frugal phase, so the tool-step format is unverified
-// and the adapter degrades honestly rather than guessing field names
-// (docs/agent-backends/antigravity.md).
+// summaries, and injected system notes) are control metadata and ignored, as are the
+// MODEL execution-result records (CODE_ACTION, RUN_COMMAND — boilerplate confirmations
+// of a tool step already captured from `tool_calls`) and any other/unknown types.
+// Malformed lines are skipped (best-effort, like the Claude/Aider/OpenCode/Codex
+// parsers); only a reader error is returned.
 func (Antigravity) ParseTranscript(r io.Reader) ([]agentbackend.Turn, error) {
 	var turns []agentbackend.Turn
 	sc := bufio.NewScanner(r)
@@ -254,9 +268,49 @@ func (Antigravity) ParseTranscript(r io.Reader) ([]agentbackend.Turn, error) {
 			if strings.TrimSpace(s.Content) != "" {
 				turns = append(turns, agentbackend.Turn{Role: "assistant", Text: s.Content, Timestamp: ts})
 			}
+			for _, tc := range s.ToolCalls {
+				if tc.Name == "" {
+					continue
+				}
+				files := agyFilesFromCall(tc)
+				if n := len(turns); n > 0 && turns[n-1].Role == "assistant" && turns[n-1].ToolName == "" {
+					turns[n-1].ToolName = tc.Name
+					for _, f := range files {
+						turns[n-1].Files = appendUnique(turns[n-1].Files, f)
+					}
+				} else {
+					turns = append(turns, agentbackend.Turn{Role: "assistant", ToolName: tc.Name, Files: files, Timestamp: ts})
+				}
+			}
 		}
 	}
 	return turns, sc.Err()
+}
+
+// agyFilesFromCall extracts the files a tool call touches from its args map.
+// TargetFile is the file-bearing key verified live (`write_to_file`); AbsolutePath is
+// its sibling on the same tool family's read/edit tools, accepted defensively (the
+// fixture-locked guarantee is TargetFile). Command-only calls (`run_command`) carry
+// neither and yield nil.
+func agyFilesFromCall(tc agyToolCall) []string {
+	var files []string
+	for _, key := range []string{"TargetFile", "AbsolutePath"} {
+		if f := agyArgString(tc.Args[key]); f != "" {
+			files = appendUnique(files, f)
+		}
+	}
+	return files
+}
+
+// agyArgString decodes one tool-call args value. `agy` JSON-encodes every value into
+// the string (a path arrives as `"\"/abs/path\""`, a number as `"5000"`), so this
+// unquotes a JSON-string value and returns any other shape trimmed as-is.
+func agyArgString(v string) string {
+	var s string
+	if json.Unmarshal([]byte(v), &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	return strings.TrimSpace(v)
 }
 
 // agyUserText extracts the human prompt from a USER_INPUT content string: the
@@ -277,7 +331,8 @@ func agyUserText(content string) string {
 //   - running a turn (generating or executing a tool) ⇒ an "esc to cancel" footer,
 //     usually alongside a "Generating..." spinner ⇒ StateWorking.
 //   - blocked on a tool-permission prompt ⇒ its numbered "Do you want to proceed?"
-//     menu, detected via ParseApproval ⇒ StateNeedsInput.
+//     menu — or on the launch-time workspace-trust prompt — detected via
+//     ParseApproval ⇒ StateNeedsInput.
 //
 // The approval check runs FIRST because an open permission prompt keeps the
 // "esc to cancel" busy footer — so an approval pane would otherwise be misread as
@@ -302,8 +357,22 @@ func (Antigravity) DetectState(pane string) agentbackend.State {
 // rest: "> 1. Yes" / "  2. Yes, and always allow …" / "  4. No".
 var agyOptionRe = regexp.MustCompile(`^\s*(>?)\s*(\d+)\.\s+(.+?)\s*$`)
 
-// ParseApproval normalizes `agy`'s interactive tool-permission prompt into the neutral
-// Approval. Captured live (`agy` v1.0.13) — a shell-command escalation renders as:
+// ParseApproval normalizes `agy`'s two interactive blocking prompts into the neutral
+// Approval: its numbered tool-permission menu and its one-time workspace-trust prompt
+// (shown when `agy` launches in a directory it has not trusted — a fresh warden
+// worktree). Both captured live. It returns (nil,false) for any pane without one of
+// those prompts (idle/working prose is never mis-parsed), keeping the auto-approve
+// path — which keys off Fingerprint(Options) — honest.
+func (Antigravity) ParseApproval(pane string) (*agentbackend.Approval, bool) {
+	if a, ok := agyParseCommandApproval(pane); ok {
+		return a, true
+	}
+	return agyParseTrustApproval(pane)
+}
+
+// agyParseCommandApproval normalizes `agy`'s interactive tool-permission prompt into
+// the neutral Approval. Captured live (`agy` v1.0.13) — a shell-command escalation
+// renders as:
 //
 //	● Bash(echo hello-from-agy) (ctrl+o to expand)
 //	…
@@ -324,7 +393,7 @@ var agyOptionRe = regexp.MustCompile(`^\s*(>?)\s*(\d+)\.\s+(.+?)\s*$`)
 // NOT mis-parsed — it returns (nil,false), as does any non-approval pane. Options are
 // 1-indexed top-down so Fingerprint(Options) — which the auto-approve policy and the
 // daemon re-verify guard both key off — is stable and faithful to the pane.
-func (Antigravity) ParseApproval(pane string) (*agentbackend.Approval, bool) {
+func agyParseCommandApproval(pane string) (*agentbackend.Approval, bool) {
 	lines := strings.Split(pane, "\n")
 
 	// The live prompt sits at the bottom: find the last option line, then walk up
@@ -386,6 +455,110 @@ func (Antigravity) ParseApproval(pane string) (*agentbackend.Approval, bool) {
 		return nil, false
 	}
 	a.AffirmativeIdx, a.AffirmativeSticky = agyAffirmative(opts)
+	return a, true
+}
+
+// agyTrustQuestion is the header of `agy`'s workspace-trust prompt; its presence
+// gates recognition (the cursor lesson: anchor the parse on the prompt's own
+// structure so surrounding shell scrollback is never grabbed).
+const agyTrustQuestion = "Do you trust the contents of this project?"
+
+// agyParseTrustApproval recognizes `agy`'s one-time workspace-trust prompt, shown
+// when launching in a directory it has not trusted (a fresh warden worktree) and
+// BEFORE any model call. Captured live (`agy` v1.0.16):
+//
+//	Accessing workspace:
+//
+//	/path/to/workdir
+//
+//	Do you trust the contents of this project?
+//
+//	Antigravity CLI requires permission to read, edit, and execute files here.
+//
+//	> Yes, I trust this folder
+//	  No, exit
+//
+//	  ↑/↓ Navigate · enter Confirm
+//
+// warden surfaces it as an Approval so the operator can clear it from the approvals
+// inbox instead of attaching to the pane — the maintainer's ruling is that trust is a
+// 1-time manual step, not a launch blocker. Unlike the tool-permission menu the
+// options carry no numbering, so the parse is anchored structurally: the
+// agyTrustQuestion header gates recognition, the options are the contiguous non-empty
+// run directly above the "↑/↓ Navigate · enter Confirm" hint line, and the Action (the
+// directory under question) is the first non-empty line after the "Accessing
+// workspace:" label — never a bare path grabbed from scrollback. Trusting persists
+// (relaunching in the same directory raises no prompt), so AffirmativeSticky is true.
+// Returns (nil,false) when the trust header is absent.
+func agyParseTrustApproval(pane string) (*agentbackend.Approval, bool) {
+	if !strings.Contains(pane, agyTrustQuestion) {
+		return nil, false
+	}
+	lines := strings.Split(pane, "\n")
+
+	// The option run sits directly above the navigate/confirm key hint.
+	hint := -1
+	for i, l := range lines {
+		if strings.Contains(l, "Navigate") && strings.Contains(l, "Confirm") {
+			hint = i
+			break
+		}
+	}
+	if hint < 0 {
+		return nil, false
+	}
+	end := hint - 1
+	for end >= 0 && strings.TrimSpace(lines[end]) == "" {
+		end--
+	}
+	start := end
+	for start-1 >= 0 && strings.TrimSpace(lines[start-1]) != "" {
+		start--
+	}
+
+	var opts []string
+	sel := 0
+	for i := start; i <= end && i >= 0; i++ {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(t, ">") { // the ">" cursor marks the highlighted option
+			sel = i - start + 1
+			t = strings.TrimSpace(strings.TrimPrefix(t, ">"))
+		}
+		opts = append(opts, t)
+	}
+	if len(opts) < 2 {
+		return nil, false
+	}
+
+	a := &agentbackend.Approval{
+		Question:          agyTrustQuestion,
+		Options:           opts,
+		SelectedIdx:       sel,
+		AffirmativeSticky: true, // trusting the folder is a standing grant
+	}
+
+	// The directory under question is the first non-empty line after the
+	// "Accessing workspace:" label.
+	for i, l := range lines {
+		if !strings.Contains(l, "Accessing workspace:") {
+			continue
+		}
+		for j := i + 1; j < len(lines); j++ {
+			if t := strings.TrimSpace(lines[j]); t != "" {
+				a.Action = t
+				break
+			}
+		}
+		break
+	}
+
+	for i, o := range opts {
+		low := strings.ToLower(o)
+		if strings.HasPrefix(low, "yes") && strings.Contains(low, "trust") {
+			a.AffirmativeIdx = i + 1
+			break
+		}
+	}
 	return a, true
 }
 
