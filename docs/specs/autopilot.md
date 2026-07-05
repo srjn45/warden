@@ -8,7 +8,8 @@ This document formalizes the approved master plan into buildable contracts:
 concepts and ownership, state machines, the run-ledger schema, the daemon
 endpoint contract, the idempotent `land` contract, the guardian algorithm, the
 cost-tier backend selection algorithm, the ownership guard, and the brain
-persona. P1–P4 implement against this document.
+persona. P1–P4 implement against this document; the build itself is staged as
+S1–S8 in [autopilot-implementation.md](autopilot-implementation.md).
 
 ---
 
@@ -150,6 +151,7 @@ GET  /autopilot                                    → 200 AutopilotStatus
     "plan_file": "autopilot.plan.yaml",
     "repo": "/home/…/project",
     "state": "active",                  // §2.1
+    "gate": "ci",                       // resolved gate mode (§6.1): ci | local
     "brain": {
       "agent_id": "…", "backend": "antigravity", "tier": "free",
       "last_heartbeat": "2026-07-05T12:00:00Z",   // last MCP call

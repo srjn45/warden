@@ -105,7 +105,7 @@ into "ask a human."
      main, merge main into it and wait for the gate before landing more work.
 - **Durable run ledger** — the brain externalizes run state (task ledger,
   decisions, in-flight worker map) into a daemon-store-backed ledger (reserved
-  ctx blackboard namespace `autopilot/<plan>`, reusing `ctx_set`/`ctx_get`). A
+  ctx blackboard namespace `autopilot/<run_id>`, reusing `ctx_set`/`ctx_get`). A
   fresh brain cold-starts purely from the recovery digest — this is what makes
   restart/rotation safe and "never park" meaningful (not an amnesiac
   resurrection).
@@ -310,8 +310,9 @@ the integration-branch boundary, and the audit log, never runtime prompts.
 
 - **Brain context exhaustion over weeks-long runs** → durable run ledger +
   guardian planned rotation (lossless handoff, not repeated auto-compaction).
-- **Idempotency across brain restarts** → write-ahead ledger rule in the persona +
-  idempotent `land` with daemon-recorded landings.
+- **Idempotency across brain restarts** → daemon-composed recovery digest +
+  idempotent `land` with daemon-recorded landings (write-ahead journaling was
+  demoted to hygiene in the frictionless pass — see the second list).
 - **CI gate validating the wrong base** → worker PRs must base on
   `autopilot/integration`; confirm CI workflow branch filters cover it.
 - **Ownership by persona only** → daemon-side ownership guard on destructive tools.
@@ -356,9 +357,14 @@ Second review pass (smoothness/frictionless focus):
 
 Large, multi-phase; build as staged agents (bounded context). Dogfoods autopilot.
 
+> **Execution doc:** this table is the coarse plan; the build is governed by
+> [autopilot-implementation.md](autopilot-implementation.md) — S1–S8
+> orchestrator-executable stage briefs (P1 split into S1+S2; P3 split into
+> S5+S6; a dedicated S7 E2E-rig stage).
+
 | Stage | Deliverable | Kind |
 |---|---|---|
-| **P0** | Formalize into `docs/specs/autopilot.md`: hierarchy, brain persona (incl. write-ahead/PR-base/refresh rules), run-ledger schema, endpoint contract, **idempotent `land` contract**, guardian algorithm (heartbeat + planned rotation), ownership guard, cost-tier selection | design |
+| **P0** | Formalize into `docs/specs/autopilot.md`: hierarchy, brain persona (incl. ledger-hygiene/PR-base/refresh rules), run-ledger schema, endpoint contract, **idempotent `land` contract**, guardian algorithm (heartbeat + planned rotation), ownership guard, cost-tier selection | design |
 | **P1** | `autopilot` config block + `Controller` (master switch + bundle) + daemon endpoint (spec-first) + CLI/MCP/TUI/web toggle + `warden autopilot init` scaffolder + enable-time preflight. **Visible but inert** switch. | implement |
 | **P2** | Brain persona/role + per-plan brain lifecycle (spawn a headless brain per plan on the cheapest available backend, plan-file brief + full MCP). | implement |
 | **P3** | Keep-alive substrate retargeted to each brain (auto-approve/resume/restart, breaker-reroute) + heartbeat **guardian** + cost-tiered failover/rotation. | implement |

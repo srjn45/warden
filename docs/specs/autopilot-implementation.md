@@ -409,7 +409,11 @@ with autopilot off → normal human inbox; breaker trip on an autopilot worker
 **Goal:** prove the full loop unattended, $0-ish, per autopilot.md §12.
 **Brief:** isolated daemon on an alt port (never the systemd instance);
 throwaway repo seeded via `git commit-tree`; brain on the kickoff free-tier
-backend; a 2–3 task plan. Assert, via `autopilot_status` + audit log +
+backend; a 2–3 task plan. Rig-setup gotcha: the free backend's first-run
+**trust prompt fires in the fresh throwaway dir** and does not surface in the
+approvals inbox — clear it during setup by driving the pane directly
+(`send_to_agent`); the feature's own preflight should then report the backend
+trusted. Assert, via `autopilot_status` + audit log +
 `landings`: enable-preflight catches a seeded failure → `init` fixes it →
 clean enable → brain spawns workers → PRs base = integration → gate → `land`
 (re-issue → `already_landed`) → cleanup → next task → `done_when` → complete.
