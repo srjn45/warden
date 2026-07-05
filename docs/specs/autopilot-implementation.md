@@ -22,7 +22,7 @@ Spawn the orchestrator against this file:
 spawn_agent role=orchestrator backend=claude model=sonnet repo=<warden checkout> \
   prompt="Execute docs/specs/autopilot-implementation.md end to end. \
           Follow §1 protocol exactly; pick backends/models per §2; \
-          implement stages S1–S8 in §4; \
+          implement stages S0–S8 in §4; \
           stop only at the §5 release-confirmation touchpoint."
 ```
 
@@ -141,6 +141,7 @@ Sonnet. All implementation runs on the claude backend (owner's Max 5x plan).
 |---|---|---|
 | Orchestrator | claude / **sonnet** | Follows this written protocol; long-lived, so cheap+fast beats depth |
 | Heartbeat sentinel (§2.4) | claude / **sonnet** | Governs other agents — trust-sensitive; read + nudge only |
+| S0 auto-resume fix | claude / **opus** | Subtle live-flow parsing + answer sequencing; small but correctness-critical |
 | S1 toggle core | claude / **opus** | Config + spec-first endpoint + Controller state machine |
 | S2 init + TUI + web | claude / **sonnet** | Surface wiring over S1's contract; no new semantics |
 | S3 brain lifecycle | claude / **opus** | Ledger/digest correctness is the feature's backbone |
@@ -167,7 +168,7 @@ for these children:
   diff and performs the merge — free-tier output gets a review gate.
 - Tighter monitoring: shorter check-in interval; steer early, respawn a child
   on claude/sonnet if a free-tier child is stuck twice on the same point.
-- Never assign anything on the critical path (S1–S7 code) to a free tier.
+- Never assign anything on the critical path (S0–S7 code) to a free tier.
 - Trust prompts for these backends are cleared at kickoff (§0), not mid-run.
 
 ### 2.3 Context budget — compact and rotate before it hurts
@@ -201,9 +202,12 @@ resume prompt is always needed. Known gaps: the live limit UX is a choice
 menu plus a spend banner with **no reset time**, and the menu-keystroke +
 weekly-reset-date parsing are open issues. Keep `rate_limit.auto_resume` and
 `auto_restart` enabled (they help when they do fire, and cost nothing), but
-treat them as best-effort — **the sentinel is the reliable resume path**.
-(Fixing the live-flow gaps in `internal/poller`/`ratelimit` is a worthwhile
-§2.2-style side task, but this build must not depend on it.)
+treat them as best-effort — **the sentinel is the reliable resume path** until
+proven otherwise. **S0 exists to close exactly these gaps** and runs first so
+the rest of the build benefits; the sentinel stays for the whole run
+regardless — it also covers idle drift and a dead orchestrator, which no
+auto-resume fix addresses — and stands down as primary resume only once a
+real limit window shows a successful hands-off resume in the audit log.
 
 **The heartbeat sentinel (manual stand-in for the guardian this plan builds
 in S5).** An hourly heartbeat via **warden's own scheduler** (no external
@@ -244,18 +248,59 @@ is the outermost supervisor — and deleted after the §5 release confirmation.
 ## 3. Stage graph
 
 ```
+S0 auto-resume fix (no deps — FIRST: protects the build itself)
 S1 toggle core ──▶ S2 init + TUI + web        (S2 ∥ S3 — disjoint files)
         └────────▶ S3 brain lifecycle ──▶ S4 land        (S4 ∥ S6)
                           │              └──▶ S5 guardian + failover
                           └────────────▶ S6 ownership guard + approval routing
-S1–S6 ──▶ S7 live E2E rig ──▶ S8 docs + release
+S0–S6 ──▶ S7 live E2E rig ──▶ S8 docs + release
 ```
 
-Sequential merges into main; S2∥S3 and S4∥S6 may run concurrently because
-their file surfaces are disjoint — everything else waits for its dependency's
-merge (then re-sync main before spawning).
+Sequential merges into main; S0 runs first (its fix shields every later
+stage from limit stalls; it may run ∥ S1 — disjoint files — if the
+orchestrator prefers). S2∥S3 and S4∥S6 may run concurrently because their
+file surfaces are disjoint — everything else waits for its dependency's merge
+(then re-sync main before spawning).
 
 ## 4. Stage briefs
+
+### S0 — Fix rate-limit auto-resume (live claude flow)
+
+**Goal:** `rate_limit.auto_resume` becomes trustworthy — a limit-hit agent
+resumes on its own, no human and no sentinel needed.
+**Why in this plan:** autopilot's core promise is "resume through every rate
+limit", S5's tierstate feeds off this same detection machinery, and the owner
+reports auto-resume has **never** fired reliably live. Fixing it first also
+protects this very build — every implementer runs on the shared subscription.
+**Known gaps to close** (ground truth: the live capture of 2026-07-04, see
+`internal/poller/detect.go` TODOs + `internal/daemon/ratelimit.go`):
+- The live flow is a **choice menu** ("❯ 1. Stop and wait for limit to reset /
+  2. Upgrade" — safe option pre-highlighted, footer says "Enter to confirm").
+  Confirm-keystroke is unverified: implement **Enter-first** (option 1 is
+  pre-highlighted), verify the menu cleared from the pane, fall back to
+  sending `1` + Enter if it persists.
+- `ParseRestoreTime` parses only `HH:mm` — session banners work, but a
+  **weekly banner carrying a weekday/date** falls back to 30m polling. Add
+  weekday/date formats (tolerant: parse what's there, else keep the fallback).
+- The **monthly-spend banner has no reset time** (already mapped to
+  `spend_retry_interval`, 6h) — keep, cover with a fixture test.
+- After the window resets, the pane needs an explicit **resume nudge**:
+  `rate_limit.resume_prompt` defaults to empty — give it a sane default
+  (e.g. `continue`) so resume actually types something.
+- Add a **pane-fixture capture aid**: on rate-limit detection, snapshot the
+  raw pane text to `data_dir` (bounded, newest-N). Permanent and cheap — the
+  next real limit hit yields exact bytes to fix any parser gap for good.
+**Files:** `internal/poller/detect.go` (+ fixture-driven `detect_test.go`),
+`internal/daemon/ratelimit.go` (menu answer sequence, post-reset nudge),
+`internal/config` (`resume_prompt` default; deprecated-alias pattern if
+renaming anything).
+**Acceptance:** table-driven tests over every captured banner/menu fixture
+(session HH:mm, weekly date, monthly spend, choice menu answer sequence);
+`make verify-fast`. Live validation is **opportunistic**: the first real
+limit window during the build must show a successful auto-resume in the audit
+log — until observed, the §2.4 sentinel remains the primary resume path.
+**Out of scope:** anything under `internal/autopilot` (S5 consumes
+`detectRateLimit` through its existing API, unchanged).
 
 ### S1 — Toggle core: config + Controller + endpoint + CLI + MCP (inert)
 
