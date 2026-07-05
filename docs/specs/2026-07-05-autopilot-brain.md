@@ -1,0 +1,299 @@
+# Autopilot Mode — "warden with a Brain" — Master Plan
+
+**Date:** 2026-07-05
+**Status:** Approved design (pre-implementation)
+**Owner:** Srajan Pathak
+
+> Master plan agreed in design session; owner decisions are locked below.
+> Nothing implemented yet — P0 formalization of this document into a full spec
+> (state machine, endpoint contract, `land` semantics) is the first stage.
+> It maps what we **reuse**, **extend**, and build **new**.
+
+## Context — the problem
+
+warden's north star (per the owner): *plan once for 1–2 weeks, then have warden
+build the product step by step, unattended — steering around every prompt and
+resuming through every rate limit, minutes to weeks apart.*
+
+Two owner clarifications define the shape:
+
+1. **"We already have the capability; there is no master-plan executor. We need an
+   agent that can smartly steer around all scenarios."** → The gap is not more
+   deterministic Go loops. It is a **brain**: a long-lived orchestrator *agent*
+   that reasons and acts, using warden's tools, to run the whole show.
+2. **"Local LLM was a failure — we can't run big models locally. Use the available
+   paid & free backends (Claude, antigravity, codex, …)."** → The brain runs on a
+   **real, capable backend**, and rotates across paid+free backends when one is
+   rate-limited. The local completer is **not** the reasoning engine.
+
+The obstacle-survival mechanics already ship and are reused wholesale:
+
+| Capability | Lives in | Today |
+|---|---|---|
+| Auto-approve yes/no + rule-matched prompts | `internal/approval` | ✅ |
+| Circuit breaker (identical-prompt loop) | `internal/approval/breaker.go` | ✅ escalates to human |
+| Rate-limit auto-resume (mins → weeks) | `internal/daemon/ratelimit.go`, `rate_limit.auto_resume` | ✅ |
+| Auto-restart errored agents (capped) | `internal/daemon/autorestart.go` | ✅ |
+| Stuck/loop/rate-limit detection & classify | `internal/poller` (`looksLikeLoop`, `detectRateLimit`) | ✅ |
+| Auto-compaction on context pressure | `internal/poller/context.go` | ✅ |
+| Open PR / commit / branch+CI status / prune | `lifecycle/pr.go`, `internal/branchtrack`, `lifecycle/prune.go` | ✅ |
+| DAG pipelines, roles, snapshot, coordination, schedule | `internal/pipeline`, `role`, `snapshot`, `collab`, `schedule` | ✅ |
+| **Full agent toolset over MCP** (spawn/monitor/commit/push/PR/CI/snapshot/pipeline/message/prune) | `internal/mcp` (60+ tools) | ✅ |
+| Multiple real backends | `internal/agentbackend/backends/` (claude, codex, antigravity, cursor, opencode, aider, crush, goose) | ✅ |
+
+**The gap is a brain that drives all of it, and a substrate that keeps that brain
+alive.** Everything the brain needs to *act* already exists as MCP tools.
+
+## Decisions locked (owner)
+
+1. **Task source** = **master-plan file + planner** — but the "planner/executor" is
+   the **brain agent** reading the plan file as its brief, not a Go compiler.
+2. **Merge target** = **a dedicated `autopilot/integration` branch**, CI-gated; the
+   brain merges green+mergeable workers there, and the **owner fast-forwards
+   integration → main**. Main never moves unattended.
+3. **Reasoning engine** = **a real backend agent (paid or free), NOT local LLM**;
+   rotate across a **cost-tier ladder** when limited.
+4. **Last resort** = **never park** — the brain retries/reasons forever; the
+   substrate keeps it alive with capped backoff and notifies, never gives up.
+5. **Form** = **headless**, surfaced via a web + TUI status panel (no live pane).
+6. **Scope** = **one brain per master-plan (per repo/initiative)**, each on its own
+   cost-tier backend ladder.
+
+---
+
+## Architecture — a supervision hierarchy
+
+```
+  [ Deterministic substrate — Go, mostly EXISTS ]   ← keeps the BRAIN alive
+        auto-approve · auto-resume · auto-restart · heartbeat guardian · backend failover
+                              │  keeps alive / restarts / rotates
+                              ▼
+  [ THE BRAIN(S) — one orchestrator agent per master-plan/repo ]   ← the smart steerer (NEW concept)
+        reads master-plan · spawns workers · monitors · commits/push/PR ·
+        merges green workers into autopilot/integration · resolves failures by reasoning ·
+        cleans up worktrees/branches · respawns next task · forever (headless)
+                              │  spawns / steers / heals (via existing MCP tools)
+                              ▼
+  [ WORKER AGENTS — pipelines / single agents, any backend ]   ← do the actual work
+```
+
+The insight: **the brain is "just an agent"** with (a) a strong autonomy persona,
+(b) the full warden MCP toolset it already has, and (c) the master-plan as its
+brief. warden's remaining job is to **keep the brain alive and unstuck** — that is
+the only genuinely new plumbing, and most of it already exists (auto-approve /
+auto-resume / auto-restart) and just needs to target the brain and never dead-end
+into "ask a human."
+
+### 1. The Brain (NEW first-class concept; mechanically = a persona + a lifecycle)
+
+- A **new built-in role** (e.g. `autopilot`, extending `internal/role` alongside
+  `orchestrator`): persona is the full autonomy playbook — *read the plan file,
+  decompose it, spawn workers (single or via `create_pipeline`), monitor with
+  `list_agents`/`get_agent_output`, steer stuck workers by reading transcripts and
+  sending messages/rollbacks, run `check`, `commit`/`push`, open PRs, poll
+  `get_branch_status`, **merge green+mergeable workers into `autopilot/integration`
+  only** (never main), clean up with `remove_worktree`/prune, pull the next task,
+  repeat forever, never ask a human — reason and act.*
+- **One long-lived brain per master-plan/repo** is spawned when autopilot toggles
+  ON, on the cheapest available backend (§4), with its plan file injected as its
+  brief and full MCP access. **Headless** — surfaced only via the status panel.
+- The brain does planning/merging/cleanup **by calling the MCP tools that already
+  exist** — so there is little-to-no new "executor" code. What may be missing is a
+  **guarded merge-into-integration tool** (see New).
+
+### 2. Substrate that keeps the brain alive (reuse + retarget)
+
+- **Auto-approve** the brain's own prompts (persona minimizes these) — reuse
+  `internal/approval`; **but reroute the breaker away from human-escalation** for
+  the brain: a wedged brain is restarted/rotated, not parked.
+- **Auto-resume** the brain on rate limit — reuse `internal/daemon/ratelimit.go`.
+- **Auto-restart** the brain on crash/error — reuse `internal/daemon/autorestart.go`.
+
+### 3. Heartbeat guardian (NEW, minimal Go — the one deterministic guardian)
+
+A brain cannot watch itself. A tiny daemon loop (same pattern as
+`worktree_prune.go` / `scheduler.go`, launched from `server.go`) checks **each
+brain** is *progressing* — making tool calls / spawning / merging, not
+`looksLikeLoop` churn, not idle-stuck, not needs-input it can't answer. If a brain
+wedges: restart it (fresh context), or **rotate its backend down the cost ladder**
+(§4). Capped exponential backoff, notify each escalation, **never park** (owner
+choice #4).
+
+### 4. Cost-tiered backend failover (NEW — "use any & all backends, cheapest first")
+
+The owner classifies backends into **three cost buckets** and warden always picks
+the cheapest available:
+
+- **Free-tier** backends — used **first** for all thinking/steering.
+- **Fixed-subscription** (flat-rate) backends — used **only once every free tier is
+  exhausted** (rate-limited past reset).
+- **Pay-per-use** backends — used **only if the owner has explicitly granted
+  permission** (`allow_pay_per_use: true`); otherwise never touched, even if it
+  means the brain waits for a free/subscription tier to reset.
+
+Selection is a **descending-cost ladder**: try each backend in the current tier;
+when all are limited, drop to the next tier; pay-per-use is gated behind explicit
+permission. When the active backend hits its limit, warden **rotates the brain to
+the next available backend** so orchestration never fully halts (subject to the
+gate). Reuse the backend registry + `handoff_agent` / `rotate_agent`; the
+master-plan + worker fleet persist across rotation (they are external to the brain).
+The same ladder governs which backend the brain gives new **worker** agents.
+
+### 5. Master-plan file = the brain's brief (not a Go-compiled DAG)
+
+```yaml
+# autopilot.plan.yaml
+goal: "Ship the notifications feature"
+constraints: ["all changes behind a feature flag"]
+tasks:                       # optional; the brain will author/refine these
+  - id: api
+    prompt: "Implement the notifications REST API per docs/specs/notify.md"
+  - id: tests
+    prompt: "Add integration tests"
+    after: [api]
+```
+
+The brain reads it, decomposes with judgment, and executes. Owner edits the file
+mid-flight to steer; it stays the source of truth.
+
+---
+
+## Reuse vs Extend vs New
+
+### Reuse as-is
+The **entire MCP toolset** (spawn/monitor/commit/push/PR/branch-CI/snapshot/
+pipeline/message/prune) — the brain's hands. Plus `internal/pipeline`,
+`lifecycle.CreatePR`, `internal/branchtrack`, `internal/approval`,
+`internal/daemon/ratelimit.go`, `autorestart.go`, `internal/poller` detectors,
+`internal/snapshot`, `internal/notify`, `internal/audit`, the daemon
+background-loop wiring in `server.go`, the backend registry.
+
+### Extend
+- **`internal/role`** — new `autopilot` brain persona (the autonomy playbook).
+- **`internal/approval`** — for the brain, reroute breaker escalation from
+  "ask human" to the guardian (restart/rotate); optionally answer decision/
+  multi-choice prompts with the recommended option so workers don't stall.
+- **`internal/config`** — new `autopilot` block; enabling it bundles
+  `auto_approve` / `rate_limit.auto_resume` / `auto_restart` on (generous defaults,
+  frictionless philosophy).
+- **`internal/agentbackend` / handoff** — cost-tiered backend selection +
+  brain/worker rotation. Adds a **cost-tier classification** (free / subscription /
+  pay-per-use) as owner config — orthogonal to the existing maturity tiers.
+
+### New (small surface)
+- **`internal/autopilot`** package — `Controller` (master switch + bundle +
+  per-plan brain lifecycle), heartbeat **guardian**, cost-tier failover policy. No
+  DAG executor (the brain plans) — this is orchestration-of-the-brain, not of the work.
+- **Guarded merge-into-integration action** — no MCP merge tool exists today. Add a
+  `land`/`merge_agent` MCP tool + `wd land` that merges a worker branch into
+  `autopilot/integration` within warden's rail (gate on CI-green + mergeable) so
+  the brain merges safely instead of raw `gh`. The owner fast-forwards
+  integration → main manually (or a separate opt-in promotes it).
+- **Toggle surface** (spec-first per the daemon-api-spec-first invariant):
+  - `openapi.yaml`: `POST /autopilot {enabled}` + `GET /autopilot` (status: per-plan
+    brains — plan, backend, in-flight workers, last heartbeat) → `make generate`.
+  - CLI `warden autopilot on|off|status` → `make gendocs`. MCP `set_autopilot` /
+    `autopilot_status`. TUI keybind + status (`internal/tui`, help in `view.go`).
+    Web toggle + status panel (`web/src`).
+
+## Config schema (new `autopilot` block)
+
+```yaml
+autopilot:
+  enabled: false
+  plans:                               # one brain per plan/repo, each on its own ladder
+    - file: autopilot.plan.yaml
+    # - file: other-initiative.plan.yaml
+  brain:                               # default template applied to each plan's brain
+    # cost-tiered backend ladder: free first, then subscription,
+    # pay-per-use ONLY when allow_pay_per_use is true (owner permission).
+    backends:
+      free:         [antigravity]      # try first for all thinking/steering
+      subscription: [claude]           # only when every free tier is limited
+      pay_per_use:  [codex-api]        # only if allow_pay_per_use: true
+    allow_pay_per_use: false           # explicit permission gate for paid calls
+    role: autopilot                    # the brain persona
+    headless: true                     # always headless — surfaced via status panel
+    max_parallel_workers: 3
+  merge:
+    target_branch: autopilot/integration  # brain merges green workers here; owner ff → main
+    strategy: squash
+    require_ci_green: true             # the gate (owner choice #2)
+    delete_branch: true                # delete worker branch after it lands
+  guardian:
+    interval: 60s
+    backoff_min: 30s
+    backoff_max: 6h                    # cap; never park (owner choice #4)
+    notify_each_escalation: true
+```
+
+## Safety rails (fire only at extremes — frictionless)
+
+- Merge target = `autopilot/integration`, never main directly; gate = CI-green +
+  mergeable, never merge red (enforced by the `land` tool, not just persona). Main
+  moves only when the owner fast-forwards integration.
+- Autopilot touches only `autopilot`-owned agents (brain + its workers); manual
+  agents untouched. Toggle-off = instant kill switch for spawning/merging;
+  in-flight agents keep running.
+- Guardian backoff-capped → no tight spend loop; notifies each escalation.
+- **Pay-per-use is opt-in only** (`allow_pay_per_use`): without permission warden
+  will wait for a free/subscription tier to reset rather than spend per-call —
+  cost can never surprise the owner.
+- Respect spend caps / rate-limit machinery (reuse `internal/spend` + `rate_limit`).
+- All autonomous merges/cleanups audit-logged (`internal/audit`).
+- `wd` rail holds: commits/pushes still pass pre-commit vet + pre-push verify-fast;
+  a broken tree blocks and the brain must fix it (no bypass).
+
+## Open risks to flag before building
+
+- **Integration branch drift** — `autopilot/integration` can accumulate many landed
+  workers before the owner ff's to main; needs periodic rebase/refresh vs main so
+  the CI gate stays meaningful (decided: never merge to main unattended).
+- **Brain reliability** — a capable backend is essential; failover order matters so
+  a rate-limited lead never fully halts orchestration.
+- **"Never park" visibility** — infinite retry must notify loudly; confirm channel.
+- **Cost** — bounded by the cost-tier ladder (free → subscription → gated
+  pay-per-use). Confirm which of the owner's backends fall in each bucket and
+  whether `allow_pay_per_use` should ever be on.
+
+---
+
+## Recommended delivery — as an warden pipeline of short-lived agents
+
+Large, multi-phase; build as staged agents (bounded context). Dogfoods autopilot.
+
+| Stage | Deliverable | Kind |
+|---|---|---|
+| **P0** | Formalize into `docs/specs/autopilot.md` (hierarchy, brain persona, config, endpoint, `land` contract) | design |
+| **P1** | `autopilot` config block + `Controller` (master switch + bundle) + daemon endpoint (spec-first) + CLI/MCP/TUI/web toggle. **Visible but inert** switch. | implement |
+| **P2** | Brain persona/role + per-plan brain lifecycle (spawn a headless brain per plan on the cheapest available backend, plan-file brief + full MCP). | implement |
+| **P3** | Keep-alive substrate retargeted to each brain (auto-approve/resume/restart, breaker-reroute) + heartbeat **guardian** + cost-tiered failover/rotation. | implement |
+| **P4** | Guarded `land` merge-into-integration tool (`wd land` + MCP) with the CI-green gate + worker cleanup. | implement |
+| **P5** | Docs/website/skill + `make gendocs` + tag & release (CLAUDE.md DoD). | docs/release |
+
+P2–P4 depend on P1; P5 on all. Build **P1 end-to-end first** (inert switch wired
+through every surface) before the brain logic lands.
+
+## Verification approach
+
+- **Unit**: table-driven tests (mirroring `breaker_test.go`, `autorestart_test.go`)
+  for the guardian progress-detection, backoff/rotation policy, and `land` gate.
+- **Integration ($0-ish rig)**: isolated daemon on an alt port (never systemd); a
+  **free/cheap backend as the brain** (the local-LLM path is out, so use a real
+  free backend for the rig); throwaway git repo seeded via `git commit-tree`; drive
+  a 2–3 task plan end-to-end and assert brain → spawn workers → PR → merge → cleanup
+  → next.
+- **Guardian live**: wedge the brain (loop / rate-limit / crash) and assert it is
+  restarted/rotated and resumes, via `autopilot_status` + audit log.
+- **Failover live**: exhaust the free tier; assert the brain drops to the
+  subscription tier, and that pay-per-use is skipped unless `allow_pay_per_use` —
+  plan + workers intact across rotation.
+- **Toggle**: flip on/off from CLI/MCP/TUI/web; confirm brain spawn/pause + bundle
+  knobs track the flag live (no restart).
+
+## Definition of Done (CLAUDE.md checklist — final stage)
+
+- Tag & release (one tag/feature; confirm before pushing `v*`).
+- Docs: README, `docs/FEATURES.md` + root matrix, `docs/USAGE.md`,
+  `docs/specs/autopilot.md`, site guides + generated `reference/cli.md`, skill.
+- CLI help via cobra + `make gendocs` (CI-gated).
