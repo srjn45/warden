@@ -29,9 +29,10 @@ spawn_agent role=orchestrator backend=claude model=sonnet repo=<warden checkout>
 Owner inputs at kickoff (defaults apply if unspecified):
 
 - **Backends & models:** per the §2 matrix — implementation is **claude-only**
-  (owner has a Max 5x subscription); free-tier backends take only §2.2 side
-  tasks. If free-tier backends will be used, ensure they are trusted in this
-  repo now (first-run trust is a one-time operator step).
+  (owner has a Max 5x subscription); free-tier backends take the §2.4
+  heartbeat sentinel (always) and §2.2 side tasks (optional). Ensure the
+  chosen free-tier backend is trusted in this repo now (first-run trust is a
+  one-time operator step).
 - **Backend cost buckets** for the autopilot feature's own live-test config
   (S7 rig): default `free: [antigravity]`, `subscription: [claude]`,
   `pay_per_use: []`, `allow_pay_per_use: false`.
@@ -190,42 +191,49 @@ long stages and the long-lived orchestrator still need active management:
 
 ### 2.4 Session limits & the heartbeat sentinel
 
-Two distinct failure modes, two distinct mechanisms — don't conflate them:
+Two failure modes threaten unattended progress, and **one mechanism covers
+both**: rate/session-limit stalls and idle drift.
 
-**Rate/session limits (Max plan windows) — configuration, not steering.**
-warden's existing rate-limit machinery (`rate_limit.auto_resume`) detects the
-limit banner, parses the reset time when one is shown (else the
-`retry_interval`/`spend_retry_interval` fallbacks), and resumes the pane
-automatically. Kickoff confirms `rate_limit.auto_resume` and `auto_restart`
-are enabled on the daemon running this build. Because **all claude agents
-share one subscription**, the orchestrator and its children hit a window
-roughly together and resume together — a synchronized pause, not a failure:
-branch state is in git, PRs are on GitHub, the journal is on the blackboard.
-Nothing is lost by waiting a window out; no steering is needed or possible.
+**Why not rely on `rate_limit.auto_resume`:** warden has auto-resume, but the
+owner reports it has never fired reliably in the live claude flow — a manual
+resume prompt is always needed. Known gaps: the live limit UX is a choice
+menu plus a spend banner with **no reset time**, and the menu-keystroke +
+weekly-reset-date parsing are open issues. Keep `rate_limit.auto_resume` and
+`auto_restart` enabled (they help when they do fire, and cost nothing), but
+treat them as best-effort — **the sentinel is the reliable resume path**.
+(Fixing the live-flow gaps in `internal/poller`/`ratelimit` is a worthwhile
+§2.2-style side task, but this build must not depend on it.)
 
-**Idle drift — the heartbeat sentinel (manual stand-in for the guardian this
-plan is building in S5).** An LLM orchestrator can simply stop looping — end
-its turn and wait — without being limited or errored, and it cannot watch
-itself. Mitigation: an **hourly heartbeat via warden's own scheduler** (no
-external cron). Note the scheduler fires agent-spawns, not messages to
-existing agents — hence a sentinel, which is strictly stronger anyway: a bare
-nudge message cannot fix a dead orchestrator. `create_schedule` (cron
-`@hourly`, agent mode, claude/**haiku** — it only reads and nudges) spawning a
-short-lived sentinel whose entire brief is:
+**The heartbeat sentinel (manual stand-in for the guardian this plan builds
+in S5).** An hourly heartbeat via **warden's own scheduler** (no external
+cron). Two design points: the scheduler fires agent-spawns, not messages to
+existing agents — hence a sentinel, which is strictly stronger anyway (a bare
+nudge cannot fix a dead orchestrator); and the sentinel runs on a
+**free-tier backend (antigravity or codex), not claude** — all claude agents
+share one subscription, so a claude sentinel would be limited by exactly the
+window it exists to recover from. `create_schedule` (cron `@hourly`, agent
+mode) spawns a short-lived sentinel whose entire brief is:
 
 1. Terminate + delete any previous sentinel instance (self-cleaning chain).
-2. Read `autopilot-impl/journal`, `git log origin/main`, `list_agents`,
-   `list_pipelines`: has anything progressed since the journal's last entry?
-3. Fleet rate-limited → exit (auto-resume owns that case).
-4. Progressing → exit silently (a healthy heartbeat costs almost nothing).
+2. Survey: `autopilot-impl/journal`, `git log origin/main`, `list_agents`,
+   `list_pipelines` — has anything progressed since the journal's last entry?
+3. **Resume duty:** for every agent sitting at a rate-limit banner/menu
+   (orchestrator, implementers, pipeline jobs alike), send the resume
+   input (`send_to_agent` / `approve` on the menu). If the window is still
+   closed the banner just reappears — harmless; the next hourly fire retries.
+   Worst case, resume lags the actual reset by under an hour.
+4. Progressing → exit silently (a healthy heartbeat costs ~nothing, and the
+   free tier makes it $0).
 5. Orchestrator alive but idle/looping with work outstanding → `send_message`:
    "heartbeat: resume the §1 protocol — re-read the journal, check every
-   child, continue from the last incomplete stage."
+   child and pipeline, continue from the last incomplete stage."
 6. Orchestrator dead or errored → respawn it per §0 (the journal + §6 recovery
    rules make this safe by construction).
 
 The schedule is created **at kickoff** — the sentinel, not the orchestrator,
 is the outermost supervisor — and deleted after the §5 release confirmation.
+The free-tier backend must therefore be trusted in the repo at kickoff even
+if §2.2 side tasks are not used.
 
 ## 3. Stage graph
 
