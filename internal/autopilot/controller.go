@@ -36,8 +36,28 @@ type ControllerConfig struct {
 	// BaseDir anchors relative plan paths (the daemon's working directory).
 	BaseDir string
 	// Backends is the cost-tier backend ladder (config autopilot.brain.backends).
-	// S3 uses Free (brain selection) and the union (preflight trust check).
+	// S5 walks it in full (brain + worker selection); the preflight trust check
+	// validates the union.
 	Backends BackendLadder
+	// AllowPayPerUse permits the selection loop to fall through to pay_per_use
+	// backends (config autopilot.brain.allow_pay_per_use). Off ⇒ they are
+	// structurally excluded and hitting them raises the distinct gate notification.
+	AllowPayPerUse bool
+	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
+	// autopilot.guardian). Zero-valued fields fall back to sane defaults.
+	Guardian GuardianParams
+}
+
+// GuardianParams is the resolved guardian configuration the Controller drives
+// (autopilot.md §2.3). Durations are pre-parsed by the daemon from the config
+// block's Go-duration strings; NewController defaults any zero value.
+type GuardianParams struct {
+	Interval         time.Duration // tick cadence
+	HeartbeatTimeout time.Duration // brain-idle threshold that declares a wedge
+	BackoffMin       time.Duration // first capped-exponential backoff step
+	BackoffMax       time.Duration // backoff ceiling (never parks past it)
+	RotateAtContext  string        // context level that triggers a planned rotation
+	NotifyEach       bool          // notify the owner on every heal step, not just stalls
 }
 
 // Controller is the autopilot master switch and per-plan run registry
@@ -53,6 +73,13 @@ type Controller struct {
 	deleteBranch      bool
 	baseDir           string
 	backends          BackendLadder
+	allowPayPerUse    bool
+	guardian          GuardianParams
+
+	// now is the clock the guardian + tierstate read (injectable for tests via
+	// setClock). tierstate tracks per-backend rate-limit windows for selection.
+	now       func() time.Time
+	tierstate *tierState
 
 	mu      sync.Mutex
 	runtime Runtime // nil ⇒ inert (S1): no brain spawns
@@ -76,6 +103,20 @@ type run struct {
 
 	brain  *BrainHandle       // nil until the brain spawns; nil again after teardown
 	cancel context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
+
+	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
+	// the guardian tick or the (re)spawn helpers.
+	tier                string          // selected cost tier (free|subscription|pay_per_use)
+	brainSpawnedAt      time.Time       // last (re)spawn instant — the cold-start heartbeat floor
+	lastHeartbeat       time.Time       // most recent brain heartbeat seen by the guardian
+	contextLevel        string          // brain context-window level seen by the guardian
+	healStage           healStage       // current position on the heal ladder
+	healNextAt          time.Time       // earliest instant the next heal step may fire
+	backoffStage        int             // capped-exponential backoff exponent (stage 4)
+	backoffNextRetry    time.Time       // when the current backoff wait elapses
+	backoffLastErr      string          // human-facing reason for the current backoff
+	plannedRotateNextAt time.Time       // cooldown floor so planned rotation can't thrash
+	tried               map[string]bool // backends tried this heal cycle (rotate-down exclusion)
 }
 
 // NewController builds a Controller from cfg backed by env (pass NewExecEnv() in
@@ -96,7 +137,8 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 	if strategy == "" {
 		strategy = "squash"
 	}
-	return &Controller{
+	now := time.Now
+	c := &Controller{
 		env:               env,
 		plans:             cfg.Plans,
 		integrationBranch: branch,
@@ -105,8 +147,50 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		deleteBranch:      cfg.DeleteBranch,
 		baseDir:           cfg.BaseDir,
 		backends:          cfg.Backends,
+		allowPayPerUse:    cfg.AllowPayPerUse,
+		guardian:          withGuardianDefaults(cfg.Guardian),
+		now:               now,
+		tierstate:         newTierState(now),
 		runs:              map[string]*run{},
 	}
+	return c
+}
+
+// withGuardianDefaults fills any zero-valued guardian field with a generous
+// default (frictionless-safeguards philosophy — the guardian fires only at
+// genuine wedges, never paces normal work). Mirrors the config block defaults so
+// a Controller built without a config-sourced GuardianParams still behaves.
+func withGuardianDefaults(g GuardianParams) GuardianParams {
+	if g.Interval <= 0 {
+		g.Interval = 60 * time.Second
+	}
+	if g.HeartbeatTimeout <= 0 {
+		g.HeartbeatTimeout = 10 * time.Minute
+	}
+	if g.BackoffMin <= 0 {
+		g.BackoffMin = 30 * time.Second
+	}
+	if g.BackoffMax <= 0 {
+		g.BackoffMax = 6 * time.Hour
+	}
+	if g.BackoffMax < g.BackoffMin {
+		g.BackoffMax = g.BackoffMin
+	}
+	if strings.TrimSpace(g.RotateAtContext) == "" {
+		g.RotateAtContext = "critical"
+	}
+	return g
+}
+
+// setClock swaps the guardian/tierstate clock. Test-only seam (in-package): the
+// daemon never calls it, so the guardian always reads the wall clock in
+// production.
+func (c *Controller) setClock(now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+	c.now = now
+	c.tierstate.now = now
 }
 
 // SetRuntime injects the daemon-provided brain/ledger/digest surface. It must be
@@ -208,11 +292,14 @@ func (c *Controller) Enable(ctx context.Context) (Status, error) {
 			state:         StateStarting,
 			resolvedGate:  res.resolvedGate,
 			defaultBranch: res.defaultBranch,
+			tried:         map[string]bool{},
 		}
 		if info, err := os.Stat(res.absFile); err == nil {
 			r.planModTime = info.ModTime()
 		}
-		if err := c.spawnBrain(ctx, r, selectBrainBackend(c.backends)); err != nil {
+		sel := c.selectBrain(nil)
+		r.tier = sel.Tier
+		if err := c.spawnBrain(ctx, r, sel.Backend); err != nil {
 			slog.Warn("autopilot: brain spawn failed; run degraded", "run", id, "err", err)
 		}
 		// Watch the plan file for owner steering only when a brain is actually
@@ -300,12 +387,12 @@ func (c *Controller) statusLocked() Status {
 	for _, r := range c.runs {
 		var brain *BrainStatus
 		if r.brain != nil {
-			// Tier is hardcoded "free" in S3 (matching the hardcoded first-free
-			// selection); the full tier ladder + heartbeat/context land in S5.
 			brain = &BrainStatus{
-				AgentID: r.brain.AgentID,
-				Backend: r.brain.Backend,
-				Tier:    "free",
+				AgentID:       r.brain.AgentID,
+				Backend:       r.brain.Backend,
+				Tier:          tierOrDefault(r.tier),
+				LastHeartbeat: rfc3339OrEmpty(r.lastHeartbeat),
+				ContextLevel:  r.contextLevel,
 			}
 		}
 		st.Runs = append(st.Runs, RunStatus{
@@ -316,7 +403,7 @@ func (c *Controller) statusLocked() Status {
 			Gate:     c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:    brain,
 			Tasks:    TaskCounts{},
-			Backoff:  nil,
+			Backoff:  r.backoffStatus(),
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
@@ -377,6 +464,43 @@ func isLandableState(s RunState) bool {
 	default:
 		return false
 	}
+}
+
+// selectBrain walks the cost-tier ladder for this run's next backend, skipping any
+// in exclude (nil ⇒ none). It is the single selection entry point for the brain
+// and the backend the brain hands its workers (autopilot.md §7).
+func (c *Controller) selectBrain(exclude map[string]bool) selection {
+	return selectBackend(c.backends, c.tierstate, c.allowPayPerUse, exclude)
+}
+
+// SelectWorkerBackend resolves the backend a worker for runID should launch on,
+// walking the same cost-tier ladder as the brain (autopilot.md §7). ok=false when
+// the run is unknown, autopilot is off, or nothing is currently selectable (the
+// whole ladder is limited/gated). The daemon uses it to fill an autopilot worker's
+// backend when the brain leaves it to warden.
+func (c *Controller) SelectWorkerBackend(runID string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.enabled {
+		return "", false
+	}
+	if _, ok := c.runs[runID]; !ok {
+		return "", false
+	}
+	sel := c.selectBrain(nil)
+	if !sel.OK {
+		return "", false
+	}
+	return sel.Backend, true
+}
+
+// MarkBackendLimited records that backend is rate-limited until `until` so the
+// selection loop skips it (autopilot.md §7). Fed by the daemon from the poller's
+// rate-limit detection (the parsed reset time, else the configured retry/spend
+// fallback). A backend not in this run set's ladder is still recorded — harmless,
+// and it re-qualifies on expiry.
+func (c *Controller) MarkBackendLimited(backend string, until time.Time) {
+	c.tierstate.markLimited(backend, until)
 }
 
 // dedupe returns xs with adjacent duplicates removed (xs must be sorted).

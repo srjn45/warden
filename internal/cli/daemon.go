@@ -286,7 +286,7 @@ func newDaemonCmd() *cobra.Command {
 			// paths to the daemon's working directory.
 			apBaseDir, _ := os.Getwd()
 			apBackends := cfg.AutopilotBrainBackends()
-			srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
+			apCtrl := autopilot.NewController(autopilot.ControllerConfig{
 				Plans:             cfg.AutopilotPlanFiles(),
 				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
 				Gate:              cfg.AutopilotGate(),
@@ -298,7 +298,17 @@ func newDaemonCmd() *cobra.Command {
 					Subscription: apBackends.Subscription,
 					PayPerUse:    apBackends.PayPerUse,
 				},
-			}, nil))
+				AllowPayPerUse: cfg.AutopilotAllowPayPerUse(),
+				Guardian: autopilot.GuardianParams{
+					Interval:         cfg.AutopilotGuardianInterval(),
+					HeartbeatTimeout: cfg.AutopilotGuardianHeartbeatTimeout(),
+					BackoffMin:       cfg.AutopilotGuardianBackoffMin(),
+					BackoffMax:       cfg.AutopilotGuardianBackoffMax(),
+					RotateAtContext:  cfg.AutopilotGuardianRotateAtContext(),
+					NotifyEach:       cfg.AutopilotGuardianNotifyEach(),
+				},
+			}, nil)
+			srv.SetAutopilotController(apCtrl)
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with
 			// plugins off rather than refusing to start the daemon. Once loaded,
@@ -370,6 +380,16 @@ func newDaemonCmd() *cobra.Command {
 			// Fixture-capture aid: snapshot the raw pane on each real limit hit so a
 			// future parser gap can be fixed from ground-truth bytes (bounded, newest-N).
 			rateLimitSched.CaptureDir = filepath.Join(cfg.DataDir, "ratelimit-captures")
+			// Autopilot guardian escalations (§2.3) fan out through the same
+			// operator notifier seam (desktop + webhook).
+			srv.SetAutopilotNotifier(notifier)
+			// Autopilot cost-tier selection (§7): feed the guardian's per-backend
+			// limit tracking from the poller's rate-limit detection, so a limited
+			// backend drops out of selection until its parsed reset (else the
+			// configured retry/spend fallback) elapses and it climbs back up.
+			rateLimitSched.OnLimit = func(sess *store.Session, until time.Time) {
+				apCtrl.MarkBackendLimited(sess.Backend, until)
+			}
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)

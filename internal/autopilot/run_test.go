@@ -18,10 +18,18 @@ func TestBackendLadderSelection(t *testing.T) {
 		PayPerUse:    []string{"gpt"},
 	}
 	require.Equal(t, "antigravity", ladder.firstFree(), "first non-blank free backend")
-	require.Equal(t, "antigravity", selectBrainBackend(ladder))
 	require.Equal(t, []string{"antigravity", "codex", "claude", "gpt"}, ladder.all(), "union in tier order, blanks skipped")
 
-	require.Equal(t, "", selectBrainBackend(BackendLadder{}), "no free backend ⇒ daemon default")
+	// selectBackend walks the free tier first, skipping blanks.
+	sel := selectBackend(ladder, nil, false, nil)
+	require.True(t, sel.OK)
+	require.Equal(t, "antigravity", sel.Backend)
+	require.Equal(t, tierFree, sel.Tier)
+
+	// An entirely unconfigured ladder ⇒ the daemon default ("").
+	def := selectBackend(BackendLadder{}, nil, false, nil)
+	require.True(t, def.OK)
+	require.Equal(t, "", def.Backend, "no backend configured ⇒ daemon default")
 }
 
 func TestReloadPlanIfChanged(t *testing.T) {

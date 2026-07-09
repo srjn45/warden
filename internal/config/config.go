@@ -1431,6 +1431,45 @@ func (c Config) AutopilotDeleteBranch() bool { return c.Autopilot.Merge.DeleteBr
 // free tier (brain selection) and the union (preflight trust check).
 func (c Config) AutopilotBrainBackends() AutopilotBackends { return c.Autopilot.Brain.Backends }
 
+// AutopilotAllowPayPerUse reports whether the cost-tier selection loop may fall
+// through to pay_per_use backends (autopilot.md §7). Off ⇒ they are structurally
+// excluded and hitting the gate raises a distinct notification.
+func (c Config) AutopilotAllowPayPerUse() bool { return c.Autopilot.Brain.AllowPayPerUse }
+
+// AutopilotGuardianInterval is the guardian tick cadence (autopilot.md §2.3).
+func (c Config) AutopilotGuardianInterval() time.Duration {
+	return durOr(c.Autopilot.Guardian.Interval, 60*time.Second)
+}
+
+// AutopilotGuardianHeartbeatTimeout is the brain-idle threshold that declares a
+// wedge (autopilot.md §2.3). Generous by default (frictionless safeguards).
+func (c Config) AutopilotGuardianHeartbeatTimeout() time.Duration {
+	return durOr(c.Autopilot.Guardian.HeartbeatTimeout, 10*time.Minute)
+}
+
+// AutopilotGuardianBackoffMin is the first capped-exponential backoff step.
+func (c Config) AutopilotGuardianBackoffMin() time.Duration {
+	return durOr(c.Autopilot.Guardian.BackoffMin, 30*time.Second)
+}
+
+// AutopilotGuardianBackoffMax is the backoff ceiling the guardian never waits past
+// (though it always keeps retrying — never parks).
+func (c Config) AutopilotGuardianBackoffMax() time.Duration {
+	return durOr(c.Autopilot.Guardian.BackoffMax, 6*time.Hour)
+}
+
+// AutopilotGuardianRotateAtContext is the brain context-window level at/above
+// which a planned rotation fires (warning | critical).
+func (c Config) AutopilotGuardianRotateAtContext() string {
+	return c.Autopilot.Guardian.RotateAtContext
+}
+
+// AutopilotGuardianNotifyEach reports whether the guardian notifies the owner on
+// every heal step, not just the stall/gate states.
+func (c Config) AutopilotGuardianNotifyEach() bool {
+	return c.Autopilot.Guardian.NotifyEachEscalation
+}
+
 // AutopilotBundle is the OR-bundle autopilot applies to its own agents when
 // enabled (autopilot.md §10): auto_approve, rate_limit.auto_resume, and
 // auto_restart are forced on for autopilot-owned agents unless already on. It is

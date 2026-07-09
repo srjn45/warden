@@ -98,11 +98,32 @@ type Runtime interface {
 	InstallDefaultAutoApprovePolicy()
 }
 
-// selectBrainBackend picks the brain's backend. S3 hardcodes "first configured
-// free backend" (autopilot.md §7 rotation hook, selection logic is S5); when no
-// free backend is configured it falls back to "" so the daemon uses its default.
-func selectBrainBackend(ladder BackendLadder) string {
-	return ladder.firstFree()
+// GuardianRuntime is the optional slice of the runtime the heartbeat guardian
+// needs beyond the base Runtime (autopilot.md §2.3, §7): the brain's liveness and
+// context-window readings, the cheap "nudge" steering step, and owner-facing
+// escalation notifications. The daemon runtime implements it; a bare Runtime that
+// does not (the S1 inert core, the S3 lifecycle fakes) is simply never
+// guardian-managed — RunGuardian is then a no-op. Keeping it separate from
+// Runtime means those fakes need no update to keep compiling.
+type GuardianRuntime interface {
+	// BrainActivity returns the timestamp of the run's most recent brain-driven MCP
+	// activity from the audit log — the heartbeat the guardian compares against
+	// guardian.heartbeat_timeout. ok=false when nothing is recorded yet (a
+	// freshly-spawned brain), in which case the guardian falls back to the brain's
+	// spawn time so a cold-started brain is never mistaken for wedged.
+	BrainActivity(ctx context.Context, runID string) (time.Time, bool)
+	// BrainContextLevel returns the brain agent's context-window pressure level
+	// ("" | ok | warning | critical), read from its session; "" when unknown. The
+	// guardian triggers a planned rotation once it reaches guardian.rotate_at_context.
+	BrainContextLevel(ctx context.Context, agentID string) string
+	// NudgeBrain delivers a steering message to the brain's mailbox — the guardian's
+	// cheapest heal step (§2.3 stage 1) before it restarts the brain.
+	NudgeBrain(ctx context.Context, agentID, msg string) error
+	// NotifyEscalation surfaces a guardian escalation to the owner through the
+	// operator notifier (desktop/webhook), distinct from NotifyOwner's plan-edit
+	// path. Used for the states an owner must see: a full-ladder stall and the
+	// pay-per-use gate.
+	NotifyEscalation(runID, title, body string)
 }
 
 // rotateBrain is the guardian's rotation hook (autopilot.md §7): terminate the
@@ -160,6 +181,7 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 		return fmt.Errorf("spawn brain: %w", err)
 	}
 	r.brain = &handle
+	r.brainSpawnedAt = c.now() // fresh spawn counts as a heartbeat until the brain acts
 	r.state = StateActive
 	return nil
 }

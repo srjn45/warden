@@ -47,6 +47,14 @@ type RateLimitScheduler struct {
 	// daemon after construction.
 	CaptureDir string
 
+	// OnLimit, when set, is called on every rate-limit hit with the session and the
+	// instant its limit is expected to clear (the parsed reset time, else the
+	// configured retry/spend fallback). The autopilot guardian wires it to feed its
+	// per-backend cost-tier limit tracking (autopilot.md §7). Fires regardless of
+	// auto_resume so tier selection stays accurate even when resume is off. nil ⇒ no
+	// feed. Set by the daemon after construction.
+	OnLimit func(sess *store.Session, until time.Time)
+
 	mu     sync.Mutex
 	timers map[string]*time.Timer
 }
@@ -100,36 +108,42 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 	// bounded; a capture failure must never block the resume path.
 	r.captureBanner(sess)
 
+	// The instant the limit is expected to clear — the same parse + fallback logic
+	// the resume schedule uses. Computed regardless of auto_resume so the autopilot
+	// guardian's cost-tier limit tracking stays accurate even when resume is off.
+	scheduleAt := r.limitClearsAt(sess)
+	if r.OnLimit != nil {
+		r.OnLimit(sess, scheduleAt)
+	}
+
 	if !r.enabled {
 		return
 	}
 
 	ctx := context.Background()
 
-	// Parse restore time from pane excerpt (already captured by poller)
-	restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt)
-
-	var scheduleAt time.Time
-	switch {
-	case ok && restoreTime.After(time.Now()):
-		// A resettable limit (session/weekly) told us exactly when it clears:
-		// wake just after that, plus a small buffer for clock skew.
-		scheduleAt = restoreTime.Add(r.buffer)
-	case poller.SpendLimitBannerPresent(sess.LastPaneExcerpt):
-		// Monthly spend cap: no reset time in-band, and it will not clear for
-		// hours or days — retry on the long spend interval so we keep polling for
-		// the auto-resume without hammering a pane that stays capped.
-		scheduleAt = time.Now().Add(r.spendRetryInterval)
-	default:
-		// A resettable limit whose reset time we could not parse: retry soon.
-		scheduleAt = time.Now().Add(r.retryInterval)
-	}
-
 	// Persist the schedule
 	_ = r.store.SetRateLimit(ctx, sess.ID, scheduleAt, 0)
 
 	// Schedule the resume attempt
 	r.scheduleResume(sess.ID, scheduleAt)
+}
+
+// limitClearsAt computes when a rate-limited session's limit is expected to clear:
+// the parsed reset time (plus the skew buffer) when the banner carries one, the
+// long spend fallback for a monthly cap, else the short retry fallback. This is
+// the single source of truth for both the resume schedule and the autopilot
+// guardian's tier limit feed.
+func (r *RateLimitScheduler) limitClearsAt(sess *store.Session) time.Time {
+	restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt)
+	switch {
+	case ok && restoreTime.After(time.Now()):
+		return restoreTime.Add(r.buffer)
+	case poller.SpendLimitBannerPresent(sess.LastPaneExcerpt):
+		return time.Now().Add(r.spendRetryInterval)
+	default:
+		return time.Now().Add(r.retryInterval)
+	}
 }
 
 // scheduleResume creates a timer for the resume attempt.
