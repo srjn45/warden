@@ -304,6 +304,84 @@ export async function retryJob(pid: string, job: string): Promise<void> {
   ));
 }
 
+// AutopilotBrain describes the run's brain agent (null in the S1 inert core).
+export interface AutopilotBrain {
+  agent_id: string;
+  backend: string;
+  tier: string;
+  last_heartbeat: string;
+  context_level: string;
+}
+
+// AutopilotTaskCounts is the ledger task rollup shown in status.
+export interface AutopilotTaskCounts {
+  pending: number;
+  in_progress: number;
+  landed: number;
+}
+
+// AutopilotBackoff describes the guardian's capped backoff (null unless degraded).
+export interface AutopilotBackoff {
+  stage: number;
+  next_retry_at: string;
+  last_error: string;
+}
+
+// AutopilotRun is one run's slice of the overall status.
+export interface AutopilotRun {
+  run_id: string;
+  plan_file: string;
+  repo: string;
+  state: string;
+  gate: string;
+  brain: AutopilotBrain | null;
+  workers_in_flight: number;
+  tasks: AutopilotTaskCounts;
+  backoff: AutopilotBackoff | null;
+  landed_total: number;
+}
+
+// AutopilotStatus is the full response shape for GET/POST /autopilot.
+export interface AutopilotStatus {
+  enabled: boolean;
+  runs: AutopilotRun[];
+}
+
+// AutopilotPreflightError represents a 409 from POST /autopilot when the
+// enable-time preflight fails (autopilot.md §5.1).
+export class AutopilotPreflightError extends Error {
+  constructor(public failures: string[]) {
+    super(`autopilot preflight failed (${failures.length} issue${failures.length === 1 ? '' : 's'})`);
+    this.name = 'AutopilotPreflightError';
+  }
+}
+
+// getAutopilot fetches the current autopilot status (GET /autopilot).
+export async function getAutopilot(): Promise<AutopilotStatus> {
+  const data = await parse<AutopilotStatus>(await apiFetch('/autopilot'));
+  return { ...data, runs: data.runs ?? [] };
+}
+
+// setAutopilot flips the master switch (POST /autopilot). A 409 from the
+// daemon's enable-time preflight surfaces as AutopilotPreflightError so the UI
+// can render the full failure list with an init hint.
+export async function setAutopilot(enabled: boolean): Promise<AutopilotStatus> {
+  const res = await apiFetch('/autopilot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (res.status === 409) {
+    let failures: string[] = [];
+    try {
+      const body = await res.json() as { failures?: string[] };
+      failures = body.failures ?? [];
+    } catch { /* non-JSON body */ }
+    throw new AutopilotPreflightError(failures);
+  }
+  return parse<AutopilotStatus>(res);
+}
+
 // subscribeSessions opens an SSE connection. Returns an unsubscribe function.
 export function subscribeSessions(
   onData: (sessions: Session[]) => void,
