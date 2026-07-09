@@ -18,13 +18,11 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// autopilotOwnTag / runTagPrefix mirror the tags the autopilot Controller stamps
-// on the brain and its workers (autopilot.md §1). The land handler reads them to
-// decide ownership (precondition 2) and the owning run (for its merge params).
-const (
-	autopilotOwnTag = "autopilot"
-	runTagPrefix    = "run:"
-)
+// autopilotOwnTag mirrors the tag the autopilot Controller stamps on the brain and
+// its workers (autopilot.md §1). The land handler reads it (with runTagPrefix,
+// declared in ownership_guard.go) to decide ownership (precondition 2) and the
+// owning run (for its merge params).
+const autopilotOwnTag = "autopilot"
 
 // LandAutopilot implements POST /api/v1/autopilot/land: the brain's only merge
 // path (autopilot.md §6). It resolves the worker branch, runs the gated,

@@ -155,6 +155,13 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	if s.scheduler && s.schedStore != nil {
 		go s.runScheduler(runCtx)
 	}
+	// Autopilot heartbeat guardian (docs/specs/autopilot.md §2.3): heals wedged
+	// brains up the ladder (nudge → restart → rotate → capped-backoff-forever) and
+	// performs planned rotations on context pressure. A no-op while autopilot is
+	// off; unconfigured (nil controller) it is never launched.
+	if s.autopilot != nil {
+		go s.autopilot.RunGuardian(runCtx)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              addr,

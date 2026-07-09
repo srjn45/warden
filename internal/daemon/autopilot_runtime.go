@@ -12,6 +12,7 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/mailbox"
 )
 
 // autopilotRuntime adapts the daemon Server to autopilot.Runtime (docs/specs/
@@ -153,6 +154,59 @@ func (rt autopilotRuntime) RecentAudit(ctx context.Context, runID string, limit 
 // validate); richer notification channels can hook in later.
 func (rt autopilotRuntime) NotifyOwner(runID, msg string) {
 	slog.Warn("autopilot: owner notification", "run", runID, "msg", msg)
+}
+
+// guardianNudgeSender stamps the guardian's steering nudge. It reuses the trusted
+// daemon-origin provenance (agents cannot forge it), matching the approval router.
+const guardianNudgeSender = autopilotForwardSender
+
+// BrainActivity returns the timestamp of the run's most recent audit entry — the
+// heartbeat the guardian compares against guardian.heartbeat_timeout (§2.3). It
+// reuses RecentAudit's run-scoping (entries targeting a run agent or the autopilot
+// switch), so any MCP progress the brain drives (spawning workers, landing,
+// switch events) counts as a heartbeat. ok=false when nothing is recorded yet,
+// letting the guardian fall back to the brain's spawn time.
+func (rt autopilotRuntime) BrainActivity(ctx context.Context, runID string) (time.Time, bool) {
+	entries, err := rt.RecentAudit(ctx, runID, 1)
+	if err != nil || len(entries) == 0 {
+		return time.Time{}, false
+	}
+	t, perr := time.Parse(time.RFC3339, entries[0].Time)
+	if perr != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// BrainContextLevel reads the brain agent's context-window pressure level from its
+// session ("" | ok | warning | critical). "" when the session is unreadable or no
+// model turn has set a level yet.
+func (rt autopilotRuntime) BrainContextLevel(ctx context.Context, agentID string) string {
+	sess, err := rt.s.store.Get(ctx, agentID)
+	if err != nil || sess == nil {
+		return ""
+	}
+	return sess.ContextState
+}
+
+// NudgeBrain delivers the guardian's steering message to the brain's mailbox — the
+// cheapest heal step (§2.3 stage 1). Best-effort: a mailbox error is returned for
+// logging but the guardian escalates on the next tick regardless.
+func (rt autopilotRuntime) NudgeBrain(_ context.Context, agentID, msg string) error {
+	if rt.s.mbox == nil {
+		return nil
+	}
+	_, err := rt.s.mbox.Append(mailbox.Message{To: agentID, From: guardianNudgeSender, Body: msg})
+	return err
+}
+
+// NotifyEscalation surfaces a guardian escalation through the operator notifier
+// (desktop/webhook) when one is wired, always logging as a fallback.
+func (rt autopilotRuntime) NotifyEscalation(runID, title, body string) {
+	slog.Warn("autopilot guardian escalation", "run", runID, "title", title, "body", body)
+	if rt.s.apNotifier != nil {
+		rt.s.apNotifier.Notify(title, body+" (run "+runID+")")
+	}
 }
 
 // InstallDefaultAutoApprovePolicy installs the generous default auto-approve

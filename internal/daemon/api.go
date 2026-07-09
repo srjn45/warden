@@ -22,6 +22,7 @@ import (
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
+	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
@@ -197,6 +198,10 @@ type Server struct {
 	// nil ⇒ the real gh/git + check-rail host; tests inject a fake to exercise the
 	// handler's resolution, ledger write, and error mapping without a live GitHub.
 	landHostFn func(dir string) autopilot.LandHost
+	// apNotifier is the operator notifier the autopilot guardian fans escalations
+	// out to (desktop/webhook). nil ⇒ escalations are logged only. Set by the daemon
+	// from config (SetAutopilotNotifier).
+	apNotifier notify.Notifier
 }
 
 // SetAutopilotController wires the autopilot Controller (docs/specs/autopilot.md).
@@ -222,6 +227,11 @@ func (s *Server) SetAutopilotController(c *autopilot.Controller) {
 		}
 	}
 }
+
+// SetAutopilotNotifier wires the operator notifier the autopilot guardian fans
+// escalations out to (desktop/webhook). A nil notifier leaves escalations
+// log-only. Call before Start.
+func (s *Server) SetAutopilotNotifier(n notify.Notifier) { s.apNotifier = n }
 
 // SetScheduler wires the native scheduler (#15) and its config gate.
 // enabled=false (or a nil store) makes the schedule endpoints return 403 and the
