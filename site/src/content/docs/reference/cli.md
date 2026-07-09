@@ -399,6 +399,7 @@ Usage:
   warden autopilot [command]
 
 Available Commands:
+  init        Scaffold autopilot adoption in the current repo
   off         Disable autopilot (kill switch — stops spawning/landing)
   on          Enable autopilot (runs the enable-time preflight)
   status      Show autopilot status
@@ -411,6 +412,27 @@ Global Flags:
       --config string   config file path (default ~/.warden/config.yaml)
 
 Use "warden autopilot [command] --help" for more information about a command.
+```
+
+## warden autopilot init
+
+```text
+Creates a template autopilot.plan.yaml in the current git repository (if absent),
+updates the autopilot block in the warden config with the plan file and detected
+backends (assign them to cost tiers before enabling), creates the integration branch
+off the default branch if absent, and prints a CI-coverage hint when no workflow
+covers integration pull requests. After init, edit the plan file and run
+`warden autopilot on` to enable.
+
+Usage:
+  warden autopilot init [flags]
+
+Flags:
+  -h, --help   help for init
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
 ```
 
 ## warden autopilot off

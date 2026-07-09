@@ -138,6 +138,38 @@ kbd {
 .context-drawer-body { flex: 1; overflow: auto; padding: 1rem; }
 .modal-backdrop:has(> .context-drawer) { place-items: stretch; }
 
+/* ── Autopilot panel ── */
+.autopilot-panel { width: min(520px, 96vw); gap: 0; padding: 0; overflow: hidden; }
+.autopilot-panel-head { display: flex; align-items: center; justify-content: space-between; padding: .8rem 1rem; border-bottom: 1px solid #8884; }
+.autopilot-panel-head h2 { margin: 0; font-size: 1rem; }
+.autopilot-toggle-row { display: flex; align-items: center; gap: .75rem; padding: .75rem 1rem; border-bottom: 1px solid #8884; }
+.autopilot-state { font-weight: 600; min-width: 2.5rem; }
+.autopilot-state.on { color: var(--busy); }
+.autopilot-state.off { color: var(--idle); }
+.autopilot-toggle-btn { padding: .3rem .8rem; border: none; border-radius: .3rem; cursor: pointer; font-size: .9rem; }
+.autopilot-toggle-btn.new-btn { background: var(--accent); color: #fff; }
+.autopilot-toggle-btn.danger { background: var(--error); color: #fff; }
+.autopilot-toggle-btn:disabled { opacity: .5; cursor: not-allowed; }
+.autopilot-preflight-error { padding: .75rem 1rem; background: #cf222e11; border-bottom: 1px solid #8884; font-size: .88rem; }
+.autopilot-preflight-error ul { margin: .4rem 0; padding-left: 1.2rem; }
+.autopilot-preflight-error li { margin: .15rem 0; }
+.autopilot-init-hint { margin: .4rem 0 0; color: var(--idle); }
+.autopilot-panel > .warn, .autopilot-panel > .muted { padding: .75rem 1rem; margin: 0; font-size: .88rem; }
+.autopilot-run-card { border-top: 1px solid #8884; padding: .7rem 1rem; display: flex; flex-direction: column; gap: .3rem; font-size: .88rem; }
+.autopilot-run-head { display: flex; align-items: center; gap: .75rem; }
+.autopilot-run-state { font-weight: 600; text-transform: capitalize; }
+.state-active { color: var(--busy); }
+.state-starting, .state-healing { color: var(--attention); }
+.state-degraded { color: var(--error); }
+.state-complete { color: var(--idle); }
+.state-disabled { color: var(--idle); }
+.autopilot-run-brain { display: flex; align-items: center; gap: .75rem; color: var(--idle); }
+.autopilot-run-stats { display: flex; gap: .75rem; flex-wrap: wrap; color: var(--idle); }
+.autopilot-run-backoff { font-size: .84rem; }
+.autopilot-btn { background: #8882; border: 1px solid #8884; border-radius: 1rem; padding: .1rem .6rem; cursor: pointer; color: inherit; font-size: .83rem; }
+.autopilot-btn:hover { background: #8884; }
+.autopilot-btn.on { color: var(--busy); }
+
 /* ── Overview ── */
 .overview { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
 .overview .card { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; }

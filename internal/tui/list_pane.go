@@ -50,18 +50,19 @@ type listPaneModel struct {
 	pendingPrompt string
 	pendingName   string // name typed in the new-agent form, held across the pressure confirm
 	pendingDir    string
-	pendingRole   string                // role chosen in the new-agent form, held across the pressure confirm
-	renameID      string                // agent id being renamed (modeRename)
-	spawnVerdict  string                // reason text for the confirm prompt; "" when not confirming
-	pendingDelete string                // pid awaiting delete confirmation; "" when not confirming
-	ctxEntries    []client.ContextEntry // inspector: shared-context snapshot
-	messages      []client.Message      // inspector: recent message traffic
-	vp            viewport.Model        // scroll viewport (modeInspector / modeDigest)
-	approvals     []approval.View       // pending tool-permission prompts
-	apprEnabled   bool                  // approvals config setting on
-	apprCursor    int                   // focused recognized approval (modeApprovals)
-	digest        *digest.Digest        // last fetched digest (modeDigest)
-	digestID      string                // agent id the digest is for
+	pendingRole   string                 // role chosen in the new-agent form, held across the pressure confirm
+	renameID      string                 // agent id being renamed (modeRename)
+	spawnVerdict  string                 // reason text for the confirm prompt; "" when not confirming
+	pendingDelete string                 // pid awaiting delete confirmation; "" when not confirming
+	ctxEntries    []client.ContextEntry  // inspector: shared-context snapshot
+	messages      []client.Message       // inspector: recent message traffic
+	vp            viewport.Model         // scroll viewport (modeInspector / modeDigest)
+	approvals     []approval.View        // pending tool-permission prompts
+	apprEnabled   bool                   // approvals config setting on
+	apprCursor    int                    // focused recognized approval (modeApprovals)
+	digest        *digest.Digest         // last fetched digest (modeDigest)
+	digestID      string                 // agent id the digest is for
+	autopilot     client.AutopilotStatus // last fetched autopilot status
 	w, h          int
 	ready         bool
 	// killWindow scopes the `q`/`ctrl+c` teardown to the cockpit's tmux *window*
@@ -179,7 +180,7 @@ func (m *listPaneModel) applyDefaultCollapse() {
 }
 
 func (m listPaneModel) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), tick())
+	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
 }
 
 func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -199,7 +200,7 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), tick()}
+		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -207,6 +208,18 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pressureMsg:
 		if msg.err == nil {
 			m.pressure = msg.status
+		}
+		return m, nil
+	case autopilotMsg:
+		if msg.err == nil {
+			m.autopilot = msg.status
+		}
+		return m, nil
+	case autopilotToggleDoneMsg:
+		if msg.err == nil {
+			m.autopilot = msg.status
+		} else {
+			m.status = "autopilot: " + msg.err.Error()
 		}
 		return m, nil
 	case contextMsg:
@@ -668,6 +681,9 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, m.quitCmd()
+	case "ctrl+a":
+		// Toggle autopilot on/off. The result message updates m.autopilot.
+		return m, autopilotToggleCmd(m.api, !m.autopilot.Enabled)
 	case "c":
 		// Open the read-only shared-context + message-traffic inspector and
 		// kick off an immediate fetch (the tick keeps it fresh while open).
@@ -843,6 +859,9 @@ func (m listPaneModel) View() string {
 	header := stHeader.Render("warden") + "  " + conn
 	if chip := pressureChip(m.pressure); chip != "" {
 		header += "  " + chip
+	}
+	if badge := autopilotBadge(m.autopilot); badge != "" {
+		header += "  " + badge
 	}
 	if !m.connected {
 		header += "  " + stError.Render("daemon not running — start it with `warden daemon`")

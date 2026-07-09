@@ -134,6 +134,12 @@ func (f *fakeAPI) MsgRecent(_ context.Context, limit int) ([]client.Message, err
 	f.msgLimit = limit
 	return f.messages, f.msgErr
 }
+func (f *fakeAPI) GetAutopilot(context.Context) (client.AutopilotStatus, error) {
+	return client.AutopilotStatus{}, nil
+}
+func (f *fakeAPI) SetAutopilot(_ context.Context, _ bool) (client.AutopilotStatus, error) {
+	return client.AutopilotStatus{}, nil
+}
 
 func key(s string) tea.KeyMsg {
 	switch s {

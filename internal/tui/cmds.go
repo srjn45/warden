@@ -279,3 +279,35 @@ func approveCmd(a api, id string, option int, fingerprint string) tea.Cmd {
 		return approveDoneMsg{err: a.Approve(ctx, id, option, fingerprint)}
 	}
 }
+
+// autopilotMsg carries the autopilot status fetched on a periodic poll.
+type autopilotMsg struct {
+	status client.AutopilotStatus
+	err    error
+}
+
+// autopilotToggleDoneMsg carries the result of toggling autopilot on or off.
+type autopilotToggleDoneMsg struct {
+	status client.AutopilotStatus
+	err    error
+}
+
+// autopilotCmd fetches the current autopilot status from the daemon.
+func autopilotCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		st, err := a.GetAutopilot(ctx)
+		return autopilotMsg{status: st, err: err}
+	}
+}
+
+// autopilotToggleCmd flips the autopilot master switch.
+func autopilotToggleCmd(a api, enable bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bgLong()
+		defer cancel()
+		st, err := a.SetAutopilot(ctx, enable)
+		return autopilotToggleDoneMsg{status: st, err: err}
+	}
+}

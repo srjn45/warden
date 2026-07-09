@@ -7,6 +7,24 @@ import (
 	"github.com/srjn45/warden/internal/pressure"
 )
 
+// autopilotBadge renders a compact autopilot state chip for the TUI header.
+// Returns an empty string when autopilot status has not been fetched yet (zero
+// value), so the header is not cluttered on first paint.
+func autopilotBadge(st client.AutopilotStatus) string {
+	if !st.Enabled && len(st.Runs) == 0 {
+		return "" // not yet fetched or definitively off — show nothing on first paint
+	}
+	if !st.Enabled {
+		return stMuted.Render("autopilot: off")
+	}
+	runs := len(st.Runs)
+	label := fmt.Sprintf("autopilot: on · %d run", runs)
+	if runs != 1 {
+		label += "s"
+	}
+	return stStatus.Render(label)
+}
+
 // pressureChip renders the header memory-pressure gauge. Empty until the first
 // sample arrives (Level 0 = no sample yet). Coloured by level, not by Elevated:
 // warn (advisory) and above show amber, normal is grey — Elevated now means only
@@ -38,6 +56,7 @@ func helpText() string {
 		"  r            retry a failed/needs-attention pipeline job\n" +
 		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +
+		"  ctrl+a       toggle autopilot on/off (run `warden autopilot init` first if not configured)\n" +
 		"  ?            toggle this help\n" +
 		"  q            quit\n" +
 		"\n" +

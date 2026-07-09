@@ -25,6 +25,7 @@ import TokenModal from './TokenModal';
 import PipelinesTab from './PipelinesTab';
 import ContextOverlay from './ContextOverlay';
 import ArchiveTab from './ArchiveTab';
+import AutopilotPanel from './AutopilotPanel';
 
 export default function Dashboard() {
   // One-time: redirect `/` → /cockpit before the route is first read below, so
@@ -38,6 +39,7 @@ export default function Dashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showContext, setShowContext] = useState(false);
+  const [showAutopilot, setShowAutopilot] = useState(false);
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [pinned, setPinned] = useState<string[]>(loadPinned);
   const [authRequired, setAuthRequired] = useState(false);
@@ -116,6 +118,7 @@ export default function Dashboard() {
         case 'close':
           if (showHelp) setShowHelp(false);
           else if (showContext) setShowContext(false);
+          else if (showAutopilot) setShowAutopilot(false);
           else if (showCreate) setShowCreate(false);
           else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
           break;
@@ -246,6 +249,7 @@ export default function Dashboard() {
         onShowHelp={() => setShowHelp(true)}
         onToggleContext={() => setShowContext((v) => !v)}
         onOpenTui={() => navigate({ kind: 'tui' })}
+        onToggleAutopilot={() => setShowAutopilot((v) => !v)}
       />
       <TabBar
         route={route}
@@ -270,6 +274,7 @@ export default function Dashboard() {
         />
       )}
       {showContext && <ContextOverlay onClose={() => setShowContext(false)} />}
+      {showAutopilot && <AutopilotPanel onClose={() => setShowAutopilot(false)} />}
       {showHelp && <ShortcutsHelp onClose={() => setShowHelp(false)} />}
       {authRequired && <TokenModal onSaved={onTokenSaved} />}
     </div>
