@@ -1004,3 +1004,99 @@ writes a `~/.warden/.snapshots-filedb-imported` sentinel **last**. The legacy
 read-only backup** — this release never deletes them. The import is atomic at the
 directory level: if it fails partway the sentinel is not written, so the next boot
 wipes the half-built `snapshots-db/` and re-imports from the intact legacy JSON.
+
+---
+
+## 34. Autopilot (autonomous agent runs)
+
+> ⚠️ **Unattended operation is inherently risky.** Use `warden autopilot off`
+> (the kill switch) any time you need to stop. Workers always land into
+> `autopilot/integration`, never directly into `main`. See the
+> [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/).
+
+Autopilot is warden's **goal-directed, long-running autonomous mode**. You
+describe a goal in a plan file, enable autopilot, and warden runs it — spawning a
+"brain" agent that breaks the goal into tasks, delegates each task to a worker
+agent in an isolated worktree, gates the worker's PR through CI, and lands it into
+an integration branch. The brain heals itself when stuck (guardian loop) and
+escalates to progressively cheaper backends when rate-limited (cost-tier ladder).
+
+### 34.1 Plan file
+
+Authored by the operator in `autopilot.plan.yaml` (path configurable). Contains a
+`goal`, optional `constraints` (injected into every brain and worker spawn), and
+an optional coarse `tasks` list. The brain decomposes the goal into tasks if the
+list is empty. The file is owner-editable mid-flight; the brain re-reads it on
+each planning cycle.
+
+### 34.2 Brain
+
+A single long-lived headless agent (role `autopilot`, tagged `autopilot` +
+`run:<run_id>`) that the daemon Controller spawns on the cheapest available
+backend. The brain orchestrates workers via warden's own MCP tools (`spawn_agent`,
+`land`, `ctx_*`, etc.), reads the ledger to know what's landed, and restarts
+cleanly after context rotation or a guardian heal. At most one active run per
+repository.
+
+### 34.3 Guardian
+
+A daemon heal loop that keeps the brain alive. When the brain's heartbeat goes
+stale (wedged with pending work), the guardian fires: stage 1 nudges the brain
+with a steering message; stage 2 restarts it on the same backend; stage 3 rotates
+to the next backend down the cost tier; stage 4 enters capped-exponential backoff
+and retries forever. There is no terminal failure state — the guardian always
+retries. Backoff state (`backoff`, `tier`, `last_heartbeat`, `context_level`) is
+visible in `warden autopilot status`.
+
+### 34.4 Cost-tier backend selection
+
+The brain (and guardian on rotate) selects backends from cheapest to most
+expensive: free tier (`antigravity`), then subscription backends (`claude`,
+`codex`), then gated pay-per-use backends (explicit opt-in required). Configured
+via `autopilot.allow_tiers` in the config.
+
+### 34.5 Ownership guard
+
+Autopilot-owned agents (tagged `run:<run_id>`) cannot be destructively modified by
+non-owning agents. Operations such as `terminate`, `remove-worktree`, or
+`hard-delete` from a different context return `403 not_owned`. The human operator
+can always act on autopilot agents directly.
+
+### 34.6 Approval routing
+
+While autopilot is active, approval prompts from worker agents are routed to the
+brain's mailbox. The brain answers routine tool-permission prompts using its
+auto-approve policy, keeping workers unblocked without stalling on human input.
+The operator's approval queue is not affected.
+
+### 34.7 Land (idempotent merge)
+
+`warden land <agent-or-branch>` (CLI) / `land` (MCP) merges one autopilot worker
+branch into the integration branch. The operation is idempotent (re-landing a
+branch is a no-op), guarded (ownership check), and gated (CI gate or local
+`.warden/check.yml` checks must be green). The brain calls `land` automatically;
+the operator may call it manually (e.g. to bypass a stuck gate after inspection).
+
+### 34.8 Integration branch
+
+`autopilot/integration` (configurable via `autopilot.integration_branch`). The
+only branch autopilot merges into. Never auto-merged to `main` — the operator
+reviews the integration branch and fast-forwards `main` when satisfied.
+
+### 34.9 Run ledger
+
+The daemon's durable record of run state: task states (`pending` → `assigned` →
+`in_progress` → `pr_open` → `gated` → `landed`/`fixing`/`replanned`), worker
+agent ids and branches, landing timestamps. Written by the brain (task state) and
+authoritatively by the daemon (landings). Persists across brain restarts and daemon
+restarts — re-enabling autopilot continues from the ledger.
+
+### 34.10 Known limitations
+
+- `rate_limit.auto_resume` and `auto_restart` are global config toggles, not
+  per-run autopilot overrides. Configure them in `~/.warden/config.yaml`.
+- Guardian stage 3 (rotate) requires more than one free-tier backend. With only
+  `antigravity` in the free tier, the guardian falls back directly to backoff
+  after a restart fails.
+- `Controller.SelectWorkerBackend(runID)` is exposed but the brain picks worker
+  backends itself; worker-backend selection is not daemon-filled.
