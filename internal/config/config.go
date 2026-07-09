@@ -1418,6 +1418,14 @@ func (c Config) AutopilotIntegrationBranch() string { return c.Autopilot.Merge.T
 // AutopilotGate returns the configured gate mode (auto|ci|local).
 func (c Config) AutopilotGate() string { return c.Autopilot.Merge.Gate }
 
+// AutopilotMergeStrategy returns the configured land merge strategy
+// (squash|merge|rebase). The autopilot package defaults an empty value to squash.
+func (c Config) AutopilotMergeStrategy() string { return c.Autopilot.Merge.Strategy }
+
+// AutopilotDeleteBranch reports whether `land` deletes the worker branch after
+// merging it into the integration branch (autopilot.md §6).
+func (c Config) AutopilotDeleteBranch() bool { return c.Autopilot.Merge.DeleteBranch }
+
 // AutopilotBrainBackends returns the cost-tier backend ladder for the brain
 // (autopilot.md §7). The daemon maps it into autopilot.BackendLadder; S3 uses the
 // free tier (brain selection) and the union (preflight trust check).

@@ -193,6 +193,10 @@ type Server struct {
 	// the feature is unconfigured; GET /autopilot then reports disabled/empty and
 	// POST /autopilot returns 403. See strict_autopilot.go / internal/autopilot.
 	autopilot *autopilot.Controller
+	// landHostFn builds the LandHost the `land` handler drives (autopilot.md §6).
+	// nil ⇒ the real gh/git + check-rail host; tests inject a fake to exercise the
+	// handler's resolution, ledger write, and error mapping without a live GitHub.
+	landHostFn func(dir string) autopilot.LandHost
 }
 
 // SetAutopilotController wires the autopilot Controller (docs/specs/autopilot.md).

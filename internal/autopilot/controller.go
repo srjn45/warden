@@ -25,8 +25,14 @@ type ControllerConfig struct {
 	// The only branch autopilot merges into; must not be a protected name.
 	IntegrationBranch string
 	// Gate is the configured gate mode (config autopilot.merge.gate): auto|ci|local.
-	// S1 reports it verbatim in status; S4 resolves `auto` at preflight.
+	// S4 resolves `auto` at preflight and reports the resolved mode in status.
 	Gate string
+	// Strategy is the merge strategy for `land` (config autopilot.merge.strategy):
+	// squash|merge|rebase. Empty defaults to squash.
+	Strategy string
+	// DeleteBranch deletes the worker branch after a land (config
+	// autopilot.merge.delete_branch).
+	DeleteBranch bool
 	// BaseDir anchors relative plan paths (the daemon's working directory).
 	BaseDir string
 	// Backends is the cost-tier backend ladder (config autopilot.brain.backends).
@@ -43,6 +49,8 @@ type Controller struct {
 	plans             []string
 	integrationBranch string
 	gate              string
+	strategy          string
+	deleteBranch      bool
 	baseDir           string
 	backends          BackendLadder
 
@@ -56,13 +64,15 @@ type Controller struct {
 // lifecycle is live (S3), the brain handle, the last-good plan for owner steering
 // (autopilot.md §3), and the plan-watch cancel.
 type run struct {
-	runID       string
-	planFile    string // configured path (as written in config)
-	absPlanFile string // resolved absolute path (plan-file watch anchor)
-	repo        string
-	state       RunState
-	plan        Plan
-	planModTime time.Time
+	runID         string
+	planFile      string // configured path (as written in config)
+	absPlanFile   string // resolved absolute path (plan-file watch anchor)
+	repo          string
+	state         RunState
+	plan          Plan
+	planModTime   time.Time
+	resolvedGate  string // gate mode resolved at preflight (§6.1): ci | local
+	defaultBranch string // repo default branch — the land guard's protected name
 
 	brain  *BrainHandle       // nil until the brain spawns; nil again after teardown
 	cancel context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
@@ -82,11 +92,17 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 	if gate == "" {
 		gate = "auto"
 	}
+	strategy := strings.TrimSpace(cfg.Strategy)
+	if strategy == "" {
+		strategy = "squash"
+	}
 	return &Controller{
 		env:               env,
 		plans:             cfg.Plans,
 		integrationBranch: branch,
 		gate:              gate,
+		strategy:          strategy,
+		deleteBranch:      cfg.DeleteBranch,
 		baseDir:           cfg.BaseDir,
 		backends:          cfg.Backends,
 		runs:              map[string]*run{},
@@ -178,16 +194,20 @@ func (c *Controller) Enable(ctx context.Context) (Status, error) {
 		if existing, ok := c.runs[id]; ok {
 			existing.planFile = res.file
 			existing.absPlanFile = res.absFile
+			existing.resolvedGate = res.resolvedGate
+			existing.defaultBranch = res.defaultBranch
 			newRuns[id] = existing
 			continue
 		}
 		r := &run{
-			runID:       id,
-			planFile:    res.file,
-			absPlanFile: res.absFile,
-			repo:        res.repo,
-			plan:        res.plan,
-			state:       StateStarting,
+			runID:         id,
+			planFile:      res.file,
+			absPlanFile:   res.absFile,
+			repo:          res.repo,
+			plan:          res.plan,
+			state:         StateStarting,
+			resolvedGate:  res.resolvedGate,
+			defaultBranch: res.defaultBranch,
 		}
 		if info, err := os.Stat(res.absFile); err == nil {
 			r.planModTime = info.ModTime()
@@ -293,7 +313,7 @@ func (c *Controller) statusLocked() Status {
 			PlanFile: r.planFile,
 			Repo:     r.repo,
 			State:    r.state,
-			Gate:     c.gate, // S4 replaces this with the resolved mode
+			Gate:     c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:    brain,
 			Tasks:    TaskCounts{},
 			Backoff:  nil,
@@ -301,6 +321,62 @@ func (c *Controller) statusLocked() Status {
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
 	return st
+}
+
+// runGate returns the gate mode reported for a run: the value resolved at
+// preflight (§6.1), falling back to the configured mode for a run registered
+// before resolution ran (defensive — preflight always sets it).
+func (c *Controller) runGate(r *run) string {
+	if r.resolvedGate != "" {
+		return r.resolvedGate
+	}
+	return c.gate
+}
+
+// LandParams is the per-run merge context the daemon `land` handler needs
+// (autopilot.md §6): whether the run is active (kill switch) plus the resolved
+// merge target/gate/strategy. found=false when runID is not a registered run.
+type LandParams struct {
+	Repo              string
+	IntegrationBranch string
+	DefaultBranch     string
+	Gate              string // resolved gate mode: ci | local
+	Strategy          string
+	DeleteBranch      bool
+	Active            bool // the run is enabled and in a landable state
+}
+
+// LandParams returns the merge parameters for runID and whether it is a known
+// run. It is the daemon land handler's single read of the run registry, so the
+// handler never reaches into Controller internals. Active honors the kill switch:
+// a disabled/complete run is not landable (precondition 1, §6).
+func (c *Controller) LandParams(runID string) (LandParams, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok {
+		return LandParams{}, false
+	}
+	return LandParams{
+		Repo:              r.repo,
+		IntegrationBranch: c.integrationBranch,
+		DefaultBranch:     r.defaultBranch,
+		Gate:              c.runGate(r),
+		Strategy:          c.strategy,
+		DeleteBranch:      c.deleteBranch,
+		Active:            c.enabled && isLandableState(r.state),
+	}, true
+}
+
+// isLandableState reports whether a run's state permits landing: the brain is
+// (or is being) kept alive. A complete or disabled run lands nothing.
+func isLandableState(s RunState) bool {
+	switch s {
+	case StateActive, StateHealing, StateDegraded, StateStarting:
+		return true
+	default:
+		return false
+	}
 }
 
 // dedupe returns xs with adjacent duplicates removed (xs must be sorted).

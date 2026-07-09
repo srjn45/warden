@@ -1195,6 +1195,72 @@ func parseAutopilotPreflight(body []byte) *AutopilotPreflightError {
 	return &AutopilotPreflightError{Summary: summary, Failures: wire.Failures}
 }
 
+// AutopilotLandResult mirrors the daemon's POST /autopilot/land 200 body
+// (autopilot.md §6). AlreadyLanded is true on an idempotent re-issue.
+type AutopilotLandResult struct {
+	SHA           string `json:"sha"`
+	PR            int    `json:"pr"`
+	Branch        string `json:"branch"`
+	AlreadyLanded bool   `json:"already_landed"`
+}
+
+// AutopilotLandError is the 409 body when a land precondition fails (autopilot.md
+// §6): a typed Kind the brain reasons over plus optional Detail. No side effects
+// occurred.
+type AutopilotLandError struct {
+	Kind    string
+	Detail  string
+	Summary string
+}
+
+func (e *AutopilotLandError) Error() string {
+	msg := e.Summary
+	if msg == "" {
+		msg = "autopilot land failed"
+	}
+	if e.Kind != "" {
+		msg += " (" + e.Kind + ")"
+	}
+	if e.Detail != "" {
+		msg += ": " + e.Detail
+	}
+	return msg
+}
+
+// Land merges one autopilot worker branch into the integration branch (POST
+// /autopilot/land). On a 409 precondition failure it returns a typed
+// *AutopilotLandError carrying the kind so callers branch on the failure.
+func (c *Client) Land(ctx context.Context, agentOrBranch string) (AutopilotLandResult, error) {
+	var res AutopilotLandResult
+	body := map[string]string{"agent_or_branch": agentOrBranch}
+	// longTimeout: land shells gh (PR lookup, gate, merge) and may run the check rail.
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/land", body, &res)
+	if err != nil {
+		var se *StatusError
+		if errors.As(err, &se) && se.Code == http.StatusConflict {
+			if le := parseAutopilotLand(se.Body); le != nil {
+				return AutopilotLandResult{}, le
+			}
+		}
+		return AutopilotLandResult{}, err
+	}
+	return res, nil
+}
+
+// parseAutopilotLand decodes a 409 body into the typed land error, or nil if the
+// body is not the expected shape.
+func parseAutopilotLand(body []byte) *AutopilotLandError {
+	var wire struct {
+		Error  string `json:"error"`
+		Kind   string `json:"kind"`
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(body, &wire); err != nil || wire.Kind == "" {
+		return nil
+	}
+	return &AutopilotLandError{Kind: wire.Kind, Detail: wire.Detail, Summary: wire.Error}
+}
+
 // GetMetrics fetches the live resource snapshot (GET /metrics).
 func (c *Client) GetMetrics(ctx context.Context) (*metrics.Sample, error) {
 	var s metrics.Sample

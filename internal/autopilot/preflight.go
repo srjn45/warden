@@ -20,11 +20,13 @@ var protectedBranchNames = map[string]bool{
 // resolved carries everything preflight learned about one configured plan so the
 // Controller can register the run without re-deriving it.
 type resolved struct {
-	file    string // the configured file path (as written in config)
-	absFile string // resolved absolute path
-	repo    string // git toplevel containing the plan file
-	runID   string // stable hash of repo + absFile
-	plan    Plan
+	file          string // the configured file path (as written in config)
+	absFile       string // resolved absolute path
+	repo          string // git toplevel containing the plan file
+	runID         string // stable hash of repo + absFile
+	plan          Plan
+	resolvedGate  string // gate mode resolved from `auto` (§6.1): ci | local
+	defaultBranch string // repo default branch — the land guard's protected name
 }
 
 // preflightPlan runs the enable-time checks that concern a single plan in
@@ -74,6 +76,7 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 	// name, and it must exist (created off the default branch when absent).
 	branch := c.integrationBranch
 	def, defErr := c.env.DefaultBranch(ctx, repo)
+	r.defaultBranch = def
 	if isProtectedBranch(branch, def) {
 		fails = append(fails, fmt.Sprintf("integration branch %q is a protected name — pick a dedicated branch (e.g. autopilot/integration)", branch))
 	} else {
@@ -104,12 +107,29 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 		}
 	}
 
-	// TODO(S4): gate-mode resolution — resolve merge.gate `auto` to `ci` or
-	// `local` (autopilot.md §6.1) and report the resolved mode in AutopilotStatus.
-	// S1 reports the configured mode verbatim; S4 replaces this with the resolved
-	// value.
+	// Gate-mode resolution (§6.1): resolve `auto` to the concrete mode that will
+	// gate landings and record it, so the daemon reports it in AutopilotStatus and
+	// the land handler gates on it. `ci`/`local` pass through untouched; only
+	// `auto` inspects whether the repo has workflows covering integration PRs, and
+	// a scan error fails open to the safe `local` gate (frictionless-safeguards):
+	// a no-CI repo degrades to local checks instead of wedging, and CI remains the
+	// stronger gate the adopter can graduate to.
+	covers := false
+	if isAutoGate(c.gate) {
+		if ok, err := c.env.WorkflowsCoverPRs(ctx, repo, branch); err == nil {
+			covers = ok
+		}
+	}
+	r.resolvedGate = resolveGateMode(c.gate, covers)
 
 	return r, fails
+}
+
+// isAutoGate reports whether the configured gate is `auto` (or unset, which
+// defaults to auto) — the only mode that inspects the repo's workflows.
+func isAutoGate(gate string) bool {
+	g := strings.ToLower(strings.TrimSpace(gate))
+	return g == "" || g == "auto"
 }
 
 // isProtectedBranch reports whether branch is a name autopilot must not merge

@@ -1538,6 +1538,46 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AutopilotPreflightFailure" }
 
+  /api/v1/autopilot/land:
+    post:
+      operationId: landAutopilot
+      tags: [Autopilot]
+      summary: Land a worker branch into the integration branch
+      description: >
+        The brain's only merge path (docs/specs/autopilot.md §6). Given an
+        autopilot worker agent (id or name) or branch, it checks every
+        precondition (owning run active, branch autopilot-owned, a PR based on
+        the integration branch, the resolved gate green for the PR head SHA, and
+        the PR mergeable), merges with the configured strategy, optionally
+        deletes the worker branch, and records the landing authoritatively in the
+        run ledger. Idempotent: re-issuing after a merge (or an already-recorded
+        head SHA) returns already_landed with no second merge. On a precondition
+        failure it returns 409 with a typed `kind`
+        (gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base)
+        and changes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopilotLandRequest" }
+      responses:
+        "200":
+          description: The landing result (already_landed=true on an idempotent re-issue)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotLandResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Autopilot is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: A land precondition failed (typed kind, no side effects)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotLandError" }
+
   /api/v1/schedules:
     get:
       operationId: listSchedules
@@ -2524,3 +2564,39 @@ components:
           type: array
           items: { type: string }
       required: [error, failures]
+
+    AutopilotLandRequest:
+      type: object
+      description: Body for POST /autopilot/land — the worker to land (autopilot.md §6).
+      properties:
+        agent_or_branch:
+          type: string
+          description: an autopilot worker agent (id or name) or a branch name
+      required: [agent_or_branch]
+
+    AutopilotLandResult:
+      type: object
+      description: >
+        A successful land (autopilot.md §6). already_landed=true means the merge
+        had already happened (idempotent re-issue); sha then carries the recorded
+        or merge commit and no new merge was performed.
+      properties:
+        sha: { type: string, description: the merge commit SHA }
+        pr: { type: integer, description: the merged PR number }
+        branch: { type: string, description: the landed worker branch }
+        already_landed: { type: boolean }
+      required: [sha, branch, already_landed]
+
+    AutopilotLandError:
+      type: object
+      description: >
+        409 body when a land precondition fails (autopilot.md §6). kind is the
+        typed failure the brain reasons over; detail carries context such as the
+        failing check/CI summary for gate_red. No side effects occurred.
+      properties:
+        error: { type: string }
+        kind:
+          type: string
+          enum: [gate_pending, gate_red, ci_missing, not_mergeable, not_owned, run_disabled, wrong_base]
+        detail: { type: string }
+      required: [error, kind]

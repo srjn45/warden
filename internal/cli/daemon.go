@@ -290,6 +290,8 @@ func newDaemonCmd() *cobra.Command {
 				Plans:             cfg.AutopilotPlanFiles(),
 				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
 				Gate:              cfg.AutopilotGate(),
+				Strategy:          cfg.AutopilotMergeStrategy(),
+				DeleteBranch:      cfg.AutopilotDeleteBranch(),
 				BaseDir:           apBaseDir,
 				Backends: autopilot.BackendLadder{
 					Free:         apBackends.Free,
