@@ -35,6 +35,7 @@ export default defineConfig({
           { label: 'Worktrees & task types', slug: 'concepts/worktrees-task-types' },
           { label: 'Agent backends', slug: 'concepts/agent-backends' },
           { label: 'Project memory', slug: 'concepts/project-memory' },
+          { label: 'Autopilot', slug: 'concepts/autopilot' },
         ]},
         { label: 'Guides', items: [
           { label: 'Spawn & watch agents', slug: 'guides/spawn-and-watch' },
@@ -49,6 +50,7 @@ export default defineConfig({
           { label: 'Scheduling agents & pipelines', slug: 'guides/scheduling' },
           { label: 'Snapshots & rollback', slug: 'guides/snapshots' },
           { label: 'Remote access', slug: 'guides/remote-access' },
+          { label: 'Autopilot — autonomous runs', slug: 'guides/autopilot' },
         ]},
         { label: 'Multi-agent', items: [
           { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },

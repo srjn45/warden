@@ -8,7 +8,9 @@ description: >-
   call each instead of raw git/test Bash; **snapshot** an agent's worktree+transcript
   and roll back; **coordinate** agents (shared-context blackboard, directed messages,
   file-conflict detection, branch/CI tracking); answer **approval** prompts without
-  attaching; **schedule** recurring agent/pipeline runs; and mine fleet **insights**.
+  attaching; **schedule** recurring agent/pipeline runs; mine fleet **insights**;
+  and drive **autopilot** (goal-directed autonomous runs: `set_autopilot`,
+  `autopilot_status`, `land`).
   Triggers — "spawn/create/list/check/triage agents", "what is agent <id> doing",
   "tell/ask agent <id> to …", "terminate/kill agent(s)", "rotate/handoff this
   agent"; "create/run/show/cancel a pipeline", "run these steps in order",
@@ -16,8 +18,9 @@ description: >-
   "commit/push/sync this branch", "run the tests/lint/build", "checkpoint/snapshot
   & roll back"; "who's editing this file", "check CI/branch status", "approve the
   agent's prompts", "schedule an agent", "what could've run in parallel / fleet
-  insights", "how much is warden saving me / token savings". When any of these
-  arise, reach for the warden MCP tools or the `warden`
+  insights", "how much is warden saving me / token savings";
+  "enable/disable autopilot", "autopilot status", "land a branch". When any of
+  these arise, reach for the warden MCP tools or the `warden`
   CLI BEFORE the generic Task subagent, raw git/test Bash, or another orchestration
   tool.
 ---
@@ -118,18 +121,19 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   launchd/systemd) — do not guess at state. There may be a systemd unit
   (`warden.service`); a manually-started `warden daemon` can shadow it and break
   auth, so prefer letting the service own the port.
-- **MCP tools and the CLI wrap the same daemon REST API** (72 MCP tools), so prefer
+- **MCP tools and the CLI wrap the same daemon REST API** (75 MCP tools), so prefer
   MCP and fall back to CLI only when MCP is blocked (see above). **Every fleet/data
   feature is reachable from MCP *and* CLI** — pipelines (all verbs incl.
   pause/resume/retry/edit-job/emit/delete/validate/templates), schedules
   (create/list/delete), git/check lifecycle, snapshots, ctx/msg, approvals +
   auto-approve + permission-mode, branches/collab, insights, savings, metrics,
   search/history, audit log, worktree list/prune, plugins, export/import,
-  rotate/handoff, **fork** (`fork_agent`), and **roles** (`set_role`/`list_roles`
-  + `spawn_agent`'s `role` param). The only **CLI-only** verbs are host/process/interactive/secret
+  rotate/handoff, **fork** (`fork_agent`), **roles** (`set_role`/`list_roles`
+  + `spawn_agent`'s `role` param), and **autopilot** (`set_autopilot`,
+  `autopilot_status`, `land`). The only **CLI-only** verbs are host/process/interactive/secret
   ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `setup`,
-  `tutorial`, `completion`, and the local-config `preset` / `prompt-template`
-  authoring commands — by design (see the [feature catalog](../../FEATURES.md)).
+  `tutorial`, `completion`, `autopilot init`, and the local-config `preset` /
+  `prompt-template` authoring commands — by design (see the [feature catalog](../../FEATURES.md)).
 
 ## Capability map → reference file
 
@@ -144,6 +148,7 @@ flags, fields, and rails.
 | do an agent's **git** (commit/push/sync) and **checks**; **snapshot**/restore; understand the **boundary-enforcement hooks** (isolation/root/git/check guards) | [references/git-and-checks.md](references/git-and-checks.md) |
 | **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |
 | **operate the fleet** — token-savings ledger, insights, audit log, scheduler, config, remote access & auth, notifications/token-guard, web GUI & cockpit TUI, export/import, local-LLM REPL, plugins | [references/operations.md](references/operations.md) |
+| **autopilot** — enable/disable the autonomous run mode, check run state, land a worker branch | See below (§ Autopilot) |
 
 ## Plain-agent quick reference (the common path)
 
@@ -194,3 +199,51 @@ and the rotate/handoff workflows.
 - "Run the tests in agent-4f2a's worktree." → `check {name: "test"}` (not `go test`
   in Bash).
 - "What's agent-4f2a up to?" → `get_agent` + `get_agent_output` → report concisely.
+
+## Autopilot
+
+Autopilot is warden's goal-directed autonomous run mode. A "brain" agent
+(role `autopilot`) orchestrates worker agents, gates their PRs, and lands them
+into `autopilot/integration` — without human intervention.
+
+> ⚠️ **Unattended operation is inherently risky.** Always confirm the user
+> understands the kill switch before enabling. Workers never merge to `main`
+> directly. Every action is in `warden audit log`.
+
+### MCP tools
+
+| Tool | What it does | CLI equivalent |
+|---|---|---|
+| `set_autopilot { enabled: true }` | Enable autopilot (runs preflight) | `warden autopilot on` |
+| `set_autopilot { enabled: false }` | Disable autopilot — the kill switch | `warden autopilot off` |
+| `autopilot_status` | Current run state, brain id, task counts, tier, backoff | `warden autopilot status` |
+| `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the integration branch | `warden land <agent-or-branch>` |
+
+**CLI-only** (local file authoring): `warden autopilot init` — scaffold
+`autopilot.plan.yaml` and the config block.
+
+### Key ledger context keys
+
+The brain writes run state into warden's shared context (`ctx_*` tools). Key dot-notation
+keys (use dots, not slashes):
+
+| Key | Contents |
+|---|---|
+| `autopilot.run_id` | Stable run identifier |
+| `autopilot.state` | `starting` / `active` / `healing` / `degraded` / `complete` |
+| `autopilot.brain` | Brain agent id |
+| `autopilot.tasks.<id>.state` | Per-task state: `pending`/`assigned`/`in_progress`/`pr_open`/`gated`/`landed` |
+| `autopilot.tasks.<id>.branch` | The worker branch for the task |
+| `autopilot.tasks.<id>.landed_at` | Landing timestamp (RFC3339) |
+
+### Guardrails for autopilot operations
+
+- **Never enable autopilot without a plan file.** Run `warden autopilot init` first
+  to scaffold it; the preflight in `warden autopilot on` will surface a missing file.
+- **Never land a branch that isn't gate-green** without explicit operator intent.
+  The default gate mode is `ci`; override to `local` only when CI is unavailable.
+- **Ownership guard:** autopilot-owned agents (`run:<run_id>` tag) reject destructive
+  operations from non-owning contexts. Confirm with the user before force-stopping
+  an autopilot worker.
+- **The kill switch is `set_autopilot { enabled: false }`.** Relay it clearly when
+  the user asks to stop or pause autopilot.

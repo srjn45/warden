@@ -4,7 +4,7 @@ The authoritative inventory of **every** warden capability and where you can dri
 it. warden exposes its features across five surfaces:
 
 - **CLI** — the `warden` binary (aliased `wd`); always available.
-- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **72 tools**.
+- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **75 tools**.
 - **Skill** — the `/warden` Claude Code skill that prefers MCP, falls back to CLI.
 - **Web** — the browser mission-control GUI (`warden daemon` + the web app).
 - **TUI** — the terminal cockpit (`warden tui`).
@@ -255,7 +255,32 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 | ↳ line editor: history, reverse-search, live `/` menu, Tab completion, colour | readline-backed | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | ↳ guided argument forms (pick-lists + free text, LLM pre-fill) | bare `/spawn`, `/spawn+ <prompt>` | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 
-## 15. Admin / host (CLI-only by design)
+## 15. Autopilot (autonomous agent runs)
+
+A goal-directed long-running autonomous mode: a "brain" agent orchestrates
+worker agents, gates their PRs, and lands them into an integration branch —
+without waiting on a human.
+
+> ⚠️ **Prominent risk warning:** unattended operation is inherently risky.
+> Use `warden autopilot off` (the kill switch) to stop new spawns/landings at
+> any time. Workers always land into `autopilot/integration`, never directly
+> into `main`. Every action is recorded in `warden audit log`.
+
+| Feature | CLI | MCP | Skill | Web | TUI | Docs |
+|---|---|---|---|---|---|---|
+| Enable autopilot (preflight + brain spawn) | `autopilot on` | `set_autopilot` (`enabled: true`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Disable autopilot — kill switch (stops spawns/landings, terminates brain) | `autopilot off` | `set_autopilot` (`enabled: false`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Status (run state, brain id, task counts, tier, backoff) | `autopilot status` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Scaffold plan file + config (`autopilot init`) | `autopilot init` | **CLI-only** (local file authoring) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Land a worker branch into the integration branch (idempotent, guarded) | `land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Brain spawn/teardown (role `autopilot`, tagged `autopilot`+`run:<id>`) | automatic | automatic | ✓ | fleet list | TUI sub-tree | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Guardian heal loop (nudge→restart→rotate→backoff) | automatic | automatic | ✓ | AutopilotPanel | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Cost-tier backend selection (free→subscription→gated-PPU) | config (`autopilot.allow_tiers`) | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Ownership guard (403 for non-owned agents) | automatic | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Approval routing to brain mailbox | automatic | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Run ledger (task state, landings, audit) | `audit log` | `audit_log` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+
+## 16. Admin / host (CLI-only by design)
 
 These operate on the host, the daemon process, the local shell, or the bearer
 secret — they are **intentionally not exposed over MCP or web**, because doing so
@@ -279,10 +304,10 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**72 tools**, including the
+Every fleet/data feature is reachable over MCP (**75 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
-§15 (plus interactive `attach`/`repl`, the local-config `preset` /
+§16 (plus interactive `attach`/`repl`, the local-config `preset` /
 `prompt-template` authoring commands, and the agent-native, worktree-local
 `review` / `models` verbs — they exec in the agent's worktree with no daemon
 round-trip, so they have no MCP twin by design), which are
@@ -294,4 +319,5 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
-`create_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`.
+`create_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
+`set_autopilot`, `autopilot_status`, `land`.
