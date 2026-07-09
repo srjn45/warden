@@ -134,6 +134,45 @@ func newAutopilotInitCmd() *cobra.Command {
 	}
 }
 
+// newLandCmd is the top-level `warden land` command: the guarded, idempotent
+// merge of one autopilot worker branch into the integration branch (autopilot.md
+// §6). It mirrors the MCP `land` tool the brain uses.
+func newLandCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "land <agent-or-branch>",
+		Short: "Land an autopilot worker branch into the integration branch",
+		Long: "Merges one autopilot worker branch into the integration branch — the brain's\n" +
+			"only merge path. Runs every precondition (owning run active, branch\n" +
+			"autopilot-owned, a PR based on the integration branch, the resolved gate green\n" +
+			"for the PR head, and the PR mergeable), merges with the configured strategy,\n" +
+			"deletes the worker branch if configured, and records the landing. Idempotent:\n" +
+			"re-issuing after a merge reports already-landed with no second merge. On a\n" +
+			"precondition failure it prints the typed kind\n" +
+			"(gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base).",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := clientFor(cmd).Land(cmd.Context(), args[0])
+			if err != nil {
+				var le *client.AutopilotLandError
+				if errors.As(err, &le) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "land failed: %s\n", le.Kind)
+					if le.Detail != "" {
+						fmt.Fprintf(cmd.ErrOrStderr(), "  %s\n", le.Detail)
+					}
+					return fmt.Errorf("not landed (%s)", le.Kind)
+				}
+				return err
+			}
+			if res.AlreadyLanded {
+				fmt.Fprintf(cmd.OutOrStdout(), "already landed: %s @ %s (PR #%d)\n", res.Branch, res.SHA, res.PR)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "landed %s @ %s (PR #%d)\n", res.Branch, res.SHA, res.PR)
+			return nil
+		},
+	}
+}
+
 // detectInstalledBackends returns the ids of every registered backend whose
 // binary is found on PATH.
 func detectInstalledBackends() []string {

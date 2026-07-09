@@ -35,6 +35,9 @@ func (e *apFakeEnv) CreateBranch(context.Context, string, string, string) error 
 }
 func (e *apFakeEnv) GHAuthOK(context.Context) error { return e.ghErr }
 func (e *apFakeEnv) BackendKnown(string) error      { return nil }
+func (e *apFakeEnv) WorkflowsCoverPRs(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 
 func newAutopilotServer(t *testing.T, env autopilot.Env, plans []string) *httptest.Server {
 	t.Helper()

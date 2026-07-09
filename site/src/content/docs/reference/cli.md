@@ -53,6 +53,7 @@ Available Commands:
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
   insights            Mine agent history for patterns and parallelization suggestions
+  land                Land an autopilot worker branch into the integration branch
   library             Browse saved spawn presets, prompt templates, and pipeline templates in one place
   llm                 Local-LLM helpers for the REPL (wd repl)
   ls                  List all active agent sessions
@@ -1253,6 +1254,29 @@ Flags:
       --limit int        cap the number of archived sessions mined (0 = daemon default)
       --session string   scope parallelization suggestions to one session (by id or name)
       --since string     only mine sessions since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden land
+
+```text
+Merges one autopilot worker branch into the integration branch — the brain's
+only merge path. Runs every precondition (owning run active, branch
+autopilot-owned, a PR based on the integration branch, the resolved gate green
+for the PR head, and the PR mergeable), merges with the configured strategy,
+deletes the worker branch if configured, and records the landing. Idempotent:
+re-issuing after a merge reports already-landed with no second merge. On a
+precondition failure it prints the typed kind
+(gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base).
+
+Usage:
+  warden land <agent-or-branch> [flags]
+
+Flags:
+  -h, --help   help for land
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

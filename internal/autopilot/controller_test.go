@@ -23,6 +23,8 @@ type fakeEnv struct {
 	createErr     error
 	ghErr         error
 	unknownBE     map[string]bool // backend ids BackendKnown rejects
+	coversPRs     bool            // WorkflowsCoverPRs result (gate `auto` resolution)
+	coversErr     error
 
 	created []string // "repo|branch|base" audit of CreateBranch calls
 }
@@ -72,6 +74,10 @@ func (f *fakeEnv) BackendKnown(backend string) error {
 	return nil
 }
 
+func (f *fakeEnv) WorkflowsCoverPRs(_ context.Context, _, _ string) (bool, error) {
+	return f.coversPRs, f.coversErr
+}
+
 // writePlan creates a valid plan file under dir and returns its path.
 func writePlan(t *testing.T, dir, name, goal string) string {
 	t.Helper()
@@ -105,7 +111,9 @@ func TestEnableHappyPath(t *testing.T) {
 	require.True(t, st.Enabled)
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, StateActive, st.Runs[0].State)
-	require.Equal(t, "auto", st.Runs[0].Gate)
+	// gate `auto` resolves at preflight (§6.1): this fake repo has no workflows
+	// covering integration PRs, so it degrades to the local-check gate.
+	require.Equal(t, "local", st.Runs[0].Gate)
 	require.Equal(t, plan, st.Runs[0].PlanFile)
 	require.Nil(t, st.Runs[0].Brain, "no brain in the S1 inert core")
 	// integration branch was auto-created off the default branch
@@ -117,6 +125,49 @@ func TestEnableHappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, st.Runs[0].RunID, st2.Runs[0].RunID)
 	require.Len(t, env.created, 1, "branch not re-created when it already exists")
+}
+
+func TestEnableGateResolvesToCIWhenWorkflowsCoverPRs(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "plan.yaml", "ship it")
+	// The repo's workflows cover integration PRs, so `auto` resolves to `ci`.
+	env := &fakeEnv{coversPRs: true}
+	c := NewController(ControllerConfig{
+		Plans:             []string{plan},
+		IntegrationBranch: "autopilot/integration",
+		Gate:              "auto",
+		BaseDir:           dir,
+	}, env)
+
+	st, err := c.Enable(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "ci", st.Runs[0].Gate)
+
+	// LandParams exposes the same resolved gate to the daemon land handler.
+	lp, ok := c.LandParams(st.Runs[0].RunID)
+	require.True(t, ok)
+	require.Equal(t, "ci", lp.Gate)
+	require.True(t, lp.Active)
+	require.Equal(t, "main", lp.DefaultBranch)
+}
+
+func TestEnableExplicitGateModesPassThrough(t *testing.T) {
+	for _, mode := range []string{"ci", "local"} {
+		dir := t.TempDir()
+		plan := writePlan(t, dir, "plan.yaml", "g")
+		// coversPRs=true would flip `auto` to ci, but explicit modes ignore it.
+		env := &fakeEnv{coversPRs: true}
+		c := NewController(ControllerConfig{Plans: []string{plan}, Gate: mode, BaseDir: dir}, env)
+		st, err := c.Enable(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, mode, st.Runs[0].Gate)
+	}
+}
+
+func TestLandParamsUnknownRun(t *testing.T) {
+	c := NewController(ControllerConfig{}, &fakeEnv{})
+	_, ok := c.LandParams("ap-nope")
+	require.False(t, ok)
 }
 
 func TestEnableBranchAlreadyExists(t *testing.T) {

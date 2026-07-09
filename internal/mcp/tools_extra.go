@@ -138,6 +138,9 @@ type setForceCompactArgs struct {
 type setAutopilotArgs struct {
 	Enabled bool `json:"enabled" jsonschema:"true enables autopilot (runs the enable-time preflight), false is the kill switch"`
 }
+type landArgs struct {
+	AgentOrBranch string `json:"agent_or_branch" jsonschema:"the autopilot worker agent (id or name) or the branch to land into the integration branch"`
+}
 type exportArgs struct {
 	All bool `json:"all,omitempty" jsonschema:"also include archived (closed) agent records"`
 }
@@ -396,6 +399,21 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(st)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "land",
+		Description: "Land (merge) one autopilot worker branch into the integration branch — the brain's ONLY merge path. Runs every precondition (owning run active, branch autopilot-owned, a PR based on the integration branch, the resolved gate GREEN for the PR head, and the PR mergeable), merges with the configured strategy, deletes the worker branch if configured, and records the landing. Idempotent: re-issuing after a merge returns already_landed with no second merge. On a precondition failure returns the typed kind (gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base) for you to reason over — never a human prompt. Autopilot-only. Mirrors `warden land`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a landArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.Land(ctx, a.AgentOrBranch)
+		if err != nil {
+			var le *client.AutopilotLandError
+			if errors.As(err, &le) {
+				return jsonResultAny(map[string]any{"landed": false, "kind": le.Kind, "detail": le.Detail})
+			}
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(res)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

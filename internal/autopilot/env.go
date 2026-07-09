@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"gopkg.in/yaml.v3"
 )
 
 // Env is the small host surface the preflight touches: git topology on the plan
@@ -36,6 +39,12 @@ type Env interface {
 	// prompt is a one-time operator step, never a runtime blocker) lands with the
 	// tier failover work (S5); autopilot never auto-clears a trust prompt.
 	BackendKnown(backend string) error
+	// WorkflowsCoverPRs reports whether repo has CI workflows that trigger on pull
+	// requests targeting integrationBranch — the signal that resolves a `gate:
+	// auto` run to `ci` rather than the `local` fallback (autopilot.md §6.1). It
+	// is only consulted when the gate is `auto`; an error fails open to false (the
+	// safe local gate still runs and CI can be earned later).
+	WorkflowsCoverPRs(ctx context.Context, repo, integrationBranch string) (bool, error)
 }
 
 // execEnv is the production Env backed by the git and gh CLIs.
@@ -97,6 +106,136 @@ func (execEnv) BackendKnown(backend string) error {
 		return fmt.Errorf("brain backend %q is not a known agent backend: %v", backend, err)
 	}
 	return nil
+}
+
+func (execEnv) WorkflowsCoverPRs(_ context.Context, repo, integrationBranch string) (bool, error) {
+	dir := filepath.Join(repo, ".github", "workflows")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil // no workflows dir at all → no CI coverage
+		}
+		return false, err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue // unreadable workflow — skip, don't fail the whole scan
+		}
+		if workflowCoversPRs(b, integrationBranch) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// workflowCoversPRs reports whether a single workflow file triggers on pull
+// requests targeting integrationBranch. A `pull_request` trigger with no branch
+// filter covers all PR targets (including the integration branch); a filter
+// covers it when the integration branch matches one of the listed patterns
+// (exact or a simple `prefix/*` glob). Parsing failures are treated as "no
+// coverage" so a malformed workflow never falsely claims CI (auto then safely
+// falls back to the local gate).
+func workflowCoversPRs(content []byte, integrationBranch string) bool {
+	var wf struct {
+		On yaml.Node `yaml:"on"`
+	}
+	if err := yaml.Unmarshal(content, &wf); err != nil {
+		return false
+	}
+	branches, hasPR := pullRequestBranches(&wf.On)
+	if !hasPR {
+		return false
+	}
+	if len(branches) == 0 {
+		return true // pull_request with no branch filter covers every target
+	}
+	for _, pat := range branches {
+		if branchMatches(pat, integrationBranch) {
+			return true
+		}
+	}
+	return false
+}
+
+// pullRequestBranches inspects a workflow's `on:` node for a pull_request (or
+// pull_request_target) trigger and returns its `branches` filter. hasPR reports
+// whether any PR trigger is present at all; an empty branches slice with
+// hasPR=true means "no filter" (covers all targets). The `on:` key can be a
+// scalar (`on: pull_request`), a sequence (`on: [push, pull_request]`), or a
+// mapping (`on: {pull_request: {branches: [...]}}`).
+func pullRequestBranches(on *yaml.Node) (branches []string, hasPR bool) {
+	node := on
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	const prKey, prTargetKey = "pull_request", "pull_request_target"
+	switch node.Kind {
+	case yaml.ScalarNode:
+		return nil, node.Value == prKey || node.Value == prTargetKey
+	case yaml.SequenceNode:
+		for _, c := range node.Content {
+			if c.Value == prKey || c.Value == prTargetKey {
+				return nil, true
+			}
+		}
+		return nil, false
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i].Value
+			if key != prKey && key != prTargetKey {
+				continue
+			}
+			hasPR = true
+			branches = append(branches, triggerBranches(node.Content[i+1])...)
+		}
+		return branches, hasPR
+	}
+	return nil, false
+}
+
+// triggerBranches extracts the `branches` list from a pull_request trigger's
+// value node (a null/empty value means no filter).
+func triggerBranches(val *yaml.Node) []string {
+	if val == nil || val.Kind != yaml.MappingNode {
+		return nil
+	}
+	var out []string
+	for i := 0; i+1 < len(val.Content); i += 2 {
+		if val.Content[i].Value != "branches" {
+			continue
+		}
+		list := val.Content[i+1]
+		if list.Kind == yaml.SequenceNode {
+			for _, b := range list.Content {
+				out = append(out, b.Value)
+			}
+		} else if list.Kind == yaml.ScalarNode {
+			out = append(out, list.Value)
+		}
+	}
+	return out
+}
+
+// branchMatches reports whether a workflow branch pattern matches branch. It
+// handles the two common forms — an exact name and a `prefix/**`/`prefix/*` glob
+// (e.g. `autopilot/**` covering `autopilot/integration`).
+func branchMatches(pattern, branch string) bool {
+	if pattern == branch || pattern == "**" || pattern == "*" {
+		return true
+	}
+	if i := strings.IndexAny(pattern, "*"); i >= 0 {
+		prefix := strings.TrimRight(pattern[:i], "/")
+		return branch == prefix || strings.HasPrefix(branch, prefix+"/")
+	}
+	return false
 }
 
 func (execEnv) GHAuthOK(ctx context.Context) error {

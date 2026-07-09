@@ -30,6 +30,7 @@ const (
 	ActionScheduleDelete = "schedule_delete"
 	ActionAutopilotOn    = "autopilot_on"
 	ActionAutopilotOff   = "autopilot_off"
+	ActionAutopilotLand  = "autopilot_land"
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which

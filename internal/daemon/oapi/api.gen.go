@@ -37,6 +37,39 @@ const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
 
+// Defines values for AutopilotLandErrorKind.
+const (
+	CiMissing    AutopilotLandErrorKind = "ci_missing"
+	GatePending  AutopilotLandErrorKind = "gate_pending"
+	GateRed      AutopilotLandErrorKind = "gate_red"
+	NotMergeable AutopilotLandErrorKind = "not_mergeable"
+	NotOwned     AutopilotLandErrorKind = "not_owned"
+	RunDisabled  AutopilotLandErrorKind = "run_disabled"
+	WrongBase    AutopilotLandErrorKind = "wrong_base"
+)
+
+// Valid indicates whether the value is a known member of the AutopilotLandErrorKind enum.
+func (e AutopilotLandErrorKind) Valid() bool {
+	switch e {
+	case CiMissing:
+		return true
+	case GatePending:
+		return true
+	case GateRed:
+		return true
+	case NotMergeable:
+		return true
+	case NotOwned:
+		return true
+	case RunDisabled:
+		return true
+	case WrongBase:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CIStatusState.
 const (
 	CIStatusStateFailure CIStatusState = "failure"
@@ -300,6 +333,36 @@ type AutoApproveRule struct {
 type AutoApproveRules struct {
 	Allow []AutoApproveRule `json:"allow,omitempty"`
 	Deny  []AutoApproveRule `json:"deny,omitempty"`
+}
+
+// AutopilotLandError 409 body when a land precondition fails (autopilot.md §6). kind is the typed failure the brain reasons over; detail carries context such as the failing check/CI summary for gate_red. No side effects occurred.
+type AutopilotLandError struct {
+	Detail string                 `json:"detail,omitempty"`
+	Error  string                 `json:"error"`
+	Kind   AutopilotLandErrorKind `json:"kind"`
+}
+
+// AutopilotLandErrorKind defines model for AutopilotLandError.Kind.
+type AutopilotLandErrorKind string
+
+// AutopilotLandRequest Body for POST /autopilot/land — the worker to land (autopilot.md §6).
+type AutopilotLandRequest struct {
+	// AgentOrBranch an autopilot worker agent (id or name) or a branch name
+	AgentOrBranch string `json:"agent_or_branch"`
+}
+
+// AutopilotLandResult A successful land (autopilot.md §6). already_landed=true means the merge had already happened (idempotent re-issue); sha then carries the recorded or merge commit and no new merge was performed.
+type AutopilotLandResult struct {
+	AlreadyLanded bool `json:"already_landed"`
+
+	// Branch the landed worker branch
+	Branch string `json:"branch"`
+
+	// Pr the merged PR number
+	Pr int `json:"pr,omitempty"`
+
+	// Sha the merge commit SHA
+	Sha string `json:"sha"`
 }
 
 // AutopilotPreflightFailure 409 body when enable-time preflight fails — the full list of actionable failures so the owner fixes everything in one pass (autopilot.md §5.1).
@@ -961,6 +1024,9 @@ type SetAutoApprovePolicyJSONRequestBody = AutoApprovePolicy
 // SetAutopilotJSONRequestBody defines body for SetAutopilot for application/json ContentType.
 type SetAutopilotJSONRequestBody = AutopilotToggleRequest
 
+// LandAutopilotJSONRequestBody defines body for LandAutopilot for application/json ContentType.
+type LandAutopilotJSONRequestBody = AutopilotLandRequest
+
 // RunCheckJSONRequestBody defines body for RunCheck for application/json ContentType.
 type RunCheckJSONRequestBody = CheckRequest
 
@@ -1071,6 +1137,9 @@ type ServerInterface interface {
 	// Enable or disable autopilot
 	// (POST /api/v1/autopilot)
 	SetAutopilot(w http.ResponseWriter, r *http.Request)
+	// Land a worker branch into the integration branch
+	// (POST /api/v1/autopilot/land)
+	LandAutopilot(w http.ResponseWriter, r *http.Request)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(w http.ResponseWriter, r *http.Request)
@@ -1305,6 +1374,12 @@ func (_ Unimplemented) GetAutopilot(w http.ResponseWriter, r *http.Request) {
 // Enable or disable autopilot
 // (POST /api/v1/autopilot)
 func (_ Unimplemented) SetAutopilot(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Land a worker branch into the integration branch
+// (POST /api/v1/autopilot/land)
+func (_ Unimplemented) LandAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1818,6 +1893,26 @@ func (siw *ServerInterfaceWrapper) SetAutopilot(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetAutopilot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LandAutopilot operation middleware
+func (siw *ServerInterfaceWrapper) LandAutopilot(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LandAutopilot(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4049,6 +4144,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/autopilot", wrapper.SetAutopilot)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/autopilot/land", wrapper.LandAutopilot)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/check", wrapper.RunCheck)
 	})
 	r.Group(func(r chi.Router) {
@@ -4415,6 +4513,70 @@ func (response SetAutopilot400JSONResponse) VisitSetAutopilotResponse(w http.Res
 type SetAutopilot409JSONResponse AutopilotPreflightFailure
 
 func (response SetAutopilot409JSONResponse) VisitSetAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LandAutopilotRequestObject struct {
+	Body *LandAutopilotJSONRequestBody
+}
+
+type LandAutopilotResponseObject interface {
+	VisitLandAutopilotResponse(w http.ResponseWriter) error
+}
+
+type LandAutopilot200JSONResponse AutopilotLandResult
+
+func (response LandAutopilot200JSONResponse) VisitLandAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LandAutopilot400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response LandAutopilot400JSONResponse) VisitLandAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LandAutopilot403JSONResponse Error
+
+func (response LandAutopilot403JSONResponse) VisitLandAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LandAutopilot409JSONResponse AutopilotLandError
+
+func (response LandAutopilot409JSONResponse) VisitLandAutopilotResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6603,6 +6765,9 @@ type StrictServerInterface interface {
 	// Enable or disable autopilot
 	// (POST /api/v1/autopilot)
 	SetAutopilot(ctx context.Context, request SetAutopilotRequestObject) (SetAutopilotResponseObject, error)
+	// Land a worker branch into the integration branch
+	// (POST /api/v1/autopilot/land)
+	LandAutopilot(ctx context.Context, request LandAutopilotRequestObject) (LandAutopilotResponseObject, error)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(ctx context.Context, request RunCheckRequestObject) (RunCheckResponseObject, error)
@@ -6987,6 +7152,37 @@ func (sh *strictHandler) SetAutopilot(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetAutopilotResponseObject); ok {
 		if err := validResponse.VisitSetAutopilotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LandAutopilot operation middleware
+func (sh *strictHandler) LandAutopilot(w http.ResponseWriter, r *http.Request) {
+	var request LandAutopilotRequestObject
+
+	var body LandAutopilotJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LandAutopilot(ctx, request.(LandAutopilotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LandAutopilot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LandAutopilotResponseObject); ok {
+		if err := validResponse.VisitLandAutopilotResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

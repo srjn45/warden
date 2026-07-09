@@ -261,6 +261,53 @@ func ghCIStatus(ctx context.Context, worktree, branch string) CIStatus {
 	return parseCIRun(runs[0].Status, runs[0].Conclusion, runs[0].WorkflowName, runs[0].URL)
 }
 
+// StatusForSHA reports the CI conclusion for a specific head SHA, used by
+// autopilot's `land` gate (docs/specs/autopilot.md §6.1) which must gate on the
+// exact PR head, not merely the branch's latest run. It lists the branch's
+// recent runs in worktree (so gh infers the remote) and returns the status of
+// the run whose headSha matches. When the branch has runs but none match the
+// SHA yet, it reports pending (a run for that commit hasn't appeared); when the
+// branch has NO runs at all it reports none, which the `ci` gate maps to
+// ci_missing. Fails open to none, exactly like ghCIStatus.
+func StatusForSHA(ctx context.Context, worktree, branch, headSHA string) CIStatus {
+	cctx, cancel := context.WithTimeout(ctx, subprocessTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "gh", "run", "list", "--branch", branch,
+		"--json", "status,conclusion,headSha,workflowName,url", "--limit", "20")
+	cmd.Dir = worktree
+	out, err := cmd.Output()
+	if err != nil {
+		return CIStatus{State: ciNone}
+	}
+	var runs []struct {
+		Status       string `json:"status"`
+		Conclusion   string `json:"conclusion"`
+		HeadSha      string `json:"headSha"`
+		WorkflowName string `json:"workflowName"`
+		URL          string `json:"url"`
+	}
+	if err := json.Unmarshal(out, &runs); err != nil || len(runs) == 0 {
+		return CIStatus{State: ciNone}
+	}
+	for _, r := range runs {
+		if r.HeadSha == headSHA {
+			return parseCIRun(r.Status, r.Conclusion, r.WorkflowName, r.URL)
+		}
+	}
+	// Runs exist for the branch but none for this head yet — the check for this
+	// commit is still pending, not missing.
+	return CIStatus{State: ciPending}
+}
+
+// State constants for CIStatus, exported so callers outside branchtrack (the
+// land gate) can classify a StatusForSHA result without string literals.
+const (
+	CISuccess = ciSuccess
+	CIFailure = ciFailure
+	CIPending = ciPending
+	CINone    = ciNone
+)
+
 // parseCIRun maps a gh run's status/conclusion to a CIStatus. A completed run
 // is success/failure by conclusion (cancelled/skipped/neutral are not
 // actionable → none); anything still in flight is pending.

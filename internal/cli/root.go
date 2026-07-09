@@ -62,6 +62,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newPipelineCmd())
 	root.AddCommand(newScheduleCmd())
 	root.AddCommand(newAutopilotCmd())
+	root.AddCommand(newLandCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newTUICmd())
 	root.AddCommand(newReplCmd())
