@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ControllerConfig is the S1 slice of the `autopilot` config block the Controller
@@ -26,6 +29,9 @@ type ControllerConfig struct {
 	Gate string
 	// BaseDir anchors relative plan paths (the daemon's working directory).
 	BaseDir string
+	// Backends is the cost-tier backend ladder (config autopilot.brain.backends).
+	// S3 uses Free (brain selection) and the union (preflight trust check).
+	Backends BackendLadder
 }
 
 // Controller is the autopilot master switch and per-plan run registry
@@ -38,19 +44,28 @@ type Controller struct {
 	integrationBranch string
 	gate              string
 	baseDir           string
+	backends          BackendLadder
 
 	mu      sync.Mutex
+	runtime Runtime // nil ⇒ inert (S1): no brain spawns
 	enabled bool
 	runs    map[string]*run // keyed by run_id
 }
 
-// run is one registered plan execution. In S1 it holds only the identity + state
-// (no brain, ledger, or worker map — those arrive in S3).
+// run is one registered plan execution: identity + state plus, once the brain
+// lifecycle is live (S3), the brain handle, the last-good plan for owner steering
+// (autopilot.md §3), and the plan-watch cancel.
 type run struct {
-	runID    string
-	planFile string
-	repo     string
-	state    RunState
+	runID       string
+	planFile    string // configured path (as written in config)
+	absPlanFile string // resolved absolute path (plan-file watch anchor)
+	repo        string
+	state       RunState
+	plan        Plan
+	planModTime time.Time
+
+	brain  *BrainHandle       // nil until the brain spawns; nil again after teardown
+	cancel context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
 }
 
 // NewController builds a Controller from cfg backed by env (pass NewExecEnv() in
@@ -73,8 +88,19 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		integrationBranch: branch,
 		gate:              gate,
 		baseDir:           cfg.BaseDir,
+		backends:          cfg.Backends,
 		runs:              map[string]*run{},
 	}
+}
+
+// SetRuntime injects the daemon-provided brain/ledger/digest surface. It must be
+// called before Enable to run real brains; without it the Controller stays inert
+// (S1 behavior: the switch + preflight work but no brain spawns). The daemon wires
+// it inside SetAutopilotController.
+func (c *Controller) SetRuntime(rt Runtime) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.runtime = rt
 }
 
 // RunID is the stable identifier for a run: a short hash of the repo root and the
@@ -141,23 +167,75 @@ func (c *Controller) Enable(ctx context.Context) (Status, error) {
 		return c.statusLocked(), &PreflightError{Failures: dedupe(fails)}
 	}
 
-	// All clear — register every run active. Inert: with no brain to wait on,
-	// "brain healthy" is immediate, so starting collapses straight to active.
-	runs := map[string]*run{}
-	for id, r := range resolvedByID {
-		runs[id] = &run{runID: id, planFile: r.file, repo: r.repo, state: StateActive}
+	// Reconcile the run set against what is already live. A harmless re-enable
+	// (same config) must not kill and respawn a healthy brain, so runs whose
+	// run_id survives are carried over untouched; only genuinely new runs spawn a
+	// brain, and runs no longer configured are torn down. In the inert core (no
+	// runtime) "brain healthy" is immediate, so a run collapses straight to active
+	// with no brain (S1 behavior).
+	newRuns := map[string]*run{}
+	for id, res := range resolvedByID {
+		if existing, ok := c.runs[id]; ok {
+			existing.planFile = res.file
+			existing.absPlanFile = res.absFile
+			newRuns[id] = existing
+			continue
+		}
+		r := &run{
+			runID:       id,
+			planFile:    res.file,
+			absPlanFile: res.absFile,
+			repo:        res.repo,
+			plan:        res.plan,
+			state:       StateStarting,
+		}
+		if info, err := os.Stat(res.absFile); err == nil {
+			r.planModTime = info.ModTime()
+		}
+		if err := c.spawnBrain(ctx, r, selectBrainBackend(c.backends)); err != nil {
+			slog.Warn("autopilot: brain spawn failed; run degraded", "run", id, "err", err)
+		}
+		// Watch the plan file for owner steering only when a brain is actually
+		// serving it (runtime wired); the inert core has no brain to notify.
+		if c.runtime != nil {
+			wctx, cancel := context.WithCancel(context.Background())
+			r.cancel = cancel
+			go c.watchPlan(wctx, r, planWatchInterval)
+		}
+		newRuns[id] = r
 	}
-	c.runs = runs
+	for id, old := range c.runs {
+		if _, keep := newRuns[id]; keep {
+			continue
+		}
+		c.stopRunLocked(ctx, old)
+	}
+	c.runs = newRuns
 	c.enabled = true
 	return c.statusLocked(), nil
 }
 
-// Disable is the kill switch (§2.1): it flips the master flag off and drops the
-// run registry. In S1 there is nothing to tear down; from S3 the brain is
-// terminated gracefully here while in-flight workers keep running.
-func (c *Controller) Disable(_ context.Context) Status {
+// stopRunLocked tears one run down: cancel its plan watcher and gracefully
+// terminate its brain (in-flight workers are untouched, §2.1). Caller holds c.mu.
+func (c *Controller) stopRunLocked(ctx context.Context, r *run) {
+	if r.cancel != nil {
+		r.cancel()
+		r.cancel = nil
+	}
+	if err := c.teardownBrain(ctx, r); err != nil {
+		slog.Warn("autopilot: brain teardown error", "run", r.runID, "err", err)
+	}
+}
+
+// Disable is the kill switch (§2.1): it flips the master flag off, stops each
+// run's plan watcher, and terminates each brain gracefully. In-flight workers are
+// deliberately left running — disable stops the orchestrator, not its work.
+func (c *Controller) Disable(ctx context.Context) Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for _, r := range c.runs {
+		c.stopRunLocked(ctx, r)
+	}
 	c.enabled = false
 	c.runs = map[string]*run{}
 	return c.statusLocked()
@@ -174,13 +252,23 @@ func (c *Controller) Status() Status {
 func (c *Controller) statusLocked() Status {
 	st := Status{Enabled: c.enabled, Runs: []RunStatus{}}
 	for _, r := range c.runs {
+		var brain *BrainStatus
+		if r.brain != nil {
+			// Tier is hardcoded "free" in S3 (matching the hardcoded first-free
+			// selection); the full tier ladder + heartbeat/context land in S5.
+			brain = &BrainStatus{
+				AgentID: r.brain.AgentID,
+				Backend: r.brain.Backend,
+				Tier:    "free",
+			}
+		}
 		st.Runs = append(st.Runs, RunStatus{
 			RunID:    r.runID,
 			PlanFile: r.planFile,
 			Repo:     r.repo,
 			State:    r.state,
 			Gate:     c.gate, // S4 replaces this with the resolved mode
-			Brain:    nil,    // no brain in S1
+			Brain:    brain,
 			Tasks:    TaskCounts{},
 			Backoff:  nil,
 		})

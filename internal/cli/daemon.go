@@ -285,11 +285,17 @@ func newDaemonCmd() *cobra.Command {
 			// every surface but no brain spawns yet. baseDir anchors relative plan
 			// paths to the daemon's working directory.
 			apBaseDir, _ := os.Getwd()
+			apBackends := cfg.AutopilotBrainBackends()
 			srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
 				Plans:             cfg.AutopilotPlanFiles(),
 				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
 				Gate:              cfg.AutopilotGate(),
 				BaseDir:           apBaseDir,
+				Backends: autopilot.BackendLadder{
+					Free:         apBackends.Free,
+					Subscription: apBackends.Subscription,
+					PayPerUse:    apBackends.PayPerUse,
+				},
 			}, nil))
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with

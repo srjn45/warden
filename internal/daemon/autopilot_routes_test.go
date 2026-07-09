@@ -34,14 +34,18 @@ func (e *apFakeEnv) CreateBranch(context.Context, string, string, string) error 
 	return nil
 }
 func (e *apFakeEnv) GHAuthOK(context.Context) error { return e.ghErr }
+func (e *apFakeEnv) BackendKnown(string) error      { return nil }
 
 func newAutopilotServer(t *testing.T, env autopilot.Env, plans []string) *httptest.Server {
 	t.Helper()
-	srv := &Server{store: newFakeStore(), hub: newHub(), done: make(chan struct{})}
+	// A real (fake) lifecycle so enabling spawns a brain through the daemon runtime
+	// wired by SetAutopilotController (S3).
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
 	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
 		Plans:             plans,
 		IntegrationBranch: "autopilot/integration",
 		Gate:              "auto",
+		Backends:          autopilot.BackendLadder{Free: []string{"claude"}},
 	}, env))
 	return httptest.NewServer(srv.router())
 }
@@ -60,13 +64,14 @@ func TestAutopilotEnableStatusDisable(t *testing.T) {
 	require.False(t, st.Enabled)
 	require.Empty(t, st.Runs)
 
-	// Enable → active, one run, no brain (inert).
+	// Enable → active, one run, a headless brain spawned on the first free backend.
 	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true}`, &st)
 	require.Equal(t, http.StatusOK, code)
 	require.True(t, st.Enabled)
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, autopilot.StateActive, st.Runs[0].State)
-	require.Nil(t, st.Runs[0].Brain)
+	require.NotNil(t, st.Runs[0].Brain)
+	require.NotEmpty(t, st.Runs[0].Brain.AgentID)
 
 	// Disable → kill switch.
 	code = apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":false}`, &st)
