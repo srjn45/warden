@@ -347,6 +347,9 @@ func newDaemonCmd() *cobra.Command {
 			notifyHook := daemon.NotifyOnTransition(notifier)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
+			// Fixture-capture aid: snapshot the raw pane on each real limit hit so a
+			// future parser gap can be fixed from ground-truth bytes (bounded, newest-N).
+			rateLimitSched.CaptureDir = filepath.Join(cfg.DataDir, "ratelimit-captures")
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)

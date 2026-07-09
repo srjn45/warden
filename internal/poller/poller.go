@@ -509,38 +509,84 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 	}
 }
 
+// menuVerifyDelay is how long tryLimitMenu waits after its first keystroke
+// before re-capturing the pane to confirm the menu cleared. A menu redraw is
+// near-instant; the small pause avoids a false "still showing" read that would
+// trigger the fallback unnecessarily. Overridable in tests.
+var menuVerifyDelay = 600 * time.Millisecond
+
 // tryLimitMenu auto-selects the "Stop and wait for limit to reset" choice on
 // Claude's rate-limit menu (the safe option that parks the agent until the
 // limit clears, vs. "Upgrade your plan"). It is a no-op unless the pane is that
 // specific menu and rate_limit.auto_resume is on. Selecting the wait option
 // dismisses the menu so the limit banner surfaces on a later tick, at which
 // point the agent classifies as rate_limited and the daemon's scheduler drives
-// the resume-after-clear. The numeric key is sent as a single keystroke, the
-// same select-and-confirm mechanism tryAutoApprove uses for Claude's other
-// numbered menus.
+// the resume-after-clear.
 //
-// TODO(open-question): confirm on a LIVE limit hit that the menu confirms on the
-// bare number. Its footer reads "Enter to confirm", and the safe option is
-// pre-highlighted (❯), so bare Enter is the fallback if numeric quick-select
-// turns out not to apply here. This is the single place to change the keystroke,
-// kept in sync with the daemon's resumeKey TODO.
+// The menu's footer reads "Enter to confirm" and the safe option is normally
+// pre-highlighted (❯), so the answer sequence is Enter-first: send Enter, then
+// re-capture and verify the menu cleared. Only if it persists does it fall back
+// to the explicit "<n> then Enter" — the number moves the cursor to the wait
+// option in case it wasn't the highlighted one. When the wait option is not the
+// highlighted one to begin with, a bare Enter would confirm the WRONG choice
+// (e.g. Upgrade), so that case skips straight to the number.
 func (p *Poller) tryLimitMenu(ctx context.Context, s *store.Session, pane string) {
 	if !p.RateLimitAutoResume {
 		return
 	}
-	idx, ok := LimitMenuOption(pane)
+	waitIdx, highlighted, ok := LimitMenuSelection(pane)
 	if !ok {
 		return
 	}
-	key := strconv.Itoa(idx)
-	if err := p.deps.SendKeys(ctx, s.TmuxSession, key); err != nil {
+	numKey := strconv.Itoa(waitIdx)
+
+	// Phase 1: Enter when the wait option is already highlighted; otherwise jump
+	// to it by number (which both selects and, on Claude's menus, confirms).
+	first := "Enter"
+	if !highlighted {
+		first = numKey
+	}
+	if err := p.deps.SendKeys(ctx, s.TmuxSession, first); err != nil {
 		slog.Warn("rate-limit menu: failed to select wait option", "agent", s.ID, "err", err)
 		return
 	}
-	slog.Info("rate-limit menu: auto-selected wait-for-reset", "agent", s.ID, "option", key)
+	slog.Info("rate-limit menu: auto-selected wait-for-reset", "agent", s.ID, "key", first, "option", numKey)
+
+	// Phase 2: verify the menu actually cleared; if it is still showing, send the
+	// explicit number + Enter as a fallback.
+	if p.limitMenuStillShowing(ctx, s) {
+		slog.Info("rate-limit menu: still showing after first keystroke, sending number+Enter fallback", "agent", s.ID, "option", numKey)
+		if err := p.deps.SendKeys(ctx, s.TmuxSession, numKey); err != nil {
+			slog.Warn("rate-limit menu: fallback number send failed", "agent", s.ID, "err", err)
+		} else if err := p.deps.SendKeys(ctx, s.TmuxSession, "Enter"); err != nil {
+			slog.Warn("rate-limit menu: fallback Enter send failed", "agent", s.ID, "err", err)
+		}
+	}
+
 	if p.OnChange != nil {
 		p.OnChange()
 	}
+}
+
+// limitMenuStillShowing re-captures the pane after a short settle delay and
+// reports whether Claude's rate-limit menu is still displayed — i.e. the first
+// keystroke did not dismiss it. A capture error is treated as "not showing" so a
+// transient tmux hiccup never triggers a spurious fallback keystroke into a pane
+// whose real state we couldn't read.
+func (p *Poller) limitMenuStillShowing(ctx context.Context, s *store.Session) bool {
+	if menuVerifyDelay > 0 {
+		select {
+		case <-time.After(menuVerifyDelay):
+		case <-ctx.Done():
+			return false
+		}
+	}
+	pane, err := p.deps.CapturePane(ctx, s.TmuxSession)
+	if err != nil {
+		return false
+	}
+	_, ok := LimitMenuOption(pane)
+	return ok
 }
 
 // runApprovalWorker consumes approval events and attempts auto-approval.

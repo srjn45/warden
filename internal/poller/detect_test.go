@@ -173,6 +173,94 @@ func TestLimitMenuOption_IgnoresNonMenuPane(t *testing.T) {
 	require.False(t, ok, "the spend banner is not the choice menu")
 }
 
+func TestLimitMenuSelection_HighlightAware(t *testing.T) {
+	// The sample menu pre-highlights option 1 (the wait choice) with ❯.
+	idx, highlighted, ok := LimitMenuSelection(sampleLimitMenu)
+	require.True(t, ok)
+	require.Equal(t, 1, idx)
+	require.True(t, highlighted, "the wait option carries the ❯ cursor in the sample menu")
+
+	// Reordered so the wait option is NOT the highlighted one: Enter would confirm
+	// the wrong choice, so highlighted must report false.
+	reordered := "What do you want to do?\n" +
+		"❯ 1. Upgrade your plan\n" +
+		"  2. Stop and wait for limit to reset\n"
+	idx, highlighted, ok = LimitMenuSelection(reordered)
+	require.True(t, ok)
+	require.Equal(t, 2, idx)
+	require.False(t, highlighted, "wait option is not the highlighted one here")
+
+	if _, _, ok := LimitMenuSelection("just some agent output\n❯ esc to interrupt"); ok {
+		t.Fatal("a non-menu pane must not be treated as the limit menu")
+	}
+}
+
+func TestParseRestoreTime_WeeklyWeekday(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Madrid")
+	tests := []struct {
+		name     string
+		pane     string
+		wantDay  time.Weekday
+		wantHour int
+		wantMin  int
+	}{
+		{"weekday with am time and tz", "Weekly limit reached · resets Thursday at 9am (Europe/Madrid)", time.Thursday, 9, 0},
+		{"weekday abbrev with 24h time", "resets Thu 14:30 (Europe/Madrid)", time.Thursday, 14, 30},
+		{"weekday only, no time", "resets Monday (Europe/Madrid)", time.Monday, 0, 0},
+		{"weekday with 'on' and no tz", "resets on Sunday at 6:00pm", time.Sunday, 18, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ParseRestoreTime(tt.pane)
+			require.True(t, ok, "weekly weekday banner must parse")
+			require.True(t, got.After(time.Now()), "resume time must be in the future")
+			require.Equal(t, tt.wantDay, got.Weekday(), "parsed weekday")
+			require.Equal(t, tt.wantHour, got.Hour(), "parsed hour")
+			require.Equal(t, tt.wantMin, got.Minute(), "parsed minute")
+			if strings.Contains(tt.pane, "Madrid") {
+				require.Equal(t, tt.wantHour, got.In(loc).Hour(), "hour is in the banner's zone")
+			}
+		})
+	}
+}
+
+func TestParseRestoreTime_WeeklyCalendarDate(t *testing.T) {
+	tests := []struct {
+		name      string
+		pane      string
+		wantMonth time.Month
+		wantDay   int
+		wantHour  int
+		wantMin   int
+	}{
+		{"month day with time and tz", "resets Jul 14 at 3pm (UTC)", time.July, 14, 15, 0},
+		{"full month name, no time", "resets July 14", time.July, 14, 0, 0},
+		{"day month order", "resets 14 Jul at 09:30 (UTC)", time.July, 14, 9, 30},
+		{"explicit future year", "resets Jan 2, 2099 (UTC)", time.January, 2, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ParseRestoreTime(tt.pane)
+			require.True(t, ok, "weekly calendar-date banner must parse")
+			require.True(t, got.After(time.Now()), "resume time must be in the future")
+			require.Equal(t, tt.wantMonth, got.Month(), "parsed month")
+			require.Equal(t, tt.wantDay, got.Day(), "parsed day")
+			require.Equal(t, tt.wantHour, got.Hour(), "parsed hour")
+			require.Equal(t, tt.wantMin, got.Minute(), "parsed minute")
+		})
+	}
+}
+
+func TestParseRestoreTime_SessionClockStillWins(t *testing.T) {
+	// The precise HH:mm session format must still take priority over the looser
+	// weekday/date parsers (it carries an explicit zone).
+	loc, _ := time.LoadLocation("Europe/Madrid")
+	got, ok := ParseRestoreTime("resets 13:30 (Europe/Madrid)")
+	require.True(t, ok)
+	require.Equal(t, 13, got.In(loc).Hour())
+	require.Equal(t, 30, got.In(loc).Minute())
+}
+
 func TestParseRestoreTime_NoTimeInMessage(t *testing.T) {
 	_, ok := ParseRestoreTime("Rate limit exceeded. Try again later.")
 	require.False(t, ok, "a message with no clock-time must not parse")

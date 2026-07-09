@@ -1707,12 +1707,23 @@ or a **monthly spend cap** — warden:
 4. Schedules an automatic resume and keeps retrying until the limit clears —
    regardless of which limit it was
 
-A **session/weekly** banner usually prints its reset time (`resets 1:30pm
-(TZ)`), which warden parses to resume at the exact moment. A **monthly spend
-cap** banner ("You've hit your monthly spend limit …") carries *no* reset time
-and clears only at billing rollover or when you raise the cap, so warden falls
-back to a longer polling interval (`rate_limit.spend_retry_interval`, default
-6h) and auto-resumes the instant the cap lifts.
+A **session** banner usually prints a clock reset time (`resets 1:30pm (TZ)`),
+which warden parses to resume at the exact moment. A **weekly** banner may
+instead carry a weekday or calendar date (`resets Thursday at 9am (TZ)`,
+`resets Jul 14`) — warden parses those too, with or without a time or timezone,
+and falls back to polling (`rate_limit.retry_interval`, default 30m) only when a
+banner carries no parseable reset at all. A **monthly spend cap** banner
+("You've hit your monthly spend limit …") carries *no* reset time and clears
+only at billing rollover or when you raise the cap, so warden falls back to a
+longer polling interval (`rate_limit.spend_retry_interval`, default 6h) and
+auto-resumes the instant the cap lifts.
+
+Once a limit window clears, warden nudges the paused agent to pick its work back
+up by typing `rate_limit.resume_prompt` (default `continue`); set it to an empty
+string for a bare keypress that injects no user turn. Every real limit hit also
+snapshots the agent's trailing pane to `<data_dir>/ratelimit-captures/`
+(bounded, newest-20) so any future banner-format gap can be fixed from exact
+bytes.
 
 ### Viewing rate-limited agents
 
@@ -1735,10 +1746,11 @@ rate limit:
 
 ### Auto-resume behavior
 
-- **Parsed timestamp** (session/weekly): Resumes at the exact time + 1 minute safety buffer
+- **Parsed timestamp** (session clock, or a weekly weekday/date): Resumes at the exact time + 1 minute safety buffer
 - **No timestamp found** (session/weekly): Retries every 30 minutes until successful
 - **Monthly spend cap** (no reset time): Retries every 6 hours until the cap clears
 - **Still limited on retry**: Re-checks the banner, reschedules on the matching interval
+- **On resume**: Types `rate_limit.resume_prompt` (default `continue`) so the agent picks its work back up
 - **Non-limit error**: Transitions to `errored` status
 
 ### Configuration
@@ -1752,6 +1764,7 @@ rate_limit:
   retry_interval: 15m         # session/weekly fallback when no reset time parses (default: 30m)
   spend_retry_interval: 6h    # monthly spend-cap poll interval (default: 6h)
   buffer: 2m                  # safety buffer after a parsed reset time (default: 1m)
+  resume_prompt: continue     # text typed to resume a cleared agent; "" = bare keypress (default: continue)
 ```
 
 ### Manual intervention
