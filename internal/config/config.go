@@ -251,7 +251,7 @@ var schema = []setting{
 	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — scan interval), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
 	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
-	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to send when resuming; empty = bare keypress). Flat keys still load as deprecated aliases."},
+	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn). Flat keys still load as deprecated aliases."},
 	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
@@ -264,6 +264,14 @@ const fileHeader = "warden configuration — edit values below; run `warden conf
 // compaction lands, so it resumes the work the interrupt discarded. Kept generic
 // because warden can't know the agent's specific task.
 const defaultCompactResumePrompt = "Your context was just compacted to free up space. Continue the task you were working on before the compaction."
+
+// defaultRateLimitResumePrompt is typed into a rate-limited agent's pane once its
+// limit window clears, so the resume actually delivers a user turn instead of a
+// bare keypress the agent may ignore. Kept to a single generic word — warden
+// can't know the agent's specific task, and "continue" reads naturally as the
+// nudge to pick the work back up. Set rate_limit.resume_prompt to "" to opt back
+// into the bare-keypress un-pause (no injected user turn).
+const defaultRateLimitResumePrompt = "continue"
 
 // defaults returns a fully-populated Config holding every setting's default.
 // It is the single source of truth for default values (file generation reads
@@ -357,7 +365,7 @@ func defaults() Config {
 			SpendRetryInterval: "6h",
 			Buffer:             "1m",
 			AutoResume:         true,
-			ResumePrompt:       "",
+			ResumePrompt:       defaultRateLimitResumePrompt,
 		},
 		HTTP: HTTPConfig{
 			TimeoutFast: "30s",

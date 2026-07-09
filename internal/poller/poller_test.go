@@ -268,6 +268,7 @@ type stubDeps struct {
 	// guards events, which raiseAnomaly may write.
 	sendMu    sync.Mutex
 	sentKeys  map[string]string        // tmuxSession -> last keys sent
+	sentSeq   map[string][]string      // tmuxSession -> ordered keys sent
 	sendKeysN int                      // total SendKeys calls
 	events    map[string][]store.Event // id -> recorded anomaly events
 }
@@ -278,9 +279,19 @@ func (d *stubDeps) SendKeys(_ context.Context, tmuxSession, keys string) error {
 	if d.sentKeys == nil {
 		d.sentKeys = map[string]string{}
 	}
+	if d.sentSeq == nil {
+		d.sentSeq = map[string][]string{}
+	}
 	d.sentKeys[tmuxSession] = keys
+	d.sentSeq[tmuxSession] = append(d.sentSeq[tmuxSession], keys)
 	d.sendKeysN++
 	return nil
+}
+
+func (d *stubDeps) sentSequence(tmuxSession string) []string {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	return append([]string(nil), d.sentSeq[tmuxSession]...)
 }
 
 func (d *stubDeps) lastSentKey(tmuxSession string) string {
@@ -1510,4 +1521,74 @@ func TestTryAutoApproveBreakerDefault(t *testing.T) {
 	}
 	require.Equal(t, approval.DefaultMaxRepeats, d.sendCount(),
 		"an unset policy must still cap identical approvals at the default")
+}
+
+// menuSession builds a single-session stubDeps plus a Poller with auto-resume on
+// and the menu-verify delay zeroed, for tryLimitMenu tests. verifyPane is what
+// CapturePane returns on the phase-2 re-check.
+func menuSession(t *testing.T, verifyPane string) (*stubDeps, *Poller, *store.Session) {
+	t.Helper()
+	s := &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusRateLimited}
+	d := &stubDeps{
+		sessions: []*store.Session{s},
+		alive:    map[string]bool{"A-1": true},
+		panes:    map[string]string{"A-1": verifyPane},
+		updates:  map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	p.RateLimitAutoResume = true
+	return d, p, s
+}
+
+func TestTryLimitMenu_EnterFirstWhenHighlighted(t *testing.T) {
+	restore := menuVerifyDelay
+	menuVerifyDelay = 0
+	defer func() { menuVerifyDelay = restore }()
+
+	// Wait option is pre-highlighted (❯ 1), and the re-capture shows the menu
+	// gone → a single Enter is enough, no numeric fallback.
+	menu := "❯ 1. Stop and wait for limit to reset\n  2. Upgrade your plan\nEnter to confirm"
+	d, p, s := menuSession(t, "the agent has moved on, working...")
+	p.tryLimitMenu(context.Background(), s, menu)
+
+	require.Equal(t, []string{"Enter"}, d.sentSequence("A-1"),
+		"a highlighted wait option confirms on bare Enter with no fallback")
+}
+
+func TestTryLimitMenu_FallbackWhenMenuPersists(t *testing.T) {
+	restore := menuVerifyDelay
+	menuVerifyDelay = 0
+	defer func() { menuVerifyDelay = restore }()
+
+	// Menu still showing on the re-capture → fall back to number + Enter.
+	menu := "❯ 1. Stop and wait for limit to reset\n  2. Upgrade your plan\nEnter to confirm"
+	d, p, s := menuSession(t, menu) // re-capture STILL shows the menu
+	p.tryLimitMenu(context.Background(), s, menu)
+
+	require.Equal(t, []string{"Enter", "1", "Enter"}, d.sentSequence("A-1"),
+		"a persistent menu must get the explicit number+Enter fallback")
+}
+
+func TestTryLimitMenu_NumberFirstWhenNotHighlighted(t *testing.T) {
+	restore := menuVerifyDelay
+	menuVerifyDelay = 0
+	defer func() { menuVerifyDelay = restore }()
+
+	// Wait option is NOT the highlighted one (❯ sits on Upgrade): a bare Enter
+	// would confirm the wrong choice, so the sequence starts with the number.
+	menu := "❯ 1. Upgrade your plan\n  2. Stop and wait for limit to reset\nEnter to confirm"
+	d, p, s := menuSession(t, "the agent has moved on, working...")
+	p.tryLimitMenu(context.Background(), s, menu)
+
+	require.Equal(t, []string{"2"}, d.sentSequence("A-1"),
+		"an un-highlighted wait option is selected by number, not Enter")
+}
+
+func TestTryLimitMenu_NoopWhenAutoResumeOff(t *testing.T) {
+	menu := "❯ 1. Stop and wait for limit to reset\n  2. Upgrade your plan\nEnter to confirm"
+	d, p, s := menuSession(t, "")
+	p.RateLimitAutoResume = false
+	p.tryLimitMenu(context.Background(), s, menu)
+
+	require.Empty(t, d.sentSequence("A-1"), "auto_resume off must leave the menu for a human")
 }

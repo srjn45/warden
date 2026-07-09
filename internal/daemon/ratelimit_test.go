@@ -3,6 +3,9 @@ package daemon
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -133,6 +136,71 @@ func TestRateLimitScheduler_OnTransition(t *testing.T) {
 	defer sched.mu.Unlock()
 	_, exists := sched.timers["test-123"]
 	require.True(t, exists, "timer should be created for session")
+}
+
+func TestRateLimitScheduler_CaptureBanner_WritesExcerpt(t *testing.T) {
+	dir := t.TempDir()
+	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, &rateLimitStore{}, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+	sched.CaptureDir = dir
+
+	excerpt := "Weekly limit reached · resets Thursday at 9am (Europe/Madrid)"
+	sched.captureBanner(&store.Session{ID: "cap-1", LastPaneExcerpt: excerpt})
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "one capture file must be written")
+	body, err := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	require.NoError(t, err)
+	require.Equal(t, excerpt, string(body), "the raw pane excerpt is captured verbatim")
+	require.Contains(t, entries[0].Name(), "cap-1", "filename is tagged with the session id")
+}
+
+func TestRateLimitScheduler_CaptureBanner_NoopWithoutDirOrText(t *testing.T) {
+	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, &rateLimitStore{}, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+
+	// No CaptureDir configured: a no-op, no panic.
+	sched.captureBanner(&store.Session{ID: "cap-1", LastPaneExcerpt: "banner"})
+
+	// CaptureDir set but blank excerpt: nothing is written.
+	dir := t.TempDir()
+	sched.CaptureDir = dir
+	sched.captureBanner(&store.Session{ID: "cap-1", LastPaneExcerpt: "   \n  "})
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "a blank excerpt writes no capture")
+}
+
+func TestRateLimitScheduler_CaptureBanner_PrunesToNewestN(t *testing.T) {
+	dir := t.TempDir()
+	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, &rateLimitStore{}, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+	sched.CaptureDir = dir
+
+	for i := 0; i < maxRateLimitCaptures+5; i++ {
+		sched.captureBanner(&store.Session{
+			ID:              "cap-" + strconv.Itoa(1000+i), // distinct ids → distinct filenames
+			LastPaneExcerpt: "banner " + strconv.Itoa(i),
+		})
+	}
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, maxRateLimitCaptures, "captures are bounded to the newest N")
+}
+
+func TestRateLimitScheduler_OnTransition_CapturesEvenWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	// auto_resume OFF: no resume is scheduled, but the fixture capture still fires.
+	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
+	sched.CaptureDir = dir
+
+	sess := &store.Session{ID: "cap-x", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
+	st.sessions["cap-x"] = sess
+	sched.OnTransition(sess, store.StatusWorking, store.StatusRateLimited)
+
+	require.Equal(t, 0, st.setRateLimitCalls, "auto_resume off must not schedule a resume")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the capture aid runs regardless of auto_resume")
 }
 
 // sampleSpendBanner mirrors the poller's monthly-spend-cap fixture: a limit

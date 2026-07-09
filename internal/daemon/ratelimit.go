@@ -2,6 +2,10 @@ package daemon
 
 import (
 	"context"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,9 +41,20 @@ type RateLimitScheduler struct {
 	enabled            bool
 	resumePrompt       string // text to inject on resume; "" = bare keypress only
 
+	// CaptureDir, when non-empty, is where the fixture-capture aid snapshots the
+	// trailing pane text on every rate-limit detection (see captureBanner). Left
+	// empty in tests and any caller that doesn't want the capture. Set by the
+	// daemon after construction.
+	CaptureDir string
+
 	mu     sync.Mutex
 	timers map[string]*time.Timer
 }
+
+// maxRateLimitCaptures bounds how many pane snapshots the fixture-capture aid
+// keeps in CaptureDir — newest-N, so the directory can't grow without limit
+// while still preserving the most recent real limit hits for parser work.
+const maxRateLimitCaptures = 20
 
 // NewRateLimitScheduler creates a new scheduler. The retry interval, spend retry
 // interval, buffer, auto-resume toggle, and resume prompt are supplied by the
@@ -76,7 +91,16 @@ func (r *RateLimitScheduler) clearTimer(sessionID string) {
 
 // OnTransition is wired as a callback on the poller's status-transition hook.
 func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.Status) {
-	if !r.enabled || to != store.StatusRateLimited {
+	if to != store.StatusRateLimited {
+		return
+	}
+
+	// Snapshot the pane on every real limit hit, regardless of auto_resume, so the
+	// next live limit yields exact bytes to close any parser gap. Cheap and
+	// bounded; a capture failure must never block the resume path.
+	r.captureBanner(sess)
+
+	if !r.enabled {
 		return
 	}
 
@@ -270,6 +294,55 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 		r.mu.Lock()
 		delete(r.timers, sess.ID)
 		r.mu.Unlock()
+	}
+}
+
+// captureBanner snapshots the agent's trailing pane text (the banner and/or
+// menu that tripped rate-limit detection) to CaptureDir as a fixture-capture
+// aid, then prunes the directory to the newest maxRateLimitCaptures files. It is
+// a permanent, cheap diagnostic: the next real limit hit leaves the exact bytes
+// on disk so a parser gap (e.g. an unhandled weekly-banner format) can be fixed
+// from ground truth instead of guessed. Best-effort — any error is logged and
+// swallowed so it never interferes with the resume path. A no-op when CaptureDir
+// is empty or the pane excerpt is blank.
+func (r *RateLimitScheduler) captureBanner(sess *store.Session) {
+	if r.CaptureDir == "" || strings.TrimSpace(sess.LastPaneExcerpt) == "" {
+		return
+	}
+	if err := os.MkdirAll(r.CaptureDir, 0o700); err != nil {
+		slog.Warn("rate-limit capture: mkdir failed", "dir", r.CaptureDir, "err", err)
+		return
+	}
+	// Timestamped, id-tagged name so captures sort chronologically and never
+	// collide; the raw excerpt is the file body for verbatim fixture extraction.
+	name := time.Now().UTC().Format("20060102T150405.000Z") + "-" + sess.ID + ".txt"
+	if err := os.WriteFile(filepath.Join(r.CaptureDir, name), []byte(sess.LastPaneExcerpt), 0o600); err != nil {
+		slog.Warn("rate-limit capture: write failed", "dir", r.CaptureDir, "err", err)
+		return
+	}
+	r.pruneCaptures()
+}
+
+// pruneCaptures keeps only the newest maxRateLimitCaptures .txt files in
+// CaptureDir, deleting the oldest. Names are timestamp-prefixed so a lexical
+// sort is chronological.
+func (r *RateLimitScheduler) pruneCaptures() {
+	entries, err := os.ReadDir(r.CaptureDir)
+	if err != nil {
+		return
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".txt") {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) <= maxRateLimitCaptures {
+		return
+	}
+	sort.Strings(names) // oldest first
+	for _, old := range names[:len(names)-maxRateLimitCaptures] {
+		_ = os.Remove(filepath.Join(r.CaptureDir, old))
 	}
 }
 

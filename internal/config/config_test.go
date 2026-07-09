@@ -72,7 +72,17 @@ trusted_proxies:
 func TestLoad_RateLimitResumePrompt_Default(t *testing.T) {
 	path := tmpConfig(t, "") // empty file → all defaults
 	c := Load(path)
-	require.Equal(t, "", c.RateLimit.ResumePrompt, "default must be empty (keypress-only)")
+	require.Equal(t, "continue", c.RateLimit.ResumePrompt,
+		"default must nudge the agent to resume, not just un-pause")
+}
+
+func TestLoad_RateLimitResumePrompt_ExplicitEmpty(t *testing.T) {
+	// An explicit empty value opts back into the bare-keypress un-pause and must
+	// survive default-merging (it is not treated as "unset").
+	path := tmpConfig(t, "rate_limit:\n  resume_prompt: \"\"\n")
+	c := Load(path)
+	require.Equal(t, "", c.RateLimit.ResumePrompt,
+		"explicit empty resume_prompt must stay empty (bare keypress)")
 }
 
 func TestLoad_RateLimitResumePrompt_Set(t *testing.T) {
