@@ -135,6 +135,9 @@ type setForceCompactArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	State  string `json:"state" jsonschema:"force-compact override: on (always) | off (never) | inherit (follow the global token_force_compact)"`
 }
+type setAutopilotArgs struct {
+	Enabled bool `json:"enabled" jsonschema:"true enables autopilot (runs the enable-time preflight), false is the kill switch"`
+}
 type exportArgs struct {
 	All bool `json:"all,omitempty" jsonschema:"also include archived (closed) agent records"`
 }
@@ -367,6 +370,32 @@ func (s *Server) registerExtraTools() {
 			state = "on"
 		}
 		return textResult("auto-approve " + state + " for " + a.Ticket), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_autopilot",
+		Description: "Flip the autopilot master switch. enabled=true runs the enable-time preflight (plan file valid, gh authenticated, integration branch present, at most one active run per repo) and returns the resulting status, or the FULL list of preflight failures to fix. enabled=false is the kill switch (stops spawning/landing; in-flight workers keep running). Mirrors `warden autopilot on|off`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setAutopilotArgs) (*mcpsdk.CallToolResult, any, error) {
+		st, err := s.cl.SetAutopilot(ctx, a.Enabled)
+		if err != nil {
+			var pfe *client.AutopilotPreflightError
+			if errors.As(err, &pfe) {
+				return jsonResultAny(map[string]any{"enabled": false, "preflight_failed": true, "failures": pfe.Failures})
+			}
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(st)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "autopilot_status",
+		Description: "Read the autopilot status: the master switch plus one entry per active run (run id, plan file, repo, state, resolved gate, brain, workers, task rollup, backoff). Read-only. Mirrors `warden autopilot status`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		st, err := s.cl.GetAutopilot(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(st)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

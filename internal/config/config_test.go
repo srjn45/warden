@@ -984,3 +984,43 @@ func TestIsLoopbackHost(t *testing.T) {
 		}
 	}
 }
+
+func TestAutopilotDefaults(t *testing.T) {
+	c := defaults()
+	require.False(t, c.GetAutopilotEnabled())
+	require.Empty(t, c.AutopilotPlanFiles())
+	require.Equal(t, "autopilot/integration", c.AutopilotIntegrationBranch())
+	require.Equal(t, "auto", c.AutopilotGate())
+	require.Equal(t, []string{"antigravity"}, c.Autopilot.Brain.Backends.Free)
+	require.Equal(t, []string{"claude"}, c.Autopilot.Brain.Backends.Subscription)
+	require.False(t, c.Autopilot.Brain.AllowPayPerUse)
+	require.Equal(t, 3, c.Autopilot.Brain.MaxParallelWorkers)
+	require.Equal(t, "10m", c.Autopilot.Guardian.HeartbeatTimeout)
+}
+
+func TestAutopilotLoadAndValidate(t *testing.T) {
+	path := tmpConfig(t, "autopilot:\n  enabled: true\n  plans:\n    - file: autopilot.plan.yaml\n    - file: ''\n  merge:\n    target_branch: ap/int\n    gate: BOGUS\n  guardian:\n    heartbeat_timeout: not-a-duration\n")
+	c := Load(path)
+	require.True(t, c.GetAutopilotEnabled())
+	require.Equal(t, []string{"autopilot.plan.yaml"}, c.AutopilotPlanFiles(), "blank plan files are skipped")
+	require.Equal(t, "ap/int", c.AutopilotIntegrationBranch())
+	require.Equal(t, "auto", c.AutopilotGate(), "invalid gate falls back to the default")
+	require.Equal(t, "10m", c.Autopilot.Guardian.HeartbeatTimeout, "invalid duration falls back to default")
+}
+
+func TestAutopilotBundle(t *testing.T) {
+	off := defaults()
+	b := off.AutopilotBundle()
+	require.False(t, b.AutoApprove)
+	require.True(t, b.AutoResume, "rate_limit.auto_resume default is on")
+	require.False(t, b.AutoRestart)
+
+	on := defaults()
+	on.Autopilot.Enabled = true
+	on.AutoApprove.Enabled = false
+	on.RateLimit.AutoResume = false
+	b = on.AutopilotBundle()
+	require.True(t, b.AutoApprove, "enabling autopilot OR-bundles auto_approve on")
+	require.True(t, b.AutoResume, "enabling autopilot OR-bundles auto_resume on")
+	require.True(t, b.AutoRestart, "enabling autopilot OR-bundles auto_restart on")
+}

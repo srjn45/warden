@@ -1493,6 +1493,51 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/autopilot:
+    get:
+      operationId: getAutopilot
+      tags: [Autopilot]
+      summary: Autopilot status
+      description: >
+        Returns the current autopilot status: the master switch plus one entry per
+        active run (run id, plan file, repo, state, resolved gate, brain, workers,
+        task rollup, backoff). In the inert S1 core the brain is null and the
+        counters are zero.
+      responses:
+        "200":
+          description: Autopilot status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotStatus" }
+    post:
+      operationId: setAutopilot
+      tags: [Autopilot]
+      summary: Enable or disable autopilot
+      description: >
+        Flips the autopilot master switch. Enabling runs the enable-time preflight
+        (plan file exists + strict-decodes, gh authenticated, integration branch
+        present or auto-created, at most one active run per repo, integration
+        branch is not a protected name); on any failure it returns 409 with the
+        FULL list of actionable failures and changes no state. Disabling is the
+        kill switch — it stops spawning/landing immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopilotToggleRequest" }
+      responses:
+        "200":
+          description: The resulting autopilot status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotStatus" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: Enable-time preflight failed (full failure list)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotPreflightFailure" }
+
   /api/v1/schedules:
     get:
       operationId: listSchedules
@@ -2412,3 +2457,70 @@ components:
         last_run: { type: string, format: date-time }
         next_run: { type: string, format: date-time }
         last_error: { type: string }
+
+    AutopilotToggleRequest:
+      type: object
+      description: Body for POST /autopilot — the master switch.
+      properties:
+        enabled: { type: boolean, description: true enables autopilot (runs preflight), false is the kill switch }
+      required: [enabled]
+
+    AutopilotStatus:
+      x-go-type: autopilot.Status
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/autopilot
+        name: autopilot
+      type: object
+      description: >
+        The autopilot master switch plus one entry per active run
+        (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the
+        properties below document the wire contract.
+      properties:
+        enabled: { type: boolean }
+        runs:
+          type: array
+          items:
+            type: object
+            properties:
+              run_id: { type: string }
+              plan_file: { type: string }
+              repo: { type: string }
+              state: { type: string, enum: [disabled, starting, active, degraded, healing, complete] }
+              gate: { type: string, description: "resolved gate mode (ci|local) or the configured mode in the S1 inert core" }
+              brain:
+                nullable: true
+                type: object
+                properties:
+                  agent_id: { type: string }
+                  backend: { type: string }
+                  tier: { type: string }
+                  last_heartbeat: { type: string }
+                  context_level: { type: string }
+              workers_in_flight: { type: integer }
+              tasks:
+                type: object
+                properties:
+                  pending: { type: integer }
+                  in_progress: { type: integer }
+                  landed: { type: integer }
+              backoff:
+                nullable: true
+                type: object
+                properties:
+                  stage: { type: integer }
+                  next_retry_at: { type: string }
+                  last_error: { type: string }
+              landed_total: { type: integer }
+      required: [enabled, runs]
+
+    AutopilotPreflightFailure:
+      type: object
+      description: >
+        409 body when enable-time preflight fails — the full list of actionable
+        failures so the owner fixes everything in one pass (autopilot.md §5.1).
+      properties:
+        error: { type: string }
+        failures:
+          type: array
+          items: { type: string }
+      required: [error, failures]

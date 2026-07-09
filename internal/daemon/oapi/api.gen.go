@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
 	approval "github.com/srjn45/warden/internal/approval"
+	autopilot "github.com/srjn45/warden/internal/autopilot"
 	branchtrack "github.com/srjn45/warden/internal/branchtrack"
 	collab "github.com/srjn45/warden/internal/collab"
 	ctxstore "github.com/srjn45/warden/internal/ctxstore"
@@ -299,6 +300,21 @@ type AutoApproveRule struct {
 type AutoApproveRules struct {
 	Allow []AutoApproveRule `json:"allow,omitempty"`
 	Deny  []AutoApproveRule `json:"deny,omitempty"`
+}
+
+// AutopilotPreflightFailure 409 body when enable-time preflight fails — the full list of actionable failures so the owner fixes everything in one pass (autopilot.md §5.1).
+type AutopilotPreflightFailure struct {
+	Error    string   `json:"error"`
+	Failures []string `json:"failures"`
+}
+
+// AutopilotStatus The autopilot master switch plus one entry per active run (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the properties below document the wire contract.
+type AutopilotStatus = autopilot.Status
+
+// AutopilotToggleRequest Body for POST /autopilot — the master switch.
+type AutopilotToggleRequest struct {
+	// Enabled true enables autopilot (runs preflight)
+	Enabled bool `json:"enabled"`
 }
 
 // BranchStatus defines model for BranchStatus.
@@ -942,6 +958,9 @@ type AdoptSessionJSONRequestBody = AdoptRequest
 // SetAutoApprovePolicyJSONRequestBody defines body for SetAutoApprovePolicy for application/json ContentType.
 type SetAutoApprovePolicyJSONRequestBody = AutoApprovePolicy
 
+// SetAutopilotJSONRequestBody defines body for SetAutopilot for application/json ContentType.
+type SetAutopilotJSONRequestBody = AutopilotToggleRequest
+
 // RunCheckJSONRequestBody defines body for RunCheck for application/json ContentType.
 type RunCheckJSONRequestBody = CheckRequest
 
@@ -1046,6 +1065,12 @@ type ServerInterface interface {
 	// Replace the live auto-approve policy
 	// (PUT /api/v1/auto-approve/policy)
 	SetAutoApprovePolicy(w http.ResponseWriter, r *http.Request)
+	// Autopilot status
+	// (GET /api/v1/autopilot)
+	GetAutopilot(w http.ResponseWriter, r *http.Request)
+	// Enable or disable autopilot
+	// (POST /api/v1/autopilot)
+	SetAutopilot(w http.ResponseWriter, r *http.Request)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(w http.ResponseWriter, r *http.Request)
@@ -1268,6 +1293,18 @@ func (_ Unimplemented) GetAutoApprovePolicy(w http.ResponseWriter, r *http.Reque
 // Replace the live auto-approve policy
 // (PUT /api/v1/auto-approve/policy)
 func (_ Unimplemented) SetAutoApprovePolicy(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Autopilot status
+// (GET /api/v1/autopilot)
+func (_ Unimplemented) GetAutopilot(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Enable or disable autopilot
+// (POST /api/v1/autopilot)
+func (_ Unimplemented) SetAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1741,6 +1778,46 @@ func (siw *ServerInterfaceWrapper) SetAutoApprovePolicy(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetAutoApprovePolicy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAutopilot operation middleware
+func (siw *ServerInterfaceWrapper) GetAutopilot(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAutopilot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAutopilot operation middleware
+func (siw *ServerInterfaceWrapper) SetAutopilot(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAutopilot(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3966,6 +4043,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/api/v1/auto-approve/policy", wrapper.SetAutoApprovePolicy)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/autopilot", wrapper.GetAutopilot)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/autopilot", wrapper.SetAutopilot)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/check", wrapper.RunCheck)
 	})
 	r.Group(func(r chi.Router) {
@@ -4268,6 +4351,77 @@ func (response SetAutoApprovePolicy400JSONResponse) VisitSetAutoApprovePolicyRes
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAutopilotRequestObject struct {
+}
+
+type GetAutopilotResponseObject interface {
+	VisitGetAutopilotResponse(w http.ResponseWriter) error
+}
+
+type GetAutopilot200JSONResponse AutopilotStatus
+
+func (response GetAutopilot200JSONResponse) VisitGetAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAutopilotRequestObject struct {
+	Body *SetAutopilotJSONRequestBody
+}
+
+type SetAutopilotResponseObject interface {
+	VisitSetAutopilotResponse(w http.ResponseWriter) error
+}
+
+type SetAutopilot200JSONResponse AutopilotStatus
+
+func (response SetAutopilot200JSONResponse) VisitSetAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAutopilot400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetAutopilot400JSONResponse) VisitSetAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAutopilot409JSONResponse AutopilotPreflightFailure
+
+func (response SetAutopilot409JSONResponse) VisitSetAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6443,6 +6597,12 @@ type StrictServerInterface interface {
 	// Replace the live auto-approve policy
 	// (PUT /api/v1/auto-approve/policy)
 	SetAutoApprovePolicy(ctx context.Context, request SetAutoApprovePolicyRequestObject) (SetAutoApprovePolicyResponseObject, error)
+	// Autopilot status
+	// (GET /api/v1/autopilot)
+	GetAutopilot(ctx context.Context, request GetAutopilotRequestObject) (GetAutopilotResponseObject, error)
+	// Enable or disable autopilot
+	// (POST /api/v1/autopilot)
+	SetAutopilot(ctx context.Context, request SetAutopilotRequestObject) (SetAutopilotResponseObject, error)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(ctx context.Context, request RunCheckRequestObject) (RunCheckResponseObject, error)
@@ -6772,6 +6932,61 @@ func (sh *strictHandler) SetAutoApprovePolicy(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetAutoApprovePolicyResponseObject); ok {
 		if err := validResponse.VisitSetAutoApprovePolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAutopilot operation middleware
+func (sh *strictHandler) GetAutopilot(w http.ResponseWriter, r *http.Request) {
+	var request GetAutopilotRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAutopilot(ctx, request.(GetAutopilotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAutopilot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAutopilotResponseObject); ok {
+		if err := validResponse.VisitGetAutopilotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetAutopilot operation middleware
+func (sh *strictHandler) SetAutopilot(w http.ResponseWriter, r *http.Request) {
+	var request SetAutopilotRequestObject
+
+	var body SetAutopilotJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAutopilot(ctx, request.(SetAutopilotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAutopilot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAutopilotResponseObject); ok {
+		if err := validResponse.VisitSetAutopilotResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

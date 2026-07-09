@@ -32,6 +32,7 @@ Available Commands:
   attach              Attach to the agent's tmux session
   audit               Inspect the append-only action audit trail
   auto-approve        Toggle per-agent auto-approve, or manage the auto-approve rule policy
+  autopilot           Turn autopilot mode on/off and show its status
   branches            Per-agent CI + branch-vs-main status
   check               Run the project's configured checks and report only failures
   collab              Inter-agent collaboration: see which agents are editing the same files
@@ -377,6 +378,83 @@ Aliases:
 
 Flags:
   -h, --help   help for rules
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot
+
+```text
+Autopilot runs a long-lived headless brain agent per plan that decomposes a
+goal, spawns workers, and lands green work into an integration branch
+unattended. Enabling runs a preflight (plan file valid, gh authenticated,
+integration branch present, at most one active run per repo) and fails fast
+with the full list of problems so you fix everything in one pass. `off` is the
+kill switch. Configure the feature under the `autopilot` block in the config
+file (or scaffold it with `warden autopilot init`).
+
+Usage:
+  warden autopilot [command]
+
+Available Commands:
+  off         Disable autopilot (kill switch — stops spawning/landing)
+  on          Enable autopilot (runs the enable-time preflight)
+  status      Show autopilot status
+
+Flags:
+  -h, --help   help for autopilot
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Use "warden autopilot [command] --help" for more information about a command.
+```
+
+## warden autopilot off
+
+```text
+Disable autopilot (kill switch — stops spawning/landing)
+
+Usage:
+  warden autopilot off [flags]
+
+Flags:
+  -h, --help   help for off
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot on
+
+```text
+Enable autopilot (runs the enable-time preflight)
+
+Usage:
+  warden autopilot on [flags]
+
+Flags:
+  -h, --help   help for on
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot status
+
+```text
+Show autopilot status
+
+Usage:
+  warden autopilot status [flags]
+
+Flags:
+  -h, --help   help for status
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
