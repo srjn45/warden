@@ -140,6 +140,64 @@ type PluginsConfig struct {
 	Registry []plugin.Spec `yaml:"registry"`
 }
 
+// AutopilotConfig is the `autopilot` block: the master switch and the per-plan
+// brain/merge/guardian template (docs/specs/autopilot.md §10, master-plan
+// schema). Enabling it OR-bundles auto_approve / rate_limit.auto_resume /
+// auto_restart on for autopilot-owned agents (see AutopilotBundle). In the S1
+// inert core only Enabled + Plans + Merge.{TargetBranch,Gate} are consumed; the
+// rest is carried forward for the brain (S3), land (S4), and guardian (S5).
+type AutopilotConfig struct {
+	Enabled  bool                    `yaml:"enabled"`
+	Plans    []AutopilotPlan         `yaml:"plans"`
+	Brain    AutopilotBrainConfig    `yaml:"brain"`
+	Merge    AutopilotMergeConfig    `yaml:"merge"`
+	Guardian AutopilotGuardianConfig `yaml:"guardian"`
+}
+
+// AutopilotPlan is one configured plan file (one brain per plan; at most one
+// active plan per repo).
+type AutopilotPlan struct {
+	File string `yaml:"file"`
+}
+
+// AutopilotBrainConfig is the default template applied to each plan's brain: the
+// cost-tiered backend ladder plus persona/parallelism knobs (autopilot.md §7).
+type AutopilotBrainConfig struct {
+	Backends           AutopilotBackends `yaml:"backends"`
+	AllowPayPerUse     bool              `yaml:"allow_pay_per_use"`
+	Role               string            `yaml:"role"`
+	Headless           bool              `yaml:"headless"`
+	MaxParallelWorkers int               `yaml:"max_parallel_workers"`
+}
+
+// AutopilotBackends is the cost-tier ladder: order within a list is preference.
+// pay_per_use is only ever used when AllowPayPerUse is true.
+type AutopilotBackends struct {
+	Free         []string `yaml:"free"`
+	Subscription []string `yaml:"subscription"`
+	PayPerUse    []string `yaml:"pay_per_use"`
+}
+
+// AutopilotMergeConfig governs how the brain lands worker branches into the
+// integration branch (autopilot.md §6).
+type AutopilotMergeConfig struct {
+	TargetBranch string `yaml:"target_branch"`
+	Strategy     string `yaml:"strategy"`
+	Gate         string `yaml:"gate"` // auto | ci | local
+	DeleteBranch bool   `yaml:"delete_branch"`
+}
+
+// AutopilotGuardianConfig configures the heartbeat guardian's heal ladder
+// (autopilot.md §2.3). Duration-valued fields are Go duration strings.
+type AutopilotGuardianConfig struct {
+	Interval             string `yaml:"interval"`
+	HeartbeatTimeout     string `yaml:"heartbeat_timeout"`
+	BackoffMin           string `yaml:"backoff_min"`
+	BackoffMax           string `yaml:"backoff_max"`
+	RotateAtContext      string `yaml:"rotate_at_context"`
+	NotifyEachEscalation bool   `yaml:"notify_each_escalation"`
+}
+
 // ---------------------------------------------------------------------------
 // Top-level Config
 // ---------------------------------------------------------------------------
@@ -209,6 +267,7 @@ type Config struct {
 	HTTP        HTTPConfig        `yaml:"http"`
 	Log         LogConfig         `yaml:"log"`
 	Plugins     PluginsConfig     `yaml:"plugins"`
+	Autopilot   AutopilotConfig   `yaml:"autopilot"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -255,6 +314,7 @@ var schema = []setting{
 	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
+	{"autopilot", "Autopilot mode (docs/specs/autopilot.md): a long-lived headless brain agent per plan that decomposes a goal, spawns workers, and lands green work into an integration branch unattended — with the guardian keeping it alive. OFF by default; enable per surface (warden autopilot on / MCP set_autopilot / TUI / web), which runs a preflight and, unless overridden, OR-bundles auto_approve, rate_limit.auto_resume, and auto_restart on for autopilot-owned agents. Sub-keys: enabled (master switch), plans (list of {file} — one brain per plan, at most one active plan per repo), brain (backends.{free,subscription,pay_per_use} cost-tier ladder, allow_pay_per_use (explicit permission gate for paid calls), role, headless, max_parallel_workers), merge (target_branch — the ONLY branch autopilot merges into; strategy — squash|merge|rebase; gate — auto|ci|local, never merge red; delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation)."},
 }
 
 // fileHeader is the comment written at the very top of a generated config file.
@@ -379,6 +439,35 @@ func defaults() Config {
 			Enabled:  false,
 			Registry: []plugin.Spec{},
 		},
+		Autopilot: AutopilotConfig{
+			Enabled: false,
+			Plans:   []AutopilotPlan{},
+			Brain: AutopilotBrainConfig{
+				Backends: AutopilotBackends{
+					Free:         []string{"antigravity"},
+					Subscription: []string{"claude"},
+					PayPerUse:    []string{},
+				},
+				AllowPayPerUse:     false,
+				Role:               "autopilot",
+				Headless:           true,
+				MaxParallelWorkers: 3,
+			},
+			Merge: AutopilotMergeConfig{
+				TargetBranch: "autopilot/integration",
+				Strategy:     "squash",
+				Gate:         "auto",
+				DeleteBranch: true,
+			},
+			Guardian: AutopilotGuardianConfig{
+				Interval:             "60s",
+				HeartbeatTimeout:     "10m",
+				BackoffMin:           "30s",
+				BackoffMax:           "6h",
+				RotateAtContext:      "critical",
+				NotifyEachEscalation: true,
+			},
+		},
 	}
 }
 
@@ -480,6 +569,14 @@ func validate(c *Config) {
 	c.RateLimit.Buffer = validDuration(c.RateLimit.Buffer, d.RateLimit.Buffer)
 	c.HTTP.TimeoutFast = validDuration(c.HTTP.TimeoutFast, d.HTTP.TimeoutFast)
 	c.HTTP.TimeoutSlow = validDuration(c.HTTP.TimeoutSlow, d.HTTP.TimeoutSlow)
+	c.Autopilot.Merge.Gate = validAutopilotGate(c.Autopilot.Merge.Gate, d.Autopilot.Merge.Gate)
+	if strings.TrimSpace(c.Autopilot.Merge.TargetBranch) == "" {
+		c.Autopilot.Merge.TargetBranch = d.Autopilot.Merge.TargetBranch
+	}
+	c.Autopilot.Guardian.Interval = validDuration(c.Autopilot.Guardian.Interval, d.Autopilot.Guardian.Interval)
+	c.Autopilot.Guardian.HeartbeatTimeout = validDuration(c.Autopilot.Guardian.HeartbeatTimeout, d.Autopilot.Guardian.HeartbeatTimeout)
+	c.Autopilot.Guardian.BackoffMin = validDuration(c.Autopilot.Guardian.BackoffMin, d.Autopilot.Guardian.BackoffMin)
+	c.Autopilot.Guardian.BackoffMax = validDuration(c.Autopilot.Guardian.BackoffMax, d.Autopilot.Guardian.BackoffMax)
 	if strings.TrimSpace(c.LocalLLM.URL) == "" {
 		c.LocalLLM.URL = d.LocalLLM.URL
 	}
@@ -519,6 +616,19 @@ func validLogFormat(v, def string) string {
 		return strings.ToLower(strings.TrimSpace(v))
 	}
 	slog.Warn("config: invalid log_format, using default", "value", v, "default", def)
+	return def
+}
+
+// validAutopilotGate normalizes the merge gate mode to auto|ci|local, falling
+// back to def on any other (or empty) value.
+func validAutopilotGate(v, def string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "auto", "ci", "local":
+		return strings.ToLower(strings.TrimSpace(v))
+	case "":
+		return def
+	}
+	slog.Warn("config: invalid autopilot.merge.gate, using default", "value", v, "default", def)
 	return def
 }
 
@@ -1279,4 +1389,58 @@ func durOr(s string, def time.Duration) time.Duration {
 		return d
 	}
 	return def
+}
+
+// ---------------------------------------------------------------------------
+// Autopilot accessors (docs/specs/autopilot.md)
+// ---------------------------------------------------------------------------
+
+// GetAutopilotEnabled reports the persisted master-switch value. The live toggle
+// is driven through the daemon Controller (POST /autopilot); this is the on-disk
+// default the daemon starts from.
+func (c Config) GetAutopilotEnabled() bool { return c.Autopilot.Enabled }
+
+// AutopilotPlanFiles returns the configured plan-file paths, skipping empties.
+func (c Config) AutopilotPlanFiles() []string {
+	out := make([]string, 0, len(c.Autopilot.Plans))
+	for _, p := range c.Autopilot.Plans {
+		if strings.TrimSpace(p.File) != "" {
+			out = append(out, p.File)
+		}
+	}
+	return out
+}
+
+// AutopilotIntegrationBranch returns the configured merge target (the only branch
+// autopilot merges into).
+func (c Config) AutopilotIntegrationBranch() string { return c.Autopilot.Merge.TargetBranch }
+
+// AutopilotGate returns the configured gate mode (auto|ci|local).
+func (c Config) AutopilotGate() string { return c.Autopilot.Merge.Gate }
+
+// AutopilotBundle is the OR-bundle autopilot applies to its own agents when
+// enabled (autopilot.md §10): auto_approve, rate_limit.auto_resume, and
+// auto_restart are forced on for autopilot-owned agents unless already on. It is
+// a PURE view of what enabling would flip — the S1 core computes it (and tests
+// it) but nothing consumes it yet; the brain/guardian stages read it when they
+// spawn autopilot-owned agents.
+type AutopilotBundle struct {
+	AutoApprove bool
+	AutoResume  bool
+	AutoRestart bool
+}
+
+// AutopilotBundle returns the effective supervision flags for autopilot-owned
+// agents: each is the OR of its base config value and autopilot being enabled.
+// When autopilot is off it returns the base values unchanged.
+func (c Config) AutopilotBundle() AutopilotBundle {
+	on := c.Autopilot.Enabled
+	// auto_restart has no single master flag (it is per-agent opt-in with a cap);
+	// enabling autopilot means autopilot-owned agents get it, which we model as
+	// "on when autopilot is on" — the base has no global bool to OR against.
+	return AutopilotBundle{
+		AutoApprove: c.AutoApprove.Enabled || on,
+		AutoResume:  c.RateLimit.AutoResume || on,
+		AutoRestart: on,
+	}
 }

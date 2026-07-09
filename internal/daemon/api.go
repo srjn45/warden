@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
@@ -188,7 +189,17 @@ type Server struct {
 	// file (set by the daemon to config.WriteAutoApprove). nil ⇒ the PUT
 	// /auto-approve/policy endpoint changes the live policy but does not persist.
 	autoApprovePersist func(approval.Policy) error
+	// autopilot is the autopilot master switch + per-plan run registry (S1). nil ⇒
+	// the feature is unconfigured; GET /autopilot then reports disabled/empty and
+	// POST /autopilot returns 403. See strict_autopilot.go / internal/autopilot.
+	autopilot *autopilot.Controller
 }
+
+// SetAutopilotController wires the autopilot Controller (docs/specs/autopilot.md).
+// A nil controller leaves the feature unconfigured (GET reports disabled, POST
+// returns 403). Named to avoid colliding with the generated SetAutopilot strict
+// handler (POST /autopilot).
+func (s *Server) SetAutopilotController(c *autopilot.Controller) { s.autopilot = c }
 
 // SetScheduler wires the native scheduler (#15) and its config gate.
 // enabled=false (or a nil store) makes the schedule endpoints return 403 and the

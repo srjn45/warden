@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/auth"
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/ctxtokens"
@@ -279,6 +280,17 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer schedStore.Close()
 			srv.SetScheduler(cfg.SchedulerEnabled, schedStore, time.Minute)
+			// Autopilot (docs/specs/autopilot.md): construct the master-switch
+			// Controller from config. S1 is inert — the switch + preflight exist on
+			// every surface but no brain spawns yet. baseDir anchors relative plan
+			// paths to the daemon's working directory.
+			apBaseDir, _ := os.Getwd()
+			srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
+				Plans:             cfg.AutopilotPlanFiles(),
+				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
+				Gate:              cfg.AutopilotGate(),
+				BaseDir:           apBaseDir,
+			}, nil))
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with
 			// plugins off rather than refusing to start the daemon. Once loaded,

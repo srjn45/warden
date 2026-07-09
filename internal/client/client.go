@@ -1084,6 +1084,110 @@ func (c *Client) ScheduleDelete(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/schedules/"+url.PathEscape(id), nil, nil)
 }
 
+// AutopilotStatus mirrors the daemon's GET /autopilot response (autopilot.md §5).
+type AutopilotStatus struct {
+	Enabled bool                 `json:"enabled"`
+	Runs    []AutopilotRunStatus `json:"runs"`
+}
+
+// AutopilotRunStatus is one run's slice of AutopilotStatus.
+type AutopilotRunStatus struct {
+	RunID           string              `json:"run_id"`
+	PlanFile        string              `json:"plan_file"`
+	Repo            string              `json:"repo"`
+	State           string              `json:"state"`
+	Gate            string              `json:"gate"`
+	Brain           *AutopilotBrain     `json:"brain"`
+	WorkersInFlight int                 `json:"workers_in_flight"`
+	Tasks           AutopilotTaskCounts `json:"tasks"`
+	Backoff         *AutopilotBackoff   `json:"backoff"`
+	LandedTotal     int                 `json:"landed_total"`
+}
+
+// AutopilotBrain describes the run's brain agent (nil in the S1 inert core).
+type AutopilotBrain struct {
+	AgentID       string `json:"agent_id"`
+	Backend       string `json:"backend"`
+	Tier          string `json:"tier"`
+	LastHeartbeat string `json:"last_heartbeat"`
+	ContextLevel  string `json:"context_level"`
+}
+
+// AutopilotTaskCounts is the ledger task rollup shown in status.
+type AutopilotTaskCounts struct {
+	Pending    int `json:"pending"`
+	InProgress int `json:"in_progress"`
+	Landed     int `json:"landed"`
+}
+
+// AutopilotBackoff describes the guardian's capped backoff (nil unless degraded).
+type AutopilotBackoff struct {
+	Stage       int    `json:"stage"`
+	NextRetryAt string `json:"next_retry_at"`
+	LastError   string `json:"last_error"`
+}
+
+// AutopilotPreflightError is the 409 body when enabling fails preflight: the full
+// list of actionable failures (autopilot.md §5.1). Client surfaces it verbatim.
+type AutopilotPreflightError struct {
+	Summary  string
+	Failures []string
+}
+
+func (e *AutopilotPreflightError) Error() string {
+	if len(e.Failures) == 0 {
+		return e.Summary
+	}
+	return e.Summary + ": " + strings.Join(e.Failures, "; ")
+}
+
+// GetAutopilot fetches the autopilot status (GET /autopilot).
+func (c *Client) GetAutopilot(ctx context.Context) (AutopilotStatus, error) {
+	var st AutopilotStatus
+	if err := c.do(ctx, http.MethodGet, "/autopilot", nil, &st); err != nil {
+		return AutopilotStatus{}, err
+	}
+	return st, nil
+}
+
+// SetAutopilot flips the master switch (POST /autopilot). On a 409 preflight
+// failure it returns a *AutopilotPreflightError carrying the full failure list so
+// callers can print every problem in one pass.
+func (c *Client) SetAutopilot(ctx context.Context, enabled bool) (AutopilotStatus, error) {
+	var st AutopilotStatus
+	body := map[string]bool{"enabled": enabled}
+	// longTimeout: enabling runs the preflight, which may auto-create the
+	// integration branch and shell git/gh.
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot", body, &st)
+	if err != nil {
+		var se *StatusError
+		if errors.As(err, &se) && se.Code == http.StatusConflict {
+			if pfe := parseAutopilotPreflight(se.Body); pfe != nil {
+				return AutopilotStatus{}, pfe
+			}
+		}
+		return AutopilotStatus{}, err
+	}
+	return st, nil
+}
+
+// parseAutopilotPreflight decodes a 409 body into the typed preflight error, or
+// nil if the body is not the expected shape.
+func parseAutopilotPreflight(body []byte) *AutopilotPreflightError {
+	var wire struct {
+		Error    string   `json:"error"`
+		Failures []string `json:"failures"`
+	}
+	if err := json.Unmarshal(body, &wire); err != nil || len(wire.Failures) == 0 {
+		return nil
+	}
+	summary := wire.Error
+	if summary == "" {
+		summary = "autopilot preflight failed"
+	}
+	return &AutopilotPreflightError{Summary: summary, Failures: wire.Failures}
+}
+
 // GetMetrics fetches the live resource snapshot (GET /metrics).
 func (c *Client) GetMetrics(ctx context.Context) (*metrics.Sample, error) {
 	var s metrics.Sample

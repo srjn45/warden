@@ -1,0 +1,95 @@
+package cli
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/client"
+)
+
+func newAutopilotCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "autopilot",
+		Short: "Turn autopilot mode on/off and show its status",
+		Long: "Autopilot runs a long-lived headless brain agent per plan that decomposes a\n" +
+			"goal, spawns workers, and lands green work into an integration branch\n" +
+			"unattended. Enabling runs a preflight (plan file valid, gh authenticated,\n" +
+			"integration branch present, at most one active run per repo) and fails fast\n" +
+			"with the full list of problems so you fix everything in one pass. `off` is the\n" +
+			"kill switch. Configure the feature under the `autopilot` block in the config\n" +
+			"file (or scaffold it with `warden autopilot init`).",
+	}
+	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd())
+	return cmd
+}
+
+func newAutopilotOnCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "on",
+		Short: "Enable autopilot (runs the enable-time preflight)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			st, err := clientFor(cmd).SetAutopilot(cmd.Context(), true)
+			if err != nil {
+				var pfe *client.AutopilotPreflightError
+				if errors.As(err, &pfe) {
+					fmt.Fprintln(cmd.ErrOrStderr(), "autopilot enable-time preflight failed — fix these and retry:")
+					for _, f := range pfe.Failures {
+						fmt.Fprintf(cmd.ErrOrStderr(), "  • %s\n", f)
+					}
+					fmt.Fprintln(cmd.ErrOrStderr(), "\nhint: run `warden autopilot init` to scaffold a plan file and config block")
+					return fmt.Errorf("autopilot not enabled (%d preflight failure(s))", len(pfe.Failures))
+				}
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "autopilot enabled — %d run(s)\n", len(st.Runs))
+			printAutopilotRuns(cmd, st)
+			return nil
+		},
+	}
+}
+
+func newAutopilotOffCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "off",
+		Short: "Disable autopilot (kill switch — stops spawning/landing)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if _, err := clientFor(cmd).SetAutopilot(cmd.Context(), false); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "autopilot disabled")
+			return nil
+		},
+	}
+}
+
+func newAutopilotStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show autopilot status",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			st, err := clientFor(cmd).GetAutopilot(cmd.Context())
+			if err != nil {
+				return err
+			}
+			state := "disabled"
+			if st.Enabled {
+				state = "enabled"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "autopilot: %s — %d run(s)\n", state, len(st.Runs))
+			printAutopilotRuns(cmd, st)
+			return nil
+		},
+	}
+}
+
+// printAutopilotRuns renders one line per run: id, state, gate, plan file, repo.
+func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
+	for _, r := range st.Runs {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\tgate=%s\t%s\t%s\n",
+			r.RunID, r.State, r.Gate, r.PlanFile, r.Repo)
+	}
+}
