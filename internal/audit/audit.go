@@ -57,6 +57,15 @@ type Writer struct {
 // perms — the trail can name agents and prompts, so keep it owner-only.
 func NewWriter(path string) *Writer { return &Writer{path: path} }
 
+// Path returns the writer's on-disk trail location so a reader (e.g. the
+// autopilot recovery digest) can Read it. Empty for a nil Writer (auditing off).
+func (w *Writer) Path() string {
+	if w == nil {
+		return ""
+	}
+	return w.path
+}
+
 // Log appends ev to the audit file. It stamps Time if unset, then writes one
 // line. Best-effort by contract: it never returns an error and never panics —
 // an I/O failure is logged via slog and swallowed. Safe for concurrent callers;

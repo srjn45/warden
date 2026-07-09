@@ -1418,6 +1418,11 @@ func (c Config) AutopilotIntegrationBranch() string { return c.Autopilot.Merge.T
 // AutopilotGate returns the configured gate mode (auto|ci|local).
 func (c Config) AutopilotGate() string { return c.Autopilot.Merge.Gate }
 
+// AutopilotBrainBackends returns the cost-tier backend ladder for the brain
+// (autopilot.md §7). The daemon maps it into autopilot.BackendLadder; S3 uses the
+// free tier (brain selection) and the union (preflight trust check).
+func (c Config) AutopilotBrainBackends() AutopilotBackends { return c.Autopilot.Brain.Backends }
+
 // AutopilotBundle is the OR-bundle autopilot applies to its own agents when
 // enabled (autopilot.md §10): auto_approve, rate_limit.auto_resume, and
 // auto_restart are forced on for autopilot-owned agents unless already on. It is

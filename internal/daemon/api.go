@@ -198,8 +198,15 @@ type Server struct {
 // SetAutopilotController wires the autopilot Controller (docs/specs/autopilot.md).
 // A nil controller leaves the feature unconfigured (GET reports disabled, POST
 // returns 403). Named to avoid colliding with the generated SetAutopilot strict
-// handler (POST /autopilot).
-func (s *Server) SetAutopilotController(c *autopilot.Controller) { s.autopilot = c }
+// handler (POST /autopilot). It also injects the daemon-backed Runtime so that
+// enabling a run spawns a real headless brain (S3): the brain lifecycle, the
+// ctx-store ledger, the recovery digest sources, and owner notifications.
+func (s *Server) SetAutopilotController(c *autopilot.Controller) {
+	s.autopilot = c
+	if c != nil {
+		c.SetRuntime(autopilotRuntime{s: s})
+	}
+}
 
 // SetScheduler wires the native scheduler (#15) and its config gate.
 // enabled=false (or a nil store) makes the schedule endpoints return 403 and the

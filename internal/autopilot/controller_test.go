@@ -22,6 +22,7 @@ type fakeEnv struct {
 	existsErr     error
 	createErr     error
 	ghErr         error
+	unknownBE     map[string]bool // backend ids BackendKnown rejects
 
 	created []string // "repo|branch|base" audit of CreateBranch calls
 }
@@ -63,6 +64,13 @@ func (f *fakeEnv) CreateBranch(_ context.Context, repo, branch, base string) err
 }
 
 func (f *fakeEnv) GHAuthOK(_ context.Context) error { return f.ghErr }
+
+func (f *fakeEnv) BackendKnown(backend string) error {
+	if f.unknownBE[backend] {
+		return errors.New("brain backend \"" + backend + "\" is not a known agent backend")
+	}
+	return nil
+}
 
 // writePlan creates a valid plan file under dir and returns its path.
 func writePlan(t *testing.T, dir, name, goal string) string {

@@ -92,11 +92,18 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 		}
 	}
 
-	// TODO(S3): backend-trust check — every ladder backend must be installed,
-	// authenticated, and TRUSTED in this repo (first-run trust prompts are a
-	// one-time operator step and must surface here, not mid-rotation). Wired once
-	// the brain lifecycle + backend ladder land in S3.
-	//
+	// Backend-trust check (§5.1): every backend the ladder could ever select must
+	// be one warden can launch, so a typo'd or uninstalled backend surfaces at
+	// enable rather than mid-rotation at 3am. S3 checks the mechanical half
+	// (known/launchable); deeper per-repo trust/auth detection lands with the tier
+	// failover work (S5). An empty ladder is not a failure here — brain selection
+	// falls back to the daemon default.
+	for _, backend := range c.backends.all() {
+		if err := c.env.BackendKnown(backend); err != nil {
+			fails = append(fails, err.Error())
+		}
+	}
+
 	// TODO(S4): gate-mode resolution — resolve merge.gate `auto` to `ci` or
 	// `local` (autopilot.md §6.1) and report the resolved mode in AutopilotStatus.
 	// S1 reports the configured mode verbatim; S4 replaces this with the resolved

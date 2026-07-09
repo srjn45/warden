@@ -7,7 +7,7 @@ import (
 
 func TestGetKnownRoles(t *testing.T) {
 	// Every built-in role resolves, carries its name back, and has a description.
-	for _, name := range []string{"general", "orchestrator", "implementer", "auto-merger", "reviewer"} {
+	for _, name := range []string{"general", "orchestrator", "implementer", "auto-merger", "reviewer", "autopilot"} {
 		r, ok := Get(name)
 		if !ok {
 			t.Fatalf("Get(%q): want ok, got not found", name)
@@ -42,8 +42,8 @@ func TestGetEmptyAndUnknown(t *testing.T) {
 
 func TestNamesDefaultFirstAndComplete(t *testing.T) {
 	names := Names()
-	if len(names) != 5 {
-		t.Fatalf("Names() len = %d, want 5 (%v)", len(names), names)
+	if len(names) != 6 {
+		t.Fatalf("Names() len = %d, want 6 (%v)", len(names), names)
 	}
 	if names[0] != Default {
 		t.Errorf("Names()[0] = %q, want %q first", names[0], Default)

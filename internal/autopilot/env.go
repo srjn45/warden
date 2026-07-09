@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/srjn45/warden/internal/agentbackend"
 )
 
 // Env is the small host surface the preflight touches: git topology on the plan
@@ -27,6 +29,13 @@ type Env interface {
 	// GHAuthOK returns nil when `gh` is installed and authenticated and can reach
 	// the remote; otherwise an actionable error.
 	GHAuthOK(ctx context.Context) error
+	// BackendKnown returns nil when backend is an agent backend warden can launch,
+	// else an actionable error. It is the mechanical half of the §5.1 backend-trust
+	// preflight — a typo'd or uninstalled ladder backend surfaces at enable, not
+	// mid-rotation at 3am. Deeper per-repo trust/auth detection (a first-run trust
+	// prompt is a one-time operator step, never a runtime blocker) lands with the
+	// tier failover work (S5); autopilot never auto-clears a trust prompt.
+	BackendKnown(backend string) error
 }
 
 // execEnv is the production Env backed by the git and gh CLIs.
@@ -79,6 +88,13 @@ func (execEnv) BranchExists(ctx context.Context, repo, branch string) (bool, err
 func (execEnv) CreateBranch(ctx context.Context, repo, branch, base string) error {
 	if _, err := runGit(ctx, repo, "branch", branch, base); err != nil {
 		return fmt.Errorf("create branch %s off %s: %w", branch, base, err)
+	}
+	return nil
+}
+
+func (execEnv) BackendKnown(backend string) error {
+	if _, err := agentbackend.Get(backend); err != nil {
+		return fmt.Errorf("brain backend %q is not a known agent backend: %v", backend, err)
 	}
 	return nil
 }

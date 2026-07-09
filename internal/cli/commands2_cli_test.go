@@ -298,7 +298,7 @@ func TestRoleListCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("role list: %v", err)
 	}
-	for _, want := range []string{"general", "orchestrator", "implementer", "auto-merger", "reviewer"} {
+	for _, want := range []string{"general", "orchestrator", "implementer", "auto-merger", "reviewer", "autopilot"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("role list missing %q: %q", want, out)
 		}
