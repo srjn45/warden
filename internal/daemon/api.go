@@ -206,6 +206,17 @@ func (s *Server) SetAutopilotController(c *autopilot.Controller) {
 	if c != nil {
 		c.SetRuntime(autopilotRuntime{s: s})
 	}
+	// Wire the approval-routing seam (autopilot.md §8): while a run is active, an
+	// autopilot-owned worker's unanswerable prompt (and tripped breaker) routes to
+	// its brain instead of a human. A nil controller clears the seam so every
+	// worker takes the normal human path again.
+	if s.poller != nil {
+		if c != nil {
+			s.poller.Autopilot = autopilotApprovals{s: s}
+		} else {
+			s.poller.Autopilot = nil
+		}
+	}
 }
 
 // SetScheduler wires the native scheduler (#15) and its config gate.

@@ -204,6 +204,9 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	if err != nil {
 		return nil, err
 	}
+	if err := s.guardOwnership(ctx, sess); err != nil {
+		return nil, err
+	}
 	if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 		return nil, err
 	}
@@ -245,6 +248,9 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	}
 	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.guardOwnership(ctx, sess); err != nil {
 		return nil, err
 	}
 	id := sess.ID // req.Id may be a name; key all store writes on the resolved id
@@ -308,6 +314,9 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 	}
 	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.guardOwnership(ctx, sess); err != nil {
 		return nil, err
 	}
 	if err := s.life.RemoveWorktree(ctx, sess, force, deleteAdopted); err != nil {

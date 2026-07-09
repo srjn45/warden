@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/ctxstore"
@@ -152,6 +153,37 @@ func (rt autopilotRuntime) RecentAudit(ctx context.Context, runID string, limit 
 // validate); richer notification channels can hook in later.
 func (rt autopilotRuntime) NotifyOwner(runID, msg string) {
 	slog.Warn("autopilot: owner notification", "run", runID, "msg", msg)
+}
+
+// InstallDefaultAutoApprovePolicy installs the generous default auto-approve
+// policy (autopilot.md §10) when — and only when — the owner has configured no
+// rules of their own, so day-one autopilot workers don't stall on recognized
+// non-destructive prompts. The default enables auto-approve and allows every
+// non-destructive recognized prompt (an empty allow rule matches all; the
+// destructive guard still blocks irreversible actions unconditionally upstream,
+// and anything the policy still can't answer routes to the brain per §8). It
+// preserves the owner's other settings (per-agent overrides, max_repeats). A
+// no-op once any rules exist, so it never clobbers a configured policy and a
+// re-enable is idempotent. Best-effort persistence mirrors the PUT
+// /auto-approve/policy handler.
+func (rt autopilotRuntime) InstallDefaultAutoApprovePolicy() {
+	if rt.s.poller == nil {
+		return
+	}
+	cur := rt.s.poller.AutoApprovePolicySnapshot()
+	if cur.HasRules() {
+		return // owner configured rules — respect them, install nothing
+	}
+	pol := cur
+	pol.Enabled = true
+	pol.Rules = approval.Rules{Allow: []approval.Rule{{}}}
+	rt.s.poller.SetAutoApprovePolicy(pol)
+	if rt.s.autoApprovePersist != nil {
+		if err := rt.s.autoApprovePersist(pol); err != nil {
+			slog.Warn("autopilot: persist default auto-approve policy failed", "err", err)
+		}
+	}
+	slog.Info("autopilot: installed generous default auto-approve policy (owner had none configured)")
 }
 
 // ctxLedgerStore adapts *ctxstore.Store to autopilot.CtxStore, translating the

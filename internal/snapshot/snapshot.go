@@ -156,6 +156,14 @@ func (m *Manager) List(_ context.Context, sessionID string) ([]*Snapshot, error)
 	return m.store.List(sessionID)
 }
 
+// Get returns a snapshot's metadata by id (ErrNotFound when unknown). It lets a
+// caller learn a snapshot's owning agent before restoring it — e.g. the daemon's
+// autopilot ownership guard (docs/specs/autopilot.md §8) checks the target agent
+// up front rather than after the restore has already run.
+func (m *Manager) Get(id string) (*Snapshot, error) {
+	return m.store.Get(id)
+}
+
 // Restore re-applies a snapshot's captured worktree state onto its recorded
 // worktree. It refuses a protected branch and (unless force) a dirty tree, then
 // applies the stash commit — reversible-safe: stash apply neither resets HEAD nor

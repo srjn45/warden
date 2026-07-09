@@ -200,6 +200,17 @@ func (s *Server) RestoreSnapshot(ctx context.Context, req oapi.RestoreSnapshotRe
 	if req.Body != nil {
 		force = req.Body.Force
 	}
+	// Ownership guard (autopilot.md §8): a run's brain may only restore a snapshot
+	// of an agent it owns. Resolve the snapshot's owning session up front so the
+	// refusal lands before any state is applied. A bare-dir snapshot (no
+	// SessionID) or an unknown/unresolvable owner leaves the guard a no-op.
+	if snap, gerr := s.snap.Get(req.Id); gerr == nil && snap.SessionID != "" {
+		if target, terr := s.store.GetByNameOrID(ctx, snap.SessionID); terr == nil {
+			if err := s.guardOwnership(ctx, target); err != nil {
+				return nil, err
+			}
+		}
+	}
 	res, err := s.snap.Restore(ctx, req.Id, force)
 	if errors.Is(err, snapshot.ErrNotFound) {
 		return nil, errStatus(http.StatusNotFound, "snapshot not found: "+req.Id)
