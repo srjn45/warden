@@ -27,6 +27,33 @@ const TokenEnv = "WARDEN_TOKEN"
 // set without one (otherwise auth is off entirely and "read-only" grants nothing).
 const ReadonlyTokenEnv = "WARDEN_READONLY_TOKEN"
 
+// SessionIDEnv is the environment variable warden sets in every agent's shell to
+// its own session id, so the agent's CLI/MCP calls can identify themselves back
+// to the daemon. AGENTCTL_SessionIDEnvLegacy is the pre-rename fallback.
+const SessionIDEnv = "WARDEN_SESSION_ID"
+
+// sessionIDEnvLegacy is the legacy env name kept as a fallback for older shells.
+const sessionIDEnvLegacy = "AGENTCTL_SESSION_ID"
+
+// ActorHeader carries the calling agent's session id on daemon requests so
+// request-scoped ownership checks (autopilot's §8 guard) can recover the
+// authenticated agent identity behind a call. Like the mailbox `from` field it is
+// advisory provenance in warden's single-trusted-local-user model, not a security
+// boundary against a token holder — its job is to mechanically fence a persona's
+// own decisions (a brain cannot terminate an agent it does not own), not to repel
+// a malicious client.
+const ActorHeader = "X-Warden-Actor"
+
+// ActorFromEnv returns the calling agent's session id from the environment
+// (WARDEN_SESSION_ID, then the legacy AGENTCTL_SESSION_ID), or "" when the call
+// originates outside an agent shell (a human terminal, the web UI).
+func ActorFromEnv() string {
+	if id := strings.TrimSpace(os.Getenv(SessionIDEnv)); id != "" {
+		return id
+	}
+	return strings.TrimSpace(os.Getenv(sessionIDEnvLegacy))
+}
+
 // tokenBytes is the entropy size of a generated token (32 bytes → 64 hex chars).
 // 256 bits of randomness makes the token infeasible to brute-force, so a single
 // shared secret is sufficient for the personal-tool threat model.

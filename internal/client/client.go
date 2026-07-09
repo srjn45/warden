@@ -125,6 +125,13 @@ func (c *Client) doT(ctx context.Context, timeout time.Duration, method, path st
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
+	// Identify the calling agent (when this CLI/MCP runs inside one) so the daemon
+	// can enforce autopilot's request-scoped ownership guard (autopilot.md §8). A
+	// human shell / the web UI sets no session env, so the header is simply absent
+	// and the guard no-ops.
+	if actor := auth.ActorFromEnv(); actor != "" {
+		req.Header.Set(auth.ActorHeader, actor)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		// Only a refused connection (nothing listening) means the daemon is down.

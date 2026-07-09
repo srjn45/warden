@@ -79,6 +79,7 @@ type fakeRuntime struct {
 	notified []string
 	spawnErr error
 	nextID   int
+	installs int // times InstallDefaultAutoApprovePolicy was called
 }
 
 func newFakeRuntime() *fakeRuntime { return &fakeRuntime{store: newFakeStore()} }
@@ -100,6 +101,7 @@ func (r *fakeRuntime) TerminateBrain(_ context.Context, agentID string) error {
 func (r *fakeRuntime) NewLedger(runID string) *Ledger   { return NewLedger(r.store, runID) }
 func (r *fakeRuntime) DigestSources() DigestSources     { return r.sources }
 func (r *fakeRuntime) NotifyOwner(_ string, msg string) { r.notified = append(r.notified, msg) }
+func (r *fakeRuntime) InstallDefaultAutoApprovePolicy() { r.installs++ }
 
 func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	dir := t.TempDir()
@@ -144,6 +146,57 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	require.False(t, dst.Enabled)
 	require.Empty(t, dst.Runs)
 	require.Equal(t, []string{"brain-1"}, rt.killed)
+}
+
+// TestControllerInstallsDefaultPolicyOnEnable proves enabling autopilot installs
+// the generous default auto-approve policy (§10) through the runtime seam, so
+// day-one workers don't stall. The seam owns the "owner has no rules" check; the
+// Controller just invokes it once per Enable.
+func TestControllerInstallsDefaultPolicyOnEnable(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "plan.yaml", "ship it")
+	rt := newFakeRuntime()
+	c := NewController(ControllerConfig{
+		Plans:    []string{plan},
+		BaseDir:  dir,
+		Backends: BackendLadder{Free: []string{"antigravity"}},
+	}, &fakeEnv{})
+	c.SetRuntime(rt)
+
+	_, err := c.Enable(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, rt.installs, "enabling autopilot installs the default auto-approve policy")
+
+	c.Disable(context.Background())
+}
+
+// TestActiveBrainForRun proves the approval router's ownership lookup: the run's
+// brain is resolvable while enabled and not after the kill switch (§8).
+func TestActiveBrainForRun(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "plan.yaml", "ship it")
+	rt := newFakeRuntime()
+	c := NewController(ControllerConfig{
+		Plans:    []string{plan},
+		BaseDir:  dir,
+		Backends: BackendLadder{Free: []string{"antigravity"}},
+	}, &fakeEnv{})
+	c.SetRuntime(rt)
+
+	st, err := c.Enable(context.Background())
+	require.NoError(t, err)
+	runID := st.Runs[0].RunID
+
+	brainID, ok := c.ActiveBrainForRun(runID)
+	require.True(t, ok)
+	require.Equal(t, "brain-1", brainID)
+
+	_, ok = c.ActiveBrainForRun("ap-nonexistent")
+	require.False(t, ok, "an unknown run has no brain")
+
+	c.Disable(context.Background())
+	_, ok = c.ActiveBrainForRun(runID)
+	require.False(t, ok, "a disabled autopilot resolves no brain")
 }
 
 func TestControllerBrainSpawnFailureDegrades(t *testing.T) {

@@ -90,6 +90,12 @@ type Runtime interface {
 	// NotifyOwner surfaces an owner-facing message — the one path §3 permits: a
 	// mid-run plan edit that fails to validate (the run keeps its last-good plan).
 	NotifyOwner(runID, msg string)
+	// InstallDefaultAutoApprovePolicy installs the generous default auto-approve
+	// policy for autopilot-owned agents when the owner has configured no rules of
+	// their own (autopilot.md §10), so day-one workers don't stall on recognized
+	// non-destructive prompts (anything the policy still can't answer routes to the
+	// brain, §8). Idempotent: a no-op once the owner has any rules.
+	InstallDefaultAutoApprovePolicy()
 }
 
 // selectBrainBackend picks the brain's backend. S3 hardcodes "first configured

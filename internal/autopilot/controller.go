@@ -212,6 +212,13 @@ func (c *Controller) Enable(ctx context.Context) (Status, error) {
 	}
 	c.runs = newRuns
 	c.enabled = true
+	// Frictionless day-one (§10): when the owner has configured no auto-approve
+	// rules, installing autopilot installs a generous default so workers don't
+	// stall on recognized non-destructive prompts. Idempotent and owner-respecting
+	// (a no-op once any rules exist); the seam owns the "has no rules" check.
+	if c.runtime != nil {
+		c.runtime.InstallDefaultAutoApprovePolicy()
+	}
 	return c.statusLocked(), nil
 }
 
@@ -239,6 +246,25 @@ func (c *Controller) Disable(ctx context.Context) Status {
 	c.enabled = false
 	c.runs = map[string]*run{}
 	return c.statusLocked()
+}
+
+// ActiveBrainForRun returns the agent id of the brain serving run runID while the
+// switch is on and that run has a live brain; ok=false otherwise (unknown run,
+// autopilot disabled, or a degraded run with no brain). The approval router uses
+// it to forward a worker's unanswerable prompt to the right brain — and only
+// while the run is genuinely active, so a torn-down run never captures a worker's
+// escalation (autopilot.md §8).
+func (c *Controller) ActiveBrainForRun(runID string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.enabled {
+		return "", false
+	}
+	r, ok := c.runs[runID]
+	if !ok || r.brain == nil || r.brain.AgentID == "" {
+		return "", false
+	}
+	return r.brain.AgentID, true
 }
 
 // Status returns the current AutopilotStatus (§5).

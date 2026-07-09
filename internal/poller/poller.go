@@ -235,6 +235,20 @@ type Poller struct {
 	// locked; shared by the approval worker and session teardown.
 	approveBreaker *approval.Breaker
 
+	// Autopilot routes approval decisions for autopilot-owned workers to their
+	// run's brain instead of a human (docs/specs/autopilot.md §8): a prompt the
+	// policy can't auto-answer is forwarded to the brain's mailbox (mirrored,
+	// non-blocking, to the human inbox), and a tripped breaker escalates to the
+	// brain rather than paging a human. nil ⇒ feature off; every worker takes the
+	// normal human path. Set by the daemon (SetAutopilotController).
+	Autopilot AutopilotApprovals
+	// lastForward de-dupes brain-forwards: the prompt signature last forwarded per
+	// worker, so an identical prompt seen on every tick forwards to the brain once
+	// rather than on each poll. Guarded by fwdMu (touched by the approval worker
+	// and by Prune on session teardown).
+	lastForward map[string]string
+	fwdMu       sync.Mutex
+
 	// ApprovalEvents is a buffered channel for approval opportunities.
 	// Published when: (1) status transitions to waiting_for_input, OR
 	// (2) pane changes while already in waiting_for_input.
@@ -253,6 +267,23 @@ type Poller struct {
 type ApprovalEvent struct {
 	Session *store.Session // snapshot at event time
 	Pane    string         // pane content that triggered the event
+}
+
+// AutopilotApprovals routes approval decisions for autopilot-owned workers to
+// their run's brain instead of a human (docs/specs/autopilot.md §8). The daemon
+// implements it over the autopilot Controller (which run is active + its brain)
+// and the mailbox; a nil poller.Autopilot leaves every worker on the normal
+// human path.
+type AutopilotApprovals interface {
+	// BrainFor returns the brain agent id owning worker session s while its run is
+	// active; ok=false when s is not an active autopilot-owned worker (or is the
+	// brain itself), in which case the normal human-escalation path applies.
+	BrainFor(s *store.Session) (brainID string, ok bool)
+	// Forward delivers a prompt the auto-approve policy could not answer to the
+	// brain's mailbox and mirrors a non-blocking copy to the human inbox
+	// (visibility + audit). The poller de-dupes by prompt, so Forward is called at
+	// most once per distinct prompt per worker and need not throttle itself.
+	Forward(ctx context.Context, brainID string, worker *store.Session, reason string)
 }
 
 // compactPending is a /compact awaiting its reclaim: pre is the context-token
@@ -358,6 +389,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		preCrashFlagged: map[string]bool{},
 		forceCompact:    map[string]fcState{},
 		approveBreaker:  approval.NewBreaker(),
+		lastForward:     map[string]string{},
 		CheckEvery:      20 * time.Second,
 		CompactCooldown: 2 * time.Minute,
 		ApprovalEvents:  make(chan ApprovalEvent, 100),
@@ -408,6 +440,36 @@ func (p *Poller) SetAutoApprovePolicy(pol approval.Policy) {
 	p.policyMu.Unlock()
 }
 
+// routeToBrain forwards an unanswerable worker prompt to its run's brain,
+// de-duped so an identical prompt seen on every tick forwards once (autopilot.md
+// §8). It returns true when the worker is an active autopilot-owned agent — the
+// caller then suppresses the human-escalation path, since no autopilot worker
+// ever waits on a human. It is a no-op returning false for every ordinary agent
+// (Autopilot unset, or the worker isn't autopilot-owned).
+func (p *Poller) routeToBrain(ctx context.Context, s *store.Session, sig, reason string) bool {
+	if p.Autopilot == nil {
+		return false
+	}
+	brainID, ok := p.Autopilot.BrainFor(s)
+	if !ok {
+		return false
+	}
+	// Forward once per distinct prompt: the same prompt re-observed each tick
+	// stays "handled" (suppress the human path) but is not re-sent to the brain.
+	p.fwdMu.Lock()
+	dup := p.lastForward[s.ID] == sig
+	if !dup {
+		p.lastForward[s.ID] = sig
+	}
+	p.fwdMu.Unlock()
+	if dup {
+		return true
+	}
+	slog.Info("autopilot: forwarding worker prompt to brain", "agent", s.ID, "brain", brainID, "reason", reason)
+	p.Autopilot.Forward(ctx, brainID, s, reason)
+	return true
+}
+
 // tryAutoApprove attempts to auto-approve a recognized prompt by pressing its
 // least-privilege affirmative ("yes") option. Only attempts auto-approval if:
 //   - the effective policy is enabled OR session.AutoApprove is true (the
@@ -455,10 +517,17 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 		AffirmativeSticky: ap.AffirmativeSticky,
 	}
 
-	// Never auto-confirm a destructive/irreversible action — escalate to a human.
-	// This guard runs BEFORE Decide, so no allow rule can ever un-block it.
+	// Signature of this prompt, shared by the circuit breaker and the brain-forward
+	// de-dupe so both count "the same prompt" identically.
+	sig := a.Action + "\x00" + a.Question
+
+	// Never auto-confirm a destructive/irreversible action — this guard runs BEFORE
+	// Decide, so no allow rule can ever un-block it. For an autopilot-owned worker
+	// the blocked prompt is handed to the brain rather than left for a human (§8);
+	// for any other agent it stays unanswered (surfaces as waiting_for_input).
 	if bad, marker := approval.IsDestructive(a); bad {
 		slog.Warn("auto-approve BLOCKED: destructive action", "agent", s.ID, "marker", marker)
+		p.routeToBrain(ctx, s, sig, "destructive prompt blocked ("+marker+"): "+a.Action)
 		return
 	}
 	// Evaluate against the allow/deny policy only when rules are configured. With
@@ -467,32 +536,38 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 	if pol.HasRules() {
 		if d := pol.Decide(a); !d.Approve {
 			slog.Debug("auto-approve skipped by policy", "agent", s.ID, "reason", d.Reason)
+			p.routeToBrain(ctx, s, sig, "auto-approve policy could not answer ("+d.Reason+"): "+a.Action)
 			return
 		}
 	}
 	if a.AffirmativeIdx == 0 {
 		slog.Debug("auto-approve skipped: no affirmative option", "agent", s.ID)
+		p.routeToBrain(ctx, s, sig, "prompt has no auto-approvable option: "+a.Action)
 		return
 	}
 	if a.AffirmativeSticky && !pol.AllowSticky {
 		slog.Debug("auto-approve skipped: only a sticky affirmative (allow_sticky off)", "agent", s.ID)
+		p.routeToBrain(ctx, s, sig, "only a sticky 'don't ask again' affirmative (allow_sticky off): "+a.Action)
 		return
 	}
 
 	// Circuit breaker: an identical prompt that keeps re-appearing after being
-	// approved means approving is not unblocking the agent — stop feeding the
-	// loop and escalate to a human. The prompt then sits unanswered, so the
-	// agent surfaces as waiting_for_input.
+	// approved means approving is not unblocking the agent — stop feeding the loop.
+	// An autopilot-owned worker hands the loop to its brain instead of a human
+	// (§8: no human escalation entry); any other agent escalates to a human and the
+	// prompt sits unanswered (surfaces as waiting_for_input).
 	maxRepeats := pol.EffectiveMaxRepeats()
-	sig := a.Action + "\x00" + a.Question
 	if ok, trippedNow := p.approveBreaker.Allow(s.ID, sig, maxRepeats); !ok {
 		if trippedNow {
 			slog.Warn("auto-approve circuit breaker tripped", "agent", s.ID, "action", a.Action, "repeats", maxRepeats)
-			p.raiseAnomaly(ctx, s, Anomaly{
-				Kind: anomalyApprovalLoop,
-				Detail: fmt.Sprintf("auto-approve halted: the identical prompt (%s) was approved %d times in a row without unblocking the agent — answer it manually or interrupt the agent",
-					a.Action, maxRepeats),
-			})
+			detail := fmt.Sprintf("auto-approve halted: the identical prompt (%s) was approved %d times in a row without unblocking the agent",
+				a.Action, maxRepeats)
+			if !p.routeToBrain(ctx, s, sig, detail) {
+				p.raiseAnomaly(ctx, s, Anomaly{
+					Kind:   anomalyApprovalLoop,
+					Detail: detail + " — answer it manually or interrupt the agent",
+				})
+			}
 		}
 		return
 	}
@@ -780,6 +855,13 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 		}
 	}
 	p.approveBreaker.Prune(live)
+	p.fwdMu.Lock()
+	for id := range p.lastForward {
+		if _, ok := live[id]; !ok {
+			delete(p.lastForward, id)
+		}
+	}
+	p.fwdMu.Unlock()
 }
 
 // dispatchSummary launches a background summarizer for s unless one is already
