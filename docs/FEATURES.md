@@ -884,7 +884,7 @@ measured data); the daemon serves it at `GET /api/v1/spend` (403 when off).
 | **Per-model pricing** | A small `$/Mtok` table (`internal/spend/pricing.go`): Opus `$5/$25`, Sonnet `$3/$15`, Haiku `$0.8/$4` (in/out); an unrecognized model is priced at the Opus tier so spend is never silently under-counted. Opus rates are kept in sync with the savings ledger. |
 | **Budget gate** | A **soft** spawn gate, sibling to the memory-pressure gate: when today's or the trailing-week's measured spend reaches a configured cap, a non-forced spawn returns `428` with a confirmation payload; re-run with `--force` to proceed. Off by default. Tunable via `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd` (a `0` cap disables that axis). |
 | **`$` in `wd ls`** | A **COST** column shows each agent's measured spend beside its context fill (best-effort — `—` when the feature is off). Also surfaced in `wd search` / `wd history`. |
-| **Web Metrics tab** | A **Cost per agent** card: the `total / today / this week` headline plus a live per-agent cost table beside the RSS/CPU charts. |
+| **Web Metrics tab** | A **Cost per agent** card: the `total / today / this week` headline plus a live per-agent cost bar chart (sorted by `$`, top-N costliest with the rest folded into an `others` row) beside the RSS/CPU charts. |
 
 Self-contained, fully unit-tested `internal/spend` package (`store` / `pricing` /
 `report` / `budget`); the CLI rendering lives in `internal/cli/spend.go`.

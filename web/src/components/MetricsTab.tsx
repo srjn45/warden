@@ -4,7 +4,7 @@ import 'uplot/dist/uPlot.min.css';
 import { ApiError, getMetricsHistory, getSavings, getSpend } from '../lib/api';
 import type { MetricsSample } from '../lib/metrics';
 import type { Summary } from '../lib/savings';
-import type { Report as SpendReport } from '../lib/spend';
+import { topAgentSpend, type Report as SpendReport } from '../lib/spend';
 import {
   cpuSeries, rssSeries, totalCpuSeries, totalRssSeries,
   fleetSizeSeries, contextSeries, tokensSavedSeries, featureStackSeries,
@@ -268,9 +268,11 @@ function FleetSizeCard({ history }: { history: MetricsSample[] }) {
 }
 
 // SpendCard shows the live cost side of the ledger: the headline total / today /
-// this-week dollars the budget gate watches, then a per-agent cost table beside
-// the RSS/CPU charts so an agent's money cost sits next to its resource cost. On
-// 403 (spend tracking disabled) it renders the enable hint.
+// this-week dollars the budget gate watches, then a sorted per-agent cost bar
+// chart beside the RSS/CPU charts so an agent's money cost sits next to its
+// resource cost. The chart caps to the top-N costliest agents and folds the rest
+// into an "others" row, so a large fleet stays a compact chart instead of an
+// unbounded table. On 403 (spend tracking disabled) it renders the enable hint.
 function SpendCard({ report, err }: { report: SpendReport | null; err: ApiError | null }) {
   if (err?.status === 403) {
     return (
@@ -280,7 +282,7 @@ function SpendCard({ report, err }: { report: SpendReport | null; err: ApiError 
       />
     );
   }
-  const agents = report?.by_agent ?? [];
+  const bars = topAgentSpend(report?.by_agent);
   return (
     <section className="card metrics-card">
       <h3>Cost per agent</h3>
@@ -292,24 +294,30 @@ function SpendCard({ report, err }: { report: SpendReport | null; err: ApiError 
           <small className="muted">(est. — list prices, excl. cache/discounts)</small>
         </p>
       )}
-      {agents.length === 0
+      {bars.length === 0
         ? <p className="metrics-empty muted">No spend measured yet.</p>
         : (
-          <table className="resources-table">
-            <thead>
-              <tr><th>agent</th><th>cost</th><th>in</th><th>out</th></tr>
-            </thead>
-            <tbody>
-              {agents.map((a) => (
-                <tr key={a.key}>
-                  <td>{a.key}</td>
-                  <td>${a.usd.toFixed(2)}</td>
-                  <td>{a.input_tokens.toLocaleString()}</td>
-                  <td>{a.output_tokens.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul className="spend-bars">
+            {bars.map((b) => (
+              <li
+                key={b.key}
+                className="spend-bar"
+                title={`${b.key} · $${b.usd.toFixed(2)} · in ${b.input_tokens.toLocaleString()} / out ${b.output_tokens.toLocaleString()}`}
+              >
+                <span className="spend-bar-label">{b.key}</span>
+                <span className="spend-bar-track">
+                  <span
+                    className="spend-bar-fill"
+                    style={{
+                      width: `${(b.frac * 100).toFixed(1)}%`,
+                      background: b.others ? 'var(--idle)' : agentColor(b.key),
+                    }}
+                  />
+                </span>
+                <span className="spend-bar-value">${b.usd.toFixed(2)}</span>
+              </li>
+            ))}
+          </ul>
         )}
     </section>
   );

@@ -129,7 +129,8 @@ hard-blocks.
 
 - **`warden ls`** gains a **COST** column (also in `warden search` / `warden history`).
 - The web **Metrics** tab adds a **Cost per agent** card: the `total / today / this
-  week` headline plus a live per-agent cost table beside the RSS/CPU charts.
+  week` headline plus a live per-agent cost bar chart (sorted by `$`, top-N
+  costliest with the rest folded into an `others` row) beside the RSS/CPU charts.
 
 ## One umbrella — `warden cost`
 
