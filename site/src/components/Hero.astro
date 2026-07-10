@@ -3,12 +3,16 @@ const base = import.meta.env.BASE_URL;
 ---
 <section class="section" style="text-align:center">
   <div class="wrap">
-    <h1 style="font-size:2.6rem;margin:0">Run a fleet of Claude agents</h1>
-    <p style="color:var(--muted);font-size:1.15rem">Spawn, watch, approve, and orchestrate Claude Code sessions — from one cockpit.</p>
+    <h1 style="font-size:2.6rem;margin:0">Run a fleet of coding agents</h1>
+    <p style="color:var(--muted);font-size:1.15rem">Spawn, watch, approve, and orchestrate AI coding agents — from one cockpit.</p>
     <p>
       <a href={`${base}start/what-is-warden/`} style="background:var(--accent);color:#06210f;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600">Get started</a>
       &nbsp;
       <a href="https://github.com/srjn45/warden" style="background:var(--panel);padding:10px 18px;border-radius:6px;text-decoration:none">★ Star on GitHub</a>
+    </p>
+    <p class="mono" style="background:#010409;border:1px solid var(--border);border-radius:6px;display:inline-block;padding:8px 14px;font-size:0.95rem;color:var(--fg)">brew install --cask srjn45/tap/warden</p>
+    <p style="color:var(--muted);font-size:0.9rem;margin-top:6px">
+      Works with Claude Code, Codex, Antigravity, Cursor, Aider, OpenCode, Crush, and Goose.
     </p>
     <img src={`${base}media/hero.gif`} alt="warden start and warden ls in a terminal"
       style="max-width:640px;width:100%;border:1px solid var(--border);border-radius:8px;margin-top:18px" loading="eager" />
