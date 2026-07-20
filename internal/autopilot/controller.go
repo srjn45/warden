@@ -274,6 +274,18 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			fails = append(fails, planFails...)
 		case r.repo != target:
 			continue // belongs to another repo — untouched by this per-repo enable
+		case r.skipComplete:
+			// A finished run's plan carries the in-place completion marker (§2.1): it
+			// resolves to THIS repo (so enabling is legitimate — count it as matched)
+			// but is neither a preflight failure nor a fresh run. Surface the skip so
+			// the owner sees the run completed rather than silently vanishing, then
+			// leave it out of the active run set (it never claims its repo, so a new
+			// plan may take over the same repo).
+			matched++
+			fails = append(fails, planFails...)
+			slog.Info("autopilot: plan already complete — skipping (run finished)",
+				"plan", file, "run", r.runID, "completed_at", r.plan.CompletedAt)
+			continue
 		default:
 			matched++
 			fails = append(fails, planFails...)
@@ -433,6 +445,48 @@ func (c *Controller) Disable(ctx context.Context, repo string) Status {
 	}
 	c.runs = remaining
 	return c.statusLocked()
+}
+
+// CompleteRun records that run runID has finished (autopilot.md §2.1, the
+// `active --all tasks landed--> complete` transition). The brain calls it after
+// it has verified the plan's done_when criteria (persona rule §9.6). It, in order:
+//
+//	(a) writes the in-place completion marker (`status: complete` + `completed_at`)
+//	    into the plan file, so preflight SKIPS the plan on every future enable and
+//	    the run can never be executed again by mistake;
+//	(b) advances the run to StateComplete;
+//	(c) tears the brain down gracefully (kill-switch semantics: in-flight workers
+//	    keep running) while RETAINING the ledger — the run's durable record lives in
+//	    the ctx store and is deliberately untouched.
+//
+// The marker is written FIRST: if that fails the run stays active and the brain
+// can retry, rather than leaving a torn-down run whose plan would re-execute on
+// the next enable. Idempotent: a second call on an already-complete run is a
+// no-op success, so a brain re-issuing after a restart completes nothing twice.
+func (c *Controller) CompleteRun(ctx context.Context, runID string) (Status, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok {
+		return c.statusLocked(), fmt.Errorf("autopilot: unknown run %q", runID)
+	}
+	if r.state == StateComplete {
+		return c.statusLocked(), nil // already complete — idempotent no-op
+	}
+	if err := markPlanCompleteInPlace(r.absPlanFile, c.now().UTC().Format(time.RFC3339)); err != nil {
+		return c.statusLocked(), fmt.Errorf("autopilot: mark run %s complete: %w", runID, err)
+	}
+	// Reflect the marker in the in-memory plan so any later read of this run agrees
+	// with the file (a re-enable would re-skip it regardless).
+	r.plan.Status = PlanStatusComplete
+	// Graceful teardown: stop the plan watcher and terminate the brain; the ledger
+	// (ctx store) is untouched. The run stays registered as StateComplete so status
+	// still reports it until the next enable reconciles it away (preflight now skips
+	// the marked plan). isLandableState(StateComplete) is false, so a late land
+	// attempt on this run now returns run_disabled.
+	c.stopRunLocked(ctx, r)
+	r.state = StateComplete
+	return c.statusLocked(), nil
 }
 
 // ActiveBrainForRun returns the agent id of the brain serving run runID while the

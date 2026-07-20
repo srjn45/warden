@@ -418,6 +418,17 @@ func (s *Server) registerExtraTools() {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "autopilot_complete",
+		Description: "Declare YOUR autopilot run complete — call this ONLY after you (the brain) have verified the plan's done_when criteria are all satisfied. The daemon writes an in-place `status: complete` marker into your plan file (so the run is never executed again by mistake), tears you (the brain) down gracefully — in-flight workers keep running — and retains the run ledger. Idempotent: a second call is a no-op. The run is inferred from your own brain identity, so no arguments are needed. Autopilot brain-only.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		st, err := s.cl.CompleteAutopilot(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(st)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "set_auto_approve_policy",
 		Description: "Manage the auto-approve RULE policy (distinct from per-agent on/off via set_auto_approve). action=show returns the live policy; allow/deny appends a rule (by tool/pattern/regex/paths); clear drops rules; enable/disable flips the master switch. Use agent=<name|id> to scope to a per-agent override. With no rules an enabled policy approves every recognized, non-destructive prompt. Mirrors `warden auto-approve rules|allow|deny|clear|enable|disable`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a autoApprovePolicyArgs) (*mcpsdk.CallToolResult, any, error) {

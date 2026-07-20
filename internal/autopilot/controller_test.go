@@ -385,6 +385,84 @@ func TestBootReEnablePersistsAcrossRestart(t *testing.T) {
 	require.Equal(t, dir, st.Runs[0].Repo)
 }
 
+// writeCompletePlan creates a plan file already carrying the completion marker.
+func writeCompletePlan(t *testing.T, dir, name, goal string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	body := "version: 1\ngoal: " + goal + "\nstatus: complete\ncompleted_at: 2026-07-21T10:00:00Z\n"
+	require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
+	return p
+}
+
+func TestCompleteRunMarksPlanAndSkipsOnReenable(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "plan.yaml", "ship it")
+	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir}, &fakeEnv{})
+
+	st, err := c.Enable(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, st.Runs, 1)
+	runID := st.Runs[0].RunID
+	require.Equal(t, StateActive, st.Runs[0].State)
+
+	// Complete the run: the plan file gains the in-place marker and the run
+	// transitions to complete (kept in status until the next enable reconciles it).
+	st2, err := c.CompleteRun(context.Background(), runID)
+	require.NoError(t, err)
+	require.Len(t, st2.Runs, 1)
+	require.Equal(t, StateComplete, st2.Runs[0].State)
+
+	// The plan file now carries a durable, re-parseable completion marker.
+	p, err := LoadPlan(plan)
+	require.NoError(t, err)
+	require.True(t, p.IsComplete())
+	require.NotEmpty(t, p.CompletedAt)
+
+	// Idempotent: completing again is a no-op success.
+	_, err = c.CompleteRun(context.Background(), runID)
+	require.NoError(t, err)
+
+	// Re-enabling skips the completed plan: no error, no active run registered.
+	st3, err := c.Enable(context.Background(), "")
+	require.NoError(t, err)
+	require.True(t, st3.Enabled)
+	require.Empty(t, st3.Runs, "a completed plan is skipped, not re-registered")
+}
+
+func TestCompleteRunUnknownRun(t *testing.T) {
+	c := NewController(ControllerConfig{}, &fakeEnv{})
+	_, err := c.CompleteRun(context.Background(), "ap-nope")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown run")
+}
+
+func TestPreflightSkipsCompletedPlan(t *testing.T) {
+	dir := t.TempDir()
+	done := writeCompletePlan(t, dir, "done.yaml", "already shipped")
+	c := NewController(ControllerConfig{Plans: []string{done}, BaseDir: dir}, &fakeEnv{})
+
+	// A lone completed plan: enable succeeds, registers no run, and is not a failure.
+	st, err := c.Enable(context.Background(), "")
+	require.NoError(t, err)
+	require.True(t, st.Enabled)
+	require.Empty(t, st.Runs)
+}
+
+func TestCompletedPlanDoesNotClaimRepoForActiveSibling(t *testing.T) {
+	dir := t.TempDir()
+	// Two plans in the same dir ⇒ same repo. One is complete, one active. The
+	// completed one must NOT trip the one-run-per-repo guard (it is skipped before
+	// the repo-conflict check), so the active plan enables cleanly.
+	done := writeCompletePlan(t, dir, "done.yaml", "already shipped")
+	active := writePlan(t, dir, "active.yaml", "ship the next thing")
+	c := NewController(ControllerConfig{Plans: []string{done, active}, BaseDir: dir}, &fakeEnv{})
+
+	st, err := c.Enable(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, st.Runs, 1)
+	require.Equal(t, active, st.Runs[0].PlanFile)
+}
+
 func TestStatusUnconfiguredDefaults(t *testing.T) {
 	c := NewController(ControllerConfig{}, &fakeEnv{})
 	st := c.Status()

@@ -1140,6 +1140,9 @@ type ServerInterface interface {
 	// Enable or disable autopilot
 	// (POST /api/v1/autopilot)
 	SetAutopilot(w http.ResponseWriter, r *http.Request)
+	// Mark the calling brain's run complete
+	// (POST /api/v1/autopilot/complete)
+	CompleteAutopilot(w http.ResponseWriter, r *http.Request)
 	// Land a worker branch into the integration branch
 	// (POST /api/v1/autopilot/land)
 	LandAutopilot(w http.ResponseWriter, r *http.Request)
@@ -1377,6 +1380,12 @@ func (_ Unimplemented) GetAutopilot(w http.ResponseWriter, r *http.Request) {
 // Enable or disable autopilot
 // (POST /api/v1/autopilot)
 func (_ Unimplemented) SetAutopilot(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Mark the calling brain's run complete
+// (POST /api/v1/autopilot/complete)
+func (_ Unimplemented) CompleteAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1896,6 +1905,26 @@ func (siw *ServerInterfaceWrapper) SetAutopilot(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetAutopilot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteAutopilot operation middleware
+func (siw *ServerInterfaceWrapper) CompleteAutopilot(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteAutopilot(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4147,6 +4176,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/autopilot", wrapper.SetAutopilot)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/autopilot/complete", wrapper.CompleteAutopilot)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/autopilot/land", wrapper.LandAutopilot)
 	})
 	r.Group(func(r chi.Router) {
@@ -4523,6 +4555,41 @@ func (response SetAutopilot409JSONResponse) VisitSetAutopilotResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAutopilotRequestObject struct {
+}
+
+type CompleteAutopilotResponseObject interface {
+	VisitCompleteAutopilotResponse(w http.ResponseWriter) error
+}
+
+type CompleteAutopilot200JSONResponse AutopilotStatus
+
+func (response CompleteAutopilot200JSONResponse) VisitCompleteAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAutopilot403JSONResponse Error
+
+func (response CompleteAutopilot403JSONResponse) VisitCompleteAutopilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6768,6 +6835,9 @@ type StrictServerInterface interface {
 	// Enable or disable autopilot
 	// (POST /api/v1/autopilot)
 	SetAutopilot(ctx context.Context, request SetAutopilotRequestObject) (SetAutopilotResponseObject, error)
+	// Mark the calling brain's run complete
+	// (POST /api/v1/autopilot/complete)
+	CompleteAutopilot(ctx context.Context, request CompleteAutopilotRequestObject) (CompleteAutopilotResponseObject, error)
 	// Land a worker branch into the integration branch
 	// (POST /api/v1/autopilot/land)
 	LandAutopilot(ctx context.Context, request LandAutopilotRequestObject) (LandAutopilotResponseObject, error)
@@ -7155,6 +7225,30 @@ func (sh *strictHandler) SetAutopilot(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetAutopilotResponseObject); ok {
 		if err := validResponse.VisitSetAutopilotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteAutopilot operation middleware
+func (sh *strictHandler) CompleteAutopilot(w http.ResponseWriter, r *http.Request) {
+	var request CompleteAutopilotRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteAutopilot(ctx, request.(CompleteAutopilotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteAutopilot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteAutopilotResponseObject); ok {
+		if err := validResponse.VisitCompleteAutopilotResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

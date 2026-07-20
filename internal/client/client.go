@@ -1200,6 +1200,21 @@ func parseAutopilotPreflight(body []byte) *AutopilotPreflightError {
 	return &AutopilotPreflightError{Summary: summary, Failures: wire.Failures}
 }
 
+// CompleteAutopilot declares the calling brain's run complete (POST
+// /autopilot/complete). The daemon derives the run from the caller's own brain
+// identity, writes the in-place completion marker into the plan file so preflight
+// skips it, tears the brain down, and retains the ledger. Idempotent. Returns the
+// resulting status (the run reports state=complete).
+func (c *Client) CompleteAutopilot(ctx context.Context) (AutopilotStatus, error) {
+	var st AutopilotStatus
+	// longTimeout: completion writes the plan file and tears the brain's tmux
+	// session down.
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/complete", nil, &st); err != nil {
+		return AutopilotStatus{}, err
+	}
+	return st, nil
+}
+
 // AutopilotLandResult mirrors the daemon's POST /autopilot/land 200 body
 // (autopilot.md §6). AlreadyLanded is true on an idempotent re-issue.
 type AutopilotLandResult struct {
