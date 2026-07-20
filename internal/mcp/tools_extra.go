@@ -136,7 +136,8 @@ type setForceCompactArgs struct {
 	State  string `json:"state" jsonschema:"force-compact override: on (always) | off (never) | inherit (follow the global token_force_compact)"`
 }
 type setAutopilotArgs struct {
-	Enabled bool `json:"enabled" jsonschema:"true enables autopilot (runs the enable-time preflight), false is the kill switch"`
+	Enabled bool   `json:"enabled" jsonschema:"true enables autopilot (runs the enable-time preflight), false is the kill switch"`
+	Repo    string `json:"repo,omitempty" jsonschema:"repo root to toggle (optional; defaults to the daemon's working directory) — the switch is per-repo"`
 }
 type landArgs struct {
 	AgentOrBranch string `json:"agent_or_branch" jsonschema:"the autopilot worker agent (id or name) or the branch to land into the integration branch"`
@@ -377,9 +378,9 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "set_autopilot",
-		Description: "Flip the autopilot master switch. enabled=true runs the enable-time preflight (plan file valid, gh authenticated, integration branch present, at most one active run per repo) and returns the resulting status, or the FULL list of preflight failures to fix. enabled=false is the kill switch (stops spawning/landing; in-flight workers keep running). Mirrors `warden autopilot on|off`.",
+		Description: "Flip the per-repo autopilot switch. `repo` scopes the toggle to one repository (optional; defaults to the daemon's working directory). enabled=true runs the enable-time preflight (plan file valid, gh authenticated, integration branch present, at most one active run per repo) for that repo and returns the resulting status, or the FULL list of preflight failures to fix. enabled=false is the kill switch for that repo (stops spawning/landing; in-flight workers keep running). Mirrors `warden autopilot on|off`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setAutopilotArgs) (*mcpsdk.CallToolResult, any, error) {
-		st, err := s.cl.SetAutopilot(ctx, a.Enabled)
+		st, err := s.cl.SetAutopilot(ctx, a.Enabled, a.Repo)
 		if err != nil {
 			var pfe *client.AutopilotPreflightError
 			if errors.As(err, &pfe) {

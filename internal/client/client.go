@@ -1093,8 +1093,9 @@ func (c *Client) ScheduleDelete(ctx context.Context, id string) error {
 
 // AutopilotStatus mirrors the daemon's GET /autopilot response (autopilot.md §5).
 type AutopilotStatus struct {
-	Enabled bool                 `json:"enabled"`
-	Runs    []AutopilotRunStatus `json:"runs"`
+	Enabled      bool                 `json:"enabled"`
+	EnabledRepos []string             `json:"enabled_repos"`
+	Runs         []AutopilotRunStatus `json:"runs"`
 }
 
 // AutopilotRunStatus is one run's slice of AutopilotStatus.
@@ -1157,12 +1158,16 @@ func (c *Client) GetAutopilot(ctx context.Context) (AutopilotStatus, error) {
 	return st, nil
 }
 
-// SetAutopilot flips the master switch (POST /autopilot). On a 409 preflight
+// SetAutopilot flips the per-repo switch (POST /autopilot). repo scopes the toggle
+// to one repository (empty ⇒ the daemon's working directory). On a 409 preflight
 // failure it returns a *AutopilotPreflightError carrying the full failure list so
 // callers can print every problem in one pass.
-func (c *Client) SetAutopilot(ctx context.Context, enabled bool) (AutopilotStatus, error) {
+func (c *Client) SetAutopilot(ctx context.Context, enabled bool, repo string) (AutopilotStatus, error) {
 	var st AutopilotStatus
-	body := map[string]bool{"enabled": enabled}
+	body := map[string]any{"enabled": enabled}
+	if strings.TrimSpace(repo) != "" {
+		body["repo"] = repo
+	}
 	// longTimeout: enabling runs the preflight, which may auto-create the
 	// integration branch and shell git/gh.
 	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot", body, &st)

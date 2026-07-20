@@ -37,8 +37,10 @@ func (s *Server) SetAutopilot(ctx context.Context, req oapi.SetAutopilotRequestO
 	if req.Body != nil {
 		b = *req.Body
 	}
+	// repo scopes the toggle to one repository (empty ⇒ the daemon's working
+	// directory, resolved by the Controller for backward compatibility).
 	if b.Enabled {
-		st, err := s.autopilot.Enable(ctx)
+		st, err := s.autopilot.Enable(ctx, b.Repo)
 		var pfe *autopilot.PreflightError
 		if errors.As(err, &pfe) {
 			return oapi.SetAutopilot409JSONResponse{
@@ -49,10 +51,10 @@ func (s *Server) SetAutopilot(ctx context.Context, req oapi.SetAutopilotRequestO
 		if err != nil {
 			return nil, err
 		}
-		s.recordAuditCtx(ctx, audit.ActionAutopilotOn, "", map[string]string{"runs": strconv.Itoa(len(st.Runs))})
+		s.recordAuditCtx(ctx, audit.ActionAutopilotOn, "", map[string]string{"repo": b.Repo, "runs": strconv.Itoa(len(st.Runs))})
 		return oapi.SetAutopilot200JSONResponse(st), nil
 	}
-	st := s.autopilot.Disable(ctx)
-	s.recordAuditCtx(ctx, audit.ActionAutopilotOff, "", nil)
+	st := s.autopilot.Disable(ctx, b.Repo)
+	s.recordAuditCtx(ctx, audit.ActionAutopilotOff, "", map[string]string{"repo": b.Repo})
 	return oapi.SetAutopilot200JSONResponse(st), nil
 }

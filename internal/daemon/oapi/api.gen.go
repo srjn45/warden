@@ -374,10 +374,13 @@ type AutopilotPreflightFailure struct {
 // AutopilotStatus The autopilot master switch plus one entry per active run (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the properties below document the wire contract.
 type AutopilotStatus = autopilot.Status
 
-// AutopilotToggleRequest Body for POST /autopilot — the master switch.
+// AutopilotToggleRequest Body for POST /autopilot — the per-repo switch. `repo` scopes the toggle to one repository; omitted, it defaults to the daemon's working directory.
 type AutopilotToggleRequest struct {
-	// Enabled true enables autopilot (runs preflight)
+	// Enabled true enables autopilot for the repo (runs preflight)
 	Enabled bool `json:"enabled"`
+
+	// Repo repo root to toggle (optional; defaults to the daemon's working directory)
+	Repo string `json:"repo,omitempty"`
 }
 
 // BranchStatus defines model for BranchStatus.

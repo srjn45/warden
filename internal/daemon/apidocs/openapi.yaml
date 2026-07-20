@@ -2500,9 +2500,12 @@ components:
 
     AutopilotToggleRequest:
       type: object
-      description: Body for POST /autopilot — the master switch.
+      description: >
+        Body for POST /autopilot — the per-repo switch. `repo` scopes the toggle to
+        one repository; omitted, it defaults to the daemon's working directory.
       properties:
-        enabled: { type: boolean, description: true enables autopilot (runs preflight), false is the kill switch }
+        enabled: { type: boolean, description: true enables autopilot for the repo (runs preflight), false is the kill switch }
+        repo: { type: string, description: "repo root to toggle (optional; defaults to the daemon's working directory)" }
       required: [enabled]
 
     AutopilotStatus:
@@ -2516,7 +2519,11 @@ components:
         (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the
         properties below document the wire contract.
       properties:
-        enabled: { type: boolean }
+        enabled: { type: boolean, description: "true when any repo has autopilot switched on" }
+        enabled_repos:
+          type: array
+          description: "repo roots currently switched on (the per-repo switch is not a single global flag)"
+          items: { type: string }
         runs:
           type: array
           items:

@@ -293,6 +293,7 @@ func newDaemonCmd() *cobra.Command {
 				Strategy:          cfg.AutopilotMergeStrategy(),
 				DeleteBranch:      cfg.AutopilotDeleteBranch(),
 				BaseDir:           apBaseDir,
+				DataDir:           cfg.DataDir,
 				Backends: autopilot.BackendLadder{
 					Free:         apBackends.Free,
 					Subscription: apBackends.Subscription,
@@ -309,6 +310,17 @@ func newDaemonCmd() *cobra.Command {
 				},
 			}, nil)
 			srv.SetAutopilotController(apCtrl)
+			// Boot re-enable: the on/off bit is persisted per-repo, so bring every
+			// previously-enabled repo back up across a daemon restart. Enable is
+			// per-repo and best-effort here — a repo whose preflight now fails (e.g.
+			// gh logged out) is logged and skipped rather than blocking startup; a
+			// later `warden autopilot on` re-enables it. (Runtime is wired above, so
+			// this respects the current inert-or-live state.)
+			for _, repo := range apCtrl.PersistedEnabled() {
+				if _, err := apCtrl.Enable(ctx, repo); err != nil {
+					slog.Warn("autopilot: boot re-enable skipped", "repo", repo, "err", err)
+				}
+			}
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with
 			// plugins off rather than refusing to start the daemon. Once loaded,

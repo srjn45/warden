@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -33,8 +34,13 @@ type ControllerConfig struct {
 	// DeleteBranch deletes the worker branch after a land (config
 	// autopilot.merge.delete_branch).
 	DeleteBranch bool
-	// BaseDir anchors relative plan paths (the daemon's working directory).
+	// BaseDir anchors relative plan paths (the daemon's working directory). It is
+	// also the repo an empty Enable/Disable argument defaults to (backward compat).
 	BaseDir string
+	// DataDir is the daemon data directory the per-repo EnableStore persists under
+	// (<data_dir>/autopilot/enabled/). Empty ⇒ an in-memory store (nothing
+	// persisted), so a Controller built without a data dir (unit tests) still works.
+	DataDir string
 	// Backends is the cost-tier backend ladder (config autopilot.brain.backends).
 	// S5 walks it in full (brain + worker selection); the preflight trust check
 	// validates the union.
@@ -81,10 +87,15 @@ type Controller struct {
 	now       func() time.Time
 	tierstate *tierState
 
+	// enableStore is the persisted per-repo on/off set (autopilot's switch is
+	// per-repo, not a single global flag). Read for status/kill-switch checks and
+	// written by Enable/Disable. Concurrency-safe on its own; mutated under c.mu so
+	// it stays consistent with c.runs.
+	enableStore EnableStore
+
 	mu      sync.Mutex
-	runtime Runtime // nil ⇒ inert (S1): no brain spawns
-	enabled bool
-	runs    map[string]*run // keyed by run_id
+	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
+	runs    map[string]*run // keyed by run_id (across all enabled repos)
 }
 
 // run is one registered plan execution: identity + state plus, once the brain
@@ -151,6 +162,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		guardian:          withGuardianDefaults(cfg.Guardian),
 		now:               now,
 		tierstate:         newTierState(now),
+		enableStore:       newEnableStore(cfg.DataDir),
 		runs:              map[string]*run{},
 	}
 	return c
@@ -224,15 +236,20 @@ func (e *PreflightError) Error() string {
 	return "autopilot preflight failed: " + strings.Join(e.Failures, "; ")
 }
 
-// Enable turns the switch on. It runs the enable-time preflight (§5.1) across
-// every configured plan and, only if ALL checks pass, registers each plan as an
-// active run. On any failure it changes no state and returns a *PreflightError
-// carrying every failure. Enable is atomic and idempotent: it rebuilds the run
-// set from config each call, so re-enabling the same config is a no-op that
-// yields the same run ids.
-func (c *Controller) Enable(ctx context.Context) (Status, error) {
+// Enable switches autopilot on for ONE repository (autopilot's on/off bit is
+// per-repo; the plan/brain/merge template stays global in config). It resolves
+// repo to a git root (empty ⇒ the controller BaseDir, for backward compat), runs
+// the enable-time preflight (§5.1) over only the plans that resolve to that repo,
+// and — only if ALL of that repo's checks pass — persists the repo as enabled and
+// registers/reconciles ONLY its runs. Runs belonging to OTHER enabled repos are
+// left untouched. On any failure it changes no state and returns a *PreflightError
+// carrying every failure. Enable is atomic and idempotent per repo: re-enabling an
+// already-enabled repo with the same config is a no-op yielding the same run ids.
+func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	target := c.resolveRepo(ctx, repo)
 
 	if len(c.plans) == 0 {
 		return c.statusLocked(), &PreflightError{Failures: []string{
@@ -245,35 +262,62 @@ func (c *Controller) Enable(ctx context.Context) (Status, error) {
 	// repoOwner maps a repo root to the run_id that already claimed it in THIS
 	// batch — the mechanical "at most one active run per repository" guard (§1).
 	repoOwner := map[string]string{}
+	matched := 0 // plans that resolve to the target repo
 
 	for _, file := range c.plans {
 		r, planFails := c.preflightPlan(ctx, file)
-		fails = append(fails, planFails...)
-		if r.repo == "" {
-			continue // repo unresolved — its failures are already recorded
+		switch {
+		case r.repo == "":
+			// Repo unresolved (not a git repo, etc.): the plan is fundamentally
+			// broken and can't be attributed to a repo, so surface its failures
+			// regardless of which repo is being enabled — it's a config error.
+			fails = append(fails, planFails...)
+		case r.repo != target:
+			continue // belongs to another repo — untouched by this per-repo enable
+		default:
+			matched++
+			fails = append(fails, planFails...)
+			if owner, taken := repoOwner[r.repo]; taken && owner != r.runID {
+				fails = append(fails, fmt.Sprintf(
+					"repo %s already has an active run in this plan set — at most one active run per repository (conflicting plan: %s)",
+					r.repo, file))
+				continue
+			}
+			repoOwner[r.repo] = r.runID
+			resolvedByID[r.runID] = r
 		}
-		if owner, taken := repoOwner[r.repo]; taken && owner != r.runID {
-			fails = append(fails, fmt.Sprintf(
-				"repo %s already has an active run in this plan set — at most one active run per repository (conflicting plan: %s)",
-				r.repo, file))
-			continue
-		}
-		repoOwner[r.repo] = r.runID
-		resolvedByID[r.runID] = r
 	}
 
 	if len(fails) > 0 {
 		sort.Strings(fails)
 		return c.statusLocked(), &PreflightError{Failures: dedupe(fails)}
 	}
+	if matched == 0 {
+		// No plan targets this repo and nothing else was wrong — a clean, actionable
+		// per-repo signal rather than a silent no-op.
+		return c.statusLocked(), &PreflightError{Failures: []string{fmt.Sprintf(
+			"no autopilot plan resolves to %s — add an autopilot.plans[].file inside it (run `warden autopilot init`), or pass --repo",
+			target)}}
+	}
 
-	// Reconcile the run set against what is already live. A harmless re-enable
-	// (same config) must not kill and respawn a healthy brain, so runs whose
-	// run_id survives are carried over untouched; only genuinely new runs spawn a
-	// brain, and runs no longer configured are torn down. In the inert core (no
-	// runtime) "brain healthy" is immediate, so a run collapses straight to active
-	// with no brain (S1 behavior).
+	// Preflight passed for this repo: persist the switch. Done only now so Enable
+	// stays atomic (no state change on failure).
+	if err := c.enableStore.Enable(target); err != nil {
+		return c.statusLocked(), fmt.Errorf("persist autopilot enable for %s: %w", target, err)
+	}
+
+	// Reconcile ONLY this repo's runs against what preflight resolved. Runs for
+	// other repos are carried over verbatim. A harmless re-enable (same config)
+	// must not kill and respawn a healthy brain, so surviving runs are carried
+	// untouched; only genuinely new runs spawn a brain, and runs of THIS repo no
+	// longer configured are torn down. In the inert core (no runtime) "brain
+	// healthy" is immediate, so a run collapses straight to active with no brain.
 	newRuns := map[string]*run{}
+	for id, r := range c.runs {
+		if r.repo != target {
+			newRuns[id] = r // another enabled repo — leave it exactly as it is
+		}
+	}
 	for id, res := range resolvedByID {
 		if existing, ok := c.runs[id]; ok {
 			existing.planFile = res.file
@@ -312,13 +356,15 @@ func (c *Controller) Enable(ctx context.Context) (Status, error) {
 		newRuns[id] = r
 	}
 	for id, old := range c.runs {
+		if old.repo != target {
+			continue // another repo — already carried over above
+		}
 		if _, keep := newRuns[id]; keep {
 			continue
 		}
 		c.stopRunLocked(ctx, old)
 	}
 	c.runs = newRuns
-	c.enabled = true
 	// Frictionless day-one (§10): when the owner has configured no auto-approve
 	// rules, installing autopilot installs a generous default so workers don't
 	// stall on recognized non-destructive prompts. Idempotent and owner-respecting
@@ -327,6 +373,30 @@ func (c *Controller) Enable(ctx context.Context) (Status, error) {
 		c.runtime.InstallDefaultAutoApprovePolicy()
 	}
 	return c.statusLocked(), nil
+}
+
+// resolveRepo canonicalizes an Enable/Disable repo argument to the git toplevel
+// used as a run's repo key, so a per-repo toggle matches the repo preflight
+// resolves from a plan file. An empty arg defaults to the controller BaseDir (the
+// daemon's cwd) for backward compatibility. A path that can't be resolved to a git
+// root is returned cleaned, so a non-repo arg still yields a stable key (Enable
+// then finds no matching plan and reports it).
+func (c *Controller) resolveRepo(ctx context.Context, repo string) string {
+	target := strings.TrimSpace(repo)
+	if target == "" {
+		target = c.baseDir
+	}
+	if root, err := c.env.GitToplevel(ctx, target); err == nil && strings.TrimSpace(root) != "" {
+		return root
+	}
+	return filepath.Clean(target)
+}
+
+// PersistedEnabled returns every repo the EnableStore has recorded as switched on.
+// The daemon calls Enable(ctx, repo) for each on boot so previously-enabled repos
+// come back up across a restart.
+func (c *Controller) PersistedEnabled() []string {
+	return c.enableStore.List()
 }
 
 // stopRunLocked tears one run down: cancel its plan watcher and gracefully
@@ -341,17 +411,27 @@ func (c *Controller) stopRunLocked(ctx context.Context, r *run) {
 	}
 }
 
-// Disable is the kill switch (§2.1): it flips the master flag off, stops each
-// run's plan watcher, and terminates each brain gracefully. In-flight workers are
-// deliberately left running — disable stops the orchestrator, not its work.
-func (c *Controller) Disable(ctx context.Context) Status {
+// Disable is the per-repo kill switch (§2.1): it clears repo's persisted switch
+// (empty ⇒ the controller BaseDir), stops that repo's plan watchers, and
+// terminates its brains gracefully. Runs belonging to OTHER enabled repos are left
+// untouched. In-flight workers are deliberately left running — disable stops the
+// orchestrator, not its work.
+func (c *Controller) Disable(ctx context.Context, repo string) Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for _, r := range c.runs {
-		c.stopRunLocked(ctx, r)
+	target := c.resolveRepo(ctx, repo)
+	if err := c.enableStore.Disable(target); err != nil {
+		slog.Warn("autopilot: persist disable failed", "repo", target, "err", err)
 	}
-	c.enabled = false
-	c.runs = map[string]*run{}
+	remaining := map[string]*run{}
+	for id, r := range c.runs {
+		if r.repo == target {
+			c.stopRunLocked(ctx, r)
+			continue
+		}
+		remaining[id] = r
+	}
+	c.runs = remaining
 	return c.statusLocked()
 }
 
@@ -364,12 +444,12 @@ func (c *Controller) Disable(ctx context.Context) Status {
 func (c *Controller) ActiveBrainForRun(runID string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.enabled {
-		return "", false
-	}
 	r, ok := c.runs[runID]
 	if !ok || r.brain == nil || r.brain.AgentID == "" {
 		return "", false
+	}
+	if !c.enableStore.IsEnabled(r.repo) {
+		return "", false // the run's repo has been switched off
 	}
 	return r.brain.AgentID, true
 }
@@ -381,9 +461,15 @@ func (c *Controller) Status() Status {
 	return c.statusLocked()
 }
 
-// statusLocked builds the status snapshot; the caller must hold c.mu.
+// statusLocked builds the status snapshot; the caller must hold c.mu. Enabled is
+// now "any repo enabled" and EnabledRepos names exactly which ones — the switch is
+// per-repo, not a single global flag.
 func (c *Controller) statusLocked() Status {
-	st := Status{Enabled: c.enabled, Runs: []RunStatus{}}
+	enabledRepos := c.enableStore.List()
+	if enabledRepos == nil {
+		enabledRepos = []string{}
+	}
+	st := Status{Enabled: len(enabledRepos) > 0, EnabledRepos: enabledRepos, Runs: []RunStatus{}}
 	for _, r := range c.runs {
 		var brain *BrainStatus
 		if r.brain != nil {
@@ -451,7 +537,7 @@ func (c *Controller) LandParams(runID string) (LandParams, bool) {
 		Gate:              c.runGate(r),
 		Strategy:          c.strategy,
 		DeleteBranch:      c.deleteBranch,
-		Active:            c.enabled && isLandableState(r.state),
+		Active:            c.enableStore.IsEnabled(r.repo) && isLandableState(r.state),
 	}, true
 }
 
@@ -481,10 +567,11 @@ func (c *Controller) selectBrain(exclude map[string]bool) selection {
 func (c *Controller) SelectWorkerBackend(runID string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.enabled {
+	r, ok := c.runs[runID]
+	if !ok {
 		return "", false
 	}
-	if _, ok := c.runs[runID]; !ok {
+	if !c.enableStore.IsEnabled(r.repo) {
 		return "", false
 	}
 	sel := c.selectBrain(nil)
