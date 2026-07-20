@@ -56,3 +56,31 @@ func (s *Server) SetAutopilot(ctx context.Context, req oapi.SetAutopilotRequestO
 	s.recordAuditCtx(ctx, audit.ActionAutopilotOff, "", nil)
 	return oapi.SetAutopilot200JSONResponse(st), nil
 }
+
+// CompleteAutopilot implements POST /api/v1/autopilot/complete: the brain's
+// completion signal (autopilot.md §2.1). The owning run is derived from the
+// CALLING brain's own session identity (the actor header) — a brain may only
+// complete its own run — so the request carries no body. The Controller writes
+// the in-place completion marker into the plan file (preflight then skips it),
+// tears the brain down, and retains the ledger. Idempotent. A caller that is not
+// an autopilot brain (a human, the web UI, an ordinary agent, or a brain with no
+// run tag) gets 403 with nothing changed.
+func (s *Server) CompleteAutopilot(ctx context.Context, _ oapi.CompleteAutopilotRequestObject) (oapi.CompleteAutopilotResponseObject, error) {
+	if s.autopilot == nil {
+		return oapi.CompleteAutopilot403JSONResponse{Error: autopilotDisabledMsg}, nil
+	}
+	caller := s.callerSession(ctx)
+	if caller == nil || caller.Role != autopilotBrainRole {
+		return oapi.CompleteAutopilot403JSONResponse{Error: "only an autopilot brain may complete its run"}, nil
+	}
+	runID := runIDFromTags(caller.Tags)
+	if runID == "" {
+		return oapi.CompleteAutopilot403JSONResponse{Error: "calling brain carries no run tag — nothing to complete"}, nil
+	}
+	st, err := s.autopilot.CompleteRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	s.recordAuditCtx(ctx, audit.ActionAutopilotComplete, runID, nil)
+	return oapi.CompleteAutopilot200JSONResponse(st), nil
+}
