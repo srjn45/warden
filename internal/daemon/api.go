@@ -16,6 +16,7 @@ import (
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
+	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/digest"
@@ -202,6 +203,16 @@ type Server struct {
 	// out to (desktop/webhook). nil ⇒ escalations are logged only. Set by the daemon
 	// from config (SetAutopilotNotifier).
 	apNotifier notify.Notifier
+
+	// Config hot-reload (feature 3). appliedConfig is the last config ApplyConfig
+	// installed (seeded at boot via SetBaselineConfig) — the "last-good" baseline
+	// the restart-only diff compares against. reloadHooks are subsystem reconfigure
+	// closures the daemon registers (AddReloadHook) for subsystems the Server does
+	// not own directly: the lifecycle config swap, the notifier chain rebuild, and
+	// the autopilot ControllerConfig re-derivation. All guarded by reloadMu.
+	reloadMu      sync.Mutex
+	appliedConfig config.Config
+	reloadHooks   []func(config.Config)
 }
 
 // SetAutopilotController wires the autopilot Controller (docs/specs/autopilot.md).

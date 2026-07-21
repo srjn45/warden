@@ -156,6 +156,14 @@ type Poller struct {
 	// Context-size guard config + hooks (set by the daemon after New). When
 	// TokenGuard is false the whole check is skipped. CompactCooldown bounds how
 	// often /compact may be auto-sent to one agent.
+	//
+	// TokenGuard/TokenWarn/TokenCrit/WarnAlert/AutoCompact/ForceCompact/
+	// CompactResumePrompt are hot-reloadable (config live-reload): the daemon swaps
+	// them atomically through SetContextGuard while the tick loop is running, so the
+	// tick goroutine MUST read them via ctxGuard() (guarded by guardMu) rather than
+	// touching the fields directly. Startup sets them once before Run (no reader yet),
+	// so direct assignment there is still safe.
+	guardMu     sync.RWMutex
 	TokenGuard  bool
 	TokenWarn   int
 	TokenCrit   int
@@ -438,6 +446,51 @@ func (p *Poller) SetAutoApprovePolicy(pol approval.Policy) {
 	p.policyMu.Lock()
 	p.AutoApprovePolicy = pol
 	p.policyMu.Unlock()
+}
+
+// ctxGuardSnapshot is a consistent read of the hot-reloadable context/token guard
+// knobs. Taken under guardMu so a live config reload (SetContextGuard) can swap
+// them while the tick goroutine reads them.
+type ctxGuardSnapshot struct {
+	Guard         bool
+	Warn, Crit    int
+	WarnAlert     bool
+	AutoCompact   bool
+	ForceCompact  bool
+	CompactResume string
+}
+
+// ctxGuard returns a coherent snapshot of the context-guard knobs under the read
+// lock. The tick goroutine calls this instead of reading the fields directly so a
+// concurrent SetContextGuard (config reload) is race-free.
+func (p *Poller) ctxGuard() ctxGuardSnapshot {
+	p.guardMu.RLock()
+	defer p.guardMu.RUnlock()
+	return ctxGuardSnapshot{
+		Guard:         p.TokenGuard,
+		Warn:          p.TokenWarn,
+		Crit:          p.TokenCrit,
+		WarnAlert:     p.WarnAlert,
+		AutoCompact:   p.AutoCompact,
+		ForceCompact:  p.ForceCompact,
+		CompactResume: p.CompactResumePrompt,
+	}
+}
+
+// SetContextGuard atomically swaps the context/token guard knobs so a live config
+// reload of the tokens.* thresholds (guard on/off, warn/critical bands, warn
+// alerting, auto-/force-compact, the compact resume prompt) takes effect on the
+// next tick without a daemon restart. Safe for concurrent use with the tick loop.
+func (p *Poller) SetContextGuard(guard bool, warn, crit int, warnAlert, autoCompact, forceCompact bool, compactResume string) {
+	p.guardMu.Lock()
+	defer p.guardMu.Unlock()
+	p.TokenGuard = guard
+	p.TokenWarn = warn
+	p.TokenCrit = crit
+	p.WarnAlert = warnAlert
+	p.AutoCompact = autoCompact
+	p.ForceCompact = forceCompact
+	p.CompactResumePrompt = compactResume
 }
 
 // routeToBrain forwards an unanswerable worker prompt to its run's brain,
@@ -793,7 +846,7 @@ func (p *Poller) tick(ctx context.Context) error {
 		if alive && paneChanged && now.Sub(p.lastSummary[s.ID]) >= p.SummarizeAfter {
 			p.dispatchSummary(ctx, s, now)
 		}
-		if p.TokenGuard && alive && p.CheckEvery >= 0 && now.Sub(p.lastCtxCheck[s.ID]) >= p.CheckEvery {
+		if p.ctxGuard().Guard && alive && p.CheckEvery >= 0 && now.Sub(p.lastCtxCheck[s.ID]) >= p.CheckEvery {
 			p.lastCtxCheck[s.ID] = now
 			p.checkContext(ctx, s, now)
 		}

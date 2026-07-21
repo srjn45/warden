@@ -340,6 +340,54 @@ func TestEnableIsPerRepo(t *testing.T) {
 	require.True(t, c.enableStore.IsEnabled(dirB))
 }
 
+// TestReconfigureSwapsTemplateInPlace proves a config hot-reload swaps the global
+// template live: the resolved gate changes on the persisted-enabled repo WITHOUT
+// churning its run (same run id — a healthy brain is not respawned).
+func TestReconfigureSwapsTemplateInPlace(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "plan.yaml", "ship it")
+	c := NewController(ControllerConfig{Plans: []string{plan}, Gate: "ci", BaseDir: dir}, &fakeEnv{})
+
+	st, err := c.Enable(context.Background(), dir)
+	require.NoError(t, err)
+	require.Equal(t, "ci", st.Runs[0].Gate)
+	runID := st.Runs[0].RunID
+
+	// Reload with the gate flipped to local: the run re-resolves in place.
+	c.Reconfigure(context.Background(), ControllerConfig{Plans: []string{plan}, Gate: "local", BaseDir: dir})
+	st = c.Status()
+	require.Len(t, st.Runs, 1)
+	require.Equal(t, runID, st.Runs[0].RunID, "a healthy run is not respawned on reconfigure")
+	require.Equal(t, "local", st.Runs[0].Gate, "the new gate template applied live")
+	require.Equal(t, []string{dir}, st.EnabledRepos, "the persisted enable set is preserved")
+}
+
+// TestReconfigureRemovedPlanStopsRun proves deleting an autopilot.plans[] entry on
+// reload tears down its run while leaving other enabled repos' runs untouched.
+func TestReconfigureRemovedPlanStopsRun(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	planA := writePlan(t, dirA, "plan.yaml", "a")
+	planB := writePlan(t, dirB, "plan.yaml", "b")
+	c := NewController(ControllerConfig{Plans: []string{planA, planB}, BaseDir: dirA}, &fakeEnv{})
+
+	_, err := c.Enable(context.Background(), dirA)
+	require.NoError(t, err)
+	_, err = c.Enable(context.Background(), dirB)
+	require.NoError(t, err)
+	require.Len(t, c.Status().Runs, 2)
+
+	// Reload with plan B removed from config: B's run is swept, A survives.
+	c.Reconfigure(context.Background(), ControllerConfig{Plans: []string{planA}, BaseDir: dirA})
+	st := c.Status()
+	require.Len(t, st.Runs, 1)
+	require.Equal(t, dirA, st.Runs[0].Repo)
+	require.Equal(t, planA, st.Runs[0].PlanFile)
+	// The enable set is not forgotten — re-adding plan B and reloading brings it back.
+	c.Reconfigure(context.Background(), ControllerConfig{Plans: []string{planA, planB}, BaseDir: dirA})
+	require.Len(t, c.Status().Runs, 2, "re-adding the plan re-registers the still-enabled repo's run")
+}
+
 // TestEnableNoPlanForRepo proves enabling a repo with no plan targeting it is a
 // clean, actionable failure (not a silent no-op) and changes no state.
 func TestEnableNoPlanForRepo(t *testing.T) {

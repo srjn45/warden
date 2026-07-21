@@ -447,6 +447,86 @@ func (c *Controller) Disable(ctx context.Context, repo string) Status {
 	return c.statusLocked()
 }
 
+// Reconfigure swaps the GLOBAL plan/brain/merge template live (config hot-reload,
+// feature 3) WITHOUT touching the per-repo enable set — the EnableStore is the
+// source of truth for WHICH repos are on; config only carries the template. It:
+//
+//	(a) replaces the template fields (plans, integration branch, gate, strategy,
+//	    delete-branch, backend ladder, pay-per-use, guardian heal params), applying
+//	    the same defaults NewController does;
+//	(b) re-runs the per-repo Enable reconcile over every persisted-enabled repo, so
+//	    an added plan spawns, a repo's changed template re-applies, and a preflight
+//	    that now fails is logged (the repo stays enabled — a later good edit or
+//	    `warden autopilot on` recovers it), exactly like the daemon's boot re-enable;
+//	(c) tears down any run whose plan-file entry was REMOVED from config, so deleting
+//	    an autopilot.plans[] entry stops its run. Removal is decided by config
+//	    presence, not preflight, so a transient preflight failure never kills a run
+//	    whose plan is still configured.
+//
+// The EnableStore and DataDir are NOT reset here: changing data_dir requires a
+// restart (a different store) and the daemon logs that. The guardian TICK CADENCE
+// (Guardian.Interval) is read once when the guardian loop starts, so a changed
+// interval needs a restart; the heal thresholds (heartbeat timeout, backoff,
+// rotate level, notify-each) hot-apply on the guardian's next tick since it reads
+// them under c.mu.
+func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
+	c.mu.Lock()
+	branch := strings.TrimSpace(cfg.IntegrationBranch)
+	if branch == "" {
+		branch = "autopilot/integration"
+	}
+	gate := strings.TrimSpace(cfg.Gate)
+	if gate == "" {
+		gate = "auto"
+	}
+	strategy := strings.TrimSpace(cfg.Strategy)
+	if strategy == "" {
+		strategy = "squash"
+	}
+	c.plans = cfg.Plans
+	c.integrationBranch = branch
+	c.gate = gate
+	c.strategy = strategy
+	c.deleteBranch = cfg.DeleteBranch
+	c.backends = cfg.Backends
+	c.allowPayPerUse = cfg.AllowPayPerUse
+	c.guardian = withGuardianDefaults(cfg.Guardian)
+	// BaseDir is the daemon cwd (stable for a daemon's life); guard against an
+	// empty override clobbering the anchor for relative plan paths.
+	if bd := strings.TrimSpace(cfg.BaseDir); bd != "" {
+		c.baseDir = bd
+	}
+	planSet := make(map[string]struct{}, len(cfg.Plans))
+	for _, p := range cfg.Plans {
+		planSet[p] = struct{}{}
+	}
+	enabled := c.enableStore.List()
+	c.mu.Unlock()
+
+	// (b) Re-run the per-repo reconcile under the NEW template. Enable takes c.mu
+	// itself, so this runs outside the lock. Best-effort per repo (mirrors boot).
+	for _, repo := range enabled {
+		if _, err := c.Enable(ctx, repo); err != nil {
+			slog.Warn("autopilot: reconfigure re-enable skipped", "repo", repo, "err", err)
+		}
+	}
+
+	// (c) Tear down runs whose plan entry was removed from config. A repo whose
+	// plans all vanished fails Enable's matched-count check above (its run is left
+	// intact there), so this deterministic, config-presence-based sweep is what
+	// actually stops it — without ever killing a run whose plan is still listed.
+	c.mu.Lock()
+	for id, r := range c.runs {
+		if _, still := planSet[r.planFile]; still {
+			continue
+		}
+		slog.Info("autopilot: plan removed from config — stopping run", "run", id, "plan", r.planFile)
+		c.stopRunLocked(ctx, r)
+		delete(c.runs, id)
+	}
+	c.mu.Unlock()
+}
+
 // CompleteRun records that run runID has finished (autopilot.md §2.1, the
 // `active --all tasks landed--> complete` transition). The brain calls it after
 // it has verified the plan's done_when criteria (persona rule §9.6). It, in order:

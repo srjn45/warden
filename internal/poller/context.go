@@ -78,7 +78,10 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 	if !ok {
 		return
 	}
-	cur := ctxtokens.Classify(tokens, p.TokenWarn, p.TokenCrit)
+	// Snapshot the hot-reloadable guard knobs once for this tick (a live config
+	// reload may swap them concurrently via SetContextGuard).
+	g := p.ctxGuard()
+	cur := ctxtokens.Classify(tokens, g.Warn, g.Crit)
 	prev := ctxtokens.State(s.ContextState)
 	if err := p.deps.UpdateContext(ctx, s.ID, tokens, string(cur)); err == nil {
 		s.ContextState = string(cur) // keep the snapshot coherent for this tick
@@ -108,7 +111,7 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 	// so a landed or stale marker is gone by now) means a previous send hasn't
 	// shown its reclaim yet — don't pile another on top while it's still in flight.
 	_, compactInFlight := p.pendingCompact[s.ID]
-	d := decideContext(prev, cur, s.Status, sinceCompact, p.CompactCooldown, p.WarnAlert, p.AutoCompact, compactInFlight)
+	d := decideContext(prev, cur, s.Status, sinceCompact, p.CompactCooldown, g.WarnAlert, g.AutoCompact, compactInFlight)
 
 	if d.Alert && p.OnContextAlert != nil {
 		p.OnContextAlert(s, cur, tokens)
@@ -181,6 +184,7 @@ func (p *Poller) sendCompact(ctx context.Context, s *store.Session, tokens, outU
 // The compact itself is gated by the cooldown so a failed/slow landing can't
 // storm /compact. Tick goroutine only.
 func (p *Poller) stepForceCompact(ctx context.Context, s *store.Session, cur ctxtokens.State, tokens, outUsage int, usageOK bool, sinceCompact time.Duration, now time.Time) bool {
+	g := p.ctxGuard() // hot-reloadable: force-compact default + resume prompt
 	st, active := p.forceCompact[s.ID]
 
 	// Resume / cleanup: a force-compaction we were awaiting has resolved.
@@ -192,13 +196,13 @@ func (p *Poller) stepForceCompact(ctx context.Context, s *store.Session, cur ctx
 		// Resume only on a real landing — context fell out of critical. If it is
 		// still critical the compaction was abandoned (never visibly landed); don't
 		// resume into an un-compacted context, just let the normal paths re-drive.
-		if cur != ctxtokens.StateCritical && p.CompactResumePrompt != "" {
-			_ = p.deps.Resume(ctx, s, p.CompactResumePrompt)
+		if cur != ctxtokens.StateCritical && g.CompactResume != "" {
+			_ = p.deps.Resume(ctx, s, g.CompactResume)
 		}
 		return false
 	}
 
-	eff := p.ForceCompact
+	eff := g.ForceCompact
 	if s.ForceCompact != nil {
 		eff = *s.ForceCompact
 	}

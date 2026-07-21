@@ -7,11 +7,51 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"sync"
 )
 
 // Notifier delivers a short attention message to the user.
 type Notifier interface {
 	Notify(title, body string)
+}
+
+// Switch is a Notifier whose backing notifier can be swapped atomically at
+// runtime. The daemon wires every alert hook (status transitions, context
+// alerts, autopilot escalations, branch-tracker CI failures) to a single Switch
+// once at startup; a config reload then rebuilds the desktop/webhook delivery
+// chain (notify.enabled, notify.webhook.*) and installs it via Set WITHOUT having
+// to re-wire the many closures that already captured the notifier. Safe for
+// concurrent Notify and Set.
+type Switch struct {
+	mu    sync.RWMutex
+	inner Notifier
+}
+
+// NewSwitch wraps inner in a swappable Switch. A nil inner degrades to log-only.
+func NewSwitch(inner Notifier) *Switch {
+	if inner == nil {
+		inner = logNotifier{}
+	}
+	return &Switch{inner: inner}
+}
+
+// Set atomically swaps the backing notifier (config reload). A nil replacement
+// degrades to log-only so the Switch always has a live delivery target.
+func (s *Switch) Set(inner Notifier) {
+	if inner == nil {
+		inner = logNotifier{}
+	}
+	s.mu.Lock()
+	s.inner = inner
+	s.mu.Unlock()
+}
+
+// Notify forwards to the current backing notifier under the read lock.
+func (s *Switch) Notify(title, body string) {
+	s.mu.RLock()
+	n := s.inner
+	s.mu.RUnlock()
+	n.Notify(title, body)
 }
 
 // New returns the platform notifier: a macOS desktop notifier when enabled on

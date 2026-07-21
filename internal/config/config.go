@@ -506,17 +506,38 @@ func DefaultPath() string {
 // transparently migrated to their namespaced equivalents in memory — the file
 // is not changed. A deprecation warning is logged once per deprecated key found.
 func Load(path string) Config {
+	c, err := LoadStrict(path)
+	if err != nil {
+		// Preserve the historic best-effort contract: an absent file is the normal
+		// case (all defaults, no log); a parse/decode error logs and degrades to
+		// defaults so a malformed file never stops the daemon from starting.
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("config: load error, using defaults", "path", path, "err", err)
+		}
+		return defaults()
+	}
+	return c
+}
+
+// LoadStrict reads, migrates, and validates the config exactly like Load but
+// returns an error instead of silently falling back to defaults when the file is
+// missing, unparseable, or undecodable. Hot-reload (Server.ApplyConfig via the
+// config watcher) uses this so a bad mid-run edit KEEPS the last-good config
+// rather than resetting every subsystem to its default — mirroring the plan
+// mid-run-edit philosophy in docs/specs/autopilot.md §3 (a bad edit must never
+// crash or silently wipe live state). validate() only normalizes (it never
+// fails), so the returned error is always an I/O, YAML-parse, or decode error.
+func LoadStrict(path string) (Config, error) {
 	c := defaults()
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return c // absent/unreadable → all defaults
+		return Config{}, fmt.Errorf("read config %q: %w", path, err)
 	}
 	// Parse to node tree so we can run the in-memory flat→namespaced migration
 	// before struct decoding. This preserves backward compat for old flat keys.
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		slog.Warn("config: parse error, using defaults", "path", path, "err", err)
-		return defaults()
+		return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 	}
 	if len(doc.Content) > 0 && doc.Content[0].Kind == yaml.MappingNode {
 		migrateFlatToNamespaced(doc.Content[0])
@@ -525,11 +546,10 @@ func Load(path string) Config {
 	// Decode the (possibly migrated) node tree onto c — absent keys keep their
 	// default value since c was pre-populated by defaults().
 	if err := doc.Decode(&c); err != nil {
-		slog.Warn("config: decode error, using defaults", "path", path, "err", err)
-		return defaults()
+		return Config{}, fmt.Errorf("decode config %q: %w", path, err)
 	}
 	validate(&c)
-	return c
+	return c, nil
 }
 
 // validate normalizes a loaded Config against the same rules the env-based
