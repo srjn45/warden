@@ -202,9 +202,14 @@ and the rotate/handoff workflows.
 
 ## Autopilot
 
-Autopilot is warden's goal-directed autonomous run mode. A "brain" agent
-(role `autopilot`) orchestrates worker agents, gates their PRs, and lands them
-into `autopilot/integration` — without human intervention.
+Autopilot is warden's goal-directed autonomous run mode. A **manager** agent
+(role `autopilot`) drives the run: it spawns **worker** agents (role `worker`,
+one per task, each owning implement → self-review → PR → gate → merge and
+reporting back) and, on demand, a **resolver** (role `brain`) to unblock a stuck
+worker or make an ad-hoc design call — gating PRs and landing them into
+`autopilot/integration`, all without human intervention. A daemon-internal
+**overwatch** backstop nudges the manager to tend workers that fall idle or wait
+on input (automatic; generous cadences — a backstop, not a pacer).
 
 > ⚠️ **Unattended operation is inherently risky.** Always confirm the user
 > understands the kill switch before enabling. Workers never merge to `main`
@@ -216,28 +221,28 @@ into `autopilot/integration` — without human intervention.
 |---|---|---|
 | `set_autopilot { enabled: true, repo? }` | Enable autopilot **for one repo** (runs preflight); `repo` defaults to the daemon's working directory | `warden autopilot on [--repo <root>]` |
 | `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot off [--repo <root>]` |
-| `autopilot_status` | Enabled repos + each run's state, brain id, task counts, tier, backoff | `warden autopilot status` |
-| `autopilot_complete` | **Brain-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the brain down (workers keep running), retains the ledger. Idempotent | _(automatic; the brain calls it)_ |
+| `autopilot_status` | Enabled repos + each run's state, manager id, task counts, tier, backoff | `warden autopilot status` |
+| `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the integration branch | `warden land <agent-or-branch>` |
 
 The switch is **per-repository**: enabling one repo does not touch others, and the
 enabled set is persisted so repos come back up across a daemon restart. Do not
 call `autopilot_complete` yourself when driving the fleet — it is the autopilot
-brain's own completion signal.
+manager's own completion signal.
 
 **CLI-only** (local file authoring): `warden autopilot init` — scaffold
 `autopilot.plan.yaml` and the config block.
 
 ### Key ledger context keys
 
-The brain writes run state into warden's shared context (`ctx_*` tools). Key dot-notation
+The manager writes run state into warden's shared context (`ctx_*` tools). Key dot-notation
 keys (use dots, not slashes):
 
 | Key | Contents |
 |---|---|
 | `autopilot.run_id` | Stable run identifier |
 | `autopilot.state` | `starting` / `active` / `healing` / `degraded` / `complete` |
-| `autopilot.brain` | Brain agent id |
+| `autopilot.brain` | Manager agent id (key name kept for back-compat — the "brain" is the manager) |
 | `autopilot.tasks.<id>.state` | Per-task state: `pending`/`assigned`/`in_progress`/`pr_open`/`gated`/`landed` |
 | `autopilot.tasks.<id>.branch` | The worker branch for the task |
 | `autopilot.tasks.<id>.landed_at` | Landing timestamp (RFC3339) |

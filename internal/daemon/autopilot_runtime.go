@@ -22,6 +22,16 @@ import (
 // Controller by SetAutopilotController.
 type autopilotRuntime struct{ s *Server }
 
+// The daemon runtime must satisfy every optional Controller seam so a drift in
+// any surface (guardian liveness §2.3, overwatch fleet-tending §2.4, the digest
+// sources) is a build error, not a silent no-op.
+var (
+	_ autopilot.Runtime          = autopilotRuntime{}
+	_ autopilot.GuardianRuntime  = autopilotRuntime{}
+	_ autopilot.OverwatchRuntime = autopilotRuntime{}
+	_ autopilot.DigestSources    = autopilotRuntime{}
+)
+
 // autopilotBrainRole is the built-in role the brain spawns under: it carries the
 // full-auto persona + defaults (auto_approve, bypassPermissions, autopilot tag).
 const autopilotBrainRole = "autopilot"
@@ -198,6 +208,26 @@ func (rt autopilotRuntime) NudgeBrain(_ context.Context, agentID, msg string) er
 	}
 	_, err := rt.s.mbox.Append(mailbox.Message{To: agentID, From: guardianNudgeSender, Body: msg})
 	return err
+}
+
+// WakeAgent delivers the overwatch nudge as a real input turn typed into the
+// manager's pane (the same path send_to_agent / POST /sessions/{id}/input uses),
+// which genuinely wakes an idle agent — the mailbox is pull-only, and an idle
+// manager runs no loop that would ever read it (autopilot.md §2.4). On an
+// injection failure the message falls back to the mailbox so the steer at least
+// lands somewhere durable; the injection error is still returned for logging.
+func (rt autopilotRuntime) WakeAgent(ctx context.Context, agentID, msg string) error {
+	sess, err := rt.s.store.Get(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if err := rt.s.life.Input(ctx, sess.TmuxSession, msg); err != nil {
+		if merr := rt.NudgeBrain(ctx, agentID, msg); merr != nil {
+			return errors.New(err.Error() + " (mailbox fallback also failed: " + merr.Error() + ")")
+		}
+		return err
+	}
+	return nil
 }
 
 // NotifyEscalation surfaces a guardian escalation through the operator notifier

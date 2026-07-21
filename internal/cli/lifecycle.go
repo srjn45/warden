@@ -212,7 +212,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
 	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
-	cmd.Flags().String("role", "", "built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer. Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
+	cmd.Flags().String("role", "", "built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer | worker. Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
 	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
 	return cmd
 }

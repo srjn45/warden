@@ -23,7 +23,7 @@ func newAutopilotCmd() *cobra.Command {
 			"goal, spawns workers, and lands green work into an integration branch\n" +
 			"unattended. The switch is PER-REPO: `warden autopilot on` run inside a repo\n" +
 			"enables only that repo (others are unaffected), and the enabled set is persisted\n" +
-			"so repos come back up across a daemon restart. The plan/brain/merge template\n" +
+			"so repos come back up across a daemon restart. The plan/manager/merge template\n" +
 			"stays global in the `autopilot` config block. Enabling runs a preflight (plan\n" +
 			"file valid, gh authenticated, integration branch present, at most one active run\n" +
 			"per repo) and fails fast with the full list of problems so you fix everything in\n" +

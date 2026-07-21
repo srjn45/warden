@@ -392,7 +392,7 @@ Autopilot runs a long-lived headless brain agent per plan that decomposes a
 goal, spawns workers, and lands green work into an integration branch
 unattended. The switch is PER-REPO: `warden autopilot on` run inside a repo
 enables only that repo (others are unaffected), and the enabled set is persisted
-so repos come back up across a daemon restart. The plan/brain/merge template
+so repos come back up across a daemon restart. The plan/manager/merge template
 stays global in the `autopilot` config block. Enabling runs a preflight (plan
 file valid, gh authenticated, integration branch present, at most one active run
 per repo) and fails fast with the full list of problems so you fix everything in
@@ -2682,7 +2682,7 @@ Flags:
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
       --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
       --repo string                              repo path (default: current directory)
-      --role warden role list                    built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer. Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
+      --role warden role list                    built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer | worker. Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
       --set stringArray                          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
       --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag

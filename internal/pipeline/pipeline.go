@@ -59,6 +59,11 @@ type Pipeline struct {
 	Repo   string `json:"repo" yaml:"repo"`
 	Status Status `json:"status" yaml:"-"`
 	Jobs   []Job  `json:"jobs" yaml:"jobs"`
+	// Tags are stamped onto every job agent this pipeline spawns. Not spec-
+	// authored (yaml:"-"): the daemon sets them at creation time — today to
+	// inherit autopilot's ownership tags from the creating agent, so a pipeline a
+	// manager escalates to stays inside its run's fence.
+	Tags []string `json:"tags,omitempty" yaml:"-"`
 }
 
 // Job returns a pointer to the job with id, or nil.

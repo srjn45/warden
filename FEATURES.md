@@ -257,9 +257,10 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 
 ## 15. Autopilot (autonomous agent runs)
 
-A goal-directed long-running autonomous mode: a "brain" agent orchestrates
-worker agents, gates their PRs, and lands them into an integration branch —
-without waiting on a human.
+A goal-directed long-running autonomous mode: a **manager** agent (role
+`autopilot`) drives a fleet of **worker** agents (role `worker`) — spawning a
+**resolver** (role `brain`) on demand to unblock a stuck worker — gates their PRs,
+and lands them into an integration branch, without waiting on a human.
 
 > ⚠️ **Prominent risk warning:** unattended operation is inherently risky.
 > Use `warden autopilot off` (the kill switch) to stop new spawns/landings at
@@ -268,18 +269,19 @@ without waiting on a human.
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
-| Enable autopilot **per-repo** (preflight + brain spawn) | `autopilot on [--repo <root>]` | `set_autopilot` (`enabled: true`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Disable autopilot **per-repo** — kill switch (stops spawns/landings, terminates brain) | `autopilot off [--repo <root>]` | `set_autopilot` (`enabled: false`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Status (enabled repos, run state, brain id, task counts, tier, backoff) | `autopilot status` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Enable autopilot **per-repo** (preflight + manager spawn) | `autopilot on [--repo <root>]` | `set_autopilot` (`enabled: true`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Disable autopilot **per-repo** — kill switch (stops spawns/landings, terminates manager) | `autopilot off [--repo <root>]` | `set_autopilot` (`enabled: false`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Status (enabled repos, run state, manager id, task counts, tier, backoff) | `autopilot status` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Scaffold plan file + config (`autopilot init`) | `autopilot init` | **CLI-only** (local file authoring) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Land a worker branch into the integration branch (idempotent, guarded) | `land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Mark the run complete (in-place `status: complete` plan marker; preflight skips it) | automatic (brain) | `autopilot_complete` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Mark the run complete (in-place `status: complete` plan marker; preflight skips it) | automatic (manager) | `autopilot_complete` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Persisted per-repo enable set (repos come back up across daemon restart) | automatic (`<data_dir>/autopilot/enabled/`) | automatic | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Brain spawn/teardown (role `autopilot`, tagged `autopilot`+`run:<id>`) | automatic | automatic | ✓ | fleet list | TUI sub-tree | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Topology: manager (role `autopilot`) + worker (role `worker`) + on-demand resolver (role `brain`), tagged `autopilot`+`run:<id>` | automatic | automatic | ✓ | fleet list | TUI sub-tree | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Guardian heal loop (nudge→restart→rotate→backoff) | automatic | automatic | ✓ | AutopilotPanel | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Overwatch backstop (nudges manager to tend idle/waiting workers) | automatic | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Cost-tier backend selection (free→subscription→gated-PPU) | config (`autopilot.allow_tiers`) | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Ownership guard (403 for non-owned agents) | automatic | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
-| Approval routing to brain mailbox | automatic | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Approval routing to manager mailbox | automatic | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Run ledger (task state, landings, audit) | `audit log` | `audit_log` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 
 ## 16. Admin / host (CLI-only by design)

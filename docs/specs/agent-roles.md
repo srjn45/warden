@@ -101,6 +101,12 @@ embedded file panics at init (it is a build-time asset, never user input).
 | `implementer` | implements a task end-to-end on its own branch (code, tests, checks, commit, PR) | `type=development` |
 | `auto-merger` | owns getting an open PR merged: monitors CI, fixes failures/conflicts, merges when green | `permission_mode=auto`, `auto_approve=true` |
 | `reviewer` | reviews a branch/PR for correctness, coverage, style; findings + verdict, no fixes unless asked | `type=pr-review` |
+| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `type=development`, `permission_mode=auto`, `auto_approve=true` |
+| `autopilot` | long-lived headless manager driving a whole autopilot run: decompose, spawn workers/brains, gate + land into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=true` |
+| `brain` | on-demand decision resolver: unblocks a stuck agent or makes an ad-hoc design/arch call without human interaction | `permission_mode=auto`, `auto_approve=true` |
+
+The last three (`autopilot`, `worker`, `brain`) form autopilot's manager →
+worker → brain topology; see `docs/specs/autopilot.md`.
 
 ## 3. Spawn resolution + persona injection
 

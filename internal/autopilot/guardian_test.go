@@ -25,6 +25,10 @@ type guardianFake struct {
 	spawnErrOn map[string]error     // backend → spawn error (simulate an unavailable backend)
 	activity   map[string]time.Time // runID → last brain heartbeat
 	ctxLevel   map[string]string    // agentID → context-window level
+
+	roster    map[string][]AgentInfo // runID → live agent roster (overwatch)
+	rosterErr error                  // when non-nil, RunAgents fails (overwatch degrade)
+	wakes     []string               // overwatch pane-injected wakes ("agentID: msg")
 }
 
 func newGuardianFake() *guardianFake {
@@ -33,7 +37,22 @@ func newGuardianFake() *guardianFake {
 		spawnErrOn: map[string]error{},
 		activity:   map[string]time.Time{},
 		ctxLevel:   map[string]string{},
+		roster:     map[string][]AgentInfo{},
 	}
+}
+
+// RunAgents backs OverwatchRuntime: the scripted run roster (manager + workers).
+func (f *guardianFake) RunAgents(_ context.Context, runID string) ([]AgentInfo, error) {
+	if f.rosterErr != nil {
+		return nil, f.rosterErr
+	}
+	return f.roster[runID], nil
+}
+
+// WakeAgent backs OverwatchRuntime: records the pane-injected wake.
+func (f *guardianFake) WakeAgent(_ context.Context, agentID, msg string) error {
+	f.wakes = append(f.wakes, agentID+": "+msg)
+	return nil
 }
 
 func (f *guardianFake) SpawnBrain(_ context.Context, spec BrainSpec) (BrainHandle, error) {

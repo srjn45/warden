@@ -412,7 +412,7 @@ func newDaemonCmd() *cobra.Command {
 				lc.SetConfig(c)
 			})
 			srv.AddReloadHook(func(c config.Config) {
-				// autopilot plan/brain/merge template + per-repo reconcile (the
+				// autopilot plan/manager/merge template + per-repo reconcile (the
 				// persisted enable set is preserved — config only carries the template).
 				apCtrl.Reconfigure(ctx, buildAutopilotControllerConfig(c, apBaseDir))
 			})
@@ -455,7 +455,7 @@ func newDaemonCmd() *cobra.Command {
 // buildAutopilotControllerConfig derives the autopilot ControllerConfig from the
 // live config. It is used at boot AND by the config hot-reload hook (feature 3):
 // on reload the daemon rebuilds this from the new config and calls
-// Controller.Reconfigure to swap the plan/brain/merge template and re-run the
+// Controller.Reconfigure to swap the plan/manager/merge template and re-run the
 // per-repo enable reconcile. baseDir anchors relative plan paths to the daemon cwd.
 func buildAutopilotControllerConfig(cfg config.Config, baseDir string) autopilot.ControllerConfig {
 	b := cfg.AutopilotBrainBackends()

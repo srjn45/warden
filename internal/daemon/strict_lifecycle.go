@@ -51,6 +51,10 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 		return nil, errStatus(http.StatusBadRequest, "bad json")
 	}
 	sr := spawnRequestFromOAPI(*req.Body)
+	// An autopilot-owned caller's spawns join its run mechanically (tag
+	// inheritance) — the fleet fence must not depend on the manager's persona
+	// remembering to pass tags.
+	sr.Tags = s.inheritOwnershipTags(ctx, sr.Tags)
 	if code, msg := s.validateSpawnRequest(ctx, sr); code != 0 {
 		return nil, errStatus(code, msg)
 	}

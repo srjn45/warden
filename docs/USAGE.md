@@ -1637,7 +1637,7 @@ mid-run typo can't wipe your settings. Keys that genuinely need a restart are
 **logged as changed-but-pending** so you know a restart is required.
 
 - **Hot-reloads on the next tick/spawn:** the whole `autopilot` block
-  (plan/brain/merge template, backend ladder, guardian heal thresholds, and the
+  (plan/manager/merge template, backend ladder, guardian heal thresholds, and the
   per-repo reconcile), `auto_approve` policy, `tokens.*` (context/token guard),
   `rails.*`, `model_default`, `default_permission_mode`, the pipeline/collab/memory
   hint gates, `notify.*` + webhook, `api_docs`, and the `scheduler_enabled` route
@@ -2017,19 +2017,27 @@ resets the job, reopens any descendants that were skipped, and re-runs from ther
 ## 18. Autopilot — autonomous agent runs
 
 > ⚠️ **Unattended operation is inherently risky.** When autopilot is enabled, a
-> brain agent orchestrates workers without human intervention. Review the
+> manager agent drives a fleet of workers without human intervention. Review the
 > [kill switch](#kill-switch) and [integration branch](#integration-branch)
 > sections before enabling. Everything autopilot does is recorded in `warden audit log`.
 
 Autopilot is a **goal-directed, long-running autonomous mode**. You describe a
-goal in a plan file, enable autopilot once, and warden runs it — a "brain" agent
-decomposes the goal into tasks, spawns workers in isolated worktrees, gates their
-PRs through CI, and lands the results into a staging integration branch. A
-guardian daemon loop keeps the brain alive through stalls; a cost-tier backend
-ladder escalates from the free tier to subscription backends if the brain is
+goal in a plan file, enable autopilot once, and warden runs it — a **manager**
+agent decomposes the goal into tasks, spawns workers in isolated worktrees, gates
+their PRs through CI, and lands the results into a staging integration branch. A
+guardian daemon loop keeps the manager alive through stalls; a cost-tier backend
+ladder escalates from the free tier to subscription backends if the manager is
 rate-limited.
 
-For the full design — brain, ledger, guardian, cost-tier ladder — see
+**The fleet:** a **manager** (role `autopilot`) drives the run; **worker** agents
+(role `worker`, one per task) own their task end-to-end and report back; and an
+on-demand **resolver** (role `brain`) unblocks a stuck worker or makes an ad-hoc
+design call without human interaction. A daemon-internal **overwatch** backstop
+automatically nudges the manager to tend workers that fall idle or wait on input —
+no user action needed; its cadences are generous (a backstop, not a pacer).
+
+For the full design — the manager/worker/resolver topology, overwatch, ledger,
+guardian, cost-tier ladder — see
 [docs/FEATURES.md §34](FEATURES.md#34-autopilot-autonomous-agent-runs).
 
 ### Quickstart
@@ -2040,15 +2048,15 @@ cd /path/to/your-repo
 warden autopilot init
 
 # 2. Edit autopilot.plan.yaml — set your goal, add constraints
-#    Commit it to the repo so the brain can read it from its worktree
+#    Commit it to the repo so the manager can read it from its worktree
 
 # 3. Enable
 warden autopilot on
 
 # 4. Watch
-warden autopilot status      # run state, brain id, task counts
-warden ls                    # brain + workers in the fleet list
-warden tail <brain-id>       # live brain output
+warden autopilot status      # run state, manager id, task counts
+warden ls                    # manager + workers in the fleet list
+warden tail <manager-id>       # live manager output
 
 # 5. Kill switch (any time)
 warden autopilot off
@@ -2069,7 +2077,7 @@ inside a repo enables **only that repo** — other repos are unaffected — and
 running). Add `--repo <root>` to `on`/`off` to target a different repository
 (default: the current git repository). The enabled set is **persisted** under
 `<data_dir>/autopilot/enabled/`, so enabled repos come back up automatically
-across a daemon restart. The plan/brain/merge template stays global in the
+across a daemon restart. The plan/manager/merge template stays global in the
 `autopilot` config block.
 
 ### `warden autopilot on` (enable)
@@ -2078,7 +2086,7 @@ Enables the **current repository** (or `--repo <root>`) after a **preflight
 check** — which surfaces every condition that would stall an unattended run
 (missing plan file, unauthenticated backends, missing integration branch, dead
 `gh` auth) as actionable errors. After the preflight passes, the daemon spawns
-the brain agent and the run enters `active` state. On success the repo is
+the manager agent and the run enters `active` state. On success the repo is
 persisted as enabled.
 
 ```sh
@@ -2095,8 +2103,8 @@ warden autopilot on --repo /path/to/other-repo   # enable a different repo
 
 Disables the **current repository** (or `--repo <root>`). Stops new spawns and
 landings **immediately**, at any run state; other enabled repos keep running.
-In-flight workers keep running to completion — they are not terminated. The brain
-is terminated gracefully. The run ledger is retained; `warden autopilot on`
+In-flight workers keep running to completion — they are not terminated. The
+manager is terminated gracefully. The run ledger is retained; `warden autopilot on`
 continues from where the run left off.
 
 Use this any time you need to pause the run, inspect what workers are doing,
@@ -2115,11 +2123,11 @@ warden autopilot status
 
 ### Run completion
 
-When the brain has verified the plan's `done_when` criteria, it declares the run
-complete (MCP `autopilot_complete`). The daemon writes an **in-place completion
-marker** into the plan file — `status: complete` and `completed_at: <timestamp>`,
-preserving your other keys, ordering, and comments — tears the brain down
-gracefully (in-flight workers keep running), and retains the ledger.
+When the manager has verified the plan's `done_when` criteria, it declares the
+run complete (MCP `autopilot_complete`). The daemon writes an **in-place
+completion marker** into the plan file — `status: complete` and `completed_at:
+<timestamp>`, preserving your other keys, ordering, and comments — tears the
+manager down gracefully (in-flight workers keep running), and retains the ledger.
 
 A plan carrying `status: complete` is **skipped by preflight**, so a finished run
 is never executed again by mistake on a future enable or daemon restart. To re-run
@@ -2128,7 +2136,7 @@ fresh plan file).
 
 ### The plan file
 
-`autopilot.plan.yaml` — author this in your repo and commit it so the brain can
+`autopilot.plan.yaml` — author this in your repo and commit it so the manager can
 read it from its worktree:
 
 ```yaml
@@ -2136,7 +2144,7 @@ version: 1
 goal: "Ship the notifications feature end-to-end"
 constraints:
   - "all changes behind a feature flag"
-tasks:           # optional — brain decomposes goal if empty
+tasks:           # optional — manager decomposes goal if empty
   - id: api
     prompt: "Implement the notifications REST API per docs/specs/notify.md"
   - id: ui
@@ -2144,7 +2152,7 @@ tasks:           # optional — brain decomposes goal if empty
     after: [api]
 ```
 
-The plan file is **editable mid-flight** — the brain re-reads it on each planning
+The plan file is **editable mid-flight** — the manager re-reads it on each planning
 cycle. Add tasks or change constraints while a run is active.
 
 ### Integration branch {#integration-branch}
@@ -2169,7 +2177,7 @@ Merge one worker branch into the integration branch. Idempotent (re-landing is a
 no-op), guarded (ownership check), and gated (CI must be green, or use
 `--gate-mode=local` to gate on `.warden/check.yml` instead).
 
-The brain calls `land` automatically; the operator may call it manually (e.g. to
+The manager calls `land` automatically; the operator may call it manually (e.g. to
 land a branch after inspecting it, or to bypass a stuck CI gate):
 
 ```sh
@@ -2181,7 +2189,7 @@ Over MCP: `land { ticket: "<agent-or-branch>" }`.
 
 ### Audit trail
 
-Every autopilot action — brain spawn, worker spawn, land, guardian heal — is
+Every autopilot action — manager spawn, worker spawn, land, guardian heal — is
 written to the append-only audit trail:
 
 ```sh

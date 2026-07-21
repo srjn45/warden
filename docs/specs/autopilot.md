@@ -31,17 +31,28 @@ switch, **not** runtime confirmation prompts.
 | Term | Definition |
 |---|---|
 | **Plan** | An owner-authored YAML brief (`autopilot.plan.yaml`): a goal, constraints, and optional coarse tasks. Source of truth; owner-editable mid-flight. |
-| **Run** | The daemon's execution of one plan: one brain + its workers + its ledger. Keyed by `run_id` (stable hash of repo + plan path). |
-| **Brain** | One long-lived headless agent per run, role `autopilot`, spawned by the Controller on the cheapest available backend. Orchestrates via existing MCP tools. |
-| **Worker** | Any agent or pipeline the brain spawns to do actual work. Tagged `autopilot` + `run:<run_id>`. |
+| **Run** | The daemon's execution of one plan: one manager + its workers + its ledger. Keyed by `run_id` (stable hash of repo + plan path). |
+| **Manager** | One long-lived headless agent per run, role `autopilot`, spawned by the Controller on the cheapest available backend. Orchestrates via existing MCP tools. Historically called "the brain"; the ledger key `autopilot.brain` still records its agent id (name kept for back-compat). |
+| **Worker** | An agent the manager spawns to deliver a task — normally one `worker`-role agent that owns the task end-to-end (implement → self-review → PR → drive green → merge) and **reports status back to the manager**; for a large task, a pipeline of `implementer`/`reviewer`/`auto-merger` agents instead. Tagged `autopilot` + `run:<run_id>`. |
+| **Resolver** | An on-demand `brain`-role agent the manager spawns to resolve a blocker or an ad-hoc design/architecture decision without human interaction, then report the call back. Short-lived; not every run needs one. |
+| **Overwatch** | A daemon-internal backstop (not an agent) that tracks each run's worker roster and nudges a live-but-quiet manager to tend workers that fall idle or wait on input (§2.4). Complements the guardian, which watches manager *liveness*. |
 | **Ledger** | Durable, daemon-store-backed run state kept current by the brain and written authoritatively by the daemon (`land` landings, spawn/terminate records). |
 | **Integration branch** | `autopilot/integration` (configurable). The ONLY branch autopilot merges into. Owner fast-forwards it to main. |
 
 Ownership invariants:
 
-- Every agent autopilot creates (brain and workers) carries the `autopilot` tag
-  and a `run:<run_id>` tag. Tags are applied at spawn by the Controller (brain)
-  and inherited via role defaults (workers) — not left to persona discipline.
+- Every agent autopilot creates (manager, workers, resolvers) carries the
+  `autopilot` tag and a `run:<run_id>` tag. The Controller stamps them on the
+  manager at spawn; from there the daemon **inherits them mechanically**: every
+  request carries the caller's agent identity (the `X-Warden-Actor` header, set
+  from `WARDEN_SESSION_ID` in every agent shell), and when the caller behind a
+  spawn — or a pipeline create, whose jobs spawn later — is itself
+  autopilot-owned, the daemon unions the caller's ownership tags onto the new
+  agent. So a worker joins the run even when the manager's persona forgets to
+  pass tags, and the fence extends transitively to agents a worker spawns. The
+  `run:<run_id>` tag IS the run's roster: the overwatch (§2.4) derives who
+  belongs to a run purely from it, so no worker list is persisted and a restart
+  re-adopts the fleet for free.
 - **At most one active run per repository.** `POST /autopilot` enabling a second
   plan on the same repo fails with 409.
 - Manual agents are invisible to autopilot's destructive paths (§8).
@@ -65,6 +76,9 @@ active ──all tasks landed──▶ complete (brain torn down, ledger retaine
   (kill switch); in-flight workers keep running; brain is terminated gracefully.
 - `degraded` is visible in status (backoff stage, last error, next retry at).
   There is no terminal failure state — owner choice #4 (never park).
+- While a run is `active`, two daemon-internal supervisors run on the guardian's
+  ticker: the guardian heals manager *liveness* (§2.3), and the overwatch nudges
+  a live-but-quiet manager to tend idle/waiting *workers* (§2.4).
 
 ### 2.2 Task (ledger-tracked, brain-written)
 
@@ -86,6 +100,50 @@ healthy → wedged?     (heartbeat timeout w/ pending work)
                        notify, retry from stage 1 — forever)     [stage 4]
 healthy → planned-rotation (context critical or cadence) → healthy
 ```
+
+### 2.4 Overwatch (daemon-internal fleet-tending)
+
+The guardian keeps the *manager* alive; the overwatch keeps the manager *doing
+its job on the workers*. A manager can be perfectly alive yet quietly stop
+tending its fleet — the prompt is not fully in our control — so warden adds a
+mechanical backstop that never relies on persona discipline. It is
+daemon-internal (not a scheduled agent), lives in the Controller
+(`internal/autopilot/overwatch.go`), and runs on the guardian's ticker.
+
+Each tick, for every **active** run with a live manager, the overwatch:
+
+1. reads the run's roster by the `run:<run_id>` tag (no persisted worker list);
+2. classifies each agent — `spawning`/`working` are **busy**; everything else
+   (`waiting_for_input`, `idle`, `done`, `errored`, `orphaned`, `rate_limited`)
+   is **not busy** and, for a worker, something the manager should tend;
+3. caches the in-flight worker count into status (`workers_in_flight`).
+
+It then **wakes** the manager on either of two triggers — the nudge is typed
+into the manager's pane as a real input turn (the `send_to_agent` path), not
+mailed: mail is pull-only, and an idle manager runs no loop that would ever read
+it. On an injection failure the message falls back to the mailbox. Both triggers
+are **gated on the manager itself being idle** — a busy manager is never
+interrupted (which also makes pane injection safe: nothing is ever typed into an
+agent mid-turn), since it will see its workers on its own:
+
+- **event-driven** — one or more workers are not busy (done → needs cleanup, or
+  waiting → needs input), debounced to at most one nudge per `overwatchMinGap`
+  (5m);
+- **periodic** — a heartbeat check-in once per `overwatchPeriod` (1h) even when
+  nothing is obviously wrong, so an idle manager keeps reconciling and pulling
+  the next task.
+
+The nudge clock floors at the manager's spawn instant (the guardian's cold-start
+convention), so a manager that spawned moments ago is never nudged for being
+briefly idle while its CLI boots.
+
+The nudge names the needy workers (bounded) and asks the manager to answer/steer
+anything `waiting_for_input` and clean up finished/idle workers before pulling
+the next task. Cadences are fixed constants (frictionless-safeguards philosophy —
+generous by design; the overwatch is a backstop, not a pacer). A
+`starting`/`healing`/`degraded` run is left to the guardian; a `complete` run is
+left alone. The overwatch only ever *messages the manager* — it never touches a
+worker itself.
 
 ## 3. Plan file schema (v1)
 
@@ -291,24 +349,41 @@ to the agent's own recommended option unless the brain reasons otherwise. The
 human inbox still **mirrors** the event (visibility + audit), but nothing
 blocks on it. Human escalation remains the path only for non-autopilot agents.
 
-## 9. Brain persona (`internal/role/roles/autopilot.yaml`, embedded)
+## 9. Manager persona (`internal/role/roles/autopilot.yaml`, embedded)
 
-Defaults: `permission_mode` full-auto equivalent, `auto_approve: true`, tags
-`[autopilot]`. Persona playbook (condensed contract — full text authored in P2):
+The manager runs under the `autopilot` role. Defaults: `permission_mode`
+full-auto equivalent, `auto_approve: true`, tags `[autopilot]`. Two supporting
+roles complete the topology:
+
+- **`worker`** (`roles/worker.yaml`) — the manager spawns one per task by
+  default; it owns the task end-to-end (implement → self-review → PR on the
+  integration branch → drive green → merge) and reports status back to the
+  manager. Defaults: `type: development`, `permission_mode: auto`, auto-approve.
+- **`brain`** (`roles/brain.yaml`) — an on-demand decision resolver the manager
+  spawns to unblock a stuck worker or make an ad-hoc design/architecture call
+  without human interaction, then report the resolution back. Defaults:
+  `permission_mode: auto`, auto-approve.
+
+Persona playbook (condensed contract — full text authored in P2):
 
 1. Your brief is the plan file plus the recovery digest injected at spawn;
    re-read the plan when it changes. Keep the task ledger and journal current —
    they feed the status panel and your successor's digest. Assume you can be
    restarted at any moment: verify before re-issuing anything (`land` is
    idempotent; `list_agents` shows what already exists).
-2. Decompose the goal into tasks; spawn workers (agents or pipelines) up to
-   `max_parallel_workers`, each in its own worktree, PRs based on the
-   integration branch — never main. Before parallelizing over the same area,
-   check `who_is_editing_file` and sequence instead of colliding.
+2. Decompose the goal into tasks; spawn one `worker`-role agent per task (or a
+   pipeline for a large task) up to `max_parallel_workers`, each in its own
+   worktree, PRs based on the integration branch — never main. Before
+   parallelizing over the same area, check `who_is_editing_file` and sequence
+   instead of colliding.
 3. Monitor workers; steer stuck ones by reading transcripts and messaging;
-   answer forwarded approval prompts (§8) promptly; respawn hopeless ones
-   (snapshot first). A worker rate-limited with a far-off reset may have its
-   task respawned on the next available ladder backend instead of waiting.
+   answer forwarded approval prompts (§8) promptly; spawn a `brain`-role
+   resolver for an ad-hoc design/architecture call rather than stalling; respawn
+   hopeless ones (snapshot first). The overwatch (§2.4) also nudges you —
+   periodically and whenever a worker falls idle or waits on input — so treat
+   each nudge as a cue to answer waiting workers and clean up finished ones. A
+   worker rate-limited with a far-off reset may have its task respawned on the
+   next available ladder backend instead of waiting.
 4. Land only via `land`; on `gate_red`/`not_mergeable` fix via the worker (or a
    fix-up worker), then re-land. If integration is behind main, refresh it
    (merge main in, wait for the gate) before landing more.
@@ -334,7 +409,9 @@ extremes.
 
 - Automated promotion of integration → main (owner fast-forwards; a separate
   opt-in may come later).
-- Multi-repo plans; user-defined roles; cross-run prioritization.
+- Multi-repo plans; user-defined roles; **multi-role agents** (one agent carrying
+  several roles at once — the consolidated `worker` role is the chosen alternative
+  for the implement+review+merge lifecycle); cross-run prioritization.
 - Making CI exist: repos without CI degrade to the local-check gate (§6.1)
   automatically; configuring CI (and extending branch filters to the
   integration branch) remains the adopter's job to earn the stronger gate.
@@ -375,7 +452,7 @@ extend to both the enabled-repo set and the config file.
 
 The autopilot switch is **per-repository**, not one global flag. `warden
 autopilot on` run inside a repo enables **only that repo**; other repos are
-unaffected. The plan/brain/merge **template** stays global in the `autopilot`
+unaffected. The plan/manager/merge **template** stays global in the `autopilot`
 config block — per-repo state is only the on/off bit and its run.
 
 - **Persistence.** The enabled set is stored as marker files under
@@ -454,7 +531,7 @@ atomic rename, so an inode watch would go deaf. A burst of writes debounces into
 
 **Hot-reloads** (applied on the next tick/spawn, no restart):
 
-- autopilot plan/brain/merge template + adding/removing `plans[]` + the per-repo
+- autopilot plan/manager/merge template + adding/removing `plans[]` + the per-repo
   reconcile;
 - `auto_approve` policy;
 - `tokens.*` (context/token guard: on/off, warn/critical bands, warn alert,

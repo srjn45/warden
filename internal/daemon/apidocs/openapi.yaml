@@ -2244,6 +2244,13 @@ components:
         name: { type: string }
         repo: { type: string }
         status: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+          description: >-
+            Labels stamped onto every job agent this pipeline spawns. Set by the
+            daemon at creation time (not spec-authored) — e.g. autopilot
+            ownership tags inherited from the creating agent.
         jobs:
           type: array
           items: { $ref: "#/components/schemas/PipelineJob" }

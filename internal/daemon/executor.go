@@ -140,6 +140,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			PipelineID: p.ID, JobID: job.ID, Repo: p.Repo,
 			Prompt: pipeline.ComposePrompt(p, job), Worktree: worktree,
 			BaseBranch: base, Type: store.NormalizeType(job.Type), PermissionMode: permissionMode,
+			Tags: p.Tags,
 		}
 		if lvl, _ := e.life.MemoryPressure(ctx); lvl >= pressure.Warn {
 			slog.Warn("pipeline: spawning job under memory pressure", "pipeline", req.PipelineID, "job", jobID, "pressure", lvl.String())
