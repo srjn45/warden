@@ -6,10 +6,10 @@ description: Adoption walkthrough — init, cost-tier config, enable/disable, la
 import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="caution" title="Unattended operation is inherently risky">
-When autopilot is enabled, a "brain" agent orchestrates worker agents **without
-waiting for human input**. Workers write code, open PRs, and merge branches into
-the integration branch — autonomously. You should understand the mitigations
-before enabling:
+When autopilot is enabled, a **manager** agent drives a fleet of worker agents
+**without waiting for human input**. Workers write code, open PRs, and merge
+branches into the integration branch — autonomously. You should understand the
+mitigations before enabling:
 
 - **Kill switch:** `warden autopilot off` stops new spawns and landings
   immediately (in-flight workers keep running). Use it any time you need to
@@ -17,20 +17,35 @@ before enabling:
 - **Integration-branch boundary:** workers never merge to `main` directly —
   all changes land in `autopilot/integration` first, where you review them
   before deciding to fast-forward `main`.
-- **Audit log:** every autopilot action (brain spawn, worker spawn, land, heal)
+- **Audit log:** every autopilot action (manager spawn, worker spawn, land, heal)
   is written to `warden audit log` — a permanent, append-only record of what
   ran.
 </Aside>
 
 Autopilot lets warden run a **goal-directed, long-lived agent loop** over your
 codebase. You describe what you want in a plan file, enable autopilot, and warden
-takes care of the rest: spawning a "brain" agent that breaks the goal into tasks,
-delegates each task to worker agents in isolated worktrees, gates their branches
-through CI, and lands them into an integration branch — healing itself when stuck,
-and escalating to cheaper backends when rate-limited.
+takes care of the rest: spawning a **manager** agent that breaks the goal into
+tasks, delegates each task to worker agents in isolated worktrees, gates their
+branches through CI, and lands them into an integration branch — healing itself
+when stuck, and escalating to cheaper backends when rate-limited.
 
-For the underlying design — brain, ledger, guardian, cost-tier ladder — see
-[Autopilot concepts](../concepts/autopilot).
+## The fleet
+
+A run is a small fleet with separated jobs:
+
+- **Manager** (role `autopilot`) — the long-lived agent that drives the whole run.
+- **Worker** (role `worker`) — one per task by default, owning it end-to-end
+  (implement → self-review → PR → CI green → merge) and reporting back to the
+  manager. A large task may instead get a pipeline of `implementer`/`reviewer`/`auto-merger` agents.
+- **Resolver** (role `brain`) — spawned on demand to unblock a stuck worker or
+  make an ad-hoc design call, without human interaction.
+
+A daemon-internal **overwatch** backstop keeps the fleet moving: it nudges the
+manager to tend workers that fall idle or wait on input. It is **fully automatic —
+no user action needed** — and its cadences are generous (a backstop, not a pacer).
+
+For the underlying design — manager/worker/resolver topology, overwatch, ledger,
+guardian, cost-tier ladder — see [Autopilot concepts](../concepts/autopilot).
 
 ---
 
@@ -67,7 +82,7 @@ version: 1
 goal: "Describe your goal here"
 constraints:
   - "keep all changes behind a feature flag"
-tasks: []           # leave empty to let the brain decompose the goal automatically
+tasks: []           # leave empty to let the manager decompose the goal automatically
 ```
 
 **`~/.warden/config.yaml`** — updated with an `autopilot` block:
@@ -80,14 +95,14 @@ autopilot:
   gate_mode: ci            # ci | local | auto (default: auto picks ci when available)
 ```
 
-Commit `autopilot.plan.yaml` to your repo so the brain can read it from its
+Commit `autopilot.plan.yaml` to your repo so the manager can read it from its
 worktree.
 
 ---
 
 ## Step 2 — edit your plan file
 
-Open `autopilot.plan.yaml` and fill in the goal. The brain decomposes the goal
+Open `autopilot.plan.yaml` and fill in the goal. The manager decomposes the goal
 into tasks automatically if you leave the `tasks:` list empty. Or provide coarse
 tasks yourself to guide decomposition:
 
@@ -108,19 +123,19 @@ tasks:
     after: [ui]
 ```
 
-The plan file is **owner-editable mid-flight** — the brain re-reads it on each
+The plan file is **owner-editable mid-flight** — the manager re-reads it on each
 planning tick. You can add tasks or change constraints while a run is active.
 
 ---
 
 ## Step 3 — configure the cost tier (optional)
 
-By default, the brain picks the cheapest available backend. To explicitly configure
+By default, the manager picks the cheapest available backend. To explicitly configure
 which backends autopilot may use, edit `~/.warden/config.yaml`:
 
 ```yaml
 autopilot:
-  # allow_tiers controls which cost tiers the brain may use.
+  # allow_tiers controls which cost tiers the manager may use.
   # Values: free, subscription, gated_ppu (pay-per-use — requires explicit opt-in)
   allow_tiers: [free, subscription]    # default: [free, subscription]
 
@@ -134,7 +149,7 @@ autopilot:
 | `subscription` | `claude`, `codex` | Your existing plan |
 | `gated_ppu` | API-billed backends | Requires explicit opt-in |
 
-If you only want the brain to use the free tier (e.g. to test autopilot at zero
+If you only want the manager to use the free tier (e.g. to test autopilot at zero
 additional cost), set `allow_tiers: [free]`.
 
 ---
@@ -157,21 +172,21 @@ hint: run `warden autopilot init` to scaffold a plan file and config block
 ```
 
 Fix any reported issues and re-run `warden autopilot on`. When the preflight
-passes, the brain is spawned and the run enters `active` state.
+passes, the manager is spawned and the run enters `active` state.
 
 ---
 
 ## Monitoring a run
 
 ```sh
-warden autopilot status          # run state, brain id, landed/pending task counts
-warden ls                        # shows the brain + all worker agents
-warden status <brain-id>         # full brain detail + events
-warden tail <brain-id>           # recent brain output
+warden autopilot status          # run state, manager id, landed/pending task counts
+warden ls                        # shows the manager + all worker agents
+warden status <manager-id>         # full manager detail + events
+warden tail <manager-id>           # recent manager output
 warden audit log                 # full append-only audit trail of every action
 ```
 
-The TUI cockpit (`warden tui`) shows the brain and its workers as a nested
+The TUI cockpit (`warden tui`) shows the manager and its workers as a nested
 sub-tree under the run. The web dashboard shows an **Autopilot** panel when a run
 is active. The TUI header has a status badge (press `ctrl+a` to toggle autopilot
 on/off without leaving the cockpit).
@@ -180,7 +195,7 @@ on/off without leaving the cockpit).
 
 ## Landing a worker branch manually
 
-The brain calls `warden land` automatically when a worker finishes and its PR
+The manager calls `warden land` automatically when a worker finishes and its PR
 is gate-green. You can also call it manually to land a specific worker (e.g.
 to bypass a stuck gate, or to pre-land a branch you've already reviewed):
 
@@ -203,7 +218,7 @@ Over MCP: `land { ticket: "<agent-or-branch>" }`.
 ## Reviewing the integration branch
 
 When all tasks are landed, autopilot marks the run `complete` and tears down the
-brain. The integration branch (`autopilot/integration` by default) holds all the
+manager. The integration branch (`autopilot/integration` by default) holds all the
 merged worker branches — one merge commit per landed task.
 
 Review the branch, then fast-forward `main` when you're satisfied:
@@ -233,7 +248,7 @@ Effective immediately, at any state:
 
 - The Controller stops spawning new workers and landing new branches
 - In-flight workers **keep running** to completion (they are not terminated)
-- The brain is terminated gracefully
+- The manager is terminated gracefully
 - The ledger is retained — `warden autopilot on` continues from where the run
   left off
 
@@ -249,7 +264,7 @@ doing, or abort a run that is heading in the wrong direction.
 | `warden autopilot init` | Scaffold `autopilot.plan.yaml` + config block |
 | `warden autopilot on` | Enable autopilot (runs preflight first) |
 | `warden autopilot off` | Disable autopilot — the kill switch |
-| `warden autopilot status` | Show current run state, brain id, task summary |
+| `warden autopilot status` | Show current run state, manager id, task summary |
 | `warden land <agent-or-branch>` | Land a worker branch into the integration branch |
 
 ## MCP tools
@@ -257,7 +272,7 @@ doing, or abort a run that is heading in the wrong direction.
 | Tool | What it does |
 |---|---|
 | `set_autopilot { enabled: true\|false }` | Enable or disable autopilot (the kill switch) |
-| `autopilot_status` | Return current run state, brain id, task counts |
+| `autopilot_status` | Return current run state, manager id, task counts |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch |
 
 ---
@@ -266,9 +281,9 @@ doing, or abort a run that is heading in the wrong direction.
 
 - **Rate-limit resume and auto-restart are global config toggles** (`rate_limit.auto_resume`,
   `auto_restart`), not per-run overrides via autopilot — configure them in
-  `~/.warden/config.yaml` for the backends your brain uses.
+  `~/.warden/config.yaml` for the backends your manager uses.
 - **Rotate (guardian stage 3)** requires more than one free-tier backend to
   exercise meaningfully. With only `antigravity` in the free tier, the guardian
   falls back directly to backoff after a restart fails.
-- The brain picks worker backends itself based on the plan; `Controller.SelectWorkerBackend`
-  is exposed but the brain is not required to use it.
+- The manager picks worker backends itself based on the plan; `Controller.SelectWorkerBackend`
+  is exposed but the manager is not required to use it.

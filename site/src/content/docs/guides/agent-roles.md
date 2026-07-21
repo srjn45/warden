@@ -23,6 +23,13 @@ warden role list
 | `implementer` | Implement a task end-to-end on your own branch: write the code and tests, run the project checks, commit, and open a PR. Keep scope tight. | `--type development` |
 | `auto-merger` | Own getting an open PR merged: monitor its CI, fix failures or conflicts, push and re-check, and merge as soon as it's green and approved. | `--permission-mode auto`, auto-approve on |
 | `reviewer` | Review the changes on a branch/PR for correctness, test coverage, and style. Produce clear, actionable findings and a merge/blocker verdict. Don't implement fixes unless asked. | `--type pr-review` |
+| `worker` | Own one task end-to-end: implement (code + tests + checks + commit), self-review the diff, open a PR on your integration branch, drive it to green, and merge — then report status back to your coordinator. | `--type development`, `--permission-mode auto`, auto-approve on |
+| `autopilot` | Long-lived headless **manager** that drives a whole autopilot run: decompose the goal, spawn `worker`/`brain` agents, gate their PRs, and land into the integration branch — fully unattended. | `--permission-mode bypassPermissions`, auto-approve on |
+| `brain` | On-demand **decision resolver**: unblock a stuck agent or make an ad-hoc design/architecture call, decisively and without human interaction, then report the resolution back. | `--permission-mode auto`, auto-approve on |
+
+The last three power [autopilot](/guides/autopilot/)'s topology: the `autopilot`
+manager spawns `worker` agents to deliver tasks and `brain` agents to resolve
+blockers.
 
 ## Choose a role at spawn
 

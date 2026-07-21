@@ -27,9 +27,13 @@ const guardianNudge = "autopilot guardian: you have gone quiet past the heartbea
 
 // RunGuardian is the daemon-launched heartbeat guardian loop (autopilot.md §2.3),
 // built in the worktree_prune.go / scheduler.go pattern: it ticks on the
-// configured interval until ctx is cancelled. A runtime that does not implement
-// GuardianRuntime (the S1 inert core, the S3 lifecycle fakes) makes every tick a
-// no-op, so wiring it in unconditionally is safe. Launched from server.go.
+// configured interval until ctx is cancelled. Each tick runs the guardian heal
+// pass (manager liveness) and then the overwatch pass (§2.4, worker tending) —
+// the overwatch's own nudge cadence is time-gated per run, so sharing the
+// guardian's ticker just gives it a chance to evaluate. A runtime that does not
+// implement GuardianRuntime / OverwatchRuntime (the S1 inert core, the lifecycle
+// fakes) makes each pass a no-op, so wiring both in unconditionally is safe.
+// Launched from server.go.
 func (c *Controller) RunGuardian(ctx context.Context) {
 	interval := c.guardian.Interval
 	if interval <= 0 {
@@ -43,6 +47,7 @@ func (c *Controller) RunGuardian(ctx context.Context) {
 			return
 		case <-t.C:
 			c.guardianTick(ctx)
+			c.overwatchTick(ctx)
 		}
 	}
 }

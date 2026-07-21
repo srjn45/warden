@@ -2088,8 +2088,9 @@ type JobSpawnRequest struct {
 	Worktree       bool   // create a git worktree? false = run in repo root
 	BaseBranch     string // worktree base ref ("" = off HEAD); ignored when Worktree is false
 	Type           store.Type
-	PermissionMode string // explicit mode override; empty = use global default
-	Model          string // claude model (opus/sonnet/haiku or full ID); empty = default
+	PermissionMode string   // explicit mode override; empty = use global default
+	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
+	Tags           []string // labels stamped on the job's session (e.g. inherited autopilot ownership tags)
 }
 
 // exitSuffix ensures ExitsDir exists, clears any stale exit-file for id (from a
@@ -2267,7 +2268,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
 		PipelineID: req.PipelineID, JobID: req.JobID,
-		Model: req.Model,
+		Model: req.Model, Tags: store.NormalizeTags(req.Tags),
 	}
 	cid, err := store.NewSessionID()
 	if err != nil {

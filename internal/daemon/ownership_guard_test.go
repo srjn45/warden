@@ -1,13 +1,19 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/auth"
+	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -84,6 +90,107 @@ func TestGuardOwnershipBrainWithoutRunTag(t *testing.T) {
 	require.NoError(t, fs.Insert(context.Background(), target))
 	srv := &Server{store: fs}
 	requireForbidden(t, srv.guardOwnership(ctxWithActor("brain-x"), target))
+}
+
+// TestInheritOwnershipTags proves autopilot's ownership tags flow mechanically
+// from the calling agent to the agents (and pipelines) it creates, and that
+// every other caller's tags pass through untouched.
+func TestInheritOwnershipTags(t *testing.T) {
+	fs := newFakeStore()
+	manager := &store.Session{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-1"}}
+	worker := &store.Session{ID: "wrk-1", Tags: []string{"autopilot", "run:ap-1"}}
+	untagged := &store.Session{ID: "plain-1"}
+	noRun := &store.Session{ID: "odd-1", Tags: []string{"autopilot"}}
+	for _, s := range []*store.Session{manager, worker, untagged, noRun} {
+		require.NoError(t, fs.Insert(context.Background(), s))
+	}
+	srv := &Server{store: fs}
+
+	t.Run("manager's spawn inherits its run tags", func(t *testing.T) {
+		got := srv.inheritOwnershipTags(ctxWithActor("mgr-1"), nil)
+		require.ElementsMatch(t, []string{"autopilot", "run:ap-1"}, got)
+	})
+	t.Run("worker's spawn inherits too (transitive fence)", func(t *testing.T) {
+		got := srv.inheritOwnershipTags(ctxWithActor("wrk-1"), []string{"custom"})
+		require.ElementsMatch(t, []string{"custom", "autopilot", "run:ap-1"}, got)
+	})
+	t.Run("already-present tags are not duplicated", func(t *testing.T) {
+		got := srv.inheritOwnershipTags(ctxWithActor("mgr-1"), []string{"autopilot", "run:ap-1"})
+		require.ElementsMatch(t, []string{"autopilot", "run:ap-1"}, got)
+	})
+	t.Run("ordinary agent caller passes through", func(t *testing.T) {
+		got := srv.inheritOwnershipTags(ctxWithActor("plain-1"), []string{"x"})
+		require.Equal(t, []string{"x"}, got)
+	})
+	t.Run("human caller (no actor header) passes through", func(t *testing.T) {
+		require.Nil(t, srv.inheritOwnershipTags(ctxWithActor(""), nil))
+	})
+	t.Run("autopilot tag without a run tag inherits nothing", func(t *testing.T) {
+		require.Nil(t, srv.inheritOwnershipTags(ctxWithActor("odd-1"), nil))
+	})
+}
+
+// TestSpawnRouteInheritsAutopilotTags proves POST /spawn stamps the caller's
+// ownership tags through the real handler: a manager that forgets to pass tags
+// still gets its worker fenced into the run.
+func TestSpawnRouteInheritsAutopilotTags(t *testing.T) {
+	fs := newFakeStore()
+	mgr := &store.Session{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-9"}}
+	require.NoError(t, fs.Insert(context.Background(), mgr))
+	s := &Server{store: fs, life: &fakeLife{}}
+	ts := httptest.NewServer(s.router())
+	defer ts.Close()
+
+	b, _ := json.Marshal(SpawnRequest{Prompt: "do x", Cwd: t.TempDir()})
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/spawn", bytes.NewReader(b))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.ActorHeader, "mgr-1")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var sess store.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&sess))
+	require.ElementsMatch(t, []string{"autopilot", "run:ap-9"}, sess.Tags)
+}
+
+// TestPipelineRouteInheritsAutopilotTags proves the pipeline escalation path
+// stays inside the fence: tags are captured at POST /pipelines (where the actor
+// identity still exists) and stamped onto each job session the executor spawns
+// later.
+func TestPipelineRouteInheritsAutopilotTags(t *testing.T) {
+	ps, err := pipeline.NewStore(t.TempDir())
+	require.NoError(t, err)
+	cs, err := ctxstore.New(t.TempDir())
+	require.NoError(t, err)
+	fs := newFakeStore()
+	exec := NewExecutor(ps, fs, &fakeLife{}, cs, func() {})
+	srv := &Server{store: fs, life: &fakeLife{}, exec: exec, hub: newHub(), done: make(chan struct{})}
+	mgr := &store.Session{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-9"}}
+	require.NoError(t, fs.Insert(context.Background(), mgr))
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/pipelines", strings.NewReader(yamlBody))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.ActorHeader, "mgr-1")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	p, err := ps.Get("demo")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"autopilot", "run:ap-9"}, p.Tags)
+
+	resp2, err := http.Post(ts.URL+"/api/v1/pipelines/demo/start", "application/json", nil)
+	require.NoError(t, err)
+	resp2.Body.Close()
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+	job, err := fs.Get(context.Background(), "demo-a")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"autopilot", "run:ap-9"}, job.Tags)
 }
 
 // TestInstallDefaultAutoApprovePolicy proves the §10 seam installs a generous
