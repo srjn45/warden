@@ -18,8 +18,12 @@ const (
 // the OpenAPI schema via x-go-type, so this struct's JSON tags ARE the API
 // contract — keep them in sync with the spec.
 type Status struct {
-	Enabled bool        `json:"enabled"`
-	Runs    []RunStatus `json:"runs"`
+	// Enabled is true when ANY repo has autopilot switched on (the switch is
+	// per-repo, not a single global flag — see EnabledRepos for exactly which).
+	Enabled bool `json:"enabled"`
+	// EnabledRepos names every repo root currently switched on, sorted.
+	EnabledRepos []string    `json:"enabled_repos"`
+	Runs         []RunStatus `json:"runs"`
 }
 
 // RunStatus is one run's slice of AutopilotStatus. In the S1 inert core Brain is

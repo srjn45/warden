@@ -52,8 +52,8 @@ func TestInjectContextRoutesToInjector(t *testing.T) {
 	require.NoError(t, err)
 	dir := t.TempDir()
 	require.NoError(t, lc.injectContext(codex, dir,
-		hintGuidance(lc.cfg.GetCollabHint(), collabHintGuidance),
-		hintGuidance(lc.cfg.GetGitConventions(), gitConventionsGuidance),
+		hintGuidance(lc.config().GetCollabHint(), collabHintGuidance),
+		hintGuidance(lc.config().GetGitConventions(), gitConventionsGuidance),
 	))
 	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	require.NoError(t, err)

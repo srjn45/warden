@@ -27,6 +27,7 @@ type resolved struct {
 	plan          Plan
 	resolvedGate  string // gate mode resolved from `auto` (§6.1): ci | local
 	defaultBranch string // repo default branch — the land guard's protected name
+	skipComplete  bool   // the plan carries the completion marker (§2.1): skip, don't register
 }
 
 // preflightPlan runs the enable-time checks that concern a single plan in
@@ -65,6 +66,15 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 	}
 	r.repo = repo
 	r.runID = RunID(repo, abs)
+
+	// A completed plan (§2.1) is done: preflight neither fails it nor registers it
+	// as a run. Signal the skip now — with repo/run_id resolved so Enable can log a
+	// useful line — and return before the enable-time checks (gh, branch, backend,
+	// gate), which only concern a plan that will actually run again.
+	if r.plan.IsComplete() {
+		r.skipComplete = true
+		return r, fails
+	}
 
 	// gh must be authenticated — a dead login would stall PR gating at 3am.
 	if err := c.env.GHAuthOK(ctx); err != nil {

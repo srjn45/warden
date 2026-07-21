@@ -302,12 +302,13 @@ func autopilotCmd(a api) tea.Cmd {
 	}
 }
 
-// autopilotToggleCmd flips the autopilot master switch.
+// autopilotToggleCmd flips the autopilot switch for the daemon's working-directory
+// repo (empty repo ⇒ that default — the switch is per-repo).
 func autopilotToggleCmd(a api, enable bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		st, err := a.SetAutopilot(ctx, enable)
+		st, err := a.SetAutopilot(ctx, enable, "")
 		return autopilotToggleDoneMsg{status: st, err: err}
 	}
 }

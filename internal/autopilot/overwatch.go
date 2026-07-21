@@ -66,23 +66,25 @@ type OverwatchRuntime interface {
 }
 
 // overwatchTick supervises every live run's fleet once (autopilot.md §2.4). Like
-// the guardian tick it honors the kill switch and no-ops when the runtime cannot
-// support an overwatch, and holds c.mu for the whole pass so run state stays
-// consistent with Enable/guardianTick. Called from RunGuardian on the guardian's
-// cadence; the actual nudge cadence is time-gated per run, independent of the
-// tick rate.
+// the guardian tick it honors the per-repo kill switch and no-ops when the
+// runtime cannot support an overwatch, and holds c.mu for the whole pass so run
+// state stays consistent with Enable/guardianTick. Called from RunGuardian on
+// the guardian's cadence; the actual nudge cadence is time-gated per run,
+// independent of the tick rate.
 func (c *Controller) overwatchTick(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.enabled {
-		return
-	}
 	ow, ok := c.runtime.(OverwatchRuntime)
 	if !ok {
 		return
 	}
 	now := c.now()
 	for _, r := range c.runs {
+		// Per-repo kill switch — mirrors guardianTick: a disabled repo's runs are
+		// supervised by nothing.
+		if !c.enableStore.IsEnabled(r.repo) {
+			continue
+		}
 		c.overwatchRun(ctx, ow, r, now)
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/daemon/oapi"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -116,6 +118,61 @@ func TestAutopilotUnconfigured(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// TestCompleteAutopilotHandler exercises the brain's completion signal: only the
+// run's own brain may complete it (403 otherwise), completion writes the in-place
+// marker (comment preserved) and transitions the run to complete, and it is
+// idempotent.
+func TestCompleteAutopilotHandler(t *testing.T) {
+	dir := t.TempDir()
+	plan := filepath.Join(dir, "plan.yaml")
+	require.NoError(t, os.WriteFile(plan, []byte("# owner comment — keep me\nversion: 1\ngoal: ship\n"), 0o644))
+
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
+	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
+		Plans:             []string{plan},
+		IntegrationBranch: "autopilot/integration",
+		Gate:              "auto",
+		Backends:          autopilot.BackendLadder{Free: []string{"claude"}},
+	}, &apFakeEnv{repo: dir}))
+
+	st, err := srv.autopilot.Enable(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, st.Runs, 1)
+	runID := st.Runs[0].RunID
+
+	// A non-brain caller (no actor header) is refused and nothing changes.
+	resp, err := srv.CompleteAutopilot(ctxWithActor(""), oapi.CompleteAutopilotRequestObject{})
+	require.NoError(t, err)
+	_, forbidden := resp.(oapi.CompleteAutopilot403JSONResponse)
+	require.True(t, forbidden, "a non-brain caller gets 403")
+	require.Equal(t, autopilot.StateActive, srv.autopilot.Status().Runs[0].State)
+
+	// The run's own brain (role autopilot + its run tag) completes the run.
+	brain := &store.Session{ID: "brain-caller", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
+	require.NoError(t, srv.store.Insert(context.Background(), brain))
+
+	resp, err = srv.CompleteAutopilot(ctxWithActor("brain-caller"), oapi.CompleteAutopilotRequestObject{})
+	require.NoError(t, err)
+	ok200, isOK := resp.(oapi.CompleteAutopilot200JSONResponse)
+	require.True(t, isOK, "the brain completes its run (200)")
+	require.Len(t, ok200.Runs, 1)
+	require.Equal(t, autopilot.StateComplete, ok200.Runs[0].State)
+
+	// The plan file gained a durable, re-parseable marker with the comment intact.
+	raw, err := os.ReadFile(plan)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "# owner comment — keep me")
+	p, err := autopilot.LoadPlan(plan)
+	require.NoError(t, err)
+	require.True(t, p.IsComplete())
+
+	// Idempotent: completing again is still a 200 no-op.
+	resp, err = srv.CompleteAutopilot(ctxWithActor("brain-caller"), oapi.CompleteAutopilotRequestObject{})
+	require.NoError(t, err)
+	_, isOK = resp.(oapi.CompleteAutopilot200JSONResponse)
+	require.True(t, isOK)
 }
 
 // --- small JSON helpers ---

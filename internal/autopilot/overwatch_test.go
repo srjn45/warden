@@ -183,9 +183,9 @@ func TestOverwatchDisabledControllerIsNoOp(t *testing.T) {
 	fake.roster[runID] = []AgentInfo{manager(mgr, "idle"), {ID: "w1", State: "idle"}}
 	clock.t = t0.Add(2 * overwatchPeriod)
 
-	c.Disable(context.Background())
+	c.Disable(context.Background(), "")
 	c.overwatchTick(context.Background())
-	require.Empty(t, fake.wakes, "a disabled controller overwatches nothing")
+	require.Empty(t, fake.wakes, "a disabled repo's run is overwatched by nothing")
 }
 
 func TestComposeOverwatchNudgeCapsList(t *testing.T) {

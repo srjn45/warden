@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -285,30 +286,19 @@ func newDaemonCmd() *cobra.Command {
 			// every surface but no brain spawns yet. baseDir anchors relative plan
 			// paths to the daemon's working directory.
 			apBaseDir, _ := os.Getwd()
-			apBackends := cfg.AutopilotBrainBackends()
-			apCtrl := autopilot.NewController(autopilot.ControllerConfig{
-				Plans:             cfg.AutopilotPlanFiles(),
-				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
-				Gate:              cfg.AutopilotGate(),
-				Strategy:          cfg.AutopilotMergeStrategy(),
-				DeleteBranch:      cfg.AutopilotDeleteBranch(),
-				BaseDir:           apBaseDir,
-				Backends: autopilot.BackendLadder{
-					Free:         apBackends.Free,
-					Subscription: apBackends.Subscription,
-					PayPerUse:    apBackends.PayPerUse,
-				},
-				AllowPayPerUse: cfg.AutopilotAllowPayPerUse(),
-				Guardian: autopilot.GuardianParams{
-					Interval:         cfg.AutopilotGuardianInterval(),
-					HeartbeatTimeout: cfg.AutopilotGuardianHeartbeatTimeout(),
-					BackoffMin:       cfg.AutopilotGuardianBackoffMin(),
-					BackoffMax:       cfg.AutopilotGuardianBackoffMax(),
-					RotateAtContext:  cfg.AutopilotGuardianRotateAtContext(),
-					NotifyEach:       cfg.AutopilotGuardianNotifyEach(),
-				},
-			}, nil)
+			apCtrl := autopilot.NewController(buildAutopilotControllerConfig(cfg, apBaseDir), nil)
 			srv.SetAutopilotController(apCtrl)
+			// Boot re-enable: the on/off bit is persisted per-repo, so bring every
+			// previously-enabled repo back up across a daemon restart. Enable is
+			// per-repo and best-effort here — a repo whose preflight now fails (e.g.
+			// gh logged out) is logged and skipped rather than blocking startup; a
+			// later `warden autopilot on` re-enables it. (Runtime is wired above, so
+			// this respects the current inert-or-live state.)
+			for _, repo := range apCtrl.PersistedEnabled() {
+				if _, err := apCtrl.Enable(ctx, repo); err != nil {
+					slog.Warn("autopilot: boot re-enable skipped", "repo", repo, "err", err)
+				}
+			}
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with
 			// plugins off rather than refusing to start the daemon. Once loaded,
@@ -358,23 +348,24 @@ func newDaemonCmd() *cobra.Command {
 			}
 
 			// One notifier seam drives every alert channel: the platform
-			// (desktop) notifier, plus the webhook when configured. Both the
-			// status-transition hook and the context-size alert deliver through it.
-			notifier := notify.New(cfg.Notify.Enabled)
-			if cfg.Notify.WebhookEnabled && cfg.Notify.WebhookURL != "" {
-				notifier = notify.Multi(notifier, notify.NewWebhook(cfg.Notify.WebhookURL))
-			}
+			// (desktop) notifier, plus the webhook when configured. It is wrapped in
+			// a notify.Switch so a config hot-reload of notify.* / webhook.* can
+			// rebuild the delivery chain and swap it in (buildNotifier) without
+			// re-wiring the hooks below that capture it. Both the status-transition
+			// hook and the context-size alert deliver through it.
+			notifSwitch := notify.NewSwitch(buildNotifier(cfg))
 			// Branch tracker (#44): opt-in. When enabled it fans CI failures out
 			// through the same operator notifier seam (desktop + webhook) and
 			// scans on the configured interval; left disabled its Run returns
-			// immediately (interval 0).
+			// immediately (interval 0). Wired to the switch so a notify reload
+			// reaches it too (enabling/disabling the tracker itself needs a restart).
+			srv.SetBranchTrackNotifier(notifSwitch)
 			if cfg.BranchTrack.Enabled {
-				srv.SetBranchTrackNotifier(notifier)
 				srv.SetBranchTrackInterval(cfg.BranchTrackIntervalDuration())
 			} else {
 				srv.SetBranchTrackInterval(0)
 			}
-			notifyHook := daemon.NotifyOnTransition(notifier)
+			notifyHook := daemon.NotifyOnTransition(notifSwitch)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
 			// Fixture-capture aid: snapshot the raw pane on each real limit hit so a
@@ -382,7 +373,7 @@ func newDaemonCmd() *cobra.Command {
 			rateLimitSched.CaptureDir = filepath.Join(cfg.DataDir, "ratelimit-captures")
 			// Autopilot guardian escalations (§2.3) fan out through the same
 			// operator notifier seam (desktop + webhook).
-			srv.SetAutopilotNotifier(notifier)
+			srv.SetAutopilotNotifier(notifSwitch)
 			// Autopilot cost-tier selection (§7): feed the guardian's per-backend
 			// limit tracking from the poller's rate-limit detection, so a limited
 			// backend drops out of selection until its parsed reset (else the
@@ -398,13 +389,51 @@ func newDaemonCmd() *cobra.Command {
 			}
 			pl.OnContextAlert = func(sess *store.Session, state ctxtokens.State, tokens int) {
 				title, body := daemon.ContextAlertMessage(sess, state, tokens)
-				go notifier.Notify(title, body)
+				go notifSwitch.Notify(title, body)
 			}
-			pl.OnAnomaly = daemon.NotifyOnAnomaly(notify.New(cfg.Notify.Enabled))
+			// Anomaly alerts share the same swappable switch so a notify reload
+			// reaches them too (previously a second, independent notifier).
+			pl.OnAnomaly = daemon.NotifyOnAnomaly(notifSwitch)
 
 			// Reconstruct rate limit timers from persisted state
 			if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
 				slog.Warn("daemon: failed to reconstruct rate limit timers", "err", err)
+			}
+
+			// Config hot-reload (feature 3): re-apply ~/.warden/config.yaml live on
+			// every good edit — no daemon restart. The Server's ApplyConfig fan-out
+			// pushes the reloaded config into the subsystems it owns (poller
+			// auto-approve + context guard, api_docs, scheduler route gate) and runs
+			// these reload hooks for the rest. A BAD edit never reaches ApplyConfig:
+			// the watcher keeps the last-good config, logs it, and alerts the owner.
+			srv.SetBaselineConfig(cfg)
+			srv.AddReloadHook(func(c config.Config) {
+				// rails toggles, model_default, default permission mode, hint gates.
+				lc.SetConfig(c)
+			})
+			srv.AddReloadHook(func(c config.Config) {
+				// autopilot plan/manager/merge template + per-repo reconcile (the
+				// persisted enable set is preserved — config only carries the template).
+				apCtrl.Reconfigure(ctx, buildAutopilotControllerConfig(c, apBaseDir))
+			})
+			srv.AddReloadHook(func(c config.Config) {
+				// notify.* + webhook: rebuild the delivery chain and swap it in.
+				notifSwitch.Set(buildNotifier(c))
+			})
+			if watcher, werr := config.NewWatcher(cfgPath, config.DefaultReloadDebounce, srv.ApplyConfig, func(err error) {
+				// A malformed edit: last-good config is kept; alert the owner so the
+				// broken file gets fixed (mirrors the plan mid-run-edit philosophy).
+				go notifSwitch.Notify("warden config", "config reload failed — keeping last-good settings: "+err.Error())
+			}); werr != nil {
+				slog.Warn("config: live-reload watcher disabled", "path", cfgPath, "err", werr)
+			} else {
+				defer watcher.Close()
+				go func() {
+					if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+						slog.Warn("config: live-reload watcher stopped", "err", err)
+					}
+				}()
+				slog.Info("config: live-reload watching", "path", cfgPath)
 			}
 
 			slog.Info("warden daemon listening", "addr", cfg.Addr)
@@ -421,4 +450,48 @@ func newDaemonCmd() *cobra.Command {
 	cmd.Flags().String("log-level", "", "log verbosity: debug | info | warn | error (overrides log.level config)")
 	cmd.Flags().String("log-format", "", "log output format: text | json (overrides log.format config)")
 	return cmd
+}
+
+// buildAutopilotControllerConfig derives the autopilot ControllerConfig from the
+// live config. It is used at boot AND by the config hot-reload hook (feature 3):
+// on reload the daemon rebuilds this from the new config and calls
+// Controller.Reconfigure to swap the plan/manager/merge template and re-run the
+// per-repo enable reconcile. baseDir anchors relative plan paths to the daemon cwd.
+func buildAutopilotControllerConfig(cfg config.Config, baseDir string) autopilot.ControllerConfig {
+	b := cfg.AutopilotBrainBackends()
+	return autopilot.ControllerConfig{
+		Plans:             cfg.AutopilotPlanFiles(),
+		IntegrationBranch: cfg.AutopilotIntegrationBranch(),
+		Gate:              cfg.AutopilotGate(),
+		Strategy:          cfg.AutopilotMergeStrategy(),
+		DeleteBranch:      cfg.AutopilotDeleteBranch(),
+		BaseDir:           baseDir,
+		DataDir:           cfg.DataDir,
+		Backends: autopilot.BackendLadder{
+			Free:         b.Free,
+			Subscription: b.Subscription,
+			PayPerUse:    b.PayPerUse,
+		},
+		AllowPayPerUse: cfg.AutopilotAllowPayPerUse(),
+		Guardian: autopilot.GuardianParams{
+			Interval:         cfg.AutopilotGuardianInterval(),
+			HeartbeatTimeout: cfg.AutopilotGuardianHeartbeatTimeout(),
+			BackoffMin:       cfg.AutopilotGuardianBackoffMin(),
+			BackoffMax:       cfg.AutopilotGuardianBackoffMax(),
+			RotateAtContext:  cfg.AutopilotGuardianRotateAtContext(),
+			NotifyEach:       cfg.AutopilotGuardianNotifyEach(),
+		},
+	}
+}
+
+// buildNotifier assembles the operator notifier delivery chain from config: the
+// platform (desktop / log) notifier, plus the webhook when configured. Used at
+// boot and by the config hot-reload hook (feature 3) to rebuild the chain, which
+// is then swapped into the live notify.Switch.
+func buildNotifier(cfg config.Config) notify.Notifier {
+	n := notify.New(cfg.Notify.Enabled)
+	if cfg.Notify.WebhookEnabled && cfg.Notify.WebhookURL != "" {
+		n = notify.Multi(n, notify.NewWebhook(cfg.Notify.WebhookURL))
+	}
+	return n
 }

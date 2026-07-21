@@ -1578,6 +1578,33 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AutopilotLandError" }
 
+  /api/v1/autopilot/complete:
+    post:
+      operationId: completeAutopilot
+      tags: [Autopilot]
+      summary: Mark the calling brain's run complete
+      description: >
+        The brain's completion signal (docs/specs/autopilot.md §2.1): once the
+        brain has verified the plan's done_when criteria it declares its run
+        complete. The daemon writes an in-place `status: complete` marker into the
+        plan file (so preflight skips the plan on every future enable and it can
+        never be executed again by mistake), tears the brain down gracefully
+        (in-flight workers keep running), and retains the run ledger. Idempotent:
+        a second call on an already-complete run is a no-op. The owning run is
+        derived from the calling brain's own session identity, so no body is
+        needed; only a run's own brain may complete it.
+      responses:
+        "200":
+          description: The resulting autopilot status (the run now reports state=complete)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotStatus" }
+        "403":
+          description: The caller is not an autopilot brain with a run to complete
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/schedules:
     get:
       operationId: listSchedules
@@ -2507,9 +2534,12 @@ components:
 
     AutopilotToggleRequest:
       type: object
-      description: Body for POST /autopilot — the master switch.
+      description: >
+        Body for POST /autopilot — the per-repo switch. `repo` scopes the toggle to
+        one repository; omitted, it defaults to the daemon's working directory.
       properties:
-        enabled: { type: boolean, description: true enables autopilot (runs preflight), false is the kill switch }
+        enabled: { type: boolean, description: true enables autopilot for the repo (runs preflight), false is the kill switch }
+        repo: { type: string, description: "repo root to toggle (optional; defaults to the daemon's working directory)" }
       required: [enabled]
 
     AutopilotStatus:
@@ -2523,7 +2553,11 @@ components:
         (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the
         properties below document the wire contract.
       properties:
-        enabled: { type: boolean }
+        enabled: { type: boolean, description: "true when any repo has autopilot switched on" }
+        enabled_repos:
+          type: array
+          description: "repo roots currently switched on (the per-repo switch is not a single global flag)"
+          items: { type: string }
         runs:
           type: array
           items:

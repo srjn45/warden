@@ -34,7 +34,7 @@ type api interface {
 	CtxList(ctx context.Context, prefix string) ([]client.ContextEntry, error)
 	MsgRecent(ctx context.Context, limit int) ([]client.Message, error)
 	GetAutopilot(ctx context.Context) (client.AutopilotStatus, error)
-	SetAutopilot(ctx context.Context, enabled bool) (client.AutopilotStatus, error)
+	SetAutopilot(ctx context.Context, enabled bool, repo string) (client.AutopilotStatus, error)
 }
 
 type mode int

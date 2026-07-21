@@ -18,26 +18,38 @@ import (
 func newAutopilotCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "autopilot",
-		Short: "Turn autopilot mode on/off and show its status",
+		Short: "Turn autopilot mode on/off per repo and show its status",
 		Long: "Autopilot runs a long-lived headless brain agent per plan that decomposes a\n" +
 			"goal, spawns workers, and lands green work into an integration branch\n" +
-			"unattended. Enabling runs a preflight (plan file valid, gh authenticated,\n" +
-			"integration branch present, at most one active run per repo) and fails fast\n" +
-			"with the full list of problems so you fix everything in one pass. `off` is the\n" +
-			"kill switch. Configure the feature under the `autopilot` block in the config\n" +
-			"file (or scaffold it with `warden autopilot init`).",
+			"unattended. The switch is PER-REPO: `warden autopilot on` run inside a repo\n" +
+			"enables only that repo (others are unaffected), and the enabled set is persisted\n" +
+			"so repos come back up across a daemon restart. The plan/manager/merge template\n" +
+			"stays global in the `autopilot` config block. Enabling runs a preflight (plan\n" +
+			"file valid, gh authenticated, integration branch present, at most one active run\n" +
+			"per repo) and fails fast with the full list of problems so you fix everything in\n" +
+			"one pass. `off` is the kill switch. Configure the feature under the `autopilot`\n" +
+			"block in the config file (or scaffold it with `warden autopilot init`).",
 	}
 	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd(), newAutopilotInitCmd())
 	return cmd
 }
 
 func newAutopilotOnCmd() *cobra.Command {
-	return &cobra.Command{
+	var repoFlag string
+	cmd := &cobra.Command{
 		Use:   "on",
-		Short: "Enable autopilot (runs the enable-time preflight)",
-		Args:  cobra.NoArgs,
+		Short: "Enable autopilot for this repo (runs the enable-time preflight)",
+		Long: "Enables autopilot for the current git repository only (other repos are\n" +
+			"unaffected). Runs the enable-time preflight and, on success, persists the repo\n" +
+			"as enabled so it comes back up across a daemon restart. Use --repo to target a\n" +
+			"different repository.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			st, err := clientFor(cmd).SetAutopilot(cmd.Context(), true)
+			repo, err := resolveAutopilotRepo(cmd, repoFlag)
+			if err != nil {
+				return err
+			}
+			st, err := clientFor(cmd).SetAutopilot(cmd.Context(), true, repo)
 			if err != nil {
 				var pfe *client.AutopilotPreflightError
 				if errors.As(err, &pfe) {
@@ -50,32 +62,63 @@ func newAutopilotOnCmd() *cobra.Command {
 				}
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "autopilot enabled — %d run(s)\n", len(st.Runs))
+			fmt.Fprintf(cmd.OutOrStdout(), "autopilot enabled for %s — %d run(s)\n", repo, len(st.Runs))
 			printAutopilotRuns(cmd, st)
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&repoFlag, "repo", "", "repo root to enable (default: the current git repository)")
+	return cmd
 }
 
 func newAutopilotOffCmd() *cobra.Command {
-	return &cobra.Command{
+	var repoFlag string
+	cmd := &cobra.Command{
 		Use:   "off",
-		Short: "Disable autopilot (kill switch — stops spawning/landing)",
-		Args:  cobra.NoArgs,
+		Short: "Disable autopilot for this repo (kill switch — stops spawning/landing)",
+		Long: "Disables autopilot for the current git repository only (other enabled repos\n" +
+			"keep running). In-flight workers are left running. Use --repo to target a\n" +
+			"different repository.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if _, err := clientFor(cmd).SetAutopilot(cmd.Context(), false); err != nil {
+			repo, err := resolveAutopilotRepo(cmd, repoFlag)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "autopilot disabled")
+			if _, err := clientFor(cmd).SetAutopilot(cmd.Context(), false, repo); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "autopilot disabled for %s\n", repo)
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&repoFlag, "repo", "", "repo root to disable (default: the current git repository)")
+	return cmd
+}
+
+// resolveAutopilotRepo resolves the repo root a per-repo toggle targets: the
+// --repo override when given, else the current working directory, canonicalized to
+// its git toplevel so it matches the repo autopilot resolves from a plan file.
+func resolveAutopilotRepo(cmd *cobra.Command, override string) (string, error) {
+	dir := override
+	if dir == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve working directory: %w", err)
+		}
+		dir = cwd
+	}
+	root, err := autopilot.NewExecEnv().GitToplevel(cmd.Context(), dir)
+	if err != nil {
+		return "", fmt.Errorf("not inside a git repository (%s): %w", dir, err)
+	}
+	return root, nil
 }
 
 func newAutopilotStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show autopilot status",
+		Short: "Show autopilot status (which repos are enabled, and each run)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			st, err := clientFor(cmd).GetAutopilot(cmd.Context())
@@ -86,7 +129,11 @@ func newAutopilotStatusCmd() *cobra.Command {
 			if st.Enabled {
 				state = "enabled"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "autopilot: %s — %d run(s)\n", state, len(st.Runs))
+			fmt.Fprintf(cmd.OutOrStdout(), "autopilot: %s — %d repo(s), %d run(s)\n",
+				state, len(st.EnabledRepos), len(st.Runs))
+			for _, repo := range st.EnabledRepos {
+				fmt.Fprintf(cmd.OutOrStdout(), "  enabled: %s\n", repo)
+			}
 			printAutopilotRuns(cmd, st)
 			return nil
 		},

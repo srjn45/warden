@@ -137,7 +137,7 @@ func (f *fakeAPI) MsgRecent(_ context.Context, limit int) ([]client.Message, err
 func (f *fakeAPI) GetAutopilot(context.Context) (client.AutopilotStatus, error) {
 	return client.AutopilotStatus{}, nil
 }
-func (f *fakeAPI) SetAutopilot(_ context.Context, _ bool) (client.AutopilotStatus, error) {
+func (f *fakeAPI) SetAutopilot(_ context.Context, _ bool, _ string) (client.AutopilotStatus, error) {
 	return client.AutopilotStatus{}, nil
 }
 

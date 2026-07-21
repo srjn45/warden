@@ -156,13 +156,17 @@ additional cost), set `allow_tiers: [free]`.
 
 ## Step 4 — enable autopilot
 
+The switch is **per-repository**. Run inside the repo you want to drive:
+
 ```sh
 warden autopilot on
 ```
 
-This runs a **preflight check** before enabling. The preflight surfaces every
-problem that would stall an unattended run — now, while you're present — and
-prints actionable errors if anything is missing:
+This enables **only the current repository** (other repos are unaffected) and
+runs a **preflight check** before enabling. Add `--repo <root>` to target a
+different repository. The preflight surfaces every problem that would stall an
+unattended run — now, while you're present — and prints actionable errors if
+anything is missing:
 
 ```
 ✗ plan file not found: autopilot.plan.yaml
@@ -172,17 +176,19 @@ hint: run `warden autopilot init` to scaffold a plan file and config block
 ```
 
 Fix any reported issues and re-run `warden autopilot on`. When the preflight
-passes, the manager is spawned and the run enters `active` state.
+passes, the manager is spawned and the run enters `active` state, and the repo is
+**persisted as enabled** — so it comes back up automatically if the daemon
+restarts. Enable more repos the same way; each is tracked independently.
 
 ---
 
 ## Monitoring a run
 
 ```sh
-warden autopilot status          # run state, manager id, landed/pending task counts
+warden autopilot status          # enabled repos + run state, manager id, task counts
 warden ls                        # shows the manager + all worker agents
-warden status <manager-id>         # full manager detail + events
-warden tail <manager-id>           # recent manager output
+warden status <manager-id>       # full manager detail + events
+warden tail <manager-id>         # recent manager output
 warden audit log                 # full append-only audit trail of every action
 ```
 
@@ -217,8 +223,16 @@ Over MCP: `land { ticket: "<agent-or-branch>" }`.
 
 ## Reviewing the integration branch
 
-When all tasks are landed, autopilot marks the run `complete` and tears down the
-manager. The integration branch (`autopilot/integration` by default) holds all the
+When the manager has verified the plan's `done_when` criteria, it marks the run
+**complete**: the daemon writes an in-place `status: complete` marker (plus a
+`completed_at` timestamp) into your plan file — preserving your other keys,
+ordering, and comments — tears down the manager (in-flight workers keep running),
+and retains the ledger. A plan carrying `status: complete` is **skipped by
+preflight**, so a finished run is never re-run by mistake on a future enable or
+daemon restart. To re-run it, remove the `status: complete` line (or point the
+config at a fresh plan file).
+
+The integration branch (`autopilot/integration` by default) holds all the
 merged worker branches — one merge commit per landed task.
 
 Review the branch, then fast-forward `main` when you're satisfied:
@@ -241,10 +255,12 @@ always belongs to the operator.
 ## Kill switch
 
 ```sh
-warden autopilot off
+warden autopilot off              # disable the current repo
+warden autopilot off --repo <root>  # disable a specific repo
 ```
 
-Effective immediately, at any state:
+Disables the **current repository** (or `--repo <root>`); other enabled repos
+keep running. Effective immediately, at any state:
 
 - The Controller stops spawning new workers and landing new branches
 - In-flight workers **keep running** to completion (they are not terminated)
@@ -262,18 +278,29 @@ doing, or abort a run that is heading in the wrong direction.
 | Command | What it does |
 |---|---|
 | `warden autopilot init` | Scaffold `autopilot.plan.yaml` + config block |
-| `warden autopilot on` | Enable autopilot (runs preflight first) |
-| `warden autopilot off` | Disable autopilot — the kill switch |
-| `warden autopilot status` | Show current run state, manager id, task summary |
+| `warden autopilot on [--repo <root>]` | Enable autopilot for this repo (runs preflight first) |
+| `warden autopilot off [--repo <root>]` | Disable autopilot for this repo — the kill switch |
+| `warden autopilot status` | Show enabled repos + each run's state, manager id, task summary |
 | `warden land <agent-or-branch>` | Land a worker branch into the integration branch |
 
 ## MCP tools
 
 | Tool | What it does |
 |---|---|
-| `set_autopilot { enabled: true\|false }` | Enable or disable autopilot (the kill switch) |
-| `autopilot_status` | Return current run state, manager id, task counts |
+| `set_autopilot { enabled: true\|false, repo? }` | Enable or disable autopilot for a repo (the kill switch); `repo` defaults to the daemon's working directory |
+| `autopilot_status` | Return enabled repos + each run's state, manager id, task counts |
+| `autopilot_complete` | Manager-only: declare the caller's run complete once `done_when` is met (writes the in-place `status: complete` marker, tears down the manager) |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch |
+
+## Config hot-reload
+
+The `autopilot` config block **hot-reloads with no daemon restart** — edit
+`~/.warden/config.yaml` and the plan/manager/merge template, backend cost ladder,
+and guardian heal thresholds re-apply on the next tick, with the per-repo enabled
+set left untouched. Adding a `plans[]` entry starts it; removing one tears down
+its run. Only the guardian tick `interval` still needs a restart. A syntactically
+bad edit keeps the last-good config and alerts you. This applies to warden's
+whole config file — see [Configuration](/warden/reference/env-vars/).
 
 ---
 

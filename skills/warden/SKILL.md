@@ -130,7 +130,7 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   search/history, audit log, worktree list/prune, plugins, export/import,
   rotate/handoff, **fork** (`fork_agent`), **roles** (`set_role`/`list_roles`
   + `spawn_agent`'s `role` param), and **autopilot** (`set_autopilot`,
-  `autopilot_status`, `land`). The only **CLI-only** verbs are host/process/interactive/secret
+  `autopilot_status`, `autopilot_complete`, `land`). The only **CLI-only** verbs are host/process/interactive/secret
   ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `setup`,
   `tutorial`, `completion`, `autopilot init`, and the local-config `preset` /
   `prompt-template` authoring commands — by design (see the [feature catalog](../../FEATURES.md)).
@@ -219,10 +219,16 @@ on input (automatic; generous cadences — a backstop, not a pacer).
 
 | Tool | What it does | CLI equivalent |
 |---|---|---|
-| `set_autopilot { enabled: true }` | Enable autopilot (runs preflight) | `warden autopilot on` |
-| `set_autopilot { enabled: false }` | Disable autopilot — the kill switch | `warden autopilot off` |
-| `autopilot_status` | Current run state, manager id, task counts, tier, backoff | `warden autopilot status` |
+| `set_autopilot { enabled: true, repo? }` | Enable autopilot **for one repo** (runs preflight); `repo` defaults to the daemon's working directory | `warden autopilot on [--repo <root>]` |
+| `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot off [--repo <root>]` |
+| `autopilot_status` | Enabled repos + each run's state, manager id, task counts, tier, backoff | `warden autopilot status` |
+| `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the integration branch | `warden land <agent-or-branch>` |
+
+The switch is **per-repository**: enabling one repo does not touch others, and the
+enabled set is persisted so repos come back up across a daemon restart. Do not
+call `autopilot_complete` yourself when driving the fleet — it is the autopilot
+manager's own completion signal.
 
 **CLI-only** (local file authoring): `warden autopilot init` — scaffold
 `autopilot.plan.yaml` and the config block.
@@ -250,5 +256,15 @@ keys (use dots, not slashes):
 - **Ownership guard:** autopilot-owned agents (`run:<run_id>` tag) reject destructive
   operations from non-owning contexts. Confirm with the user before force-stopping
   an autopilot worker.
-- **The kill switch is `set_autopilot { enabled: false }`.** Relay it clearly when
-  the user asks to stop or pause autopilot.
+- **The kill switch is `set_autopilot { enabled: false }`.** It is per-repo — pass
+  `repo` (or run in the repo) to target the right one. Relay it clearly when the
+  user asks to stop or pause autopilot.
+- **Completed runs are marked in the plan file.** A plan with `status: complete`
+  is skipped by preflight; to re-run it the user must remove that line (or point
+  the config at a fresh plan file). Don't re-enable a completed plan expecting it
+  to run again.
+- **Config is hot-reloaded.** Edits to `~/.warden/config.yaml` — including the
+  whole `autopilot` block — apply with no daemon restart (a bad edit keeps the
+  last-good config). Don't tell the user to restart the daemon after a config
+  change unless it touches a restart-only key (`addr`, `data_dir`, timers, loop
+  cadences, the guardian tick `interval`).

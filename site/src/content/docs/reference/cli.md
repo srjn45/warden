@@ -32,7 +32,7 @@ Available Commands:
   attach              Attach to the agent's tmux session
   audit               Inspect the append-only action audit trail
   auto-approve        Toggle per-agent auto-approve, or manage the auto-approve rule policy
-  autopilot           Turn autopilot mode on/off and show its status
+  autopilot           Turn autopilot mode on/off per repo and show its status
   branches            Per-agent CI + branch-vs-main status
   check               Run the project's configured checks and report only failures
   collab              Inter-agent collaboration: see which agents are editing the same files
@@ -390,20 +390,23 @@ Global Flags:
 ```text
 Autopilot runs a long-lived headless brain agent per plan that decomposes a
 goal, spawns workers, and lands green work into an integration branch
-unattended. Enabling runs a preflight (plan file valid, gh authenticated,
-integration branch present, at most one active run per repo) and fails fast
-with the full list of problems so you fix everything in one pass. `off` is the
-kill switch. Configure the feature under the `autopilot` block in the config
-file (or scaffold it with `warden autopilot init`).
+unattended. The switch is PER-REPO: `warden autopilot on` run inside a repo
+enables only that repo (others are unaffected), and the enabled set is persisted
+so repos come back up across a daemon restart. The plan/manager/merge template
+stays global in the `autopilot` config block. Enabling runs a preflight (plan
+file valid, gh authenticated, integration branch present, at most one active run
+per repo) and fails fast with the full list of problems so you fix everything in
+one pass. `off` is the kill switch. Configure the feature under the `autopilot`
+block in the config file (or scaffold it with `warden autopilot init`).
 
 Usage:
   warden autopilot [command]
 
 Available Commands:
   init        Scaffold autopilot adoption in the current repo
-  off         Disable autopilot (kill switch — stops spawning/landing)
-  on          Enable autopilot (runs the enable-time preflight)
-  status      Show autopilot status
+  off         Disable autopilot for this repo (kill switch — stops spawning/landing)
+  on          Enable autopilot for this repo (runs the enable-time preflight)
+  status      Show autopilot status (which repos are enabled, and each run)
 
 Flags:
   -h, --help   help for autopilot
@@ -439,13 +442,16 @@ Global Flags:
 ## warden autopilot off
 
 ```text
-Disable autopilot (kill switch — stops spawning/landing)
+Disables autopilot for the current git repository only (other enabled repos
+keep running). In-flight workers are left running. Use --repo to target a
+different repository.
 
 Usage:
   warden autopilot off [flags]
 
 Flags:
-  -h, --help   help for off
+  -h, --help          help for off
+      --repo string   repo root to disable (default: the current git repository)
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -455,13 +461,17 @@ Global Flags:
 ## warden autopilot on
 
 ```text
-Enable autopilot (runs the enable-time preflight)
+Enables autopilot for the current git repository only (other repos are
+unaffected). Runs the enable-time preflight and, on success, persists the repo
+as enabled so it comes back up across a daemon restart. Use --repo to target a
+different repository.
 
 Usage:
   warden autopilot on [flags]
 
 Flags:
-  -h, --help   help for on
+  -h, --help          help for on
+      --repo string   repo root to enable (default: the current git repository)
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -471,7 +481,7 @@ Global Flags:
 ## warden autopilot status
 
 ```text
-Show autopilot status
+Show autopilot status (which repos are enabled, and each run)
 
 Usage:
   warden autopilot status [flags]

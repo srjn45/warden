@@ -78,6 +78,16 @@ ledger persists landed tasks across manager restarts).
 **At most one active run per repository.** Enabling a second plan on the same repo
 fails with a conflict error.
 
+**The switch is per-repository.** `warden autopilot on` (or `set_autopilot`)
+enables only the repo it targets — the current git repository, or `--repo <root>`
+/ the `repo` field. The plan/manager/merge **template** stays global in the
+`autopilot` config block; per-repo state is just the on/off bit and its run. The
+enabled set is **persisted** under `<data_dir>/autopilot/enabled/`, so
+previously-enabled repos come back up automatically across a daemon restart, and
+it is the source of truth for which repos are on — a config hot-reload re-applies
+the template but never resets it. `warden autopilot status` reports the enabled
+repos (`enabled_repos`); the scalar `enabled` means "any repo is on".
+
 ### Manager
 
 A single long-lived headless agent (role `autopilot`) that the Controller spawns
@@ -260,7 +270,7 @@ disable (kill switch)   ▼                          ▼
    └───────────────  degraded ◀──────────────── healing
                         │  guardian backoff loop (never parks)
                         └──heal succeeds──▶ active
-active ──all tasks landed──▶ complete
+active ──done_when verified──▶ complete
   (manager torn down, ledger retained, integration branch ready for owner review)
 ```
 
@@ -272,3 +282,26 @@ can continue from where the run left off.
 While a run is `active`, two daemon-internal supervisors share the guardian's
 ticker: the **guardian** heals manager liveness, and the **overwatch** nudges a
 live-but-quiet manager to tend idle/waiting workers.
+
+### Completion marker
+
+When the manager has verified the plan's `done_when` criteria it declares the run
+complete (MCP `autopilot_complete` / `POST /api/v1/autopilot/complete`; the run is
+inferred from the manager's own identity, and only a run's own manager may
+complete it). The daemon writes an **in-place marker** into the plan file —
+`status: complete` and `completed_at: <RFC3339>` — round-tripping the YAML so
+your other keys, ordering, and inline comments survive; tears the manager down
+(in-flight workers keep running); and retains the ledger. **Preflight skips a
+plan carrying `status: complete`**, so a finished run is never executed again by
+mistake on a future enable or daemon restart. Completion is idempotent. To re-run
+a completed plan, remove the `status: complete` line.
+
+### Config hot-reload
+
+The `autopilot` config block **hot-reloads with no daemon restart** — editing
+`~/.warden/config.yaml` re-applies the plan/manager/merge template, backend cost
+ladder, and guardian heal thresholds on the next tick and re-runs the per-repo
+reconcile over the persisted enabled set (which is never reset). Adding a
+`plans[]` entry starts it; removing one tears down its run. Only the guardian tick
+`interval` is read once at loop start and needs a restart; a syntactically bad
+edit keeps the last-good config and alerts the owner.

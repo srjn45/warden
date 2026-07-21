@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -91,7 +92,7 @@ const pipelineHintGuidance = "You were launched as a standalone warden agent. " 
 // claudeLaunch string. Applied only by Spawn (plain agents); SpawnJob (pipeline
 // jobs, already decomposed) and resume omit it.
 func (l *Lifecycle) pipelineHint(b agentbackend.Backend) string {
-	return systemPromptHint(b, l.cfg.GetPipelineHint(), pipelineHintGuidance)
+	return systemPromptHint(b, l.config().GetPipelineHint(), pipelineHintGuidance)
 }
 
 // systemPromptHint returns the launch fragment that injects guidance as a
@@ -222,7 +223,7 @@ const collabHintGuidance = "warden may run other agents concurrently, each in it
 // plain agents and pipeline jobs alike, since parallel jobs are the prime
 // file-conflict scenario.
 func (l *Lifecycle) collabHint(b agentbackend.Backend) string {
-	return systemPromptHint(b, l.cfg.GetCollabHint(), collabHintGuidance)
+	return systemPromptHint(b, l.config().GetCollabHint(), collabHintGuidance)
 }
 
 // gitConventionsGuidance steers a spawned agent toward warden's git lifecycle
@@ -243,7 +244,7 @@ const gitConventionsGuidance = "Prefer warden git tools over raw git Bash: wd co
 // git_conventions config setting is disabled. Applied to typed (worktree-backed)
 // agents — the ones that commit — alongside collabHint/guardSettingsFlag.
 func (l *Lifecycle) gitConventionsHint(b agentbackend.Backend) string {
-	return systemPromptHint(b, l.cfg.GetGitConventions(), gitConventionsGuidance)
+	return systemPromptHint(b, l.config().GetGitConventions(), gitConventionsGuidance)
 }
 
 // memStore returns the memory reader for launch-time projection, defaulting to a
@@ -266,7 +267,7 @@ func (l *Lifecycle) memStore() *memory.Store {
 // to today (the regression-lock). Any failure degrades to "" and never blocks a
 // spawn: memory is additive, exactly like its sibling hints.
 func (l *Lifecycle) memoryGuidance(ctx context.Context, dir string) string {
-	if !l.cfg.GetMemoryInject() {
+	if !l.config().GetMemoryInject() {
 		return ""
 	}
 	path, err := l.memStore().Locate(ctx, dir)
@@ -578,7 +579,11 @@ func shellQuoteArg(s string) string {
 
 type Lifecycle struct {
 	run Runner
-	cfg ConfigProvider
+	// cfg is the live config provider, swappable via SetConfig so a config
+	// hot-reload re-applies rails toggles, model_default, the default permission
+	// mode, and the hint gates without a daemon restart. Read through config();
+	// an atomic pointer keeps the swap race-free against concurrent spawns.
+	cfg atomic.Pointer[ConfigProvider]
 	// backend is the default agent backend (Claude) resolved from the registry.
 	// Per-session backends are resolved via backendFor; in Phase 0 every session
 	// is Claude, so this is also the effective backend everywhere.
@@ -669,8 +674,20 @@ type ConfigProvider interface {
 }
 
 func New(r Runner, cfg ConfigProvider) *Lifecycle {
-	return &Lifecycle{run: r, cfg: cfg, backend: agentbackend.Default(), goos: runtime.GOOS, readPSI: readPSIFile}
+	l := &Lifecycle{run: r, backend: agentbackend.Default(), goos: runtime.GOOS, readPSI: readPSIFile}
+	l.cfg.Store(&cfg)
+	return l
 }
+
+// config returns the live config provider. Never nil after New; swapped
+// atomically by SetConfig, so each call reads a consistent provider.
+func (l *Lifecycle) config() ConfigProvider { return *l.cfg.Load() }
+
+// SetConfig atomically swaps the config provider so a live config reload of the
+// rails toggles, model_default, default permission mode, and the pipeline/collab/
+// memory hint gates takes effect on the next spawn/resume — no daemon restart.
+// Safe for concurrent use with in-flight spawns.
+func (l *Lifecycle) SetConfig(cfg ConfigProvider) { l.cfg.Store(&cfg) }
 
 // backendFor resolves the backend for a session by its Backend field, falling
 // back to the default (Claude) for an empty/unknown id. Empty ⇒ Claude keeps
@@ -1389,7 +1406,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	}
 	mode := req.PermissionMode
 	if mode == "" {
-		mode = l.cfg.GetDefaultPermissionMode()
+		mode = l.config().GetDefaultPermissionMode()
 	}
 	b := l.backendFor(sess.Backend)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
@@ -1402,17 +1419,17 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
 		persona,
-		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
-		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
+		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
 	); err != nil {
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
 	hints := l.systemPromptHints(ctx, b, sess.ID,
 		hintSpec{persona != "", persona},
-		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
-		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
-		hintSpec{l.cfg.GetMemoryInject(), mem})
+		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
+		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
+		hintSpec{l.config().GetMemoryInject(), mem})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
@@ -1486,7 +1503,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	}
 	mode := req.PermissionMode
 	if mode == "" {
-		mode = l.cfg.GetDefaultPermissionMode()
+		mode = l.config().GetDefaultPermissionMode()
 	}
 	b := l.backendFor(sess.Backend)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
@@ -1500,9 +1517,9 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
 		persona,
-		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
-		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
-		hintGuidance(l.cfg.GetGitConventions(), gitConventionsGuidance),
+		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
+		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
+		hintGuidance(l.config().GetGitConventions(), gitConventionsGuidance),
 		mem,
 	); err != nil {
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
@@ -1514,10 +1531,10 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	}
 	hints := l.systemPromptHints(ctx, b, sess.ID,
 		hintSpec{persona != "", persona},
-		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
-		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
-		hintSpec{l.cfg.GetGitConventions(), gitConventionsGuidance},
-		hintSpec{l.cfg.GetMemoryInject(), mem})
+		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
+		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
+		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
+		hintSpec{l.config().GetMemoryInject(), mem})
 	launch := base + hints + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
@@ -1709,7 +1726,7 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	}
 	mode := sess.PermissionMode
 	if mode == "" {
-		mode = l.cfg.GetDefaultPermissionMode()
+		mode = l.config().GetDefaultPermissionMode()
 	}
 	return l.resumeInTmux(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode)
 }
@@ -1752,23 +1769,23 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
 	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
 		persona,
-		hintGuidance(l.cfg.GetPipelineHint(), pipelineHintGuidance),
-		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
-		hintGuidance(l.cfg.GetGitConventions(), gitConventionsGuidance),
+		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
+		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
+		hintGuidance(l.config().GetGitConventions(), gitConventionsGuidance),
 		mem,
 	); err != nil {
 		slog.Warn("switch-role: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
 	mode := sess.PermissionMode
 	if mode == "" {
-		mode = l.cfg.GetDefaultPermissionMode()
+		mode = l.config().GetDefaultPermissionMode()
 	}
 	hints := l.systemPromptHints(ctx, b, sess.ID,
 		hintSpec{persona != "", persona},
-		hintSpec{l.cfg.GetPipelineHint(), pipelineHintGuidance},
-		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
-		hintSpec{l.cfg.GetGitConventions(), gitConventionsGuidance},
-		hintSpec{l.cfg.GetMemoryInject(), mem})
+		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
+		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
+		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
+		hintSpec{l.config().GetMemoryInject(), mem})
 	return l.resumeInTmuxWithHints(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode, hints)
 }
 
@@ -1819,7 +1836,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 		sess.Status = store.StatusSpawning
 		// Adopt registers a Claude session warden did not spawn, so resume always
 		// goes through the default (Claude) backend.
-		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, req.ClaudeSessionID, req.Model, l.cfg.GetDefaultPermissionMode()); err != nil {
+		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, req.ClaudeSessionID, req.Model, l.config().GetDefaultPermissionMode()); err != nil {
 			return nil, err
 		}
 		return sess, nil
@@ -2122,7 +2139,7 @@ func (l *Lifecycle) guardSettingsFlag(id string) string {
 	if l.SettingsDir == "" || l.WardenBin == "" {
 		return ""
 	}
-	doc := guardSettingsJSON(l.WardenBin, l.cfg.GetIsolationGuard(), l.cfg.GetGitRedirect(), l.cfg.GetCheckRedirect(), l.cfg.GetRootGuard())
+	doc := guardSettingsJSON(l.WardenBin, l.config().GetIsolationGuard(), l.config().GetGitRedirect(), l.config().GetCheckRedirect(), l.config().GetRootGuard())
 	if doc == "" {
 		return "" // every PreToolUse hook disabled — write nothing
 	}
@@ -2314,7 +2331,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	}
 	mode := req.PermissionMode
 	if mode == "" {
-		mode = l.cfg.GetDefaultPermissionMode()
+		mode = l.config().GetDefaultPermissionMode()
 	}
 	b := l.backendFor(sess.Backend)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
@@ -2323,14 +2340,14 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	// A write failure degrades (no hints) but does not fail spawn.
 	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
-		hintGuidance(l.cfg.GetCollabHint(), collabHintGuidance),
+		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
 	); err != nil {
 		slog.Warn("spawn job: context injection failed", "agent", id, "backend", b.ID(), "err", err)
 	}
 	hints := l.systemPromptHints(ctx, b, id,
-		hintSpec{l.cfg.GetCollabHint(), collabHintGuidance},
-		hintSpec{l.cfg.GetMemoryInject(), mem})
+		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
+		hintSpec{l.config().GetMemoryInject(), mem})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)

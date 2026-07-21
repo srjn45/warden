@@ -437,3 +437,128 @@ extremes.
 - **E2E rig:** isolated daemon on an alt port, free-tier backend brain, throwaway
   repo (`git commit-tree` seeded) with a 2–3 task plan → assert
   spawn → PR(base=integration) → gate → land → cleanup → next → complete.
+
+---
+
+# Project-level follow-up (2026-07-21)
+
+Three follow-ups landed after the S1–S8 delivery above, all driven as the
+`autopilot-projectlevel` pipeline. They refine *how the switch is scoped*, *how a
+run signals it is finished*, and *how config edits take effect*. The §0
+"frictionless after enable" principle and the §3 mid-run-edit philosophy now
+extend to both the enabled-repo set and the config file.
+
+## 13. Project-level (per-repo) enabling
+
+The autopilot switch is **per-repository**, not one global flag. `warden
+autopilot on` run inside a repo enables **only that repo**; other repos are
+unaffected. The plan/manager/merge **template** stays global in the `autopilot`
+config block — per-repo state is only the on/off bit and its run.
+
+- **Persistence.** The enabled set is stored as marker files under
+  `<data_dir>/autopilot/enabled/<hash>`, one file per repo root (the file's
+  content is the absolute repo root; `<hash>` is a sha256 prefix mirroring the
+  RunID hashing style). It is the **source of truth for which repos are on**, so
+  previously-enabled repos come back up automatically across a daemon restart
+  (boot re-`Enable`s each). A controller built without a `data_dir` (the unit
+  tests) falls back to an in-memory store.
+- **Targeting.** CLI `warden autopilot on|off` takes an optional `--repo <root>`
+  (default: the current git repository, canonicalized to its git toplevel so it
+  matches the repo autopilot resolves from a plan file). MCP `set_autopilot`
+  takes an optional `repo` field (default: the daemon's working directory).
+- **Status.** `AutopilotStatus` gains `enabled_repos: string[]` (the repo roots
+  currently switched on). The scalar `enabled` now means **"any repo is on"**.
+  `warden autopilot status` prints one `enabled: <repo>` line per repo plus the
+  runs.
+- **`off` is per-repo.** Disabling one repo leaves other enabled repos running;
+  in-flight workers of the disabled repo keep running (kill switch semantics,
+  §2.1).
+
+## 14. Plan completion marker
+
+When the brain has verified the plan's `done_when` criteria, it declares the run
+complete via the MCP tool `autopilot_complete` (daemon `POST
+/api/v1/autopilot/complete`). No arguments: the owning run is inferred from the
+calling brain's own session identity, and **only a run's own brain may complete
+it** (else `403`). The daemon then:
+
+1. **Writes an in-place marker** into the plan file: `status: complete` and
+   `completed_at: <RFC3339>`. The rewrite round-trips a `*yaml.Node` (decode →
+   upsert the two keys → re-encode), so every **other key, its ordering, and the
+   owner's inline comments survive** — it is not a re-marshal of the Plan struct.
+   The daemon owns the clock (`completed_at` is supplied, not read from `time.Now`
+   inside the writer).
+2. **Tears the brain down** gracefully; in-flight workers keep running.
+3. **Retains the run ledger** (state `complete`, §2.1).
+
+**Preflight skips a complete plan** (§5.1): `Plan.Status == "complete"` means the
+plan is not registered as an active run, so a finished plan is **never executed
+again by mistake** on a future enable / daemon restart. The `status` /
+`completed_at` keys are declared on the `Plan` struct precisely so a completed
+plan still strict-decodes (the `KnownFields` decoder would otherwise reject
+them); any non-`complete` status value is treated as active, so a hand-typed
+status never blocks a plan from loading. `autopilot_complete` is **idempotent** —
+a second call on an already-complete run is a no-op.
+
+## 15. Config hot-reload
+
+Editing `~/.warden/config.yaml` **live-applies with no daemon restart**. A
+`config.Watcher` (fsnotify, 500 ms debounce) watches the config's parent dir and
+matches the filename — editors and warden's own writes replace the file via
+atomic rename, so an inode watch would go deaf. A burst of writes debounces into
+**one** reload.
+
+- **Bad edit keeps last-good.** Reload uses `config.LoadStrict`, which returns an
+  error instead of degrading to defaults. On a parse/validate failure the daemon
+  **keeps the last-good config** and notifies the owner ("config reload failed —
+  keeping last-good settings"); it never falls back to defaults mid-run. (The
+  historic lenient `config.Load` is unchanged for boot.)
+- **Fan-out.** `Server.ApplyConfig` is the single reload entrypoint: it re-applies
+  every subsystem that owns a live seam (`Set*`/`Reconfigure` idiom), then diffs
+  vs the boot baseline and **logs the restart-only keys that changed** rather than
+  silently ignoring them. Watcher failure is non-fatal (logged; feature disabled).
+- **Autopilot under hot-reload.** `Controller.Reconfigure` swaps the **global**
+  template (plans, integration branch, gate, strategy, backend ladder,
+  `allow_pay_per_use`, guardian heal params) and re-runs the per-repo reconcile
+  over the persisted enabled set — the EnableStore stays the source of truth, so
+  **which repos are on is not reset**. A `plans[]` entry **removed** from config
+  tears down its run (config-presence sweep, so a transient preflight failure
+  never kills a still-configured run); a re-added plan starts again. Guardian
+  **heal thresholds** hot-apply on the next tick; the guardian **tick cadence**
+  (`interval`) is read once at loop start and needs a restart.
+
+### 15.1 What hot-reloads vs what needs a restart
+
+**Hot-reloads** (applied on the next tick/spawn, no restart):
+
+- autopilot plan/manager/merge template + adding/removing `plans[]` + the per-repo
+  reconcile;
+- `auto_approve` policy;
+- `tokens.*` (context/token guard: on/off, warn/critical bands, warn alert,
+  auto-/force-compact, compact resume prompt);
+- `rails.*`;
+- `model_default`; `default_permission_mode`;
+- pipeline / collab / memory system-prompt **hint gates**;
+- `notify.*` + webhook;
+- `api_docs` route gate; `scheduler_enabled` **route** gate (the 403 toggles
+  live).
+
+**Still needs a restart** (changed-but-needs-restart, logged on reload): `addr`,
+`data_dir`, `claude_projects_dir`, `metrics` (recorder goroutine), the scheduler
+reconcile **loop** (start/stop/cadence — only its route gate is live),
+`trusted_proxies`, `http.timeout_*`, `plugins.*`, `local_llm.*`,
+`collab.enabled`/interval loops, `branch_track.enabled`/interval loops,
+`rate_limit.*` timers, `auto_restart.*`, `log.*`, `memory.curate`, snapshots, and
+the guardian tick `interval`.
+
+### 15.2 Verification (contract-level)
+
+- **LoadStrict:** good file loads; a bad file returns an error (boot `Load` still
+  degrades leniently to defaults + warn).
+- **Watcher keep-last-good:** a mid-run edit that fails validation keeps the
+  last-good config and fires `onError`; a burst of writes coalesces into one
+  reload (debounce).
+- **Subsystem seams:** `Controller.Reconfigure` swaps the template in place with a
+  stable run id and sweeps a removed plan; `lifecycle.SetConfig`,
+  `poller.SetContextGuard`, and `notify.Switch` each swap live; `ApplyConfig`
+  fan-out is nil-poller-safe.

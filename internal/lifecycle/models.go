@@ -30,7 +30,7 @@ func ResolveModel(input string) string {
 // the configured default model (aliases expanded), or DefaultModel when the
 // config leaves it empty.
 func (l *Lifecycle) resolveDefaultModel() string {
-	if m := l.cfg.GetModelDefault(); m != "" {
+	if m := l.config().GetModelDefault(); m != "" {
 		return ResolveModel(m) // support aliases in the configured default too
 	}
 	return DefaultModel

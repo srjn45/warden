@@ -59,15 +59,18 @@ func (c *Controller) RunGuardian(ctx context.Context) {
 func (c *Controller) guardianTick(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.enabled {
-		return
-	}
 	gr, ok := c.runtime.(GuardianRuntime)
 	if !ok {
 		return
 	}
 	now := c.now()
 	for _, r := range c.runs {
+		// Per-repo kill switch: a run whose repo has been switched off is supervised
+		// by nothing (disabled repos already have their runs torn down, so this is
+		// belt-and-suspenders).
+		if !c.enableStore.IsEnabled(r.repo) {
+			continue
+		}
 		c.superviseRun(ctx, gr, r, now)
 	}
 }

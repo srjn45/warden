@@ -20,17 +20,18 @@ import (
 // Action names for the audited daemon operations. They are part of the on-disk
 // schema (callers filter on them), so existing values are stable.
 const (
-	ActionSpawn          = "spawn"
-	ActionTerminate      = "terminate"
-	ActionDelete         = "delete"
-	ActionApprove        = "approve"
-	ActionPipelineStart  = "pipeline_start"
-	ActionPipelineCancel = "pipeline_cancel"
-	ActionScheduleCreate = "schedule_create"
-	ActionScheduleDelete = "schedule_delete"
-	ActionAutopilotOn    = "autopilot_on"
-	ActionAutopilotOff   = "autopilot_off"
-	ActionAutopilotLand  = "autopilot_land"
+	ActionSpawn             = "spawn"
+	ActionTerminate         = "terminate"
+	ActionDelete            = "delete"
+	ActionApprove           = "approve"
+	ActionPipelineStart     = "pipeline_start"
+	ActionPipelineCancel    = "pipeline_cancel"
+	ActionScheduleCreate    = "schedule_create"
+	ActionScheduleDelete    = "schedule_delete"
+	ActionAutopilotOn       = "autopilot_on"
+	ActionAutopilotOff      = "autopilot_off"
+	ActionAutopilotLand     = "autopilot_land"
+	ActionAutopilotComplete = "autopilot_complete"
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which

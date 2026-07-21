@@ -104,7 +104,7 @@ func enabledGuardianController(t *testing.T, fake *guardianFake, clock *fakeCloc
 	}, &fakeEnv{})
 	c.setClock(clock.now)
 	c.SetRuntime(fake)
-	st, err := c.Enable(context.Background())
+	st, err := c.Enable(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	return c, st.Runs[0].RunID
@@ -305,7 +305,7 @@ func TestGuardianHonorsKillSwitch(t *testing.T) {
 	c, _ := enabledGuardianController(t, fake, clock, BackendLadder{Free: []string{"a"}}, false, testGuardian())
 	ctx := context.Background()
 
-	c.Disable(ctx)
+	c.Disable(ctx, "")
 	clock.t = t0.Add(30 * time.Minute)
 	c.guardianTick(ctx) // wedged by the clock, but disabled ⇒ no heal
 	require.Empty(t, fake.nudges, "a disabled controller heals nothing")
@@ -317,7 +317,7 @@ func TestGuardianHonorsKillSwitch(t *testing.T) {
 	c2 := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir, Backends: BackendLadder{Free: []string{"a"}}, Guardian: testGuardian()}, &fakeEnv{})
 	c2.setClock(clock.now)
 	c2.SetRuntime(plainRT)
-	_, err := c2.Enable(ctx)
+	_, err := c2.Enable(ctx, "")
 	require.NoError(t, err)
 	clock.t = t0.Add(90 * time.Minute)
 	c2.guardianTick(ctx) // must be a no-op — no GuardianRuntime
