@@ -1016,41 +1016,66 @@ wipes the half-built `snapshots-db/` and re-imports from the intact legacy JSON.
 
 Autopilot is warden's **goal-directed, long-running autonomous mode**. You
 describe a goal in a plan file, enable autopilot, and warden runs it — spawning a
-"brain" agent that breaks the goal into tasks, delegates each task to a worker
-agent in an isolated worktree, gates the worker's PR through CI, and lands it into
-an integration branch. The brain heals itself when stuck (guardian loop) and
-escalates to progressively cheaper backends when rate-limited (cost-tier ladder).
+**manager** agent that breaks the goal into tasks, delegates each task to a
+**worker** agent in an isolated worktree, gates the worker's PR through CI, and
+lands it into an integration branch. The manager heals itself when stuck (guardian
+loop) and escalates to progressively cheaper backends when rate-limited (cost-tier
+ladder).
 
 ### 34.1 Plan file
 
 Authored by the operator in `autopilot.plan.yaml` (path configurable). Contains a
-`goal`, optional `constraints` (injected into every brain and worker spawn), and
-an optional coarse `tasks` list. The brain decomposes the goal into tasks if the
-list is empty. The file is owner-editable mid-flight; the brain re-reads it on
+`goal`, optional `constraints` (injected into every manager and worker spawn), and
+an optional coarse `tasks` list. The manager decomposes the goal into tasks if the
+list is empty. The file is owner-editable mid-flight; the manager re-reads it on
 each planning cycle.
 
-### 34.2 Brain
+### 34.2 Agent topology — manager, worker, resolver
 
-A single long-lived headless agent (role `autopilot`, tagged `autopilot` +
-`run:<run_id>`) that the daemon Controller spawns on the cheapest available
-backend. The brain orchestrates workers via warden's own MCP tools (`spawn_agent`,
-`land`, `ctx_*`, etc.), reads the ledger to know what's landed, and restarts
-cleanly after context rotation or a guardian heal. At most one active run per
-repository.
+Every autopilot agent is tagged `autopilot` + `run:<run_id>`. The daemon applies
+the tags mechanically: agents (and pipelines) created by an autopilot-owned
+caller inherit its ownership tags from the request's agent identity, so the
+roster never depends on the manager's prompt remembering them. A run is a small
+fleet with separated jobs:
 
-### 34.3 Guardian
+- **Manager** (role `autopilot`) — a single long-lived headless agent the daemon
+  Controller spawns on the cheapest available backend. It orchestrates the run via
+  warden's own MCP tools (`spawn_agent`, `land`, `ctx_*`, etc.), reads the ledger
+  to know what's landed, and restarts cleanly after context rotation or a guardian
+  heal. At most one active run per repository. *(Historically "the brain"; the
+  ledger key `autopilot.brain` keeps that name for back-compat.)*
+- **Worker** (role `worker`) — spawned one per task by default; owns the task
+  end-to-end (implement → self-review → open a PR on the integration branch →
+  drive CI green → merge) and reports status back to the manager. A large task may
+  instead be delegated to a pipeline of `implementer`/`reviewer`/`auto-merger`
+  agents.
+- **Resolver** (role `brain`) — an on-demand, short-lived agent the manager spawns
+  to unblock a stuck worker or make an ad-hoc design/architecture decision without
+  human interaction, then report the call back.
 
-A daemon heal loop that keeps the brain alive. When the brain's heartbeat goes
-stale (wedged with pending work), the guardian fires: stage 1 nudges the brain
-with a steering message; stage 2 restarts it on the same backend; stage 3 rotates
-to the next backend down the cost tier; stage 4 enters capped-exponential backoff
-and retries forever. There is no terminal failure state — the guardian always
-retries. Backoff state (`backoff`, `tier`, `last_heartbeat`, `context_level`) is
-visible in `warden autopilot status`.
+### 34.3 Guardian & overwatch
+
+Two daemon-internal supervisors run on the guardian's ticker while a run is active.
+
+The **guardian** is a heal loop that keeps the manager alive. When the manager's
+heartbeat goes stale (wedged with pending work), the guardian fires: stage 1
+nudges the manager with a steering message; stage 2 restarts it on the same
+backend; stage 3 rotates to the next backend down the cost tier; stage 4 enters
+capped-exponential backoff and retries forever. There is no terminal failure state
+— the guardian always retries. Backoff state (`backoff`, `tier`, `last_heartbeat`,
+`context_level`) is visible in `warden autopilot status`.
+
+The **overwatch** is a backstop (not an agent) that keeps the manager *tending its
+workers*. It derives the run's worker roster from the `run:<run_id>` tag and, only
+while the manager itself is idle, nudges it to attend workers that fall idle or
+wait on input — event-driven (debounced ~5m) or a periodic ~1h heartbeat. Its
+cadences are generous, fixed constants (frictionless-safeguards philosophy — a
+backstop, not a pacer). It only ever messages the manager; it never touches a
+worker itself.
 
 ### 34.4 Cost-tier backend selection
 
-The brain (and guardian on rotate) selects backends from cheapest to most
+The manager (and guardian on rotate) selects backends from cheapest to most
 expensive: free tier (`antigravity`), then subscription backends (`claude`,
 `codex`), then gated pay-per-use backends (explicit opt-in required). Configured
 via `autopilot.allow_tiers` in the config.
@@ -1065,7 +1090,7 @@ can always act on autopilot agents directly.
 ### 34.6 Approval routing
 
 While autopilot is active, approval prompts from worker agents are routed to the
-brain's mailbox. The brain answers routine tool-permission prompts using its
+manager's mailbox. The manager answers routine tool-permission prompts using its
 auto-approve policy, keeping workers unblocked without stalling on human input.
 The operator's approval queue is not affected.
 
@@ -1074,7 +1099,7 @@ The operator's approval queue is not affected.
 `warden land <agent-or-branch>` (CLI) / `land` (MCP) merges one autopilot worker
 branch into the integration branch. The operation is idempotent (re-landing a
 branch is a no-op), guarded (ownership check), and gated (CI gate or local
-`.warden/check.yml` checks must be green). The brain calls `land` automatically;
+`.warden/check.yml` checks must be green). The manager calls `land` automatically;
 the operator may call it manually (e.g. to bypass a stuck gate after inspection).
 
 ### 34.8 Integration branch
@@ -1087,8 +1112,8 @@ reviews the integration branch and fast-forwards `main` when satisfied.
 
 The daemon's durable record of run state: task states (`pending` → `assigned` →
 `in_progress` → `pr_open` → `gated` → `landed`/`fixing`/`replanned`), worker
-agent ids and branches, landing timestamps. Written by the brain (task state) and
-authoritatively by the daemon (landings). Persists across brain restarts and daemon
+agent ids and branches, landing timestamps. Written by the manager (task state) and
+authoritatively by the daemon (landings). Persists across manager restarts and daemon
 restarts — re-enabling autopilot continues from the ledger.
 
 ### 34.10 Known limitations
@@ -1098,5 +1123,5 @@ restarts — re-enabling autopilot continues from the ledger.
 - Guardian stage 3 (rotate) requires more than one free-tier backend. With only
   `antigravity` in the free tier, the guardian falls back directly to backoff
   after a restart fails.
-- `Controller.SelectWorkerBackend(runID)` is exposed but the brain picks worker
+- `Controller.SelectWorkerBackend(runID)` is exposed but the manager picks worker
   backends itself; worker-backend selection is not daemon-filled.

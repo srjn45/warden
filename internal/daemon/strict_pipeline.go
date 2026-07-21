@@ -24,7 +24,7 @@ func (s *Server) ListPipelines(_ context.Context, _ oapi.ListPipelinesRequestObj
 }
 
 // CreatePipeline implements POST /api/v1/pipelines.
-func (s *Server) CreatePipeline(_ context.Context, req oapi.CreatePipelineRequestObject) (oapi.CreatePipelineResponseObject, error) {
+func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequestObject) (oapi.CreatePipelineResponseObject, error) {
 	spec := ""
 	if req.Body != nil {
 		spec = req.Body.Spec
@@ -33,6 +33,9 @@ func (s *Server) CreatePipeline(_ context.Context, req oapi.CreatePipelineReques
 	if err != nil {
 		return nil, errStatus(http.StatusBadRequest, err.Error())
 	}
+	// Captured at creation because jobs spawn later from the executor's ticker,
+	// where no request (and so no actor identity) exists anymore.
+	p.Tags = s.inheritOwnershipTags(ctx, p.Tags)
 	if err := s.exec.pstore.Create(p); errors.Is(err, pipeline.ErrExists) {
 		return nil, errStatus(http.StatusConflict, "pipeline "+p.ID+" already exists")
 	} else if err != nil {

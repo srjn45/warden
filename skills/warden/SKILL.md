@@ -202,9 +202,14 @@ and the rotate/handoff workflows.
 
 ## Autopilot
 
-Autopilot is warden's goal-directed autonomous run mode. A "brain" agent
-(role `autopilot`) orchestrates worker agents, gates their PRs, and lands them
-into `autopilot/integration` — without human intervention.
+Autopilot is warden's goal-directed autonomous run mode. A **manager** agent
+(role `autopilot`) drives the run: it spawns **worker** agents (role `worker`,
+one per task, each owning implement → self-review → PR → gate → merge and
+reporting back) and, on demand, a **resolver** (role `brain`) to unblock a stuck
+worker or make an ad-hoc design call — gating PRs and landing them into
+`autopilot/integration`, all without human intervention. A daemon-internal
+**overwatch** backstop nudges the manager to tend workers that fall idle or wait
+on input (automatic; generous cadences — a backstop, not a pacer).
 
 > ⚠️ **Unattended operation is inherently risky.** Always confirm the user
 > understands the kill switch before enabling. Workers never merge to `main`
@@ -216,7 +221,7 @@ into `autopilot/integration` — without human intervention.
 |---|---|---|
 | `set_autopilot { enabled: true }` | Enable autopilot (runs preflight) | `warden autopilot on` |
 | `set_autopilot { enabled: false }` | Disable autopilot — the kill switch | `warden autopilot off` |
-| `autopilot_status` | Current run state, brain id, task counts, tier, backoff | `warden autopilot status` |
+| `autopilot_status` | Current run state, manager id, task counts, tier, backoff | `warden autopilot status` |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the integration branch | `warden land <agent-or-branch>` |
 
 **CLI-only** (local file authoring): `warden autopilot init` — scaffold
@@ -224,14 +229,14 @@ into `autopilot/integration` — without human intervention.
 
 ### Key ledger context keys
 
-The brain writes run state into warden's shared context (`ctx_*` tools). Key dot-notation
+The manager writes run state into warden's shared context (`ctx_*` tools). Key dot-notation
 keys (use dots, not slashes):
 
 | Key | Contents |
 |---|---|
 | `autopilot.run_id` | Stable run identifier |
 | `autopilot.state` | `starting` / `active` / `healing` / `degraded` / `complete` |
-| `autopilot.brain` | Brain agent id |
+| `autopilot.brain` | Manager agent id (key name kept for back-compat — the "brain" is the manager) |
 | `autopilot.tasks.<id>.state` | Per-task state: `pending`/`assigned`/`in_progress`/`pr_open`/`gated`/`landed` |
 | `autopilot.tasks.<id>.branch` | The worker branch for the task |
 | `autopilot.tasks.<id>.landed_at` | Landing timestamp (RFC3339) |

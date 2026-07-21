@@ -2672,7 +2672,7 @@ Flags:
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
       --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
       --repo string                              repo path (default: current directory)
-      --role warden role list                    built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer. Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
+      --role warden role list                    built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer | worker. Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
       --set stringArray                          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
       --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag

@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/srjn45/warden/internal/auth"
@@ -73,4 +74,30 @@ func callerRunTag(caller *store.Session) string {
 		}
 	}
 	return ""
+}
+
+// inheritOwnershipTags extends autopilot's ownership tags (`autopilot` +
+// `run:<run_id>`) from the calling agent onto the tags of an agent it is
+// creating. When the caller behind a spawn (or pipeline-create) request is
+// itself autopilot-owned — the run's manager, or transitively one of its
+// workers — the new agent joins the same run whether or not the caller's
+// persona remembered to pass the tags. This keeps the overwatch roster and the
+// §8 ownership fence complete mechanically instead of by prompt discipline
+// (docs/specs/autopilot.md §2.4). Any other caller — a human terminal, the web
+// UI, an ordinary agent — gets its tags back untouched.
+func (s *Server) inheritOwnershipTags(ctx context.Context, tags []string) []string {
+	caller := s.callerSession(ctx)
+	if caller == nil || !caller.HasTag(autopilotOwnershipTag) {
+		return tags
+	}
+	rt := callerRunTag(caller)
+	if rt == "" {
+		return tags // no run identity to inherit
+	}
+	for _, t := range []string{autopilotOwnershipTag, rt} {
+		if !slices.Contains(tags, t) {
+			tags = append(tags, t)
+		}
+	}
+	return tags
 }

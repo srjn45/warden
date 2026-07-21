@@ -117,6 +117,12 @@ type run struct {
 	backoffLastErr      string          // human-facing reason for the current backoff
 	plannedRotateNextAt time.Time       // cooldown floor so planned rotation can't thrash
 	tried               map[string]bool // backends tried this heal cycle (rotate-down exclusion)
+
+	// Overwatch-owned state (autopilot.md §2.4). Mutated only under c.mu by the
+	// overwatch tick, which nudges a live-but-quiet manager to tend workers that
+	// have fallen idle or are waiting on input.
+	overwatchLastNudgeAt time.Time // last overwatch nudge instant (periodic + event-debounce clock)
+	workersInFlight      int       // busy (spawning/working) non-manager agents, refreshed each overwatch tick
 }
 
 // NewController builds a Controller from cfg backed by env (pass NewExecEnv() in
@@ -396,14 +402,15 @@ func (c *Controller) statusLocked() Status {
 			}
 		}
 		st.Runs = append(st.Runs, RunStatus{
-			RunID:    r.runID,
-			PlanFile: r.planFile,
-			Repo:     r.repo,
-			State:    r.state,
-			Gate:     c.runGate(r), // the mode resolved at preflight (§6.1)
-			Brain:    brain,
-			Tasks:    TaskCounts{},
-			Backoff:  r.backoffStatus(),
+			RunID:           r.runID,
+			PlanFile:        r.planFile,
+			Repo:            r.repo,
+			State:           r.state,
+			Gate:            c.runGate(r), // the mode resolved at preflight (§6.1)
+			Brain:           brain,
+			WorkersInFlight: r.workersInFlight, // last roster count from the overwatch tick
+			Tasks:           TaskCounts{},
+			Backoff:         r.backoffStatus(),
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })

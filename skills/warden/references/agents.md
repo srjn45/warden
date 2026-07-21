@@ -57,7 +57,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   column, preserved on restore.
 - **Role** — `--role` (CLI) / `role` (MCP): attach a built-in persona + default
   flags. `general` (default, no persona) | `orchestrator` | `implementer` |
-  `auto-merger` | `reviewer`. The role's default flags fill only fields you leave
+  `auto-merger` | `reviewer` | `worker` | `autopilot` | `brain`. The role's default flags fill only fields you leave
   unset (explicit value wins; tags unioned). See **Roles** below.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
   Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.
@@ -159,6 +159,12 @@ catalog** — no user-defined roles. Browse it with `warden role list` / MCP
 | `implementer` | implements a task end-to-end on its own branch (code, tests, checks, commit, PR) | `type=development` |
 | `auto-merger` | owns getting an open PR merged — watches CI, fixes failures/conflicts, merges when green | `permission_mode=auto`, `auto_approve=on` |
 | `reviewer` | reviews a branch/PR for correctness, coverage, style; findings + verdict, no fixes unless asked | `type=pr-review` |
+| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `type=development`, `permission_mode=auto`, `auto_approve=on` |
+| `autopilot` | long-lived headless **manager** of a whole autopilot run — decomposes, spawns workers/brains, gates + lands into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=on` |
+| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction | `permission_mode=auto`, `auto_approve=on` |
+
+The last three (`autopilot`, `worker`, `brain`) form autopilot's manager → worker
+→ brain topology.
 
 Drive it:
 
