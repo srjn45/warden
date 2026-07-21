@@ -1621,10 +1621,36 @@ See [FEATURES.md §27](FEATURES.md).
 ## 11. Configuration
 
 Warden reads all settings from a single YAML file (default `~/.warden/config.yaml`).
-Run `warden config init` to generate a fully-commented file, edit the values, then
-restart the daemon; `warden config` prints what's live. The `--config <path>` flag
-points any command at an alternate file, and `--addr <host:port>` overrides the
-daemon address for a single command.
+Run `warden config init` to generate a fully-commented file and edit the values —
+**warden applies most changes live, without a daemon restart** (see
+[Live hot-reload](#live-hot-reload) below); `warden config` prints what's live.
+The `--config <path>` flag points any command at an alternate file, and `--addr
+<host:port>` overrides the daemon address for a single command.
+
+### Live hot-reload {#live-hot-reload}
+
+The daemon **watches `~/.warden/config.yaml` and applies edits without a restart**
+(debounced ~500 ms; a burst of writes coalesces into one reload). A **syntactically
+bad or invalid edit keeps the last-good config** and alerts the owner ("config
+reload failed — keeping last-good settings") — it never degrades to defaults, so a
+mid-run typo can't wipe your settings. Keys that genuinely need a restart are
+**logged as changed-but-pending** so you know a restart is required.
+
+- **Hot-reloads on the next tick/spawn:** the whole `autopilot` block
+  (plan/brain/merge template, backend ladder, guardian heal thresholds, and the
+  per-repo reconcile), `auto_approve` policy, `tokens.*` (context/token guard),
+  `rails.*`, `model_default`, `default_permission_mode`, the pipeline/collab/memory
+  hint gates, `notify.*` + webhook, `api_docs`, and the `scheduler_enabled` route
+  gate.
+- **Still needs a restart (logged on change):** `addr`, `data_dir`,
+  `claude_projects_dir`, `metrics`, the scheduler reconcile-loop cadence,
+  `trusted_proxies`, `http.timeout_*`, `plugins.*`, `local_llm.*`,
+  `collab.*`/`branch_track.*` interval loops, `rate_limit.*` timers,
+  `auto_restart.*`, `log.*`, `memory.curate`, snapshots, and the autopilot
+  guardian tick `interval`.
+
+The per-table notes below still say "restart the daemon" for the keys in the
+restart list; everything else takes effect on save.
 
 | Setting | Default | Description |
 |---|---|---|
@@ -2035,26 +2061,42 @@ updates the `autopilot` block in `~/.warden/config.yaml` with the plan file
 path and detected integration branch. Does not overwrite existing files.
 Follow up with `warden autopilot on` to enable.
 
+### The switch is per-repo
+
+Autopilot is enabled **per repository**, not globally. `warden autopilot on` run
+inside a repo enables **only that repo** — other repos are unaffected — and
+`warden autopilot off` disables just that repo (other enabled repos keep
+running). Add `--repo <root>` to `on`/`off` to target a different repository
+(default: the current git repository). The enabled set is **persisted** under
+`<data_dir>/autopilot/enabled/`, so enabled repos come back up automatically
+across a daemon restart. The plan/brain/merge template stays global in the
+`autopilot` config block.
+
 ### `warden autopilot on` (enable)
 
-Runs a **preflight check** first — surfaces every condition that would stall an
-unattended run (missing plan file, unauthenticated backends, missing integration
-branch, dead `gh` auth) as actionable errors. After the preflight passes, the
-daemon spawns the brain agent and the run enters `active` state.
+Enables the **current repository** (or `--repo <root>`) after a **preflight
+check** — which surfaces every condition that would stall an unattended run
+(missing plan file, unauthenticated backends, missing integration branch, dead
+`gh` auth) as actionable errors. After the preflight passes, the daemon spawns
+the brain agent and the run enters `active` state. On success the repo is
+persisted as enabled.
 
 ```sh
 warden autopilot on
 # ✓ plan file found: autopilot.plan.yaml
 # ✓ integration branch: autopilot/integration
 # ✓ backend: antigravity (free tier)
-# autopilot enabled — 1 run(s)
+# autopilot enabled for /home/you/my-repo — 1 run(s)
+
+warden autopilot on --repo /path/to/other-repo   # enable a different repo
 ```
 
 ### `warden autopilot off` (kill switch) {#kill-switch}
 
-Stops new spawns and landings **immediately**, at any run state. In-flight
-workers keep running to completion — they are not terminated. The brain is
-terminated gracefully. The run ledger is retained; `warden autopilot on`
+Disables the **current repository** (or `--repo <root>`). Stops new spawns and
+landings **immediately**, at any run state; other enabled repos keep running.
+In-flight workers keep running to completion — they are not terminated. The brain
+is terminated gracefully. The run ledger is retained; `warden autopilot on`
 continues from where the run left off.
 
 Use this any time you need to pause the run, inspect what workers are doing,
@@ -2062,15 +2104,27 @@ or abort a run that is heading in the wrong direction.
 
 ### `warden autopilot status`
 
+Lists which repos are enabled and one line per run:
+
 ```sh
 warden autopilot status
-# run_id:   sha256:abc123...
-# state:    active
-# brain:    agent-4a7f
-# tasks:    2 landed / 1 in_progress / 1 pending
-# tier:     free (antigravity)
-# backend:  antigravity
+# autopilot: enabled — 1 repo(s), 1 run(s)
+#   enabled: /home/you/my-repo
+#   sha256:abc123…   active   gate=ci   autopilot.plan.yaml   /home/you/my-repo
 ```
+
+### Run completion
+
+When the brain has verified the plan's `done_when` criteria, it declares the run
+complete (MCP `autopilot_complete`). The daemon writes an **in-place completion
+marker** into the plan file — `status: complete` and `completed_at: <timestamp>`,
+preserving your other keys, ordering, and comments — tears the brain down
+gracefully (in-flight workers keep running), and retains the ledger.
+
+A plan carrying `status: complete` is **skipped by preflight**, so a finished run
+is never executed again by mistake on a future enable or daemon restart. To re-run
+a completed plan, delete the `status: complete` line (or point the config at a
+fresh plan file).
 
 ### The plan file
 

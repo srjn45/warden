@@ -268,11 +268,13 @@ without waiting on a human.
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
-| Enable autopilot (preflight + brain spawn) | `autopilot on` | `set_autopilot` (`enabled: true`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Disable autopilot — kill switch (stops spawns/landings, terminates brain) | `autopilot off` | `set_autopilot` (`enabled: false`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Status (run state, brain id, task counts, tier, backoff) | `autopilot status` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Enable autopilot **per-repo** (preflight + brain spawn) | `autopilot on [--repo <root>]` | `set_autopilot` (`enabled: true`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Disable autopilot **per-repo** — kill switch (stops spawns/landings, terminates brain) | `autopilot off [--repo <root>]` | `set_autopilot` (`enabled: false`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Status (enabled repos, run state, brain id, task counts, tier, backoff) | `autopilot status` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Scaffold plan file + config (`autopilot init`) | `autopilot init` | **CLI-only** (local file authoring) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Land a worker branch into the integration branch (idempotent, guarded) | `land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Mark the run complete (in-place `status: complete` plan marker; preflight skips it) | automatic (brain) | `autopilot_complete` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Persisted per-repo enable set (repos come back up across daemon restart) | automatic (`<data_dir>/autopilot/enabled/`) | automatic | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Brain spawn/teardown (role `autopilot`, tagged `autopilot`+`run:<id>`) | automatic | automatic | ✓ | fleet list | TUI sub-tree | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Guardian heal loop (nudge→restart→rotate→backoff) | automatic | automatic | ✓ | AutopilotPanel | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Cost-tier backend selection (free→subscription→gated-PPU) | config (`autopilot.allow_tiers`) | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
@@ -292,6 +294,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | Run / manage the daemon | `daemon` | process control on the host | [install](https://srjn45.github.io/warden/start/install/) |
 | Bearer token generate / show / rotate (+ read-only token) | `token` | the secret that protects every other surface; `show --readonly` for the view-only `WARDEN_READONLY_TOKEN` | [remote-access](https://srjn45.github.io/warden/guides/remote-access/) |
 | Configuration view / init / path | `config` | local file authoring | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
+| **Live config hot-reload** (edit `~/.warden/config.yaml`, applied with no restart; bad edit keeps last-good) | automatic (`config` to edit) | daemon watches the file | [docs/FEATURES.md §12](docs/FEATURES.md#12-configuration-yaml-config-file) |
 | Health / environment doctor | `doctor` | host diagnostics | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
 | Install missing dependencies | `setup` | installs host packages (brew/apt/dnf/pacman + official installers) | [install](https://srjn45.github.io/warden/start/install/) |
 | Local-LLM model picker (memory-ranked) | `llm suggest` | reads host hardware to size the orchestrator model | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |

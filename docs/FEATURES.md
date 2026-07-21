@@ -398,9 +398,33 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 ## 12. Configuration (YAML config file)
 
 Settings live in a single YAML file (default `~/.warden/config.yaml`). Run
-`warden config init` to generate a fully-commented file, edit values, then restart
-the daemon; `warden config` prints what's live. `--config <path>` selects an
-alternate file; `--addr <host:port>` overrides the daemon address per-command.
+`warden config init` to generate a fully-commented file, edit values, and warden
+**applies the change live — no daemon restart** (see §12.1); `warden config`
+prints what's live. `--config <path>` selects an alternate file; `--addr
+<host:port>` overrides the daemon address per-command.
+
+### 12.1 Live hot-reload
+
+The daemon **watches `~/.warden/config.yaml` and applies edits without a
+restart** (fsnotify, 500 ms debounce; a burst of writes coalesces into one
+reload). A **bad edit keeps the last-good config** and alerts the owner ("config
+reload failed — keeping last-good settings") rather than degrading to defaults —
+so a mid-run typo can never wipe your settings. Keys that genuinely need a
+restart are **logged as changed-but-pending** rather than silently ignored.
+
+**Hot-reloads (applied on the next tick/spawn):** the whole `autopilot` template
+(plan/brain/merge settings + adding/removing plans + the per-repo reconcile),
+`auto_approve` policy, `tokens.*` (context/token guard), `rails.*`,
+`model_default`, `default_permission_mode`, the pipeline/collab/memory
+system-prompt hint gates, `notify.*` + webhook, `api_docs`, and the
+`scheduler_enabled` route gate.
+
+**Still needs a restart (logged on change):** `addr`, `data_dir`,
+`claude_projects_dir`, `metrics`, the scheduler reconcile loop cadence,
+`trusted_proxies`, `http.timeout_*`, `plugins.*`, `local_llm.*`,
+`collab.enabled`/interval, `branch_track.enabled`/interval, `rate_limit.*`
+timers, `auto_restart.*`, `log.*`, `memory.curate`, snapshots, and the autopilot
+guardian tick `interval`.
 
 | Setting | Default | Description |
 |---|---|---|
@@ -1091,7 +1115,54 @@ agent ids and branches, landing timestamps. Written by the brain (task state) an
 authoritatively by the daemon (landings). Persists across brain restarts and daemon
 restarts — re-enabling autopilot continues from the ledger.
 
-### 34.10 Known limitations
+### 34.10 Per-repo (project-level) switch
+
+The autopilot switch is **per-repository**, not one global flag. `warden autopilot
+on` run inside a repo enables **only that repo** — other repos are unaffected.
+`warden autopilot on --repo <root>` (MCP: `set_autopilot { repo }`) targets a
+different repository. The plan/brain/merge **template** stays global in the
+`autopilot` config block; per-repo state is just the on/off bit and its run.
+
+The enabled set is **persisted** as marker files under
+`<data_dir>/autopilot/enabled/`, so previously-enabled repos **come back up
+automatically across a daemon restart**. It is the source of truth for which
+repos are on — a config hot-reload re-applies the template but never resets the
+enabled set. `warden autopilot status` lists the enabled repos (`enabled_repos`
+in the wire status; the scalar `enabled` now means "any repo is on"). `warden
+autopilot off` is per-repo — disabling one repo leaves other enabled repos
+running.
+
+### 34.11 Run completion marker
+
+When the brain has verified the plan's `done_when` criteria, it declares the run
+complete (MCP `autopilot_complete` / `POST /api/v1/autopilot/complete`; no
+arguments — the run is inferred from the calling brain's own identity, and only a
+run's own brain may complete it). The daemon then:
+
+- **writes an in-place marker** into the plan file — `status: complete` and
+  `completed_at: <RFC3339>` — preserving every other key, its ordering, and your
+  inline comments (it round-trips the YAML nodes, not a struct re-marshal);
+- **tears the brain down** gracefully (in-flight workers keep running);
+- **retains the run ledger** (state `complete`).
+
+**Preflight skips a complete plan:** a plan carrying `status: complete` is not
+registered as an active run, so a finished run is **never executed again by
+mistake** on a future enable or daemon restart. `autopilot_complete` is
+idempotent — a second call is a no-op. To re-run a completed plan, remove the
+`status: complete` line (or point the config at a fresh plan file).
+
+### 34.12 Config hot-reload
+
+The entire `autopilot` config block **hot-reloads with no daemon restart** (see
+§12.1). Editing `~/.warden/config.yaml` re-applies the plan/brain/merge template,
+the backend cost ladder, `allow_pay_per_use`, and the guardian heal thresholds,
+and re-runs the per-repo reconcile over the persisted enabled set. Adding a
+`plans[]` entry starts it; **removing one tears down its run** (a config-presence
+sweep, so a transient preflight failure never kills a still-configured run). The
+guardian **tick cadence** (`interval`) is the one autopilot setting still read
+once at loop start — changing it needs a restart.
+
+### 34.13 Known limitations
 
 - `rate_limit.auto_resume` and `auto_restart` are global config toggles, not
   per-run autopilot overrides. Configure them in `~/.warden/config.yaml`.
