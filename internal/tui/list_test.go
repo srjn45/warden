@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
@@ -255,6 +256,39 @@ func TestBuildItemsTombstoneParentWithLiveChild(t *testing.T) {
 	out := renderItemLine(items[0], false, 80)
 	require.Contains(t, out, "(terminated · 1 running)")
 	require.NotContains(t, out, "done", "tombstone shows no live status badge")
+}
+
+// The cursor highlight must reach the whole selected row — including agents with
+// no name. A blank name used to be rendered as a styled "—", which embedded an
+// ANSI reset at the very start of the line and cut the cursor highlight off before
+// the agent id; a named agent (plain leading text) stayed highlighted. Force a
+// color profile so Render emits real SGR codes, then assert no reset appears
+// before the agent id on either row.
+func TestRenderItemLineSelectedHighlightsUnnamedAgent(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(prev)
+
+	// The id is highlighted iff the cursor's SGR (bold cyan) is the active style
+	// right before it — i.e. the last cursor-SGR before the id is not undone by a
+	// reset between them. (The "› " caret emits its own trailing reset, so a plain
+	// "no reset before id" check would wrongly fail for every row.)
+	const cursorSGR = "\x1b[1;36m"
+	highlightedThroughID := func(id string, s *store.Session) bool {
+		out := renderItemLine(item{session: s}, true, 80)
+		i := strings.Index(out, id)
+		require.GreaterOrEqual(t, i, 0, "agent id must render")
+		lastSet := strings.LastIndex(out[:i], cursorSGR)
+		if lastSet < 0 {
+			return false // cursor style never (re)applied before the id
+		}
+		return !strings.Contains(out[lastSet+len(cursorSGR):i], "\x1b[0m")
+	}
+
+	require.True(t, highlightedThroughID("u1", &store.Session{ID: "u1", Status: store.StatusWorking}),
+		"unnamed selected agent must stay highlighted through its id")
+	require.True(t, highlightedThroughID("n1", &store.Session{ID: "n1", Name: "named", Status: store.StatusWorking}),
+		"named selected agent stays highlighted (parity check)")
 }
 
 // An orphan child (its parent id is not in the set) is promoted to a root rather
