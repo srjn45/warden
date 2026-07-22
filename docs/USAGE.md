@@ -1044,9 +1044,11 @@ warden setup --yes      # non-interactive: install all missing deps
 
 ### `warden version [--json]` / `warden --version`
 Print the version plus build metadata — commit, build date, Go version, and
-platform. Release builds stamp the real tag/commit/date via ldflags; source
-builds report `dev` with the commit/date from `make build` (or the embedded VCS
-stamp). `--json` emits the same fields as a JSON object for scripting.
+platform. Release builds stamp the real tag/commit/date via ldflags; `make
+build` stamps the nearest tag from `git describe` (`vX.Y.Z`, or
+`vX.Y.Z-N-g<sha>` past it) plus commit/date, falling back to `dev` (with the
+embedded VCS stamp) only when no tag is reachable. `--json` emits the same
+fields as a JSON object for scripting.
 
 ---
 

@@ -1,11 +1,14 @@
 .PHONY: build test test-integration bench fuzz cover lint fmt fmt-check generate generate-check gendocs gendocs-check verify verify-fast run-daemon ui ui-dev web-deps web-test release install-skill install-hooks install uninstall reinstall
 
-# Stamp commit/date into source builds so `warden version` is useful locally.
-# Release builds get these (plus the version tag) from goreleaser's ldflags.
+# Stamp version/commit/date into source builds so `warden version` is useful
+# locally. VERSION comes from `git describe` — exactly `vX.Y.Z` on a tagged
+# commit, `vX.Y.Z-N-g<sha>[-dirty]` past it — falling back to "dev" only when
+# no tag is reachable. Release builds get all three from goreleaser's ldflags.
 VERSION_PKG := github.com/srjn45/warden/internal/cli
+VERSION     := $(shell git describe --tags --dirty 2>/dev/null || echo dev)
 COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS     := -X $(VERSION_PKG).commit=$(COMMIT) -X $(VERSION_PKG).date=$(BUILD_DATE)
+LDFLAGS     := -X $(VERSION_PKG).version=$(VERSION) -X $(VERSION_PKG).commit=$(COMMIT) -X $(VERSION_PKG).date=$(BUILD_DATE)
 
 build:
 	go build -buildvcs=false -ldflags "$(LDFLAGS)" -o bin/warden ./cmd/warden
