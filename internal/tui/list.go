@@ -668,12 +668,18 @@ func renderItemLine(it item, selected bool, width int) string {
 		if branchInfo != "" {
 			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
 		}
-		// Display name as first column if present
+		// Display name as first column if present. When the name is blank, use a
+		// plain "—" on the selected row: styling it here would embed an ANSI reset
+		// at the very start of the line, which cuts the cursor highlight applied to
+		// the whole row below — that reset is what left unnamed agents un-highlighted.
 		nameStr := s.Name
-		if nameStr == "" {
-			nameStr = stMuted.Render("—")
-		} else {
+		switch {
+		case nameStr != "":
 			nameStr = trunc(nameStr, 15)
+		case selected:
+			nameStr = "—"
+		default:
+			nameStr = stMuted.Render("—")
 		}
 		line = treePrefix(it) + fmt.Sprintf("%-16s %-14s %-11s %-6s %-5s %s%s",
 			nameStr, s.ID, st.Render(label),
