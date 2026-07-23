@@ -18,7 +18,7 @@ on-disk state:
 |---|---|
 | **Single-binary distribution** | `warden` bundles the daemon, CLI clients, MCP server, TUI, and (in release builds) the embedded web GUI. `wd` is an installed symlink. |
 | **Local daemon** | The single writer to the session store. Serves a loopback REST API (`127.0.0.1:8765`) and runs a background poller that keeps each agent's status and subject fresh. |
-| **Embedded FileDB session store** | Sessions persist in an embedded FileDB (`github.com/srjn45/filedbv2`, `SyncModeNone`) rooted at `~/.warden/sessions-db/` — an `active` collection for live sessions and a `closed` collection for archived ones, each record keyed by session id. A mutation appends one record instead of rewriting a whole per-session JSON file, and there's still no database server to run. On the first launch after upgrading, warden imports the legacy `sessions/`+`closed/` JSON once and keeps those files as a read-only cold backup (see [§31 Session storage & upgrade migration](#31-session-storage--upgrade-migration)). |
+| **Embedded ScrivaDB session store** | Sessions persist in an embedded ScrivaDB (`github.com/srjn45/scriva`, `SyncModeNone`) rooted at `~/.warden/sessions-db/` — an `active` collection for live sessions and a `closed` collection for archived ones, each record keyed by session id. A mutation appends one record instead of rewriting a whole per-session JSON file, and there's still no database server to run. On the first launch after upgrading, warden imports the legacy `sessions/`+`closed/` JSON once and keeps those files as a read-only cold backup (see [§31 Session storage & upgrade migration](#31-session-storage--upgrade-migration)). |
 | **Claude Code lifecycle hooks** | A hook script posts `SessionStart`/`Notification`/`Stop`/`SubagentStop`/`SessionEnd` to the daemon so status updates in real time without polling. Fails soft (never blocks the agent). |
 | **launchd auto-start (macOS)** | Installs as an auto-starting, crash-restarting background service. |
 | **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
@@ -671,7 +671,7 @@ Most of this needs no LLM.
 
 Checkpoint an agent at a known-good point — its **worktree state** *and* its
 **session transcript** — and roll back to it later. Config-gated by `snapshots`
-(default on); the daemon owns the snapshot store — metadata in an embedded FileDB
+(default on); the daemon owns the snapshot store — metadata in an embedded ScrivaDB
 under `<data_dir>/snapshots-db/`, transcripts as flat blobs under
 `<data_dir>/snapshots/` (see §33 for the storage format and upgrade migration).
 
@@ -837,7 +837,7 @@ keeping the concern as the default-off gate.
 | **Fail-soft loop** | A fire error is recorded in the schedule's `last_error` and logged; it never crashes the once-a-minute reconcile loop or stops other schedules firing. An agent-name collision fails just that fire (honest over silently renaming). |
 | **Read-only MCP + audit** | `list_schedules` (MCP) exposes the same view; create/delete are written to the audit log (`schedule_create` / `schedule_delete`). |
 
-Persisted by an **embedded FileDB** (`github.com/srjn45/filedbv2`, opened with
+Persisted by an **embedded ScrivaDB** (`github.com/srjn45/scriva`, opened with
 `SyncModeNone`) rather than one flat JSON file: schedules live in a `schedules`
 collection rooted at `~/.warden/schedules-db/`, each record keyed by schedule id,
 so a write appends one record instead of rewriting the whole-store map (the same
@@ -935,7 +935,7 @@ resource metrics), deliberately not folded into `wd cost`.
 
 ## 31. Session storage & upgrade migration
 
-Sessions are persisted by an **embedded FileDB** (`github.com/srjn45/filedbv2`,
+Sessions are persisted by an **embedded ScrivaDB** (`github.com/srjn45/scriva`,
 opened with `SyncModeNone`) rather than one JSON file per session. The store is
 rooted at `~/.warden/sessions-db/` and holds two collections, each record keyed
 by session id:
@@ -978,7 +978,7 @@ no data is lost.
 > intact, downgrading to a pre-migration binary still reads your **pre-upgrade**
 > history — nothing from before the upgrade is ever lost. But sessions **created
 > or mutated after** the upgrade live only in `sessions-db/`, and a downgrade
-> cannot see them (post-upgrade writes are FileDB-only). This is inherent to any
+> cannot see them (post-upgrade writes are ScrivaDB-only). This is inherent to any
 > forward migration.
 
 Design detail lives in
@@ -986,8 +986,8 @@ Design detail lives in
 
 ## 32. Pipeline storage & upgrade migration
 
-Pipelines are persisted by the same **embedded FileDB**
-(`github.com/srjn45/filedbv2`, opened with `SyncModeNone`) rather than one JSON
+Pipelines are persisted by the same **embedded ScrivaDB**
+(`github.com/srjn45/scriva`, opened with `SyncModeNone`) rather than one JSON
 file per pipeline. The store lives in a `~/.warden/pipelines-db/` directory
 holding a single `pipelines` collection, each record keyed by its pipeline id, so
 a `create`/`edit-job`/`emit`/`retry` **appends one record** instead of rewriting
@@ -1007,8 +1007,8 @@ partway, the sentinel is not written, so the next boot wipes the half-built
 
 ## 33. Snapshot storage & upgrade migration
 
-Snapshot **metadata** (`wd snapshot`) is persisted by the same **embedded FileDB**
-(`github.com/srjn45/filedbv2`, opened with `SyncModeNone`) as sessions, in a
+Snapshot **metadata** (`wd snapshot`) is persisted by the same **embedded ScrivaDB**
+(`github.com/srjn45/scriva`, opened with `SyncModeNone`) as sessions, in a
 `snapshots` collection rooted at a sibling `~/.warden/snapshots-db/` directory,
 each record keyed by snapshot id. A capture **appends one record** instead of
 writing a whole per-snapshot JSON file, mirroring the sessions/`ctxstore`/`mailbox`
@@ -1016,7 +1016,7 @@ swap. This is an internal storage change only: the store's `Put`/`Get`/`List` AP
 is unchanged, so the snapshot REST routes and CLI behave identically.
 
 The captured **transcript stays a flat file** at `~/.warden/snapshots/<id>.transcript`
-(unchanged path) — deliberately kept *out* of the FileDB record so a multi-megabyte
+(unchanged path) — deliberately kept *out* of the ScrivaDB record so a multi-megabyte
 scrollback never bloats the metadata store. This is a design choice, not a
 regression: the record only carries a `transcript_path` pointer to that blob.
 

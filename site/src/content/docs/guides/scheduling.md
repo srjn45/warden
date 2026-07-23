@@ -45,7 +45,7 @@ warden schedule delete daily-review
 - **Read-only over MCP.** `list_schedules` exposes the same view; create/delete are
   written to the audit log (`schedule_create` / `schedule_delete`).
 
-Schedules persist to an embedded FileDB store under `~/.warden/schedules-db/`
+Schedules persist to an embedded ScrivaDB store under `~/.warden/schedules-db/`
 (one record per schedule). On the first daemon launch after upgrading, any legacy
 `~/.warden/schedules.json` is imported once and then left in place as a read-only
 backup.

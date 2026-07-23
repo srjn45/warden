@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srjn45/filedbv2/engine"
-	"github.com/srjn45/filedbv2/filedb"
-	"github.com/srjn45/filedbv2/query"
+	"github.com/srjn45/scriva"
+	"github.com/srjn45/scriva/engine"
+	"github.com/srjn45/scriva/query"
 )
 
 // ErrBadID is returned when a session id contains path separators or "..".
@@ -48,7 +48,7 @@ func safeSessionRef(ref string) error {
 	return nil
 }
 
-// FileStore persists sessions in an embedded FileDB (github.com/srjn45/filedbv2)
+// FileStore persists sessions in an embedded ScrivaDB (github.com/srjn45/scriva)
 // rooted at <dir>/sessions-db/: live sessions in an "active" collection and
 // archived ones in a "closed" collection, each record keyed by the session id.
 // A write appends one record instead of rewriting a whole per-session JSON file
@@ -59,25 +59,25 @@ func safeSessionRef(ref string) error {
 //
 // The daemon is the only holder. A single mutex serialises the compound
 // read-modify-write methods (Insert's uniqueness scan + write, Update/mutate,
-// UpdateStatusIf, FinalizeExit, Archive), mirroring mailbox; FileDB does its own
+// UpdateStatusIf, FinalizeExit, Archive), mirroring mailbox; ScrivaDB does its own
 // per-collection locking, so the store mutex only guards the read-then-write
 // critical sections. Read-only methods take it too for a behaviour-identical
 // faithful port of the previous RWMutex model.
 type FileStore struct {
 	mu     sync.Mutex
-	db     *filedb.DB
+	db     *scriva.DB
 	active *engine.Collection
 	closed *engine.Collection
 }
 
 // importedMarker names the sentinel written (last) once the one-time legacy-JSON
-// import into the FileDB collections has completed. Its presence means the
-// FileDB is authoritative and no re-import runs; its absence means the import
+// import into the ScrivaDB collections has completed. Its presence means the
+// ScrivaDB is authoritative and no re-import runs; its absence means the import
 // never finished, so the next open wipes the (derived) sessions-db and retries
 // from the intact legacy JSON. See NewFileStore / importLegacy.
 const importedMarker = ".sessions-filedb-imported"
 
-// NewFileStore opens (creating if needed) the FileDB-backed session store rooted
+// NewFileStore opens (creating if needed) the ScrivaDB-backed session store rooted
 // at <dir>/sessions-db/ and, on first open, imports any legacy <dir>/sessions/
 // and <dir>/closed/ JSON into it (subsuming the old provenance backfill). The
 // import is guarded by importedMarker and is directory-atomic: if the sentinel
@@ -105,7 +105,7 @@ func NewFileStore(dir string) (*FileStore, error) {
 		return nil, err
 	}
 
-	db, err := filedb.Open(dbDir, filedb.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeNone))
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func NewFileStore(dir string) (*FileStore, error) {
 			db.Close()
 			return nil, err
 		}
-		// Sentinel LAST: only now is the FileDB authoritative.
+		// Sentinel LAST: only now is the ScrivaDB authoritative.
 		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
 			db.Close()
 			return nil, err
@@ -166,7 +166,7 @@ func backfillProvenance(s *Session) {
 }
 
 // importLegacy performs the one-time import of the legacy per-file JSON into the
-// FileDB collections, folding the old provenance backfill into the same pass.
+// ScrivaDB collections, folding the old provenance backfill into the same pass.
 // Each legacy dir is decoded file-by-file (skip+warn on corrupt/unsafe-id,
 // matching the old listDir), then loaded into its collection with LoadJSONL,
 // which is atomic per collection (all-or-nothing). A missing legacy dir (fresh
@@ -270,7 +270,7 @@ func ValidateName(name string) error {
 
 // atomicWriteJSON marshals v and writes it to path via a temp file + rename, so
 // readers never observe a partial file. Retained for tests that seed legacy JSON
-// files; the store's own writes go through the FileDB collections.
+// files; the store's own writes go through the ScrivaDB collections.
 func atomicWriteJSON(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -309,7 +309,7 @@ func readSession(path string) (*Session, error) {
 	return &s, nil
 }
 
-// toRecord decomposes a Session into a FileDB record body via a JSON round-trip,
+// toRecord decomposes a Session into a ScrivaDB record body via a JSON round-trip,
 // so its fields stay real in the store (indexable in future) rather than an
 // opaque blob. Always round-trip through JSON — never read typed business logic
 // off the raw map — because a map[string]any returns numbers as float64, times
@@ -809,6 +809,6 @@ func (fs *FileStore) Ping(ctx context.Context) error {
 	return err
 }
 
-// Close flushes the FileDB index and stops its background compaction goroutine.
+// Close flushes the ScrivaDB index and stops its background compaction goroutine.
 // The daemon defers it on shutdown. (The old FileStore.Close was a no-op.)
 func (fs *FileStore) Close(ctx context.Context) error { return fs.db.Close() }

@@ -205,7 +205,7 @@ func TestLegacyJSONImport(t *testing.T) {
 	// A corrupt legacy file must be skipped, not abort the whole import.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "snap-bad.json"), []byte("{not json"), 0o600))
 
-	// First open imports the legacy JSON into FileDB and drops the sentinel.
+	// First open imports the legacy JSON into ScrivaDB and drops the sentinel.
 	st, err := NewStore(dir)
 	require.NoError(t, err)
 
@@ -242,7 +242,7 @@ func TestLegacyJSONImport(t *testing.T) {
 	_, err = st2.Get("snap-legacy2")
 	require.ErrorIs(t, err, ErrNotFound, "second open must not re-scan legacy JSON")
 	got, err = st2.Get("snap-legacy1")
-	require.NoError(t, err, "the originally imported record is still served from FileDB")
+	require.NoError(t, err, "the originally imported record is still served from ScrivaDB")
 	require.Equal(t, "old checkpoint", got.Message)
 }
 

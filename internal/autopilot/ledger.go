@@ -22,7 +22,7 @@ var ErrLedgerConflict = errors.New("autopilot: ledger value conflict")
 
 // CtxStore is the narrow slice of the daemon's shared-context blackboard the
 // ledger needs (ctxstore.Store's Get/Set/CompareAndSet). It is an interface so
-// the ledger is unit-testable without a FileDB, and so the autopilot package
+// the ledger is unit-testable without a ScrivaDB, and so the autopilot package
 // stays decoupled from the daemon. Implementations MUST map "key absent" to
 // ErrLedgerMissing on Get and "expectation mismatch" to ErrLedgerConflict on
 // CompareAndSet; the daemon adapter (internal/daemon) does this translation.

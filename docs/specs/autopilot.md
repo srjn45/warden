@@ -168,7 +168,7 @@ carries on — a steering typo must not wedge two weeks of work.
 
 ## 4. Run ledger
 
-**Storage:** the collaboration blackboard (`internal/collab` ctx store, FileDB-
+**Storage:** the collaboration blackboard (`internal/collab` ctx store, ScrivaDB-
 backed) under the reserved namespace `autopilot/<run_id>/…` — reusing
 `ctx_set`/`ctx_get`/`ctx_cas` wholesale; no new storage engine. Landings are
 additionally recorded by the daemon inside the `land` handler (authoritative,

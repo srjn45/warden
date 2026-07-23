@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/srjn45/filedbv2/engine"
-	"github.com/srjn45/filedbv2/filedb"
-	"github.com/srjn45/filedbv2/query"
+	"github.com/srjn45/scriva"
+	"github.com/srjn45/scriva/engine"
+	"github.com/srjn45/scriva/query"
 )
 
 // ErrNotFound is returned by Store.Get for an unknown snapshot id.
@@ -22,7 +22,7 @@ var ErrNotFound = errors.New("snapshot not found")
 // ErrBadID is returned when a snapshot id contains path separators or "..".
 var ErrBadID = errors.New("invalid snapshot id")
 
-// Store persists snapshot METADATA in an embedded FileDB (github.com/srjn45/filedbv2)
+// Store persists snapshot METADATA in an embedded ScrivaDB (github.com/srjn45/scriva)
 // "snapshots" collection rooted at a sibling <dir>-db/ directory, one record keyed by
 // the snapshot id — so a write appends a single record instead of rewriting a whole
 // per-snapshot JSON file. The collection is opened with SyncModeNone: like the
@@ -30,26 +30,26 @@ var ErrBadID = errors.New("invalid snapshot id")
 // the last write surviving a power-loss is not a requirement (append-only segments
 // rule out torn reads regardless).
 //
-// The captured transcript is deliberately NOT stored in FileDB. It stays a flat blob
+// The captured transcript is deliberately NOT stored in ScrivaDB. It stays a flat blob
 // alongside the original dir as <dir>/<id>.transcript, exactly as before: a
 // multi-megabyte scrollback must never bloat the metadata record, and that reasoning
-// applies equally to a FileDB record. The metadata's TranscriptPath points at that
+// applies equally to a ScrivaDB record. The metadata's TranscriptPath points at that
 // flat file.
 type Store struct {
 	dir string // original dir; transcript blobs live directly under it
-	db  *filedb.DB
+	db  *scriva.DB
 	col *engine.Collection
 }
 
 // importedMarker names the sentinel written (last) once the one-time legacy-JSON
-// import into the FileDB collection has completed. Its presence means the FileDB is
+// import into the ScrivaDB collection has completed. Its presence means the ScrivaDB is
 // authoritative and no re-import runs; its absence means the import never finished, so
 // the next open wipes the (derived) <dir>-db and retries from the intact legacy JSON.
 // See NewStore / importLegacy.
 const importedMarker = ".snapshots-filedb-imported"
 
 // NewStore creates the snapshots dir (0700) — where transcript blobs live — and opens
-// (creating if needed) the FileDB-backed metadata store in the sibling <dir>-db/
+// (creating if needed) the ScrivaDB-backed metadata store in the sibling <dir>-db/
 // directory. On first open it imports any legacy <dir>/<id>.json metadata into the
 // collection. The import is guarded by importedMarker and is directory-atomic: if the
 // sentinel is absent (never imported, or a prior attempt died partway) the derived
@@ -80,7 +80,7 @@ func NewStore(dir string) (*Store, error) {
 		return nil, err
 	}
 
-	db, err := filedb.Open(dbDir, filedb.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeNone))
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func NewStore(dir string) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
-		// Sentinel LAST: only now is the FileDB authoritative.
+		// Sentinel LAST: only now is the ScrivaDB authoritative.
 		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
 			db.Close()
 			return nil, err
@@ -118,7 +118,7 @@ func fileExists(path string) (bool, error) {
 }
 
 // importLegacy performs the one-time import of the legacy per-file <dir>/<id>.json
-// metadata into the FileDB collection. Each *.json is decoded individually (skip+warn
+// metadata into the ScrivaDB collection. Each *.json is decoded individually (skip+warn
 // on corrupt/unsafe-id, matching the old List's corrupt-file tolerance — a bad file
 // never blocks the upgrade), then loaded into the collection with LoadJSONL, which is
 // atomic (all-or-nothing). A missing/empty dir (fresh install) is an empty import. The
@@ -172,7 +172,7 @@ func legacyNDJSON(dir string) (bytes.Buffer, error) {
 }
 
 // safeID guards the id used as a filename component (the transcript blob) and as the
-// FileDB record key against path traversal and tmux/target separators — the id reaches
+// ScrivaDB record key against path traversal and tmux/target separators — the id reaches
 // the store from user input (`wd snapshot restore <id>`), so it is validated before it
 // touches the filesystem.
 func safeID(id string) error {
@@ -183,12 +183,12 @@ func safeID(id string) error {
 }
 
 // transcriptPath is the on-disk location of a snapshot's transcript blob, unchanged
-// from the pre-FileDB layout: a flat file directly under the original dir.
+// from the pre-ScrivaDB layout: a flat file directly under the original dir.
 func (s *Store) transcriptPath(id string) string {
 	return filepath.Join(s.dir, id+".transcript")
 }
 
-// Put writes the snapshot metadata (into FileDB) and (when non-empty) its transcript
+// Put writes the snapshot metadata (into ScrivaDB) and (when non-empty) its transcript
 // blob (as a flat <dir>/<id>.transcript file, unchanged). It stamps
 // snap.TranscriptPath/TranscriptLines from the blob it wrote, so the persisted record
 // points at the transcript the operator can read back.
@@ -252,7 +252,7 @@ func (s *Store) List(sessionID string) ([]*Snapshot, error) {
 	return out, nil
 }
 
-// Close flushes the FileDB index and stops its background compaction goroutine. The
+// Close flushes the ScrivaDB index and stops its background compaction goroutine. The
 // daemon defers it on shutdown.
 func (s *Store) Close() error { return s.db.Close() }
 
@@ -273,7 +273,7 @@ func readSnapshot(path string) (*Snapshot, error) {
 	return &snap, nil
 }
 
-// toRecord decomposes a Snapshot into a FileDB record body via a JSON round-trip, so
+// toRecord decomposes a Snapshot into a ScrivaDB record body via a JSON round-trip, so
 // its fields stay real in the store (indexable in future) rather than an opaque blob.
 // Always round-trip through JSON — never read typed business logic off the raw map —
 // because a map[string]any returns numbers as float64, times as strings, etc.; the

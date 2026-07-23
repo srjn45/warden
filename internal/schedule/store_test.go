@@ -127,7 +127,7 @@ func TestStorePersistsAcrossInstances(t *testing.T) {
 }
 
 // TestStoreLegacyImport seeds a flat legacy schedules.json, then opens a fresh
-// FileDB-backed Store over the same path: the legacy entries must be readable,
+// ScrivaDB-backed Store over the same path: the legacy entries must be readable,
 // the import sentinel must now exist, the legacy JSON must be left in place as a
 // read-only backup, and a second NewStore must not re-import or error.
 func TestStoreLegacyImport(t *testing.T) {
@@ -159,7 +159,7 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("imported entries wrong: %+v", list)
 	}
 
-	// The sentinel now marks the FileDB as authoritative.
+	// The sentinel now marks the ScrivaDB as authoritative.
 	sentinel := filepath.Join(dir, importedMarker)
 	if _, err := os.Stat(sentinel); err != nil {
 		t.Fatalf("import sentinel missing: %v", err)
@@ -173,7 +173,7 @@ func TestStoreLegacyImport(t *testing.T) {
 	}
 
 	// A second open must not re-import (adding a schedule then reopening proves
-	// the second NewStore reads the live FileDB, not the stale legacy JSON) and
+	// the second NewStore reads the live ScrivaDB, not the stale legacy JSON) and
 	// must not error.
 	st2, err := NewStore(path)
 	if err != nil {

@@ -138,7 +138,7 @@ func TestFileImportSkipsCorruptLegacyFile(t *testing.T) {
 	dir := t.TempDir()
 	// Seed a legacy sessions/ dir with one good record and one junk file BEFORE
 	// the first open, so the corrupt file is exercised on the import path (List
-	// itself now reads the FileDB, which stray files can't corrupt).
+	// itself now reads the ScrivaDB, which stray files can't corrupt).
 	writeLegacy(t, dir, "sessions", sample())
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sessions", "broken.json"), []byte("{not json"), 0o644))
 

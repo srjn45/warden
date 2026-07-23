@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srjn45/filedbv2/engine"
-	"github.com/srjn45/filedbv2/filedb"
-	"github.com/srjn45/filedbv2/query"
+	"github.com/srjn45/scriva"
+	"github.com/srjn45/scriva/engine"
+	"github.com/srjn45/scriva/query"
 
 	"github.com/srjn45/warden/internal/store"
 )
@@ -24,7 +24,7 @@ var (
 	ErrExists   = errors.New("pipeline already exists")
 )
 
-// Store persists pipelines in an embedded FileDB (github.com/srjn45/filedbv2)
+// Store persists pipelines in an embedded ScrivaDB (github.com/srjn45/scriva)
 // collection "pipelines" rooted at <dir>-db/, one record per pipeline keyed by
 // its ID. A write appends one record instead of rewriting a whole per-pipeline
 // JSON file (the write-amplification the previous store carried). The collection
@@ -33,28 +33,28 @@ var (
 // requirement (append-only segments rule out torn reads regardless).
 //
 // The original dir (e.g. <data>/pipelines) is left in place holding the legacy
-// <id>.json files as a read-only backup after the one-time import; the FileDB
+// <id>.json files as a read-only backup after the one-time import; the ScrivaDB
 // lives in the sibling <dir>-db (mirroring sessions-db/). A single mutex
 // serialises the compound read-modify-write methods (Create's check + write,
-// Update's read-mutate-write); FileDB does its own per-collection locking, so
+// Update's read-mutate-write); ScrivaDB does its own per-collection locking, so
 // the mutex only guards those read-then-write critical sections.
 type Store struct {
 	mu  sync.Mutex
-	db  *filedb.DB
+	db  *scriva.DB
 	col *engine.Collection
 }
 
 // importedMarker names the sentinel written (last) once the one-time legacy-JSON
-// import into the FileDB collection has completed. Its presence means the FileDB
+// import into the ScrivaDB collection has completed. Its presence means the ScrivaDB
 // is authoritative and no re-import runs; its absence means the import never
 // finished, so the next open wipes the (derived) <dir>-db and retries from the
 // intact legacy JSON. See NewStore / importLegacy.
 const importedMarker = ".pipelines-filedb-imported"
 
-// NewStore opens (creating if needed) the FileDB-backed pipeline store. The dir
+// NewStore opens (creating if needed) the ScrivaDB-backed pipeline store. The dir
 // argument keeps its historical meaning — the directory that holds the legacy
 // <id>.json files — for signature compatibility with every caller and test; the
-// FileDB itself is rooted at the sibling <dir>-db. On first open any legacy
+// ScrivaDB itself is rooted at the sibling <dir>-db. On first open any legacy
 // <dir>/*.json records are imported into the collection. The import is guarded by
 // importedMarker and is directory-atomic: if the sentinel is absent (never
 // imported, or a prior attempt died partway) the derived <dir>-db is wiped and
@@ -87,7 +87,7 @@ func NewStore(dir string) (*Store, error) {
 		return nil, err
 	}
 
-	db, err := filedb.Open(dbDir, filedb.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeNone))
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func NewStore(dir string) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
-		// Sentinel LAST: only now is the FileDB authoritative.
+		// Sentinel LAST: only now is the ScrivaDB authoritative.
 		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
 			db.Close()
 			return nil, err
@@ -125,7 +125,7 @@ func fileExists(path string) (bool, error) {
 }
 
 // importLegacy performs the one-time import of the legacy per-file JSON in dir
-// into the FileDB collection. Each *.json is decoded individually (skip+warn on
+// into the ScrivaDB collection. Each *.json is decoded individually (skip+warn on
 // a corrupt file or unsafe id — a bad file never blocks the upgrade), then the
 // good records are loaded with LoadJSONL, which is atomic (all-or-nothing). A
 // dir with no readable records (fresh install) is simply an empty import.
@@ -188,7 +188,7 @@ func readPipeline(path string) (*Pipeline, error) {
 	return &p, nil
 }
 
-// toRecord decomposes a Pipeline into a FileDB record body via a JSON round-trip
+// toRecord decomposes a Pipeline into a ScrivaDB record body via a JSON round-trip
 // through its own tags, so nested fields (Jobs, Digest) stay lossless. The engine
 // stamps the reserved _key on write, so it must NOT be present here.
 func toRecord(p *Pipeline) (map[string]any, error) {
@@ -316,7 +316,7 @@ func (s *Store) Delete(id string) error {
 	return err
 }
 
-// Close flushes the FileDB index and stops its background compaction goroutine.
+// Close flushes the ScrivaDB index and stops its background compaction goroutine.
 // The daemon defers it on shutdown.
 func (s *Store) Close() error {
 	return s.db.Close()

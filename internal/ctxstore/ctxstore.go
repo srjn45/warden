@@ -3,8 +3,8 @@
 // Keys are free-form dot-namespaced strings (e.g. "global.foo",
 // "pipeline.<pid>.<job>.output").
 //
-// Entries are persisted as records in an embedded FileDB "context" collection
-// (github.com/srjn45/filedbv2), one append-only NDJSON collection under the data
+// Entries are persisted as records in an embedded ScrivaDB "context" collection
+// (github.com/srjn45/scriva), one append-only NDJSON collection under the data
 // dir — each key is a record keyed by the context key, so a write appends a
 // single record instead of rewriting a whole-store map. The collection is opened
 // with SyncModeNone: like the previous single-file implementation this is a
@@ -24,9 +24,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/srjn45/filedbv2/engine"
-	"github.com/srjn45/filedbv2/filedb"
-	"github.com/srjn45/filedbv2/query"
+	"github.com/srjn45/scriva"
+	"github.com/srjn45/scriva/engine"
+	"github.com/srjn45/scriva/query"
 )
 
 // ErrNotFound is returned when a key does not exist.
@@ -41,7 +41,7 @@ var ErrBadKey = errors.New("invalid context key")
 var ErrConflict = errors.New("context value conflict")
 
 // record data field names. The caller's context key is stored separately as the
-// FileDB record key (engine.KeyField), so it round-trips through Scan and Watch.
+// ScrivaDB record key (engine.KeyField), so it round-trips through Scan and Watch.
 const (
 	fieldValue = "value"
 	fieldBy    = "by"
@@ -68,19 +68,19 @@ type Entry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Store persists all entries in an embedded FileDB "context" collection.
+// Store persists all entries in an embedded ScrivaDB "context" collection.
 type Store struct {
-	db  *filedb.DB
+	db  *scriva.DB
 	col *engine.Collection
 }
 
-// New creates dir (if needed) and returns a store backed by a FileDB "context"
+// New creates dir (if needed) and returns a store backed by a ScrivaDB "context"
 // collection rooted at dir.
 func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := filedb.Open(dir, filedb.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeNone))
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +269,7 @@ func (s *Store) Del(key string) error {
 	return err
 }
 
-// Close flushes and releases the underlying FileDB collection (stopping its
+// Close flushes and releases the underlying ScrivaDB collection (stopping its
 // background compaction goroutine). The daemon calls it on shutdown.
 func (s *Store) Close() error {
 	return s.db.Close()
