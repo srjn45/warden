@@ -133,7 +133,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 
-			// ctxstore is now an embedded FileDB store with background goroutines;
+			// ctxstore is now an embedded ScrivaDB store with background goroutines;
 			// close it on shutdown to flush its index and stop the compaction loop.
 			defer cstore.Close()
 
@@ -142,7 +142,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 
-			// mailbox is an embedded FileDB store (see cstore above); close on shutdown.
+			// mailbox is an embedded ScrivaDB store (see cstore above); close on shutdown.
 			defer mbox.Close()
 
 			runner := lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}
@@ -203,7 +203,7 @@ func newDaemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// pstore is now an embedded FileDB store with background goroutines
+			// pstore is now an embedded ScrivaDB store with background goroutines
 			// (see cstore above); close it on shutdown to flush and stop compaction.
 			defer pstore.Close()
 			if err := daemon.HardenDataDir(cfg.DataDir); err != nil {
@@ -226,7 +226,7 @@ func newDaemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// snapshot metadata is now an embedded FileDB store (see cstore above);
+			// snapshot metadata is now an embedded ScrivaDB store (see cstore above);
 			// close it on shutdown to flush its index and stop the compaction loop.
 			defer snapStore.Close()
 			srv.SetSnapshots(cfg.Snapshots, snapshot.New(runner, snapStore))

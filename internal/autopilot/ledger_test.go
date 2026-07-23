@@ -8,7 +8,7 @@ import (
 
 // fakeStore is an in-memory CtxStore mirroring ctxstore.Store's Get/Set/CAS
 // semantics (ErrLedgerMissing on absent Get, ErrLedgerConflict on CAS mismatch,
-// expected "" = must-be-absent) so the ledger is exercised without a FileDB.
+// expected "" = must-be-absent) so the ledger is exercised without a ScrivaDB.
 type fakeStore struct {
 	m map[string]string
 }

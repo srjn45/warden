@@ -121,7 +121,7 @@ func TestPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	s1, _ := New(dir)
 	s1.Append(Message{To: "agent-1", From: "x", Body: "kept"})
-	// The store is now embedded (FileDB): a reopen models a daemon restart, so
+	// The store is now embedded (ScrivaDB): a reopen models a daemon restart, so
 	// close the first handle (flushing its index) before opening a new one.
 	if err := s1.Close(); err != nil {
 		t.Fatalf("close: %v", err)

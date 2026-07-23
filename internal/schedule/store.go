@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srjn45/filedbv2/engine"
-	"github.com/srjn45/filedbv2/filedb"
-	"github.com/srjn45/filedbv2/query"
+	"github.com/srjn45/scriva"
+	"github.com/srjn45/scriva/engine"
+	"github.com/srjn45/scriva/query"
 )
 
 var (
@@ -21,14 +21,14 @@ var (
 )
 
 // importedMarker names the sentinel written (last) once the one-time legacy-JSON
-// import into the FileDB "schedules" collection has completed. Its presence means
-// the FileDB is authoritative and no re-import runs; its absence means the import
+// import into the ScrivaDB "schedules" collection has completed. Its presence means
+// the ScrivaDB is authoritative and no re-import runs; its absence means the import
 // never finished, so the next open wipes the (derived) schedules-db and retries
 // from the intact legacy JSON. See NewStore / importLegacy.
 const importedMarker = ".schedules-filedb-imported"
 
-// Store persists schedules as records in an embedded FileDB "schedules"
-// collection (github.com/srjn45/filedbv2), one record per schedule keyed by its
+// Store persists schedules as records in an embedded ScrivaDB "schedules"
+// collection (github.com/srjn45/scriva), one record per schedule keyed by its
 // ID. This replaces the previous single flat schedules.json rewritten atomically
 // on every write. The collection is opened with SyncModeNone: this is a localhost
 // daemon store, so the last write surviving a power-loss is not a requirement
@@ -36,19 +36,19 @@ const importedMarker = ".schedules-filedb-imported"
 //
 // The daemon is the only holder. A single mutex serialises the compound
 // read-modify-write methods (Create's exists-check + insert, Update's
-// read-modify-write), mirroring the sessions store; FileDB does its own
+// read-modify-write), mirroring the sessions store; ScrivaDB does its own
 // per-collection locking, so the store mutex only guards the read-then-write
 // critical sections. Read-only methods take it too for a behaviour-identical
 // faithful port of the previous mutex model.
 type Store struct {
 	mu  sync.Mutex
-	db  *filedb.DB
+	db  *scriva.DB
 	col *engine.Collection
 }
 
-// NewStore opens (creating if needed) the FileDB-backed schedule store. The path
+// NewStore opens (creating if needed) the ScrivaDB-backed schedule store. The path
 // argument is the legacy schedules.json location (unchanged call site): the
-// FileDB directory is derived as a sibling of it (schedules.json → schedules-db/,
+// ScrivaDB directory is derived as a sibling of it (schedules.json → schedules-db/,
 // mirroring the sessions store's sessions-db/ naming), and the legacy JSON, if
 // present, is imported once on first open.
 //
@@ -84,7 +84,7 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 
-	db, err := filedb.Open(dbDir, filedb.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeNone))
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func NewStore(path string) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
-		// Sentinel LAST: only now is the FileDB authoritative.
+		// Sentinel LAST: only now is the ScrivaDB authoritative.
 		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
 			db.Close()
 			return nil, err
@@ -122,7 +122,7 @@ func fileExists(path string) (bool, error) {
 }
 
 // importLegacy performs the one-time import of the legacy flat schedules.json
-// (a single map keyed by schedule id) into the FileDB collection. A missing file
+// (a single map keyed by schedule id) into the ScrivaDB collection. A missing file
 // (fresh install) is simply an empty import. The legacy file is left untouched as
 // a read-only backup.
 func importLegacy(path string, col *engine.Collection) error {
@@ -155,7 +155,7 @@ func importLegacy(path string, col *engine.Collection) error {
 	return nil
 }
 
-// toRecord decomposes a Schedule into a FileDB record body via a JSON round-trip,
+// toRecord decomposes a Schedule into a ScrivaDB record body via a JSON round-trip,
 // so its fields stay real in the store rather than an opaque blob. The engine
 // stamps the reserved key field on InsertWithKey/UpdateByKey, so it must NOT be
 // present here.
@@ -273,7 +273,7 @@ func (s *Store) Delete(id string) error {
 	return err
 }
 
-// Close flushes the FileDB index and stops its background compaction goroutine.
+// Close flushes the ScrivaDB index and stops its background compaction goroutine.
 func (s *Store) Close() error {
 	return s.db.Close()
 }

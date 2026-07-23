@@ -47,7 +47,7 @@ func seedStore(b *testing.B, n int) *FileStore {
 	return st
 }
 
-// BenchmarkInsert measures the cost of a single Insert (a FileDB record append
+// BenchmarkInsert measures the cost of a single Insert (a ScrivaDB record append
 // after the active-collection name-uniqueness scan), the per-spawn store cost on
 // the hot path.
 func BenchmarkInsert(b *testing.B) {

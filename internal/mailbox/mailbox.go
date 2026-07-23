@@ -1,8 +1,8 @@
 // Package mailbox is a daemon-owned per-recipient message store — the durable
 // inbox behind agent-to-agent directed messages.
 //
-// Messages are persisted as records in an embedded FileDB "messages" collection
-// (github.com/srjn45/filedbv2): one append-only NDJSON collection under the data
+// Messages are persisted as records in an embedded ScrivaDB "messages" collection
+// (github.com/srjn45/scriva): one append-only NDJSON collection under the data
 // dir, each record keyed by "<to>:<id>" with a secondary index on the recipient
 // ("to") field for O(matches) per-inbox lookup. Appending a message writes a
 // single record instead of rewriting a recipient's whole inbox file. The
@@ -29,9 +29,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srjn45/filedbv2/engine"
-	"github.com/srjn45/filedbv2/filedb"
-	"github.com/srjn45/filedbv2/query"
+	"github.com/srjn45/scriva"
+	"github.com/srjn45/scriva/engine"
+	"github.com/srjn45/scriva/query"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -64,21 +64,21 @@ type Message struct {
 	Read bool      `json:"read"`
 }
 
-// Store persists messages in an embedded FileDB "messages" collection.
+// Store persists messages in an embedded ScrivaDB "messages" collection.
 type Store struct {
 	mu  sync.Mutex
-	db  *filedb.DB
+	db  *scriva.DB
 	col *engine.Collection
 	dir string
 }
 
-// New creates dir (if needed) and returns a store backed by a FileDB "messages"
+// New creates dir (if needed) and returns a store backed by a ScrivaDB "messages"
 // collection rooted at dir, with a secondary index on the recipient field.
 func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := filedb.Open(dir, filedb.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeNone))
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +349,7 @@ func (s *Store) TakeFirstUnread(to, from string) (Message, bool, error) {
 	return Message{}, false, nil
 }
 
-// Close flushes and releases the underlying FileDB collection (stopping its
+// Close flushes and releases the underlying ScrivaDB collection (stopping its
 // background compaction goroutine). The daemon calls it on shutdown.
 func (s *Store) Close() error {
 	return s.db.Close()

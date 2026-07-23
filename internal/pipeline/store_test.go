@@ -66,7 +66,7 @@ func TestStoreDelete(t *testing.T) {
 }
 
 // seedLegacy writes a legacy <id>.json pipeline record into dir, the on-disk
-// layout the pre-FileDB store used.
+// layout the pre-ScrivaDB store used.
 func seedLegacy(t *testing.T, dir string, p *Pipeline) {
 	t.Helper()
 	data, err := json.MarshalIndent(p, "", "  ")

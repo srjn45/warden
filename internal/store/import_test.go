@@ -44,7 +44,7 @@ func legacyCorpus() (active, closed []*Session) {
 func intPtr(v int) *int { return &v }
 
 // TestImportFidelity seeds legacy JSON and asserts every record round-trips
-// byte-identically through the import into the FileDB collections.
+// byte-identically through the import into the ScrivaDB collections.
 func TestImportFidelity(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -135,7 +135,7 @@ func TestImportSkipsUnsafeID(t *testing.T) {
 }
 
 // TestImportIdempotent verifies a second open of an imported tree neither
-// re-imports nor duplicates records, and that post-upgrade writes stay in FileDB
+// re-imports nor duplicates records, and that post-upgrade writes stay in ScrivaDB
 // (a legacy file added after import is ignored on the next open).
 func TestImportIdempotent(t *testing.T) {
 	ctx := context.Background()

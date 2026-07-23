@@ -5,7 +5,7 @@ description: A single Go binary that spawns, monitors, and tears down coding-age
 
 `warden` (aliased as `wd`) lets you run many **coding-agent sessions** in parallel and watch them from one place. Each agent is a real agent process (Claude Code by default — warden drives [multiple backends](/warden/concepts/agent-backends/)) running inside its own detached **tmux** window. You spawn agents, watch what they're doing, talk to them, and tear them down — without juggling terminals by hand.
 
-It is a single Go binary (`warden`, aliased as `wd`) that spawns, monitors, and tears down coding-agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and an embedded FileDB session store (no database server to run).
+It is a single Go binary (`warden`, aliased as `wd`) that spawns, monitors, and tears down coding-agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and an embedded ScrivaDB session store (no database server to run).
 
 One binary, multiple faces: `warden daemon` is the single writer to the on-disk session store, serving a loopback REST API and running a background poller. `warden ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `warden mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator agent session to query agents and talk to a specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
 

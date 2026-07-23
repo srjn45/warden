@@ -1,6 +1,6 @@
 ---
 title: Architecture & the daemon
-description: How warden is built — one binary, a local daemon, an embedded FileDB session store, and Claude Code hooks.
+description: How warden is built — one binary, a local daemon, an embedded ScrivaDB session store, and Claude Code hooks.
 ---
 
 One self-contained Go binary that wears several faces, all sharing the same on-disk state:
@@ -9,7 +9,7 @@ One self-contained Go binary that wears several faces, all sharing the same on-d
 |---|---|
 | **Single-binary distribution** | `warden` bundles the daemon, CLI clients, MCP server, TUI, and (in release builds) the embedded web GUI. `wd` is an installed symlink. |
 | **Local daemon** | The single writer to the session store. Serves a loopback REST API (`127.0.0.1:8765`) and runs a background poller that keeps each agent's status and subject fresh. |
-| **Embedded FileDB session store** | Sessions persist in an embedded FileDB (`github.com/srjn45/filedbv2`, `SyncModeNone`) rooted at `~/.warden/sessions-db/` — an `active` collection for live sessions and a `closed` one for archived, each record keyed by session id. A mutation appends one record instead of rewriting a whole JSON file; still no database server to run. On first launch after upgrading, warden imports the legacy `sessions/`+`closed/` JSON once and keeps it as a read-only backup — see [Upgrading & storage migration](#upgrading--storage-migration). |
+| **Embedded ScrivaDB session store** | Sessions persist in an embedded ScrivaDB (`github.com/srjn45/scriva`, `SyncModeNone`) rooted at `~/.warden/sessions-db/` — an `active` collection for live sessions and a `closed` one for archived, each record keyed by session id. A mutation appends one record instead of rewriting a whole JSON file; still no database server to run. On first launch after upgrading, warden imports the legacy `sessions/`+`closed/` JSON once and keeps it as a read-only backup — see [Upgrading & storage migration](#upgrading--storage-migration). |
 | **Claude Code lifecycle hooks** | A hook script posts `SessionStart`/`Notification`/`Stop`/`SubagentStop`/`SessionEnd` to the daemon so status updates in real time without polling. Fails soft (never blocks the agent). |
 | **launchd auto-start (macOS)** | Installs as an auto-starting, crash-restarting background service. |
 | **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
@@ -21,7 +21,7 @@ One self-contained Go binary that wears several faces, all sharing the same on-d
 ## Upgrading & storage migration
 
 The session store used to be one JSON file per session under `~/.warden/sessions/`
-and `~/.warden/closed/`. It now runs on an **embedded FileDB** rooted at
+and `~/.warden/closed/`. It now runs on an **embedded ScrivaDB** rooted at
 `~/.warden/sessions-db/` (`active` + `closed` collections, keyed by session id), so
 a mutation appends one record instead of rewriting a whole file. This is an
 **internal storage swap** — the daemon's REST API, the CLI/MCP clients, and
