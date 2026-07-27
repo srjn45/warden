@@ -5,8 +5,10 @@ local-macOS** setup to something other people can install on macOS *and* Linux.
 It documents the real flow as it exists today, the concrete blockers to wider
 distribution, and a step-by-step plan to remove them.
 
-> Scope: this is a planning/reference document. None of the changes below are
-> implemented yet — each section calls out what exists vs. what needs building.
+> Scope: this began as a planning document; the distribution work it describes
+> (versioned builds, GoReleaser pipeline, systemd unit, deb/rpm/AUR packages, and
+> the Homebrew tap) is now **shipped** and live as of v8.16.3. It is kept as a
+> reference for how the release flow is wired — each section marks what exists.
 
 ---
 

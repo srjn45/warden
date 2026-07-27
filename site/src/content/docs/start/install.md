@@ -29,7 +29,7 @@ Grab the archive for your OS/arch from the [latest release](https://github.com/s
 
 ```sh
 # example: macOS arm64 (adjust the version/arch)
-curl -fsSL https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_darwin_arm64.tar.gz | tar -xz
+curl -fsSL https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_darwin_arm64.tar.gz | tar -xz
 sudo mv warden /usr/local/bin/        # or any dir on your PATH
 warden --version
 ```
@@ -45,11 +45,11 @@ Every release also ships native packages — all include the `wd` alias and the 
 brew install --cask srjn45/tap/warden
 
 # Debian / Ubuntu
-curl -fsSLO https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_linux_amd64.deb
-sudo apt install ./warden_1.0.0_linux_amd64.deb
+curl -fsSLO https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.deb
+sudo apt install ./warden_8.16.3_linux_amd64.deb
 
 # Fedora / RHEL
-sudo dnf install https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_linux_amd64.rpm
+sudo dnf install https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.rpm
 
 # Arch (AUR)
 yay -S warden-bin
