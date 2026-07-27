@@ -1,5 +1,6 @@
 ---
 import '../styles/landing.css';
+import SiteHeader from '../components/SiteHeader.astro';
 import Hero from '../components/Hero.astro';
 import ValueProps from '../components/ValueProps.astro';
 import Showcase from '../components/Showcase.astro';
@@ -26,6 +27,7 @@ const base = import.meta.env.BASE_URL; // '/warden/'
     <meta name="twitter:image" content="https://srjn45.github.io/warden/og-image.png" />
   </head>
   <body>
+    <SiteHeader />
     <Hero />
     <ValueProps />
     <!-- Screenshots captured from an isolated demo instance (site/scripts/demo-seed.sh
