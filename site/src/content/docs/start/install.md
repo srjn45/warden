@@ -36,7 +36,7 @@ warden --version
 
 > **macOS Gatekeeper:** downloaded binaries are unsigned, so the first run may be blocked. Clear the quarantine flag once: `xattr -d com.apple.quarantine $(which warden)` (or right-click → Open). Building from source — option 3 — avoids this.
 
-### 1b. Package managers (Homebrew / deb / rpm / AUR)
+### 1b. Package managers (Homebrew / deb / rpm / Arch)
 
 Every release also ships native packages — all include the `wd` alias and the embedded web dashboard:
 
@@ -51,8 +51,9 @@ sudo apt install ./warden_8.16.3_linux_amd64.deb
 # Fedora / RHEL
 sudo dnf install https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.rpm
 
-# Arch (AUR)
-yay -S warden-bin
+# Arch — install the packaged .pkg.tar.zst straight from the release
+curl -fsSLO https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.pkg.tar.zst
+sudo pacman -U ./warden_8.16.3_linux_amd64.pkg.tar.zst
 ```
 
 (Adjust the version/arch in the URLs. The `.deb`/`.rpm` pull in `tmux` and `git` as recommended packages; `warden setup` installs anything still missing.)
