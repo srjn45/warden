@@ -1,14 +1,15 @@
 ---
 title: Running a fleet of coding agents without losing your mind
 description: I kept spawning more coding agents than I could track. So I built warden — a single Go binary that spawns, watches, and prices a whole fleet from one cockpit, whatever agent backend you run.
-head:
-  - tag: meta
-    attrs: { property: 'og:type', content: 'article' }
-  - tag: meta
-    attrs: { property: 'article:published_time', content: '2026-06-27' }
+date: 2026-06-27
+authors: srjn45
+excerpt: I kept spawning more coding agents than I could track. So I built warden — a single Go binary that spawns, watches, and prices a whole fleet from one cockpit, whatever agent backend you run.
+tags:
+  - multi-agent
+  - claude-code
+  - orchestration
+  - go
 ---
-
-<p style="opacity:0.7"><em>Published 2026-06-27</em></p>
 
 A few months ago I hit a wall that I suspect a lot of people are about to hit.
 

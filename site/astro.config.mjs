@@ -1,5 +1,6 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import starlightBlog from 'starlight-blog';
 
 // GitHub Pages project site lives at https://srjn45.github.io/warden
 export default defineConfig({
@@ -9,6 +10,22 @@ export default defineConfig({
     starlight({
       title: 'warden',
       description: 'Run a fleet of Claude Code agents from one cockpit.',
+      plugins: [
+        starlightBlog({
+          title: 'Blog',
+          // "Blog" link sits in the header, before the theme switcher.
+          navigation: 'header-end',
+          // Global authors — reference by key in a post's `authors` frontmatter.
+          authors: {
+            srjn45: {
+              name: 'Srajan Pathak',
+              title: 'warden author',
+              url: 'https://github.com/srjn45',
+            },
+          },
+          metrics: { readingTime: true, words: false },
+        }),
+      ],
       logo: {
         light: './src/assets/warden-wordmark-light.svg',
         dark: './src/assets/warden-wordmark-dark.svg',
@@ -57,9 +74,6 @@ export default defineConfig({
           { label: 'Shared context & messages', slug: 'multi-agent/shared-context-messages' },
           { label: 'Orchestration: MCP & skill', slug: 'multi-agent/mcp-and-skill' },
           { label: 'Interactive REPL (local LLM)', slug: 'multi-agent/repl' },
-        ]},
-        { label: 'Blog', items: [
-          { label: 'Running a fleet of Claude Code agents', slug: 'blog/running-a-fleet-of-claude-code-agents' },
         ]},
         { label: 'Reference', items: [
           { label: 'Feature catalog', slug: 'reference/features' },
