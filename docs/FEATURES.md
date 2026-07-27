@@ -321,7 +321,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage
-the fleet through tool calls. **72 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **76 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:
@@ -1102,7 +1102,8 @@ worker itself.
 The manager (and guardian on rotate) selects backends from cheapest to most
 expensive: free tier (`antigravity`), then subscription backends (`claude`,
 `codex`), then gated pay-per-use backends (explicit opt-in required). Configured
-via `autopilot.allow_tiers` in the config.
+via the `autopilot.brain.backends.{free,subscription,pay_per_use}` ladder, gated
+by `autopilot.brain.allow_pay_per_use` in the config.
 
 ### 34.5 Ownership guard
 

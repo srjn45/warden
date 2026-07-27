@@ -42,8 +42,9 @@ warden schedule delete daily-review
   the daemon was down is not replayed), and a past-due single-shot fires once.
 - **Fail-soft.** A fire error is recorded in the schedule's `last_error` and logged;
   it never crashes the reconcile loop or stops other schedules firing.
-- **Read-only over MCP.** `list_schedules` exposes the same view; create/delete are
-  written to the audit log (`schedule_create` / `schedule_delete`).
+- **Fully driveable over MCP.** `create_schedule` / `list_schedules` / `delete_schedule`
+  mirror the CLI; create/delete are written to the audit log (`schedule_create` /
+  `schedule_delete`).
 
 Schedules persist to an embedded ScrivaDB store under `~/.warden/schedules-db/`
 (one record per schedule). On the first daemon launch after upgrading, any legacy

@@ -149,7 +149,7 @@ Grab the archive for your OS/arch from the [latest release](https://github.com/s
 
 ```sh
 # example: macOS arm64 (adjust the version/arch)
-curl -fsSL https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_darwin_arm64.tar.gz | tar -xz
+curl -fsSL https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_darwin_arm64.tar.gz | tar -xz
 sudo mv warden /usr/local/bin/        # or any dir on your PATH
 warden --version
 ```
@@ -165,11 +165,11 @@ Every release also ships native packages (all with the `wd` alias included and t
 brew install --cask srjn45/tap/warden
 
 # Debian / Ubuntu
-curl -fsSLO https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_linux_amd64.deb
-sudo apt install ./warden_1.0.0_linux_amd64.deb
+curl -fsSLO https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.deb
+sudo apt install ./warden_8.16.3_linux_amd64.deb
 
 # Fedora / RHEL
-sudo dnf install https://github.com/srjn45/warden/releases/latest/download/warden_1.0.0_linux_amd64.rpm
+sudo dnf install https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.rpm
 
 # Arch (AUR)
 yay -S warden-bin
@@ -617,7 +617,7 @@ Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under th
 
 The cockpit **requires tmux ≥ 3.1** (it composites real tmux panes); if tmux isn't installed it exits with an error. Launched from **inside an existing tmux session**, warden detects `$TMUX` and lays the cockpit out as a **native tmux window** in your *current* session instead of nesting (your own keybindings, copy-mode, and resizing apply; `q` closes just the cockpit window). Force the native window with `warden tui --tmux-native`, or the classic own-session cockpit with `env -u TMUX warden tui` — see [docs/USAGE.md §7](docs/USAGE.md).
 
-The list pane polls the daemon about once a second. The daemon must be running (`warden.daemon`) before opening the TUI.
+The list pane polls the daemon about once a second. The daemon must be running (`warden daemon`) before opening the TUI.
 
 **Keys (cockpit)**
 
@@ -1377,13 +1377,13 @@ warden plugin list                    # registered plugins: paths, custom task t
 
 Hooks (`pre/post-spawn`, `pre/post-commit`, `pre/post-check`) are **advisory and fail-open** — a missing, slow, or crashing plugin is logged and skipped, never blocking an agent. Configure via `plugins.enabled` + a `plugins.registry` list in `~/.warden/config.yaml`; a worked example lives under [`examples/plugins/`](examples/plugins/). See [docs/FEATURES.md §26](docs/FEATURES.md).
 
-### `warden.daemon`
+### `warden daemon`
 
-Run the daemon (HTTP API + background poller). Normally managed by launchd; run manually for debugging.
+Run the daemon (HTTP API + background poller). Normally managed by launchd (macOS) or systemd (Linux); run manually for debugging.
 
 ```sh
-warden.daemon
-warden.daemon --addr 127.0.0.1:9000
+warden daemon
+warden daemon --addr 127.0.0.1:9000
 ```
 
 ### `warden mcp`
@@ -1456,8 +1456,9 @@ Once registered, the orchestrator session can call these tools directly:
 
 > Pipeline MCP tools are thin wrappers over the same daemon routes the CLI uses,
 > so an orchestrator session can run a multi-stage workflow (analyze→implement→review)
-> without shelling out. `pause`/`resume`/`delete`/`edit-job`/`retry` remain CLI-only
-> (`warden pipeline …`).
+> without shelling out. Lifecycle controls (`pause_pipeline`, `resume_pipeline`,
+> `delete_pipeline`, `edit_pipeline_job`, `retry_pipeline_job`) are available over MCP
+> too, mirroring the `warden pipeline …` CLI.
 
 Example orchestrator prompts:
 
@@ -1582,7 +1583,7 @@ The daemon embeds a React dashboard (Astro + React) and serves it at `http://loc
 
 ```sh
 make release     # 1. builds the Astro UI (web/), 2. embeds it via go:embed, 3. builds bin/warden
-warden.daemon  # start the daemon as usual
+warden daemon  # start the daemon as usual
 ```
 
 Then open `http://localhost:8765` in a browser.
@@ -1625,7 +1626,7 @@ Run two terminals in parallel — no rebuild loop needed while iterating on the 
 
 ```sh
 # Terminal 1 — daemon (REST API + SSE on :8765)
-warden.daemon
+warden daemon
 
 # Terminal 2 — Astro dev server (:4321, proxies /api/* (REST + /api/v1/.../attach WS + /api/v1/events SSE) and /healthz to :8765)
 make ui-dev

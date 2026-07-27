@@ -27,7 +27,7 @@ warden role list
 | `autopilot` | Long-lived headless **manager** that drives a whole autopilot run: decompose the goal, spawn `worker`/`brain` agents, gate their PRs, and land into the integration branch — fully unattended. | `--permission-mode bypassPermissions`, auto-approve on |
 | `brain` | On-demand **decision resolver**: unblock a stuck agent or make an ad-hoc design/architecture call, decisively and without human interaction, then report the resolution back. | `--permission-mode auto`, auto-approve on |
 
-The last three power [autopilot](/guides/autopilot/)'s topology: the `autopilot`
+The last three power [autopilot](/warden/guides/autopilot/)'s topology: the `autopilot`
 manager spawns `worker` agents to deliver tasks and `brain` agents to resolve
 blockers.
 

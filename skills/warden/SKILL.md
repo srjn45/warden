@@ -85,7 +85,7 @@ auditable, and enforce this repo's safety rails. Concretely:
 | running `go test` / `npm test` / `make build` / lint in **Bash** | `check` MCP tool (`wd check [name]`) | Returns pass/fail with output for only the **failing** checks instead of hundreds of lines you must read. The check-guard hook redirects broad raw runs here. |
 | editing a file another agent may be touching | `who_is_editing_file` / `get_collaboration_status` first, then `send_message` to coordinate | warden watches every agent's worktree and flags conflicts; coordinate rather than overwrite a peer's work. |
 | your own `git stash`/manual checkpoint before a risky change | `snapshot_create` then `snapshot_restore` | Captures worktree **and** transcript non-destructively; rails refuse main and dirty-tree restores. |
-| an external cron / another scheduler skill | `wd schedule` (`list_schedules` MCP is read-only) | Fires agent spawns or whole pipelines on the daemon's own timer, audited. |
+| an external cron / another scheduler skill | `wd schedule` (or `create_schedule` / `list_schedules` / `delete_schedule` over MCP) | Fires agent spawns or whole pipelines on the daemon's own timer, audited. |
 | eyeballing "which tasks could've been parallel" | `insights` | Mines warden's own history deterministically. |
 
 When you genuinely need something warden does not cover, use the generic tool —
@@ -121,7 +121,7 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   launchd/systemd) — do not guess at state. There may be a systemd unit
   (`warden.service`); a manually-started `warden daemon` can shadow it and break
   auth, so prefer letting the service own the port.
-- **MCP tools and the CLI wrap the same daemon REST API** (75 MCP tools), so prefer
+- **MCP tools and the CLI wrap the same daemon REST API** (76 MCP tools), so prefer
   MCP and fall back to CLI only when MCP is blocked (see above). **Every fleet/data
   feature is reachable from MCP *and* CLI** — pipelines (all verbs incl.
   pause/resume/retry/edit-job/emit/delete/validate/templates), schedules
