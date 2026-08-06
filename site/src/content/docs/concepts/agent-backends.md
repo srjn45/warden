@@ -37,6 +37,7 @@ Warden is fully tested only with **Claude Code**. **Codex CLI** and **Antigravit
 | **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic; no model flag on session launch; no priced spend |
 | **Cursor CLI** | `cursor` | C | 🧪 Experimental. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; **no structured transcript yet** ⇒ no digests; no priced spend |
 | **Antigravity CLI** | `antigravity` | A | β Beta. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped; live state + approval/trust detection; no priced spend |
+| **Terminal** (plain shell) | `terminal` | — | Not an AI agent. Opens an interactive `$SHELL` in the agent's directory, managed with warden's normal worktree/git/tmux lifecycle. No AI features (no digests, resume, model, spend); the task prompt is ignored. The "human seat" beside the fleet |
 
 ```sh
 # Claude (default)
@@ -66,6 +67,9 @@ warden start "implement the add function" --backend cursor --dir .
 
 # Antigravity — Google-hosted free tier; `agy` resolves its model from config
 warden start "implement the add function" --backend antigravity --dir .
+
+# Terminal — a plain shell in the directory, no AI (prompt is ignored)
+warden start --backend terminal --dir .
 ```
 
 Over MCP, pass the `backend` param to `spawn_agent` (kept at parity with the

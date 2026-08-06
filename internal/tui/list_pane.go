@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
@@ -26,45 +28,48 @@ import (
 // new/send/terminate/attach actions. It owns selection: on Enter it opens the
 // selected agent in the detail pane via respawn-pane.
 type listPaneModel struct {
-	api           api
-	detailPane    string // tmux pane id of the detail pane this list drives
-	sessions      []*store.Session
-	cursor        int
-	ta            textarea.Model
-	ti            textinput.Model
-	tp            textinput.Model
-	tn            textinput.Model // agent name input (new-agent form + rename)
-	openedDirs    map[string]time.Time
-	dirCandidates []string
-	targetDir     string
-	roles         []role.Role // built-in role catalog for the new-agent picker
-	roleIdx       int         // selected role in the new-agent form (0 ⇒ general)
-	mode          mode
-	status        string
-	connected     bool
-	pendingSelect string
-	pipelines     []*pipeline.Pipeline
-	collapsed     map[string]bool // pipeline id → jobs hidden in the list
-	seen          map[string]bool // pipeline ids the default-collapse has been applied to
-	pressure      client.PressureStatus
-	pendingPrompt string
-	pendingName   string // name typed in the new-agent form, held across the pressure confirm
-	pendingDir    string
-	pendingRole   string                 // role chosen in the new-agent form, held across the pressure confirm
-	renameID      string                 // agent id being renamed (modeRename)
-	spawnVerdict  string                 // reason text for the confirm prompt; "" when not confirming
-	pendingDelete string                 // pid awaiting delete confirmation; "" when not confirming
-	ctxEntries    []client.ContextEntry  // inspector: shared-context snapshot
-	messages      []client.Message       // inspector: recent message traffic
-	vp            viewport.Model         // scroll viewport (modeInspector / modeDigest)
-	approvals     []approval.View        // pending tool-permission prompts
-	apprEnabled   bool                   // approvals config setting on
-	apprCursor    int                    // focused recognized approval (modeApprovals)
-	digest        *digest.Digest         // last fetched digest (modeDigest)
-	digestID      string                 // agent id the digest is for
-	autopilot     client.AutopilotStatus // last fetched autopilot status
-	w, h          int
-	ready         bool
+	api            api
+	detailPane     string // tmux pane id of the detail pane this list drives
+	sessions       []*store.Session
+	cursor         int
+	ta             textarea.Model
+	ti             textinput.Model
+	tp             textinput.Model
+	tn             textinput.Model // agent name input (new-agent form + rename)
+	openedDirs     map[string]time.Time
+	dirCandidates  []string
+	targetDir      string
+	roles          []role.Role     // built-in role catalog for the new-agent picker
+	roleIdx        int             // selected role in the new-agent form (0 ⇒ general)
+	backends       []backendChoice // registered backend catalog for the new-agent picker
+	backendIdx     int             // selected backend in the new-agent form (0 ⇒ claude default)
+	mode           mode
+	status         string
+	connected      bool
+	pendingSelect  string
+	pipelines      []*pipeline.Pipeline
+	collapsed      map[string]bool // pipeline id → jobs hidden in the list
+	seen           map[string]bool // pipeline ids the default-collapse has been applied to
+	pressure       client.PressureStatus
+	pendingPrompt  string
+	pendingName    string // name typed in the new-agent form, held across the pressure confirm
+	pendingDir     string
+	pendingRole    string                 // role chosen in the new-agent form, held across the pressure confirm
+	pendingBackend string                 // backend chosen in the new-agent form, held across the pressure confirm
+	renameID       string                 // agent id being renamed (modeRename)
+	spawnVerdict   string                 // reason text for the confirm prompt; "" when not confirming
+	pendingDelete  string                 // pid awaiting delete confirmation; "" when not confirming
+	ctxEntries     []client.ContextEntry  // inspector: shared-context snapshot
+	messages       []client.Message       // inspector: recent message traffic
+	vp             viewport.Model         // scroll viewport (modeInspector / modeDigest)
+	approvals      []approval.View        // pending tool-permission prompts
+	apprEnabled    bool                   // approvals config setting on
+	apprCursor     int                    // focused recognized approval (modeApprovals)
+	digest         *digest.Digest         // last fetched digest (modeDigest)
+	digestID       string                 // agent id the digest is for
+	autopilot      client.AutopilotStatus // last fetched autopilot status
+	w, h           int
+	ready          bool
 	// killWindow scopes the `q`/`ctrl+c` teardown to the cockpit's tmux *window*
 	// instead of the whole session. It is set in the tmux-native cockpit, where
 	// the cockpit is a window inside the user's own session — killing the session
@@ -95,7 +100,11 @@ func newListPane(a api, detailPane string) listPaneModel {
 		api: a, ta: ta, ti: ti, tp: tp, tn: tn, detailPane: detailPane,
 		// roles is the fixed built-in catalog embedded in the binary (general
 		// first), so the picker is populated synchronously — no daemon round-trip.
-		roles:      role.All(),
+		roles: role.All(),
+		// backends is the registered backend catalog (claude/default first), read
+		// straight from the in-process registry — same synchronous, no-round-trip
+		// pattern as roles.
+		backends:   backendCatalog(),
 		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{}, connected: true,
 		vp: viewport.New(0, 0),
 	}
@@ -411,16 +420,24 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeNewAgentRole
 			m.ta.Blur()
 			return m, nil
+		case tea.KeyCtrlT:
+			// Switch to the backend picker. Defaults to claude. (ctrl+b is the tmux
+			// prefix, so the backend picker binds to ctrl+t instead.)
+			m.mode = modeNewAgentBackend
+			m.ta.Blur()
+			return m, nil
 		case tea.KeyCtrlS:
-			// An empty prompt is intentional: it opens claude in the target dir
-			// and waits for the user to type instructions into Claude directly.
+			// An empty prompt is intentional: it opens the agent in the target dir
+			// and waits for the user to type instructions into it directly (for the
+			// terminal backend, that is just a plain shell).
 			prompt := strings.TrimSpace(m.ta.Value())
 			name := strings.TrimSpace(m.tn.Value())
 			role := m.selectedRole()
+			backend := m.selectedBackend()
 			m.mode = modeNormal
 			m.ta.Blur()
-			m.pendingPrompt, m.pendingName, m.pendingDir, m.pendingRole = prompt, name, m.targetDir, role
-			return m, spawnCmd(m.api, prompt, name, m.targetDir, role, false)
+			m.pendingPrompt, m.pendingName, m.pendingDir, m.pendingRole, m.pendingBackend = prompt, name, m.targetDir, role, backend
+			return m, spawnCmd(m.api, prompt, name, m.targetDir, role, backend, false)
 		}
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
@@ -462,6 +479,35 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "j":
 			if len(m.roles) > 0 {
 				m.roleIdx = (m.roleIdx + 1) % len(m.roles)
+			}
+		}
+		return m, nil
+	case modeNewAgentBackend:
+		switch msg.Type {
+		case tea.KeyEsc, tea.KeyEnter:
+			m.mode = modeNewAgent
+			m.ta.Focus()
+			return m, nil
+		case tea.KeyUp, tea.KeyLeft:
+			if len(m.backends) > 0 {
+				m.backendIdx = (m.backendIdx - 1 + len(m.backends)) % len(m.backends)
+			}
+			return m, nil
+		case tea.KeyDown, tea.KeyRight, tea.KeyTab:
+			if len(m.backends) > 0 {
+				m.backendIdx = (m.backendIdx + 1) % len(m.backends)
+			}
+			return m, nil
+		}
+		// j/k also cycle, matching the list's vim-style navigation.
+		switch msg.String() {
+		case "k":
+			if len(m.backends) > 0 {
+				m.backendIdx = (m.backendIdx - 1 + len(m.backends)) % len(m.backends)
+			}
+		case "j":
+			if len(m.backends) > 0 {
+				m.backendIdx = (m.backendIdx + 1) % len(m.backends)
 			}
 		}
 		return m, nil
@@ -559,10 +605,10 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "f", "F":
 			m.mode = modeNormal
-			prompt, name, dir, role := m.pendingPrompt, m.pendingName, m.pendingDir, m.pendingRole
+			prompt, name, dir, role, backend := m.pendingPrompt, m.pendingName, m.pendingDir, m.pendingRole, m.pendingBackend
 			m.spawnVerdict = ""
 			m.status = "spawning (forced)…"
-			return m, spawnCmd(m.api, prompt, name, dir, role, true)
+			return m, spawnCmd(m.api, prompt, name, dir, role, backend, true)
 		case "esc", "n", "N":
 			m.mode = modeNormal
 			m.spawnVerdict = ""
@@ -752,7 +798,8 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ta.Reset()
 		m.ta.Focus()
 		m.tn.Reset()
-		m.roleIdx = 0 // reset the role picker to general on every fresh form
+		m.roleIdx = 0    // reset the role picker to general on every fresh form
+		m.backendIdx = 0 // reset the backend picker to claude on every fresh form
 	case "o":
 		m.mode = modeOpenDir
 		m.tp.Reset()
@@ -909,14 +956,17 @@ func (m listPaneModel) View() string {
 	}
 	switch m.mode {
 	case modeNewAgent:
-		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: dir · ctrl+n: name · ctrl+r: role · ctrl+s submit (blank = open Claude & wait) · esc cancel)") +
+		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: dir · ctrl+n: name · ctrl+r: role · ctrl+t: backend · ctrl+s submit (blank = just open & wait) · esc cancel)") +
 			"\n" + m.ta.View() +
 			"\n" + stMuted.Render("name: ") + newAgentNameLabel(m.tn.Value()) +
-			stMuted.Render("  ·  role: ") + m.selectedRoleName()
+			stMuted.Render("  ·  role: ") + m.selectedRoleName() +
+			stMuted.Render("  ·  backend: ") + m.selectedBackendName()
 	case modeNewAgentName:
 		footer = stPaneTitle.Render("Agent name (enter/esc back to prompt · blank = auto-name):") + " " + m.tn.View()
 	case modeNewAgentRole:
 		footer = stPaneTitle.Render("Role (↑/↓ or j/k select · enter/esc back to prompt):") + "\n" + m.rolePickerView()
+	case modeNewAgentBackend:
+		footer = stPaneTitle.Render("Backend (↑/↓ or j/k select · enter/esc back to prompt):") + "\n" + m.backendPickerView()
 	case modeNewAgentDir:
 		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenDir:
@@ -977,6 +1027,83 @@ func (m listPaneModel) rolePickerView() string {
 		desc = "no persona — behaves exactly like a plain agent"
 	}
 	return b.String() + "\n" + stMuted.Render(desc)
+}
+
+// backendChoice is one entry in the new-agent backend picker: the registered id
+// warden spawns with and its human-readable display name.
+type backendChoice struct {
+	id   string
+	name string
+}
+
+// backendCatalog reads the registered agent backends from the in-process
+// registry and returns them ordered for the picker: the default backend (claude)
+// first, the rest alphabetical. The registry is populated at import time (the
+// warden binary pulls in internal/agentbackend/backends via the CLI), so this is
+// synchronous with no daemon round-trip — the same pattern as role.All().
+func backendCatalog() []backendChoice {
+	ids := agentbackend.IDs()
+	sort.Slice(ids, func(i, j int) bool {
+		// DefaultID sorts first; everything else alphabetically.
+		if ids[i] == agentbackend.DefaultID {
+			return true
+		}
+		if ids[j] == agentbackend.DefaultID {
+			return false
+		}
+		return ids[i] < ids[j]
+	})
+	out := make([]backendChoice, 0, len(ids))
+	for _, id := range ids {
+		name := id
+		if b, err := agentbackend.Get(id); err == nil {
+			name = b.DisplayName()
+		}
+		out = append(out, backendChoice{id: id, name: name})
+	}
+	return out
+}
+
+// selectedBackend returns the backend id chosen in the new-agent form. The
+// default (claude, index 0) canonicalizes to "" so a plain spawn stays
+// byte-identical to today (the daemon resolves an empty backend to claude).
+func (m listPaneModel) selectedBackend() string {
+	if m.backendIdx <= 0 || m.backendIdx >= len(m.backends) {
+		return ""
+	}
+	id := m.backends[m.backendIdx].id
+	if id == agentbackend.DefaultID {
+		return ""
+	}
+	return id
+}
+
+// selectedBackendName is the display label for the chosen backend (never blank).
+func (m listPaneModel) selectedBackendName() string {
+	if m.backendIdx >= 0 && m.backendIdx < len(m.backends) {
+		return m.backends[m.backendIdx].name
+	}
+	return agentbackend.DefaultID
+}
+
+// backendPickerView renders the registered backend catalog with the selected
+// backend marked and its id shown beneath.
+func (m listPaneModel) backendPickerView() string {
+	if len(m.backends) == 0 {
+		return stMuted.Render("(no backends)")
+	}
+	var b strings.Builder
+	for i, c := range m.backends {
+		if i == m.backendIdx {
+			b.WriteString(stCursor.Render("› " + c.name))
+		} else {
+			b.WriteString(stMuted.Render("  " + c.name))
+		}
+		if i < len(m.backends)-1 {
+			b.WriteString("  ")
+		}
+	}
+	return b.String() + "\n" + stMuted.Render(m.backends[m.backendIdx].id)
 }
 
 // newAgentNameLabel renders the name chosen in the new-agent form, or a muted

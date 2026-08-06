@@ -60,7 +60,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `auto-merger` | `reviewer` | `worker` | `autopilot` | `brain`. The role's default flags fill only fields you leave
   unset (explicit value wins; tags unioned). See **Roles** below.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
-  Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.
+  Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity` | `terminal`.
   **Only `claude` is fully tested and stable**; `codex` and `antigravity` are
   **β beta** (live-verified state, approval, and transcript fidelity, still
   maturing); the rest are 🧪 **experimental / work-in-progress** — functionality
@@ -108,6 +108,13 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   resume** (dir-scoped, `agy -c`), has a **structured Tier-A transcript** (plaintext
   trajectory JSONL ⇒ real digests), **live state + approval detection** and **context
   injection** (`AGENTS.md`).
+  `terminal` is **NOT an AI agent** — it opens a plain interactive `$SHELL` (fallback
+  `bash`) in the agent's directory, managed with warden's normal worktree/git/tmux
+  lifecycle (attach, `commit`/`push`/`sync`, snapshot, teardown, cockpit listing).
+  Every AI feature degrades off (no digests, resume, model, priced spend, approval
+  parsing) and the **prompt is ignored** (a shell would execute it). Use it for the
+  managed "human seat" beside the fleet — a shell parked in a repo/worktree that
+  warden tracks and tears down like any other agent.
   Claude is the full-fidelity default — leave `backend` unset unless the operator
   explicitly asked for another agent.
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`
