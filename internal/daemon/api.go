@@ -14,6 +14,7 @@ import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/config"
@@ -187,6 +188,12 @@ type Server struct {
 	scheduler     bool
 	schedStore    *schedule.Store
 	schedInterval time.Duration
+	// backends is the agent-backend registry store (docs/specs/
+	// 2026-08-06-backend-registry.md): the source of truth for which backends
+	// exist, their tier, and which is default. nil ⇒ unconfigured (older wiring);
+	// the registry routes added in later stages guard on it. Set by the daemon via
+	// SetBackends after the startup reconcile.
+	backends *backendstore.Store
 	// autoApprovePersist persists a replaced auto-approve policy to the config
 	// file (set by the daemon to config.WriteAutoApprove). nil ⇒ the PUT
 	// /auto-approve/policy endpoint changes the live policy but does not persist.
@@ -255,6 +262,12 @@ func (s *Server) SetScheduler(enabled bool, store *schedule.Store, interval time
 	}
 	s.schedInterval = interval
 }
+
+// SetBackends wires the agent-backend registry store (docs/specs/
+// 2026-08-06-backend-registry.md). A nil store leaves the registry unconfigured
+// (the routes added in later stages then report it unavailable). Call before
+// Start, after the startup detection reconcile.
+func (s *Server) SetBackends(store *backendstore.Store) { s.backends = store }
 
 // SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
 // at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.

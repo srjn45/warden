@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/ctxtokens"
@@ -281,6 +283,24 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer schedStore.Close()
 			srv.SetScheduler(cfg.SchedulerEnabled, schedStore, time.Minute)
+
+			// Backend registry (docs/specs/2026-08-06-backend-registry.md): the DB
+			// is the source of truth for which backends exist, their tier, and the
+			// default. Reconcile a startup detection sweep into it — detection fields
+			// only, preserving the user's tier/default/enabled marks — then hand it
+			// to the Server. The local-model row is seeded from local_llm config
+			// (configured ⇒ Installed); actual reachability probing is left to later
+			// stages.
+			backendStore, err := backendstore.NewStore(filepath.Join(cfg.DataDir, "backends"))
+			if err != nil {
+				return err
+			}
+			defer backendStore.Close()
+			localConfigured := cfg.LocalLLM.Enabled && strings.TrimSpace(cfg.LocalLLM.URL) != ""
+			if rerr := backendstore.Reconcile(backendStore, agentbackend.Detect(), localConfigured, time.Now()); rerr != nil {
+				return rerr
+			}
+			srv.SetBackends(backendStore)
 			// Autopilot (docs/specs/autopilot.md): construct the master-switch
 			// Controller from config. S1 is inert — the switch + preflight exist on
 			// every surface but no brain spawns yet. baseDir anchors relative plan
