@@ -23,20 +23,58 @@ type selection struct {
 	GateOnly bool
 }
 
+// TierLadderSource yields autopilot's cost-tier backend ladder plus the
+// paid-autopilot gate. Per the backend-registry unification (docs/specs/
+// 2026-08-06-backend-registry.md §8) the registry store is the source of truth, so
+// the daemon injects a store-backed implementation (ControllerConfig.LadderSource)
+// and a user's live tier / gate edits govern the next selection with no restart.
+// When no source is injected the Controller wraps the (now-deprecated) config
+// ladder in a static source, so pre-registry daemons and unit tests keep working.
+type TierLadderSource interface {
+	// TierLadder returns the free / subscription / pay_per_use backend-id lists in
+	// preference order and whether pay_per_use (paid) autopilot is permitted
+	// (store Settings.AllowPaidAutopilot). A non-nil error makes selection degrade
+	// to the daemon default rather than risk a wrong-tier pick.
+	TierLadder() (ladder BackendLadder, allowPaid bool, err error)
+}
+
+// staticLadder wraps a fixed BackendLadder + gate as a TierLadderSource. It backs
+// the config-ladder fallback (no store injected) and unit tests.
+type staticLadder struct {
+	ladder    BackendLadder
+	allowPaid bool
+}
+
+func (s staticLadder) TierLadder() (BackendLadder, bool, error) {
+	return s.ladder, s.allowPaid, nil
+}
+
 // selectBackend walks the cost-tier ladder — free → subscription → pay_per_use
-// (the last only when allowPayPerUse) — and returns the first backend that is
-// configured, not excluded, and not currently rate-limited in ts (autopilot.md
-// §7). It drives both the brain's backend and the backend the brain hands its
-// workers, so one selection policy governs the whole run.
+// (the last only when the source permits paid autopilot) — and returns the first
+// backend that is configured, not excluded, and not currently rate-limited in ts
+// (autopilot.md §7). The tier lists and the paid gate come from src, the backend
+// registry store (docs/specs/2026-08-06-backend-registry.md §8) — no longer the
+// autopilot.brain.backends config. It drives both the brain's backend and the
+// backend the brain hands its workers, so one selection policy governs the run.
 //
 // exclude lets the guardian rotate DOWN the ladder without re-picking a backend
 // it just tried this heal cycle (nil ⇒ exclude nothing). A ts of nil treats every
-// backend as available (no limit tracking).
+// backend as available (no limit tracking). The rate-limit (ts) and exclude
+// handling is unchanged by the store move — only the tier source changed.
 //
-// An entirely unconfigured ladder yields {Backend:"", Tier:free, OK:true} so the
-// S1/S3 daemon-default path is preserved; once "" has been excluded (already
-// tried), even that collapses to no selection.
-func selectBackend(l BackendLadder, ts *tierState, allowPayPerUse bool, exclude map[string]bool) selection {
+// A src error, or an entirely unconfigured ladder, yields {Backend:"", Tier:free,
+// OK:true} so the daemon-default path is preserved; once "" has been excluded
+// (already tried), even that collapses to no selection.
+func selectBackend(src TierLadderSource, ts *tierState, exclude map[string]bool) selection {
+	l, allowPayPerUse, err := src.TierLadder()
+	if err != nil {
+		// Registry read failed: degrade to the daemon default (identical to an
+		// unconfigured ladder) rather than risk a wrong-tier or paid pick.
+		if exclude[""] {
+			return selection{}
+		}
+		return selection{Backend: "", Tier: tierFree, OK: true}
+	}
 	if len(l.all()) == 0 {
 		if exclude[""] {
 			return selection{}

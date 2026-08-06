@@ -21,13 +21,13 @@ func TestBackendLadderSelection(t *testing.T) {
 	require.Equal(t, []string{"antigravity", "codex", "claude", "gpt"}, ladder.all(), "union in tier order, blanks skipped")
 
 	// selectBackend walks the free tier first, skipping blanks.
-	sel := selectBackend(ladder, nil, false, nil)
+	sel := selectBackend(staticLadder{ladder: ladder}, nil, nil)
 	require.True(t, sel.OK)
 	require.Equal(t, "antigravity", sel.Backend)
 	require.Equal(t, tierFree, sel.Tier)
 
 	// An entirely unconfigured ladder ⇒ the daemon default ("").
-	def := selectBackend(BackendLadder{}, nil, false, nil)
+	def := selectBackend(staticLadder{ladder: BackendLadder{}}, nil, nil)
 	require.True(t, def.OK)
 	require.Equal(t, "", def.Backend, "no backend configured ⇒ daemon default")
 }

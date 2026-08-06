@@ -41,13 +41,22 @@ type ControllerConfig struct {
 	// (<data_dir>/autopilot/enabled/). Empty ⇒ an in-memory store (nothing
 	// persisted), so a Controller built without a data dir (unit tests) still works.
 	DataDir string
-	// Backends is the cost-tier backend ladder (config autopilot.brain.backends).
-	// S5 walks it in full (brain + worker selection); the preflight trust check
-	// validates the union.
+	// LadderSource is the live cost-tier ladder source: the backend registry store
+	// (docs/specs/2026-08-06-backend-registry.md §8), which is the source of truth
+	// after the ladder migration. The daemon injects a store-backed implementation
+	// so selection reads a user's live tier / gate edits without a restart. When nil
+	// (pre-registry daemons / unit tests) the Controller falls back to the static
+	// Backends / AllowPayPerUse ladder below.
+	LadderSource TierLadderSource
+	// Backends is the cost-tier backend ladder snapshot. The daemon now derives it
+	// from the registry store (formerly config autopilot.brain.backends, deprecated).
+	// It is the fallback ladder when LadderSource is nil and the union the preflight
+	// trust check validates.
 	Backends BackendLadder
-	// AllowPayPerUse permits the selection loop to fall through to pay_per_use
-	// backends (config autopilot.brain.allow_pay_per_use). Off ⇒ they are
-	// structurally excluded and hitting them raises the distinct gate notification.
+	// AllowPayPerUse permits the fallback selection loop to fall through to
+	// pay_per_use backends (store Settings.AllowPaidAutopilot; formerly config
+	// autopilot.brain.allow_pay_per_use, deprecated). Only consulted when
+	// LadderSource is nil — otherwise the source carries the live gate.
 	AllowPayPerUse bool
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
 	// autopilot.guardian). Zero-valued fields fall back to sane defaults.
@@ -78,6 +87,7 @@ type Controller struct {
 	strategy          string
 	deleteBranch      bool
 	baseDir           string
+	ladderSource      TierLadderSource // live registry ladder; nil ⇒ use backends/allowPayPerUse
 	backends          BackendLadder
 	allowPayPerUse    bool
 	guardian          GuardianParams
@@ -163,6 +173,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		strategy:          strategy,
 		deleteBranch:      cfg.DeleteBranch,
 		baseDir:           cfg.BaseDir,
+		ladderSource:      cfg.LadderSource,
 		backends:          cfg.Backends,
 		allowPayPerUse:    cfg.AllowPayPerUse,
 		guardian:          withGuardianDefaults(cfg.Guardian),
@@ -494,6 +505,7 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	c.gate = gate
 	c.strategy = strategy
 	c.deleteBranch = cfg.DeleteBranch
+	c.ladderSource = cfg.LadderSource
 	c.backends = cfg.Backends
 	c.allowPayPerUse = cfg.AllowPayPerUse
 	c.guardian = withGuardianDefaults(cfg.Guardian)
@@ -697,7 +709,18 @@ func isLandableState(s RunState) bool {
 // in exclude (nil ⇒ none). It is the single selection entry point for the brain
 // and the backend the brain hands its workers (autopilot.md §7).
 func (c *Controller) selectBrain(exclude map[string]bool) selection {
-	return selectBackend(c.backends, c.tierstate, c.allowPayPerUse, exclude)
+	return selectBackend(c.tierSource(), c.tierstate, exclude)
+}
+
+// tierSource returns the live cost-tier ladder source: the injected registry-store
+// source (source of truth after the §8 ladder migration) when present, else the
+// config-derived snapshot wrapped as a static source (pre-registry daemons / unit
+// tests). Callers hold c.mu (selectBrain does).
+func (c *Controller) tierSource() TierLadderSource {
+	if c.ladderSource != nil {
+		return c.ladderSource
+	}
+	return staticLadder{ladder: c.backends, allowPaid: c.allowPayPerUse}
 }
 
 // SelectWorkerBackend resolves the backend a worker for runID should launch on,

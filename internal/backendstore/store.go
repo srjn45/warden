@@ -381,6 +381,56 @@ func (s *Store) SetThinkingMode(mode string) error {
 	return s.putSettings(cur)
 }
 
+// SetAllowPaidAutopilot persists the paid-autopilot gate (RMW on the settings
+// record). It is the store-side home of the deprecated autopilot.brain.
+// allow_pay_per_use config key (docs/specs/2026-08-06-backend-registry.md §8):
+// the one-time ladder migration seeds it, and thereafter the store value is
+// authoritative for whether autopilot's cost-tier selection may reach a
+// pay_per_use backend.
+func (s *Store) SetAllowPaidAutopilot(on bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, err := s.settings()
+	if err != nil {
+		return err
+	}
+	cur.AllowPaidAutopilot = on
+	return s.putSettings(cur)
+}
+
+// AutopilotLadder derives autopilot's cost-tier backend ladder from the registry
+// (docs/specs/2026-08-06-backend-registry.md §8): the store is the source of truth
+// after the ladder migration, replacing the deprecated autopilot.brain.backends
+// config. Only installed, enabled, non-local rows are eligible (an uninstalled or
+// disabled backend is never selectable); each is placed in its tier bucket. Within
+// a tier the order is List()'s stable id-ascending order, so selection is
+// deterministic. allowPaid is Settings.AllowPaidAutopilot — the gate the selection
+// loop applies to the pay_per_use tier.
+func (s *Store) AutopilotLadder() (free, subscription, payPerUse []string, allowPaid bool, err error) {
+	backends, err := s.List()
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	st, err := s.Settings()
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	for _, b := range backends {
+		if !b.Installed || !b.Enabled || b.IsLocal {
+			continue
+		}
+		switch b.Tier {
+		case TierFree:
+			free = append(free, b.ID)
+		case TierSubscription:
+			subscription = append(subscription, b.ID)
+		case TierPayPerUse:
+			payPerUse = append(payPerUse, b.ID)
+		}
+	}
+	return free, subscription, payPerUse, st.AllowPaidAutopilot, nil
+}
+
 // putSettings inserts or updates the singleton settings record. Callers hold
 // s.mu.
 func (s *Store) putSettings(st Settings) error {

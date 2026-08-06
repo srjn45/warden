@@ -556,6 +556,7 @@ func LoadStrict(path string) (Config, error) {
 	if len(doc.Content) > 0 && doc.Content[0].Kind == yaml.MappingNode {
 		migrateFlatToNamespaced(doc.Content[0])
 		migrateAutoApprove(doc.Content[0])
+		warnDeprecatedAutopilotBackends(doc.Content[0])
 	}
 	// Decode the (possibly migrated) node tree onto c — absent keys keep their
 	// default value since c was pre-populated by defaults().
@@ -924,6 +925,52 @@ func migrateGroup(mapping *yaml.Node, blockKey string, aliases []keyAlias) bool 
 		removeKey(mapping, f.alias.flat)
 	}
 	return true
+}
+
+// ---------------------------------------------------------------------------
+// autopilot backend-ladder deprecation (backend registry §8)
+// ---------------------------------------------------------------------------
+
+// warnDeprecatedAutopilotBackends emits a deprecation warning when the file still
+// carries the autopilot.brain.backends ladder or autopilot.brain.allow_pay_per_use
+// gate. Both are superseded by the backend registry store (docs/specs/
+// 2026-08-06-backend-registry.md §8), which is the source of truth for backend
+// tiers and the paid-autopilot gate; the daemon imports these keys into the store
+// once (backendstore.MigrateAutopilotLadder) and then reads the store live, so the
+// config keys no longer drive selection. Unlike the flat→namespaced migration this
+// does not rewrite the node (there is no in-config destination) — it only warns, so
+// the one-time import can still read the values on the first post-upgrade boot.
+// Callers may then delete the keys to silence the warning.
+func warnDeprecatedAutopilotBackends(mapping *yaml.Node) {
+	brain := nestedMapping(mapping, "autopilot", "brain")
+	if brain == nil {
+		return
+	}
+	if v := findValue(brain, "backends"); v != nil {
+		slog.Warn("config: deprecated key autopilot.brain.backends — backend tiers now live in the registry store (edit via the backends API / TUI); this key is imported once then ignored",
+			"key", "autopilot.brain.backends")
+	}
+	if v := findValue(brain, "allow_pay_per_use"); v != nil {
+		slog.Warn("config: deprecated key autopilot.brain.allow_pay_per_use — the paid-autopilot gate now lives in the registry store; this key is imported once then ignored",
+			"key", "autopilot.brain.allow_pay_per_use")
+	}
+}
+
+// nestedMapping walks path from mapping, following each key to its mapping-node
+// value, and returns the deepest mapping node (nil if any hop is missing or is not
+// a mapping).
+func nestedMapping(mapping *yaml.Node, path ...string) *yaml.Node {
+	cur := mapping
+	for _, key := range path {
+		if cur == nil || cur.Kind != yaml.MappingNode {
+			return nil
+		}
+		cur = findValue(cur, key)
+	}
+	if cur == nil || cur.Kind != yaml.MappingNode {
+		return nil
+	}
+	return cur
 }
 
 // ---------------------------------------------------------------------------
@@ -1468,14 +1515,22 @@ func (c Config) AutopilotMergeStrategy() string { return c.Autopilot.Merge.Strat
 // merging it into the integration branch (autopilot.md §6).
 func (c Config) AutopilotDeleteBranch() bool { return c.Autopilot.Merge.DeleteBranch }
 
-// AutopilotBrainBackends returns the cost-tier backend ladder for the brain
-// (autopilot.md §7). The daemon maps it into autopilot.BackendLadder; S3 uses the
-// free tier (brain selection) and the union (preflight trust check).
+// AutopilotBrainBackends returns the cost-tier backend ladder parsed from the
+// deprecated autopilot.brain.backends config key (autopilot.md §7).
+//
+// Deprecated: the backend registry store is the source of truth for backend tiers
+// (docs/specs/2026-08-06-backend-registry.md §8). The daemon derives the live
+// ladder from the store (backendstore.Store.AutopilotLadder); this accessor exists
+// only to feed the one-time store migration and emits a deprecation warning at load
+// (see warnDeprecatedAutopilotBackends). Edit tiers in the store, not here.
 func (c Config) AutopilotBrainBackends() AutopilotBackends { return c.Autopilot.Brain.Backends }
 
-// AutopilotAllowPayPerUse reports whether the cost-tier selection loop may fall
-// through to pay_per_use backends (autopilot.md §7). Off ⇒ they are structurally
-// excluded and hitting the gate raises a distinct notification.
+// AutopilotAllowPayPerUse reports the deprecated autopilot.brain.allow_pay_per_use
+// gate (autopilot.md §7).
+//
+// Deprecated: superseded by the store's Settings.AllowPaidAutopilot (docs/specs/
+// 2026-08-06-backend-registry.md §8). Retained only to seed the one-time migration;
+// the live gate is read from the store.
 func (c Config) AutopilotAllowPayPerUse() bool { return c.Autopilot.Brain.AllowPayPerUse }
 
 // AutopilotGuardianInterval is the guardian tick cadence (autopilot.md §2.3).
