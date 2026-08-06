@@ -85,19 +85,23 @@ func abbrevHomeWith(path, home string) string {
 }
 
 // groupSort returns sessions re-ordered so agents sharing a sourceDir are
-// contiguous. Groups are ordered by their newest agent's CreatedAt (desc); within
-// a group agents are ordered by CreatedAt (desc). The ordering keys on the
-// immutable CreatedAt rather than UpdatedAt so an agent's row is fixed at creation
-// and does not shuffle as it works (UpdatedAt bumps on every action, which made
-// the list churn constantly). Pure: returns a new slice, leaves the input untouched.
+// contiguous. Directory groups are ordered chronologically by their FIRST (oldest)
+// agent's CreatedAt (asc), so a directory holds its place in the list as new agents
+// are created under it — creating an agent never re-sorts its directory to the top.
+// Within a group agents are ordered by CreatedAt (asc, oldest first), so a new
+// agent is appended to the bottom of its directory rather than shuffling siblings.
+// The ordering keys on the immutable CreatedAt rather than UpdatedAt so an agent's
+// row is fixed at creation and does not move as it works (UpdatedAt bumps on every
+// action, which made the list churn constantly). Pure: returns a new slice, leaves
+// the input untouched.
 func groupSort(sessions []*store.Session) []*store.Session {
 	if len(sessions) < 2 {
 		return sessions
 	}
 	type grp struct {
-		max  time.Time
-		seen int
-		rank int
+		first time.Time
+		seen  int
+		rank  int
 	}
 	groups := map[string]*grp{}
 	var keys []string
@@ -105,20 +109,20 @@ func groupSort(sessions []*store.Session) []*store.Session {
 		k := sourceDir(s)
 		g := groups[k]
 		if g == nil {
-			groups[k] = &grp{max: s.CreatedAt, seen: i}
+			groups[k] = &grp{first: s.CreatedAt, seen: i}
 			keys = append(keys, k)
 			continue
 		}
-		if s.CreatedAt.After(g.max) {
-			g.max = s.CreatedAt
+		if s.CreatedAt.Before(g.first) {
+			g.first = s.CreatedAt
 		}
 	}
 	sort.SliceStable(keys, func(a, b int) bool {
 		ga, gb := groups[keys[a]], groups[keys[b]]
-		if ga.max.Equal(gb.max) {
+		if ga.first.Equal(gb.first) {
 			return ga.seen < gb.seen
 		}
-		return ga.max.After(gb.max)
+		return ga.first.Before(gb.first)
 	})
 	for r, k := range keys {
 		groups[k].rank = r
@@ -130,7 +134,7 @@ func groupSort(sessions []*store.Session) []*store.Session {
 		if ra != rb {
 			return ra < rb
 		}
-		return out[a].CreatedAt.After(out[b].CreatedAt) // newest agent first within its group
+		return out[a].CreatedAt.Before(out[b].CreatedAt) // oldest agent first within its group
 	})
 	return out
 }
@@ -211,10 +215,11 @@ func liveStatus(s store.Status) bool {
 // buildItems flattens grouped sessions plus opened directories into the list the
 // cursor walks, nesting agent-spawned children under their parent (agent sub-tree
 // grouping). Dir grouping is over ROOT agents only — a child nests under its
-// root's dir regardless of its own sourceDir. Groups are ordered by creation (an
-// agent group's key is its newest root's CreatedAt; an empty opened dir's key is
-// when it was opened — so a freshly-opened dir floats to the top). An opened dir
-// that has agents emits its sub-trees and no placeholder; an opened dir with none
+// root's dir regardless of its own sourceDir. Directory groups are ordered
+// chronologically by their FIRST (oldest) root's CreatedAt (asc), so a directory
+// keeps its place as new agents are created under it; an empty opened dir's key is
+// when it was opened, so it sorts in among the dirs by that time (newest → bottom).
+// An opened dir that has agents emits its sub-trees and no placeholder; one with none
 // emits a single placeholder. A node listed in `collapsed` hides its whole
 // sub-tree. Pure: returns a new slice, leaves inputs untouched. Callers pass
 // sessions already grouped by groupSort; within-group root order is preserved.
@@ -236,20 +241,20 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 	}
 
 	type grp struct {
-		max  time.Time
-		seen int
+		first time.Time
+		seen  int
 	}
 	groups := map[string]*grp{}
 	var order []string
 	note := func(dir string, t time.Time) {
 		g := groups[dir]
 		if g == nil {
-			groups[dir] = &grp{max: t, seen: len(order)}
+			groups[dir] = &grp{first: t, seen: len(order)}
 			order = append(order, dir)
 			return
 		}
-		if t.After(g.max) {
-			g.max = t
+		if t.Before(g.first) {
+			g.first = t
 		}
 	}
 	for _, s := range roots {
@@ -260,10 +265,10 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 	}
 	sort.SliceStable(order, func(a, b int) bool {
 		ga, gb := groups[order[a]], groups[order[b]]
-		if ga.max.Equal(gb.max) {
+		if ga.first.Equal(gb.first) {
 			return ga.seen < gb.seen
 		}
-		return ga.max.After(gb.max)
+		return ga.first.Before(gb.first)
 	})
 	byDir := map[string][]*store.Session{}
 	for _, s := range roots {
