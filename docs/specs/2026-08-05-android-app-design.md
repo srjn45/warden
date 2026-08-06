@@ -62,6 +62,16 @@ WebSocket, forcing `TERM=xterm-256color`:
 - **client → server, binary frame:** keystrokes written straight to the PTY.
 - **client → server, text frame:** JSON `{"cols":N,"rows":M}` resize control.
 - Cockpit route emits WS close code `4001` when its tmux session ends.
+- **Mouse mode:** the per-agent attach path (`handleAttach`) sets tmux
+  `mouse on`, scoped to that session (no `-g`, global config untouched). Agent
+  TUIs run in the alt-screen, which has no scrollback, so a forwarded
+  mouse-wheel event is the only thing that scrolls their history — the app
+  turns a vertical swipe into `MOUSE_WHEELUP/DOWN`, but only when the emulator
+  reports mouse tracking active, so it stays a no-op if this is ever off. Being
+  a session option, it applies to **every** client of that agent session
+  (including the web UI's per-agent terminal): drag-to-select becomes
+  Shift-drag-to-select, matching the cockpit/TUI's existing behavior. The
+  cockpit path is intentionally left alone — its TUI manages the mouse itself.
 
 This single protocol powers three MVP requirements at once — **agent
 interaction, the special-key bar, and raw terminal are all the same widget**: a
