@@ -508,26 +508,135 @@ paths:
     get:
       operationId: listBackends
       tags: [Sessions]
-      summary: List the registered agent backends
+      summary: Get the agent-backend registry with settings
       description: >
-        Returns warden's registered agent backends (default first, then
-        alphabetical by id) so UIs and clients can present a backend picker
-        without hard-coding the list. Each entry carries the wire id sent as
-        SpawnRequest.backend, a human display name, whether it is the default
-        (an empty backend resolves to it), and whether its binary is on PATH on
-        this host. Read-only.
+        Returns the persisted agent-backend registry (one row per detected
+        backend, sorted by id) plus the store-level settings singleton. The
+        registry is warden's source of truth for which backends exist, their
+        tier, which one is the default, and whether each is enabled. Detection
+        fields (installed/binary_path/detected_at) reflect the most recent
+        reconcile — POST /api/v1/backends/rescan to refresh them. Read-only.
       responses:
         "200":
-          description: The registered backends
+          description: The backend registry and settings
           content:
             application/json:
-              schema:
-                type: object
-                required: [backends]
-                properties:
-                  backends:
-                    type: array
-                    items: { $ref: "#/components/schemas/BackendInfo" }
+              schema: { $ref: "#/components/schemas/BackendsState" }
+
+  /api/v1/backends/rescan:
+    post:
+      operationId: rescanBackends
+      tags: [Sessions]
+      summary: Re-detect installed backends and return the registry
+      description: >
+        Sweeps PATH for every registered backend and reconciles the detection
+        fields (installed/binary_path/detected_at) into the registry, preserving
+        each backend's tier/default/enabled preferences. Returns the refreshed
+        registry and settings.
+      responses:
+        "200":
+          description: The refreshed backend registry and settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackendsState" }
+
+  /api/v1/backends/default:
+    put:
+      operationId: setDefaultBackend
+      tags: [Sessions]
+      summary: Set the default agent backend
+      description: >
+        Marks one backend as the single default (an empty SpawnRequest.backend
+        resolves to it). Rejects an unknown, uninstalled, or disabled backend,
+        and the reserved local/terminal rows, with a 4xx. Returns the updated
+        registry and settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+      responses:
+        "200":
+          description: The updated backend registry and settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackendsState" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/backends/thinking-mode:
+    put:
+      operationId: setThinkingMode
+      tags: [Sessions]
+      summary: Set the internal-thinking routing mode
+      description: >
+        Sets how warden routes its own internal (non-user-facing) thinking:
+        local_only keeps it on the $0 local model; free_plus_local prefers free
+        cloud backends and falls back to the never-limited local model. Returns
+        the updated settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode:
+                  type: string
+                  description: "local_only | free_plus_local"
+      responses:
+        "200":
+          description: The updated settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackendSettings" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/backends/{id}:
+    patch:
+      operationId: patchBackend
+      tags: [Sessions]
+      summary: Update a backend's tier or enabled flag
+      description: >
+        Updates a single backend's user preferences. tier assigns a billing
+        class (free, subscription, pay_per_use, or unclassified); the reserved
+        local tier is system-set and cannot be assigned, nor can the local
+        row be re-tiered. enabled toggles whether the backend may be used. Both
+        fields are optional — an omitted field is left unchanged. Returns the
+        updated backend.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier:
+                  type: string
+                  x-go-type: "*string"
+                  description: "free | subscription | pay_per_use | unclassified (omit to leave unchanged)"
+                enabled:
+                  type: boolean
+                  x-go-type: "*bool"
+                  description: "omit to leave unchanged"
+      responses:
+        "200":
+          description: The updated backend
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backend" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/sessions/{id}/name:
     patch:
@@ -1947,20 +2056,51 @@ components:
         name: { type: string }
         description: { type: string }
 
-    BackendInfo:
+    Backend:
+      x-go-type: backendstore.Backend
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendstore
+        name: backendstore
       type: object
       description: >
-        A registered agent backend for the picker. id is the wire value sent as
-        SpawnRequest.backend; display_name is a human label; default marks the
-        backend an empty selection resolves to; available reports whether the
-        backend's binary is on PATH on this host (so a UI can grey out
-        un-installed ones).
-      required: [id, display_name, default, available]
+        One row of the agent-backend registry. Detection fields
+        (installed/binary_path/detected_at) are facts refreshed by a rescan;
+        tier/default/enabled are user preferences a rescan preserves. is_local
+        marks the reserved $0 local-model row (never limited, never a default).
+      required: [id, installed, binary_path, detected_at, tier, default, enabled, is_local]
       properties:
         id: { type: string }
-        display_name: { type: string }
+        installed: { type: boolean }
+        binary_path: { type: string }
+        detected_at: { type: string, format: date-time }
+        tier: { type: string, description: "free | subscription | pay_per_use | unclassified | local" }
         default: { type: boolean }
-        available: { type: boolean }
+        enabled: { type: boolean }
+        is_local: { type: boolean }
+        limited_until: { type: string, format: date-time }
+
+    BackendSettings:
+      x-go-type: backendstore.Settings
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendstore
+        name: backendstore
+      type: object
+      description: Store-level backend policy (the singleton settings record).
+      required: [id, internal_thinking_mode, allow_paid_autopilot]
+      properties:
+        id: { type: string }
+        internal_thinking_mode: { type: string, description: "local_only | free_plus_local" }
+        allow_paid_autopilot: { type: boolean }
+
+    BackendsState:
+      type: object
+      description: The full backend registry (rows sorted by id) plus settings.
+      required: [backends, settings]
+      properties:
+        backends:
+          type: array
+          items: { $ref: "#/components/schemas/Backend" }
+        settings: { $ref: "#/components/schemas/BackendSettings" }
 
     Verdict:
       x-go-type: pressure.Verdict

@@ -17,6 +17,7 @@ import (
 	"github.com/oapi-codegen/runtime"
 	approval "github.com/srjn45/warden/internal/approval"
 	autopilot "github.com/srjn45/warden/internal/autopilot"
+	backendstore "github.com/srjn45/warden/internal/backendstore"
 	branchtrack "github.com/srjn45/warden/internal/branchtrack"
 	collab "github.com/srjn45/warden/internal/collab"
 	ctxstore "github.com/srjn45/warden/internal/ctxstore"
@@ -383,12 +384,18 @@ type AutopilotToggleRequest struct {
 	Repo string `json:"repo,omitempty"`
 }
 
-// BackendInfo A registered agent backend for the picker. id is the wire value sent as SpawnRequest.backend; display_name is a human label; default marks the backend an empty selection resolves to; available reports whether the backend's binary is on PATH on this host (so a UI can grey out un-installed ones).
-type BackendInfo struct {
-	Available   bool   `json:"available"`
-	Default     bool   `json:"default"`
-	DisplayName string `json:"display_name"`
-	Id          string `json:"id"`
+// Backend One row of the agent-backend registry. Detection fields (installed/binary_path/detected_at) are facts refreshed by a rescan; tier/default/enabled are user preferences a rescan preserves. is_local marks the reserved $0 local-model row (never limited, never a default).
+type Backend = backendstore.Backend
+
+// BackendSettings Store-level backend policy (the singleton settings record).
+type BackendSettings = backendstore.Settings
+
+// BackendsState The full backend registry (rows sorted by id) plus settings.
+type BackendsState struct {
+	Backends []Backend `json:"backends"`
+
+	// Settings Store-level backend policy (the singleton settings record).
+	Settings BackendSettings `json:"settings"`
 }
 
 // BranchStatus defines model for BranchStatus.
@@ -825,6 +832,26 @@ type OK struct {
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
 
+// SetDefaultBackendJSONBody defines parameters for SetDefaultBackend.
+type SetDefaultBackendJSONBody struct {
+	Id string `json:"id"`
+}
+
+// SetThinkingModeJSONBody defines parameters for SetThinkingMode.
+type SetThinkingModeJSONBody struct {
+	// Mode local_only | free_plus_local
+	Mode string `json:"mode"`
+}
+
+// PatchBackendJSONBody defines parameters for PatchBackend.
+type PatchBackendJSONBody struct {
+	// Enabled omit to leave unchanged
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Tier free | subscription | pay_per_use | unclassified (omit to leave unchanged)
+	Tier *string `json:"tier,omitempty"`
+}
+
 // ListContextParams defines parameters for ListContext.
 type ListContextParams struct {
 	Prefix string `form:"prefix,omitempty" json:"prefix,omitempty"`
@@ -1038,6 +1065,15 @@ type SetAutopilotJSONRequestBody = AutopilotToggleRequest
 // LandAutopilotJSONRequestBody defines body for LandAutopilot for application/json ContentType.
 type LandAutopilotJSONRequestBody = AutopilotLandRequest
 
+// SetDefaultBackendJSONRequestBody defines body for SetDefaultBackend for application/json ContentType.
+type SetDefaultBackendJSONRequestBody SetDefaultBackendJSONBody
+
+// SetThinkingModeJSONRequestBody defines body for SetThinkingMode for application/json ContentType.
+type SetThinkingModeJSONRequestBody SetThinkingModeJSONBody
+
+// PatchBackendJSONRequestBody defines body for PatchBackend for application/json ContentType.
+type PatchBackendJSONRequestBody PatchBackendJSONBody
+
 // RunCheckJSONRequestBody defines body for RunCheck for application/json ContentType.
 type RunCheckJSONRequestBody = CheckRequest
 
@@ -1154,9 +1190,21 @@ type ServerInterface interface {
 	// Land a worker branch into the integration branch
 	// (POST /api/v1/autopilot/land)
 	LandAutopilot(w http.ResponseWriter, r *http.Request)
-	// List the registered agent backends
+	// Get the agent-backend registry with settings
 	// (GET /api/v1/backends)
 	ListBackends(w http.ResponseWriter, r *http.Request)
+	// Set the default agent backend
+	// (PUT /api/v1/backends/default)
+	SetDefaultBackend(w http.ResponseWriter, r *http.Request)
+	// Re-detect installed backends and return the registry
+	// (POST /api/v1/backends/rescan)
+	RescanBackends(w http.ResponseWriter, r *http.Request)
+	// Set the internal-thinking routing mode
+	// (PUT /api/v1/backends/thinking-mode)
+	SetThinkingMode(w http.ResponseWriter, r *http.Request)
+	// Update a backend's tier or enabled flag
+	// (PATCH /api/v1/backends/{id})
+	PatchBackend(w http.ResponseWriter, r *http.Request, id string)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(w http.ResponseWriter, r *http.Request)
@@ -1406,9 +1454,33 @@ func (_ Unimplemented) LandAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List the registered agent backends
+// Get the agent-backend registry with settings
 // (GET /api/v1/backends)
 func (_ Unimplemented) ListBackends(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set the default agent backend
+// (PUT /api/v1/backends/default)
+func (_ Unimplemented) SetDefaultBackend(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Re-detect installed backends and return the registry
+// (POST /api/v1/backends/rescan)
+func (_ Unimplemented) RescanBackends(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set the internal-thinking routing mode
+// (PUT /api/v1/backends/thinking-mode)
+func (_ Unimplemented) SetThinkingMode(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update a backend's tier or enabled flag
+// (PATCH /api/v1/backends/{id})
+func (_ Unimplemented) PatchBackend(w http.ResponseWriter, r *http.Request, id string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1982,6 +2054,98 @@ func (siw *ServerInterfaceWrapper) ListBackends(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListBackends(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetDefaultBackend operation middleware
+func (siw *ServerInterfaceWrapper) SetDefaultBackend(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetDefaultBackend(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RescanBackends operation middleware
+func (siw *ServerInterfaceWrapper) RescanBackends(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RescanBackends(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetThinkingMode operation middleware
+func (siw *ServerInterfaceWrapper) SetThinkingMode(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetThinkingMode(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchBackend operation middleware
+func (siw *ServerInterfaceWrapper) PatchBackend(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchBackend(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4222,6 +4386,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/backends", wrapper.ListBackends)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/backends/default", wrapper.SetDefaultBackend)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/backends/rescan", wrapper.RescanBackends)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/backends/thinking-mode", wrapper.SetThinkingMode)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/backends/{id}", wrapper.PatchBackend)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/check", wrapper.RunCheck)
 	})
 	r.Group(func(r chi.Router) {
@@ -4705,9 +4881,7 @@ type ListBackendsResponseObject interface {
 	VisitListBackendsResponse(w http.ResponseWriter) error
 }
 
-type ListBackends200JSONResponse struct {
-	Backends []BackendInfo `json:"backends"`
-}
+type ListBackends200JSONResponse BackendsState
 
 func (response ListBackends200JSONResponse) VisitListBackendsResponse(w http.ResponseWriter) error {
 
@@ -4717,6 +4891,164 @@ func (response ListBackends200JSONResponse) VisitListBackendsResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDefaultBackendRequestObject struct {
+	Body *SetDefaultBackendJSONRequestBody
+}
+
+type SetDefaultBackendResponseObject interface {
+	VisitSetDefaultBackendResponse(w http.ResponseWriter) error
+}
+
+type SetDefaultBackend200JSONResponse BackendsState
+
+func (response SetDefaultBackend200JSONResponse) VisitSetDefaultBackendResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDefaultBackend400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetDefaultBackend400JSONResponse) VisitSetDefaultBackendResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDefaultBackend404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetDefaultBackend404JSONResponse) VisitSetDefaultBackendResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescanBackendsRequestObject struct {
+}
+
+type RescanBackendsResponseObject interface {
+	VisitRescanBackendsResponse(w http.ResponseWriter) error
+}
+
+type RescanBackends200JSONResponse BackendsState
+
+func (response RescanBackends200JSONResponse) VisitRescanBackendsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetThinkingModeRequestObject struct {
+	Body *SetThinkingModeJSONRequestBody
+}
+
+type SetThinkingModeResponseObject interface {
+	VisitSetThinkingModeResponse(w http.ResponseWriter) error
+}
+
+type SetThinkingMode200JSONResponse BackendSettings
+
+func (response SetThinkingMode200JSONResponse) VisitSetThinkingModeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetThinkingMode400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetThinkingMode400JSONResponse) VisitSetThinkingModeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchBackendRequestObject struct {
+	Id   string `json:"id"`
+	Body *PatchBackendJSONRequestBody
+}
+
+type PatchBackendResponseObject interface {
+	VisitPatchBackendResponse(w http.ResponseWriter) error
+}
+
+type PatchBackend200JSONResponse Backend
+
+func (response PatchBackend200JSONResponse) VisitPatchBackendResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchBackend400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response PatchBackend400JSONResponse) VisitPatchBackendResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchBackend404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response PatchBackend404JSONResponse) VisitPatchBackendResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6904,9 +7236,21 @@ type StrictServerInterface interface {
 	// Land a worker branch into the integration branch
 	// (POST /api/v1/autopilot/land)
 	LandAutopilot(ctx context.Context, request LandAutopilotRequestObject) (LandAutopilotResponseObject, error)
-	// List the registered agent backends
+	// Get the agent-backend registry with settings
 	// (GET /api/v1/backends)
 	ListBackends(ctx context.Context, request ListBackendsRequestObject) (ListBackendsResponseObject, error)
+	// Set the default agent backend
+	// (PUT /api/v1/backends/default)
+	SetDefaultBackend(ctx context.Context, request SetDefaultBackendRequestObject) (SetDefaultBackendResponseObject, error)
+	// Re-detect installed backends and return the registry
+	// (POST /api/v1/backends/rescan)
+	RescanBackends(ctx context.Context, request RescanBackendsRequestObject) (RescanBackendsResponseObject, error)
+	// Set the internal-thinking routing mode
+	// (PUT /api/v1/backends/thinking-mode)
+	SetThinkingMode(ctx context.Context, request SetThinkingModeRequestObject) (SetThinkingModeResponseObject, error)
+	// Update a backend's tier or enabled flag
+	// (PATCH /api/v1/backends/{id})
+	PatchBackend(ctx context.Context, request PatchBackendRequestObject) (PatchBackendResponseObject, error)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(ctx context.Context, request RunCheckRequestObject) (RunCheckResponseObject, error)
@@ -7370,6 +7714,125 @@ func (sh *strictHandler) ListBackends(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListBackendsResponseObject); ok {
 		if err := validResponse.VisitListBackendsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetDefaultBackend operation middleware
+func (sh *strictHandler) SetDefaultBackend(w http.ResponseWriter, r *http.Request) {
+	var request SetDefaultBackendRequestObject
+
+	var body SetDefaultBackendJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetDefaultBackend(ctx, request.(SetDefaultBackendRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetDefaultBackend")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetDefaultBackendResponseObject); ok {
+		if err := validResponse.VisitSetDefaultBackendResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RescanBackends operation middleware
+func (sh *strictHandler) RescanBackends(w http.ResponseWriter, r *http.Request) {
+	var request RescanBackendsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RescanBackends(ctx, request.(RescanBackendsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RescanBackends")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RescanBackendsResponseObject); ok {
+		if err := validResponse.VisitRescanBackendsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetThinkingMode operation middleware
+func (sh *strictHandler) SetThinkingMode(w http.ResponseWriter, r *http.Request) {
+	var request SetThinkingModeRequestObject
+
+	var body SetThinkingModeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetThinkingMode(ctx, request.(SetThinkingModeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetThinkingMode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetThinkingModeResponseObject); ok {
+		if err := validResponse.VisitSetThinkingModeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchBackend operation middleware
+func (sh *strictHandler) PatchBackend(w http.ResponseWriter, r *http.Request, id string) {
+	var request PatchBackendRequestObject
+
+	request.Id = id
+
+	var body PatchBackendJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchBackend(ctx, request.(PatchBackendRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchBackend")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchBackendResponseObject); ok {
+		if err := validResponse.VisitPatchBackendResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

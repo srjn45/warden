@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/pressure"
@@ -927,38 +929,227 @@ func TestHandleListRoles(t *testing.T) {
 	require.True(t, names["orchestrator"])
 }
 
+// backendRow / backendState mirror the GET /backends wire shape for tests.
+type backendRow struct {
+	ID        string `json:"id"`
+	Installed bool   `json:"installed"`
+	Tier      string `json:"tier"`
+	Default   bool   `json:"default"`
+	Enabled   bool   `json:"enabled"`
+	IsLocal   bool   `json:"is_local"`
+}
+type backendState struct {
+	Backends []backendRow `json:"backends"`
+	Settings struct {
+		InternalThinkingMode string `json:"internal_thinking_mode"`
+	} `json:"settings"`
+}
+
+// lifeServerBackends builds a route server with a seeded, reconciled backend
+// registry (a real ScrivaDB store in a temp dir).
+func lifeServerBackends(t *testing.T, fs *fakeStore, fl *fakeLife) (*httptest.Server, *backendstore.Store) {
+	t.Helper()
+	bs, err := backendstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { bs.Close() })
+	require.NoError(t, backendstore.Reconcile(bs, agentbackend.Detect(), false, time.Now()))
+	srv := &Server{store: fs, life: fl, backends: bs}
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+	return ts, bs
+}
+
+func rowByID(rows []backendRow, id string) (backendRow, bool) {
+	for _, r := range rows {
+		if r.ID == id {
+			return r, true
+		}
+	}
+	return backendRow{}, false
+}
+
 func TestHandleListBackends(t *testing.T) {
-	srv := lifeServer(t, newFakeStore(), &fakeLife{})
+	srv, _ := lifeServerBackends(t, newFakeStore(), &fakeLife{})
 	resp, err := http.Get(srv.URL + "/api/v1/backends")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var out struct {
-		Backends []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-			Default     bool   `json:"default"`
-			Available   bool   `json:"available"`
-		} `json:"backends"`
-	}
+	var out backendState
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	require.NotEmpty(t, out.Backends)
-	// Default backend (claude) sorts first and is the only one flagged default.
-	require.Equal(t, "claude", out.Backends[0].ID)
-	require.True(t, out.Backends[0].Default)
+	// Rows are sorted by id; the reconcile seeds every registered CLI backend
+	// (terminal is always installed) plus a newly detected CLI starts unclassified+enabled.
 	ids := map[string]bool{}
-	defaults := 0
-	for _, b := range out.Backends {
+	for i, b := range out.Backends {
 		require.NotEmpty(t, b.ID)
-		require.NotEmpty(t, b.DisplayName)
-		ids[b.ID] = true
-		if b.Default {
-			defaults++
+		if i > 0 {
+			require.Less(t, out.Backends[i-1].ID, b.ID, "rows sorted by id")
 		}
+		ids[b.ID] = true
 	}
-	require.Equal(t, 1, defaults, "exactly one default backend")
 	require.True(t, ids["terminal"], "terminal backend is listed")
 	require.True(t, ids["aider"])
+	term, ok := rowByID(out.Backends, "terminal")
+	require.True(t, ok)
+	require.True(t, term.Installed, "terminal is always installed")
+	// Default settings applied.
+	require.Equal(t, "free_plus_local", out.Settings.InternalThinkingMode)
+}
+
+func TestHandleListBackendsUnconfigured(t *testing.T) {
+	// A server without a wired registry (nil s.backends) returns 503, not a panic.
+	srv := lifeServer(t, newFakeStore(), &fakeLife{})
+	resp, err := http.Get(srv.URL + "/api/v1/backends")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+func TestHandleRescanBackends(t *testing.T) {
+	srv, _ := lifeServerBackends(t, newFakeStore(), &fakeLife{})
+	resp, err := http.Post(srv.URL+"/api/v1/backends/rescan", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out backendState
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NotEmpty(t, out.Backends)
+}
+
+func TestHandlePatchBackendTier(t *testing.T) {
+	srv, _ := lifeServerBackends(t, newFakeStore(), &fakeLife{})
+	// Valid tier assignment.
+	body, _ := json.Marshal(map[string]any{"tier": "free"})
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/backends/aider", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var b backendRow
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&b))
+	resp.Body.Close()
+	require.Equal(t, "free", b.Tier)
+
+	// Invalid tier → 400.
+	body, _ = json.Marshal(map[string]any{"tier": "bogus"})
+	req, _ = http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/backends/aider", bytes.NewReader(body))
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+
+	// The reserved local tier is not user-assignable → 400.
+	body, _ = json.Marshal(map[string]any{"tier": "local"})
+	req, _ = http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/backends/aider", bytes.NewReader(body))
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+
+	// Unknown backend → 404.
+	body, _ = json.Marshal(map[string]any{"tier": "free"})
+	req, _ = http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/backends/nope", bytes.NewReader(body))
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestHandlePatchBackendEnabledPreservesTier(t *testing.T) {
+	srv, _ := lifeServerBackends(t, newFakeStore(), &fakeLife{})
+	// Set a tier first.
+	body, _ := json.Marshal(map[string]any{"tier": "subscription"})
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/backends/aider", bytes.NewReader(body))
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	// Now toggle enabled only — tier must be preserved (partial update).
+	body, _ = json.Marshal(map[string]any{"enabled": false})
+	req, _ = http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/backends/aider", bytes.NewReader(body))
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var b backendRow
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&b))
+	resp.Body.Close()
+	require.False(t, b.Enabled)
+	require.Equal(t, "subscription", b.Tier, "enabled-only PATCH preserves tier")
+}
+
+func TestHandleSetDefaultBackend(t *testing.T) {
+	srv, bs := lifeServerBackends(t, newFakeStore(), &fakeLife{})
+	// Force aider installed+enabled so it can be a default.
+	aider, err := bs.Get("aider")
+	require.NoError(t, err)
+	aider.Installed = true
+	aider.Enabled = true
+	require.NoError(t, bs.Upsert(aider))
+
+	body, _ := json.Marshal(map[string]string{"id": "aider"})
+	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/backends/default", bytes.NewReader(body))
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out backendState
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	resp.Body.Close()
+	d, ok := rowByID(out.Backends, "aider")
+	require.True(t, ok)
+	require.True(t, d.Default)
+
+	// The reserved local row cannot be the default → 400.
+	body, _ = json.Marshal(map[string]string{"id": "local"})
+	req, _ = http.NewRequest(http.MethodPut, srv.URL+"/api/v1/backends/default", bytes.NewReader(body))
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+
+	// Unknown backend → 404.
+	body, _ = json.Marshal(map[string]string{"id": "nope"})
+	req, _ = http.NewRequest(http.MethodPut, srv.URL+"/api/v1/backends/default", bytes.NewReader(body))
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestHandleSetDefaultBackendRejectsDisabled(t *testing.T) {
+	srv, bs := lifeServerBackends(t, newFakeStore(), &fakeLife{})
+	aider, err := bs.Get("aider")
+	require.NoError(t, err)
+	aider.Installed = true
+	aider.Enabled = false // disabled
+	require.NoError(t, bs.Upsert(aider))
+	body, _ := json.Marshal(map[string]string{"id": "aider"})
+	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/backends/default", bytes.NewReader(body))
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestHandleSetThinkingMode(t *testing.T) {
+	srv, _ := lifeServerBackends(t, newFakeStore(), &fakeLife{})
+	body, _ := json.Marshal(map[string]string{"mode": "local_only"})
+	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/backends/thinking-mode", bytes.NewReader(body))
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out struct {
+		InternalThinkingMode string `json:"internal_thinking_mode"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	resp.Body.Close()
+	require.Equal(t, "local_only", out.InternalThinkingMode)
+
+	// Invalid mode → 400.
+	body, _ = json.Marshal(map[string]string{"mode": "bogus"})
+	req, _ = http.NewRequest(http.MethodPut, srv.URL+"/api/v1/backends/thinking-mode", bytes.NewReader(body))
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
 }
 
 func TestPostSpawnForwardsCwd(t *testing.T) {

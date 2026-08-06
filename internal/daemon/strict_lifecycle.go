@@ -6,14 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/audit"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/plugin"
@@ -616,35 +615,173 @@ func (s *Server) ListRoles(_ context.Context, _ oapi.ListRolesRequestObject) (oa
 	return oapi.ListRoles200JSONResponse{Roles: out}, nil
 }
 
-// ListBackends implements GET /api/v1/backends: the registered agent-backend
-// catalog for a picker. Read-only; driven off the agentbackend registry so it
-// never drifts from what warden can actually spawn. Ordered default-first, then
-// alphabetically by id. `available` reports whether the backend's binary is on
-// PATH on this host, so a UI can grey out un-installed ones.
-func (s *Server) ListBackends(_ context.Context, _ oapi.ListBackendsRequestObject) (oapi.ListBackendsResponseObject, error) {
-	ids := agentbackend.IDs()
-	sort.Slice(ids, func(i, j int) bool {
-		// Default backend sorts first; the rest alphabetical.
-		if (ids[i] == agentbackend.DefaultID) != (ids[j] == agentbackend.DefaultID) {
-			return ids[i] == agentbackend.DefaultID
-		}
-		return ids[i] < ids[j]
-	})
-	out := make([]oapi.BackendInfo, 0, len(ids))
-	for _, id := range ids {
-		b, err := agentbackend.Get(id)
-		if err != nil {
-			continue // registry mutated under us; skip rather than fail the list
-		}
-		_, lookErr := exec.LookPath(b.Binary())
-		out = append(out, oapi.BackendInfo{
-			Id:          b.ID(),
-			DisplayName: b.DisplayName(),
-			Default:     b.ID() == agentbackend.DefaultID,
-			Available:   lookErr == nil,
-		})
+// backendTiers is the set of user-assignable billing tiers a PATCH may set. The
+// reserved TierLocal is system-set on the local-model row and is deliberately
+// excluded, per docs/specs/2026-08-06-backend-registry.md §6.
+var backendTiers = map[string]bool{
+	"free":                        true,
+	"subscription":                true,
+	"pay_per_use":                 true,
+	backendstore.TierUnclassified: true,
+}
+
+// backendsState reads the full registry (rows + settings) from the store. Callers
+// hold no lock; the store serialises its own reads.
+func (s *Server) backendsState() (oapi.BackendsState, error) {
+	rows, err := s.backends.List()
+	if err != nil {
+		return oapi.BackendsState{}, err
 	}
-	return oapi.ListBackends200JSONResponse{Backends: out}, nil
+	settings, err := s.backends.Settings()
+	if err != nil {
+		return oapi.BackendsState{}, err
+	}
+	return oapi.BackendsState{Backends: rows, Settings: settings}, nil
+}
+
+// ListBackends implements GET /api/v1/backends: the persisted agent-backend
+// registry (one row per backend, sorted by id) plus the settings singleton. The
+// store is the source of truth for tier/default/enabled; detection fields reflect
+// the last reconcile (POST /rescan to refresh). Read-only.
+func (s *Server) ListBackends(_ context.Context, _ oapi.ListBackendsRequestObject) (oapi.ListBackendsResponseObject, error) {
+	if s.backends == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "backend registry not configured")
+	}
+	state, err := s.backendsState()
+	if err != nil {
+		return nil, err
+	}
+	return oapi.ListBackends200JSONResponse(state), nil
+}
+
+// RescanBackends implements POST /api/v1/backends/rescan: re-detect installed
+// backends and reconcile the detection fields (installed/binary_path/detected_at)
+// into the registry, preserving each row's tier/default/enabled. Returns the
+// refreshed registry and settings.
+func (s *Server) RescanBackends(_ context.Context, _ oapi.RescanBackendsRequestObject) (oapi.RescanBackendsResponseObject, error) {
+	if s.backends == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "backend registry not configured")
+	}
+	cfg := s.snapshotConfig()
+	localConfigured := cfg.LocalLLM.Enabled && strings.TrimSpace(cfg.LocalLLM.URL) != ""
+	if err := backendstore.Reconcile(s.backends, agentbackend.Detect(), localConfigured, time.Now()); err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "rescan failed: "+err.Error())
+	}
+	state, err := s.backendsState()
+	if err != nil {
+		return nil, err
+	}
+	return oapi.RescanBackends200JSONResponse(state), nil
+}
+
+// SetDefaultBackend implements PUT /api/v1/backends/default: mark one backend the
+// single default. Rejects an unknown (404), uninstalled/disabled/local/terminal
+// (400) target. Returns the updated registry and settings.
+func (s *Server) SetDefaultBackend(_ context.Context, req oapi.SetDefaultBackendRequestObject) (oapi.SetDefaultBackendResponseObject, error) {
+	if s.backends == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "backend registry not configured")
+	}
+	id := ""
+	if req.Body != nil {
+		id = strings.TrimSpace(req.Body.Id)
+	}
+	if id == "" {
+		return nil, errStatus(http.StatusBadRequest, "id is required")
+	}
+	b, err := s.backends.Get(id)
+	if err != nil {
+		if errors.Is(err, backendstore.ErrNotFound) {
+			return nil, errStatus(http.StatusNotFound, "backend not found: "+id)
+		}
+		return nil, err
+	}
+	if b.IsLocal {
+		return nil, errStatus(http.StatusBadRequest, "the local backend cannot be the default")
+	}
+	if !b.Installed {
+		return nil, errStatus(http.StatusBadRequest, "backend "+id+" is not installed")
+	}
+	if !b.Enabled {
+		return nil, errStatus(http.StatusBadRequest, "backend "+id+" is disabled")
+	}
+	if err := s.backends.SetDefault(id); err != nil {
+		if errors.Is(err, backendstore.ErrNotFound) {
+			return nil, errStatus(http.StatusNotFound, "backend not found: "+id)
+		}
+		// SetDefault rejects the reserved local/terminal ids with a plain error.
+		return nil, errStatus(http.StatusBadRequest, err.Error())
+	}
+	state, err := s.backendsState()
+	if err != nil {
+		return nil, err
+	}
+	return oapi.SetDefaultBackend200JSONResponse(state), nil
+}
+
+// SetThinkingMode implements PUT /api/v1/backends/thinking-mode: set the
+// internal-thinking routing mode. Rejects any value other than local_only /
+// free_plus_local (400). Returns the updated settings.
+func (s *Server) SetThinkingMode(_ context.Context, req oapi.SetThinkingModeRequestObject) (oapi.SetThinkingModeResponseObject, error) {
+	if s.backends == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "backend registry not configured")
+	}
+	mode := ""
+	if req.Body != nil {
+		mode = strings.TrimSpace(req.Body.Mode)
+	}
+	if err := s.backends.SetThinkingMode(mode); err != nil {
+		return nil, errStatus(http.StatusBadRequest, err.Error())
+	}
+	settings, err := s.backends.Settings()
+	if err != nil {
+		return nil, err
+	}
+	return oapi.SetThinkingMode200JSONResponse(settings), nil
+}
+
+// PatchBackend implements PATCH /api/v1/backends/{id}: update a backend's tier
+// and/or enabled flag. Omitted fields are left unchanged. Validates the tier enum
+// (the reserved local tier is system-set and not assignable, and the local row is
+// not re-tierable). 404 if the backend is unknown. Returns the updated backend.
+func (s *Server) PatchBackend(_ context.Context, req oapi.PatchBackendRequestObject) (oapi.PatchBackendResponseObject, error) {
+	if s.backends == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "backend registry not configured")
+	}
+	if _, err := s.backends.Get(req.Id); err != nil {
+		if errors.Is(err, backendstore.ErrNotFound) {
+			return nil, errStatus(http.StatusNotFound, "backend not found: "+req.Id)
+		}
+		return nil, err
+	}
+	if req.Body == nil || (req.Body.Tier == nil && req.Body.Enabled == nil) {
+		return nil, errStatus(http.StatusBadRequest, "no fields to update: provide tier and/or enabled")
+	}
+	if req.Body.Tier != nil {
+		tier := strings.TrimSpace(*req.Body.Tier)
+		if !backendTiers[tier] {
+			return nil, errStatus(http.StatusBadRequest, "invalid tier "+tier+" (expected free|subscription|pay_per_use|unclassified)")
+		}
+		cur, err := s.backends.Get(req.Id)
+		if err != nil {
+			return nil, err
+		}
+		if cur.IsLocal {
+			return nil, errStatus(http.StatusBadRequest, "the local backend tier is system-set")
+		}
+		if err := s.backends.SetTier(req.Id, tier); err != nil {
+			return nil, err
+		}
+	}
+	if req.Body.Enabled != nil {
+		if err := s.backends.SetEnabled(req.Id, *req.Body.Enabled); err != nil {
+			return nil, err
+		}
+	}
+	b, err := s.backends.Get(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.PatchBackend200JSONResponse(b), nil
 }
 
 // SetName implements PATCH /api/v1/sessions/{id}/name. A blank name clears it;

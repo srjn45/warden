@@ -1393,6 +1393,99 @@ func (c *Client) ListRoles(ctx context.Context) ([]RoleInfo, error) {
 	return resp.Roles, nil
 }
 
+// Backend is one row of the agent-backend registry, mirroring the daemon's
+// backendstore.Backend wire shape (docs/specs/2026-08-06-backend-registry.md).
+type Backend struct {
+	ID           string    `json:"id"`
+	Installed    bool      `json:"installed"`
+	BinaryPath   string    `json:"binary_path"`
+	DetectedAt   time.Time `json:"detected_at"`
+	Tier         string    `json:"tier"`
+	Default      bool      `json:"default"`
+	Enabled      bool      `json:"enabled"`
+	IsLocal      bool      `json:"is_local"`
+	LimitedUntil time.Time `json:"limited_until,omitzero"`
+}
+
+// BackendSettings is the store-level backend policy singleton, mirroring the
+// daemon's backendstore.Settings wire shape.
+type BackendSettings struct {
+	ID                   string `json:"id"`
+	InternalThinkingMode string `json:"internal_thinking_mode"`
+	AllowPaidAutopilot   bool   `json:"allow_paid_autopilot"`
+}
+
+// BackendsState is the full backend registry (rows sorted by id) plus settings,
+// the response of GET /backends, POST /backends/rescan, and PUT /backends/default.
+type BackendsState struct {
+	Backends []Backend       `json:"backends"`
+	Settings BackendSettings `json:"settings"`
+}
+
+// ListBackends returns the persisted agent-backend registry plus settings. The
+// store is warden's source of truth for which backends exist, their tier, the
+// default, and whether each is enabled.
+func (c *Client) ListBackends(ctx context.Context) (BackendsState, error) {
+	var out BackendsState
+	if err := c.do(ctx, http.MethodGet, "/backends", nil, &out); err != nil {
+		return BackendsState{}, err
+	}
+	return out, nil
+}
+
+// RescanBackends re-detects installed backends (reconciling detection fields while
+// preserving tier/default/enabled) and returns the refreshed registry.
+func (c *Client) RescanBackends(ctx context.Context) (BackendsState, error) {
+	var out BackendsState
+	if err := c.do(ctx, http.MethodPost, "/backends/rescan", nil, &out); err != nil {
+		return BackendsState{}, err
+	}
+	return out, nil
+}
+
+// SetBackendTier assigns a backend's billing tier (free|subscription|pay_per_use|
+// unclassified). The reserved local tier is system-set and rejected by the daemon.
+func (c *Client) SetBackendTier(ctx context.Context, id, tier string) (Backend, error) {
+	var out Backend
+	body := map[string]any{"tier": tier}
+	if err := c.do(ctx, http.MethodPatch, "/backends/"+id, body, &out); err != nil {
+		return Backend{}, err
+	}
+	return out, nil
+}
+
+// SetBackendEnabled toggles whether a backend may be used.
+func (c *Client) SetBackendEnabled(ctx context.Context, id string, enabled bool) (Backend, error) {
+	var out Backend
+	body := map[string]any{"enabled": enabled}
+	if err := c.do(ctx, http.MethodPatch, "/backends/"+id, body, &out); err != nil {
+		return Backend{}, err
+	}
+	return out, nil
+}
+
+// SetDefaultBackend makes id the single default backend. The daemon rejects an
+// unknown, uninstalled, disabled, or reserved (local/terminal) target.
+func (c *Client) SetDefaultBackend(ctx context.Context, id string) (BackendsState, error) {
+	var out BackendsState
+	body := map[string]string{"id": id}
+	if err := c.do(ctx, http.MethodPut, "/backends/default", body, &out); err != nil {
+		return BackendsState{}, err
+	}
+	return out, nil
+}
+
+// SetThinkingMode sets the internal-thinking routing mode (local_only |
+// free_plus_local). Returns the updated settings.
+func (c *Client) SetThinkingMode(ctx context.Context, mode string) (BackendSettings, error) {
+	var out BackendSettings
+	body := map[string]string{"mode": mode}
+	if err := c.do(ctx, http.MethodPut, "/backends/thinking-mode", body, &out); err != nil {
+		return BackendSettings{}, err
+	}
+	return out, nil
+}
+
 // SetForceCompact sets an agent's force-compact override. state must be one of
 // "on", "off", or "inherit" (clears the override so the agent follows the global
 // token_force_compact).
