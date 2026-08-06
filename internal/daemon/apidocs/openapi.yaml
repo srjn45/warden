@@ -504,6 +504,31 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/RoleInfo" }
 
+  /api/v1/backends:
+    get:
+      operationId: listBackends
+      tags: [Sessions]
+      summary: List the registered agent backends
+      description: >
+        Returns warden's registered agent backends (default first, then
+        alphabetical by id) so UIs and clients can present a backend picker
+        without hard-coding the list. Each entry carries the wire id sent as
+        SpawnRequest.backend, a human display name, whether it is the default
+        (an empty backend resolves to it), and whether its binary is on PATH on
+        this host. Read-only.
+      responses:
+        "200":
+          description: The registered backends
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [backends]
+                properties:
+                  backends:
+                    type: array
+                    items: { $ref: "#/components/schemas/BackendInfo" }
+
   /api/v1/sessions/{id}/name:
     patch:
       operationId: setName
@@ -1921,6 +1946,21 @@ components:
       properties:
         name: { type: string }
         description: { type: string }
+
+    BackendInfo:
+      type: object
+      description: >
+        A registered agent backend for the picker. id is the wire value sent as
+        SpawnRequest.backend; display_name is a human label; default marks the
+        backend an empty selection resolves to; available reports whether the
+        backend's binary is on PATH on this host (so a UI can grey out
+        un-installed ones).
+      required: [id, display_name, default, available]
+      properties:
+        id: { type: string }
+        display_name: { type: string }
+        default: { type: boolean }
+        available: { type: boolean }
 
     Verdict:
       x-go-type: pressure.Verdict
