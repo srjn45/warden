@@ -312,3 +312,88 @@ func autopilotToggleCmd(a api, enable bool) tea.Cmd {
 		return autopilotToggleDoneMsg{status: st, err: err}
 	}
 }
+
+// backendsMsg carries a backend-registry snapshot to the Backends page. action is
+// set for the result of a user action (rescan / tier / default / enable / thinking
+// mode) so its errors surface in the status line; a passive load/refresh (open or
+// tick) leaves it false and keeps the last good table on a transient blip.
+type backendsMsg struct {
+	state  client.BackendsState
+	err    error
+	action bool
+}
+
+// backendsCmd loads the backend registry for the Backends page (passive refresh).
+func backendsCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		st, err := a.ListBackends(ctx)
+		return backendsMsg{state: st, err: err}
+	}
+}
+
+// rescanBackendsCmd re-detects installed backend CLIs and returns the refreshed
+// registry.
+func rescanBackendsCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		st, err := a.RescanBackends(ctx)
+		return backendsMsg{state: st, err: err, action: true}
+	}
+}
+
+// setDefaultBackendCmd makes id the single default backend and returns the updated
+// registry (the daemon rejects unknown/uninstalled/disabled/reserved targets).
+func setDefaultBackendCmd(a api, id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		st, err := a.SetDefaultBackend(ctx, id)
+		return backendsMsg{state: st, err: err, action: true}
+	}
+}
+
+// setBackendTierCmd sets a backend's tier, then re-lists so the whole table (and
+// any derived state) stays coherent — SetBackendTier alone returns just the one row.
+func setBackendTierCmd(a api, id, tier string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		if _, err := a.SetBackendTier(ctx, id, tier); err != nil {
+			return backendsMsg{err: err, action: true}
+		}
+		st, err := a.ListBackends(ctx)
+		return backendsMsg{state: st, err: err, action: true}
+	}
+}
+
+// setBackendEnabledCmd toggles a backend's enabled flag, then re-lists (as
+// setBackendTierCmd) so the full table reflects the change.
+func setBackendEnabledCmd(a api, id string, enabled bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		if _, err := a.SetBackendEnabled(ctx, id, enabled); err != nil {
+			return backendsMsg{err: err, action: true}
+		}
+		st, err := a.ListBackends(ctx)
+		return backendsMsg{state: st, err: err, action: true}
+	}
+}
+
+// setThinkingModeCmd sets the internal-thinking routing mode, then re-lists so the
+// header control and the settings footer reflect it (SetThinkingMode returns only
+// the settings singleton).
+func setThinkingModeCmd(a api, mode string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		if _, err := a.SetThinkingMode(ctx, mode); err != nil {
+			return backendsMsg{err: err, action: true}
+		}
+		st, err := a.ListBackends(ctx)
+		return backendsMsg{state: st, err: err, action: true}
+	}
+}

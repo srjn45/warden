@@ -68,6 +68,8 @@ type listPaneModel struct {
 	digest         *digest.Digest         // last fetched digest (modeDigest)
 	digestID       string                 // agent id the digest is for
 	autopilot      client.AutopilotStatus // last fetched autopilot status
+	backendsState  client.BackendsState   // agent-backend registry snapshot (modeBackends)
+	backendCursor  int                    // focused row in the Backends page
 	w, h           int
 	ready          bool
 	// killWindow scopes the `q`/`ctrl+c` teardown to the cockpit's tmux *window*
@@ -135,6 +137,15 @@ func (m listPaneModel) selectedID() string {
 }
 
 func (m listPaneModel) selectedKey() string { return itemKey(itemAt(m.items(), m.cursor)) }
+
+// backendRow returns the backend under the Backends-page cursor, or false when the
+// registry is empty / the cursor is out of range.
+func (m listPaneModel) backendRow() (client.Backend, bool) {
+	if m.backendCursor >= 0 && m.backendCursor < len(m.backendsState.Backends) {
+		return m.backendsState.Backends[m.backendCursor], true
+	}
+	return client.Backend{}, false
+}
 
 // detailTitle is the label for the modeDetails overlay: the agent id, or
 // "pipeline/job" for a pipeline job row. The cursor cannot move while the overlay
@@ -213,6 +224,9 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
+		if m.mode == modeBackends {
+			cmds = append(cmds, backendsCmd(m.api)) // keep the table + limited-until countdown fresh
+		}
 		return m, tea.Batch(cmds...)
 	case pressureMsg:
 		if msg.err == nil {
@@ -229,6 +243,23 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.autopilot = msg.status
 		} else {
 			m.status = "autopilot: " + msg.err.Error()
+		}
+		return m, nil
+	case backendsMsg:
+		if msg.err != nil {
+			// Surface an action's failure (a rejected default, a bad tier); on a
+			// passive refresh blip keep the last good table unless it is still empty.
+			if msg.action || len(m.backendsState.Backends) == 0 {
+				m.status = "backends: " + msg.err.Error()
+			}
+			return m, nil
+		}
+		m.backendsState = sortBackendsState(msg.state)
+		if m.backendCursor >= len(m.backendsState.Backends) {
+			m.backendCursor = len(m.backendsState.Backends) - 1
+		}
+		if m.backendCursor < 0 {
+			m.backendCursor = 0
 		}
 		return m, nil
 	case contextMsg:
@@ -719,6 +750,63 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case modeBackends:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, m.quitCmd()
+		case "esc", "b":
+			m.mode = modeNormal
+			m.status = ""
+			return m, nil
+		case "down", "j":
+			if m.backendCursor < len(m.backendsState.Backends)-1 {
+				m.backendCursor++
+			}
+			return m, nil
+		case "up", "k":
+			if m.backendCursor > 0 {
+				m.backendCursor--
+			}
+			return m, nil
+		case "r":
+			m.status = "rescanning backends…"
+			return m, rescanBackendsCmd(m.api)
+		case "m":
+			next := nextThinkingMode(thinkingModeOf(m.backendsState))
+			m.status = "thinking mode → " + next
+			return m, setThinkingModeCmd(m.api, next)
+		case "t":
+			b, ok := m.backendRow()
+			if !ok {
+				return m, nil
+			}
+			if b.IsLocal {
+				m.status = "local tier is system-set"
+				return m, nil
+			}
+			next := nextTier(b.Tier)
+			m.status = b.ID + " tier → " + next
+			return m, setBackendTierCmd(m.api, b.ID, next)
+		case "d", "enter":
+			b, ok := m.backendRow()
+			if !ok {
+				return m, nil
+			}
+			if b.IsLocal {
+				m.status = "local cannot be the default"
+				return m, nil
+			}
+			m.status = "default → " + b.ID
+			return m, setDefaultBackendCmd(m.api, b.ID)
+		case "e", " ":
+			b, ok := m.backendRow()
+			if !ok {
+				return m, nil
+			}
+			m.status = b.ID + " → " + enabledWord(!b.Enabled)
+			return m, setBackendEnabledCmd(m.api, b.ID, !b.Enabled)
+		}
+		return m, nil
 	case modeHelp:
 		m.mode = modeNormal
 		return m, nil
@@ -889,6 +977,13 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "no approvals pending"
 		}
+	case "b":
+		// Open the agent-backend registry page and kick off an immediate load (the
+		// tick keeps it fresh — including the limited-until countdown — while open).
+		m.mode = modeBackends
+		m.backendCursor = 0
+		m.status = "loading backends…"
+		return m, backendsCmd(m.api)
 	case "?":
 		m.mode = modeHelp
 	}
@@ -944,6 +1039,14 @@ func (m listPaneModel) View() string {
 	if m.mode == modeApprovals {
 		body := titleBox("Approvals", approvalsBody(recognizedApprovals(m.approvals), m.apprCursor, m.w-2), m.w, bodyH)
 		return header + "\n" + body + "\n" + stMuted.Render("1-9 answer · tab next · p/esc back · q quit")
+	}
+	if m.mode == modeBackends {
+		body := titleBox("Backends", backendsBody(m.backendsState, m.backendCursor), m.w, bodyH)
+		footer := stMuted.Render("↑/↓ move · t tier · d default · e enable · r rescan · m mode · b/esc back")
+		if m.status != "" {
+			footer = stStatus.Render(m.status)
+		}
+		return header + "\n" + body + "\n" + footer
 	}
 	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
