@@ -100,6 +100,7 @@ alias agents=warden
 Capability highlights from recent releases (full notes on the [releases page](https://github.com/srjn45/warden/releases); the complete catalog lives in [docs/FEATURES.md](docs/FEATURES.md)):
 
 - **Autopilot** — a goal-directed, long-running autonomous mode. Author a plan file (`autopilot.plan.yaml`), run `warden autopilot init` to scaffold the config, then `warden autopilot on` to start. A **manager** agent (role `autopilot`) drives a fleet of **worker** agents (role `worker`, one per task) in isolated worktrees, gates their PRs through CI, and lands them into `autopilot/integration` — all without human intervention, spawning a **resolver** (role `brain`) on demand to unblock a stuck worker. A guardian heal loop keeps the manager alive through stalls, a daemon-internal overwatch nudges it to tend idle/waiting workers, and a cost-tier backend ladder escalates from free (Antigravity) to subscription (Claude, Codex) when rate-limited. The kill switch is `warden autopilot off`. The switch is **per-repo** — `warden autopilot on` enables only the current repository (add `--repo <root>` to target another), the enabled set is persisted so repos come back up across a daemon restart, and the manager marks its plan `status: complete` in place when it finishes so a done run is never re-run. See [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) and [Autopilot concepts](https://srjn45.github.io/warden/concepts/autopilot/).
+- **Backend registry** — warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) plus a reserved `local` row for the free/local model, and persists each with a billing **tier** (`free`/`subscription`/`pay_per_use`/`unclassified`), an **enabled** flag, and at most one **default**. The store is the **single source of truth** — autopilot's cost-tier ladder and the internal free/local **thinking router** (warden's own task classification, agent naming, digest narration, and memory curation, routed *strictly* through free/local backends — never a paid call) both read from it. Manage it with `warden backends list|rescan|tier|default|enable|disable|thinking-mode`, the web **🧩 backends** panel, the TUI Backends page (`b`), or MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`, `set_thinking_mode`). It supersedes the deprecated `autopilot.brain.backends` / `allow_pay_per_use` config (imported once, then ignored). See [Backend registry guide](https://srjn45.github.io/warden/guides/backend-registry/).
 - **Live config hot-reload** — edit `~/.warden/config.yaml` and warden **applies it with no daemon restart**: the autopilot template, `auto_approve` policy, token/context guard (`tokens.*`), `rails.*`, `model_default`, `default_permission_mode`, hint gates, and `notify.*`/webhook all re-apply on the next tick or spawn. A bad edit **keeps the last-good config** and alerts you rather than falling back to defaults; keys that genuinely need a restart (`addr`, `data_dir`, timers, loop cadences) are logged as changed-but-pending. See [Configuration](docs/FEATURES.md#12-configuration-yaml-config-file).
 - **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role reviewer`) or switch it on a running agent (`warden set-role <id> reviewer`, which relaunches to re-inject). Five built-in roles — `general` (default, no persona), `orchestrator`, `implementer`, `auto-merger`, `reviewer` — each carrying a persona plus default spawn flags (e.g. `reviewer` defaults `--type pr-review`, `auto-merger` turns on auto-approve). `warden role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-role-list--warden-set-role).
 - **Resilience & ergonomics round-up** — `warden recover` re-registers archived-but-alive agents (tombstone-reaper safety net); the web `/tui` cockpit **self-heals** (validated and auto-rebuilt if wedged; `warden tui --rebuild-web-cockpit` forces it); `warden tui` inside an existing tmux session lays out as a **native tmux window** instead of erroring (`--tmux-native`); `wd push --force-with-lease` for safe force-pushes; rate-limit auto-resume now also answers Claude's **wait-menu and monthly spend cap** (`rate_limit.spend_retry_interval`); and all daemon stores (sessions, pipelines, schedules, snapshots, context, mailbox) run on an embedded ScrivaDB — still no database server.
@@ -512,6 +513,49 @@ session into a new managed agent — see [`warden fork`](#warden-fork)); see
 [Agent-native superpowers](#agent-native-superpowers--warden-review--warden-models).
 See the design (`docs/superpowers/specs/2026-06-27-pluggable-agent-backends-design.md`, §5)
 and roadmap item #52.
+
+---
+
+## Backend registry (`warden backends`)
+
+Which backends exist, how they're billed, and which one is the default is a durable,
+inspectable fact — not something re-derived on every spawn. warden **detects** the
+coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) plus a
+reserved **`local`** row for the free/local model, and persists each in an embedded
+store (`~/.warden/backends`) with a billing **tier**, an **enabled** flag, and at
+most one **default**. The store is warden's **single source of truth**: autopilot's
+cost-tier ladder and the internal free/local **thinking router** both read from it.
+
+- **Detection is a fact; tiering is a preference.** `warden backends rescan`
+  reconciles detection (adds newly installed CLIs, marks vanished ones uninstalled)
+  and **never** touches your tier / default / enabled choices.
+- **Tiers:** `free` · `subscription` · `pay_per_use` · `unclassified` (and the
+  reserved, system-set `local`). A newly detected CLI starts `unclassified` (treated
+  as *not free*).
+- **Internal-thinking router — free/local only, never paid.** warden's own internal
+  thinking (task classification, activity summaries, agent naming, digest narration,
+  memory curation) is routed *strictly* through free and local backends and **never**
+  makes a paid call. The **thinking-mode** picks the walk: `local_only` (local model
+  only) or `free_plus_local` (eligible free CLIs first, local model last — the
+  default). When the walk is exhausted warden degrades gracefully rather than
+  escalating to a paid backend.
+
+```sh
+warden backends list                 # full table incl. the local row + thinking mode
+warden backends rescan               # re-detect installed CLIs, preserve preferences
+warden backends tier codex free      # tier codex as a $0 backend
+warden backends default claude       # make claude the default backend
+warden backends disable aider        # stop using a backend
+warden backends thinking-mode local_only
+```
+
+Drive it from the web **🧩 backends** panel, the TUI **Backends page** (`b`), or over
+MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`,
+`set_thinking_mode` — enabling/disabling is CLI/web/TUI + REST `PATCH
+/api/v1/backends/{id}`). The registry **supersedes** the deprecated
+`autopilot.brain.backends` ladder and `autopilot.brain.allow_pay_per_use` gate: those
+config keys are imported into the store **once** on the first boot after upgrade, then
+ignored. Full walkthrough: [Backend registry guide](https://srjn45.github.io/warden/guides/backend-registry/).
 
 ---
 

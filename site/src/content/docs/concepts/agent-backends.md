@@ -12,6 +12,15 @@ binary directly. You pick the backend **per agent at spawn time**.
 Warden is fully tested only with **Claude Code**. **Codex CLI** and **Antigravity CLI** are **β beta** — live-verified state, approval, and transcript fidelity, still maturing. The remaining non-`claude` backends (Aider, OpenCode, Crush, Goose, Cursor) are **experimental / work-in-progress** — functionality may be reduced or unverified.
 :::
 
+:::tip[The backend registry]
+`--backend` picks a backend for **one** spawn. The [**backend
+registry**](/warden/guides/backend-registry/) is the durable, machine-wide picture
+behind it — warden detects the installed CLIs and remembers each one's billing
+**tier**, whether it's **enabled**, and which is the **default**, plus an
+internal-thinking mode. It is the single source of truth for autopilot's cost ladder
+and warden's free/local thinking router.
+:::
+
 ## Supported agents — status
 
 | Agent | Status |

@@ -8,7 +8,7 @@ in the repository — the authoritative inventory of **every** warden capability
 which surface can drive it.
 
 warden exposes its features across five surfaces — the **CLI** (`warden`, aliased
-`wd`), **MCP** (76 structured tools for an orchestrating agent), the **/warden
+`wd`), **MCP** (81 structured tools for an orchestrating agent), the **/warden
 skill**, the **web** GUI, and the **TUI** cockpit.
 
 **Coverage legend:** ✓ supported · — not applicable / not present on that surface ·
@@ -244,7 +244,37 @@ A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspec
 | ↳ line editor: history, reverse-search, live `/` menu, Tab completion, colour | readline-backed | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | ↳ guided argument forms (pick-lists + free text, LLM pre-fill) | bare `/spawn`, `/spawn+ <prompt>` | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 
-## 15. Admin / host (CLI-only by design)
+## 15. Backend registry (detected CLIs, tiers, thinking-mode)
+
+warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`,
+`aider`, …) plus a reserved **`local`** row for the free/local model, and persists
+each in an embedded ScrivaDB store (`~/.warden/backends`) with a billing **tier**,
+an **enabled** flag, and at most one **default** — plus a store-level
+**internal-thinking mode**. The store is warden's **single source of truth** for
+which backends exist and how they're tiered: autopilot's cost-tier ladder and the
+internal free/local thinking router both read from it. **Detection is a fact**
+(installed / binary path / detected-at) a rescan reconciles; **tiering is a
+preference** (tier / default / enabled) a rescan preserves.
+
+Tiers: `free` · `subscription` · `pay_per_use` · `unclassified` (and the reserved,
+system-set `local`). Thinking-mode: `local_only` · `free_plus_local` — which
+backends warden's own internal thinking may call (**never** a paid one).
+
+| Feature | CLI | MCP | Skill | Web | TUI | Docs |
+|---|---|---|---|---|---|---|
+| List the registry (installed, tier, default, enabled, limited) + thinking-mode | `backends list` (alias `ls`) | `list_backends` | ✓ | ✓ (🧩 backends panel) | `b` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Rescan installed CLIs (reconcile detection, preserve prefs) | `backends rescan` | `rescan_backends` | ✓ | ✓ (⟳ Rescan) | `r` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Set a backend's billing tier (free\|subscription\|pay_per_use\|unclassified) | `backends tier <id> <tier>` | `set_backend_tier` | ✓ | ✓ (Tier dropdown) | `t` (cycle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Set the single default backend (rejects local/terminal) | `backends default <id>` | `set_default_backend` | ✓ | ✓ (Default radio) | `d`/`enter` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Enable / disable a backend | `backends enable\|disable <id>` | — (REST `PATCH /backends/{id}`; no MCP tool) | ✓ (via CLI) | ✓ (Enabled checkbox) | `e`/space | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Internal-thinking mode (which backends internal thinking may call) | `backends thinking-mode <mode>` | `set_thinking_mode` | ✓ | ✓ (mode select) | `m` (toggle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Internal free/local thinking router (classification, naming, digest narration, memory curation — never a paid call) | config (`backends.limit_retry`) | automatic | ✓ | — | — | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+
+The registry supersedes the deprecated `autopilot.brain.backends` ladder and
+`autopilot.brain.allow_pay_per_use` gate — those keys are imported **once** on the
+first boot after upgrade, then ignored (edit tiers via the surfaces above).
+
+## 16. Admin / host (CLI-only by design)
 
 These operate on the host, the daemon process, the local shell, or the bearer
 secret — they are **intentionally not exposed over MCP or web**, because doing so
@@ -268,10 +298,10 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**76 tools**, including the
+Every fleet/data feature is reachable over MCP (**81 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
-§15 (plus interactive `attach`/`repl`, the local-config `preset` /
+§16 (plus interactive `attach`/`repl`, the local-config `preset` /
 `prompt-template` authoring commands, and the agent-native, worktree-local
 `review` / `models` verbs — they exec in the agent's worktree with no daemon
 round-trip, so they have no MCP twin by design), which are
@@ -283,4 +313,7 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
-`create_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`.
+`create_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
+`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`,
+`set_thinking_mode`. (Enable/disable a backend is CLI/web/TUI + REST `PATCH
+/backends/{id}` only — intentionally not an MCP tool.)

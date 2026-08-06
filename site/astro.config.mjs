@@ -62,6 +62,7 @@ export default defineConfig({
           { label: 'Approvals & supervised mode', slug: 'guides/approvals-supervised' },
           { label: 'Lifecycle commands & rails', slug: 'guides/lifecycle-and-rails' },
           { label: 'Backend superpowers (review & models)', slug: 'guides/backend-superpowers' },
+          { label: 'Backend registry', slug: 'guides/backend-registry' },
           { label: 'Fleet operations', slug: 'guides/fleet-operations' },
           { label: 'Self-rotation & digests', slug: 'guides/rotation-digests' },
           { label: 'Scheduling agents & pipelines', slug: 'guides/scheduling' },
@@ -77,6 +78,7 @@ export default defineConfig({
         ]},
         { label: 'Reference', items: [
           { label: 'Feature catalog', slug: 'reference/features' },
+          { label: 'Backend registry', slug: 'reference/backend-registry' },
           { label: 'CLI command reference', slug: 'reference/cli' },
           { label: 'Configuration & environment', slug: 'reference/env-vars' },
           { label: 'Observability & metrics', slug: 'reference/observability' },

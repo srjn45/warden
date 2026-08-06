@@ -227,6 +227,20 @@ The Controller also exposes `SelectWorkerBackend(runID)` — the manager can use
 to pick the cheapest available backend for each worker spawn, though the manager
 may also select backends itself based on the task.
 
+The ladder and the pay-per-use gate are **derived from the [backend
+registry](/warden/guides/backend-registry/)** — only **installed, enabled,
+non-`local`** backends are eligible, bucketed by the tier you set with `warden
+backends tier`. The gate is the store's `allow_paid_autopilot` setting.
+
+:::note[Deprecation]
+The registry **supersedes** the `autopilot.brain.backends.{free,subscription,pay_per_use}`
+ladder and the `autopilot.brain.allow_pay_per_use` gate in `~/.warden/config.yaml`.
+Those keys are imported into the store **once** on the first boot after upgrade (a
+one-time, sentinel-guarded migration), then **ignored** — the store wins thereafter,
+and the daemon logs a deprecation warning if the config still carries them. Steer
+autopilot's spending by tiering backends in the registry.
+:::
+
 **Known limitation:** rotate (stage 3 of the guardian heal ladder) requires more
 than one free-tier backend to exercise meaningfully. If only one backend is
 available in the free tier, the guardian falls back directly to backoff after

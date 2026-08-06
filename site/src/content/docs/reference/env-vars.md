@@ -53,6 +53,7 @@ Common settings (run `warden config` for the complete, live list):
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive) |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |
 | `local_llm.enabled` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
+| `backends.limit_retry` | `15m` | Go duration — how long the internal free/local **thinking router** skips a free CLI backend after a rate-limit / spend signal, before retrying it. Backend **tiers**, the **default**, **enabled** flags, and the **thinking mode** live in the [backend registry](/warden/guides/backend-registry/) store (`~/.warden/backends`), not this file — edit them with `warden backends …`, the web 🧩 panel, or the TUI |
 | `metrics` | `true` | Record per-agent performance history for `warden stats --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
 | `pipeline.keep_done` / `pipeline.hint` | — | Pipeline retention + the decomposition nudge |
@@ -77,7 +78,11 @@ There are more (`auto_restart.*`, `rate_limit.*`, `worktree.keep_done` /
 
 Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`,
 `collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`,
-`plugins.*`, alongside `rails.*` / `tokens.*` / `notify.*` / `worktree.*` /
-`local_llm.*`). The old flat keys (`collab_enabled`, `log_level`, `memory_inject`, …)
+`plugins.*`, `backends.*`, alongside `rails.*` / `tokens.*` / `notify.*` /
+`worktree.*` / `local_llm.*`). The `autopilot.brain.backends` ladder and
+`autopilot.brain.allow_pay_per_use` gate are **deprecated** — the [backend
+registry](/warden/guides/backend-registry/) store is now their source of truth (the
+keys are imported once on the first boot after upgrade, then ignored). The old flat
+keys (`collab_enabled`, `log_level`, `memory_inject`, …)
 still load as **deprecated aliases** — they work but emit a one-time deprecation
 warning, and `warden config` rewrites them into the nested form on its next run.
