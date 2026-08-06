@@ -927,6 +927,40 @@ func TestHandleListRoles(t *testing.T) {
 	require.True(t, names["orchestrator"])
 }
 
+func TestHandleListBackends(t *testing.T) {
+	srv := lifeServer(t, newFakeStore(), &fakeLife{})
+	resp, err := http.Get(srv.URL + "/api/v1/backends")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out struct {
+		Backends []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+			Default     bool   `json:"default"`
+			Available   bool   `json:"available"`
+		} `json:"backends"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NotEmpty(t, out.Backends)
+	// Default backend (claude) sorts first and is the only one flagged default.
+	require.Equal(t, "claude", out.Backends[0].ID)
+	require.True(t, out.Backends[0].Default)
+	ids := map[string]bool{}
+	defaults := 0
+	for _, b := range out.Backends {
+		require.NotEmpty(t, b.ID)
+		require.NotEmpty(t, b.DisplayName)
+		ids[b.ID] = true
+		if b.Default {
+			defaults++
+		}
+	}
+	require.Equal(t, 1, defaults, "exactly one default backend")
+	require.True(t, ids["terminal"], "terminal backend is listed")
+	require.True(t, ids["aider"])
+}
+
 func TestPostSpawnForwardsCwd(t *testing.T) {
 	fl := &fakeLife{}
 	ts := lifeServer(t, newFakeStore(), fl)

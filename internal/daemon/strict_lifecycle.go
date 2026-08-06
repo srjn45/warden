@@ -6,10 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -611,6 +614,37 @@ func (s *Server) ListRoles(_ context.Context, _ oapi.ListRolesRequestObject) (oa
 		out = append(out, oapi.RoleInfo{Name: r.Name, Description: r.Description})
 	}
 	return oapi.ListRoles200JSONResponse{Roles: out}, nil
+}
+
+// ListBackends implements GET /api/v1/backends: the registered agent-backend
+// catalog for a picker. Read-only; driven off the agentbackend registry so it
+// never drifts from what warden can actually spawn. Ordered default-first, then
+// alphabetically by id. `available` reports whether the backend's binary is on
+// PATH on this host, so a UI can grey out un-installed ones.
+func (s *Server) ListBackends(_ context.Context, _ oapi.ListBackendsRequestObject) (oapi.ListBackendsResponseObject, error) {
+	ids := agentbackend.IDs()
+	sort.Slice(ids, func(i, j int) bool {
+		// Default backend sorts first; the rest alphabetical.
+		if (ids[i] == agentbackend.DefaultID) != (ids[j] == agentbackend.DefaultID) {
+			return ids[i] == agentbackend.DefaultID
+		}
+		return ids[i] < ids[j]
+	})
+	out := make([]oapi.BackendInfo, 0, len(ids))
+	for _, id := range ids {
+		b, err := agentbackend.Get(id)
+		if err != nil {
+			continue // registry mutated under us; skip rather than fail the list
+		}
+		_, lookErr := exec.LookPath(b.Binary())
+		out = append(out, oapi.BackendInfo{
+			Id:          b.ID(),
+			DisplayName: b.DisplayName(),
+			Default:     b.ID() == agentbackend.DefaultID,
+			Available:   lookErr == nil,
+		})
+	}
+	return oapi.ListBackends200JSONResponse{Backends: out}, nil
 }
 
 // SetName implements PATCH /api/v1/sessions/{id}/name. A blank name clears it;

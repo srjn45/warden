@@ -48,6 +48,7 @@ Almost nothing new is needed on the warden side. Every MVP feature maps to an
 | **Interact / special keys / live output** | `GET /api/v1/sessions/{id}/attach` | **WebSocket** |
 | **Raw host terminal** | `GET /api/v1/cockpit/attach` (3-pane TUI; master pane is a host shell/REPL) | **WebSocket** |
 | Dir picker for spawn cwd | `GET /api/v1/fs/dirs` | REST |
+| Backend picker | `GET /api/v1/backends` → `{backends:[{id,display_name,default,available}]}` | REST |
 
 Source of truth: `internal/daemon/apidocs/openapi.yaml`; streaming routes are
 hand-registered in `internal/daemon/api.go` (excluded from codegen via
@@ -157,7 +158,10 @@ Suggested modules: `:app` (UI), `:data` (WardenClient + DTOs), `:terminal`
    (`warden://host:port?token=…`). Support multiple saved hosts.
 2. **Agent list** — fed by the SSE stream; status badge, model, age. Pull-to-
    refresh fallback (`GET /sessions`). "+" → create; swipe → delete (confirm).
-3. **Create-agent sheet** — backend picker (the 8 backends), working dir via
+3. **Create-agent sheet** — backend picker fed by `GET /api/v1/backends` (live
+   registry: `id`/`display_name`/`default`/`available`, so the list never drifts
+   as warden adds backends and un-installed ones can be greyed out) with a static
+   fallback if the endpoint 404s on an older daemon, working dir via
    `GET /api/v1/fs/dirs` browse (no local FS), optional role/model, initial
    prompt. On `428`, show a "spawn anyway" confirm and resend with `force:true`.
 4. **Agent detail / terminal** — Termux terminal bound to

@@ -383,6 +383,14 @@ type AutopilotToggleRequest struct {
 	Repo string `json:"repo,omitempty"`
 }
 
+// BackendInfo A registered agent backend for the picker. id is the wire value sent as SpawnRequest.backend; display_name is a human label; default marks the backend an empty selection resolves to; available reports whether the backend's binary is on PATH on this host (so a UI can grey out un-installed ones).
+type BackendInfo struct {
+	Available   bool   `json:"available"`
+	Default     bool   `json:"default"`
+	DisplayName string `json:"display_name"`
+	Id          string `json:"id"`
+}
+
 // BranchStatus defines model for BranchStatus.
 type BranchStatus = branchtrack.BranchStatus
 
@@ -1146,6 +1154,9 @@ type ServerInterface interface {
 	// Land a worker branch into the integration branch
 	// (POST /api/v1/autopilot/land)
 	LandAutopilot(w http.ResponseWriter, r *http.Request)
+	// List the registered agent backends
+	// (GET /api/v1/backends)
+	ListBackends(w http.ResponseWriter, r *http.Request)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(w http.ResponseWriter, r *http.Request)
@@ -1392,6 +1403,12 @@ func (_ Unimplemented) CompleteAutopilot(w http.ResponseWriter, r *http.Request)
 // Land a worker branch into the integration branch
 // (POST /api/v1/autopilot/land)
 func (_ Unimplemented) LandAutopilot(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the registered agent backends
+// (GET /api/v1/backends)
+func (_ Unimplemented) ListBackends(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1945,6 +1962,26 @@ func (siw *ServerInterfaceWrapper) LandAutopilot(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.LandAutopilot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBackends operation middleware
+func (siw *ServerInterfaceWrapper) ListBackends(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBackends(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4182,6 +4219,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/autopilot/land", wrapper.LandAutopilot)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/backends", wrapper.ListBackends)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/check", wrapper.RunCheck)
 	})
 	r.Group(func(r chi.Router) {
@@ -4654,6 +4694,29 @@ func (response LandAutopilot409JSONResponse) VisitLandAutopilotResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBackendsRequestObject struct {
+}
+
+type ListBackendsResponseObject interface {
+	VisitListBackendsResponse(w http.ResponseWriter) error
+}
+
+type ListBackends200JSONResponse struct {
+	Backends []BackendInfo `json:"backends"`
+}
+
+func (response ListBackends200JSONResponse) VisitListBackendsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6841,6 +6904,9 @@ type StrictServerInterface interface {
 	// Land a worker branch into the integration branch
 	// (POST /api/v1/autopilot/land)
 	LandAutopilot(ctx context.Context, request LandAutopilotRequestObject) (LandAutopilotResponseObject, error)
+	// List the registered agent backends
+	// (GET /api/v1/backends)
+	ListBackends(ctx context.Context, request ListBackendsRequestObject) (ListBackendsResponseObject, error)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(ctx context.Context, request RunCheckRequestObject) (RunCheckResponseObject, error)
@@ -7280,6 +7346,30 @@ func (sh *strictHandler) LandAutopilot(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(LandAutopilotResponseObject); ok {
 		if err := validResponse.VisitLandAutopilotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBackends operation middleware
+func (sh *strictHandler) ListBackends(w http.ResponseWriter, r *http.Request) {
+	var request ListBackendsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBackends(ctx, request.(ListBackendsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBackends")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBackendsResponseObject); ok {
+		if err := validResponse.VisitListBackendsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
