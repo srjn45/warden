@@ -170,6 +170,30 @@ kbd {
 .autopilot-btn:hover { background: #8884; }
 .autopilot-btn.on { color: var(--busy); }
 
+/* ── Backends registry panel ── */
+.backends-btn { background: #8882; border: 1px solid #8884; border-radius: 1rem; padding: .1rem .6rem; cursor: pointer; color: inherit; font-size: .83rem; }
+.backends-btn:hover { background: #8884; }
+.backends-panel { width: min(680px, 96vw); gap: 0; padding: 0; overflow: hidden; }
+.backends-controls { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: .75rem 1rem; border-bottom: 1px solid #8884; }
+.backends-mode { display: flex; flex-direction: column; gap: .25rem; font-size: .85rem; }
+.backends-mode select { padding: .3rem .4rem; }
+.backends-rescan { align-self: flex-end; padding: .35rem .8rem; border: 1px solid #8884; border-radius: .3rem; background: #8882; color: inherit; cursor: pointer; font-size: .85rem; }
+.backends-rescan:hover:not(:disabled) { background: #8884; }
+.backends-rescan:disabled { opacity: .5; cursor: not-allowed; }
+.backends-error { padding: .6rem 1rem; margin: 0; font-size: .86rem; }
+.backends-empty { padding: .8rem 1rem; margin: 0; font-size: .88rem; }
+.backends-table-wrap { overflow-x: auto; }
+.backends-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.backends-table th, .backends-table td { padding: .4rem .7rem; text-align: left; border-bottom: 1px solid #8883; }
+.backends-table th { font-weight: 600; color: var(--idle); white-space: nowrap; }
+.backends-center { text-align: center; }
+.backends-id { display: flex; align-items: center; gap: .45rem; }
+.backends-id .backend-logo { width: 1.1em; height: 1.1em; }
+.backends-row.local { color: var(--idle); }
+.backends-row select { padding: .2rem .3rem; font: inherit; }
+.backends-limited { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.backends-foot { padding: .7rem 1rem; margin: 0; font-size: .8rem; border-top: 1px solid #8884; }
+
 /* ── Overview ── */
 .overview { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
 .overview .card { border: 1px solid #8883; border-radius: .5rem; padding: .8rem; }

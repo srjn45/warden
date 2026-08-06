@@ -26,6 +26,7 @@ import PipelinesTab from './PipelinesTab';
 import ContextOverlay from './ContextOverlay';
 import ArchiveTab from './ArchiveTab';
 import AutopilotPanel from './AutopilotPanel';
+import BackendsPanel from './BackendsPanel';
 
 export default function Dashboard() {
   // One-time: redirect `/` → /cockpit before the route is first read below, so
@@ -40,6 +41,7 @@ export default function Dashboard() {
   const [showHelp, setShowHelp] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const [showAutopilot, setShowAutopilot] = useState(false);
+  const [showBackends, setShowBackends] = useState(false);
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [pinned, setPinned] = useState<string[]>(loadPinned);
   const [authRequired, setAuthRequired] = useState(false);
@@ -119,6 +121,7 @@ export default function Dashboard() {
           if (showHelp) setShowHelp(false);
           else if (showContext) setShowContext(false);
           else if (showAutopilot) setShowAutopilot(false);
+          else if (showBackends) setShowBackends(false);
           else if (showCreate) setShowCreate(false);
           else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
           break;
@@ -126,7 +129,7 @@ export default function Dashboard() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showHelp, showCreate, showContext, route, pinned]);
+  }, [showHelp, showCreate, showContext, showAutopilot, showBackends, route, pinned]);
 
   // Sample each agent's live context fill every 5s into the ring buffer.
   useEffect(() => {
@@ -250,6 +253,7 @@ export default function Dashboard() {
         onToggleContext={() => setShowContext((v) => !v)}
         onOpenTui={() => navigate({ kind: 'tui' })}
         onToggleAutopilot={() => setShowAutopilot((v) => !v)}
+        onToggleBackends={() => setShowBackends((v) => !v)}
       />
       <TabBar
         route={route}
@@ -275,6 +279,7 @@ export default function Dashboard() {
       )}
       {showContext && <ContextOverlay onClose={() => setShowContext(false)} />}
       {showAutopilot && <AutopilotPanel onClose={() => setShowAutopilot(false)} />}
+      {showBackends && <BackendsPanel onClose={() => setShowBackends(false)} />}
       {showHelp && <ShortcutsHelp onClose={() => setShowHelp(false)} />}
       {authRequired && <TokenModal onSaved={onTokenSaved} />}
     </div>
