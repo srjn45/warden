@@ -83,6 +83,17 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Enable tmux mouse mode on the agent session so wheel/scroll events from a
+	// client (notably the Android app's swipe-to-scroll) are forwarded — agent
+	// TUIs run in the alt-screen, which has no scrollback, so a forwarded wheel
+	// event is the only thing that scrolls their history. Scoped to THIS session
+	// (no -g): it never touches the user's global tmux config. It is a session
+	// option, though, so every client of this session (including the web UI's
+	// per-agent terminal) gets mouse mode — drag-select becomes Shift-drag-select,
+	// matching the cockpit/TUI's existing behavior. Best-effort; failure is
+	// non-fatal. The cockpit path (handleCockpitAttach) is intentionally left
+	// alone — its TUI manages the mouse itself.
+	_ = exec.Command("tmux", "set-option", "-t", sess.TmuxSession, "mouse", "on").Run()
 	s.bridgeTmux(w, r, sess.TmuxSession, false)
 }
 
