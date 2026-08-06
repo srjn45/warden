@@ -138,9 +138,11 @@ func TestAbbrevHomeWith(t *testing.T) {
 }
 
 // Ordering keys on CreatedAt (immutable), not UpdatedAt, so rows stay put as
-// agents work. Here UpdatedAt is deliberately scrambled relative to CreatedAt to
-// prove it has no effect on order: group /b is newest (b1 created last) so it
-// sorts first, and within each group the newest agent leads.
+// agents work. Directories are chronological by their FIRST (oldest) agent, and
+// agents within a directory are oldest-first — so creating an agent never re-sorts
+// its directory. Here UpdatedAt is deliberately scrambled relative to CreatedAt to
+// prove it has no effect on order: group /a's oldest agent (a2) predates group /b's
+// oldest (b2), so /a sorts first, and within each group the oldest agent leads.
 func TestGroupSortOrdersGroupsByCreationAndIgnoresUpdatedAt(t *testing.T) {
 	now := time.Now()
 	in := []*store.Session{
@@ -151,7 +153,7 @@ func TestGroupSortOrdersGroupsByCreationAndIgnoresUpdatedAt(t *testing.T) {
 	}
 	out := groupSort(in)
 	got := []string{out[0].ID, out[1].ID, out[2].ID, out[3].ID}
-	require.Equal(t, []string{"b1", "b2", "a1", "a2"}, got)
+	require.Equal(t, []string{"a2", "a1", "b2", "b1"}, got)
 }
 
 func TestGroupSortStableForSingleOrEmpty(t *testing.T) {
@@ -187,10 +189,12 @@ func TestBuildItemsGroupsAgentsNoOpenedDirs(t *testing.T) {
 	})
 	items := buildItems(ss, nil, nil)
 	require.Len(t, items, 3)
-	require.Equal(t, "a1", items[0].session.ID)
+	// /b sorts first (its oldest agent b1 predates /a's oldest a2); within /a the
+	// oldest agent (a2) leads.
+	require.Equal(t, "b1", items[0].session.ID)
 	require.Equal(t, "a2", items[1].session.ID)
-	require.Equal(t, "b1", items[2].session.ID)
-	require.Equal(t, "/a", items[0].dir)
+	require.Equal(t, "a1", items[2].session.ID)
+	require.Equal(t, "/b", items[0].dir)
 }
 
 // A spawned child nests directly under its parent, indented, and the parent
@@ -346,15 +350,17 @@ func TestTreePrefix(t *testing.T) {
 	require.Equal(t, "      ", treePrefix(item{depth: 2}), "leaf at depth 2: 4 indent + 2 align = 6 spaces")
 }
 
-func TestBuildItemsEmptyOpenedDirGetsPlaceholderOnTop(t *testing.T) {
+func TestBuildItemsEmptyOpenedDirSortsChronologically(t *testing.T) {
 	now := time.Now()
 	ss := []*store.Session{{ID: "a1", Workdir: "/a", CreatedAt: now.Add(-time.Hour)}}
 	opened := map[string]time.Time{"/freshly/opened": now} // newer than the agent
 	items := buildItems(ss, opened, nil)
-	require.Len(t, items, 2, "one placeholder + one agent")
-	require.Nil(t, items[0].session, "placeholder is first (most recent)")
-	require.Equal(t, "/freshly/opened", items[0].dir)
-	require.Equal(t, "a1", items[1].session.ID)
+	require.Len(t, items, 2, "one agent + one placeholder")
+	// Chronological order: the older /a agent leads, the freshly-opened dir's
+	// placeholder sorts to the bottom as the most recent entry.
+	require.Equal(t, "a1", items[0].session.ID)
+	require.Nil(t, items[1].session, "placeholder is last (most recent)")
+	require.Equal(t, "/freshly/opened", items[1].dir)
 }
 
 func TestBuildItemsOpenedDirWithAgentsHasNoPlaceholder(t *testing.T) {
