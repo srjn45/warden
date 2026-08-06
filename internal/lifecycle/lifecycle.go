@@ -630,6 +630,14 @@ type Lifecycle struct {
 	// the local LLM is off, so every LLM-backed method uses its headless-Claude or
 	// deterministic fallback. The daemon sets it only when config enables it.
 	LLM llm.Completer
+	// Internal is warden's free/local internal-thinking router (backend registry
+	// §7): when set, Classify / Summarize / GenerateName route their offload
+	// through its free-CLI-then-local candidate walk and DEGRADE GRACEFULLY when it
+	// is exhausted — they never make a paid call. nil (unit tests / a daemon built
+	// before the registry) selects the legacy path below: the local model first,
+	// then headless Claude. The daemon always wires it, so production internal
+	// thinking is strictly free/local.
+	Internal InternalThinker
 	// SavingsHook, when set, is called by the LLM-offload sites (Classify/Summarize/
 	// GenerateName/commit-message) when a responsibility is served by the local
 	// model instead of warden's own Claude — with the prompt tokens that never
@@ -656,6 +664,18 @@ func (l *Lifecycle) recordOffload(agent, prompt string) {
 	// The prompt is the raw provenance sample (it left Claude's spend entirely);
 	// there is no kept side for a full offload. The hook truncates/gates the sample.
 	l.SavingsHook(savings.FeatureLLMOffload, agent, savings.EstimateTokens([]byte(prompt)), 0, prompt, "")
+}
+
+// InternalThinker walks the backend registry's free/local candidate list for one
+// internal-thinking prompt (classify / summarize / name), returning a candidate's
+// completion or an error when the walk is exhausted. It NEVER makes a paid call —
+// an exhausted walk (its error) is the caller's signal to degrade gracefully
+// (default bucket / skipped narration / deterministic slug). The internalrouter
+// package is the production implementation; lifecycle depends only on this
+// interface to stay store-free. Shape matches llm.Completer so a router satisfies
+// it directly.
+type InternalThinker interface {
+	Complete(ctx context.Context, prompt string) (string, error)
 }
 
 // ConfigProvider is the subset of config.Config that lifecycle needs.
@@ -940,6 +960,18 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 // model's label.
 func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, error) {
 	arg := classifyArg(prompt)
+	// Registry path (§7): walk the free/local candidates. On success record the
+	// offload saving (the whole classify stayed off warden's paid spend); on an
+	// exhausted walk degrade to the default bucket rather than paying — so a
+	// degrade is NOT an error to the caller.
+	if l.Internal != nil {
+		out, err := l.Internal.Complete(ctx, arg)
+		if err != nil {
+			return store.TypeOther, nil
+		}
+		l.recordOffload("", arg)
+		return parseType(out), nil
+	}
 	if l.LLM != nil {
 		if out, err := l.LLM.Complete(ctx, arg); err == nil {
 			l.recordOffload("", arg) // the whole classify call stayed off warden's Claude spend
@@ -970,6 +1002,20 @@ func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string,
 		return "", nil
 	}
 	arg := summaryArg(text)
+	// Registry path (§7): walk the free/local candidates. Record the offload on a
+	// non-empty summary; an exhausted walk or an empty reply skips narration (a
+	// blank subject carries no signal) rather than paying for a Claude summary.
+	if l.Internal != nil {
+		out, err := l.Internal.Complete(ctx, arg)
+		if err != nil {
+			return "", nil // degrade: skip narration
+		}
+		if s := parseSummary(out); s != "" {
+			l.recordOffload(sess.ID, arg)
+			return s, nil
+		}
+		return "", nil
+	}
 	if l.LLM != nil {
 		if out, err := l.LLM.Complete(ctx, arg); err == nil {
 			if s := parseSummary(out); s != "" {
@@ -998,10 +1044,20 @@ func (l *Lifecycle) GenerateName(ctx context.Context, prompt string) string {
 	if strings.TrimSpace(prompt) == "" {
 		return ""
 	}
+	// No savings event on either path: GenerateName's fallback is a deterministic
+	// slug, not Claude — a free/local model displaces no paid call, so there is
+	// nothing to record (unlike Classify/Summarize).
+	if l.Internal != nil {
+		// Registry path (§7): a candidate's handle, else the deterministic slug on
+		// an exhausted walk (naming never pays).
+		if out, err := l.Internal.Complete(ctx, nameArg(prompt)); err == nil {
+			if n := parseName(out); n != "" {
+				return n
+			}
+		}
+		return parseName(firstWords(prompt, 4))
+	}
 	if l.LLM != nil {
-		// No savings event here: GenerateName's fallback is a deterministic slug,
-		// not Claude — the local model displaces no Claude call, so offloading it
-		// saves nothing to record (unlike Classify/Summarize).
 		if out, err := l.LLM.Complete(ctx, nameArg(prompt)); err == nil {
 			if n := parseName(out); n != "" {
 				return n

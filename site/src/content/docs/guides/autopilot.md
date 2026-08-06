@@ -130,27 +130,35 @@ planning tick. You can add tasks or change constraints while a run is active.
 
 ## Step 3 — configure the cost tier (optional)
 
-By default, the manager picks the cheapest available backend. To explicitly configure
-which backends autopilot may use, edit `~/.warden/config.yaml`:
+By default, the manager picks the **cheapest available backend**. The cost-tier ladder
+is now **derived from the [backend registry](/warden/guides/backend-registry/)** — a
+backend's tier is whatever you set with `warden backends tier`, and only **installed,
+enabled, non-`local`** backends are eligible. So you steer autopilot's spending by
+tiering backends:
 
-```yaml
-autopilot:
-  # allow_tiers controls which cost tiers the manager may use.
-  # Values: free, subscription, gated_ppu (pay-per-use — requires explicit opt-in)
-  allow_tiers: [free, subscription]    # default: [free, subscription]
-
-  # backend_preference: explicitly order the backends to try (optional)
-  # backend_preference: [antigravity, claude, codex]
+```sh
+warden backends tier antigravity free          # free tier — first choice
+warden backends tier claude subscription       # your existing plan
+warden backends tier codex subscription
+warden backends list                           # verify the ladder
 ```
 
-| Tier | Backends | Notes |
+| Tier | Typical backends | Notes |
 |---|---|---|
 | `free` | `antigravity` | Google-hosted free tier; no billing |
 | `subscription` | `claude`, `codex` | Your existing plan |
-| `gated_ppu` | API-billed backends | Requires explicit opt-in |
+| `pay_per_use` | API-billed backends | Requires explicit opt-in (the paid-autopilot gate) |
 
-If you only want the manager to use the free tier (e.g. to test autopilot at zero
-additional cost), set `allow_tiers: [free]`.
+To test autopilot at zero additional cost, tier only free backends and leave the
+paid-autopilot gate off (the default) so the manager never reaches a `pay_per_use`
+backend.
+
+:::note[Deprecation]
+The registry **supersedes** the old `autopilot.brain.backends` ladder and
+`autopilot.brain.allow_pay_per_use` gate in `~/.warden/config.yaml`. Those keys are
+imported into the store **once** on the first boot after upgrade, then ignored (the
+daemon warns if they linger). Manage tiers with `warden backends tier` from then on.
+:::
 
 ---
 

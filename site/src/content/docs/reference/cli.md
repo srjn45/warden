@@ -33,6 +33,7 @@ Available Commands:
   audit               Inspect the append-only action audit trail
   auto-approve        Toggle per-agent auto-approve, or manage the auto-approve rule policy
   autopilot           Turn autopilot mode on/off per repo and show its status
+  backends            Inspect and manage the agent-backend registry
   branches            Per-agent CI + branch-vs-main status
   check               Run the project's configured checks and report only failures
   collab              Inter-agent collaboration: see which agents are editing the same files
@@ -488,6 +489,188 @@ Usage:
 
 Flags:
   -h, --help   help for status
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backends
+
+```text
+Inspect and manage warden's agent-backend registry.
+
+warden detects the coding-agent CLIs installed on this machine (claude, codex,
+aider, …) plus a reserved `local` row for the free/local model, and persists
+each with a billing tier, an enabled flag, and at most one default. The daemon's
+store is the source of truth — autopilot's cost-tier ladder and the internal
+free/local thinking router both read from it.
+
+Tiers:   free | subscription | pay_per_use | unclassified   (`local` is system-set)
+Thinking-mode: local_only | free_plus_local   (which backends internal thinking may call)
+
+Examples:
+  warden backends list                 # full table incl. the local row
+  warden backends rescan               # re-detect installed CLIs, print the table
+  warden backends tier codex free      # tier codex as a $0 backend
+  warden backends default claude       # make claude the default backend
+  warden backends disable aider        # stop using a backend
+  warden backends thinking-mode local_only
+
+Usage:
+  warden backends [command]
+
+Available Commands:
+  default       Set the default backend (rejects the local/terminal rows)
+  disable       Disable a backend so it is no longer used
+  enable        Enable a backend so it may be used
+  list          List detected backends (installed, tier, default, enabled, limited)
+  rescan        Re-detect installed backend CLIs and print the updated table
+  thinking-mode Set the internal-thinking routing mode (local_only|free_plus_local)
+  tier          Set a backend's billing tier (free|subscription|pay_per_use|unclassified)
+
+Flags:
+  -h, --help   help for backends
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Use "warden backends [command] --help" for more information about a command.
+```
+
+## warden backends default
+
+```text
+Make <id> the single default backend used when spawning agents without an
+explicit backend. The daemon rejects an unknown, uninstalled, disabled, or
+reserved (local/terminal) target.
+
+Usage:
+  warden backends default <id> [flags]
+
+Flags:
+  -h, --help   help for default
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backends disable
+
+```text
+Disable a backend so it is no longer used
+
+Usage:
+  warden backends disable <id> [flags]
+
+Flags:
+  -h, --help   help for disable
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backends enable
+
+```text
+Enable a backend so it may be used
+
+Usage:
+  warden backends enable <id> [flags]
+
+Flags:
+  -h, --help   help for enable
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backends list
+
+```text
+List every backend in the registry, including the reserved local row, with its
+installed state, billing tier, whether it is the default, whether it is enabled,
+and whether it is currently rate-limited. The current internal-thinking mode is
+printed below the table.
+
+Usage:
+  warden backends list [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backends rescan
+
+```text
+Re-run backend detection and reconcile the registry: newly installed CLIs are
+added and no-longer-present ones are marked uninstalled, while each backend's
+tier, default, and enabled preferences are preserved. Prints the refreshed table.
+
+Usage:
+  warden backends rescan [flags]
+
+Flags:
+  -h, --help   help for rescan
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backends thinking-mode
+
+```text
+Set which backends warden's internal free/local thinking router may call.
+
+  local_only        # route internal thinking to the local model only
+  free_plus_local   # prefer free cloud backends, fall back to the local model (default)
+
+Paid (subscription / pay_per_use) backends are never called for internal
+thinking in either mode.
+
+Usage:
+  warden backends thinking-mode <mode> [flags]
+
+Flags:
+  -h, --help   help for thinking-mode
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backends tier
+
+```text
+Set a backend's billing tier. The tier drives autopilot's cost-tier ladder and
+the internal free/local thinking router (only free backends are called for
+internal thinking).
+
+Valid tiers:
+  free           # a $0 backend (free plan)
+  subscription   # covered by a flat subscription
+  pay_per_use    # metered / pay-as-you-go
+  unclassified   # not yet tiered (treated as not free)
+
+The reserved `local` tier is system-set and cannot be assigned.
+
+Usage:
+  warden backends tier <id> <tier> [flags]
+
+Flags:
+  -h, --help   help for tier
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

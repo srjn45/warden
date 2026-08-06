@@ -1,11 +1,80 @@
 package autopilot
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// fakeLadderSource is a store-shaped TierLadderSource for exercising the store-driven
+// selection path (docs/specs/2026-08-06-backend-registry.md §8) without a real store.
+type fakeLadderSource struct {
+	ladder    BackendLadder
+	allowPaid bool
+	err       error
+}
+
+func (f fakeLadderSource) TierLadder() (BackendLadder, bool, error) {
+	return f.ladder, f.allowPaid, f.err
+}
+
+// TestSelectBackendStoreDriven proves selectBackend reads its tiers + paid gate from
+// the source (the registry store in production), not a config ladder, and that a
+// source error degrades to the daemon default rather than risking a paid pick.
+func TestSelectBackendStoreDriven(t *testing.T) {
+	ladder := BackendLadder{Free: []string{"antigravity"}, Subscription: []string{"claude"}, PayPerUse: []string{"gpt"}}
+
+	// Gate off (store Settings.AllowPaidAutopilot=false): free wins.
+	sel := selectBackend(fakeLadderSource{ladder: ladder}, nil, nil)
+	require.True(t, sel.OK)
+	require.Equal(t, "antigravity", sel.Backend)
+	require.Equal(t, tierFree, sel.Tier)
+
+	// Gate ON, whole free+sub tier excluded ⇒ pay_per_use becomes selectable.
+	sel = selectBackend(fakeLadderSource{ladder: ladder, allowPaid: true}, nil,
+		map[string]bool{"antigravity": true, "claude": true})
+	require.True(t, sel.OK)
+	require.Equal(t, "gpt", sel.Backend)
+	require.Equal(t, tierPayPerUse, sel.Tier)
+
+	// Same, gate OFF ⇒ the gate-only signal, no selection.
+	sel = selectBackend(fakeLadderSource{ladder: ladder}, nil,
+		map[string]bool{"antigravity": true, "claude": true})
+	require.False(t, sel.OK)
+	require.True(t, sel.GateOnly)
+
+	// A registry read error degrades to the daemon default ("") — never a paid guess.
+	sel = selectBackend(fakeLadderSource{ladder: ladder, allowPaid: true, err: errors.New("store down")}, nil, nil)
+	require.True(t, sel.OK)
+	require.Equal(t, "", sel.Backend)
+	require.Equal(t, tierFree, sel.Tier)
+
+	// …and once "" is excluded (already tried), even the default collapses to none.
+	sel = selectBackend(fakeLadderSource{err: errors.New("store down")}, nil, map[string]bool{"": true})
+	require.False(t, sel.OK)
+}
+
+// TestControllerTierSourcePrefersStore proves the Controller uses an injected
+// registry source over the config-derived fallback, and falls back when none is set.
+func TestControllerTierSourcePrefersStore(t *testing.T) {
+	// Injected store source wins over the config ladder.
+	c := NewController(ControllerConfig{
+		LadderSource: fakeLadderSource{ladder: BackendLadder{Free: []string{"from-store"}}},
+		Backends:     BackendLadder{Free: []string{"from-config"}},
+	}, &fakeEnv{})
+	l, _, err := c.tierSource().TierLadder()
+	require.NoError(t, err)
+	require.Equal(t, []string{"from-store"}, l.Free)
+
+	// No source ⇒ the config ladder is wrapped as the fallback source.
+	c = NewController(ControllerConfig{Backends: BackendLadder{Free: []string{"from-config"}}, AllowPayPerUse: true}, &fakeEnv{})
+	l, allow, err := c.tierSource().TierLadder()
+	require.NoError(t, err)
+	require.Equal(t, []string{"from-config"}, l.Free)
+	require.True(t, allow)
+}
 
 // TestSelectBackendPermutations walks the cost-tier selection loop (autopilot.md
 // §7) across tier / gate / limited combinations.
@@ -92,7 +161,7 @@ func TestSelectBackendPermutations(t *testing.T) {
 					exclude[e] = true
 				}
 			}
-			got := selectBackend(tc.ladder, ts, tc.allowPPU, exclude)
+			got := selectBackend(staticLadder{ladder: tc.ladder, allowPaid: tc.allowPPU}, ts, exclude)
 			require.Equal(t, tc.wantOK, got.OK, "OK")
 			require.Equal(t, tc.wantBackend, got.Backend, "Backend")
 			if tc.wantOK {
@@ -111,11 +180,12 @@ func TestSelectLimitedExpiryClimbsBack(t *testing.T) {
 	clock := &fakeClock{t: now}
 	ts := newTierState(clock.now)
 
+	src := staticLadder{ladder: ladder}
 	ts.markLimited("antigravity", now.Add(30*time.Minute))
-	require.Equal(t, "claude", selectBackend(ladder, ts, false, nil).Backend, "free limited ⇒ subscription")
+	require.Equal(t, "claude", selectBackend(src, ts, nil).Backend, "free limited ⇒ subscription")
 
 	clock.t = now.Add(31 * time.Minute)
-	sel := selectBackend(ladder, ts, false, nil)
+	sel := selectBackend(src, ts, nil)
 	require.Equal(t, "antigravity", sel.Backend, "free re-qualifies after its window elapses")
 	require.Equal(t, tierFree, sel.Tier)
 }

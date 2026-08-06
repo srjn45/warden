@@ -21,9 +21,13 @@ const maxCandidates = 6
 // whole pass runs off the debounce timer, never on a request path, even the fallback
 // is off any critical path.
 type LLMProposer struct {
-	// Run is the bounded headless one-shot (lifecycle.RunClaudeP). Required.
+	// Run is an optional headless one-shot fallback used only when LLM is nil or
+	// returns nothing. The daemon leaves it nil and sets LLM to the free/local
+	// internal-thinking router (backend registry §7), so an exhausted walk yields
+	// no proposal and curation never makes a paid call.
 	Run func(ctx context.Context, arg string) (string, error)
-	// LLM is the optional local model; when non-nil it serves the pass at $0.
+	// LLM is the primary completer; the daemon wires the internal-thinking router
+	// (free CLI candidates, then the local model) here, so the pass runs at $0.
 	LLM llm.Completer
 	// Record, when set, books a fully-offloaded local call to the savings ledger
 	// (lifecycle.recordOffload semantics). agent may be "".

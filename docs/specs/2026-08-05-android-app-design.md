@@ -48,7 +48,7 @@ Almost nothing new is needed on the warden side. Every MVP feature maps to an
 | **Interact / special keys / live output** | `GET /api/v1/sessions/{id}/attach` | **WebSocket** |
 | **Raw host terminal** | `GET /api/v1/cockpit/attach` (3-pane TUI; master pane is a host shell/REPL) | **WebSocket** |
 | Dir picker for spawn cwd | `GET /api/v1/fs/dirs` | REST |
-| Backend picker | `GET /api/v1/backends` → `{backends:[{id,display_name,default,available}]}` | REST |
+| Backend picker / registry | `GET /api/v1/backends` → `{backends:[{id,installed,tier,default,enabled,is_local,limited_until}],settings}` (the [backend registry](#52-backends-registry-screen)) | REST |
 
 Source of truth: `internal/daemon/apidocs/openapi.yaml`; streaming routes are
 hand-registered in `internal/daemon/api.go` (excluded from codegen via
@@ -158,18 +158,47 @@ Suggested modules: `:app` (UI), `:data` (WardenClient + DTOs), `:terminal`
    (`warden://host:port?token=…`). Support multiple saved hosts.
 2. **Agent list** — fed by the SSE stream; status badge, model, age. Pull-to-
    refresh fallback (`GET /sessions`). "+" → create; swipe → delete (confirm).
-3. **Create-agent sheet** — backend picker fed by `GET /api/v1/backends` (live
-   registry: `id`/`display_name`/`default`/`available`, so the list never drifts
-   as warden adds backends and un-installed ones can be greyed out) with a static
-   fallback if the endpoint 404s on an older daemon, working dir via
-   `GET /api/v1/fs/dirs` browse (no local FS), optional role/model, initial
+3. **Create-agent sheet** — backend picker fed by `GET /api/v1/backends` (the live
+   [backend registry](#52-backends-registry-screen): each row carries
+   `id`/`installed`/`tier`/`default`/`enabled`, so the list never drifts as warden
+   adds backends — grey out `installed:false` rows and pre-select the `default:true`
+   one) with a static fallback if the endpoint 404s on an older daemon, working dir
+   via `GET /api/v1/fs/dirs` browse (no local FS), optional role/model, initial
    prompt. On `428`, show a "spawn anyway" confirm and resend with `force:true`.
 4. **Agent detail / terminal** — Termux terminal bound to
    `…/sessions/{id}/attach` + the key bar; a quick-prompt input box that posts
    to `…/input`; a "terminate"/"delete" overflow.
 5. **Raw host terminal** — same terminal widget on `…/cockpit/attach`.
+6. **Backends (registry)** — a read + manage screen over the [backend
+   registry](#52-backends-registry-screen). Optional / post-MVP (see §5.2).
 
-### 5.1 On-screen key bar (the "buttons the keyboard lacks")
+### 5.2 Backends (registry) screen
+
+A management surface over warden's agent-backend registry — the durable record of
+which coding-agent CLIs are installed, how they're billed, and which is the default,
+plus the machine-wide internal-thinking mode. It is the mobile twin of the web 🧩
+backends panel and the TUI Backends page.
+
+**Needs no daemon changes beyond the Stage-2 endpoints** already shipped:
+
+| Action | Endpoint |
+|---|---|
+| List the registry + settings | `GET /api/v1/backends` → `{backends[], settings}` |
+| Rescan installed CLIs | `POST /api/v1/backends/rescan` → refreshed `{backends[], settings}` |
+| Set a backend's tier | `PATCH /api/v1/backends/{id}` `{tier}` |
+| Enable / disable a backend | `PATCH /api/v1/backends/{id}` `{enabled}` |
+| Set the single default | `PUT /api/v1/backends/default` `{id}` |
+| Set the internal-thinking mode | `PUT /api/v1/backends/thinking-mode` `{mode}` |
+
+UI: a list (fed by `GET /api/v1/backends`) with, per row, the backend `id`, an
+**installed** badge, a **tier** picker (`free`/`subscription`/`pay_per_use`/
+`unclassified`), a **default** radio, an **enabled** switch, and a **limited**
+countdown derived from `limited_until` (a 1s ticker). The reserved **`local`** row
+shows a static "Local" tier and a disabled default radio (it can never be a default).
+A header **thinking-mode** selector (`local_only` / `free_plus_local`) and a **Rescan**
+button round it out. Every mutation re-lists for coherence. Read-only tokens (403 on
+writes) degrade to a view-only table. Since it's pure REST + JSON (no terminal/WS), it
+is the simplest possible screen and slots in wherever a "Settings" area lands.
 
 A horizontally scrollable row above the soft keyboard. Each key writes the
 corresponding bytes over the WS. Ctrl/Alt are **sticky modifiers**.

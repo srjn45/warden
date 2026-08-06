@@ -122,6 +122,15 @@ type RateLimitConfig struct {
 	ResumePrompt       string `yaml:"resume_prompt"`
 }
 
+// BackendsConfig groups the agent-backend registry / internal-thinking router
+// settings (docs/specs/2026-08-06-backend-registry.md §10).
+type BackendsConfig struct {
+	// LimitRetry is how long a free CLI backend is skipped by the internal-thinking
+	// router after it returns a rate-limit / spend signal (§7). A Go duration
+	// string; defaults to 15m.
+	LimitRetry string `yaml:"limit_retry"`
+}
+
 // HTTPConfig groups the daemon HTTP write-budget settings.
 type HTTPConfig struct {
 	TimeoutFast string `yaml:"timeout_fast"`
@@ -268,6 +277,7 @@ type Config struct {
 	Log         LogConfig         `yaml:"log"`
 	Plugins     PluginsConfig     `yaml:"plugins"`
 	Autopilot   AutopilotConfig   `yaml:"autopilot"`
+	Backends    BackendsConfig    `yaml:"backends"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -314,6 +324,7 @@ var schema = []setting{
 	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
+	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
 	{"autopilot", "Autopilot mode (docs/specs/autopilot.md): a long-lived headless brain agent per plan that decomposes a goal, spawns workers, and lands green work into an integration branch unattended — with the guardian keeping it alive. OFF by default; enable per surface (warden autopilot on / MCP set_autopilot / TUI / web), which runs a preflight and, unless overridden, OR-bundles auto_approve, rate_limit.auto_resume, and auto_restart on for autopilot-owned agents. Sub-keys: enabled (master switch), plans (list of {file} — one brain per plan, at most one active plan per repo), brain (backends.{free,subscription,pay_per_use} cost-tier ladder, allow_pay_per_use (explicit permission gate for paid calls), role, headless, max_parallel_workers), merge (target_branch — the ONLY branch autopilot merges into; strategy — squash|merge|rebase; gate — auto|ci|local, never merge red; delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation)."},
 }
 
@@ -468,6 +479,9 @@ func defaults() Config {
 				NotifyEachEscalation: true,
 			},
 		},
+		Backends: BackendsConfig{
+			LimitRetry: "15m",
+		},
 	}
 }
 
@@ -542,6 +556,7 @@ func LoadStrict(path string) (Config, error) {
 	if len(doc.Content) > 0 && doc.Content[0].Kind == yaml.MappingNode {
 		migrateFlatToNamespaced(doc.Content[0])
 		migrateAutoApprove(doc.Content[0])
+		warnDeprecatedAutopilotBackends(doc.Content[0])
 	}
 	// Decode the (possibly migrated) node tree onto c — absent keys keep their
 	// default value since c was pre-populated by defaults().
@@ -604,6 +619,7 @@ func validate(c *Config) {
 		c.LocalLLM.Model = d.LocalLLM.Model
 	}
 	c.LocalLLM.Timeout = validDuration(c.LocalLLM.Timeout, d.LocalLLM.Timeout)
+	c.Backends.LimitRetry = validDuration(c.Backends.LimitRetry, d.Backends.LimitRetry)
 }
 
 func validPermissionMode(v string) string {
@@ -909,6 +925,52 @@ func migrateGroup(mapping *yaml.Node, blockKey string, aliases []keyAlias) bool 
 		removeKey(mapping, f.alias.flat)
 	}
 	return true
+}
+
+// ---------------------------------------------------------------------------
+// autopilot backend-ladder deprecation (backend registry §8)
+// ---------------------------------------------------------------------------
+
+// warnDeprecatedAutopilotBackends emits a deprecation warning when the file still
+// carries the autopilot.brain.backends ladder or autopilot.brain.allow_pay_per_use
+// gate. Both are superseded by the backend registry store (docs/specs/
+// 2026-08-06-backend-registry.md §8), which is the source of truth for backend
+// tiers and the paid-autopilot gate; the daemon imports these keys into the store
+// once (backendstore.MigrateAutopilotLadder) and then reads the store live, so the
+// config keys no longer drive selection. Unlike the flat→namespaced migration this
+// does not rewrite the node (there is no in-config destination) — it only warns, so
+// the one-time import can still read the values on the first post-upgrade boot.
+// Callers may then delete the keys to silence the warning.
+func warnDeprecatedAutopilotBackends(mapping *yaml.Node) {
+	brain := nestedMapping(mapping, "autopilot", "brain")
+	if brain == nil {
+		return
+	}
+	if v := findValue(brain, "backends"); v != nil {
+		slog.Warn("config: deprecated key autopilot.brain.backends — backend tiers now live in the registry store (edit via the backends API / TUI); this key is imported once then ignored",
+			"key", "autopilot.brain.backends")
+	}
+	if v := findValue(brain, "allow_pay_per_use"); v != nil {
+		slog.Warn("config: deprecated key autopilot.brain.allow_pay_per_use — the paid-autopilot gate now lives in the registry store; this key is imported once then ignored",
+			"key", "autopilot.brain.allow_pay_per_use")
+	}
+}
+
+// nestedMapping walks path from mapping, following each key to its mapping-node
+// value, and returns the deepest mapping node (nil if any hop is missing or is not
+// a mapping).
+func nestedMapping(mapping *yaml.Node, path ...string) *yaml.Node {
+	cur := mapping
+	for _, key := range path {
+		if cur == nil || cur.Kind != yaml.MappingNode {
+			return nil
+		}
+		cur = findValue(cur, key)
+	}
+	if cur == nil || cur.Kind != yaml.MappingNode {
+		return nil
+	}
+	return cur
 }
 
 // ---------------------------------------------------------------------------
@@ -1320,6 +1382,13 @@ func (c Config) GetSchedulerEnabled() bool { return c.SchedulerEnabled }
 // classification) to a local model instead of headless Claude.
 func (c Config) GetLocalLLM() bool { return c.LocalLLM.Enabled }
 
+// BackendsLimitRetryDuration returns how long the internal-thinking router skips
+// a free CLI backend after a rate-limit / spend signal before retrying it
+// (docs/specs/2026-08-06-backend-registry.md §7/§10). Defaults to 15m.
+func (c Config) BackendsLimitRetryDuration() time.Duration {
+	return durOr(c.Backends.LimitRetry, 15*time.Minute)
+}
+
 // LocalLLMTimeoutDuration returns the hard per-call timeout for the local model
 // before warden falls back to Claude.
 func (c Config) LocalLLMTimeoutDuration() time.Duration {
@@ -1446,14 +1515,22 @@ func (c Config) AutopilotMergeStrategy() string { return c.Autopilot.Merge.Strat
 // merging it into the integration branch (autopilot.md §6).
 func (c Config) AutopilotDeleteBranch() bool { return c.Autopilot.Merge.DeleteBranch }
 
-// AutopilotBrainBackends returns the cost-tier backend ladder for the brain
-// (autopilot.md §7). The daemon maps it into autopilot.BackendLadder; S3 uses the
-// free tier (brain selection) and the union (preflight trust check).
+// AutopilotBrainBackends returns the cost-tier backend ladder parsed from the
+// deprecated autopilot.brain.backends config key (autopilot.md §7).
+//
+// Deprecated: the backend registry store is the source of truth for backend tiers
+// (docs/specs/2026-08-06-backend-registry.md §8). The daemon derives the live
+// ladder from the store (backendstore.Store.AutopilotLadder); this accessor exists
+// only to feed the one-time store migration and emits a deprecation warning at load
+// (see warnDeprecatedAutopilotBackends). Edit tiers in the store, not here.
 func (c Config) AutopilotBrainBackends() AutopilotBackends { return c.Autopilot.Brain.Backends }
 
-// AutopilotAllowPayPerUse reports whether the cost-tier selection loop may fall
-// through to pay_per_use backends (autopilot.md §7). Off ⇒ they are structurally
-// excluded and hitting the gate raises a distinct notification.
+// AutopilotAllowPayPerUse reports the deprecated autopilot.brain.allow_pay_per_use
+// gate (autopilot.md §7).
+//
+// Deprecated: superseded by the store's Settings.AllowPaidAutopilot (docs/specs/
+// 2026-08-06-backend-registry.md §8). Retained only to seed the one-time migration;
+// the live gate is read from the store.
 func (c Config) AutopilotAllowPayPerUse() bool { return c.Autopilot.Brain.AllowPayPerUse }
 
 // AutopilotGuardianInterval is the guardian tick cadence (autopilot.md §2.3).

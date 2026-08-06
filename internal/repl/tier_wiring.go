@@ -3,8 +3,8 @@ package repl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -12,8 +12,8 @@ import (
 	"github.com/srjn45/warden/internal/llm"
 )
 
-// claudeEscalationTimeout bounds the single headless `claude -p` planning call.
-const claudeEscalationTimeout = 45 * time.Second
+// escalationTimeout bounds the single planning call to the escalation model.
+const escalationTimeout = 45 * time.Second
 
 // NewRouterFromConfig builds a Router from warden config: the model's planning
 // tier comes from local_llm_tier (or the model name when "auto"), and escalation
@@ -29,9 +29,16 @@ func NewRouterFromConfig(cfg config.Config, comp llm.Completer) *Router {
 	if !ok {
 		tier = modelTier(cfg.LocalLLM.Model)
 	}
+	// Escalation planning is internal thinking, so it must never make a paid call
+	// (docs/specs/2026-08-06-backend-registry.md §7). The CLI repl cannot safely
+	// share the daemon's backend-registry store (ScrivaDB is single-process), so it
+	// escalates to the local model — the terminal candidate of every free/local
+	// walk — instead of the former headless `claude -p`. With no local model the
+	// escalator degrades cleanly (planning fails, the confirm gate stays the
+	// backstop) rather than paying.
 	var esc Escalator
 	if cfg.GetLocalLLMEscalate() {
-		esc = &claudeEscalator{}
+		esc = &completerEscalator{comp: comp}
 	}
 	var cls Classifier = heuristicClassifier{}
 	if comp != nil && strings.EqualFold(cfg.GetLocalLLMClassifier(), "model") {
@@ -62,29 +69,33 @@ func (heuristicClassifier) NeededTier(_ context.Context, line string) (Tier, err
 	}
 }
 
-// claudeEscalator drafts a plan with headless Claude when the local model is
-// under-tier. It asks for a strict JSON array of {name, args} tool calls (the
-// same calls a local plan would produce) and parses it; the orchestrator then
-// runs them locally through the confirm gate — only this one planning step
-// spends tokens.
-type claudeEscalator struct {
+// completerEscalator drafts a plan with an internal-thinking completer when the
+// local model is under-tier. It asks for a strict JSON array of {name, args} tool
+// calls (the same calls a local plan would produce) and parses it; the
+// orchestrator then runs them locally through the confirm gate. It routes through
+// a free/local completer (the local model in the CLI repl), never a paid backend —
+// the §7 free/local rail applies to escalation too.
+type completerEscalator struct {
+	comp    llm.Completer
 	timeout time.Duration
 }
 
-func (e *claudeEscalator) Plan(ctx context.Context, line string, tools []llm.ToolSchema) ([]ToolCall, error) {
+func (e *completerEscalator) Plan(ctx context.Context, line string, tools []llm.ToolSchema) ([]ToolCall, error) {
+	if e.comp == nil {
+		return nil, errors.New("escalation unavailable: no local model configured")
+	}
 	timeout := e.timeout
 	if timeout <= 0 {
-		timeout = claudeEscalationTimeout
+		timeout = escalationTimeout
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	prompt := buildEscalationPrompt(line, tools)
-	out, err := exec.CommandContext(cctx, "claude", "-p", prompt).Output()
+	out, err := e.comp.Complete(cctx, buildEscalationPrompt(line, tools))
 	if err != nil {
-		return nil, fmt.Errorf("claude -p: %w", err)
+		return nil, fmt.Errorf("escalation planning: %w", err)
 	}
-	return parsePlanJSON(string(out))
+	return parsePlanJSON(out)
 }
 
 func buildEscalationPrompt(line string, tools []llm.ToolSchema) string {

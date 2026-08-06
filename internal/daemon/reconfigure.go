@@ -17,6 +17,15 @@ func (s *Server) SetBaselineConfig(cfg config.Config) {
 	s.reloadMu.Unlock()
 }
 
+// snapshotConfig returns a copy of the last-applied config under reloadMu, for
+// handlers that need a consistent read of live config values (e.g. the backend
+// rescan's local-LLM gate).
+func (s *Server) snapshotConfig() config.Config {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	return s.appliedConfig
+}
+
 // AddReloadHook registers a subsystem reconfigure closure run by ApplyConfig for
 // subsystems the Server does not own directly (the lifecycle config swap, the
 // notifier chain, the autopilot ControllerConfig). Hooks run in registration

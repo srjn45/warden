@@ -321,7 +321,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage
-the fleet through tool calls. **76 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **81 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:
@@ -361,6 +361,7 @@ stay CLI-only). Tools exposed:
 | `search` / `history` / `audit_log` | Full-text search / archived agents / action audit trail |
 | `list_plugins` | Registered plugins, their task types & hook events (see §26) |
 | `export_sessions` / `import_sessions` | Serialize / load agent session metadata (see §19) |
+| `list_backends` / `rescan_backends` / `set_backend_tier` / `set_default_backend` / `set_thinking_mode` | The agent-backend registry — list / rescan detection / set tier / set default / set internal-thinking mode (see §35). Enable/disable is CLI/web/TUI + REST `PATCH /backends/{id}` only |
 
 > All MCP tools are thin wrappers over the same daemon routes (or local helpers)
 > the CLI uses, so an orchestrator agent session can drive a multi-stage workflow
@@ -1101,9 +1102,18 @@ worker itself.
 
 The manager (and guardian on rotate) selects backends from cheapest to most
 expensive: free tier (`antigravity`), then subscription backends (`claude`,
-`codex`), then gated pay-per-use backends (explicit opt-in required). Configured
-via the `autopilot.brain.backends.{free,subscription,pay_per_use}` ladder, gated
-by `autopilot.brain.allow_pay_per_use` in the config.
+`codex`), then gated pay-per-use backends (explicit opt-in required).
+
+**Sourced from the backend registry (§35).** The cost-tier ladder and the
+paid-autopilot gate are now derived from the registry store — a backend's tier is
+whatever you set with `warden backends tier <id> <tier>` (or the web/TUI), and the
+gate is the store's `allow_paid_autopilot` setting. The deprecated
+`autopilot.brain.backends.{free,subscription,pay_per_use}` ladder and
+`autopilot.brain.allow_pay_per_use` config keys are **imported once** into the
+store on the first boot after upgrade (a one-time, sentinel-guarded migration) and
+then **ignored** — later edits live in the registry, and the daemon logs a
+deprecation warning if the config still carries them. Only **installed, enabled,
+non-`local`** backends are eligible for the ladder.
 
 ### 34.5 Ownership guard
 
@@ -1197,3 +1207,86 @@ once at loop start — changing it needs a restart.
   after a restart fails.
 - `Controller.SelectWorkerBackend(runID)` is exposed but the manager picks worker
   backends itself; worker-backend selection is not daemon-filled.
+
+## 35. Agent-backend registry & internal-thinking router
+
+warden keeps a **persistent registry** of the coding-agent CLIs it can drive, so
+"which backends exist, how they're billed, and which is the default" is a durable,
+inspectable fact rather than something re-derived on every spawn. The registry is
+the **single source of truth** that both autopilot's cost-tier ladder (§34.4) and
+the internal free/local thinking router read from.
+
+### 35.1 The store
+
+One record per backend plus a reserved settings singleton, in an embedded ScrivaDB
+collection at `~/.warden/backends` (`internal/backendstore`). Each backend row
+carries:
+
+- **Detection facts** (refreshed by a rescan): `installed`, `binary_path`,
+  `detected_at`.
+- **User preferences** (preserved by a rescan): `tier`, `default` (at most one row
+  is default), `enabled`.
+- **Router state**: `limited_until` — stamped when a free backend returns a
+  rate-limit / spend signal, so it drops out of the internal-thinking walk until it
+  clears (config `backends.limit_retry`, default `15m`).
+- `is_local` — the reserved **`local`** row: a `$0`, never-limited, never-default
+  class for the local model.
+
+**Detection is a fact; tiering is a preference.** A `rescan` reconciles the
+detection fields (adds newly installed CLIs, marks vanished ones uninstalled) and
+**never** touches your tier / default / enabled choices.
+
+### 35.2 Tiers & the default
+
+Tiers are `free` · `subscription` · `pay_per_use` · `unclassified` (a newly
+detected CLI starts `unclassified`, treated as *not free*), plus the reserved,
+system-set `local`. Exactly one backend may be the **default** (the backend an
+empty `warden start --backend` / `spawn_agent {}` resolves to); the reserved
+`local` and `terminal` rows can never be a user-agent default and are rejected.
+
+### 35.3 Internal-thinking router (free/local only, never paid)
+
+warden does its own **internal thinking** — task classification, activity
+summaries, agent naming, digest narration, and memory curation — and routes it
+**strictly through free and local backends** (`internal/internalrouter`). It
+**never makes a paid call**. The store's **internal-thinking mode** picks the walk:
+
+- **`local_only`** — route internal thinking to the local model only.
+- **`free_plus_local`** (the default) — try eligible **free** CLI backends first
+  (default-first, then stable id order), falling back to the never-limited local
+  model.
+
+A free CLI backend is eligible only when it is installed, enabled, tier `free`, and
+not currently limited. On a rate-limit / spend signal the router stamps that
+backend's `limited_until` and continues down the list; when the walk is exhausted
+the caller **degrades gracefully** (deterministic slug / skipped narration /
+default bucket / no curate proposal) rather than escalating to a paid backend.
+Paid (`subscription` / `pay_per_use`) and `unclassified` backends are never called
+for internal thinking in either mode.
+
+### 35.4 Autopilot ladder — one source of truth
+
+Autopilot's cost-tier ladder and paid-autopilot gate derive from this registry
+(§34.4): only installed, enabled, non-`local` rows are eligible, bucketed by tier.
+The deprecated `autopilot.brain.backends` ladder and
+`autopilot.brain.allow_pay_per_use` gate are **imported once** (a sentinel-guarded,
+idempotent migration on the first boot after upgrade) and then ignored — the store
+value wins thereafter, and the daemon warns if the config still carries the keys.
+
+### 35.5 Surfaces
+
+| Surface | How |
+|---|---|
+| **CLI** | `warden backends list` / `rescan` / `tier <id> <tier>` / `default <id>` / `enable <id>` / `disable <id>` / `thinking-mode <mode>` |
+| **MCP** | `list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`, `set_thinking_mode` (enable/disable is CLI/web/TUI + REST only) |
+| **Web** | the **🧩 backends** panel (AttentionBar): table with Tier dropdown, Default radio, Enabled checkbox, live Limited countdown, thinking-mode select, ⟳ Rescan |
+| **TUI** | the Backends page (`b`): `t` cycle tier · `d`/`enter` default · `e`/space enable · `m` thinking-mode · `r` rescan |
+| **REST** | `GET /api/v1/backends`, `POST /api/v1/backends/rescan`, `PUT /api/v1/backends/default`, `PUT /api/v1/backends/thinking-mode`, `PATCH /api/v1/backends/{id}` (tier / enabled) |
+
+### 35.6 Config
+
+The `backends` block currently has one sub-key: `backends.limit_retry` (Go
+duration, default `15m`) — how long the internal-thinking router skips a free CLI
+backend after it returns a rate-limit / spend signal, before retrying it. Tiers,
+the default, enabled flags, and the thinking mode live in the **store**, not the
+config file, and are edited via the surfaces above.

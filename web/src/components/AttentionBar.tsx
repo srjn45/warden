@@ -7,7 +7,7 @@ import { THEME_ICON, THEME_LABEL, type Theme, type Resolved } from '../lib/theme
 export default function AttentionBar({
   connected, attentionCount, notifyEnabled, onToggleNotify, onNew, onJumpAttention,
   tokenSet, onClearToken, theme, resolvedTheme, onCycleTheme, onShowHelp, onToggleContext,
-  onOpenTui, onToggleAutopilot,
+  onOpenTui, onToggleAutopilot, onToggleBackends,
 }: {
   connected: boolean;
   attentionCount: number;
@@ -24,6 +24,7 @@ export default function AttentionBar({
   onToggleContext: () => void;
   onOpenTui: () => void;
   onToggleAutopilot: () => void;
+  onToggleBackends: () => void;
 }) {
   // Pick the wordmark for the theme that actually renders, so an explicit
   // override (not just the OS) gets the matching asset.
@@ -52,6 +53,14 @@ export default function AttentionBar({
           aria-label="Autopilot toggle and status"
         >
           ⚙ autopilot
+        </button>
+        <button
+          className="backends-btn"
+          onClick={onToggleBackends}
+          title="Backends — agent-backend registry settings"
+          aria-label="Backends registry settings"
+        >
+          🧩 backends
         </button>
         <button
           className="tui-launch"

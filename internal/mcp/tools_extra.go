@@ -131,6 +131,16 @@ type setRoleArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	Role   string `json:"role" jsonschema:"built-in role name: general|orchestrator|implementer|auto-merger|reviewer (general/empty clears the persona)"`
 }
+type setBackendTierArgs struct {
+	ID   string `json:"id" jsonschema:"the backend id (e.g. claude, codex, aider)"`
+	Tier string `json:"tier" jsonschema:"billing tier: free|subscription|pay_per_use|unclassified (the reserved local tier is system-set)"`
+}
+type setDefaultBackendArgs struct {
+	ID string `json:"id" jsonschema:"the backend id to make the default; must be installed and enabled, and not the reserved local/terminal row"`
+}
+type setThinkingModeArgs struct {
+	Mode string `json:"mode" jsonschema:"internal-thinking routing mode: local_only (keep on the $0 local model) | free_plus_local (prefer free cloud, fall back to local)"`
+}
 type setForceCompactArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	State  string `json:"state" jsonschema:"force-compact override: on (always) | off (never) | inherit (follow the global token_force_compact)"`
@@ -527,6 +537,63 @@ func (s *Server) registerExtraTools() {
 			roles = append(roles, map[string]string{"name": r.Name, "description": r.Description})
 		}
 		return jsonResultAny(map[string]any{"roles": roles})
+	})
+
+	// --- backend registry (docs/specs/2026-08-06-backend-registry.md) ---
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_backends",
+		Description: "List the persisted agent-backend registry (one row per detected backend: id, installed, binary_path, tier, default, enabled, is_local, limited_until) plus store settings (internal_thinking_mode, allow_paid_autopilot). This is warden's source of truth for which backends exist and how they're tiered. Read-only; run rescan_backends first to refresh detection.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		state, err := s.cl.ListBackends(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(state)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "rescan_backends",
+		Description: "Re-detect installed backends: sweep PATH for every registered backend and reconcile the detection fields (installed/binary_path/detected_at) into the registry, preserving each backend's tier/default/enabled. Returns the refreshed registry and settings.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		state, err := s.cl.RescanBackends(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(state)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_backend_tier",
+		Description: "Assign a backend's billing tier: free | subscription | pay_per_use | unclassified. The reserved local tier is system-set and cannot be assigned, and the local row is not re-tierable. Returns the updated backend.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setBackendTierArgs) (*mcpsdk.CallToolResult, any, error) {
+		b, err := s.cl.SetBackendTier(ctx, a.ID, a.Tier)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(b)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_default_backend",
+		Description: "Make a backend the single default (an empty spawn backend resolves to it). The target must be installed and enabled, and cannot be the reserved local/terminal row. Returns the updated registry and settings.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setDefaultBackendArgs) (*mcpsdk.CallToolResult, any, error) {
+		state, err := s.cl.SetDefaultBackend(ctx, a.ID)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(state)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_thinking_mode",
+		Description: "Set how warden routes its own internal (non-user-facing) thinking: local_only keeps it on the $0 local model; free_plus_local prefers free cloud backends and falls back to the never-limited local model. Returns the updated settings.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setThinkingModeArgs) (*mcpsdk.CallToolResult, any, error) {
+		settings, err := s.cl.SetThinkingMode(ctx, a.Mode)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(settings)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

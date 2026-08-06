@@ -457,6 +457,68 @@ nothing, leaving a plain/`general` spawn byte-identical to before roles existed.
 
 ---
 
+## 5.4. Backend registry (`warden backends`)
+
+`--backend` (§5.2) picks a backend for *one* spawn. The **backend registry** is the
+durable, machine-wide picture behind it: warden detects the coding-agent CLIs
+installed on this machine (`claude`, `codex`, `aider`, …) plus a reserved **`local`**
+row for the free/local model, and persists each in an embedded store
+(`~/.warden/backends`) with a billing **tier**, an **enabled** flag, and at most one
+**default**. This store is warden's **single source of truth** — autopilot's cost-tier
+ladder and the internal free/local **thinking router** both read from it.
+
+**Detection is a fact; tiering is a preference.** A `rescan` reconciles the detection
+fields (installed / binary path) — adding newly installed CLIs and marking vanished
+ones uninstalled — and **never** touches your tier / default / enabled choices.
+
+```sh
+warden backends list                 # full table incl. the reserved local row
+# ID       INSTALLED  TIER          DEFAULT  ENABLED  LIMITED
+# aider    ✓          unclassified  -        ✓        -
+# claude   ✓          subscription  ✓        ✓        -
+# codex    ✓          free          -        ✓        -
+# local    -          local         -        ✓        -
+#
+# internal thinking mode: free_plus_local
+
+warden backends rescan               # re-detect installed CLIs (preferences preserved)
+warden backends tier codex free      # tier codex as a $0 backend
+warden backends default claude       # set the single default (rejects local/terminal)
+warden backends enable codex         # / warden backends disable aider
+warden backends thinking-mode local_only   # or free_plus_local (default)
+```
+
+**Tiers** are `free` · `subscription` · `pay_per_use` · `unclassified` (a newly
+detected CLI starts `unclassified`, treated as *not free*), plus the reserved,
+system-set `local`. Exactly one backend may be the **default** (what an empty
+`--backend` resolves to); the reserved `local` and `terminal` rows can never be a
+default.
+
+**Internal-thinking router — free/local only, never paid.** warden's own internal
+thinking (task classification, activity summaries, agent naming, digest narration,
+memory curation) is routed *strictly* through free and local backends and **never**
+makes a paid call. The **thinking-mode** picks the walk:
+
+- `local_only` — the local model only.
+- `free_plus_local` (default) — eligible **free** CLI backends first (installed +
+  enabled + tier `free` + not currently rate-limited), then the never-limited local
+  model. On a rate-limit / spend signal warden marks that backend limited (config
+  `backends.limit_retry`, default `15m`) and moves on; when the walk is exhausted it
+  degrades gracefully instead of escalating to a paid backend.
+
+Over **MCP**: `list_backends`, `rescan_backends`, `set_backend_tier`,
+`set_default_backend`, `set_thinking_mode` (enabling/disabling is CLI/web/TUI + REST
+`PATCH /api/v1/backends/{id}`). Also on the web **🧩 backends** panel and the TUI
+**Backends page** (`b`).
+
+> **Deprecation:** the registry **supersedes** `autopilot.brain.backends` and
+> `autopilot.brain.allow_pay_per_use` in `~/.warden/config.yaml`. Those keys are
+> imported into the store **once** on the first boot after upgrade, then ignored (the
+> daemon logs a deprecation warning if they linger). Set autopilot's cost tiers with
+> `warden backends tier` from then on.
+
+---
+
 ## 6. Command reference
 
 All commands accept `--addr` to point at a non-default daemon (overrides
@@ -670,6 +732,26 @@ warden models                       # the current agent's backend menu, one id p
 warden models --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude Opus 4.6 (Thinking), …
 warden models --backend cursor --json
 ```
+
+### `warden backends list|rescan|tier|default|enable|disable|thinking-mode` (backend registry)
+
+Inspect and manage warden's **agent-backend registry** (§5.4) — the persistent store
+of which CLI backends exist on this machine, their billing tier, the single default,
+and whether each is enabled, plus the internal-thinking mode. Every subcommand is a
+thin caller of the daemon's `/api/v1/backends*` endpoints.
+
+```sh
+warden backends list                 # table: ID INSTALLED TIER DEFAULT ENABLED LIMITED + thinking mode (alias: ls)
+warden backends rescan               # re-detect installed CLIs, reconcile detection, keep preferences
+warden backends tier <id> <tier>     # free | subscription | pay_per_use | unclassified (local is system-set)
+warden backends default <id>         # set the single default (rejects unknown/uninstalled/disabled/local/terminal)
+warden backends enable <id>          # / warden backends disable <id>
+warden backends thinking-mode <mode> # local_only | free_plus_local (which backends internal thinking may call)
+```
+
+Over MCP: `list_backends`, `rescan_backends`, `set_backend_tier`,
+`set_default_backend`, `set_thinking_mode` (enable/disable is CLI/web/TUI + REST
+only). Also on the web 🧩 backends panel and the TUI Backends page (`b`).
 
 ### `warden memory [--raw] [--path] [--edit]` (project memory)
 

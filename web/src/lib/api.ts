@@ -382,6 +382,96 @@ export async function setAutopilot(enabled: boolean): Promise<AutopilotStatus> {
   return parse<AutopilotStatus>(res);
 }
 
+// --- Backend registry (docs/specs/2026-08-06-backend-registry.md) -----------
+//
+// The agent-backend registry is warden's source of truth for which backend CLIs
+// exist, their billing tier, which one is the default, and whether each is
+// enabled — plus a store-level settings singleton (internal-thinking routing
+// mode). These mirror the daemon's Backend / BackendSettings / BackendsState
+// schemas exactly.
+
+// Backend is one row of the registry. Detection fields (installed / binary_path
+// / detected_at) are facts a rescan refreshes; tier / default / enabled are user
+// preferences a rescan preserves. is_local marks the reserved $0 local-model row
+// (never limited, never a user default). limited_until is the RFC3339 instant a
+// rate-limit lifts (absent/zero when the backend is available).
+export interface Backend {
+  id: string;
+  installed: boolean;
+  binary_path: string;
+  detected_at: string;
+  tier: string; // free | subscription | pay_per_use | unclassified | local
+  default: boolean;
+  enabled: boolean;
+  is_local: boolean;
+  limited_until?: string;
+}
+
+// BackendSettings is the store-level policy singleton.
+export interface BackendSettings {
+  id: string;
+  internal_thinking_mode: string; // local_only | free_plus_local
+  allow_paid_autopilot: boolean;
+}
+
+// BackendsState is the full registry (rows sorted by id) plus settings.
+export interface BackendsState {
+  backends: Backend[];
+  settings: BackendSettings;
+}
+
+function unwrapBackends(data: { backends: Backend[] | null; settings: BackendSettings }): BackendsState {
+  return { backends: data.backends ?? [], settings: data.settings };
+}
+
+// listBackends returns the persisted registry + settings (GET /backends).
+export async function listBackends(): Promise<BackendsState> {
+  return unwrapBackends(await parse(await apiFetch('/backends')));
+}
+
+// rescanBackends re-detects installed CLIs and returns the refreshed registry
+// (POST /backends/rescan). tier/default/enabled preferences are preserved.
+export async function rescanBackends(): Promise<BackendsState> {
+  return unwrapBackends(await parse(await apiFetch('/backends/rescan', { method: 'POST' })));
+}
+
+// setDefaultBackend marks one backend the single default (PUT /backends/default).
+// The daemon rejects an unknown/uninstalled/disabled backend and the reserved
+// local row with a 4xx, surfaced as an ApiError.
+export async function setDefaultBackend(id: string): Promise<BackendsState> {
+  return unwrapBackends(await parse(await apiFetch('/backends/default', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })));
+}
+
+// setThinkingMode sets the internal-thinking routing mode (PUT
+// /backends/thinking-mode): 'local_only' keeps warden's own thinking on the $0
+// local model; 'free_plus_local' prefers free cloud backends. Returns the
+// updated settings.
+export async function setThinkingMode(mode: string): Promise<BackendSettings> {
+  return parse<BackendSettings>(await apiFetch('/backends/thinking-mode', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  }));
+}
+
+// patchBackend updates one backend's tier and/or enabled flag (PATCH
+// /backends/{id}); an omitted field is left unchanged. The daemon rejects a
+// re-tier of the reserved local row with a 4xx. Returns the updated row.
+export async function patchBackend(
+  id: string,
+  patch: { tier?: string; enabled?: boolean },
+): Promise<Backend> {
+  return parse<Backend>(await apiFetch(`/backends/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }));
+}
+
 // subscribeSessions opens an SSE connection. Returns an unsubscribe function.
 export function subscribeSessions(
   onData: (sessions: Session[]) => void,

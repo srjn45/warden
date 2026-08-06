@@ -269,3 +269,37 @@ Read verbs for catching up on the fleet, all MCP-first:
   `wd worktree ls` and the top-level `wd prune` remain as aliases) — list /
   reconcile a repo's worktrees.
 - `digest {ticket}` (CLI `wd digest`) — a compact catch-up summary of one agent.
+
+## Backend registry — detected CLIs, tiers, thinking-mode
+
+warden persists a registry of the coding-agent CLIs installed on this machine
+(`claude`, `codex`, `aider`, …) plus a reserved **`local`** row for the free/local
+model, each with a billing **tier**, an **enabled** flag, and at most one **default**,
+plus a store-level **internal-thinking mode**. The store (`~/.warden/backends`) is
+warden's **single source of truth** for backends — [autopilot](../SKILL.md#autopilot)'s
+cost-tier ladder and the internal free/local thinking router both read from it.
+**Detection is a fact** (installed / binary path) a rescan reconciles; **tiering is a
+preference** (tier / default / enabled) a rescan preserves.
+
+MCP-first (all wrap `/api/v1/backends*`):
+
+| Tool | Does | CLI |
+|---|---|---|
+| `list_backends` | The whole registry + settings (read-only) | `warden backends list` |
+| `rescan_backends` | Re-detect installed CLIs, reconcile detection, keep preferences | `warden backends rescan` |
+| `set_backend_tier {id, tier}` | Assign a tier: `free`\|`subscription`\|`pay_per_use`\|`unclassified` (the reserved `local` tier is system-set) | `warden backends tier <id> <tier>` |
+| `set_default_backend {id}` | Set the single default; rejects unknown/uninstalled/disabled/`local`/`terminal` | `warden backends default <id>` |
+| `set_thinking_mode {mode}` | `local_only` \| `free_plus_local` — which backends warden's own internal thinking may call (never a paid one) | `warden backends thinking-mode <mode>` |
+
+- **Enable/disable is not an MCP tool.** Use the CLI (`warden backends enable|disable
+  <id>`), the web 🧩 panel / TUI Backends page (`b`), or REST `PATCH
+  /api/v1/backends/{id}` (`{tier?, enabled?}`).
+- **Tiers drive real behaviour.** Only **`free`** CLI backends are ever called for
+  internal thinking, and only **installed + enabled + non-`local`** backends feed
+  autopilot's cost ladder. A newly detected CLI starts `unclassified` (treated as *not
+  free*) until the user tiers it.
+- **Deprecation:** the registry supersedes `autopilot.brain.backends` /
+  `autopilot.brain.allow_pay_per_use` config (imported once on the first boot after
+  upgrade, then ignored). Steer autopilot's spend with `set_backend_tier`, not config.
+- Config: `backends.limit_retry` (default `15m`) — how long the router skips a free
+  backend after a rate-limit / spend signal.

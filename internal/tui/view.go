@@ -53,6 +53,7 @@ func helpText() string {
 		"  i            details for the selected agent or pipeline job (scrollable; i/esc to close)\n" +
 		"  p            answer pending approvals (or enter on the ⏳ row; 1-9 to answer, tab for next)\n" +
 		"  c            shared-context + message-traffic inspector\n" +
+		"  b            agent-backend registry page (tier / default / enable · r rescan · m thinking-mode)\n" +
 		"  r            retry a failed/needs-attention pipeline job\n" +
 		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +

@@ -631,6 +631,93 @@ func TestClassifyFallsBackToClaudeWhenLocalErrors(t *testing.T) {
 		"a local error falls back to headless Claude")
 }
 
+// --- Registry (internal-thinking router) path: l.Internal set ---------------
+
+func TestClassifyUsesInternalRouter(t *testing.T) {
+	prompt := "write unit tests for the parser"
+	fc := &fakeCompleter{out: "tests\n"}
+	fr := &FakeRunner{} // claude -p must NOT be called when a candidate answers
+	lc := New(fr, &FakeConfig{})
+	lc.Internal = fc
+
+	got, err := lc.Classify(context.Background(), prompt)
+	require.NoError(t, err)
+	require.Equal(t, store.TypeTests, got)
+	require.Equal(t, 1, fc.calls)
+	require.NotContains(t, fr.calledArgs(), []string{"claude", "-p", classifyArg(prompt)},
+		"the registry walk must never fall back to paid Claude")
+}
+
+func TestClassifyDegradesToOtherWhenRouterExhausted(t *testing.T) {
+	prompt := "whatever"
+	fr := &FakeRunner{}
+	lc := New(fr, &FakeConfig{})
+	lc.Internal = &fakeCompleter{err: errStub("no free or local candidate")}
+	fired := false
+	lc.SavingsHook = func(string, string, int, int, string, string) { fired = true }
+
+	got, err := lc.Classify(context.Background(), prompt)
+	require.NoError(t, err, "an exhausted walk degrades gracefully, it is not an error")
+	require.Equal(t, store.TypeOther, got, "degrade routes to the default bucket")
+	require.False(t, fired, "a degrade offloads nothing — no saving")
+	require.Empty(t, fr.calledArgs(), "degrade must never spend paid Claude")
+}
+
+func TestClassifyRouterFiresSavingsHook(t *testing.T) {
+	prompt := "write unit tests for the parser"
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	lc.Internal = &fakeCompleter{out: "tests\n"}
+	var feature, agent string
+	lc.SavingsHook = func(f, a string, _, _ int, _, _ string) { feature, agent = f, a }
+
+	_, err := lc.Classify(context.Background(), prompt)
+	require.NoError(t, err)
+	require.Equal(t, savings.FeatureLLMOffload, feature)
+	require.Equal(t, "", agent, "Classify has no agent to attribute")
+}
+
+func TestSummarizeUsesInternalRouter(t *testing.T) {
+	sess := &store.Session{ID: "a1", Prompt: "refactor the auth package"}
+	fc := &fakeCompleter{out: "Refactoring the auth package.\n"}
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	lc.Internal = fc
+
+	got, err := lc.Summarize(context.Background(), sess)
+	require.NoError(t, err)
+	require.Equal(t, "Refactoring the auth package.", got)
+	require.Equal(t, 1, fc.calls)
+}
+
+func TestSummarizeDegradesWhenRouterExhausted(t *testing.T) {
+	sess := &store.Session{ID: "a1", Prompt: "refactor the auth package"}
+	fr := &FakeRunner{}
+	lc := New(fr, &FakeConfig{})
+	lc.Internal = &fakeCompleter{err: errStub("no candidate")}
+
+	got, err := lc.Summarize(context.Background(), sess)
+	require.NoError(t, err, "an exhausted walk skips narration, it is not an error")
+	require.Equal(t, "", got, "degrade skips narration")
+	// recentActivity may shell tmux capture-pane, but no paid `claude -p` runs.
+	for _, args := range fr.calledArgs() {
+		require.False(t, len(args) >= 2 && args[0] == "claude" && args[1] == "-p",
+			"degrade must never spend paid Claude, got %v", args)
+	}
+}
+
+func TestGenerateNameUsesInternalRouter(t *testing.T) {
+	fc := &fakeCompleter{out: "auth-refactor\n"}
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	lc.Internal = fc
+	require.Equal(t, "auth-refactor", lc.GenerateName(context.Background(), "refactor the auth package"))
+}
+
+func TestGenerateNameDegradesToSlugWhenRouterExhausted(t *testing.T) {
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	lc.Internal = &fakeCompleter{err: errStub("no candidate")}
+	// Deterministic slug of the first words — never a paid call.
+	require.Equal(t, "refactor-the-auth-package", lc.GenerateName(context.Background(), "refactor the auth package now"))
+}
+
 func TestParseNameSanitizesToHandle(t *testing.T) {
 	cases := map[string]string{
 		"order-api-builder":       "order-api-builder",

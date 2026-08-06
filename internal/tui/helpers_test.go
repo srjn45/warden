@@ -51,6 +51,21 @@ type fakeAPI struct {
 	messages    []client.Message
 	msgErr      error
 	msgLimit    int // last limit passed to MsgRecent
+
+	// backend registry (Backends page)
+	backends     client.BackendsState
+	backendsErr  error // error ListBackends/RescanBackends return
+	rescanned    bool  // RescanBackends was called
+	tieredID     string
+	tieredTier   string
+	tierErr      error
+	enabledID    string
+	enabledVal   bool
+	enabledErr   error
+	defaultedID  string
+	defaultErr   error
+	thinkingMode string // last mode passed to SetThinkingMode
+	thinkingErr  error
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -139,6 +154,29 @@ func (f *fakeAPI) GetAutopilot(context.Context) (client.AutopilotStatus, error) 
 }
 func (f *fakeAPI) SetAutopilot(_ context.Context, _ bool, _ string) (client.AutopilotStatus, error) {
 	return client.AutopilotStatus{}, nil
+}
+func (f *fakeAPI) ListBackends(context.Context) (client.BackendsState, error) {
+	return f.backends, f.backendsErr
+}
+func (f *fakeAPI) RescanBackends(context.Context) (client.BackendsState, error) {
+	f.rescanned = true
+	return f.backends, f.backendsErr
+}
+func (f *fakeAPI) SetBackendTier(_ context.Context, id, tier string) (client.Backend, error) {
+	f.tieredID, f.tieredTier = id, tier
+	return client.Backend{ID: id, Tier: tier}, f.tierErr
+}
+func (f *fakeAPI) SetBackendEnabled(_ context.Context, id string, enabled bool) (client.Backend, error) {
+	f.enabledID, f.enabledVal = id, enabled
+	return client.Backend{ID: id, Enabled: enabled}, f.enabledErr
+}
+func (f *fakeAPI) SetDefaultBackend(_ context.Context, id string) (client.BackendsState, error) {
+	f.defaultedID = id
+	return f.backends, f.defaultErr
+}
+func (f *fakeAPI) SetThinkingMode(_ context.Context, mode string) (client.BackendSettings, error) {
+	f.thinkingMode = mode
+	return client.BackendSettings{InternalThinkingMode: mode}, f.thinkingErr
 }
 
 func key(s string) tea.KeyMsg {

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -221,16 +220,15 @@ func newLandCmd() *cobra.Command {
 }
 
 // detectInstalledBackends returns the ids of every registered backend whose
-// binary is found on PATH.
+// binary is found on PATH. It is a thin filter over the shared
+// agentbackend.Detect() sweep (the one detector for the whole product; see
+// docs/specs/2026-08-06-backend-registry.md §4).
 func detectInstalledBackends() []string {
-	var found []string
-	for _, id := range agentbackend.IDs() {
-		b, err := agentbackend.Get(id)
-		if err != nil {
-			continue
-		}
-		if _, err := exec.LookPath(b.Binary()); err == nil {
-			found = append(found, id)
+	det := agentbackend.Detect()
+	found := make([]string, 0, len(det))
+	for _, d := range det {
+		if d.Installed {
+			found = append(found, d.ID)
 		}
 	}
 	sort.Strings(found)
