@@ -46,11 +46,23 @@ const (
 	// TierUnclassified is the tier a newly detected CLI backend starts in until
 	// the user tiers it — treated as *not free*.
 	TierUnclassified = "unclassified"
+	// TierFree is the $0 tier: a CLI backend the user runs on a free plan, the
+	// only CLI tier the internal-thinking router (docs/specs/
+	// 2026-08-06-backend-registry.md §7) will call. TierSubscription and
+	// TierPayPerUse are the paid tiers the router NEVER calls.
+	TierFree         = "free"
+	TierSubscription = "subscription"
+	TierPayPerUse    = "pay_per_use"
 
 	// idLocal is the reserved id of the local-model row; idTerminal is the host
 	// shell. Neither can be a user-agent default.
 	idLocal    = "local"
 	idTerminal = "terminal"
+
+	// IDLocal is the exported id of the reserved local-model row — the terminal
+	// candidate of every internal-thinking walk (§7). Exported so the router can
+	// name the local candidate without duplicating the literal.
+	IDLocal = idLocal
 )
 
 // Backend is one row of the registry, keyed by its stable ID in ScrivaDB.
@@ -251,6 +263,25 @@ func (s *Store) SetEnabled(id string, on bool) error {
 		return err
 	}
 	b.Enabled = on
+	return s.upsert(b)
+}
+
+// SetLimited stamps a backend's LimitedUntil (RMW): the internal-thinking router
+// (docs/specs/2026-08-06-backend-registry.md §7) calls this when a free CLI
+// candidate returns a rate-limit / spend signal, so the row drops out of the
+// candidate walk until until elapses. The reserved local row can never be
+// limited, so this is a no-op for it (defensive — the router never stamps local).
+func (s *Store) SetLimited(id string, until time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.get(id)
+	if err != nil {
+		return err
+	}
+	if b.IsLocal {
+		return nil // local can never be limited
+	}
+	b.LimitedUntil = until
 	return s.upsert(b)
 }
 

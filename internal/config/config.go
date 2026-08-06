@@ -122,6 +122,15 @@ type RateLimitConfig struct {
 	ResumePrompt       string `yaml:"resume_prompt"`
 }
 
+// BackendsConfig groups the agent-backend registry / internal-thinking router
+// settings (docs/specs/2026-08-06-backend-registry.md §10).
+type BackendsConfig struct {
+	// LimitRetry is how long a free CLI backend is skipped by the internal-thinking
+	// router after it returns a rate-limit / spend signal (§7). A Go duration
+	// string; defaults to 15m.
+	LimitRetry string `yaml:"limit_retry"`
+}
+
 // HTTPConfig groups the daemon HTTP write-budget settings.
 type HTTPConfig struct {
 	TimeoutFast string `yaml:"timeout_fast"`
@@ -268,6 +277,7 @@ type Config struct {
 	Log         LogConfig         `yaml:"log"`
 	Plugins     PluginsConfig     `yaml:"plugins"`
 	Autopilot   AutopilotConfig   `yaml:"autopilot"`
+	Backends    BackendsConfig    `yaml:"backends"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -314,6 +324,7 @@ var schema = []setting{
 	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
+	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
 	{"autopilot", "Autopilot mode (docs/specs/autopilot.md): a long-lived headless brain agent per plan that decomposes a goal, spawns workers, and lands green work into an integration branch unattended — with the guardian keeping it alive. OFF by default; enable per surface (warden autopilot on / MCP set_autopilot / TUI / web), which runs a preflight and, unless overridden, OR-bundles auto_approve, rate_limit.auto_resume, and auto_restart on for autopilot-owned agents. Sub-keys: enabled (master switch), plans (list of {file} — one brain per plan, at most one active plan per repo), brain (backends.{free,subscription,pay_per_use} cost-tier ladder, allow_pay_per_use (explicit permission gate for paid calls), role, headless, max_parallel_workers), merge (target_branch — the ONLY branch autopilot merges into; strategy — squash|merge|rebase; gate — auto|ci|local, never merge red; delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation)."},
 }
 
@@ -468,6 +479,9 @@ func defaults() Config {
 				NotifyEachEscalation: true,
 			},
 		},
+		Backends: BackendsConfig{
+			LimitRetry: "15m",
+		},
 	}
 }
 
@@ -604,6 +618,7 @@ func validate(c *Config) {
 		c.LocalLLM.Model = d.LocalLLM.Model
 	}
 	c.LocalLLM.Timeout = validDuration(c.LocalLLM.Timeout, d.LocalLLM.Timeout)
+	c.Backends.LimitRetry = validDuration(c.Backends.LimitRetry, d.Backends.LimitRetry)
 }
 
 func validPermissionMode(v string) string {
@@ -1319,6 +1334,13 @@ func (c Config) GetSchedulerEnabled() bool { return c.SchedulerEnabled }
 // GetLocalLLM reports whether warden routes its fuzzy-but-cheap tasks (task
 // classification) to a local model instead of headless Claude.
 func (c Config) GetLocalLLM() bool { return c.LocalLLM.Enabled }
+
+// BackendsLimitRetryDuration returns how long the internal-thinking router skips
+// a free CLI backend after a rate-limit / spend signal before retrying it
+// (docs/specs/2026-08-06-backend-registry.md §7/§10). Defaults to 15m.
+func (c Config) BackendsLimitRetryDuration() time.Duration {
+	return durOr(c.Backends.LimitRetry, 15*time.Minute)
+}
 
 // LocalLLMTimeoutDuration returns the hard per-call timeout for the local model
 // before warden falls back to Claude.

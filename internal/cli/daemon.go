@@ -25,6 +25,7 @@ import (
 	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/internalrouter"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/logging"
@@ -301,6 +302,17 @@ func newDaemonCmd() *cobra.Command {
 				return rerr
 			}
 			srv.SetBackends(backendStore)
+			// Internal-thinking router (docs/specs/2026-08-06-backend-registry.md
+			// §7): warden's own thinking — classify / summarize / name (lifecycle),
+			// digest narration, and memory curation — routes STRICTLY through the
+			// registry's free-CLI-then-local candidate walk and degrades gracefully
+			// when exhausted, so it NEVER makes a paid call. It is the single seam
+			// replacing every prior hardcoded `claude -p` internal offload. The local
+			// model (lc.LLM, nil when local_llm is off) is the terminal candidate; the
+			// runner executes a free CLI backend's HeadlessCmd; backends.limit_retry
+			// is the per-backend skip TTL after a rate-limit / spend signal.
+			internalRouter := internalrouter.New(backendStore, lc.LLM, runner, cfg.BackendsLimitRetryDuration())
+			lc.Internal = internalRouter
 			// Autopilot (docs/specs/autopilot.md): construct the master-switch
 			// Controller from config. S1 is inert — the switch + preflight exist on
 			// every surface but no brain spawns yet. baseDir anchors relative plan
@@ -339,7 +351,10 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetAPIDocs(cfg.ApiDocs)
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
-			srv.SetNarrator(digest.ClaudeNarrator{Run: lc.RunClaudeP})
+			// Digest narration is internal thinking too: route it through the same
+			// free/local walk. On an exhausted walk Complete errors and the narrator
+			// returns "" so the digest skips its summary line (never a paid call).
+			srv.SetNarrator(digest.ClaudeNarrator{Run: internalRouter.Complete})
 			srv.SetSpawnGate(cfg.Worktree.SpawnGate, cfg.Worktree.SpawnGateMax)
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
@@ -354,13 +369,13 @@ func newDaemonCmd() *cobra.Command {
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(cfg.Pipeline.KeepDone)
 			// Memory auto-curation (#53 PR-2), opt-in via memory.curate (default OFF).
-			// The proposer prefers the $0 local model (lc.LocalLLM), degrading to
-			// headless claude -p (lc.RunClaudeP); the curator debounces per repo and
+			// The proposer routes through the internal-thinking router (free/local
+			// candidate walk); an exhausted walk yields no proposal (Run left nil), so
+			// curation never makes a paid call. The curator debounces per repo and
 			// writes UNVERIFIED proposals to the working tree only — never commits.
 			if cfg.Memory.Curate {
 				proposer := curate.LLMProposer{
-					Run:    lc.RunClaudeP,
-					LLM:    lc.LocalLLM(),
+					LLM:    internalRouter,
 					Record: lc.RecordOffload,
 				}
 				exec.SetCurator(curate.New(&memory.Store{}, proposer))

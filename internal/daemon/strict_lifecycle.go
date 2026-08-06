@@ -53,6 +53,13 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 		return nil, errStatus(http.StatusBadRequest, "bad json")
 	}
 	sr := spawnRequestFromOAPI(*req.Body)
+	// Backend registry default override (docs/specs/2026-08-06-backend-registry.md
+	// §7): a user spawn that names no backend uses the operator-chosen default from
+	// the store, overriding the compile-time claude default. Resolved HERE at the
+	// daemon layer — the pure agentbackend registry never does store lookups.
+	if strings.TrimSpace(sr.Backend) == "" {
+		sr.Backend = s.defaultBackend()
+	}
 	// An autopilot-owned caller's spawns join its run mechanically (tag
 	// inheritance) — the fleet fence must not depend on the manager's persona
 	// remembering to pass tags.
@@ -623,6 +630,28 @@ var backendTiers = map[string]bool{
 	"subscription":                true,
 	"pay_per_use":                 true,
 	backendstore.TierUnclassified: true,
+}
+
+// defaultBackend returns the operator-chosen default backend id to apply to a
+// user spawn that named none, or "" to keep the compile-time claude default
+// (docs/specs/2026-08-06-backend-registry.md §7). The store's Default overrides
+// claude ONLY when it is a real, usable target — installed and enabled; a drifted
+// default (uninstalled or disabled since it was set) falls back to claude rather
+// than failing the spawn. The reserved local row can never be a user default and
+// is excluded defensively. Store lookups live here at the daemon layer, never in
+// the pure agentbackend registry.
+func (s *Server) defaultBackend() string {
+	if s.backends == nil {
+		return ""
+	}
+	b, ok, err := s.backends.Default()
+	if err != nil || !ok {
+		return ""
+	}
+	if b.IsLocal || !b.Installed || !b.Enabled {
+		return ""
+	}
+	return b.ID
 }
 
 // backendsState reads the full registry (rows + settings) from the store. Callers
