@@ -52,8 +52,10 @@ Interactive: warden start --dir <path>                (opens the agent and waits
 Managed:     warden start TICKET --type <TYPE>        (isolated worktree)
 
 Backends (--backend): warden drives Claude Code by default. Accepted values:
-  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
+  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity, terminal.
 Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
+Terminal: not an AI agent — opens a plain interactive shell ($SHELL) in the agent's
+directory, managed with the same worktree/git/tmux lifecycle as any other agent.
 Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
 OpenCode: BYO model (pass --model), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
@@ -207,7 +209,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)")
-	cmd.Flags().String("backend", "", "agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See `warden start --help` for per-backend notes")
+	cmd.Flags().String("backend", "", "agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity | terminal (plain shell, no AI) — only claude is fully tested; codex/antigravity are beta, the rest experimental. See `warden start --help` for per-backend notes")
 	cmd.Flags().String("preset", "", "load saved spawn defaults from a named preset (see `warden preset`); explicit flags override")
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")

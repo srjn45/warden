@@ -49,6 +49,7 @@ const (
 	modeNewAgentDir           // dir-override sub-state of modeNewAgent
 	modeNewAgentName          // name-input sub-state of modeNewAgent
 	modeNewAgentRole          // role-select sub-state of modeNewAgent
+	modeNewAgentBackend       // backend-select sub-state of modeNewAgent
 	modeRename                // edit the selected agent's name (from the details view)
 	modeConfirmSpawn          // memory-pressure confirm before spawning
 	modeConfirmDeletePipeline // y/N confirm before deleting a stopped pipeline
