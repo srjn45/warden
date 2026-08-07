@@ -26,11 +26,12 @@ export default function AttentionBar({
   onToggleAutopilot: () => void;
   onToggleBackends: () => void;
 }) {
-  // Pick the wordmark for the theme that actually renders, so an explicit
-  // override (not just the OS) gets the matching asset.
-  const wordmark = resolvedTheme === 'dark'
-    ? '/brand/warden-wordmark-dark.svg'
-    : '/brand/warden-wordmark-light.svg';
+  // The top bar is a deep-slate control-room chrome in BOTH themes, so the
+  // light-on-dark wordmark is always the right asset (the light-background
+  // variant would vanish against the slate). resolvedTheme is still used for
+  // other theme-aware affordances passed in.
+  void resolvedTheme;
+  const wordmark = '/brand/warden-wordmark-dark.svg';
   return (
     <header className="topbar">
       <h1 className="brand">
