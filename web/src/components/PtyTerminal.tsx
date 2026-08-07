@@ -82,7 +82,9 @@ export default function PtyTerminal({
     const term = new XTerm({
       fontSize: 12,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: { background: '#0b0b0b', foreground: '#d6d6d6' },
+      // Matches the --term-bg / --term-fg design tokens (app.css). xterm needs
+      // concrete values here, so keep these in sync if the tokens change.
+      theme: { background: '#0b0e12', foreground: '#d6dde3' },
       scrollback: 5000,
       cursorBlink: true,
       // Treat the Mac ⌥ key as Meta so Alt-chords (and Claude's Alt+Enter

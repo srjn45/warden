@@ -20,14 +20,14 @@ export default function PipelineDag({ jobs, selected, onSelect }: {
         <defs>
           <marker id="dag-arrow" viewBox="0 0 10 10" refX="9" refY="5"
             markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="#5a6672" />
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--border-strong)" />
           </marker>
         </defs>
         {edges.map((e) => (
           <line
             key={`${e.from}->${e.to}`}
             x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
-            stroke="#5a6672" strokeWidth={1.5} markerEnd="url(#dag-arrow)"
+            stroke="var(--border-strong)" strokeWidth={1.5} markerEnd="url(#dag-arrow)"
           />
         ))}
       </svg>
