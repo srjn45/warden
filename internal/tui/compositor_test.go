@@ -22,7 +22,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 
 	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", launchCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
-	require.Len(t, fr.Calls, 17, "unexpected number of tmux calls")
+	require.Len(t, fr.Calls, 20, "unexpected number of tmux calls")
 
 	// Panes are created right-to-left: agent (fills window) → terminal (left) → control.
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", agentPlaceholderCmd()}, fr.Calls[0].Argv)
@@ -44,21 +44,35 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[12].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[13].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[14].Argv)
-	// No M-t binding any more — the old shell-toggle is gone; M-t is freed for the
-	// stage-5 terminal rotation.
-	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[15].Argv)
+	// Global Alt rotation (§8): M-t/M-a/M-p each forward to the control pane, which
+	// owns the rotation state. M-t is the key freed by removing the old shell-toggle.
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-t", "send-keys", "-t", "%2", "M-t"}, fr.Calls[15].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-a", "send-keys", "-t", "%2", "M-a"}, fr.Calls[16].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-p", "send-keys", "-t", "%2", "M-p"}, fr.Calls[17].Argv)
+	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[18].Argv)
 	// Return-to-dashboard binding for the full-screen attach path (`a`).
-	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[16].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[19].Argv)
 }
 
-func TestNoMasterToggleBinding(t *testing.T) {
+// The M-t binding is now the terminal-rotation forwarder (send-keys to the control
+// pane), NOT the old shell-toggle swap — the master shell machinery is gone.
+func TestMtBindingIsRotationNotShellToggle(t *testing.T) {
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
 	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+agentPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
 	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+terminalPlaceholderCmd()] = lifecycle.FakeResp{Out: "%1\n"}
 	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+controlPaneCmd("/bin/warden", "%0", "%1")] = lifecycle.FakeResp{Out: "%2\n"}
 	require.NoError(t, buildCockpit(context.Background(), fr, cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", launchCwd: "/work"}))
+	var mtBindings [][]string
 	for _, c := range fr.Calls {
-		require.NotContains(t, c.Argv, "M-t", "the M-t shell-toggle binding must be gone")
+		if len(c.Argv) >= 4 && c.Argv[1] == "bind-key" && (c.Argv[3] == "M-t" || (len(c.Argv) >= 5 && c.Argv[4] == "M-t")) {
+			mtBindings = append(mtBindings, c.Argv)
+		}
+	}
+	require.Len(t, mtBindings, 1, "exactly one M-t binding (the rotation forwarder)")
+	require.Contains(t, mtBindings[0], "send-keys", "M-t forwards to the control pane, not a pane swap")
+	// The shell-toggle machinery leaves no trace: no swap-pane / select-layout.
+	for _, c := range fr.Calls {
+		require.NotContains(t, c.Argv, "swap-pane", "no master-pane swap remains")
 	}
 }
 

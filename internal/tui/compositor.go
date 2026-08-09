@@ -137,6 +137,19 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 			return fmt.Errorf("tmux bind-key %s: %w: %s", b[0], err, out)
 		}
 	}
+	// Global Alt rotation (§8): flip which entity each viewport shows, from any
+	// pane, so you can rotate while typing in a shell or agent. Each key just
+	// forwards itself to the control pane, which owns the rotation state
+	// (openedTerminal/openedAgent) and respawns the target pane — M-t cycles the
+	// terminal pane, M-a all agents, M-p pipeline agents (all in the agent pane).
+	// M-t is exactly the key freed by removing the old shell-toggle. The control
+	// pane is targeted explicitly (-t) so rotation works even when another pane has
+	// focus. Alt (not Ctrl) avoids clobbering C-a/C-p readline keys inside shells.
+	for _, key := range []string{"M-t", "M-a", "M-p"} {
+		if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", key, "send-keys", "-t", controlPaneID, key); err != nil {
+			return fmt.Errorf("tmux bind-key %s: %w: %s", key, err, out)
+		}
+	}
 	// 6. Focus the control pane.
 	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", controlPaneID); err != nil {
 		return fmt.Errorf("tmux select-pane: %w: %s", err, out)

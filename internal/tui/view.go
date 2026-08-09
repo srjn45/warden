@@ -64,6 +64,11 @@ func helpText() string {
 		"  ?            toggle this help\n" +
 		"  q            quit\n" +
 		"\n" +
+		stPaneTitle.Render("Rotation (global — works from any pane, even while typing)") + "\n" +
+		"  alt+t        cycle the terminal pane through the live terminals (grabs focus)\n" +
+		"  alt+a        cycle the agent pane through all live agents\n" +
+		"  alt+p        cycle the agent pane through pipeline agents (pipeline > agents order)\n" +
+		"\n" +
 		stPaneTitle.Render("Typing in the Claude pane") + "\n" +
 		"  enter        submit the prompt\n" +
 		"  alt+enter    insert a newline (works on every terminal)\n" +
