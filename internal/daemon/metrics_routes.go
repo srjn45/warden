@@ -90,7 +90,9 @@ func (s *Server) recordOnce(ctx context.Context) {
 }
 
 // storeAgentLister adapts the session store to metrics.Lister, returning only
-// live (non-terminal) agents — the ones with a tmux pane worth attributing.
+// live AI agents: those in a live status (liveStatus excludes the done/errored/
+// orphaned *statuses*) and of agent *kind* — terminals are plain shells with no
+// context or cost to attribute, so they are excluded from fleet metrics.
 type storeAgentLister struct{ st store.Store }
 
 func (l storeAgentLister) LiveAgents(ctx context.Context) ([]metrics.Agent, error) {
@@ -100,7 +102,7 @@ func (l storeAgentLister) LiveAgents(ctx context.Context) ([]metrics.Agent, erro
 	}
 	var out []metrics.Agent
 	for _, sess := range sessions {
-		if !liveStatus(sess.Status) {
+		if !liveStatus(sess.Status) || sess.IsTerminal() {
 			continue
 		}
 		out = append(out, metrics.Agent{

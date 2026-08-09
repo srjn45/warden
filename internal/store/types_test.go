@@ -8,6 +8,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSessionIsTerminal(t *testing.T) {
+	// The zero value (records that predate the Kind field) reads as an agent, so
+	// no migration is needed and existing sessions keep AI-centric behavior.
+	require.False(t, (&Session{}).IsTerminal(), "empty Kind must read as agent")
+	require.False(t, (&Session{Kind: KindAgent}).IsTerminal())
+	require.True(t, (&Session{Kind: KindTerminal}).IsTerminal())
+}
+
+func TestSessionKindJSONOmitEmpty(t *testing.T) {
+	// An agent session (empty Kind) must omit the field entirely so on-disk
+	// records are byte-identical to pre-Kind ones; a terminal serializes "kind".
+	b, err := json.Marshal(Session{ID: "a"})
+	require.NoError(t, err)
+	require.NotContains(t, string(b), `"kind"`, "agent session must omit kind")
+
+	b, err = json.Marshal(Session{ID: "t", Kind: KindTerminal})
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"kind":"terminal"`)
+
+	// Absent kind decodes back to the agent zero value.
+	var s Session
+	require.NoError(t, json.Unmarshal([]byte(`{"id":"a"}`), &s))
+	require.False(t, s.IsTerminal())
+}
+
 func TestSessionJSONRoundTrip(t *testing.T) {
 	s := Session{
 		ID:              "PROJ-350",

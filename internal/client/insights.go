@@ -62,6 +62,9 @@ func (c *Client) Insights(ctx context.Context, p InsightsParams) (*insights.Repo
 	records := make([]insights.SessionRecord, 0, len(active)+len(archived))
 	scans := 0
 	for _, s := range active {
+		if s.IsTerminal() {
+			continue // terminals have no transcript/co-edit/error signal to analyze
+		}
 		var files []string
 		if scans < maxScans {
 			files = c.bestEffortFiles(ctx, s.ID)
@@ -70,6 +73,9 @@ func (c *Client) Insights(ctx context.Context, p InsightsParams) (*insights.Repo
 		records = append(records, insights.FromSession(s, files))
 	}
 	for _, s := range archived {
+		if s.IsTerminal() {
+			continue
+		}
 		records = append(records, insights.FromSession(s, nil))
 	}
 

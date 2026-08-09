@@ -126,6 +126,21 @@ A terminal session:
   helper: terminals always run `${SHELL:-bash}`, non-`exec` so the lifecycle's
   exit-capture still fires on `exit`).
 
+> **Sequencing note (2026-08-09, during build).** The backend removal is
+> **deferred out of stage 2 into stage 6** — see the amended §12. Reason:
+> `agentbackend.Detect()` enumerates the in-memory registry (`IDs()`) and the
+> daemon feeds that into `backendstore.Reconcile` (`cli/daemon.go`), which is
+> what `GET /api/v1/backends` serves. So deleting the `terminal` backend is
+> **inseparable from the `/backends` contract change** — the very thing §9 says
+> to coordinate with wd-app and ship atomically with `kind=terminal` support and
+> the capability flag. Stage 2 therefore stays **purely additive** (the `Kind`
+> discriminator + the AI-surface filters below), leaving the terminal backend
+> registered and working; stage 6 removes it from *both* registries
+> (`agentbackend` + `backendstore`), flips the `/backends` test, adds the
+> `kind` create/list filter, and advertises the capability flag as one
+> coordinated unit. No release is cut between stages, so the app never sees a
+> half-changed contract.
+
 ### Filtering AI-centric surfaces (the honest cost of reclassify)
 
 Everywhere that aggregates or reasons about *agents* must exclude
@@ -347,8 +362,12 @@ stages at the end.
    (`compositor.go`, `list_pane.go`, `healthyCockpit`), internal CLI flags
    (`cli/tui.go`), headers/hints. Pure mechanical; lands first as the shared
    vocabulary. (No behavior change.)
-2. **Terminal reclassify** — `Kind` on `store.Session`; remove the `terminal`
-   backend; terminal-spawn helper; `Kind` filters on AI-centric surfaces (§3).
+2. **Terminal reclassify (additive)** — `Kind` (`agent`|`terminal`) on
+   `store.Session` + `IsTerminal()`; `Kind` filters excluding terminals from the
+   AI-centric surfaces (§3). Purely additive: the `terminal` backend stays
+   registered (its removal is inseparable from the `/backends` contract, so it
+   moves to stage 6 — see §3 sequencing note). No behavior change until a
+   terminal-kind session actually exists (stage 4).
 3. **Control tree restructure** — four-section tree; Approvals as a section;
    subagent render rule (§4.1); Terminals section + live naming (§7). (Depends
    1–2.)
@@ -357,9 +376,14 @@ stages at the end.
    create/focus (§6). (Depends 1–3.)
 5. **Rotation** — `M-t`/`M-a`/`M-p` global bindings + viewport rotation (§8).
    (Depends 4.)
-6. **API/app coordination** — `/backends` drop + optional `kind` create/list
-   filter on session endpoints; MCP parity if needed; ping + align with wd-app
-   (§9). (Depends 2.)
+6. **Backend removal + API/app coordination** — remove the `terminal` backend
+   from **both** registries (`agentbackend` init + `backendstore` special-casing)
+   and the terminal-spawn helper for `${SHELL:-bash}`; drop `terminal` from
+   `GET /api/v1/backends` (flip its test); add the `kind` create/list filter on
+   the session endpoints; **advertise an explicit capability flag** for
+   `kind=terminal` support (wd-app's chosen skew switch, with terminal-absent-
+   from-`/backends` as the fallback); MCP parity if needed; ping + align with
+   wd-app (§9). Bundled as one atomic contract unit. (Depends 2.)
 7. **Web cockpit** — parity (§10). (Depends 2–5.) — parallel with 6.
 8. **Docs & DoD** — README, `docs/FEATURES.md` + root `FEATURES.md`,
    `docs/USAGE.md`, site guides + `reference/cli.md` (generated), skill; tag +
