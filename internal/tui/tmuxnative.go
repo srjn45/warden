@@ -22,9 +22,12 @@ const nativeCockpitWindow = "warden-cockpit"
 
 // controlPaneNativeCmd is the command tmux runs for the native cockpit's control pane.
 // It mirrors controlPaneCmd but adds --kill-window so `q` tears down only this
-// window rather than the user's whole tmux session (see killCockpitArgs).
+// window rather than the user's whole tmux session (see killCockpitArgs). The
+// native cockpit has no terminal pane (the user's own tmux provides shells), so
+// the terminal-pane id is empty — the control pane then degrades its terminal
+// features (Enter on a terminal, `t`) to a status hint.
 func controlPaneNativeCmd(self, agentPane string) string {
-	return controlPaneCmd(self, agentPane) + " --kill-window"
+	return controlPaneCmd(self, agentPane, "") + " --kill-window"
 }
 
 // nativeAgentPlaceholderCmd keeps the native cockpit's agent pane alive with a

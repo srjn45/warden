@@ -384,7 +384,22 @@ stages at the end.
    stored `Workdir`/`Repo`/`Branch`; stage 4 attaches the live poll.
 4. **Panes & routing** — default terminal at startup; retire master/`M-t`/`--repl`
    TUI (§5); `--terminal-pane` + Enter routing + `openedAgent` tracking + `t`
-   create/focus (§6). (Depends 1–3.)
+   create/focus (§6). (Depends 1–3.) *Sequencing note (built 2026-08-09):* terminals
+   are created via the **existing `terminal` backend** — a one-line bridge in
+   `lifecycle.Spawn` sets `Kind=terminal` when `backend=="terminal"`, so **no
+   `/backends` or spawn-request contract changes here** (the explicit `kind` create
+   field stays in stage 6, which removes the terminal backend). The control pane
+   ensures ≥1 terminal on the first session list (adopt an existing live terminal,
+   else spawn one in the launch cwd) and opens it in the terminal pane without
+   stealing focus; Enter/`t`/create *do* focus it. The §7 **live cwd/branch poll**
+   (deferred from stage 3) is wired here: `terminalInfoCmd` reads each terminal's
+   `#{pane_current_path}` + git root/branch on the refresh tick and feeds
+   `terminalItems`. The **tmux-native cockpit has no terminal pane**, so
+   `--terminal-pane` is empty there and terminal features (Enter-on-terminal, `t`,
+   the default terminal) degrade to a status hint. The `repl` config setting and the
+   standalone `wd repl` command are untouched — only the cockpit `--repl` flavor is
+   gone. Global `M-t`/`M-a`/`M-p` rotation is **not** bound yet (stage 5); `M-t` is
+   simply freed here.
 5. **Rotation** — `M-t`/`M-a`/`M-p` global bindings + viewport rotation (§8).
    (Depends 4.)
 6. **Backend removal + API/app coordination** — remove the `terminal` backend

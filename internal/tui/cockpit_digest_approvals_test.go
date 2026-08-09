@@ -38,7 +38,7 @@ func TestDigestBodyRendersKeyFields(t *testing.T) {
 
 func TestKeyDOnAgentFetchesDigestAndEntersDigestMode(t *testing.T) {
 	f := &fakeAPI{digest: &digest.Digest{Summary: "did the thing", Branch: "b", Turns: 3}}
-	m := newListPane(f, "")
+	m := newListPane(f, "", "")
 	// Populate one agent and put the cursor on it.
 	mm, _ := m.Update(sessionsMsg{sessions: []*store.Session{{ID: "agent-1"}}})
 	m = mm.(controlPaneModel)
@@ -66,7 +66,7 @@ func TestKeyDOnAgentFetchesDigestAndEntersDigestMode(t *testing.T) {
 // --- approvals (the `i` key + number answering) ---
 
 func TestItemsIncludesApprovalsRowWhenPending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.apprEnabled = true
 	m.approvals = []approval.View{
 		{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}},
@@ -93,7 +93,7 @@ func TestItemsIncludesApprovalsRowWhenPending(t *testing.T) {
 }
 
 func TestNoApprovalsRowWhenNonePending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.apprEnabled = true // enabled but nothing waiting
 	sawHeader := false
 	for _, it := range m.items() {
@@ -116,7 +116,7 @@ func TestNoApprovalsRowWhenNonePending(t *testing.T) {
 // it no longer enters the approvals overlay. The approvals binding moved to `p`.
 
 func TestKeyPEntersApprovalsModeWhenPending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.apprEnabled = true
 	m.approvals = []approval.View{{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}}}
 	mm, _ := m.Update(key("p"))
@@ -127,7 +127,7 @@ func TestKeyPEntersApprovalsModeWhenPending(t *testing.T) {
 }
 
 func TestKeyPStatusWhenDisabled(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.apprEnabled = false
 	mm, _ := m.Update(key("p"))
 	m = mm.(controlPaneModel)
@@ -140,7 +140,7 @@ func TestKeyPStatusWhenDisabled(t *testing.T) {
 }
 
 func TestKeyPStatusWhenEnabledButEmpty(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.apprEnabled = true
 	m.approvals = nil
 	mm, _ := m.Update(key("p"))
@@ -155,7 +155,7 @@ func TestKeyPStatusWhenEnabledButEmpty(t *testing.T) {
 
 func TestDigitInApprovalsModeAnswersFocusedApproval(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "")
+	m := newListPane(f, "", "")
 	m.apprEnabled = true
 	m.mode = modeApprovals
 	m.apprCursor = 0
@@ -258,7 +258,7 @@ func TestDetailBodyEmptyBackendDefaultsToClaude(t *testing.T) {
 }
 
 func TestKeyIOnAgentEntersDetailsMode(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24}) // size the viewport (the real cockpit always does)
 	mm, _ := m.Update(sessionsMsg{sessions: []*store.Session{
 		{ID: "agent-1", Status: store.StatusWorking, Subject: "doing the thing"},
@@ -284,7 +284,7 @@ func TestKeyIOnAgentEntersDetailsMode(t *testing.T) {
 }
 
 func TestKeyINoOpWhenNoAgentSelected(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "") // no sessions → cursor on nothing selectable
+	m := newListPane(&fakeAPI{}, "", "") // no sessions → cursor on nothing selectable
 	mm, _ := m.Update(key("i"))
 	m = mm.(controlPaneModel)
 	if m.mode != modeNormal {

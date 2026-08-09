@@ -29,7 +29,7 @@ func backendsFixture() client.BackendsState {
 // backendsModel returns a control pane sitting on the Backends page with the fixture
 // loaded and the cursor on the given row.
 func backendsModel(cursor int) controlPaneModel {
-	m := newListPane(&fakeAPI{backends: backendsFixture()}, "")
+	m := newListPane(&fakeAPI{backends: backendsFixture()}, "", "")
 	m.ready = true
 	m.mode = modeBackends
 	m.backendsState = backendsFixture()
@@ -38,7 +38,7 @@ func backendsModel(cursor int) controlPaneModel {
 }
 
 func TestBackendsOpenFromNav(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.ready = true
 	updated, cmd := m.handleKey(key("b"))
 	um := updated.(controlPaneModel)

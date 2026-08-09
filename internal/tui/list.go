@@ -357,18 +357,28 @@ func splitByKind(sessions []*store.Session) (agents, terminals []*store.Session)
 
 // terminalItems renders the Terminals section (spec §7). Terminals are sorted by
 // CreatedAt so their 1-based ordinal is stable within a cockpit session, and each
-// row carries its formatted display name. (Live cwd/branch polling of the running
-// pane is wired in with terminal creation — stage 4; here the name derives from
-// the session's stored Workdir/Repo/Branch.)
-func terminalItems(terminals []*store.Session) []item {
+// row carries its formatted display name. Names prefer the live cwd/branch polled
+// from the running pane (info, keyed by session id — §7); a terminal with no live
+// reading yet (info absent) falls back to the session's stored Workdir/Repo/Branch.
+func terminalItems(terminals []*store.Session, info map[string]terminalLiveInfo) []item {
 	sorted := make([]*store.Session, len(terminals))
 	copy(sorted, terminals)
 	sort.SliceStable(sorted, func(a, b int) bool { return sorted[a].CreatedAt.Before(sorted[b].CreatedAt) })
 	out := make([]item, 0, len(sorted))
 	for i, t := range sorted {
-		out = append(out, item{session: t, termName: terminalDisplayName(i+1, terminalCwd(t), t.Repo, t.Branch)})
+		cwd, repoRoot, branch := terminalNameParts(t, info)
+		out = append(out, item{session: t, termName: terminalDisplayName(i+1, cwd, repoRoot, branch)})
 	}
 	return out
+}
+
+// terminalNameParts picks the cwd/repo-root/branch a terminal's §7 name is built
+// from: the live pane reading when present, else the session's stored fields.
+func terminalNameParts(t *store.Session, info map[string]terminalLiveInfo) (cwd, repoRoot, branch string) {
+	if li, ok := info[t.ID]; ok && li.cwd != "" {
+		return li.cwd, li.repoRoot, li.branch
+	}
+	return terminalCwd(t), t.Repo, t.Branch
 }
 
 // terminalCwd is the terminal's working directory for naming: its Workdir, else

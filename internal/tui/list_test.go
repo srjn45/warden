@@ -538,7 +538,7 @@ func TestPipelineItems(t *testing.T) {
 }
 
 func TestItemsPrependsPipelinesAndFiltersOwnedSessions(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.sessions = []*store.Session{
 		{ID: "free", Status: store.StatusWorking},
 		{ID: "demo-a", Status: store.StatusWorking, PipelineID: "demo", JobID: "a"},
@@ -702,7 +702,7 @@ func TestJobBadge(t *testing.T) {
 }
 
 func pipeModel() controlPaneModel {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.ready = true
 	m.pipelines = []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{
 		{ID: "a", Status: pipeline.JobFailed, SessionID: "demo-a"},
@@ -1038,7 +1038,7 @@ func TestBuildItemsSameProjectChildStillNestsWithRepo(t *testing.T) {
 
 // items() always emits the four fixed section headers, in order, even when empty.
 func TestItemsFourFixedSectionsInOrder(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	var secs []string
 	for _, it := range m.items() {
 		if it.section != "" {
@@ -1051,7 +1051,7 @@ func TestItemsFourFixedSectionsInOrder(t *testing.T) {
 // A terminal-kind session renders under Terminals with its §7 name and never in
 // the Agents tree.
 func TestItemsTerminalsSection(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.sessions = groupSort([]*store.Session{
 		{ID: "a1", Repo: "/repoA", Status: store.StatusWorking},
 		{ID: "t1", Kind: store.KindTerminal, Repo: "/home/u/warden", Workdir: "/home/u/warden/site", Branch: "main", Status: store.StatusWorking},
@@ -1075,7 +1075,7 @@ func TestItemsTerminalsSection(t *testing.T) {
 
 // Collapsing a section (its secKey) folds away its whole sub-tree.
 func TestSectionCollapseHidesChildren(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.sessions = groupSort([]*store.Session{{ID: "a1", Repo: "/repoA", Status: store.StatusWorking}})
 	require.Contains(t, itemSessionIDs(m.items()), "a1", "agent visible when Agents section expanded")
 
@@ -1095,7 +1095,7 @@ func TestSectionCollapseHidesChildren(t *testing.T) {
 // enter on a section header toggles its collapse; enter on an approval row opens
 // the approvals overlay focused on that prompt.
 func TestEnterOnSectionTogglesAndOnApprovalOpens(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "")
+	m := newListPane(&fakeAPI{}, "", "")
 	m.apprEnabled = true
 	m.approvals = []approval.View{
 		{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}},
