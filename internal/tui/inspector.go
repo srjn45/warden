@@ -9,7 +9,7 @@ import (
 
 // The inspector is the cockpit's read-only window onto the daemon's shared
 // state: the namespaced context KV store agents write to, and recent directed
-// message traffic between agents. It is rendered into the list pane on `c` and
+// message traffic between agents. It is rendered into the control pane on `c` and
 // owns no mutations — purely a viewer (edit/send happen via the CLI/web).
 
 // oneLine collapses any run of whitespace (including newlines) into single

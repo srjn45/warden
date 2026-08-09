@@ -22,16 +22,16 @@ func cockpitSession(pid int) string {
 type cockpitOpts struct {
 	session   string // tmux session name, e.g. "warden-tui-1234"
 	self      string // absolute path to the warden binary
-	homeDir   string // cwd for the list pane process
-	masterCwd string // cwd for the master shell pane (the launching shell's dir)
-	useRepl   bool   // master pane runs `wd repl` instead of a plain $SHELL
+	homeDir   string // cwd for the control pane process
+	launchCwd string // cwd for the terminal pane (the launching shell's dir)
+	useRepl   bool   // terminal pane runs `wd repl` instead of a plain $SHELL
 }
 
-// masterPaneCmd is the command tmux runs in the bottom-left master pane. The
+// terminalPaneCmd is the command tmux runs in the bottom-left terminal pane. The
 // cockpit ships in two flavors: the default runs a plain shell ($SHELL,
 // defaulting to /bin/sh) for raw terminal access; the repl flavor runs the
 // natural-language REPL (`wd repl`) in that same slot instead.
-func masterPaneCmd(self string, useRepl bool) string {
+func terminalPaneCmd(self string, useRepl bool) string {
 	if useRepl {
 		return self + " repl"
 	}
@@ -47,29 +47,29 @@ func shquote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// listPaneCmd is the shell command tmux runs for the top-left list pane. It is
-// told the detail pane's id so it can drive (respawn) it when the user opens an
+// controlPaneCmd is the shell command tmux runs for the top-left control pane. It is
+// told the agent pane's id so it can drive (respawn) it when the user opens an
 // agent with Enter.
-func listPaneCmd(self, detailPane string) string {
-	return self + " tui --pane=list --detail-pane=" + detailPane
+func controlPaneCmd(self, agentPane string) string {
+	return self + " tui --pane=control --agent-pane=" + agentPane
 }
 
-// detailPlaceholderCmd keeps the right pane alive showing a hint until the user
+// agentPlaceholderCmd keeps the right pane alive showing a hint until the user
 // opens an agent into it. `exec sleep` so the process is cleanly replaceable by
 // `respawn-pane`.
-func detailPlaceholderCmd() string {
+func agentPlaceholderCmd() string {
 	return `sh -c 'printf "Select an agent and press Enter to open it here.\n\nTip: the mouse drives tmux here — hold Shift while dragging to select\ntext the normal way, then Ctrl+Shift+C to copy.\n"; exec sleep 2147483647'`
 }
 
 // shellToggleScript returns the sh command bound to M-t in the cockpit. On each
 // press it surfaces a shell in the bottom-left master slot, or returns to the
-// master Claude, by swapping the two panes — neither process is killed. The
+// terminal pane, by swapping the two panes — neither process is killed. The
 // shell is created lazily on the first toggle in a hidden holding window and
 // tracked by the session user-option @warden_shell_pane, so the toggle survives
 // the user exiting the shell (kept as [exited] via remain-on-exit, then
-// respawned). session is the cockpit tmux session, masterPane the master
+// respawned). session is the cockpit tmux session, terminalPane the master
 // Claude pane's stable id, and cwd the directory the shell starts in.
-func shellToggleScript(session, masterPane, cwd string) string {
+func shellToggleScript(session, terminalPane, cwd string) string {
 	c := shquote(cwd)
 	return fmt.Sprintf(`sp=$(tmux show-options -v -t %[1]s @warden_shell_pane 2>/dev/null)
 if [ -z "$sp" ] || ! tmux list-panes -s -t %[1]s -F '#{pane_id}' | grep -qx "$sp"; then
@@ -80,7 +80,7 @@ elif tmux list-panes -s -t %[1]s -F '#{pane_id} #{pane_dead}' | grep -qx "$sp 1"
   tmux respawn-pane -t "$sp" -c %[3]s "${SHELL:-/bin/sh}"
 fi
 tmux swap-pane -s "$sp" -t %[2]s
-tmux select-pane -t '{bottom-left}'`, session, masterPane, c)
+tmux select-pane -t '{bottom-left}'`, session, terminalPane, c)
 }
 
 // runPaneCreate runs a pane-creating tmux command (-P -F '#{pane_id}') and
@@ -96,44 +96,44 @@ func runPaneCreate(ctx context.Context, run lifecycle.Runner, args ...string) (s
 
 // buildCockpit constructs the three-pane layout in a detached tmux session:
 //
-//	┌─ list (top-left) ─┐┌─ detail ─────┐
-//	├─ master (shell) ──┤│ (full height)│
-//	└───────────────────┘└──────────────┘
+//	┌─ control (top-left) ─┐┌─ agent ──────┐
+//	├─ terminal (shell) ───┤│ (full height)│
+//	└──────────────────────┘└──────────────┘
 //
-// Panes are created right-to-left so the list pane (created last) can be handed
-// the detail pane's stable id (--detail-pane) and drive it via respawn-pane. The
-// detail pane starts as a placeholder; the list pane opens an agent into it on
-// Enter. The master pane runs a shell ($SHELL) for terminal access, or the
+// Panes are created right-to-left so the control pane (created last) can be handed
+// the agent pane's stable id (--agent-pane) and drive it via respawn-pane. The
+// agent pane starts as a placeholder; the control pane opens an agent into it on
+// Enter. The terminal pane runs a shell ($SHELL) for terminal access, or the
 // REPL (`wd repl`) when o.useRepl is set. The caller attaches afterwards.
 func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) error {
-	// 1. Detail pane fills the window initially (placeholder); capture its id.
-	detailID, err := runPaneCreate(ctx, run,
+	// 1. Agent pane fills the window initially (placeholder); capture its id.
+	agentPaneID, err := runPaneCreate(ctx, run,
 		"new-session", "-d", "-s", o.session, "-c", o.homeDir,
-		"-P", "-F", "#{pane_id}", detailPlaceholderCmd())
+		"-P", "-F", "#{pane_id}", agentPlaceholderCmd())
 	if err != nil {
 		return err
 	}
-	// 2. Master pane to the LEFT of detail (-b), 40% width, in the launch dir.
+	// 2. Terminal pane to the LEFT of the agent pane (-b), 40% width, in the launch dir.
 	// Runs a plain shell ($SHELL) by default, or `wd repl` when the repl flavor
 	// is selected.
-	masterID, err := runPaneCreate(ctx, run,
-		"split-window", "-h", "-b", "-l", "40%", "-t", detailID, "-c", o.masterCwd,
-		"-P", "-F", "#{pane_id}", masterPaneCmd(o.self, o.useRepl))
+	terminalPaneID, err := runPaneCreate(ctx, run,
+		"split-window", "-h", "-b", "-l", "40%", "-t", agentPaneID, "-c", o.launchCwd,
+		"-P", "-F", "#{pane_id}", terminalPaneCmd(o.self, o.useRepl))
 	if err != nil {
 		return err
 	}
-	// 3. List pane ABOVE master (-b), 50% of the left column; it gets detailID.
-	// It runs in masterCwd (the launching shell's dir) so agents spawned from it
+	// 3. Control pane ABOVE the terminal pane (-b), 50% of the left column; it gets agentPaneID.
+	// It runs in launchCwd (the launching shell's dir) so agents spawned from it
 	// (`n`) launch in that dir — os.Getwd() in the pane is what spawnCmd sends.
-	listID, err := runPaneCreate(ctx, run,
-		"split-window", "-v", "-b", "-l", "50%", "-t", masterID, "-c", o.masterCwd,
-		"-P", "-F", "#{pane_id}", listPaneCmd(o.self, detailID))
+	controlPaneID, err := runPaneCreate(ctx, run,
+		"split-window", "-v", "-b", "-l", "50%", "-t", terminalPaneID, "-c", o.launchCwd,
+		"-P", "-F", "#{pane_id}", controlPaneCmd(o.self, agentPaneID))
 	if err != nil {
 		return err
 	}
-	// 4. Keep the detail pane (showing [exited]) instead of collapsing the layout
+	// 4. Keep the agent pane (showing [exited]) instead of collapsing the layout
 	//    when an opened agent's attach exits.
-	if out, err := run.Run(ctx, "", "tmux", "set-option", "-p", "-t", detailID, "remain-on-exit", "on"); err != nil {
+	if out, err := run.Run(ctx, "", "tmux", "set-option", "-p", "-t", agentPaneID, "remain-on-exit", "on"); err != nil {
 		return fmt.Errorf("tmux set-option remain-on-exit: %w: %s", err, out)
 	}
 	// 5. Mouse + prefix-less Alt+Arrow pane navigation.
@@ -148,7 +148,7 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 		"#[fg=yellow]shift+drag = select/copy#[default]  %H:%M "); err != nil {
 		return fmt.Errorf("tmux set-option status-right: %w: %s", err, out)
 	}
-	// Make a newline key work in the detail Claude pane: extended-keys passthrough
+	// Make a newline key work in the agent pane: extended-keys passthrough
 	// (Shift+Enter on capable terminals) plus an Alt+Enter fallback for terminals
 	// like VTE/GNOME that can't report Shift+Enter. Best-effort: never block the
 	// cockpit on it.
@@ -158,14 +158,14 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 			return fmt.Errorf("tmux bind-key %s: %w: %s", b[0], err, out)
 		}
 	}
-	// M-t toggles the bottom-left master pane between Claude and a shell, swapping
+	// M-t toggles the bottom-left terminal pane between Claude and a shell, swapping
 	// them without killing either (see shellToggleScript). Best-effort parity with
 	// the M-Arrow bindings above.
-	if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", "M-t", "run-shell", "-b", shellToggleScript(o.session, masterID, o.masterCwd)); err != nil {
+	if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", "M-t", "run-shell", "-b", shellToggleScript(o.session, terminalPaneID, o.launchCwd)); err != nil {
 		return fmt.Errorf("tmux bind-key M-t: %w: %s", err, out)
 	}
-	// 6. Focus the list pane.
-	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", listID); err != nil {
+	// 6. Focus the control pane.
+	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", controlPaneID); err != nil {
 		return fmt.Errorf("tmux select-pane: %w: %s", err, out)
 	}
 	// 7. Bind <prefix> Enter to "switch to the last session". The full-screen
@@ -226,15 +226,15 @@ const WebCockpitSession = "warden-web-cockpit"
 
 // cockpitHealthy reports whether an existing web cockpit session still has the
 // shape a fresh buildCockpit would produce: exactly three panes, with the
-// top-left pane (pane_at_top=1, pane_at_left=1 — the list pane) running the
-// warden binary (the `warden tui --pane=list` bloom app) rather than having been
+// top-left pane (pane_at_top=1, pane_at_left=1 — the control pane) running the
+// warden binary (the `warden tui --pane=control` bloom app) rather than having been
 // dropped to a bare shell. A session left degraded — a partial build (wrong pane
-// count) from a daemon crash mid-buildCockpit, or a list pane that fell back to a
+// count) from a daemon crash mid-buildCockpit, or a control pane that fell back to a
 // shell — reports false so the caller tears it down and rebuilds a fresh one,
 // making the cockpit self-healing. Any tmux error is treated as unhealthy.
 //
 // Only pane_current_command (the pane's live foreground process) is inspected —
-// `sh -c "warden tui …"` exec's into warden, so a healthy list pane reports the
+// `sh -c "warden tui …"` exec's into warden, so a healthy control pane reports the
 // warden binary's basename. self is the absolute path to the warden binary.
 func cockpitHealthy(ctx context.Context, run lifecycle.Runner, session, self string) bool {
 	out, err := run.Run(ctx, "", "tmux", "list-panes", "-t", session,
@@ -248,8 +248,8 @@ func cockpitHealthy(ctx context.Context, run lifecycle.Runner, session, self str
 	}
 	want := filepath.Base(self)
 	for _, ln := range lines {
-		// "11" is the only top-left pane: the detail pane is top-RIGHT (10) and the
-		// master pane bottom-left (01), so this uniquely picks out the list pane.
+		// "11" is the only top-left pane: the agent pane is top-RIGHT (10) and the
+		// terminal pane bottom-left (01), so this uniquely picks out the control pane.
 		pos, cmd, ok := strings.Cut(ln, " ")
 		if !ok || pos != "11" {
 			continue
@@ -264,9 +264,9 @@ func cockpitHealthy(ctx context.Context, run lifecycle.Runner, session, self str
 // returns its tmux session name. It is the headless counterpart to RunCockpit: it
 // builds the same three-pane layout but never attaches — the browser attaches
 // over the daemon's WebSocket PTY bridge instead. self is the absolute path to
-// the warden binary (the panes re-exec it), masterCwd the directory the
-// master/list panes run in (agents spawned via `n` launch there), and useRepl
-// selects the `wd repl` master-pane flavor. Idempotent and safe to call on every
+// the warden binary (the panes re-exec it), launchCwd the directory the
+// terminal/control panes run in (agents spawned via `n` launch there), and useRepl
+// selects the `wd repl` terminal-pane flavor. Idempotent and safe to call on every
 // attach.
 //
 // An existing session is validated (cockpitHealthy) before reuse: a wedged
@@ -276,7 +276,7 @@ func cockpitHealthy(ctx context.Context, run lifecycle.Runner, session, self str
 // reuse check entirely and always kills+rebuilds (the `warden tui
 // --rebuild-web-cockpit` escape hatch), even when the session currently looks
 // healthy.
-func EnsureWebCockpit(ctx context.Context, run lifecycle.Runner, self, masterCwd string, useRepl, forceRebuild bool) (string, error) {
+func EnsureWebCockpit(ctx context.Context, run lifecycle.Runner, self, launchCwd string, useRepl, forceRebuild bool) (string, error) {
 	// has-session exits 0 only when the session already exists.
 	if _, err := run.Run(ctx, "", "tmux", "has-session", "-t", WebCockpitSession); err == nil {
 		// Reuse it only when this isn't a forced rebuild and it's actually healthy;
@@ -294,7 +294,7 @@ func EnsureWebCockpit(ctx context.Context, run lifecycle.Runner, self, masterCwd
 		session:   WebCockpitSession,
 		self:      self,
 		homeDir:   home,
-		masterCwd: masterCwd,
+		launchCwd: launchCwd,
 		useRepl:   useRepl,
 	}
 	if err := buildCockpit(ctx, run, o); err != nil {
@@ -306,10 +306,10 @@ func EnsureWebCockpit(ctx context.Context, run lifecycle.Runner, self, masterCwd
 }
 
 // RunCockpit builds the tmux cockpit for this process and attaches to it,
-// blocking until the user detaches/quits. masterCwd is the launching shell's
-// directory (where the master pane runs). useRepl selects the cockpit flavor
-// whose master pane runs `wd repl` instead of a plain shell.
-func RunCockpit(a api, self, masterCwd string, useRepl bool) error {
+// blocking until the user detaches/quits. launchCwd is the launching shell's
+// directory (where the terminal pane runs). useRepl selects the cockpit flavor
+// whose terminal pane runs `wd repl` instead of a plain shell.
+func RunCockpit(a api, self, launchCwd string, useRepl bool) error {
 	_ = a // the panes hold their own clients; reserved for future inline checks
 	// Reap cockpits orphaned by a prior detach (their owning pid is gone).
 	cleanStaleCockpits(lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}})
@@ -322,7 +322,7 @@ func RunCockpit(a api, self, masterCwd string, useRepl bool) error {
 		session:   cockpitSession(os.Getpid()),
 		self:      self,
 		homeDir:   home,
-		masterCwd: masterCwd,
+		launchCwd: launchCwd,
 		useRepl:   useRepl,
 	}
 	if err := buildCockpit(context.Background(), lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}, o); err != nil {

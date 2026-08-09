@@ -24,12 +24,12 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// listPaneModel is the top-left cockpit pane: the agents list plus the
+// controlPaneModel is the top-left cockpit pane: the agents list plus the
 // new/send/terminate/attach actions. It owns selection: on Enter it opens the
-// selected agent in the detail pane via respawn-pane.
-type listPaneModel struct {
+// selected agent in the agent pane via respawn-pane.
+type controlPaneModel struct {
 	api            api
-	detailPane     string // tmux pane id of the detail pane this list drives
+	agentPane      string // tmux pane id of the agent pane this list drives
 	sessions       []*store.Session
 	cursor         int
 	ta             textarea.Model
@@ -80,15 +80,15 @@ type listPaneModel struct {
 }
 
 // quitCmd is what `q`/`ctrl+c` runs: tear the whole cockpit down (killCockpitCmd
-// kills the hosting tmux session, taking the master + detail panes with it) and
+// kills the hosting tmux session, taking the terminal + agent panes with it) and
 // quit. The same teardown serves both flavors. Locally the user lands back in
 // their shell; on the web the daemon notices the session vanished and tells the
 // browser to leave the full-screen TUI (→ home) — see daemon.bridgeTmux.
-func (m listPaneModel) quitCmd() tea.Cmd {
+func (m controlPaneModel) quitCmd() tea.Cmd {
 	return tea.Sequence(killCockpitCmd(m.killWindow), tea.Quit)
 }
 
-func newListPane(a api, detailPane string) listPaneModel {
+func newListPane(a api, agentPane string) controlPaneModel {
 	ta := textarea.New()
 	ta.Placeholder = "What should this agent do?"
 	ti := textinput.New()
@@ -98,8 +98,8 @@ func newListPane(a api, detailPane string) listPaneModel {
 	tn := textinput.New()
 	tn.Placeholder = "agent-name (optional; blank = auto)"
 	tn.CharLimit = 32
-	return listPaneModel{
-		api: a, ta: ta, ti: ti, tp: tp, tn: tn, detailPane: detailPane,
+	return controlPaneModel{
+		api: a, ta: ta, ti: ti, tp: tp, tn: tn, agentPane: agentPane,
 		// roles is the fixed built-in catalog embedded in the binary (general
 		// first), so the picker is populated synchronously — no daemon round-trip.
 		roles: role.All(),
@@ -112,7 +112,7 @@ func newListPane(a api, detailPane string) listPaneModel {
 	}
 }
 
-func (m listPaneModel) items() []item {
+func (m controlPaneModel) items() []item {
 	var head []item
 	// A pinned approvals row appears at the top when prompts are waiting to be
 	// answered (recognized menus only — unrecognized ones must be attached to).
@@ -127,20 +127,20 @@ func (m listPaneModel) items() []item {
 	return append(head, buildItems(flatSessions(m.sessions, m.pipelines), m.openedDirs, m.collapsed)...)
 }
 
-func (m listPaneModel) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
+func (m controlPaneModel) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
 
-func (m listPaneModel) selectedID() string {
+func (m controlPaneModel) selectedID() string {
 	if s := m.selected(); s != nil {
 		return s.ID
 	}
 	return ""
 }
 
-func (m listPaneModel) selectedKey() string { return itemKey(itemAt(m.items(), m.cursor)) }
+func (m controlPaneModel) selectedKey() string { return itemKey(itemAt(m.items(), m.cursor)) }
 
 // backendRow returns the backend under the Backends-page cursor, or false when the
 // registry is empty / the cursor is out of range.
-func (m listPaneModel) backendRow() (client.Backend, bool) {
+func (m controlPaneModel) backendRow() (client.Backend, bool) {
 	if m.backendCursor >= 0 && m.backendCursor < len(m.backendsState.Backends) {
 		return m.backendsState.Backends[m.backendCursor], true
 	}
@@ -150,25 +150,25 @@ func (m listPaneModel) backendRow() (client.Backend, bool) {
 // detailTitle is the label for the modeDetails overlay: the agent id, or
 // "pipeline/job" for a pipeline job row. The cursor cannot move while the overlay
 // is open (keys scroll), so the item under it is stable across the overlay's life.
-func (m listPaneModel) detailTitle() string {
+func (m controlPaneModel) detailTitle() string {
 	if it := itemAt(m.items(), m.cursor); it.pjJob != nil {
 		return it.pjPipe + "/" + it.pjJob.ID
 	}
 	return m.selectedID()
 }
 
-func (m listPaneModel) fallbackDir() string {
+func (m controlPaneModel) fallbackDir() string {
 	d, _ := os.Getwd()
 	return d
 }
 
-func (m listPaneModel) activeDir() string {
+func (m controlPaneModel) activeDir() string {
 	return activeDir(m.items(), m.cursor, m.fallbackDir())
 }
 
 // bodyH is the height of the framed pane body, shared by View and the inspector
 // viewport sizing so the two never disagree.
-func (m listPaneModel) bodyH() int {
+func (m controlPaneModel) bodyH() int {
 	if h := m.h - 2; h >= 3 {
 		return h
 	}
@@ -178,7 +178,7 @@ func (m listPaneModel) bodyH() int {
 // setInspectorContent re-renders the inspector body into the viewport, preserving
 // the current scroll offset (SetContent/SetYOffset clamp it), so refresh ticks and
 // resizes do not snap the view back to the top.
-func (m *listPaneModel) setInspectorContent() {
+func (m *controlPaneModel) setInspectorContent() {
 	off := m.vp.YOffset
 	m.vp.SetContent(inspectorBody(m.ctxEntries, m.messages, m.vp.Width))
 	m.vp.SetYOffset(off)
@@ -187,7 +187,7 @@ func (m *listPaneModel) setInspectorContent() {
 // applyDefaultCollapse folds away each newly-seen completed pipeline once, so the
 // list opens with finished work collapsed. Pipelines are auto-collapsed only on
 // first sighting (tracked in `seen`), so a manual expand survives later refreshes.
-func (m *listPaneModel) applyDefaultCollapse() {
+func (m *controlPaneModel) applyDefaultCollapse() {
 	for _, p := range m.pipelines {
 		if m.seen[p.ID] {
 			continue
@@ -199,11 +199,11 @@ func (m *listPaneModel) applyDefaultCollapse() {
 	}
 }
 
-func (m listPaneModel) Init() tea.Cmd {
+func (m controlPaneModel) Init() tea.Cmd {
 	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
 }
 
-func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
@@ -398,7 +398,7 @@ func (m listPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *listPaneModel) repin(prevKey string) {
+func (m *controlPaneModel) repin(prevKey string) {
 	items := m.items()
 	want := prevKey
 	if m.pendingSelect != "" {
@@ -423,7 +423,7 @@ func (m *listPaneModel) repin(prevKey string) {
 	}
 }
 
-func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeNewAgent:
 		switch msg.Type {
@@ -833,19 +833,19 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.detailPane != "" {
+		if m.agentPane != "" {
 			attach, jobPipe, jobID, agentDetail := cockpitDetailCmd(itemAt(m.items(), m.cursor))
 			switch {
 			case attach != "":
-				return m, openInDetailCmd(m.detailPane, attach)
+				return m, openInDetailCmd(m.agentPane, attach)
 			case jobID != "":
 				// A terminal job's agent tmux is gone — render its stored detail
 				// instead of attaching to a dead session (which leaves a blank pane).
-				return m, openJobDetailCmd(m.detailPane, jobPipe, jobID)
+				return m, openJobDetailCmd(m.agentPane, jobPipe, jobID)
 			case agentDetail != "":
 				// A terminal agent (tombstone or finished) has no live tmux — render
 				// its stored detail rather than attaching to a dead session.
-				return m, openAgentDetailCmd(m.detailPane, agentDetail)
+				return m, openAgentDetailCmd(m.agentPane, agentDetail)
 			}
 		}
 	case "down", "j":
@@ -990,7 +990,7 @@ func (m listPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m listPaneModel) View() string {
+func (m controlPaneModel) View() string {
 	if !m.ready {
 		return "loading…"
 	}
@@ -1052,7 +1052,7 @@ func (m listPaneModel) View() string {
 	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
-	// this stays short enough to fit the narrow list pane and always show `? help`.
+	// this stays short enough to fit the narrow control pane and always show `? help`.
 	footer := stMuted.Render("enter open · n new · o dir · s send · a attach · i info · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
@@ -1089,7 +1089,7 @@ func (m listPaneModel) View() string {
 // selectedRole returns the role name chosen in the new-agent form. The general
 // role (index 0 / no persona) canonicalizes to "" so a plain spawn stays
 // byte-identical to today.
-func (m listPaneModel) selectedRole() string {
+func (m controlPaneModel) selectedRole() string {
 	if m.roleIdx <= 0 || m.roleIdx >= len(m.roles) {
 		return ""
 	}
@@ -1101,7 +1101,7 @@ func (m listPaneModel) selectedRole() string {
 }
 
 // selectedRoleName is the display label for the chosen role (never blank).
-func (m listPaneModel) selectedRoleName() string {
+func (m controlPaneModel) selectedRoleName() string {
 	if m.roleIdx >= 0 && m.roleIdx < len(m.roles) {
 		return m.roles[m.roleIdx].Name
 	}
@@ -1110,7 +1110,7 @@ func (m listPaneModel) selectedRoleName() string {
 
 // rolePickerView renders the built-in role catalog with the selected role
 // marked and its one-line description shown beneath.
-func (m listPaneModel) rolePickerView() string {
+func (m controlPaneModel) rolePickerView() string {
 	if len(m.roles) == 0 {
 		return stMuted.Render("(no roles)")
 	}
@@ -1170,7 +1170,7 @@ func backendCatalog() []backendChoice {
 // selectedBackend returns the backend id chosen in the new-agent form. The
 // default (claude, index 0) canonicalizes to "" so a plain spawn stays
 // byte-identical to today (the daemon resolves an empty backend to claude).
-func (m listPaneModel) selectedBackend() string {
+func (m controlPaneModel) selectedBackend() string {
 	if m.backendIdx <= 0 || m.backendIdx >= len(m.backends) {
 		return ""
 	}
@@ -1182,7 +1182,7 @@ func (m listPaneModel) selectedBackend() string {
 }
 
 // selectedBackendName is the display label for the chosen backend (never blank).
-func (m listPaneModel) selectedBackendName() string {
+func (m controlPaneModel) selectedBackendName() string {
 	if m.backendIdx >= 0 && m.backendIdx < len(m.backends) {
 		return m.backends[m.backendIdx].name
 	}
@@ -1191,7 +1191,7 @@ func (m listPaneModel) selectedBackendName() string {
 
 // backendPickerView renders the registered backend catalog with the selected
 // backend marked and its id shown beneath.
-func (m listPaneModel) backendPickerView() string {
+func (m controlPaneModel) backendPickerView() string {
 	if len(m.backends) == 0 {
 		return stMuted.Render("(no backends)")
 	}
@@ -1219,7 +1219,7 @@ func newAgentNameLabel(name string) string {
 }
 
 // killCockpitArgs returns the tmux command(s) `q`/`ctrl+c` runs to tear the
-// cockpit down, run from inside the list pane. In the classic cockpit the
+// cockpit down, run from inside the control pane. In the classic cockpit the
 // cockpit owns its own session, so it drops the <prefix> Enter override
 // buildCockpit installed and kills the whole session (no target = current).
 // In the tmux-native cockpit (killWindow) the cockpit is just one window in the
@@ -1245,7 +1245,7 @@ func killCockpitCmd(killWindow bool) tea.Cmd {
 }
 
 // switchClientCmd moves the cockpit's tmux client to the selected agent's
-// session. The list pane runs inside a tmux session, where `tmux attach` refuses
+// session. The control pane runs inside a tmux session, where `tmux attach` refuses
 // to nest — `switch-client` is the correct primitive. In the classic cockpit
 // buildCockpit binds <prefix> Enter to switch-client -l; the native cockpit does
 // not rebind anything, so it points the user at tmux's default <prefix> L
@@ -1264,23 +1264,23 @@ func switchClientCmd(id string, killWindow bool) tea.Cmd {
 	}
 }
 
-// respawnDetailArgs builds the tmux args that replace the detail pane's process
+// respawnDetailArgs builds the tmux args that replace the agent pane's process
 // with a live (nested) attach to the given agent's tmux session. `env -u TMUX`
 // lets tmux attach from inside tmux; `respawn-pane -k` kills the placeholder
 // (or the previously-opened agent) first.
-func respawnDetailArgs(detailPane, agentSession string) []string {
-	return []string{"respawn-pane", "-k", "-t", detailPane,
+func respawnDetailArgs(agentPane, agentSession string) []string {
+	return []string{"respawn-pane", "-k", "-t", agentPane,
 		"env -u TMUX tmux attach -t " + agentSession}
 }
 
-// openInDetailCmd opens the given agent's live session in the detail pane.
-func openInDetailCmd(detailPane, agentSession string) tea.Cmd {
+// openInDetailCmd opens the given agent's live session in the agent pane.
+func openInDetailCmd(agentPane, agentSession string) tea.Cmd {
 	return func() tea.Msg {
-		return attachDoneMsg{err: exec.Command("tmux", respawnDetailArgs(detailPane, agentSession)...).Run()}
+		return attachDoneMsg{err: exec.Command("tmux", respawnDetailArgs(agentPane, agentSession)...).Run()}
 	}
 }
 
-// cockpitDetailCmd decides what the cockpit shows in its detail pane for the item
+// cockpitDetailCmd decides what the cockpit shows in its agent pane for the item
 // under the cursor. A terminal pipeline job (done/failed/skipped) has no live tmux
 // to attach to, so it returns the pipeline+job ids for a stored-detail render;
 // a live agent returns its tmux session to attach; a terminal agent (incl. a
@@ -1303,49 +1303,49 @@ func cockpitDetailCmd(it item) (attach, jobPipe, jobID, agentDetail string) {
 	return "", "", "", ""
 }
 
-// respawnJobDetailArgs builds the tmux command that replaces the detail pane with
+// respawnJobDetailArgs builds the tmux command that replaces the agent pane with
 // a render of one terminal job's stored detail (self re-invoked as a hidden pane).
-func respawnJobDetailArgs(detailPane, self, pid, jobID string) []string {
-	return []string{"respawn-pane", "-k", "-t", detailPane,
+func respawnJobDetailArgs(agentPane, self, pid, jobID string) []string {
+	return []string{"respawn-pane", "-k", "-t", agentPane,
 		self + " tui --pane=jobdetail --pipeline=" + pid + " --job=" + jobID}
 }
 
-// openJobDetailCmd renders a terminal job's stored detail into the detail pane.
-func openJobDetailCmd(detailPane, pid, jobID string) tea.Cmd {
+// openJobDetailCmd renders a terminal job's stored detail into the agent pane.
+func openJobDetailCmd(agentPane, pid, jobID string) tea.Cmd {
 	return func() tea.Msg {
 		self, err := os.Executable()
 		if err != nil {
 			return attachDoneMsg{err: err}
 		}
-		return attachDoneMsg{err: exec.Command("tmux", respawnJobDetailArgs(detailPane, self, pid, jobID)...).Run()}
+		return attachDoneMsg{err: exec.Command("tmux", respawnJobDetailArgs(agentPane, self, pid, jobID)...).Run()}
 	}
 }
 
-// respawnAgentDetailArgs builds the tmux command that replaces the detail pane
+// respawnAgentDetailArgs builds the tmux command that replaces the agent pane
 // with a render of one terminal agent's stored detail (self re-invoked as a
 // hidden pane) — the agent parallel to respawnJobDetailArgs.
-func respawnAgentDetailArgs(detailPane, self, agentID string) []string {
-	return []string{"respawn-pane", "-k", "-t", detailPane,
+func respawnAgentDetailArgs(agentPane, self, agentID string) []string {
+	return []string{"respawn-pane", "-k", "-t", agentPane,
 		self + " tui --pane=agentdetail --agent=" + agentID}
 }
 
-// openAgentDetailCmd renders a terminal agent's stored detail into the detail pane.
-func openAgentDetailCmd(detailPane, agentID string) tea.Cmd {
+// openAgentDetailCmd renders a terminal agent's stored detail into the agent pane.
+func openAgentDetailCmd(agentPane, agentID string) tea.Cmd {
 	return func() tea.Msg {
 		self, err := os.Executable()
 		if err != nil {
 			return attachDoneMsg{err: err}
 		}
-		return attachDoneMsg{err: exec.Command("tmux", respawnAgentDetailArgs(detailPane, self, agentID)...).Run()}
+		return attachDoneMsg{err: exec.Command("tmux", respawnAgentDetailArgs(agentPane, self, agentID)...).Run()}
 	}
 }
 
-// RunListPane runs the top-left cockpit pane; detailPane is the tmux id of the
-// detail pane it drives (opened on Enter). killWindow scopes the `q` teardown to
+// RunControlPane runs the top-left cockpit pane; agentPane is the tmux id of the
+// agent pane it drives (opened on Enter). killWindow scopes the `q` teardown to
 // the cockpit window instead of the whole session — set in the tmux-native
 // cockpit, where the cockpit lives inside the user's own tmux session.
-func RunListPane(a api, detailPane string, killWindow bool) error {
-	m := newListPane(a, detailPane)
+func RunControlPane(a api, agentPane string, killWindow bool) error {
+	m := newListPane(a, agentPane)
 	m.killWindow = killWindow
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()

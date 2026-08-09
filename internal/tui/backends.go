@@ -75,7 +75,7 @@ func boolMark(v bool) string {
 
 // backendLimited shows how long a backend stays rate-limited (rounded), or "-"
 // when it is not currently limited. Kept short — no absolute time — for the narrow
-// list pane. The local row is never limited.
+// control pane. The local row is never limited.
 func backendLimited(until time.Time) string {
 	if until.IsZero() {
 		return "-"
@@ -90,7 +90,7 @@ func backendLimited(until time.Time) string {
 // backendsBody renders the Backends page body: a one-line internal-thinking-mode
 // header control, then a table (ID, installed, tier, default, enabled, limited)
 // with the row under cursor marked. It includes the reserved local row exactly as
-// the daemon returns it. The table is compact for the narrow list pane; titleBox
+// the daemon returns it. The table is compact for the narrow control pane; titleBox
 // clamps any overflow.
 func backendsBody(state client.BackendsState, cursor int) string {
 	var b strings.Builder

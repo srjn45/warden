@@ -26,9 +26,9 @@ func backendsFixture() client.BackendsState {
 	}
 }
 
-// backendsModel returns a list pane sitting on the Backends page with the fixture
+// backendsModel returns a control pane sitting on the Backends page with the fixture
 // loaded and the cursor on the given row.
-func backendsModel(cursor int) listPaneModel {
+func backendsModel(cursor int) controlPaneModel {
 	m := newListPane(&fakeAPI{backends: backendsFixture()}, "")
 	m.ready = true
 	m.mode = modeBackends
@@ -41,7 +41,7 @@ func TestBackendsOpenFromNav(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "")
 	m.ready = true
 	updated, cmd := m.handleKey(key("b"))
-	um := updated.(listPaneModel)
+	um := updated.(controlPaneModel)
 	if um.mode != modeBackends {
 		t.Fatalf("b should open modeBackends, got %v", um.mode)
 	}
@@ -63,7 +63,7 @@ func TestBackendsMsgLoadsAndSorts(t *testing.T) {
 		{ID: "claude"},
 	}}
 	updated, _ := m.Update(backendsMsg{state: unsorted})
-	um := updated.(listPaneModel)
+	um := updated.(controlPaneModel)
 	if got := um.backendsState.Backends[0].ID; got != "claude" {
 		t.Fatalf("rows should be sorted id-ascending, first = %q", got)
 	}
@@ -72,19 +72,19 @@ func TestBackendsMsgLoadsAndSorts(t *testing.T) {
 func TestBackendsNavigation(t *testing.T) {
 	m := backendsModel(0)
 	updated, _ := m.handleKey(key("j"))
-	if got := updated.(listPaneModel).backendCursor; got != 1 {
+	if got := updated.(controlPaneModel).backendCursor; got != 1 {
 		t.Fatalf("j should move cursor to 1, got %d", got)
 	}
 	// Cannot move past the last row.
 	m = backendsModel(2)
 	updated, _ = m.handleKey(key("j"))
-	if got := updated.(listPaneModel).backendCursor; got != 2 {
+	if got := updated.(controlPaneModel).backendCursor; got != 2 {
 		t.Fatalf("j on the last row should stay at 2, got %d", got)
 	}
 	// Cannot move above the first row.
 	m = backendsModel(0)
 	updated, _ = m.handleKey(key("k"))
-	if got := updated.(listPaneModel).backendCursor; got != 0 {
+	if got := updated.(controlPaneModel).backendCursor; got != 0 {
 		t.Fatalf("k on the first row should stay at 0, got %d", got)
 	}
 }
@@ -181,7 +181,7 @@ func TestBackendsClose(t *testing.T) {
 	for _, k := range []string{"esc", "b"} {
 		m := backendsModel(0)
 		updated, _ := m.handleKey(key(k))
-		if got := updated.(listPaneModel).mode; got != modeNormal {
+		if got := updated.(controlPaneModel).mode; got != modeNormal {
 			t.Fatalf("%q should return to modeNormal, got %v", k, got)
 		}
 	}

@@ -16,15 +16,15 @@ func TestInsideTmux(t *testing.T) {
 	require.False(t, InsideTmux())
 }
 
-func TestListPaneNativeCmd(t *testing.T) {
-	// The native list pane mirrors the classic one but adds --kill-window so `q`
+func TestControlPaneNativeCmd(t *testing.T) {
+	// The native control pane mirrors the classic one but adds --kill-window so `q`
 	// tears down only the cockpit window, not the user's whole tmux session.
-	require.Equal(t, "/bin/warden tui --pane=list --detail-pane=%0 --kill-window",
-		listPaneNativeCmd("/bin/warden", "%0"))
+	require.Equal(t, "/bin/warden tui --pane=control --agent-pane=%0 --kill-window",
+		controlPaneNativeCmd("/bin/warden", "%0"))
 }
 
-func TestNativeDetailPlaceholderCmd(t *testing.T) {
-	s := nativeDetailPlaceholderCmd()
+func TestNativeAgentPlaceholderCmd(t *testing.T) {
+	s := nativeAgentPlaceholderCmd()
 	require.Contains(t, s, "press Enter to open")
 	// The native placeholder must NOT carry the classic mouse/shift-drag tip: the
 	// native cockpit never forces `mouse on`, so that tip would be misleading.
@@ -34,22 +34,22 @@ func TestNativeDetailPlaceholderCmd(t *testing.T) {
 
 func TestBuildTmuxNativeCockpitSequence(t *testing.T) {
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
-	fr.Responses["tmux new-window -n warden-cockpit -c /work -P -F #{pane_id} "+nativeDetailPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
-	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+listPaneNativeCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%1\n"}
+	fr.Responses["tmux new-window -n warden-cockpit -c /work -P -F #{pane_id} "+nativeAgentPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
+	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+controlPaneNativeCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%1\n"}
 
 	o := tmuxNativeOpts{self: "/bin/warden", cwd: "/work"}
 	require.NoError(t, buildTmuxNativeCockpit(context.Background(), fr, o))
 
-	// 1. Detail pane created via new-window (a window in the *current* session —
+	// 1. Agent pane created via new-window (a window in the *current* session —
 	//    no new-session, so no nesting and nothing to attach to).
-	require.Equal(t, []string{"tmux", "new-window", "-n", "warden-cockpit", "-c", "/work", "-P", "-F", "#{pane_id}", nativeDetailPlaceholderCmd()}, fr.Calls[0].Argv)
-	// 2. List pane split to the left, handed the detail pane's id.
-	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", listPaneNativeCmd("/bin/warden", "%0")}, fr.Calls[1].Argv)
+	require.Equal(t, []string{"tmux", "new-window", "-n", "warden-cockpit", "-c", "/work", "-P", "-F", "#{pane_id}", nativeAgentPlaceholderCmd()}, fr.Calls[0].Argv)
+	// 2. Control pane split to the left, handed the agent pane's id.
+	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", controlPaneNativeCmd("/bin/warden", "%0")}, fr.Calls[1].Argv)
 	// 3. remain-on-exit is pane-scoped (-p) so it never touches the user's session.
 	require.Equal(t, []string{"tmux", "set-option", "-p", "-t", "%0", "remain-on-exit", "on"}, fr.Calls[2].Argv)
 	// 4. Extended-keys passthrough (best-effort) — the EnsureExtendedKeys calls.
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Enter", "send-keys", "C-j"}, fr.Calls[3].Argv)
-	// 5. Focus lands on the list pane.
+	// 5. Focus lands on the control pane.
 	last := fr.Calls[len(fr.Calls)-1].Argv
 	require.Equal(t, []string{"tmux", "select-pane", "-t", "%1"}, last)
 
