@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func lstep(m listPaneModel, msg tea.Msg) listPaneModel {
+func lstep(m controlPaneModel, msg tea.Msg) controlPaneModel {
 	nm, _ := m.Update(msg)
-	return nm.(listPaneModel)
+	return nm.(controlPaneModel)
 }
 
 func TestListPaneGroupsBySourceDir(t *testing.T) {
@@ -26,7 +26,7 @@ func TestListPaneGroupsBySourceDir(t *testing.T) {
 		{ID: "b2", Workdir: "/b", UpdatedAt: now.Add(-3 * time.Minute)},
 	}})
 	ids := []string{m.sessions[0].ID, m.sessions[1].ID, m.sessions[2].ID}
-	require.Equal(t, []string{"b1", "b2", "a1"}, ids, "cockpit list pane stores grouped order")
+	require.Equal(t, []string{"b1", "b2", "a1"}, ids, "cockpit control pane stores grouped order")
 }
 
 func TestListPaneNewAgentNameFieldFlowsToSpawn(t *testing.T) {
@@ -96,7 +96,7 @@ func TestListPaneRenameFromDetails(t *testing.T) {
 	// Clear and type a new name, then enter to submit.
 	m.tn.SetValue("new-name")
 	nm, cmd := m.Update(key("enter"))
-	m = nm.(listPaneModel)
+	m = nm.(controlPaneModel)
 	require.Equal(t, modeDetails, m.mode)
 	require.NotNil(t, cmd)
 	cmd()
@@ -167,7 +167,7 @@ func TestListPaneEnterOpensDetail(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9")
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a", TmuxSession: "a"}}})
 	_, cmd := m.Update(key("enter"))
-	require.NotNil(t, cmd, "Enter on a selected agent opens it in the detail pane")
+	require.NotNil(t, cmd, "Enter on a selected agent opens it in the agent pane")
 }
 
 func TestListPaneQuitReturnsCommand(t *testing.T) {
@@ -404,7 +404,7 @@ func TestListPaneInspectorTogglesAndFetches(t *testing.T) {
 
 	// `c` opens the inspector and fires the read-only fetch commands.
 	nm, cmd := m.Update(key("c"))
-	m = nm.(listPaneModel)
+	m = nm.(controlPaneModel)
 	require.Equal(t, modeInspector, m.mode)
 
 	// Run the fetch commands and feed their results back into the model.

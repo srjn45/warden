@@ -10,7 +10,7 @@ import (
 )
 
 // RunJobDetailPane renders one terminal job's stored detail to stdout and then
-// blocks, so the cockpit's detail pane can show a finished job (whose agent tmux
+// blocks, so the cockpit's agent pane can show a finished job (whose agent tmux
 // is gone) instead of a blank attach. tmux replaces this process via respawn-pane
 // when the user selects another item; scrolling is handled by tmux copy-mode.
 func RunJobDetailPane(a api, pid, jobID string) error {
@@ -32,7 +32,7 @@ func loadJobDetail(a api, pid, jobID string) (string, error) {
 }
 
 // RunAgentDetailPane renders one terminal agent's stored detail to stdout and then
-// blocks, so the cockpit's detail pane can show a finished or tombstoned agent
+// blocks, so the cockpit's agent pane can show a finished or tombstoned agent
 // (whose tmux is gone) instead of a blank attach. tmux replaces this process via
 // respawn-pane when the user selects another item; scrolling uses copy-mode.
 func RunAgentDetailPane(a api, agentID string) error {
@@ -71,7 +71,7 @@ func pipelineHasLiveJobs(p *pipeline.Pipeline) bool {
 	return false
 }
 
-// renderPipeline draws a pipeline's DAG in the detail pane when its header row is
+// renderPipeline draws a pipeline's DAG in the agent pane when its header row is
 // selected (mirrors renderApprovalsQueue). Read-only summary; actions come from
 // keys handled by the model.
 func renderPipeline(p *pipeline.Pipeline, width, height int) string {
@@ -94,7 +94,7 @@ func renderPipeline(p *pipeline.Pipeline, width, height int) string {
 }
 
 // jobIsTerminal reports whether a job's agent is gone (done/skipped/failed), so the
-// detail pane should render the job's stored details instead of attaching to tmux.
+// agent pane should render the job's stored details instead of attaching to tmux.
 func jobIsTerminal(s pipeline.JobStatus) bool {
 	return s == pipeline.JobDone || s == pipeline.JobSkipped || s == pipeline.JobFailed
 }
@@ -123,7 +123,7 @@ func jobDetailBody(j *pipeline.Job, sess *store.Session, width int) string {
 	return renderPipelineJob(j, width, 0)
 }
 
-// renderPipelineJob draws one job's full details in the detail pane — used for
+// renderPipelineJob draws one job's full details in the agent pane — used for
 // terminal-status jobs whose agent has been reaped (no live tmux to attach).
 // width is accepted for symmetry with renderPipeline and reserved for future line-wrapping; it is not yet used.
 func renderPipelineJob(j *pipeline.Job, width, height int) string {

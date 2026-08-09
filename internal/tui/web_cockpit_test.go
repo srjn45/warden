@@ -17,8 +17,8 @@ const listPanesKey = "tmux list-panes -t " + WebCockpitSession + " -F #{pane_at_
 
 // buildResponses returns the canned pane-id replies buildCockpit needs so a
 // rebuild path (kill → new-session → split-window …) succeeds. self is the warden
-// binary path, masterCwd the master/list pane cwd.
-func buildResponses(t *testing.T, self, masterCwd string) map[string]lifecycle.FakeResp {
+// binary path, launchCwd the master/control pane cwd.
+func buildResponses(t *testing.T, self, launchCwd string) map[string]lifecycle.FakeResp {
 	t.Helper()
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
@@ -27,9 +27,9 @@ func buildResponses(t *testing.T, self, masterCwd string) map[string]lifecycle.F
 		shell = "/bin/sh"
 	}
 	return map[string]lifecycle.FakeResp{
-		"tmux new-session -d -s " + WebCockpitSession + " -c " + home + " -P -F #{pane_id} " + detailPlaceholderCmd(): {Out: "%0\n"},
-		"tmux split-window -h -b -l 40% -t %0 -c " + masterCwd + " -P -F #{pane_id} " + shell:                         {Out: "%1\n"},
-		"tmux split-window -v -b -l 50% -t %1 -c " + masterCwd + " -P -F #{pane_id} " + listPaneCmd(self, "%0"):       {Out: "%2\n"},
+		"tmux new-session -d -s " + WebCockpitSession + " -c " + home + " -P -F #{pane_id} " + agentPlaceholderCmd(): {Out: "%0\n"},
+		"tmux split-window -h -b -l 40% -t %0 -c " + launchCwd + " -P -F #{pane_id} " + shell:                        {Out: "%1\n"},
+		"tmux split-window -v -b -l 50% -t %1 -c " + launchCwd + " -P -F #{pane_id} " + controlPaneCmd(self, "%0"):   {Out: "%2\n"},
 	}
 }
 
@@ -72,11 +72,11 @@ func TestEnsureWebCockpitReusesHealthy(t *testing.T) {
 	require.False(t, argvSeen(fr, "tmux", "new-session"), "healthy cockpit must not be rebuilt")
 }
 
-// A wedged cockpit whose top-left list pane fell back to a bare shell (wrong
+// A wedged cockpit whose top-left control pane fell back to a bare shell (wrong
 // command) is torn down and rebuilt.
 func TestEnsureWebCockpitRebuildsWrongCommand(t *testing.T) {
 	resp := buildResponses(t, "/bin/warden", "/work")
-	resp[listPanesKey] = lifecycle.FakeResp{Out: "11 zsh\n01 zsh\n10 sleep\n"} // list pane is a shell, not warden
+	resp[listPanesKey] = lifecycle.FakeResp{Out: "11 zsh\n01 zsh\n10 sleep\n"} // control pane is a shell, not warden
 	fr := &lifecycle.FakeRunner{Responses: resp}
 
 	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false, false)
@@ -132,7 +132,7 @@ func TestEnsureWebCockpitBuildsWhenAbsent(t *testing.T) {
 	// Probed first, then built under the web session name — no health probe or kill
 	// when there was no session to begin with.
 	require.Equal(t, []string{"tmux", "has-session", "-t", WebCockpitSession}, fr.Calls[0].Argv)
-	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", WebCockpitSession, "-c", home, "-P", "-F", "#{pane_id}", detailPlaceholderCmd()}, fr.Calls[1].Argv)
+	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", WebCockpitSession, "-c", home, "-P", "-F", "#{pane_id}", agentPlaceholderCmd()}, fr.Calls[1].Argv)
 	require.False(t, argvSeen(fr, "tmux", "list-panes"), "absent cockpit needs no health probe")
 	require.False(t, argvSeen(fr, "tmux", "kill-session"), "absent cockpit needs no teardown")
 }
@@ -146,7 +146,7 @@ func TestCockpitHealthy(t *testing.T) {
 		want bool
 	}{
 		{"healthy", "11 warden\n01 zsh\n10 sleep\n", nil, true},
-		{"list pane is a shell", "11 zsh\n01 zsh\n10 sleep\n", nil, false},
+		{"control pane is a shell", "11 zsh\n01 zsh\n10 sleep\n", nil, false},
 		{"too few panes", "11 warden\n01 zsh\n", nil, false},
 		{"too many panes", "11 warden\n01 zsh\n10 sleep\n10 sleep\n", nil, false},
 		{"no top-left pane", "01 warden\n10 zsh\n10 sleep\n", nil, false},

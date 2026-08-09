@@ -23,17 +23,17 @@ func TestBuildCockpitSequence(t *testing.T) {
 	}
 
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
-	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+detailPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
+	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+agentPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
 	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+shell] = lifecycle.FakeResp{Out: "%1\n"}
-	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+listPaneCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
+	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+controlPaneCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
 
-	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", masterCwd: "/work"}
+	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", launchCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
 	require.Len(t, fr.Calls, 17, "unexpected number of tmux calls")
 
-	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", detailPlaceholderCmd()}, fr.Calls[0].Argv)
+	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", agentPlaceholderCmd()}, fr.Calls[0].Argv)
 	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", shell}, fr.Calls[1].Argv)
-	require.Equal(t, []string{"tmux", "split-window", "-v", "-b", "-l", "50%", "-t", "%1", "-c", "/work", "-P", "-F", "#{pane_id}", "/bin/warden tui --pane=list --detail-pane=%0"}, fr.Calls[2].Argv)
+	require.Equal(t, []string{"tmux", "split-window", "-v", "-b", "-l", "50%", "-t", "%1", "-c", "/work", "-P", "-F", "#{pane_id}", "/bin/warden tui --pane=control --agent-pane=%0"}, fr.Calls[2].Argv)
 	require.Equal(t, []string{"tmux", "set-option", "-p", "-t", "%0", "remain-on-exit", "on"}, fr.Calls[3].Argv)
 	require.Equal(t, []string{"tmux", "set-option", "-t", "S", "mouse", "on"}, fr.Calls[4].Argv)
 	// Permanent status-line reminder of the Shift-to-select trick (mouse drives tmux).
@@ -48,7 +48,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[11].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[12].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[13].Argv)
-	// M-t toggles the bottom-left master pane between Claude and a shell.
+	// M-t toggles the bottom-left terminal pane between Claude and a shell.
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-t", "run-shell", "-b", shellToggleScript("S", "%1", "/work")}, fr.Calls[14].Argv)
 	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[15].Argv)
 	// Return-to-dashboard binding for the full-screen attach path (`a`).
@@ -56,25 +56,25 @@ func TestBuildCockpitSequence(t *testing.T) {
 }
 
 func TestBuildCockpitReplMasterPane(t *testing.T) {
-	// The repl flavor runs `wd repl` in the master pane instead of $SHELL.
+	// The repl flavor runs `wd repl` in the terminal pane instead of $SHELL.
 	replCmd := "/bin/warden repl"
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
-	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+detailPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
+	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+agentPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
 	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+replCmd] = lifecycle.FakeResp{Out: "%1\n"}
-	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+listPaneCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
+	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+controlPaneCmd("/bin/warden", "%0")] = lifecycle.FakeResp{Out: "%2\n"}
 
-	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", masterCwd: "/work", useRepl: true}
+	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", launchCwd: "/work", useRepl: true}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
 	require.Equal(t, []string{"tmux", "split-window", "-h", "-b", "-l", "40%", "-t", "%0", "-c", "/work", "-P", "-F", "#{pane_id}", replCmd}, fr.Calls[1].Argv)
 }
 
 func TestMasterPaneCmd(t *testing.T) {
-	require.Equal(t, "/bin/warden repl", masterPaneCmd("/bin/warden", true))
+	require.Equal(t, "/bin/warden repl", terminalPaneCmd("/bin/warden", true))
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	require.Equal(t, shell, masterPaneCmd("/bin/warden", false))
+	require.Equal(t, shell, terminalPaneCmd("/bin/warden", false))
 }
 
 func TestCleanStaleCockpits(t *testing.T) {
@@ -104,13 +104,13 @@ func TestShellToggleScript(t *testing.T) {
 	// Exited shells are kept as [exited] then respawned, not orphaned.
 	require.Contains(t, s, "remain-on-exit on")
 	require.Contains(t, s, "respawn-pane")
-	// Swaps the shell with the master pane and focuses whatever lands in the slot.
+	// Swaps the shell with the terminal pane and focuses whatever lands in the slot.
 	require.Contains(t, s, `swap-pane -s "$sp" -t %1`)
 	require.Contains(t, s, "select-pane -t '{bottom-left}'")
 }
 
 func TestPaneCommandStrings(t *testing.T) {
-	require.Equal(t, "/bin/warden tui --pane=list --detail-pane=%0", listPaneCmd("/bin/warden", "%0"))
-	require.Contains(t, detailPlaceholderCmd(), "press Enter to open")
+	require.Equal(t, "/bin/warden tui --pane=control --agent-pane=%0", controlPaneCmd("/bin/warden", "%0"))
+	require.Contains(t, agentPlaceholderCmd(), "press Enter to open")
 	require.True(t, strings.Contains(shquote("a b"), "'a b'"))
 }

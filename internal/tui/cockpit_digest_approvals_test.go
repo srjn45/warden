@@ -41,10 +41,10 @@ func TestKeyDOnAgentFetchesDigestAndEntersDigestMode(t *testing.T) {
 	m := newListPane(f, "")
 	// Populate one agent and put the cursor on it.
 	mm, _ := m.Update(sessionsMsg{sessions: []*store.Session{{ID: "agent-1"}}})
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 
 	mm, cmd := m.Update(key("d"))
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if cmd == nil {
 		t.Fatal("pressing d produced no command")
 	}
@@ -57,7 +57,7 @@ func TestKeyDOnAgentFetchesDigestAndEntersDigestMode(t *testing.T) {
 		t.Fatalf("digestMsg did not carry the fetched digest: %+v", dm)
 	}
 	mm, _ = m.Update(dm)
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if m.mode != modeDigest {
 		t.Fatalf("expected modeDigest after digestMsg, got %v", m.mode)
 	}
@@ -99,7 +99,7 @@ func TestKeyPEntersApprovalsModeWhenPending(t *testing.T) {
 	m.apprEnabled = true
 	m.approvals = []approval.View{{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}}}
 	mm, _ := m.Update(key("p"))
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if m.mode != modeApprovals {
 		t.Fatalf("expected modeApprovals after p, got %v", m.mode)
 	}
@@ -109,7 +109,7 @@ func TestKeyPStatusWhenDisabled(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "")
 	m.apprEnabled = false
 	mm, _ := m.Update(key("p"))
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if m.mode != modeNormal {
 		t.Fatalf("p should not open the overlay when disabled, got %v", m.mode)
 	}
@@ -123,7 +123,7 @@ func TestKeyPStatusWhenEnabledButEmpty(t *testing.T) {
 	m.apprEnabled = true
 	m.approvals = nil
 	mm, _ := m.Update(key("p"))
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if m.mode != modeNormal {
 		t.Fatalf("p should not open an empty overlay, got %v", m.mode)
 	}
@@ -143,7 +143,7 @@ func TestDigitInApprovalsModeAnswersFocusedApproval(t *testing.T) {
 	}
 
 	mm, cmd := m.Update(key("1"))
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if cmd == nil {
 		t.Fatal("pressing 1 in approvals mode produced no command")
 	}
@@ -242,10 +242,10 @@ func TestKeyIOnAgentEntersDetailsMode(t *testing.T) {
 	mm, _ := m.Update(sessionsMsg{sessions: []*store.Session{
 		{ID: "agent-1", Status: store.StatusWorking, Subject: "doing the thing"},
 	}})
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 
 	mm, _ = m.Update(key("i"))
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if m.mode != modeDetails {
 		t.Fatalf("expected modeDetails after i on an agent, got %v", m.mode)
 	}
@@ -256,7 +256,7 @@ func TestKeyIOnAgentEntersDetailsMode(t *testing.T) {
 
 	// i again toggles back
 	mm, _ = m.Update(key("i"))
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if m.mode != modeNormal {
 		t.Fatalf("expected modeNormal after toggling i again, got %v", m.mode)
 	}
@@ -265,7 +265,7 @@ func TestKeyIOnAgentEntersDetailsMode(t *testing.T) {
 func TestKeyINoOpWhenNoAgentSelected(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "") // no sessions → cursor on nothing selectable
 	mm, _ := m.Update(key("i"))
-	m = mm.(listPaneModel)
+	m = mm.(controlPaneModel)
 	if m.mode != modeNormal {
 		t.Fatalf("i should be a no-op with no agent selected, got mode %v", m.mode)
 	}

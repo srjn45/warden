@@ -699,7 +699,7 @@ func TestJobBadge(t *testing.T) {
 	}
 }
 
-func pipeModel() listPaneModel {
+func pipeModel() controlPaneModel {
 	m := newListPane(&fakeAPI{}, "")
 	m.ready = true
 	m.pipelines = []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{
@@ -717,7 +717,7 @@ func TestKeyCancelPipeline(t *testing.T) {
 		t.Fatalf("x on a pipeline row should return a cancel cmd")
 	}
 	cmd() // runs the command (calls the fake api)
-	fa := updated.(listPaneModel).api.(*fakeAPI)
+	fa := updated.(controlPaneModel).api.(*fakeAPI)
 	if fa.canceled != "demo" {
 		t.Fatalf("want canceled=demo, got %q", fa.canceled)
 	}
@@ -732,7 +732,7 @@ func TestKeyPauseResumePipeline(t *testing.T) {
 		t.Fatalf("p on a running pipeline should return a pause cmd")
 	}
 	cmd()
-	fa := updated.(listPaneModel).api.(*fakeAPI)
+	fa := updated.(controlPaneModel).api.(*fakeAPI)
 	if fa.paused != "demo" {
 		t.Fatalf("want paused=demo, got %q", fa.paused)
 	}
@@ -746,7 +746,7 @@ func TestKeyPauseResumePipeline(t *testing.T) {
 		t.Fatalf("p on a paused pipeline should return a resume cmd")
 	}
 	cmd()
-	fa = updated.(listPaneModel).api.(*fakeAPI)
+	fa = updated.(controlPaneModel).api.(*fakeAPI)
 	if fa.resumed != "demo" {
 		t.Fatalf("want resumed=demo, got %q", fa.resumed)
 	}
@@ -788,7 +788,7 @@ func TestKeyInfoOnPipelineJob(t *testing.T) {
 	m := pipeModel()
 	m.cursor = 1 // job "a"
 	updated, _ := m.handleKey(key("i"))
-	um := updated.(listPaneModel)
+	um := updated.(controlPaneModel)
 	if um.mode != modeDetails {
 		t.Fatalf("i on a job row should open modeDetails, got %v", um.mode)
 	}
@@ -879,13 +879,13 @@ func TestKeyCollapseExpandPipeline(t *testing.T) {
 
 	// collapse with h
 	updated, _ := m.handleKey(key("h"))
-	mc := updated.(listPaneModel)
+	mc := updated.(controlPaneModel)
 	require.True(t, mc.collapsed["demo"], "h collapses the pipeline under the cursor")
 	require.Len(t, mc.items(), 1, "collapsed → only the header remains")
 
 	// expand with l
 	updated, _ = mc.handleKey(key("l"))
-	me := updated.(listPaneModel)
+	me := updated.(controlPaneModel)
 	require.False(t, me.collapsed["demo"], "l expands the pipeline under the cursor")
 	require.Len(t, me.items(), 3, "expanded → header + 2 jobs")
 }
@@ -895,7 +895,7 @@ func TestKeyCollapseFromJobRepinsCursorToHeader(t *testing.T) {
 	m.cursor = 1 // job "a" (a hidden row once collapsed)
 
 	updated, _ := m.handleKey(key("h"))
-	mc := updated.(listPaneModel)
+	mc := updated.(controlPaneModel)
 	require.True(t, mc.collapsed["demo"], "h on a job collapses its parent pipeline")
 	require.Equal(t, 0, mc.cursor, "cursor re-pinned to the header, never a hidden row")
 	require.NotNil(t, itemAt(mc.items(), mc.cursor).pipeline, "cursor lands on the pipeline header")
