@@ -368,9 +368,20 @@ stages at the end.
    registered (its removal is inseparable from the `/backends` contract, so it
    moves to stage 6 — see §3 sequencing note). No behavior change until a
    terminal-kind session actually exists (stage 4).
-3. **Control tree restructure** — four-section tree; Approvals as a section;
-   subagent render rule (§4.1); Terminals section + live naming (§7). (Depends
-   1–2.)
+3. **Control tree restructure** — four fixed, collapsible sections (Approvals ·
+   Pipelines · Agents · Terminals) as selectable header rows in `internal/tui`
+   (`list.go` section items + `noDirGroup`, `control_pane.go` `items()`/collapse/
+   Enter, the §4.1 cross-project render rule with a `↳ from <parent>` backlink,
+   Terminals split out of the Agents tree via `splitByKind`, and the §7
+   `terminalDisplayName` formatter). Approvals moves from an overlay to a section
+   that expands to one selectable row per prompt (Enter opens the overlay focused
+   there). A fresh cockpit auto-focuses the first entity rather than a header.
+   (Depends 1–2.) *Sequencing note (built 2026-08-09):* the §7 name **formatter**
+   and rendering land here, but the **live-poll wiring** (deriving cwd from tmux
+   `#{pane_current_path}` and branch via git on the refresh tick) belongs with the
+   first real terminal-kind session, which isn't created until stage 4 — there is
+   nothing to poll before then. Stage 3 renders terminal rows from the session's
+   stored `Workdir`/`Repo`/`Branch`; stage 4 attaches the live poll.
 4. **Panes & routing** — default terminal at startup; retire master/`M-t`/`--repl`
    TUI (§5); `--terminal-pane` + Enter routing + `openedAgent` tracking + `t`
    create/focus (§6). (Depends 1–3.)

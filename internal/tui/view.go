@@ -43,8 +43,9 @@ func pressureChip(p client.PressureStatus) string {
 func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
-		"  ←/→ or h/l   collapse / expand the pipeline or agent sub-tree under the cursor\n" +
-		"  enter        open the selected agent in the agent pane (stored detail if it has finished)\n" +
+		"  ←/→ or h/l   fold / unfold: a section header (Approvals·Pipelines·Agents·Terminals),\n" +
+		"               a pipeline, or an agent sub-tree — whatever is under the cursor\n" +
+		"  enter        open the selected agent in the agent pane (or toggle a section header's fold)\n" +
 		"  n            new agent (prompt)\n" +
 		"  o            open a directory as a group (spawn target for n)\n" +
 		"  s            send a message to the selected agent\n" +

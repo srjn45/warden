@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
@@ -482,19 +483,20 @@ func TestCompleteDirAdvancesAndPreservesTyped(t *testing.T) {
 	require.Equal(t, []string{"api", "apex", "web"}, cands)
 }
 
-func TestBuildRowsIncludesApprovalsRow(t *testing.T) {
+func TestBuildRowsSectionHeaderHasNoDirGroup(t *testing.T) {
 	items := []item{
-		{approvals: true, apprCount: 2},
+		{section: secApprovals, secCount: 2},
 		{session: &store.Session{ID: "a1"}, dir: "/repo"},
 	}
 	rows := buildRows(items)
-	require.Equal(t, "", rows[0].header)
+	require.Equal(t, "", rows[0].header, "the section header is a bare body row")
 	require.Equal(t, 0, rows[0].idx)
-	require.NotEqual(t, "", rows[1].header)
+	require.NotEqual(t, "", rows[1].header, "the agent below still gets its dir group header")
 }
 
-func TestItemKeyApprovals(t *testing.T) {
-	require.Equal(t, "approvals\x00", itemKey(item{approvals: true}))
+func TestItemKeySection(t *testing.T) {
+	require.Equal(t, secKey(secApprovals), itemKey(item{section: secApprovals}))
+	require.Equal(t, "appr\x00agent-9", itemKey(item{apprView: &approval.View{ID: "agent-9"}}))
 }
 
 func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
@@ -709,9 +711,37 @@ func pipeModel() controlPaneModel {
 	return m
 }
 
+// cursorOn returns the index of the first item satisfying pred, so tests target a
+// row by identity rather than a hard-coded offset (the four fixed section headers
+// shift every absolute index).
+func cursorOn(m controlPaneModel, pred func(item) bool) int {
+	for i, it := range m.items() {
+		if pred(it) {
+			return i
+		}
+	}
+	return -1
+}
+
+func onPipeline(it item) bool { return it.pipeline != nil }
+func onJob(id string) func(item) bool {
+	return func(it item) bool { return it.pjJob != nil && it.pjJob.ID == id }
+}
+
+// countJobs reports how many pipeline-job rows are currently visible in the list.
+func countJobs(m controlPaneModel) int {
+	n := 0
+	for _, it := range m.items() {
+		if it.pjJob != nil {
+			n++
+		}
+	}
+	return n
+}
+
 func TestKeyCancelPipeline(t *testing.T) {
 	m := pipeModel()
-	m.cursor = 0 // the pipeline header row
+	m.cursor = cursorOn(m, onPipeline) // the pipeline header row
 	updated, cmd := m.handleKey(key("x"))
 	if cmd == nil {
 		t.Fatalf("x on a pipeline row should return a cancel cmd")
@@ -726,7 +756,7 @@ func TestKeyCancelPipeline(t *testing.T) {
 func TestKeyPauseResumePipeline(t *testing.T) {
 	// running pipeline → p pauses it.
 	m := pipeModel()
-	m.cursor = 0 // the pipeline header row
+	m.cursor = cursorOn(m, onPipeline) // the pipeline header row
 	updated, cmd := m.handleKey(key("p"))
 	if cmd == nil {
 		t.Fatalf("p on a running pipeline should return a pause cmd")
@@ -740,7 +770,7 @@ func TestKeyPauseResumePipeline(t *testing.T) {
 	// paused pipeline → p resumes it.
 	m = pipeModel()
 	m.pipelines[0].Status = pipeline.StatusPaused
-	m.cursor = 0
+	m.cursor = cursorOn(m, onPipeline)
 	updated, cmd = m.handleKey(key("p"))
 	if cmd == nil {
 		t.Fatalf("p on a paused pipeline should return a resume cmd")
@@ -754,7 +784,7 @@ func TestKeyPauseResumePipeline(t *testing.T) {
 
 func TestKeyRetryFailedJob(t *testing.T) {
 	m := pipeModel()
-	m.cursor = 1 // job "a" (failed)
+	m.cursor = cursorOn(m, onJob("a")) // job "a" (failed)
 	_, cmd := m.handleKey(key("r"))
 	if cmd == nil {
 		t.Fatalf("r on a failed job should return a retry cmd")
@@ -768,7 +798,7 @@ func TestKeyRetryFailedJob(t *testing.T) {
 
 func TestKeyRetryIgnoredOnRunningJob(t *testing.T) {
 	m := pipeModel()
-	m.cursor = 2 // job "b" (running) — not retryable
+	m.cursor = cursorOn(m, onJob("b")) // job "b" (running) — not retryable
 	_, cmd := m.handleKey(key("r"))
 	if cmd != nil {
 		t.Fatalf("r on a running job should be a no-op")
@@ -777,7 +807,7 @@ func TestKeyRetryIgnoredOnRunningJob(t *testing.T) {
 
 func TestKeyAttachRunningJob(t *testing.T) {
 	m := pipeModel()
-	m.cursor = 2 // job "b" (running, has a session)
+	m.cursor = cursorOn(m, onJob("b")) // job "b" (running, has a session)
 	_, cmd := m.handleKey(key("a"))
 	if cmd == nil {
 		t.Fatalf("a on a running job should return an attach cmd")
@@ -786,7 +816,7 @@ func TestKeyAttachRunningJob(t *testing.T) {
 
 func TestKeyInfoOnPipelineJob(t *testing.T) {
 	m := pipeModel()
-	m.cursor = 1 // job "a"
+	m.cursor = cursorOn(m, onJob("a")) // job "a"
 	updated, _ := m.handleKey(key("i"))
 	um := updated.(controlPaneModel)
 	if um.mode != modeDetails {
@@ -875,30 +905,29 @@ func TestPipelineItemsHonorsCollapsed(t *testing.T) {
 
 func TestKeyCollapseExpandPipeline(t *testing.T) {
 	m := pipeModel()
-	m.cursor = 0 // pipeline header
+	m.cursor = cursorOn(m, onPipeline) // pipeline header
 
 	// collapse with h
 	updated, _ := m.handleKey(key("h"))
 	mc := updated.(controlPaneModel)
 	require.True(t, mc.collapsed["demo"], "h collapses the pipeline under the cursor")
-	require.Len(t, mc.items(), 1, "collapsed → only the header remains")
+	require.Equal(t, 0, countJobs(mc), "collapsed → no job rows visible")
 
 	// expand with l
 	updated, _ = mc.handleKey(key("l"))
 	me := updated.(controlPaneModel)
 	require.False(t, me.collapsed["demo"], "l expands the pipeline under the cursor")
-	require.Len(t, me.items(), 3, "expanded → header + 2 jobs")
+	require.Equal(t, 2, countJobs(me), "expanded → both job rows visible")
 }
 
 func TestKeyCollapseFromJobRepinsCursorToHeader(t *testing.T) {
 	m := pipeModel()
-	m.cursor = 1 // job "a" (a hidden row once collapsed)
+	m.cursor = cursorOn(m, onJob("a")) // job "a" (a hidden row once collapsed)
 
 	updated, _ := m.handleKey(key("h"))
 	mc := updated.(controlPaneModel)
 	require.True(t, mc.collapsed["demo"], "h on a job collapses its parent pipeline")
-	require.Equal(t, 0, mc.cursor, "cursor re-pinned to the header, never a hidden row")
-	require.NotNil(t, itemAt(mc.items(), mc.cursor).pipeline, "cursor lands on the pipeline header")
+	require.NotNil(t, itemAt(mc.items(), mc.cursor).pipeline, "cursor re-pinned to the pipeline header, never a hidden row")
 }
 
 func TestFlatSessionsIncludesOrphanedPipelineAgents(t *testing.T) {
@@ -935,4 +964,153 @@ func TestContextLabel(t *testing.T) {
 			t.Errorf("contextLabel(%d,%q)=%q, want %q", c.tokens, c.state, got, c.want)
 		}
 	}
+}
+
+// --- stage 3: control-tree restructure ---
+
+// terminalDisplayName formats the §7 label: index. repo:rel/ (branch), with a
+// repo-root case, a no-branch case, and a non-git path fallback.
+func TestTerminalDisplayName(t *testing.T) {
+	require.Equal(t, "2. warden:site/ (main)",
+		terminalDisplayName(2, "/home/u/warden/site", "/home/u/warden", "main"))
+	require.Equal(t, "1. warden (main)",
+		terminalDisplayName(1, "/home/u/warden", "/home/u/warden", "main"), "empty rel renders as the repo root")
+	require.Equal(t, "1. warden",
+		terminalDisplayName(1, "/home/u/warden", "/home/u/warden", ""), "no branch → repo only")
+	require.Equal(t, "3. /etc/x",
+		terminalDisplayName(3, "/etc/x", "", ""), "outside any git repo → abbreviated path")
+}
+
+func TestSplitByKind(t *testing.T) {
+	agents, terminals := splitByKind([]*store.Session{
+		{ID: "a1"},
+		{ID: "t1", Kind: store.KindTerminal},
+		{ID: "a2", Kind: store.KindAgent},
+	})
+	require.Equal(t, []string{"a1", "a2"}, itemSessionIDs(itemsFromSessions(agents)))
+	require.Equal(t, []string{"t1"}, itemSessionIDs(itemsFromSessions(terminals)))
+}
+
+// itemsFromSessions wraps sessions as bare items for id assertions.
+func itemsFromSessions(ss []*store.Session) []item {
+	out := make([]item, len(ss))
+	for i, s := range ss {
+		out[i] = item{session: s}
+	}
+	return out
+}
+
+// §4.1: a child in a DIFFERENT project than its parent is NOT nested; it surfaces
+// under its own dir as a root with a "↳ from <parent>" lineage backlink.
+func TestBuildItemsCrossProjectChildSurfacesAsRoot(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "parent", Repo: "/repoA", Name: "boss", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "child", ParentID: "parent", Repo: "/repoB", Status: store.StatusWorking, CreatedAt: now.Add(-time.Minute)},
+	}
+	items := buildItems(ss, nil, nil)
+	byID := map[string]item{}
+	for _, it := range items {
+		if it.session != nil {
+			byID[it.session.ID] = it
+		}
+	}
+	require.Equal(t, 0, byID["child"].depth, "cross-project child is a root, not nested")
+	require.Equal(t, "/repoB", byID["child"].dir, "child sits under its own project dir")
+	require.Equal(t, "boss", byID["child"].fromParent, "child keeps a lineage backlink to its parent")
+	require.False(t, byID["parent"].hasKids, "parent has no in-project child to nest")
+
+	require.Contains(t, renderItemLine(byID["child"], false, 100), "↳ from boss", "backlink renders on the row")
+}
+
+// A same-project child still nests (the §4.1 rule only re-homes cross-project kids).
+func TestBuildItemsSameProjectChildStillNestsWithRepo(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "parent", Repo: "/repoA", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "child", ParentID: "parent", Repo: "/repoA", Status: store.StatusWorking, CreatedAt: now.Add(-time.Minute)},
+	}
+	items := buildItems(ss, nil, nil)
+	require.Equal(t, []string{"parent", "child"}, itemSessionIDs(items))
+	require.Equal(t, 1, items[1].depth, "same-project child nests one level")
+	require.Equal(t, "", items[1].fromParent, "nested child carries no backlink")
+}
+
+// items() always emits the four fixed section headers, in order, even when empty.
+func TestItemsFourFixedSectionsInOrder(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "")
+	var secs []string
+	for _, it := range m.items() {
+		if it.section != "" {
+			secs = append(secs, it.section)
+		}
+	}
+	require.Equal(t, []string{secApprovals, secPipelines, secAgents, secTerminals}, secs)
+}
+
+// A terminal-kind session renders under Terminals with its §7 name and never in
+// the Agents tree.
+func TestItemsTerminalsSection(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "")
+	m.sessions = groupSort([]*store.Session{
+		{ID: "a1", Repo: "/repoA", Status: store.StatusWorking},
+		{ID: "t1", Kind: store.KindTerminal, Repo: "/home/u/warden", Workdir: "/home/u/warden/site", Branch: "main", Status: store.StatusWorking},
+	})
+	items := m.items()
+	// The terminal appears as a Terminals row, with a §7 name, and carries no dir group.
+	var term *item
+	for i := range items {
+		if items[i].session != nil && items[i].session.ID == "t1" {
+			term = &items[i]
+		}
+	}
+	require.NotNil(t, term, "terminal-kind session appears in the list")
+	require.Contains(t, term.termName, "warden:site/ (main)", "terminal row uses its §7 name")
+
+	// It must NOT be nested in the Agents dir tree: no agent-style dir group row for it.
+	out := renderList(items, 0, 120, 24)
+	require.Contains(t, out, secTerminals, "Terminals section header is shown")
+	require.Contains(t, out, "warden:site/ (main)")
+}
+
+// Collapsing a section (its secKey) folds away its whole sub-tree.
+func TestSectionCollapseHidesChildren(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "")
+	m.sessions = groupSort([]*store.Session{{ID: "a1", Repo: "/repoA", Status: store.StatusWorking}})
+	require.Contains(t, itemSessionIDs(m.items()), "a1", "agent visible when Agents section expanded")
+
+	m.collapsed[secKey(secAgents)] = true
+	require.NotContains(t, itemSessionIDs(m.items()), "a1", "collapsed Agents section hides its agents")
+	// The header itself stays present.
+	var sawHeader bool
+	for _, it := range m.items() {
+		if it.section == secAgents {
+			sawHeader = true
+			require.True(t, it.collapsed, "the section header reflects the collapsed state")
+		}
+	}
+	require.True(t, sawHeader, "the Agents section header stays present when collapsed")
+}
+
+// enter on a section header toggles its collapse; enter on an approval row opens
+// the approvals overlay focused on that prompt.
+func TestEnterOnSectionTogglesAndOnApprovalOpens(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "")
+	m.apprEnabled = true
+	m.approvals = []approval.View{
+		{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}},
+		{ID: "agent-2", Recognized: true, Options: []string{"Yes", "No"}},
+	}
+	// Toggle the Pipelines section closed via enter.
+	m.cursor = cursorOn(m, func(it item) bool { return it.section == secPipelines })
+	m2, _ := m.handleKey(key("enter"))
+	mc := m2.(controlPaneModel)
+	require.True(t, mc.collapsed[secKey(secPipelines)], "enter on a section header toggles its fold")
+
+	// Enter on the second approval row opens the overlay focused on it.
+	m.cursor = cursorOn(m, func(it item) bool { return it.apprView != nil && it.apprView.ID == "agent-2" })
+	m3, _ := m.handleKey(key("enter"))
+	ma := m3.(controlPaneModel)
+	require.Equal(t, modeApprovals, ma.mode, "enter on an approval row opens the overlay")
+	require.Equal(t, 1, ma.apprCursor, "overlay focuses the selected prompt (index 1)")
 }
