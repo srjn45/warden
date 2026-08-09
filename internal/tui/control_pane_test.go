@@ -196,10 +196,10 @@ func TestListPaneOpenDirAddsPlaceholder(t *testing.T) {
 	require.NotNil(t, cmd, "enter dispatches openDirCmd")
 	m = lstep(m, openDirMsg{dir: "/work/api"}) // the validated result
 	require.Equal(t, modeNormal, m.mode)
-	items := m.items()
-	require.Len(t, items, 1)
-	require.Nil(t, items[0].session)
-	require.Equal(t, "/work/api", items[0].dir)
+	// The opened dir adds a placeholder row under Agents (alongside the four
+	// always-present section headers).
+	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/api" })
+	require.GreaterOrEqual(t, idx, 0, "opening a dir adds its placeholder row")
 }
 
 func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
@@ -214,7 +214,7 @@ func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
 func TestListPaneCloseOpenedDirWithX(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9")
 	m.openedDirs["/work/empty"] = time.Now()
-	require.Len(t, m.items(), 1)
+	m.cursor = cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/empty" })
 	m = lstep(m, key("x")) // cursor is on the placeholder
 	require.Empty(t, m.openedDirs, "x on a placeholder closes the opened dir")
 	require.NotEqual(t, modeConfirmKill, m.mode, "no kill-confirm for a placeholder")
@@ -263,10 +263,10 @@ func TestListPanePipelinesAndCancel(t *testing.T) {
 		{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
 			Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobFailed, SessionID: "demo-a"}}},
 	}})
-	if itemAt(m.items(), 0).pipeline == nil {
-		t.Fatalf("cockpit list should show the pipeline header first")
+	m.cursor = cursorOn(m, onPipeline)
+	if itemAt(m.items(), m.cursor).pipeline == nil {
+		t.Fatalf("cockpit list should show the pipeline header under Pipelines")
 	}
-	m.cursor = 0
 	_, cmd := m.Update(key("x"))
 	if cmd == nil {
 		t.Fatalf("x on a pipeline row should return a cancel cmd")

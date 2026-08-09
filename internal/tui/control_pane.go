@@ -72,6 +72,11 @@ type controlPaneModel struct {
 	backendCursor  int                    // focused row in the Backends page
 	w, h           int
 	ready          bool
+	// focused becomes true once the cursor has landed on a real row. Until then
+	// (a freshly-loaded cockpit) the cursor auto-snaps to the first entity rather
+	// than sitting on the always-present Approvals section header — so opening the
+	// cockpit lands you on the first agent/pipeline, matching pre-sections UX.
+	focused bool
 	// killWindow scopes the `q`/`ctrl+c` teardown to the cockpit's tmux *window*
 	// instead of the whole session. It is set in the tmux-native cockpit, where
 	// the cockpit is a window inside the user's own session — killing the session
@@ -112,19 +117,47 @@ func newListPane(a api, agentPane string) controlPaneModel {
 	}
 }
 
+// items assembles the control-pane navigator as four fixed, collapsible
+// top-level sections (spec §4), in order: Approvals · Pipelines · Agents ·
+// Terminals. Each section header is always present; collapsing one (its secKey in
+// m.collapsed) folds away its whole sub-tree. Terminals are split out of the
+// Agents tree entirely (§3) and rendered with their §7 names.
 func (m controlPaneModel) items() []item {
-	var head []item
-	// A pinned approvals row appears at the top when prompts are waiting to be
-	// answered (recognized menus only — unrecognized ones must be attached to).
-	if m.apprEnabled {
-		if rec := recognizedApprovals(m.approvals); len(rec) > 0 {
-			head = append(head, item{approvals: true, apprCount: len(rec)})
+	agents, terminals := splitByKind(flatSessions(m.sessions, m.pipelines))
+	var out []item
+
+	// ── Approvals: recognized menus only; unrecognized prompts must be attached to.
+	rec := recognizedApprovals(m.approvals)
+	apprCollapsed := m.collapsed[secKey(secApprovals)]
+	out = append(out, item{section: secApprovals, secCount: len(rec), collapsed: apprCollapsed})
+	if m.apprEnabled && !apprCollapsed {
+		for i := range rec {
+			v := rec[i] // fresh var → distinct pointer per row
+			out = append(out, item{apprView: &v, apprIdx: i})
 		}
 	}
-	// Pipeline-owned sessions are shown under their pipeline, not the flat list —
-	// except orphans whose pipeline was deleted, which fall back to the flat list.
-	head = append(head, pipelineItems(m.pipelines, m.sessions, m.collapsed)...)
-	return append(head, buildItems(flatSessions(m.sessions, m.pipelines), m.openedDirs, m.collapsed)...)
+
+	// ── Pipelines: pipeline-owned sessions live here, under their pipeline.
+	pipeCollapsed := m.collapsed[secKey(secPipelines)]
+	out = append(out, item{section: secPipelines, secCount: len(m.pipelines), collapsed: pipeCollapsed})
+	if !pipeCollapsed {
+		out = append(out, pipelineItems(m.pipelines, m.sessions, m.collapsed)...)
+	}
+
+	// ── Agents: dir-grouped, subagents nested per the §4.1 render rule.
+	agentCollapsed := m.collapsed[secKey(secAgents)]
+	out = append(out, item{section: secAgents, secCount: len(agents), collapsed: agentCollapsed})
+	if !agentCollapsed {
+		out = append(out, buildItems(agents, m.openedDirs, m.collapsed)...)
+	}
+
+	// ── Terminals: plain shells, named per §7 (empty until terminal creation lands).
+	termCollapsed := m.collapsed[secKey(secTerminals)]
+	out = append(out, item{section: secTerminals, secCount: len(terminals), collapsed: termCollapsed})
+	if !termCollapsed {
+		out = append(out, terminalItems(terminals)...)
+	}
+	return out
 }
 
 func (m controlPaneModel) selected() *store.Session { return itemAt(m.items(), m.cursor).session }
@@ -136,7 +169,15 @@ func (m controlPaneModel) selectedID() string {
 	return ""
 }
 
-func (m controlPaneModel) selectedKey() string { return itemKey(itemAt(m.items(), m.cursor)) }
+// selectedKey is the cursor's re-pin anchor across refreshes. It reports "" while
+// the cockpit is unfocused so repin auto-snaps to the first entity on first load
+// (rather than pinning the always-present Approvals header).
+func (m controlPaneModel) selectedKey() string {
+	if !m.focused {
+		return ""
+	}
+	return itemKey(itemAt(m.items(), m.cursor))
+}
 
 // backendRow returns the backend under the Backends-page cursor, or false when the
 // registry is empty / the cursor is out of range.
@@ -408,11 +449,22 @@ func (m *controlPaneModel) repin(prevKey string) {
 		for i, it := range items {
 			if itemKey(it) == want {
 				m.cursor = i
+				m.focused = true
 				if want == m.pendingSelect {
 					m.pendingSelect = ""
 				}
 				return
 			}
+		}
+	}
+	// Unfocused (fresh cockpit): snap to the first real entity, skipping the
+	// always-present section headers, so the cursor opens on the first agent /
+	// pipeline / approval rather than the Approvals header.
+	if !m.focused {
+		if idx := firstEntityCursor(items); idx >= 0 {
+			m.cursor = idx
+			m.focused = true
+			return
 		}
 	}
 	if m.cursor >= len(items) {
@@ -421,6 +473,18 @@ func (m *controlPaneModel) repin(prevKey string) {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+}
+
+// firstEntityCursor returns the index of the first non-section row (an approval,
+// pipeline, agent, terminal, or dir placeholder), or -1 when the list holds only
+// section headers.
+func firstEntityCursor(items []item) int {
+	for i, it := range items {
+		if it.section == "" {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -826,15 +890,24 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vp.GotoTop() // a freshly opened inspector starts at the top
 		return m, tea.Batch(contextCmd(m.api), messagesCmd(m.api))
 	case "enter":
-		if itemAt(m.items(), m.cursor).approvals {
-			if len(recognizedApprovals(m.approvals)) > 0 {
+		it := itemAt(m.items(), m.cursor)
+		if it.section != "" {
+			// A section header toggles its own collapse; re-pin so the cursor rides
+			// the header rather than a row that just appeared/vanished beneath it.
+			key := secKey(it.section)
+			m.collapsed[key] = !m.collapsed[key]
+			m.repin(key)
+			return m, nil
+		}
+		if it.apprView != nil {
+			if m.apprEnabled && len(recognizedApprovals(m.approvals)) > 0 {
 				m.mode = modeApprovals
-				m.apprCursor = 0
+				m.apprCursor = it.apprIdx // open the overlay focused on this prompt
 			}
 			return m, nil
 		}
 		if m.agentPane != "" {
-			attach, jobPipe, jobID, agentDetail := cockpitDetailCmd(itemAt(m.items(), m.cursor))
+			attach, jobPipe, jobID, agentDetail := cockpitDetailCmd(it)
 			switch {
 			case attach != "":
 				return m, openInDetailCmd(m.agentPane, attach)
@@ -849,16 +922,20 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "down", "j":
+		m.focused = true
 		if m.cursor < len(m.items())-1 {
 			m.cursor++
 		}
 	case "up", "k":
+		m.focused = true
 		if m.cursor > 0 {
 			m.cursor--
 		}
 	case "right", "l":
 		it := itemAt(m.items(), m.cursor)
 		switch {
+		case it.section != "":
+			m.collapsed[secKey(it.section)] = false
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = false
 		case it.session != nil && it.hasKids:
@@ -867,6 +944,11 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "left", "h":
 		it := itemAt(m.items(), m.cursor)
 		switch {
+		case it.section != "":
+			// Fold the whole section away; re-pin to its header so the cursor never
+			// lands on a now-hidden child.
+			m.collapsed[secKey(it.section)] = true
+			m.repin(secKey(it.section))
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = true
 		case it.pjJob != nil:
@@ -1048,8 +1130,7 @@ func (m controlPaneModel) View() string {
 		}
 		return header + "\n" + body + "\n" + footer
 	}
-	title := fmt.Sprintf("Agents (%d)", len(m.sessions))
-	body := titleBox(title, renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
+	body := titleBox("Control", renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -158,26 +157,48 @@ func flatSessions(sessions []*store.Session, pipelines []*pipeline.Pipeline) []*
 	return out
 }
 
+// The four fixed top-level sections of the control-pane navigator, in render
+// order (spec §4). Every cockpit list opens with these four headers, each of
+// which the user can collapse to fold its whole sub-tree away.
+const (
+	secApprovals = "Approvals"
+	secPipelines = "Pipelines"
+	secAgents    = "Agents"
+	secTerminals = "Terminals"
+)
+
+// secKey is the collapse-map / cursor-pin identity for a top-level section
+// header. The NUL separator keeps it distinct from any pipeline/agent id.
+func secKey(name string) string { return "sec\x00" + name }
+
 // item is one navigable row: a real agent (session != nil) or a placeholder for
 // an opened directory that currently has no agents (session == nil). dir is the
-// group directory and is always set.
+// group directory and is always set. A terminal-kind session (session.IsTerminal)
+// renders under the Terminals section with its §7 display name in termName.
 type item struct {
-	session   *store.Session
-	dir       string
-	approvals bool // synthetic top-of-list inbox row
-	apprCount int  // number of waiting agents (inbox row only)
+	session *store.Session
+	dir     string
+
+	section  string // non-empty ⇒ a top-level section header row (secApprovals…)
+	secCount int    // count badge shown on a section header
+
+	apprView *approval.View // an individual pending-approval row (Approvals section)
+	apprIdx  int            // its index into recognizedApprovals (for modeApprovals focus)
+
+	termName string // §7 display name for a Terminals-section row
 
 	pipeline  *pipeline.Pipeline // pipeline header row
-	collapsed bool               // pipeline/agent header row: children hidden (▸ vs ▾)
+	collapsed bool               // pipeline/agent/section header row: children hidden (▸ vs ▾)
 	pjPipe    string             // pipelineJob row: owning pipeline id
 	pjJob     *pipeline.Job      // pipelineJob row: the job
 	pjSess    *store.Session     // pipelineJob row: linked live session (nil if none/terminal)
 
 	// agent sub-tree rows (agent sub-tree grouping)
-	depth       int  // nesting level under the root agent (0 = root)
-	hasKids     bool // has ≥1 child agent → collapsible header (▸/▾)
-	tombstone   bool // terminal parent: render header-only, no live badge/gauge
-	runningKids int  // live descendants under a tombstone (the "N running" badge)
+	depth       int    // nesting level under the root agent (0 = root)
+	hasKids     bool   // has ≥1 child agent → collapsible header (▸/▾)
+	tombstone   bool   // terminal parent: render header-only, no live badge/gauge
+	runningKids int    // live descendants under a tombstone (the "N running" badge)
+	fromParent  string // §4.1 cross-project child surfaced as a root: "↳ from <parent>" backlink
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't
@@ -186,8 +207,11 @@ func dirKey(dir string) string { return "dir\x00" + dir }
 
 // itemKey is the stable identity used to re-pin the cursor across refreshes.
 func itemKey(it item) string {
-	if it.approvals {
-		return "approvals\x00"
+	if it.section != "" {
+		return secKey(it.section)
+	}
+	if it.apprView != nil {
+		return "appr\x00" + it.apprView.ID
 	}
 	if it.pipeline != nil {
 		return "pipe\x00" + it.pipeline.ID
@@ -199,6 +223,15 @@ func itemKey(it item) string {
 		return it.session.ID
 	}
 	return dirKey(it.dir)
+}
+
+// noDirGroup reports whether a row must render bare, never under a dir-group
+// header: the section headers, approval rows, pipeline rows, and terminal rows
+// all live outside the Agents dir grouping. Only Agents-section agent rows carry
+// a dir group.
+func (it item) noDirGroup() bool {
+	return it.section != "" || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
+		(it.session != nil && it.session.IsTerminal())
 }
 
 // liveStatus reports whether an agent status is non-terminal — still running or
@@ -230,14 +263,23 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 	for _, s := range sessions {
 		byID[s.ID] = s
 	}
+	// §4.1 render rule: a child nests under its parent only when they share a
+	// project (same sourceDir — warden gives each agent its own worktree, so
+	// "same dir" means same project root). A cross-project child surfaces under
+	// ITS OWN dir as a normal root, keeping a "↳ from <parent>" lineage backlink,
+	// so the dir grouping stays truthful and cross-dir work isn't force-nested.
 	childrenByParent := map[string][]*store.Session{}
+	crossParent := map[string]string{} // childID → parent label for surfaced-as-root children
 	var roots []*store.Session
 	for _, s := range sessions {
-		if s.ParentID != "" && byID[s.ParentID] != nil {
-			childrenByParent[s.ParentID] = append(childrenByParent[s.ParentID], s)
-		} else {
-			roots = append(roots, s)
+		if parent := byID[s.ParentID]; s.ParentID != "" && parent != nil {
+			if sourceDir(s) == sourceDir(parent) {
+				childrenByParent[s.ParentID] = append(childrenByParent[s.ParentID], s)
+				continue
+			}
+			crossParent[s.ID] = parentLabel(parent) // cross-project → root with backlink
 		}
+		roots = append(roots, s)
 	}
 
 	type grp struct {
@@ -283,10 +325,78 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 			continue
 		}
 		for _, s := range rs {
-			items = appendSubtree(items, s, dir, 0, childrenByParent, collapsed, seen)
+			items = appendSubtree(items, s, dir, 0, childrenByParent, crossParent, collapsed, seen)
 		}
 	}
 	return items
+}
+
+// parentLabel is the lineage backlink text for a §4.1 cross-project child: the
+// parent's name when set, else its id.
+func parentLabel(p *store.Session) string {
+	if p.Name != "" {
+		return p.Name
+	}
+	return p.ID
+}
+
+// splitByKind partitions sessions into agents and terminals (spec §3). Terminals
+// leave the Agents tree entirely — they render only under the Terminals section —
+// so the agents slice feeds pipelineItems/buildItems and terminals feeds
+// terminalItems.
+func splitByKind(sessions []*store.Session) (agents, terminals []*store.Session) {
+	for _, s := range sessions {
+		if s.IsTerminal() {
+			terminals = append(terminals, s)
+		} else {
+			agents = append(agents, s)
+		}
+	}
+	return agents, terminals
+}
+
+// terminalItems renders the Terminals section (spec §7). Terminals are sorted by
+// CreatedAt so their 1-based ordinal is stable within a cockpit session, and each
+// row carries its formatted display name. (Live cwd/branch polling of the running
+// pane is wired in with terminal creation — stage 4; here the name derives from
+// the session's stored Workdir/Repo/Branch.)
+func terminalItems(terminals []*store.Session) []item {
+	sorted := make([]*store.Session, len(terminals))
+	copy(sorted, terminals)
+	sort.SliceStable(sorted, func(a, b int) bool { return sorted[a].CreatedAt.Before(sorted[b].CreatedAt) })
+	out := make([]item, 0, len(sorted))
+	for i, t := range sorted {
+		out = append(out, item{session: t, termName: terminalDisplayName(i+1, terminalCwd(t), t.Repo, t.Branch)})
+	}
+	return out
+}
+
+// terminalCwd is the terminal's working directory for naming: its Workdir, else
+// its Repo.
+func terminalCwd(t *store.Session) string {
+	if t.Workdir != "" {
+		return t.Workdir
+	}
+	return t.Repo
+}
+
+// terminalDisplayName formats a terminal's Terminals-section label per spec §7:
+// "<index>. <repo>:<rel>/ (<branch>)" — e.g. "2. warden:site/ (main)". An empty
+// rel renders as the repo root (just "<repo>"). Outside any git repo it falls
+// back to "<index>. <home-abbreviated path>". All git/cwd resolution is done by
+// the caller and passed in, keeping this pure and testable.
+func terminalDisplayName(index int, cwd, repoRoot, branch string) string {
+	if repoRoot == "" {
+		return fmt.Sprintf("%d. %s", index, abbrevHome(cwd))
+	}
+	label := filepath.Base(repoRoot)
+	if rel, err := filepath.Rel(repoRoot, cwd); err == nil && rel != "." && rel != "" {
+		label += ":" + rel + "/"
+	}
+	if branch != "" {
+		label += " (" + branch + ")"
+	}
+	return fmt.Sprintf("%d. %s", index, label)
 }
 
 // appendSubtree emits s then, unless it is collapsed, its descendants in DFS
@@ -294,14 +404,14 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 // header (▸/▾); a terminal (non-live) parent is a tombstone — header-only, no
 // live badge/gauge — carrying the count of live descendants still under it. seen
 // guards against a malformed parent cycle.
-func appendSubtree(items []item, s *store.Session, dir string, depth int, childrenByParent map[string][]*store.Session, collapsed, seen map[string]bool) []item {
+func appendSubtree(items []item, s *store.Session, dir string, depth int, childrenByParent map[string][]*store.Session, crossParent map[string]string, collapsed, seen map[string]bool) []item {
 	if seen[s.ID] {
 		return items
 	}
 	seen[s.ID] = true
 
 	kids := childrenByParent[s.ID]
-	it := item{session: s, dir: dir, depth: depth, hasKids: len(kids) > 0}
+	it := item{session: s, dir: dir, depth: depth, hasKids: len(kids) > 0, fromParent: crossParent[s.ID]}
 	if it.hasKids {
 		it.collapsed = collapsed[s.ID]
 		if !liveStatus(s.Status) {
@@ -312,7 +422,7 @@ func appendSubtree(items []item, s *store.Session, dir string, depth int, childr
 	items = append(items, it)
 	if it.hasKids && !it.collapsed {
 		for _, c := range kids {
-			items = appendSubtree(items, c, dir, depth+1, childrenByParent, collapsed, seen)
+			items = appendSubtree(items, c, dir, depth+1, childrenByParent, crossParent, collapsed, seen)
 		}
 	}
 	return items
@@ -373,16 +483,16 @@ func buildRows(items []item) []listRow {
 	prev := ""
 	started := false
 	for i := range items {
-		// Pinned/synthetic rows (approvals, pipeline header, pipeline job) have no
+		// Section headers, approval rows, pipeline rows, and terminal rows have no
 		// dir group — emit them bare, never under a dir header.
-		if items[i].approvals || items[i].pipeline != nil || items[i].pjJob != nil {
+		if items[i].noDirGroup() {
 			rows = append(rows, listRow{idx: i})
 			continue
 		}
 		dir := items[i].dir
 		if !started || dir != prev {
 			count := 0
-			for j := i; j < len(items) && !items[j].approvals && items[j].pipeline == nil && items[j].pjJob == nil && items[j].dir == dir; j++ {
+			for j := i; j < len(items) && !items[j].noDirGroup() && items[j].dir == dir; j++ {
 				if items[j].session != nil {
 					count++
 				}
@@ -603,13 +713,23 @@ func treePrefix(it item) string {
 func renderItemLine(it item, selected bool, width int) string {
 	var line string
 	switch {
-	case it.approvals:
-		txt := "⏳ Approvals (" + strconv.Itoa(it.apprCount) + ")"
-		if it.apprCount == 0 {
-			line = stMuted.Render(txt)
-		} else {
-			line = stStatus.Render(txt)
+	case it.section != "":
+		line = renderSectionHeader(it)
+	case it.apprView != nil:
+		v := it.apprView
+		q := v.Question
+		if q == "" {
+			q = "(prompt — attach to answer)"
 		}
+		line = "  " + stStatus.Render("⏳ ") + fmt.Sprintf("%-14s ", trunc(v.ID, 14)) + stMuted.Render(trunc(q, 44))
+	case it.session != nil && it.session.IsTerminal():
+		// A Terminals-section row: the §7 name, with a live glyph. Terminals carry no
+		// AI status badge/gauge — they are plain shells.
+		glyph, gst := "○", stMuted
+		if liveStatus(it.session.Status) {
+			glyph, gst = "▪", stRunning
+		}
+		line = "  " + gst.Render(glyph) + " " + it.termName
 	case it.pipeline != nil:
 		exp := "▾" // expanded
 		if it.collapsed {
@@ -690,15 +810,41 @@ func renderItemLine(it item, selected bool, width int) string {
 			nameStr, s.ID, st.Render(label),
 			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt),
 			stMuted.Render(fmt.Sprintf("%-7s", trunc(backendOr(s), 7))), branchInfo)
+		// §4.1: a cross-project child surfaced under its own dir keeps a lineage
+		// backlink so the orchestration is still visible without cross-dir nesting.
+		if it.fromParent != "" {
+			line += stMuted.Render("  ↳ from " + trunc(it.fromParent, 16))
+		}
 	}
 	cur := "  "
 	if selected {
 		cur = stCursor.Render("› ")
-		if it.session != nil || it.approvals || it.pipeline != nil || it.pjJob != nil {
+		if it.session != nil || it.section != "" || it.apprView != nil || it.pipeline != nil || it.pjJob != nil {
 			line = stCursor.Render(line)
 		}
 	}
 	return cur + line
+}
+
+// renderSectionHeader renders one of the four fixed top-level section headers
+// (spec §4): a collapse glyph, the section name, and a count badge. The Approvals
+// header turns amber when prompts are actually waiting; the rest stay bold.
+func renderSectionHeader(it item) string {
+	glyph := "▾"
+	if it.collapsed {
+		glyph = "▸"
+	}
+	var suffix string
+	if it.section == secApprovals {
+		suffix = fmt.Sprintf(" (%d pending)", it.secCount)
+	} else {
+		suffix = fmt.Sprintf(" (%d)", it.secCount)
+	}
+	label := glyph + " " + it.section + suffix
+	if it.section == secApprovals && it.secCount > 0 {
+		return stStatus.Render(label)
+	}
+	return stHeader.Render(label)
 }
 
 // recognizedApprovals returns the subset of views that are answerable menus
