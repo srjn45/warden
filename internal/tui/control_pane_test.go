@@ -19,7 +19,7 @@ func lstep(m controlPaneModel, msg tea.Msg) controlPaneModel {
 
 func TestListPaneGroupsBySourceDir(t *testing.T) {
 	now := time.Now()
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{
 		{ID: "b1", Workdir: "/b", UpdatedAt: now.Add(-1 * time.Minute)},
 		{ID: "a1", Workdir: "/a", UpdatedAt: now.Add(-2 * time.Minute)},
@@ -31,7 +31,7 @@ func TestListPaneGroupsBySourceDir(t *testing.T) {
 
 func TestListPaneNewAgentNameFieldFlowsToSpawn(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, key("n"))
 	require.Equal(t, modeNewAgent, m.mode)
 	// ctrl+n focuses the name field; type a name, then enter returns to the prompt.
@@ -50,7 +50,7 @@ func TestListPaneNewAgentNameFieldFlowsToSpawn(t *testing.T) {
 
 func TestListPaneNewAgentRoleFieldFlowsToSpawn(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, key("n"))
 	require.Equal(t, modeNewAgent, m.mode)
 	require.Equal(t, "", m.selectedRole(), "fresh form defaults to general (empty role)")
@@ -73,7 +73,7 @@ func TestListPaneNewAgentRoleFieldFlowsToSpawn(t *testing.T) {
 
 func TestListPaneNewAgentDefaultsToGeneralRole(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, key("n"))
 	// Submit without touching the role picker: role stays empty (general).
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
@@ -85,7 +85,7 @@ func TestListPaneNewAgentDefaultsToGeneralRole(t *testing.T) {
 
 func TestListPaneRenameFromDetails(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Name: "old", Workdir: "/w"}}})
 	m = lstep(m, key("i")) // open details
 	require.Equal(t, modeDetails, m.mode)
@@ -106,7 +106,7 @@ func TestListPaneRenameFromDetails(t *testing.T) {
 
 func TestListPaneRenameEscCancels(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Name: "old", Workdir: "/w"}}})
 	m = lstep(m, key("i"))
 	m = lstep(m, key("r"))
@@ -118,7 +118,7 @@ func TestListPaneRenameEscCancels(t *testing.T) {
 
 func TestListPaneDeletePipelineConfirmsThenDeletes(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, pipelinesMsg{pipelines: donePipeline()})
 	require.NotNil(t, itemAt(m.items(), m.cursor).pipeline)
 	m = lstep(m, key("D"))
@@ -131,7 +131,7 @@ func TestListPaneDeletePipelineConfirmsThenDeletes(t *testing.T) {
 
 func TestListPaneDeletePipelineRefusedWhenLive(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{
 		{ID: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}},
 	}})
@@ -142,7 +142,7 @@ func TestListPaneDeletePipelineRefusedWhenLive(t *testing.T) {
 }
 
 func TestListPaneSpawnModal(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, key("n"))
 	require.Equal(t, modeNewAgent, m.mode)
 	m = lstep(m, key("esc"))
@@ -151,7 +151,7 @@ func TestListPaneSpawnModal(t *testing.T) {
 
 func TestListPaneEmptyPromptSpawnsInteractive(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, key("n"))
 	require.Equal(t, modeNewAgent, m.mode)
 	// Submit immediately, without typing a prompt — the cockpit's own Ctrl+S
@@ -164,7 +164,7 @@ func TestListPaneEmptyPromptSpawnsInteractive(t *testing.T) {
 }
 
 func TestListPaneEnterOpensDetail(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a", TmuxSession: "a"}}})
 	_, cmd := m.Update(key("enter"))
 	require.NotNil(t, cmd, "Enter on a selected agent opens it in the agent pane")
@@ -175,20 +175,20 @@ func TestListPaneQuitReturnsCommand(t *testing.T) {
 	// daemon notices the session vanish and tells the browser to leave). It returns
 	// a non-nil cmd (killCockpit+quit sequence), deliberately NOT executed here —
 	// running it would `tmux kill-session` and kill the developer's own session.
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	_, cmd := m.Update(key("q"))
 	require.NotNil(t, cmd, "q quits the cockpit")
 }
 
 func TestListPaneEnterNoopWithoutSelection(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	_, cmd := m.Update(key("enter")) // no sessions loaded
 	require.Nil(t, cmd, "Enter with no selection does nothing")
 }
 
 func TestListPaneOpenDirAddsPlaceholder(t *testing.T) {
 	f := &fakeAPI{dirListing: client.DirListing{Path: "/work/api"}}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, key("o"))
 	require.Equal(t, modeOpenDir, m.mode)
 	m.tp.SetValue("/work/api")
@@ -204,7 +204,7 @@ func TestListPaneOpenDirAddsPlaceholder(t *testing.T) {
 
 func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
 	now := time.Now()
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/work/api", UpdatedAt: now}}})
 	m = lstep(m, key("n"))
 	require.Equal(t, modeNewAgent, m.mode)
@@ -212,7 +212,7 @@ func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
 }
 
 func TestListPaneCloseOpenedDirWithX(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m.openedDirs["/work/empty"] = time.Now()
 	m.cursor = cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/empty" })
 	m = lstep(m, key("x")) // cursor is on the placeholder
@@ -221,7 +221,7 @@ func TestListPaneCloseOpenedDirWithX(t *testing.T) {
 }
 
 func TestListPaneXOnAgentStillConfirms(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/work/api"}}})
 	m = lstep(m, key("x"))
 	require.Equal(t, modeConfirmKill, m.mode)
@@ -234,7 +234,7 @@ func TestRespawnDetailArgs(t *testing.T) {
 }
 
 func TestListPaneCollapsesCompletedPipelinesByDefault(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{
 		{ID: "done1", Status: pipeline.StatusDone, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
 		{ID: "cancel1", Status: pipeline.StatusCanceled, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
@@ -246,7 +246,7 @@ func TestListPaneCollapsesCompletedPipelinesByDefault(t *testing.T) {
 }
 
 func TestListPaneRespectsManualExpandAcrossRefresh(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	pipes := []*pipeline.Pipeline{
 		{ID: "done1", Status: pipeline.StatusDone, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
 	}
@@ -258,7 +258,7 @@ func TestListPaneRespectsManualExpandAcrossRefresh(t *testing.T) {
 }
 
 func TestListPanePipelinesAndCancel(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{
 		{ID: "demo", Name: "demo", Status: pipeline.StatusRunning,
 			Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobFailed, SessionID: "demo-a"}}},
@@ -352,7 +352,7 @@ func parentWithChild() []*store.Session {
 }
 
 func TestListPaneCollapseAgentHeaderHidesSubtree(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = lstep(m, sessionsMsg{sessions: parentWithChild()})
 	require.Equal(t, []string{"p1", "c1"}, itemSessionIDs(m.items()), "child nests under parent")
@@ -365,7 +365,7 @@ func TestListPaneCollapseAgentHeaderHidesSubtree(t *testing.T) {
 }
 
 func TestListPaneExpandAgentHeaderShowsSubtree(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = lstep(m, sessionsMsg{sessions: parentWithChild()})
 	m = lstep(m, key("h"))
@@ -380,7 +380,7 @@ func TestListPaneExpandAgentHeaderShowsSubtree(t *testing.T) {
 // sits on a child row when its parent collapses: it must re-pin to the surviving
 // header rather than dangling on a now-hidden row.
 func TestListPaneCollapseAgentRepinsCursorOffChild(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9")
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = lstep(m, sessionsMsg{sessions: parentWithChild()})
 	m = lstep(m, key("down")) // move onto the child
@@ -399,7 +399,7 @@ func TestListPaneInspectorTogglesAndFetches(t *testing.T) {
 		ctxEntries: []client.ContextEntry{{Key: "global.k", Value: "v"}},
 		messages:   []client.Message{{From: "a", To: "b", Body: "hi"}},
 	}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// `c` opens the inspector and fires the read-only fetch commands.
@@ -430,7 +430,7 @@ func TestListPaneInspectorScrollAndRefreshPreservesOffset(t *testing.T) {
 		entries = append(entries, client.ContextEntry{Key: fmt.Sprintf("global.k%02d", i), Value: "v"})
 	}
 	f := &fakeAPI{ctxEntries: entries}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Open the inspector and load the (large) context snapshot.
@@ -466,7 +466,7 @@ func TestListPaneInspectorScrollAndRefreshPreservesOffset(t *testing.T) {
 
 func TestListPaneInspectorTickRefreshesOnlyWhenOpen(t *testing.T) {
 	f := &fakeAPI{}
-	m := newListPane(f, "%9")
+	m := newListPane(f, "%9", "")
 
 	// A tick in normal mode must not fetch context/messages.
 	_, cmd := m.Update(tickMsg(time.Now()))

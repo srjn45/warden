@@ -804,6 +804,30 @@ func TestSpawnInRepoRecordsRepoWorkdir(t *testing.T) {
 	require.Equal(t, "/repo", s.Workdir, "in-repo agent runs in repo")
 }
 
+// A spawn with the `terminal` backend is classified Kind=terminal so every
+// AI-centric surface excludes it and the cockpit renders it under Terminals
+// (stage 4 bridge; stage 6 replaces this with an explicit kind field).
+func TestSpawnTerminalBackendSetsKindTerminal(t *testing.T) {
+	fr := &FakeRunner{}
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Cwd: "/work/project", Backend: "terminal"})
+	require.NoError(t, err)
+	require.Equal(t, store.KindTerminal, s.Kind, "terminal backend ⇒ Kind=terminal")
+	require.True(t, s.IsTerminal())
+	require.Equal(t, "/work/project", s.Workdir, "terminal launches in the caller cwd")
+}
+
+// A normal (non-terminal) spawn keeps Kind empty — empty ⇒ agent, so no existing
+// session record needs migrating.
+func TestSpawnAgentLeavesKindEmpty(t *testing.T) {
+	fr := &FakeRunner{}
+	l := New(fr, &FakeConfig{})
+	l.PromptsDir = "/state/prompts"
+	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "do x", Cwd: "/work/p"})
+	require.NoError(t, err)
+	require.Equal(t, store.SessionKind(""), s.Kind, "agents keep Kind empty (no migration)")
+	require.False(t, s.IsTerminal())
+}
+
 func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	fr := &FakeRunner{}
 	prompt := "research how SSE reconnection works"

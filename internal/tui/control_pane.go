@@ -30,6 +30,7 @@ import (
 type controlPaneModel struct {
 	api            api
 	agentPane      string // tmux pane id of the agent pane this list drives
+	terminalPane   string // tmux pane id of the terminal pane this list drives ("" in tmux-native, which has no terminal pane)
 	sessions       []*store.Session
 	cursor         int
 	ta             textarea.Model
@@ -77,6 +78,22 @@ type controlPaneModel struct {
 	// than sitting on the always-present Approvals section header — so opening the
 	// cockpit lands you on the first agent/pipeline, matching pre-sections UX.
 	focused bool
+	// defaultTerminalReady guards the startup "ensure ≥1 terminal" step so it runs
+	// once: on the first session list we either adopt an existing live terminal
+	// into the terminal pane or spawn a default one in the launch cwd (§5).
+	defaultTerminalReady bool
+	// openedAgentDir is the source dir of the agent last opened into the agent pane.
+	// `t` opens a terminal there (§6.1); empty ⇒ fall back to $HOME.
+	openedAgentDir string
+	// openedTerminal is the id of the terminal currently shown in the terminal pane
+	// (anchors §8 rotation, added in stage 5; set on open/create here).
+	openedTerminal string
+	// termChoiceDir is the dir the modeTerminalChoice prompt (`t`) will create/focus
+	// a terminal in.
+	termChoiceDir string
+	// termInfo holds each terminal's live cwd/branch (polled from its tmux pane on
+	// the tick, §7), keyed by session id; feeds the Terminals-section names.
+	termInfo map[string]terminalLiveInfo
 	// killWindow scopes the `q`/`ctrl+c` teardown to the cockpit's tmux *window*
 	// instead of the whole session. It is set in the tmux-native cockpit, where
 	// the cockpit is a window inside the user's own session — killing the session
@@ -93,7 +110,7 @@ func (m controlPaneModel) quitCmd() tea.Cmd {
 	return tea.Sequence(killCockpitCmd(m.killWindow), tea.Quit)
 }
 
-func newListPane(a api, agentPane string) controlPaneModel {
+func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 	ta := textarea.New()
 	ta.Placeholder = "What should this agent do?"
 	ti := textinput.New()
@@ -104,7 +121,7 @@ func newListPane(a api, agentPane string) controlPaneModel {
 	tn.Placeholder = "agent-name (optional; blank = auto)"
 	tn.CharLimit = 32
 	return controlPaneModel{
-		api: a, ta: ta, ti: ti, tp: tp, tn: tn, agentPane: agentPane,
+		api: a, ta: ta, ti: ti, tp: tp, tn: tn, agentPane: agentPane, terminalPane: terminalPane,
 		// roles is the fixed built-in catalog embedded in the binary (general
 		// first), so the picker is populated synchronously — no daemon round-trip.
 		roles: role.All(),
@@ -113,7 +130,8 @@ func newListPane(a api, agentPane string) controlPaneModel {
 		// pattern as roles.
 		backends:   backendCatalog(),
 		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{}, connected: true,
-		vp: viewport.New(0, 0),
+		termInfo: map[string]terminalLiveInfo{},
+		vp:       viewport.New(0, 0),
 	}
 }
 
@@ -151,11 +169,11 @@ func (m controlPaneModel) items() []item {
 		out = append(out, buildItems(agents, m.openedDirs, m.collapsed)...)
 	}
 
-	// ── Terminals: plain shells, named per §7 (empty until terminal creation lands).
+	// ── Terminals: plain shells, named per §7 (live cwd/branch from termInfo).
 	termCollapsed := m.collapsed[secKey(secTerminals)]
 	out = append(out, item{section: secTerminals, secCount: len(terminals), collapsed: termCollapsed})
 	if !termCollapsed {
-		out = append(out, terminalItems(terminals)...)
+		out = append(out, terminalItems(terminals, m.termInfo)...)
 	}
 	return out
 }
@@ -205,6 +223,55 @@ func (m controlPaneModel) fallbackDir() string {
 
 func (m controlPaneModel) activeDir() string {
 	return activeDir(m.items(), m.cursor, m.fallbackDir())
+}
+
+// liveTerminals returns the live Kind=terminal sessions, ordered by CreatedAt so
+// the first is the stable "terminal 1" (matches the Terminals-section ordinal).
+func (m controlPaneModel) liveTerminals() []*store.Session {
+	var out []*store.Session
+	for _, s := range m.sessions {
+		if s.IsTerminal() && liveStatus(s.Status) {
+			out = append(out, s)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
+// termDir is a terminal's directory for §6.1 matching: its live pane cwd when
+// polled (termInfo), else its stored cwd.
+func (m controlPaneModel) termDir(t *store.Session) string {
+	if li, ok := m.termInfo[t.ID]; ok && li.cwd != "" {
+		return li.cwd
+	}
+	return terminalCwd(t)
+}
+
+// liveTerminalInDir returns the first live terminal whose dir matches dir, or nil.
+func (m controlPaneModel) liveTerminalInDir(dir string) *store.Session {
+	for _, t := range m.liveTerminals() {
+		if m.termDir(t) == dir {
+			return t
+		}
+	}
+	return nil
+}
+
+// ensureDefaultTerminalCmd guarantees the cockpit shows a terminal in its terminal
+// pane at startup (§5): it adopts the first existing live terminal, or spawns a
+// default one in the launch cwd when none exists. It runs once (guarded by
+// defaultTerminalReady) and is a no-op in the tmux-native cockpit (no terminal
+// pane). The startup open does not steal focus — the control pane stays focused.
+func (m *controlPaneModel) ensureDefaultTerminalCmd() tea.Cmd {
+	if m.terminalPane == "" || m.defaultTerminalReady {
+		return nil
+	}
+	m.defaultTerminalReady = true
+	if live := m.liveTerminals(); len(live) > 0 {
+		m.openedTerminal = live[0].ID
+		return openInTerminalCmd(m.terminalPane, live[0].TmuxSession, false)
+	}
+	return spawnTerminalCmd(m.api, m.fallbackDir(), false)
 }
 
 // bodyH is the height of the framed pane body, shared by View and the inspector
@@ -268,6 +335,13 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeBackends {
 			cmds = append(cmds, backendsCmd(m.api)) // keep the table + limited-until countdown fresh
 		}
+		// Poll live cwd/branch for terminal names (§7) — only when a terminal pane
+		// exists and at least one terminal is live to read.
+		if m.terminalPane != "" {
+			if terms := m.liveTerminals(); len(terms) > 0 {
+				cmds = append(cmds, terminalInfoCmd(terms))
+			}
+		}
 		return m, tea.Batch(cmds...)
 	case pressureMsg:
 		if msg.err == nil {
@@ -328,6 +402,28 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		prev := m.selectedKey()
 		m.sessions = groupSort(msg.sessions)
 		m.repin(prev)
+		// Once we have a session list, make sure a default terminal exists and is
+		// shown in the terminal pane (§5). Runs once (defaultTerminalReady guard).
+		return m, m.ensureDefaultTerminalCmd()
+	case terminalSpawnedMsg:
+		if msg.err != nil {
+			m.status = "terminal failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.openedTerminal = msg.id
+		m.status = ""
+		// The spawned terminal's tmux session is its id (lifecycle sets
+		// TmuxSession=id). Refresh the list so it appears under Terminals and open
+		// it in the terminal pane (focusing it only on an explicit create/`t`).
+		cmds := []tea.Cmd{listCmd(m.api)}
+		if m.terminalPane != "" {
+			cmds = append(cmds, openInTerminalCmd(m.terminalPane, msg.id, msg.focus))
+		}
+		return m, tea.Batch(cmds...)
+	case terminalInfoMsg:
+		if msg.info != nil {
+			m.termInfo = msg.info
+		}
 		return m, nil
 	case pipelinesMsg:
 		if msg.err == nil {
@@ -871,6 +967,33 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, setBackendEnabledCmd(m.api, b.ID, !b.Enabled)
 		}
 		return m, nil
+	case modeTerminalChoice:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, m.quitCmd()
+		case "esc", "n", "N":
+			m.mode = modeNormal
+			m.status = ""
+			return m, nil
+		case "c", "C":
+			// Create a fresh terminal in the chosen dir and open it (focused).
+			dir := m.termChoiceDir
+			m.mode = modeNormal
+			m.status = "opening terminal in " + abbrevHome(dir)
+			return m, spawnTerminalCmd(m.api, dir, true)
+		case "f", "F":
+			// Focus an existing live terminal in that dir, else fall back to create.
+			dir := m.termChoiceDir
+			m.mode = modeNormal
+			if t := m.liveTerminalInDir(dir); t != nil {
+				m.openedTerminal = t.ID
+				m.status = ""
+				return m, openInTerminalCmd(m.terminalPane, t.TmuxSession, true)
+			}
+			m.status = "no terminal in " + abbrevHome(dir) + " — creating one"
+			return m, spawnTerminalCmd(m.api, dir, true)
+		}
+		return m, nil
 	case modeHelp:
 		m.mode = modeNormal
 		return m, nil
@@ -906,10 +1029,26 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// A terminal opens in the terminal pane (and grabs focus — terminals are
+		// interactive, §6). It never routes to the agent pane.
+		if it.session != nil && it.session.IsTerminal() {
+			if !liveStatus(it.session.Status) {
+				return m, nil // a dead terminal is removed from the list (§11); nothing to open
+			}
+			if m.terminalPane == "" {
+				m.status = "no terminal pane in this cockpit (press a to attach full-screen)"
+				return m, nil
+			}
+			m.openedTerminal = it.session.ID
+			return m, openInTerminalCmd(m.terminalPane, it.session.TmuxSession, true)
+		}
 		if m.agentPane != "" {
 			attach, jobPipe, jobID, agentDetail := cockpitDetailCmd(it)
 			switch {
 			case attach != "":
+				if it.session != nil {
+					m.openedAgentDir = sourceDir(it.session) // `t` opens a terminal here (§6.1)
+				}
 				return m, openInDetailCmd(m.agentPane, attach)
 			case jobID != "":
 				// A terminal job's agent tmux is gone — render its stored detail
@@ -1066,6 +1205,18 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.backendCursor = 0
 		m.status = "loading backends…"
 		return m, backendsCmd(m.api)
+	case "t":
+		// Open a terminal in the currently-opened agent's dir (§6.1). Not available
+		// in the tmux-native cockpit, which has no terminal pane.
+		if m.terminalPane == "" {
+			m.status = "terminals need the cockpit terminal pane (unavailable in the tmux-native cockpit)"
+			return m, nil
+		}
+		m.termChoiceDir = m.openedAgentDir
+		if m.termChoiceDir == "" {
+			m.termChoiceDir = homeDir()
+		}
+		m.mode = modeTerminalChoice
 	case "?":
 		m.mode = modeHelp
 	}
@@ -1134,7 +1285,7 @@ func (m controlPaneModel) View() string {
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.
-	footer := stMuted.Render("enter open · n new · o dir · s send · a attach · i info · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · t term · o dir · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
@@ -1163,6 +1314,8 @@ func (m controlPaneModel) View() string {
 		footer = stAttention.Render("⚠ memory pressure: " + m.spawnVerdict + "  [f] spawn anyway  [esc] cancel")
 	case modeConfirmDeletePipeline:
 		footer = stError.Render("Delete pipeline " + m.pendingDelete + "? y / N")
+	case modeTerminalChoice:
+		footer = stPaneTitle.Render("Terminal in " + abbrevHome(m.termChoiceDir) + ":  (c)reate new  ·  (f)ocus existing  ·  esc cancel")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
 }
@@ -1361,6 +1514,23 @@ func openInDetailCmd(agentPane, agentSession string) tea.Cmd {
 	}
 }
 
+// openInTerminalCmd opens the given terminal's live session in the terminal pane
+// (same respawn-pane attach the agent pane uses). When focus is set it then
+// selects the terminal pane so the user can type immediately — terminals are
+// interactive (§6). The default terminal opened at startup passes focus=false so
+// the control pane keeps focus.
+func openInTerminalCmd(terminalPane, tmuxSession string, focus bool) tea.Cmd {
+	return func() tea.Msg {
+		if err := exec.Command("tmux", respawnDetailArgs(terminalPane, tmuxSession)...).Run(); err != nil {
+			return attachDoneMsg{err: err}
+		}
+		if focus {
+			_ = exec.Command("tmux", "select-pane", "-t", terminalPane).Run()
+		}
+		return attachDoneMsg{err: nil}
+	}
+}
+
 // cockpitDetailCmd decides what the cockpit shows in its agent pane for the item
 // under the cursor. A terminal pipeline job (done/failed/skipped) has no live tmux
 // to attach to, so it returns the pipeline+job ids for a stored-detail render;
@@ -1421,12 +1591,14 @@ func openAgentDetailCmd(agentPane, agentID string) tea.Cmd {
 	}
 }
 
-// RunControlPane runs the top-left cockpit pane; agentPane is the tmux id of the
-// agent pane it drives (opened on Enter). killWindow scopes the `q` teardown to
-// the cockpit window instead of the whole session — set in the tmux-native
-// cockpit, where the cockpit lives inside the user's own tmux session.
-func RunControlPane(a api, agentPane string, killWindow bool) error {
-	m := newListPane(a, agentPane)
+// RunControlPane runs the top-left cockpit pane; agentPane and terminalPane are
+// the tmux ids of the two viewport panes it drives (agents open in the former on
+// Enter, terminals in the latter). terminalPane is "" in the tmux-native cockpit,
+// which has no terminal pane. killWindow scopes the `q` teardown to the cockpit
+// window instead of the whole session — set in the tmux-native cockpit, where the
+// cockpit lives inside the user's own tmux session.
+func RunControlPane(a api, agentPane, terminalPane string, killWindow bool) error {
+	m := newListPane(a, agentPane, terminalPane)
 	m.killWindow = killWindow
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()

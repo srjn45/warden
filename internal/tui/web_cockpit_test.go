@@ -17,19 +17,15 @@ const listPanesKey = "tmux list-panes -t " + WebCockpitSession + " -F #{pane_at_
 
 // buildResponses returns the canned pane-id replies buildCockpit needs so a
 // rebuild path (kill → new-session → split-window …) succeeds. self is the warden
-// binary path, launchCwd the master/control pane cwd.
+// binary path, launchCwd the terminal/control pane cwd.
 func buildResponses(t *testing.T, self, launchCwd string) map[string]lifecycle.FakeResp {
 	t.Helper()
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
 	return map[string]lifecycle.FakeResp{
-		"tmux new-session -d -s " + WebCockpitSession + " -c " + home + " -P -F #{pane_id} " + agentPlaceholderCmd(): {Out: "%0\n"},
-		"tmux split-window -h -b -l 40% -t %0 -c " + launchCwd + " -P -F #{pane_id} " + shell:                        {Out: "%1\n"},
-		"tmux split-window -v -b -l 50% -t %1 -c " + launchCwd + " -P -F #{pane_id} " + controlPaneCmd(self, "%0"):   {Out: "%2\n"},
+		"tmux new-session -d -s " + WebCockpitSession + " -c " + home + " -P -F #{pane_id} " + agentPlaceholderCmd():     {Out: "%0\n"},
+		"tmux split-window -h -b -l 40% -t %0 -c " + launchCwd + " -P -F #{pane_id} " + terminalPlaceholderCmd():         {Out: "%1\n"},
+		"tmux split-window -v -b -l 50% -t %1 -c " + launchCwd + " -P -F #{pane_id} " + controlPaneCmd(self, "%0", "%1"): {Out: "%2\n"},
 	}
 }
 
@@ -62,7 +58,7 @@ func TestEnsureWebCockpitReusesHealthy(t *testing.T) {
 		listPanesKey: {Out: "11 warden\n01 zsh\n10 sleep\n"},
 	}}
 
-	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false, false)
+	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false)
 	require.NoError(t, err)
 	require.Equal(t, WebCockpitSession, sess)
 	require.Len(t, fr.Calls, 2, "a healthy cockpit must be probed then reused, not rebuilt")
@@ -79,7 +75,7 @@ func TestEnsureWebCockpitRebuildsWrongCommand(t *testing.T) {
 	resp[listPanesKey] = lifecycle.FakeResp{Out: "11 zsh\n01 zsh\n10 sleep\n"} // control pane is a shell, not warden
 	fr := &lifecycle.FakeRunner{Responses: resp}
 
-	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false, false)
+	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false)
 	require.NoError(t, err)
 	require.Equal(t, WebCockpitSession, sess)
 	require.True(t, argvSeen(fr, "tmux", "kill-session", "-t", WebCockpitSession), "wedged cockpit must be killed")
@@ -93,7 +89,7 @@ func TestEnsureWebCockpitRebuildsWrongPaneCount(t *testing.T) {
 	resp[listPanesKey] = lifecycle.FakeResp{Out: "11 warden\n01 zsh\n"} // only two panes
 	fr := &lifecycle.FakeRunner{Responses: resp}
 
-	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false, false)
+	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false)
 	require.NoError(t, err)
 	require.Equal(t, WebCockpitSession, sess)
 	require.True(t, argvSeen(fr, "tmux", "kill-session", "-t", WebCockpitSession), "partial cockpit must be killed")
@@ -109,7 +105,7 @@ func TestEnsureWebCockpitForceRebuild(t *testing.T) {
 	resp[listPanesKey] = lifecycle.FakeResp{Out: "11 warden\n01 zsh\n10 sleep\n"}
 	fr := &lifecycle.FakeRunner{Responses: resp}
 
-	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false, true)
+	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", true)
 	require.NoError(t, err)
 	require.Equal(t, WebCockpitSession, sess)
 	require.False(t, argvSeen(fr, "tmux", "list-panes"), "forced rebuild must skip the health probe")
@@ -126,7 +122,7 @@ func TestEnsureWebCockpitBuildsWhenAbsent(t *testing.T) {
 	resp["tmux has-session -t "+WebCockpitSession] = lifecycle.FakeResp{Err: errors.New("no session")}
 	fr := &lifecycle.FakeRunner{Responses: resp}
 
-	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false, false)
+	sess, err := EnsureWebCockpit(context.Background(), fr, "/bin/warden", "/work", false)
 	require.NoError(t, err)
 	require.Equal(t, WebCockpitSession, sess)
 	// Probed first, then built under the web session name — no health probe or kill

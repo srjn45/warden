@@ -64,4 +64,5 @@ const (
 	modeApprovals             // answer pending tool-permission prompts
 	modeDetails               // scrollable full detail view for the selected agent
 	modeBackends              // agent-backend registry page (list, tier, default, enabled, thinking-mode)
+	modeTerminalChoice        // `t`: (c)reate a terminal in the opened agent's dir or (f)ocus an existing one
 )

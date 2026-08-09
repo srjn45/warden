@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"errors"
+	"os/exec"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -65,6 +67,110 @@ func spawnCmd(a api, prompt, name, cwd, role, backend string, force bool) tea.Cm
 		}
 		return spawnDoneMsg{id: s.ID}
 	}
+}
+
+// terminalSpawnedMsg reports the outcome of spawning a Kind=terminal session.
+// focus carries whether the caller wants the terminal pane focused once opened
+// (true for an explicit `t`/create, false for the default terminal at startup).
+type terminalSpawnedMsg struct {
+	id    string
+	focus bool
+	err   error
+}
+
+// spawnTerminalCmd creates a plain-shell terminal session in cwd via the daemon.
+// It spawns with the `terminal` backend, which the lifecycle classifies as
+// Kind=terminal (a ${SHELL:-bash} pane, not an AI agent). No prompt/name/role:
+// a terminal has none. focus is echoed back on the result so the caller can
+// decide whether to move focus onto the terminal pane after opening it.
+func spawnTerminalCmd(a api, cwd string, focus bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bgLong()
+		defer cancel()
+		s, err := a.Spawn(ctx, client.SpawnParams{Cwd: cwd, Backend: terminalBackend})
+		if err != nil {
+			return terminalSpawnedMsg{focus: focus, err: err}
+		}
+		return terminalSpawnedMsg{id: s.ID, focus: focus}
+	}
+}
+
+// terminalBackend is the backend id that yields a Kind=terminal session (mirrors
+// lifecycle's terminalBackendID). Stage 6 removes the terminal backend and
+// replaces this with an explicit kind create field.
+const terminalBackend = "terminal"
+
+// terminalLiveInfo is a terminal's live working-directory context, polled from
+// its running tmux pane (§7) rather than its stored fields, so its Terminals-
+// section name tracks the shell as it `cd`s and checks out branches.
+type terminalLiveInfo struct {
+	cwd      string
+	repoRoot string
+	branch   string
+}
+
+// terminalInfoMsg carries the freshly-polled live cwd/branch for each terminal,
+// keyed by session id.
+type terminalInfoMsg struct {
+	info map[string]terminalLiveInfo
+}
+
+// terminalInfoCmd polls each terminal's live pane path (tmux #{pane_current_path})
+// and the git repo-root/branch of that path, off the UI goroutine, on the refresh
+// tick (§7). Terminals are few, so the per-tick tmux+git calls are cheap; a
+// terminal whose pane can't be read is simply omitted (its row falls back to the
+// stored name).
+func terminalInfoCmd(terminals []*store.Session) tea.Cmd {
+	type ent struct{ id, tmux string }
+	list := make([]ent, 0, len(terminals))
+	for _, s := range terminals {
+		list = append(list, ent{id: s.ID, tmux: s.TmuxSession})
+	}
+	return func() tea.Msg {
+		info := make(map[string]terminalLiveInfo, len(list))
+		for _, e := range list {
+			cwd := tmuxPanePath(e.tmux)
+			if cwd == "" {
+				continue
+			}
+			root, branch := gitRootBranch(cwd)
+			info[e.id] = terminalLiveInfo{cwd: cwd, repoRoot: root, branch: branch}
+		}
+		return terminalInfoMsg{info: info}
+	}
+}
+
+// tmuxPanePath returns the current working directory of the (single) pane in the
+// given tmux session — how a terminal's live cwd is read without shell hooks. An
+// empty result (no such session, tmux gone) signals the caller to keep the
+// stored name.
+func tmuxPanePath(session string) string {
+	if session == "" {
+		return ""
+	}
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", session, "#{pane_current_path}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// gitRootBranch resolves the git repo root and current branch of dir (worktree-
+// aware). Outside a repo both are empty and the terminal name falls back to an
+// abbreviated path (§7).
+func gitRootBranch(dir string) (root, branch string) {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", ""
+	}
+	root = strings.TrimSpace(string(out))
+	if root == "" {
+		return "", ""
+	}
+	if b, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
+		branch = strings.TrimSpace(string(b))
+	}
+	return root, branch
 }
 
 // renameDoneMsg reports the outcome of a SetName call.

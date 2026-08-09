@@ -1344,6 +1344,12 @@ func readFileTail(path string, maxBytes int64) string {
 	return string(data)
 }
 
+// terminalBackendID is the backend id whose sessions warden classifies as plain
+// terminals (Kind=terminal) rather than AI agents. It still lives in the backend
+// registry today; stage 6 of the cockpit redesign removes it and replaces this
+// backend-derived classification with an explicit `kind` field on SpawnRequest.
+const terminalBackendID = "terminal"
+
 // Spawn creates an agent session. Prompt mode (Prompt set, no Type) runs a plain
 // claude in Workdir with NO git worktree, seeded with the prompt. Typed mode is
 // the existing per-type worktree flow. Spawn resolves the id + claude session id
@@ -1388,6 +1394,16 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Model:          req.Model,
 		Backend:        req.Backend,
 		Role:           req.Role,
+	}
+	// A session launched with the `terminal` backend is a plain shell, not an AI
+	// agent: tag it Kind=terminal so every AI-centric surface (metrics, approvals,
+	// the poller, insights, …) excludes it and the cockpit renders it under
+	// Terminals. This is the internal bridge that keeps the /backends contract
+	// unchanged for now — stage 6 removes the terminal backend and replaces this
+	// with an explicit `kind` field on SpawnRequest. Agents keep Kind="" (empty ⇒
+	// agent), so no existing record migrates.
+	if req.Backend == terminalBackendID {
+		sess.Kind = store.KindTerminal
 	}
 	// Record provenance, but never let an agent be its own parent (a self-id would
 	// create a degenerate cycle in the sub-tree view).
