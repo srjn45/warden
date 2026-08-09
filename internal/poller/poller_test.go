@@ -474,6 +474,53 @@ func TestTickSkipsTerminalStatuses(t *testing.T) {
 	require.False(t, changed, "done sessions must not be re-classified")
 }
 
+func TestTickSkipsAIReasoningForTerminal(t *testing.T) {
+	// A terminal is a plain shell whose empty Backend resolves to the default
+	// (Claude). Without the Kind guard the poller would classify a stale pane as
+	// idle and dispatch a transcript summary against a shell. It must do neither —
+	// but it must still refresh the pane excerpt for display and not touch status.
+	d := &stubDeps{
+		sessions: []*store.Session{{
+			ID: "T-1", TmuxSession: "T-1", Status: store.StatusWorking, Kind: store.KindTerminal,
+			UpdatedAt:       time.Now().Add(-10 * time.Minute), // would be "stuck"→idle if classified
+			LastPaneExcerpt: "old shell output",
+		}},
+		alive:       map[string]bool{"T-1": true},
+		panes:       map[string]string{"T-1": "new shell output"}, // pane changed
+		updates:     map[string]store.Status{},
+		paneUpdates: map[string]string{},
+		summary:     "should never run",
+	}
+	p := New(d, 5*time.Minute)
+	p.SummarizeAfter = 0 // "always due" — proves the skip is by kind, not throttle
+	require.NoError(t, p.tick(context.Background()))
+	p.wg.Wait()
+
+	_, statusChanged := d.updates["T-1"]
+	require.False(t, statusChanged, "a terminal must not be reclassified")
+	require.Equal(t, 0, d.summarizeN, "a terminal has no transcript to summarize")
+	require.Equal(t, 0, d.setIDN, "a terminal must not run discover-session-id")
+	require.Equal(t, "new shell output", d.paneUpdates["T-1"], "the pane excerpt must still refresh for display")
+}
+
+func TestTickFinalizesExitedTerminal(t *testing.T) {
+	// A terminal that the user `exit`s writes an exit file; the poller must still
+	// finalize it to done/errored (the INCLUDE half of the guard) so the shell
+	// doesn't hang as "working" forever.
+	d := &stubDeps{
+		sessions:  []*store.Session{{ID: "T-1", TmuxSession: "T-1", Status: store.StatusWorking, Kind: store.KindTerminal}},
+		alive:     map[string]bool{"T-1": true},
+		exitCodes: map[string]int{"T-1": 0},
+		finalized: map[string]store.Status{},
+		finalCode: map[string]int{},
+		cleared:   map[string]bool{},
+		updates:   map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, store.StatusDone, d.finalized["T-1"], "an exited terminal is finalized like any pane")
+}
+
 func TestTickFlagsStuckWorkingAsIdle(t *testing.T) {
 	d := &stubDeps{
 		sessions: []*store.Session{{

@@ -34,7 +34,11 @@ func (s *Server) runPressureSampler(ctx context.Context) {
 	}
 }
 
-// liveAgentCount counts non-terminal sessions (reuses liveStatus).
+// liveAgentCount counts live AI agents for the spawn gate: a live status
+// (liveStatus excludes done/errored/orphaned) and agent kind. Terminals are
+// excluded — they are not AI agents being budgeted, and their real memory
+// footprint is already captured by the sampled pressure level (lvl), not by
+// this fleet-size count.
 func (s *Server) liveAgentCount(ctx context.Context) int {
 	sessions, err := s.store.List(ctx)
 	if err != nil {
@@ -42,7 +46,7 @@ func (s *Server) liveAgentCount(ctx context.Context) int {
 	}
 	n := 0
 	for _, sess := range sessions {
-		if liveStatus(sess.Status) {
+		if liveStatus(sess.Status) && !sess.IsTerminal() {
 			n++
 		}
 	}

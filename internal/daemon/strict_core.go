@@ -162,7 +162,10 @@ func (s *Server) ListApprovals(ctx context.Context, _ oapi.ListApprovalsRequestO
 	}
 	views := []oapi.ApprovalView{}
 	for _, sess := range sessions {
-		if sess.Status != store.StatusWaitingForInput {
+		// Terminals never surface approvals (a shell has no yes/no prompt warden
+		// answers); guard by kind so they can't leak into the queue even if some
+		// path parks one at waiting_for_input.
+		if sess.Status != store.StatusWaitingForInput || sess.IsTerminal() {
 			continue
 		}
 		views = append(views, approvalView(backendFor(sess.Backend), sess.ID, sess.LastPaneExcerpt))
