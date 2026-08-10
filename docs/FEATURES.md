@@ -282,6 +282,7 @@ panes: the **control** pane (a navigator tree, top-left), a **terminal** pane
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
 | **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel/close, `D` delete pipeline record, `?` help. |
 | **Viewport rotation** | Global **Alt** bindings (work from any pane, even while typing): `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. |
+| **Opened marker (◆)** | The agent (Agents section or Pipelines job row) shown in the agent pane and the terminal shown in the terminal pane are marked with a **◆** in the control tree; it tracks both `Enter`-open and the Alt rotation, so what's docked stays visible after the cursor moves. |
 | **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). |
 | **Native scrolling** | Per-agent tmux sessions enable `mouse on` + raised `history-limit` for wheel/copy-mode scrolling of long output. |
 

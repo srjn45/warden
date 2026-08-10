@@ -222,7 +222,8 @@ A terminal mission-control. Keys: `n` spawn · `t` new/focus terminal · `enter`
 `i` info/inspector · `a` approve · `x` terminate · `D` delete · `d` digest · `r` refresh ·
 `f` filter · `g`/`G` top/bottom · `o`/`p` panes · `s` sort · `c` context · `tab` switch view ·
 `M-t`/`M-a`/`M-p` rotate the terminal pane over terminals / the agent pane over agents / the agent pane over pipeline agents ·
-`?` help · `q` quit. Includes a pipeline view and per-job info.
+`?` help · `q` quit. A **◆** marks the agent/terminal currently shown in a pane (tracks both `enter`-open and the `M-t`/`M-a`/`M-p` rotation).
+Includes a pipeline view and per-job info.
 
 | Feature | Where | Docs |
 |---|---|---|

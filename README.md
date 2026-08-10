@@ -692,9 +692,10 @@ The control pane polls the daemon about once a second. The daemon must be runnin
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
 | `?` | Toggle help overlay |
 | `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport — `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Global (works from any pane, even while typing) |
+| `◆` | Marks the agent/terminal currently shown in a pane (not a key) — tracks both `Enter`-open and the `Alt+t`/`Alt+a`/`Alt+p` rotation |
 | `q` | Quit and tear down the cockpit |
 
-Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix); rotate the terminal/agent viewports with **Alt+t / Alt+a / Alt+p** (see the key table above). See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
+Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix); rotate the terminal/agent viewports with **Alt+t / Alt+a / Alt+p** (see the key table above). The row currently docked in a pane is marked with a **◆** in the control tree, following both `Enter`-open and the Alt rotation. See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
 
 ---
 

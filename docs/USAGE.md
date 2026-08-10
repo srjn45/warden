@@ -1247,6 +1247,12 @@ does not replace this pane, so an agent you're actively working with is never
 interrupted by casual browsing. Press `Enter` again on a different agent to
 switch, or **`Alt+a`** / **`Alt+p`** to rotate over all agents / pipeline agents.
 
+Whatever is currently shown in a pane is marked with a **◆** in the control tree
+— the opened agent (in the Agents section or as a Pipelines job row) and the
+opened terminal. The marker tracks both `Enter`-open and the
+`Alt+t`/`Alt+a`/`Alt+p` rotation, so you can always see what's docked in each pane
+even after moving the cursor elsewhere.
+
 To move focus between panes without leaving the cockpit, use **Alt+←/→/↑/↓**
 (no tmux prefix needed).
 
