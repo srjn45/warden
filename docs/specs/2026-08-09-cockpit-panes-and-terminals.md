@@ -401,7 +401,20 @@ stages at the end.
    gone. Global `M-t`/`M-a`/`M-p` rotation is **not** bound yet (stage 5); `M-t` is
    simply freed here.
 5. **Rotation** — `M-t`/`M-a`/`M-p` global bindings + viewport rotation (§8).
-   (Depends 4.)
+   (Depends 4.) *Sequencing note (built 2026-08-09):* the three keys are bound in
+   `buildCockpit` as tmux root bindings (`bind-key -n`) that **forward themselves to
+   the control pane** (`send-keys -t <controlPane> M-t`), so rotation works from any
+   pane while typing; the control pane owns the state and respawns the target pane.
+   `M-t` cycles the terminal pane over live terminals (creation order, grabs focus);
+   `M-a` cycles the agent pane over all live agents; `M-p` cycles the agent pane over
+   pipeline agents (pipeline > job order), both keeping control focus (§6 watch-mode).
+   New model state `openedAgent` (id) anchors the agent cycle — set on every Enter-open
+   and rotate; `openedTerminal` (added stage 4) anchors the terminal cycle. `nextInCycle`
+   wraps and treats an absent current as "start at the first". The **tmux-native cockpit
+   does not bind these** (it leaves the user's own Alt keys intact — noted as a gap, not
+   a regression); the model still handles the keys defensively, so `M-t` there degrades
+   to the "no terminal pane" hint. Alt (not Ctrl) is used so shell readline keys
+   (C-a/C-p/C-t) are never clobbered.
 6. **Backend removal + API/app coordination** — remove the `terminal` backend
    from **both** registries (`agentbackend` init + `backendstore` special-casing)
    and the terminal-spawn helper for `${SHELL:-bash}`; drop `terminal` from

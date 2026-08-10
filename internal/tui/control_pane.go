@@ -82,6 +82,10 @@ type controlPaneModel struct {
 	// once: on the first session list we either adopt an existing live terminal
 	// into the terminal pane or spawn a default one in the launch cwd (§5).
 	defaultTerminalReady bool
+	// openedAgent is the id of the agent currently shown in the agent pane; it
+	// anchors §8 M-a/M-p rotation (advance from here) and is set on every agent
+	// open/rotate. Empty until the first agent is opened.
+	openedAgent string
 	// openedAgentDir is the source dir of the agent last opened into the agent pane.
 	// `t` opens a terminal there (§6.1); empty ⇒ fall back to $HOME.
 	openedAgentDir string
@@ -236,6 +240,97 @@ func (m controlPaneModel) liveTerminals() []*store.Session {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out
+}
+
+// liveAgents returns every live agent (non-terminal) session ordered by CreatedAt
+// — the M-a rotation set (§8). CreatedAt order is stable across refreshes so the
+// cycle stays predictable as the list re-sorts.
+func (m controlPaneModel) liveAgents() []*store.Session {
+	var out []*store.Session
+	for _, s := range m.sessions {
+		if !s.IsTerminal() && liveStatus(s.Status) {
+			out = append(out, s)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
+// pipelineAgents returns the live agents that belong to a pipeline, ordered
+// pipeline-by-pipeline then job order (the M-p rotation set, §8: "pipeline >
+// agents"). A job with no live session (pending/reaped) is skipped.
+func (m controlPaneModel) pipelineAgents() []*store.Session {
+	byID := make(map[string]*store.Session, len(m.sessions))
+	for _, s := range m.sessions {
+		byID[s.ID] = s
+	}
+	var out []*store.Session
+	for _, p := range m.pipelines {
+		for i := range p.Jobs {
+			sid := p.Jobs[i].SessionID
+			if sid == "" {
+				continue
+			}
+			if s := byID[sid]; s != nil && !s.IsTerminal() && liveStatus(s.Status) {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
+// nextInCycle returns the entity after the one with id `current` in set, wrapping
+// to the first past the end. When current is absent (nothing open yet, or it just
+// exited) it returns the first entity; nil only for an empty set.
+func nextInCycle(set []*store.Session, current string) *store.Session {
+	if len(set) == 0 {
+		return nil
+	}
+	idx := -1
+	for i, s := range set {
+		if s.ID == current {
+			idx = i
+			break
+		}
+	}
+	return set[(idx+1)%len(set)]
+}
+
+// rotateTerminal advances the terminal pane to the next live terminal (§8 M-t),
+// grabbing focus since terminals are interactive. A no-op with a status hint when
+// there is no terminal pane or no terminals.
+func (m controlPaneModel) rotateTerminal() (tea.Model, tea.Cmd) {
+	if m.terminalPane == "" {
+		m.status = "no terminal pane in this cockpit"
+		return m, nil
+	}
+	next := nextInCycle(m.liveTerminals(), m.openedTerminal)
+	if next == nil {
+		m.status = "no terminals"
+		return m, nil
+	}
+	m.openedTerminal = next.ID
+	m.status = ""
+	return m, openInTerminalCmd(m.terminalPane, next.TmuxSession, true)
+}
+
+// rotateAgent advances the agent pane to the next entity in set (§8 M-a/M-p),
+// keeping focus in the control pane (watch-mode, §6). Rotation traverses live
+// agents only, so it always attaches directly. emptyMsg is flashed when the set
+// is empty.
+func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string) (tea.Model, tea.Cmd) {
+	if m.agentPane == "" {
+		return m, nil
+	}
+	next := nextInCycle(set, m.openedAgent)
+	if next == nil {
+		m.status = emptyMsg
+		return m, nil
+	}
+	m.openedAgent = next.ID
+	m.openedAgentDir = sourceDir(next)
+	m.status = ""
+	return m, openInDetailCmd(m.agentPane, next.TmuxSession)
 }
 
 // termDir is a terminal's directory for §6.1 matching: its live pane cwd when
@@ -1005,6 +1100,16 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+a":
 		// Toggle autopilot on/off. The result message updates m.autopilot.
 		return m, autopilotToggleCmd(m.api, !m.autopilot.Enabled)
+	case "alt+t":
+		// §8 global rotation: advance the terminal pane to the next live terminal
+		// (delivered here by the tmux M-t root binding, from any pane).
+		return m.rotateTerminal()
+	case "alt+a":
+		// §8: advance the agent pane to the next live agent (all agents).
+		return m.rotateAgent(m.liveAgents(), "no agents")
+	case "alt+p":
+		// §8: advance the agent pane to the next pipeline agent (pipeline > agents order).
+		return m.rotateAgent(m.pipelineAgents(), "no pipeline agents")
 	case "c":
 		// Open the read-only shared-context + message-traffic inspector and
 		// kick off an immediate fetch (the tick keeps it fresh while open).
@@ -1047,6 +1152,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch {
 			case attach != "":
 				if it.session != nil {
+					m.openedAgent = it.session.ID            // anchors §8 M-a/M-p rotation
 					m.openedAgentDir = sourceDir(it.session) // `t` opens a terminal here (§6.1)
 				}
 				return m, openInDetailCmd(m.agentPane, attach)
