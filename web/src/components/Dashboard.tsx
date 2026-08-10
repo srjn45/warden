@@ -9,6 +9,7 @@ import {
   loadPinned, savePinned, openPin, closePin, prunePins, navRoute, routeByIndex,
 } from '../lib/tabs';
 import { waitingTransitions } from '../lib/notify';
+import { partitionByKind } from '../lib/kind';
 import { appendContextPoint, type ContextPoint } from '../lib/metricsSeries';
 import { loadTheme, saveTheme, applyTheme, nextTheme, resolveTheme, type Theme } from '../lib/theme';
 import { resolveShortcut } from '../lib/shortcuts';
@@ -23,6 +24,7 @@ import NewAgentModal from './NewAgentModal';
 import ShortcutsHelp from './ShortcutsHelp';
 import TokenModal from './TokenModal';
 import PipelinesTab from './PipelinesTab';
+import TerminalsTab from './TerminalsTab';
 import ContextOverlay from './ContextOverlay';
 import ArchiveTab from './ArchiveTab';
 import AutopilotPanel from './AutopilotPanel';
@@ -58,6 +60,13 @@ export default function Dashboard() {
   const [contextHistory, setContextHistory] = useState<ContextPoint[]>([]);
   const sessionsRef = useRef<Session[]>([]);
   sessionsRef.current = sessions;
+
+  // Since stage 6 terminals ride the same SSE session stream as agents. Split
+  // them out once, here, so every agent-centric surface (the cockpit grid, fleet
+  // counts, attention, pinned tabs) sees agents only, while the Terminals tab
+  // gets the terminals. This one seam is what keeps terminals from rendering as
+  // bogus agents.
+  const { agents, terminals } = partitionByKind(sessions);
 
   // Reflect the theme choice onto <html data-theme=…>, persist it, and track the
   // concrete light/dark it resolves to (for picking a matching wordmark). The
@@ -215,11 +224,11 @@ export default function Dashboard() {
     setNotifyEnabled(perm === 'granted');
   }
 
-  const attentionCount = sessions.filter(
+  const attentionCount = agents.filter(
     (s) => s.status === 'waiting_for_input' || s.status === 'errored' || s.status === 'orphaned',
   ).length;
   const activeSession = route.kind === 'agent'
-    ? sessions.find((s) => s.id === route.id) ?? null
+    ? agents.find((s) => s.id === route.id) ?? null
     : null;
 
   // The TUI is a full-screen surface, not a tab: when it's the active route we
@@ -258,13 +267,14 @@ export default function Dashboard() {
       <TabBar
         route={route}
         pinned={pinned}
-        sessions={sessions}
+        sessions={agents}
         onClose={closeAgent}
       />
       <main className="tab-content">
-        {route.kind === 'others' && <OthersTab sessions={sessions} onSelect={select} />}
-        {route.kind === 'cockpit' && <CockpitTab sessions={sessions} onSelect={select} onCreated={select} />}
+        {route.kind === 'others' && <OthersTab sessions={agents} onSelect={select} />}
+        {route.kind === 'cockpit' && <CockpitTab sessions={agents} onSelect={select} onCreated={select} />}
         {route.kind === 'pipelines' && <PipelinesTab onSelect={select} />}
+        {route.kind === 'terminals' && <TerminalsTab terminals={terminals} />}
         {route.kind === 'metrics' && <MetricsTab contextHistory={contextHistory} />}
         {route.kind === 'archive' && <ArchiveTab />}
         {route.kind === 'agent' && (activeSession

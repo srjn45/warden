@@ -3,8 +3,8 @@ import type { Route } from '../lib/router';
 import { routeToPath, navigate } from '../lib/router';
 import BusyIdleBadge from './BusyIdleBadge';
 
-// TabBar shows the fixed tabs (Cockpit, Pipelines, Metrics, Archive, Others)
-// plus one closeable tab per pinned agent. Tabs are real <a href> links — so
+// TabBar shows the fixed tabs (Cockpit, Pipelines, Terminals, Metrics, Archive,
+// Others) plus one closeable tab per pinned agent. Tabs are real <a href> links — so
 // middle-click / open-in-new-tab work — but plain left-clicks are intercepted to
 // navigate client-side (pushState) instead of triggering a full page load. The
 // active tab is highlighted by matching the current route's path.
@@ -16,6 +16,7 @@ interface FixedTab { route: Route; label: string; }
 const FIXED: FixedTab[] = [
   { route: { kind: 'cockpit' }, label: '⊞ Cockpit' },
   { route: { kind: 'pipelines' }, label: '⛓ Pipelines' },
+  { route: { kind: 'terminals' }, label: '❯ Terminals' },
   { route: { kind: 'metrics' }, label: '📊 Metrics' },
   { route: { kind: 'archive' }, label: '🗄 Archive' },
   { route: { kind: 'others' }, label: '▦ Others' },
