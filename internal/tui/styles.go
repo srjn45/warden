@@ -15,6 +15,7 @@ var (
 	stError     = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
 	stHeader    = lipgloss.NewStyle().Bold(true)
 	stCursor    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	stOpened    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")) // magenta — the row shown in a pane now
 	stMuted     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	stPaneTitle = lipgloss.NewStyle().Bold(true)
 	stStatus    = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))

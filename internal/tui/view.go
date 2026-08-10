@@ -68,6 +68,8 @@ func helpText() string {
 		"  alt+t        cycle the terminal pane through the live terminals (grabs focus)\n" +
 		"  alt+a        cycle the agent pane through all live agents\n" +
 		"  alt+p        cycle the agent pane through pipeline agents (pipeline > agents order)\n" +
+		"  " + stOpened.Render("◆") + "            marks the agent/terminal currently shown in a pane — it\n" +
+		"               follows both enter-open and the alt+a/p/t rotation above\n" +
 		"\n" +
 		stPaneTitle.Render("Typing in the Claude pane") + "\n" +
 		"  enter        submit the prompt\n" +

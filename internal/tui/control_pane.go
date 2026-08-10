@@ -179,7 +179,27 @@ func (m controlPaneModel) items() []item {
 	if !termCollapsed {
 		out = append(out, terminalItems(terminals, m.termInfo)...)
 	}
+	markOpened(out, m.openedAgent, m.openedTerminal)
 	return out
+}
+
+// markOpened flags the rows currently shown in the cockpit panes so they render
+// with the stOpened marker: the openedAgent (an Agents-section agent row, or a
+// Pipelines job row whose live session is that agent) and the openedTerminal (a
+// Terminals-section row). Because it keys off m.openedAgent/m.openedTerminal —
+// which both Enter-open and §8 Alt+a/p/t rotation set — the highlight tracks the
+// panes without any extra plumbing. Empty ids match nothing.
+func markOpened(items []item, openedAgent, openedTerminal string) {
+	for i := range items {
+		switch {
+		case items[i].session != nil && items[i].session.IsTerminal():
+			items[i].opened = openedTerminal != "" && items[i].session.ID == openedTerminal
+		case items[i].session != nil:
+			items[i].opened = openedAgent != "" && items[i].session.ID == openedAgent
+		case items[i].pjSess != nil:
+			items[i].opened = openedAgent != "" && items[i].pjSess.ID == openedAgent
+		}
+	}
 }
 
 func (m controlPaneModel) selected() *store.Session { return itemAt(m.items(), m.cursor).session }

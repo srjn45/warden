@@ -182,6 +182,14 @@ type item struct {
 	section  string // non-empty ⇒ a top-level section header row (secApprovals…)
 	secCount int    // count badge shown on a section header
 
+	// opened marks the row whose session is currently shown in a cockpit pane:
+	// the openedAgent in the agent pane (an Agents-section agent or a Pipelines
+	// job row) or the openedTerminal in the terminal pane. It gets a distinct
+	// marker + tint (stOpened) so you can see what's docked even when the cursor
+	// has moved away — and it follows the §8 Alt+a/p/t rotation, which re-points
+	// openedAgent/openedTerminal without moving the cursor.
+	opened bool
+
 	apprView *approval.View // an individual pending-approval row (Approvals section)
 	apprIdx  int            // its index into recognizedApprovals (for modeApprovals focus)
 
@@ -827,10 +835,21 @@ func renderItemLine(it item, selected bool, width int) string {
 		}
 	}
 	cur := "  "
-	if selected {
+	switch {
+	case selected:
+		// The cursor wins the gutter when it sits on the opened row — you are
+		// looking right at it, so its own marker would be redundant.
 		cur = stCursor.Render("› ")
 		if it.session != nil || it.section != "" || it.apprView != nil || it.pipeline != nil || it.pjJob != nil {
 			line = stCursor.Render(line)
+		}
+	case it.opened:
+		// The row shown in a cockpit pane right now (openedAgent/openedTerminal),
+		// while the cursor is elsewhere: a distinct ◆ gutter marker + tint so it
+		// stays findable as you navigate or Alt-rotate the panes.
+		cur = stOpened.Render("◆ ")
+		if it.session != nil || it.pjJob != nil {
+			line = stOpened.Render(line)
 		}
 	}
 	return cur + line

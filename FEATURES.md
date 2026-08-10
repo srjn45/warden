@@ -240,7 +240,8 @@ opened agent's dir · `i` info/inspector · `a` approve · `x` terminate/close �
 `o`/`p` panes · `s` sort · `c` context · `tab` switch view · `?` help · `q` quit.
 Global **Alt** rotation: `Alt+t` cycles the terminal pane over terminals,
 `Alt+a` the agent pane over agents, `Alt+p` the agent pane over pipeline agents.
-Includes a pipeline view and per-job info.
+A **◆** marks the agent/terminal currently shown in a pane (tracks both
+`Enter`-open and the Alt rotation). Includes a pipeline view and per-job info.
 
 | Feature | Where | Docs |
 |---|---|---|
