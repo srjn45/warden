@@ -42,7 +42,7 @@ warden       # bare invocation — same thing
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
 | **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
 | **Terminal pane** | Bottom-left pane shows a live terminal session (`kind=terminal`) — a `$SHELL` in a managed worktree for direct CLI access to `warden` commands and other terminal work. A default terminal opens in the launch directory at startup. |
-| **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). **Global Alt rotation** works from any pane, even while typing: **M-t** cycles the terminal pane over all live terminals, **M-a** cycles the agent pane over all live agents, **M-p** cycles the agent pane over pipeline agents (pipeline order). Add **Shift** (`M-T`/`M-A`/`M-P`) to rotate in reverse; each rotation grabs focus on the pane it drives. |
+| **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). **Global Alt rotation** works from any pane, even while typing: **M-t** cycles the terminal pane over all live terminals, **M-a** cycles the agent pane over all live agents, **M-p** cycles the agent pane over pipeline agents (pipeline order). Add **Shift** (`M-T`/`M-A`/`M-P`) to rotate in reverse; each rotation grabs focus on the pane it drives. On terminals that don't send Alt/Option as Meta — **macOS Terminal.app and iTerm2 by default** — use the config-free `Ctrl-b` prefix fallback instead: press `Ctrl-b` then `t`/`a`/`p` (add Shift for reverse). See [macOS: the Option key](#macos-the-option-key). |
 | **Opened marker (◆)** | The agent (Agents section or a Pipelines job row) currently shown in the agent pane, and the terminal currently shown in the terminal pane, are marked with a **◆** — and their name carries a bold magenta badge — in the control tree. It tracks both `Enter`-open and the `M-t`/`M-a`/`M-p` rotation, so you can see what's docked even after the cursor moves away. |
 | **Native scrolling** | Per-agent tmux sessions enable `mouse on` + raised `history-limit` for wheel/copy-mode scrolling of long output. |
 
@@ -57,6 +57,7 @@ warden       # bare invocation — same thing
 | `t` | Open a terminal in the opened agent's directory (`~` if none open) — an inline choice to `(c)reate` a fresh terminal there or `(f)ocus` an existing one in that dir |
 | `M-t` / `M-a` / `M-p` | Global rotation (works from any pane, even while typing): **M-t** cycles the terminal pane over live terminals · **M-a** cycles the agent pane over live agents · **M-p** cycles the agent pane over pipeline agents. Each grabs focus on the pane it drives |
 | `M-T` / `M-A` / `M-P` | The same three rotations in **reverse** (Alt+Shift) |
+| `Ctrl-b` then `t`/`a`/`p` | Config-free rotation fallback (add Shift for reverse) — identical to `M-t`/`M-a`/`M-p`, but via the tmux prefix so it works on terminals that don't send Alt/Option as Meta (**macOS Terminal.app / iTerm2** default). See [macOS: the Option key](#macos-the-option-key) |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
@@ -107,6 +108,17 @@ other surfaces can mirror the tree.
 ## Getting back from an attach
 
 Attaching moves your single tmux client onto the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to jump back to the dashboard — not `Ctrl-b d`. `Ctrl-b d` still works but it *detaches* the cockpit to the background rather than returning to it; the cockpit survives (it's reaped on your next `warden tui`), so an accidental detach no longer destroys your dashboard. Only `q` tears it down.
+
+## macOS: the Option key
+
+The global rotation keys are `Alt`-based (`M-t`/`M-a`/`M-p` and their `Shift` reverses). On macOS the `Alt` key is **Option**, but by default **Terminal.app and iTerm2 do not send Option-combos as Meta** — pressing `Option+a` inserts a special character (`å`) rather than the `ESC`+`a` that tmux needs, so the `Option+…` rotation never fires. You have two ways around this:
+
+- **Use the prefix fallback (nothing to configure).** Press `Ctrl-b` (the tmux prefix) then `t`/`a`/`p` — add `Shift` for reverse. It runs the exact same rotation and works on any terminal, because `Ctrl-b` is a plain control byte every emulator sends.
+- **Or make Option behave as Meta**, then `Option+t`/`a`/`p` work directly:
+  - **Terminal.app** — Settings → Profiles → Keyboard → check **"Use Option as Meta key."**
+  - **iTerm2** — Settings → Profiles → Keys → set **Left Option key: Esc+.**
+
+This only affects the `Alt`/`Option` rotation shortcuts; every other cockpit key (including pane-focus `Alt+←/→/↑/↓`, which many terminals send fine) is unaffected.
 
 ## Requirements
 

@@ -221,7 +221,7 @@ overlay, spawn modal, bulk actions, keyboard shortcuts, and theming.
 A terminal mission-control. Keys: `n` spawn · `t` new/focus terminal · `enter` attach ·
 `i` info/inspector · `a` approve · `x` terminate · `D` delete · `d` digest · `r` refresh ·
 `f` filter · `g`/`G` top/bottom · `o`/`p` panes · `s` sort · `c` context · `tab` switch view ·
-`M-t`/`M-a`/`M-p` rotate the terminal pane over terminals / the agent pane over agents / the agent pane over pipeline agents (add **Shift** — `M-T`/`M-A`/`M-P` — to reverse; each grabs focus on the pane it drives) ·
+`M-t`/`M-a`/`M-p` rotate the terminal pane over terminals / the agent pane over agents / the agent pane over pipeline agents (add **Shift** — `M-T`/`M-A`/`M-P` — to reverse; each grabs focus on the pane it drives; or the config-free `Ctrl-b` prefix fallback — `Ctrl-b` then `t`/`a`/`p` — for terminals that don't send Alt/Option as Meta, e.g. **macOS Terminal.app / iTerm2**) ·
 `?` help · `q` quit. A **◆** and a bold name badge mark the agent/terminal currently shown in a pane (tracks both `enter`-open and the `M-t`/`M-a`/`M-p` rotation).
 Includes a pipeline view and per-job info.
 

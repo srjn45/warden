@@ -152,6 +152,20 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 			return fmt.Errorf("tmux bind-key %s: %w: %s", key, err, out)
 		}
 	}
+	// Config-free prefix fallback for the SAME rotation: <prefix> t/a/p (and shifted
+	// T/A/P). The root M-… bindings above only fire if the terminal emulator sends
+	// Meta for Alt/Option combos — which macOS Terminal.app and iTerm2 do NOT by
+	// default (Option+a emits "å", not ESC+a), so those users would otherwise have no
+	// rotation key. <prefix> (Ctrl-b) is a plain control byte every terminal produces,
+	// so this path needs no emulator setting. Each key forwards the matching M-<key>
+	// to the control pane, reusing the identical rotation handling. These override the
+	// tmux defaults for t (clock)/p (previous-window) inside this session and are
+	// unbound on teardown (killCockpitArgs).
+	for _, m := range [][2]string{{"t", "M-t"}, {"a", "M-a"}, {"p", "M-p"}, {"T", "M-T"}, {"A", "M-A"}, {"P", "M-P"}} {
+		if out, err := run.Run(ctx, "", "tmux", "bind-key", m[0], "send-keys", "-t", controlPaneID, m[1]); err != nil {
+			return fmt.Errorf("tmux bind-key %s: %w: %s", m[0], err, out)
+		}
+	}
 	// 6. Focus the control pane.
 	if out, err := run.Run(ctx, "", "tmux", "select-pane", "-t", controlPaneID); err != nil {
 		return fmt.Errorf("tmux select-pane: %w: %s", err, out)

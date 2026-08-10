@@ -693,10 +693,11 @@ The control pane polls the daemon about once a second. The daemon must be runnin
 | `?` | Toggle help overlay |
 | `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport — `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Each grabs focus on the target pane. Global (works from any pane, even while typing) |
 | `Alt+Shift+t` / `Alt+Shift+a` / `Alt+Shift+p` | Same rotations in **reverse** |
+| `Ctrl-b` then `t`/`a`/`p` | Config-free rotation fallback (add Shift for reverse) — identical to `Alt+t/a/p` but via the tmux prefix, for terminals that don't send Alt/Option as Meta (**macOS Terminal.app / iTerm2** default) |
 | `◆` | Marks the agent/terminal currently shown in a pane (not a key) — its name carries a bold magenta badge in the control tree, tracking both `Enter`-open and the `Alt+t`/`Alt+a`/`Alt+p` rotation |
 | `q` | Quit and tear down the cockpit |
 
-Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix); rotate the terminal/agent viewports with **Alt+t / Alt+a / Alt+p** (add **Shift** to rotate in reverse). Rotation grabs focus on the pane it drives, so cycling agents drops you straight into the session. The row currently docked in a pane is marked with a **◆** and a bold **name badge** in the control tree, following both `Enter`-open and the Alt rotation. See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
+Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix); rotate the terminal/agent viewports with **Alt+t / Alt+a / Alt+p** (add **Shift** to rotate in reverse). Rotation grabs focus on the pane it drives, so cycling agents drops you straight into the session. On **macOS**, Terminal.app and iTerm2 don't send Option as Meta by default, so `Option+t/a/p` won't fire — use the config-free `Ctrl-b` prefix fallback (`Ctrl-b` then `t`/`a`/`p`, Shift for reverse), or enable "Use Option as Meta key". The row currently docked in a pane is marked with a **◆** and a bold **name badge** in the control tree, following both `Enter`-open and the Alt rotation. See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
 
 ---
 
