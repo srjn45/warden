@@ -423,6 +423,27 @@ stages at the end.
    `kind=terminal` support (wd-app's chosen skew switch, with terminal-absent-
    from-`/backends` as the fallback); MCP parity if needed; ping + align with
    wd-app (§9). Bundled as one atomic contract unit. (Depends 2.)
+   *Sequencing note (built 2026-08-10):* the `terminal` backend adapter moved from
+   `internal/agentbackend/backends/terminal.go` (registered) to an **unregistered**
+   internal adapter `internal/agentbackend/terminal.go`, reached only via
+   `agentbackend.TerminalBackend()` — so `terminal` vanishes from `IDs()`/`Get()`/
+   `Detect()`/`GET /api/v1/backends` while the launch path reuses the exact same
+   degraded machinery (zero launch-behavior change). lifecycle resolves it through a
+   new `launchBackend(sess)` seam that keys on `sess.IsTerminal()`, and a
+   `kind=terminal` spawn is forced free-form (a stray Type can't route it onto the
+   worktree/AI path). The `kind` field rides the existing spawn body
+   (oapi.SpawnRequest → daemon.SpawnRequest → lifecycle.SpawnRequest → client.SpawnParams;
+   `store.Session` is `x-go-type`, so `kind` already serialized on every row — the
+   openapi Session edit is doc-only). The list filter is `GET /api/v1/sessions?kind=`.
+   The capability flag is **`terminal-sessions`**, served by a new
+   `GET /api/v1/capabilities` (`CapabilitiesResponse{capabilities:[]}`) — no version
+   plumbed (the warden version is conveyed to wd-app directly + is in the release
+   tag). backendstore prunes a stale pre-stage-6 `terminal` row on every Reconcile
+   (a new `Store.Delete`). back-compat: `backend=terminal` is still accepted as an
+   alias for `kind=terminal`. MCP `spawn_agent` gains a `kind` arg (terminal dropped
+   from its backend enum); CLI gains `--kind` (terminal dropped from `--backend`
+   help; `make gendocs` run). Prose docs (README/FEATURES/USAGE/site/skill) are the
+   stage-8 sweep; this stage ships code + contract + generated `cli.md`.
 7. **Web cockpit** — parity (§10). (Depends 2–5.) — parallel with 6.
 8. **Docs & DoD** — README, `docs/FEATURES.md` + root `FEATURES.md`,
    `docs/USAGE.md`, site guides + `reference/cli.md` (generated), skill; tag +

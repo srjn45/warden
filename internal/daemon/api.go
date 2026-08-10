@@ -52,6 +52,7 @@ type SpawnRequest struct {
 	Force          bool     `json:"force"`           // bypass the memory-pressure spawn gate
 	Model          string   `json:"model"`           // claude model (opus/sonnet/haiku or full ID); empty = default
 	Backend        string   `json:"backend"`         // agent backend id (claude, aider, …); empty = claude (back-compat)
+	Kind           string   `json:"kind"`            // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (backend/model/role/prompt ignored)
 	Tags           []string `json:"tags"`            // optional free-form labels for grouping/filtering (#30)
 	ParentID       string   `json:"parent_id"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	ForkFrom       string   `json:"fork_from"`       // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn

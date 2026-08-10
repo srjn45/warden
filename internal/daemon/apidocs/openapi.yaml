@@ -87,6 +87,26 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/capabilities:
+    get:
+      operationId: getCapabilities
+      tags: [Health]
+      summary: Server capability flags
+      description: >
+        The optional capabilities this warden daemon supports, as stable string
+        flags a client feature-detects against (version-skew negotiation). The
+        flag "terminal-sessions" means this daemon understands the session `kind`
+        field: it accepts kind=terminal on spawn, supports ?kind= on session list,
+        sets `kind` on every session row, and no longer lists `terminal` as a
+        backend. A client keys on the flag; absence of `terminal` from
+        GET /api/v1/backends is the fallback signal for older daemons.
+      responses:
+        "200":
+          description: Capability flags
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CapabilitiesResponse" }
+
   /api/docs:
     get:
       operationId: getApiDocs
@@ -127,6 +147,15 @@ paths:
       operationId: listSessions
       tags: [Sessions]
       summary: List active sessions
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema: { type: string, enum: [agent, terminal] }
+          description: >
+            filter by session kind: "agent" returns only AI agents (sessions with
+            kind empty or "agent"), "terminal" returns only plain shells. Omitted =
+            every session, agents and terminals alike (unchanged default).
       responses:
         "200":
           description: All live sessions
@@ -1947,6 +1976,18 @@ components:
       properties:
         status: { type: string, example: ok }
 
+    CapabilitiesResponse:
+      type: object
+      required: [capabilities]
+      description: The optional capability flags this daemon supports (feature detection).
+      properties:
+        capabilities:
+          type: array
+          items: { type: string }
+          description: >
+            Stable capability-flag strings. Known flags: "terminal-sessions"
+            (session `kind` support — see GET /api/v1/capabilities).
+
     Status:
       type: string
       description: Agent lifecycle status
@@ -1992,6 +2033,14 @@ components:
         subject: { type: string }
         tags: { type: array, items: { type: string } }
         status: { $ref: "#/components/schemas/Status" }
+        kind:
+          type: string
+          enum: [agent, terminal]
+          description: >
+            session kind. Absent or empty means "agent" (back-compat: records that
+            predate the field, and every AI agent, read as agents). "terminal" is a
+            plain shell, excluded from AI-centric surfaces. Present on EVERY session
+            row so a client can classify without heuristics.
         pid: { type: integer }
         exit_code: { type: integer, nullable: true }
         created_at: { type: string, format: date-time }
@@ -2036,6 +2085,18 @@ components:
         force: { type: boolean, description: "bypass the memory-pressure spawn gate" }
         model: { type: string }
         backend: { type: string, description: "agent backend id (claude, aider, …); empty = claude (the default)" }
+        kind:
+          type: string
+          enum: [agent, terminal]
+          description: >
+            session kind. Empty or "agent" (the default) creates an AI agent with
+            the chosen backend. "terminal" creates a plain interactive shell
+            (${SHELL:-bash}) in `cwd` — NOT an AI agent: `backend`, `model`,
+            `role`, and `prompt` are ignored, and it is excluded from every
+            AI-centric surface (spend, state, approvals, digests). A terminal is
+            created here, not via a backend id — the `terminal` backend was
+            removed (advertised by the `terminal-sessions` capability, see
+            GET /api/v1/capabilities).
         tags: { type: array, items: { type: string } }
         parent_id: { type: string, description: "id of the agent that spawned this one; empty = root" }
         role: { type: string, description: "built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset." }

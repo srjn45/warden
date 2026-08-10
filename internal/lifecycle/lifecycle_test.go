@@ -807,13 +807,38 @@ func TestSpawnInRepoRecordsRepoWorkdir(t *testing.T) {
 // A spawn with the `terminal` backend is classified Kind=terminal so every
 // AI-centric surface excludes it and the cockpit renders it under Terminals
 // (stage 4 bridge; stage 6 replaces this with an explicit kind field).
-func TestSpawnTerminalBackendSetsKindTerminal(t *testing.T) {
+// The explicit kind=terminal create path (stage 6): no backend, Kind=terminal,
+// launches in the caller cwd.
+func TestSpawnKindTerminal(t *testing.T) {
+	fr := &FakeRunner{}
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Cwd: "/work/project", Kind: store.KindTerminal})
+	require.NoError(t, err)
+	require.Equal(t, store.KindTerminal, s.Kind, "kind=terminal ⇒ Kind=terminal")
+	require.True(t, s.IsTerminal())
+	require.Empty(t, s.Backend, "a terminal has no backend")
+	require.Equal(t, "/work/project", s.Workdir, "terminal launches in the caller cwd")
+}
+
+// Back-compat: a request still naming the removed `terminal` backend (older client
+// / the stage-4 TUI alias) is normalized to kind=terminal with the backend cleared.
+func TestSpawnTerminalBackendAliasSetsKindTerminal(t *testing.T) {
 	fr := &FakeRunner{}
 	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Cwd: "/work/project", Backend: "terminal"})
 	require.NoError(t, err)
-	require.Equal(t, store.KindTerminal, s.Kind, "terminal backend ⇒ Kind=terminal")
+	require.Equal(t, store.KindTerminal, s.Kind, "backend=terminal alias ⇒ Kind=terminal")
 	require.True(t, s.IsTerminal())
-	require.Equal(t, "/work/project", s.Workdir, "terminal launches in the caller cwd")
+	require.Empty(t, s.Backend, "the terminal alias clears the backend (it is not a backend)")
+}
+
+// kind=terminal is always a free-form shell: a stray Type must not route it onto
+// the typed/worktree path (where its launch would resolve to an AI backend).
+func TestSpawnKindTerminalForcesFreeForm(t *testing.T) {
+	fr := &FakeRunner{}
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Cwd: "/work/project", Kind: store.KindTerminal, Type: "development"})
+	require.NoError(t, err)
+	require.True(t, s.IsTerminal())
+	require.Empty(t, string(s.Type), "a terminal is free-form — Type is cleared")
+	require.Empty(t, s.Worktree, "a terminal never gets a managed worktree")
 }
 
 // A normal (non-terminal) spawn keeps Kind empty — empty ⇒ agent, so no existing

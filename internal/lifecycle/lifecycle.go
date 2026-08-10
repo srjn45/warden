@@ -725,20 +725,21 @@ type SpawnRequest struct {
 	Ticket         string // optional; becomes the id when present
 	Name           string // optional; human-readable name for the agent
 	Repo           string
-	Branch         string   // optional; development branch / pr-review checkout target
-	PR             string   // optional; pr-review
-	Worktree       bool     // analysis/spike opt-in
-	InRepo         bool     // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
-	Prompt         string   // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
-	Cwd            string   // free-form: dir to launch claude from (the caller's "master shell"); required
-	PermissionMode string   // explicit mode override; empty = use global default
-	AutoRestart    bool     // opt-in: auto-resume this agent when it errors (capped)
-	AutoApprove    bool     // opt-in: auto-approve yes/no prompts (also filled by a role default)
-	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
-	Backend        string   // agent backend id (claude, aider, …); empty = claude (the default)
-	Tags           []string // optional free-form labels for grouping/filtering (#30)
-	Role           string   // built-in role (persona + default flags); empty = "general" (no persona)
-	ParentID       string   // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	Branch         string            // optional; development branch / pr-review checkout target
+	PR             string            // optional; pr-review
+	Worktree       bool              // analysis/spike opt-in
+	InRepo         bool              // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
+	Prompt         string            // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
+	Cwd            string            // free-form: dir to launch claude from (the caller's "master shell"); required
+	PermissionMode string            // explicit mode override; empty = use global default
+	AutoRestart    bool              // opt-in: auto-resume this agent when it errors (capped)
+	AutoApprove    bool              // opt-in: auto-approve yes/no prompts (also filled by a role default)
+	Model          string            // claude model (opus/sonnet/haiku or full ID); empty = default
+	Backend        string            // agent backend id (claude, aider, …); empty = claude (the default)
+	Kind           store.SessionKind // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
+	Tags           []string          // optional free-form labels for grouping/filtering (#30)
+	Role           string            // built-in role (persona + default flags); empty = "general" (no persona)
+	ParentID       string            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 
 	// Fork fields (codex fork superpower, #52). Set by the daemon adapter when a
 	// spawn carries fork_from: the adapter (which owns the store) resolves the
@@ -1344,11 +1345,24 @@ func readFileTail(path string, maxBytes int64) string {
 	return string(data)
 }
 
-// terminalBackendID is the backend id whose sessions warden classifies as plain
-// terminals (Kind=terminal) rather than AI agents. It still lives in the backend
-// registry today; stage 6 of the cockpit redesign removes it and replaces this
-// backend-derived classification with an explicit `kind` field on SpawnRequest.
+// terminalBackendID is the pre-stage-6 backend id for a plain shell. The backend
+// is gone from the registry (terminals are now the session Kind=terminal, created
+// via SpawnRequest.Kind), but Spawn still accepts a request naming it as a
+// back-compat alias for kind=terminal so an older client (or the stage-4 TUI path)
+// keeps working.
 const terminalBackendID = "terminal"
+
+// launchBackend resolves the backend adapter that drives a session's launch and
+// resume. A terminal is no longer a registered backend, so it resolves to the
+// internal terminal adapter regardless of its (empty) Backend field — keying on
+// Kind, not a backend id. Every other session resolves through the registry
+// (agentbackend.Get, empty ⇒ Claude).
+func (l *Lifecycle) launchBackend(sess *store.Session) agentbackend.Backend {
+	if sess.IsTerminal() {
+		return agentbackend.TerminalBackend()
+	}
+	return l.backendFor(sess.Backend)
+}
 
 // Spawn creates an agent session. Prompt mode (Prompt set, no Type) runs a plain
 // claude in Workdir with NO git worktree, seeded with the prompt. Typed mode is
@@ -1365,9 +1379,19 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if !freeMode {
 		req.Type = store.NormalizeType(string(req.Type))
 	}
+	// Back-compat: `terminal` was a backend before stage 6. A request still naming
+	// it (an older client, or the stage-4 TUI create path) is now an explicit
+	// terminal create — normalize it to kind=terminal with no backend so it survives
+	// the removal cleanly and doesn't trip the unknown-backend check below.
+	if req.Backend == terminalBackendID {
+		req.Kind = store.KindTerminal
+		req.Backend = ""
+	}
 	// Reject an unknown backend up front (before any tmux/worktree side effects),
 	// so a typo fails cleanly rather than launching the wrong agent. An empty
-	// backend resolves to Claude (back-compat) inside agentbackend.Get.
+	// backend resolves to Claude (back-compat) inside agentbackend.Get. A terminal
+	// has no backend (Backend cleared above), so this validates against Claude and
+	// passes — the launch itself goes through the terminal adapter (launchBackend).
 	if _, err := agentbackend.Get(req.Backend); err != nil {
 		return nil, err
 	}
@@ -1395,15 +1419,20 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Backend:        req.Backend,
 		Role:           req.Role,
 	}
-	// A session launched with the `terminal` backend is a plain shell, not an AI
-	// agent: tag it Kind=terminal so every AI-centric surface (metrics, approvals,
-	// the poller, insights, …) excludes it and the cockpit renders it under
-	// Terminals. This is the internal bridge that keeps the /backends contract
-	// unchanged for now — stage 6 removes the terminal backend and replaces this
-	// with an explicit `kind` field on SpawnRequest. Agents keep Kind="" (empty ⇒
-	// agent), so no existing record migrates.
-	if req.Backend == terminalBackendID {
+	// A kind=terminal session is a plain shell, not an AI agent: tag it so every
+	// AI-centric surface (metrics, approvals, the poller, insights, …) excludes it
+	// and the cockpit renders it under Terminals. Its launch goes through the
+	// internal terminal adapter (launchBackend), never a registered backend; Backend
+	// was already cleared for the back-compat alias above. Agents keep Kind="" (empty
+	// ⇒ agent), so no existing record migrates.
+	if req.Kind == store.KindTerminal {
 		sess.Kind = store.KindTerminal
+		// A terminal is always a plain free-form shell in cwd — never a typed,
+		// worktree-backed spawn. Force free-form so a stray type=… (or the
+		// back-compat backend=terminal alias paired with a type) can't route a
+		// terminal onto the managed-worktree path, where its launch would resolve to
+		// an AI backend instead of the shell adapter.
+		req.Type, sess.Type, freeMode = "", "", true
 	}
 	// Record provenance, but never let an agent be its own parent (a self-id would
 	// create a degenerate cycle in the sub-tree view).
@@ -1418,7 +1447,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	// leave it empty (empty already = the dir-scoped transcript fallback, safe even
 	// before discovery lands) and let the poller discover-then-pin the agent's real
 	// id post-launch (design §5.2; agentbackend.SessionIDDiscoverer).
-	if l.backendFor(req.Backend).Capabilities().SessionIDControl {
+	if l.launchBackend(sess).Capabilities().SessionIDControl {
 		sess.ClaudeSessionID, err = store.NewSessionID()
 		if err != nil {
 			return nil, err
@@ -1480,7 +1509,12 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.backendFor(sess.Backend)
+	// launchBackend, not backendFor: a terminal session launches ${SHELL:-bash} via
+	// the internal terminal adapter (it has no registered backend), while every
+	// other session resolves through the registry. All the AI-specific steps below
+	// (context injection, system-prompt hints, prompt seeding) then degrade to
+	// no-ops for a terminal exactly as the old registered backend made them.
+	b := l.launchBackend(sess)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same pipeline/collab addendum by writing it into the workdir before
 	// launch. A flag-based backend (Claude) skips this — its hints ride the launch

@@ -977,8 +977,8 @@ func TestHandleListBackends(t *testing.T) {
 	var out backendState
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	require.NotEmpty(t, out.Backends)
-	// Rows are sorted by id; the reconcile seeds every registered CLI backend
-	// (terminal is always installed) plus a newly detected CLI starts unclassified+enabled.
+	// Rows are sorted by id; the reconcile seeds every registered CLI backend, and a
+	// newly detected CLI starts unclassified+enabled.
 	ids := map[string]bool{}
 	for i, b := range out.Backends {
 		require.NotEmpty(t, b.ID)
@@ -987,11 +987,10 @@ func TestHandleListBackends(t *testing.T) {
 		}
 		ids[b.ID] = true
 	}
-	require.True(t, ids["terminal"], "terminal backend is listed")
 	require.True(t, ids["aider"])
-	term, ok := rowByID(out.Backends, "terminal")
-	require.True(t, ok)
-	require.True(t, term.Installed, "terminal is always installed")
+	// terminal is no longer a backend (cockpit stage 6): it never appears in the
+	// registry — terminals are the session Kind=terminal, created via spawn `kind`.
+	require.False(t, ids["terminal"], "terminal is not a backend row")
 	// Default settings applied.
 	require.Equal(t, "free_plus_local", out.Settings.InternalThinkingMode)
 }

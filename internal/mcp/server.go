@@ -43,7 +43,8 @@ type spawnArgs struct {
 	Force          bool     `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
 	Name           string   `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
 	Model          string   `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to the model_default config setting (sonnet)"`
-	Backend        string   `json:"backend,omitempty" jsonschema:"agent backend to drive: claude (default), aider, opencode, codex, crush, goose, cursor, antigravity, or terminal. Backends differ in capabilities — aider & opencode are bring-your-own-model (set model, e.g. ollama_chat/qwen2.5-coder:3b or ollama/qwen2.5-coder:3b), with tokens-only spend. aider has no resume and runs an autonomous task that exits when done; opencode has a structured (Tier A) transcript and DOES resume the worktree's last session. terminal is NOT an AI agent — it opens a plain interactive shell in the agent's directory, managed with the normal worktree/git/tmux lifecycle; its prompt is ignored"`
+	Backend        string   `json:"backend,omitempty" jsonschema:"agent backend to drive: claude (default), aider, opencode, codex, crush, goose, cursor, or antigravity. Backends differ in capabilities — aider & opencode are bring-your-own-model (set model, e.g. ollama_chat/qwen2.5-coder:3b or ollama/qwen2.5-coder:3b), with tokens-only spend. aider has no resume and runs an autonomous task that exits when done; opencode has a structured (Tier A) transcript and DOES resume the worktree's last session"`
+	Kind           string   `json:"kind,omitempty" jsonschema:"session kind: empty/agent (default) spawns an AI agent with the chosen backend; terminal opens a plain interactive shell ($SHELL) in dir — NOT an AI agent (backend/model/role/prompt are ignored), excluded from spend/state/approvals"`
 	Tags           []string `json:"tags,omitempty" jsonschema:"optional free-form labels for grouping/filtering (e.g. [\"backend\",\"urgent\"]); searchable and filterable via warden ls --tag"`
 	Role           string   `json:"role,omitempty" jsonschema:"built-in agent role: general (default, no persona) | orchestrator | implementer | auto-merger | reviewer. Injects the role's persona as a system-prompt addendum and applies its default flags (type/model/permission_mode/auto_approve/tags) to any field left unset"`
 }
@@ -279,7 +280,7 @@ func NewServer(daemonBase string) *Server {
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree, InRepo: a.InRepo,
 			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
-			Name: a.Name, Model: a.Model, Backend: a.Backend, Tags: a.Tags, Role: a.Role, ParentID: sessionID(),
+			Name: a.Name, Model: a.Model, Backend: a.Backend, Kind: a.Kind, Tags: a.Tags, Role: a.Role, ParentID: sessionID(),
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired

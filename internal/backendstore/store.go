@@ -240,6 +240,18 @@ func (s *Store) upsert(b Backend) error {
 	return err
 }
 
+// Delete removes the backend row keyed id. A missing row is not an error
+// (idempotent) — callers use it to prune a row that should no longer exist, e.g.
+// a `terminal` row a pre-stage-6 daemon persisted before the backend was removed.
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.col.DeleteByKey(id); err != nil && !errors.Is(err, engine.ErrKeyNotFound) {
+		return err
+	}
+	return nil
+}
+
 // SetTier records the user's tier preference for a backend (RMW). It does not
 // validate the tier string — the API layer owns that (§6); the reserved "local"
 // tier is system-set, not routed through here.

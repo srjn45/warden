@@ -2834,10 +2834,11 @@ Interactive: warden start --dir <path>                (opens the agent and waits
 Managed:     warden start TICKET --type <TYPE>        (isolated worktree)
 
 Backends (--backend): warden drives Claude Code by default. Accepted values:
-  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity, terminal.
+  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
 Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
-Terminal: not an AI agent — opens a plain interactive shell ($SHELL) in the agent's
-directory, managed with the same worktree/git/tmux lifecycle as any other agent.
+Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
+in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
+session kind, not a backend, so --backend/--model/--role/prompt are ignored.
 Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
 OpenCode: BYO model (pass --model), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
@@ -2852,13 +2853,14 @@ Usage:
 
 Flags:
       --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --backend warden start --help              agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity | terminal (plain shell, no AI) — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-backend notes
+      --backend warden start --help              agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-backend notes
       --branch string                            new branch (development) or checkout target (pr-review)
       --dir string                               directory to launch the agent from (default: current directory)
       --force                                    spawn even when the memory-pressure gate warns
       --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
   -h, --help                                     help for start
       --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
+      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --backend/--model/--role/prompt ignored)
       --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
       --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')

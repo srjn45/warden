@@ -39,6 +39,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		AutoRestart:    req.AutoRestart,
 		Model:          req.Model,
 		Backend:        req.Backend,
+		Kind:           store.SessionKind(req.Kind),
 		Tags:           req.Tags,
 		ParentID:       req.ParentID,
 		Role:           req.Role,
