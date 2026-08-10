@@ -451,6 +451,54 @@ func TestDetailEOpensEventsAndEscReturns(t *testing.T) {
 	}
 }
 
+func TestDetailArrowsWalkControlsThenScroll(t *testing.T) {
+	f := &fakeAPI{}
+	// A rich session with a short viewport so detailBody overflows and the body
+	// is scrollable below the controls.
+	s := &store.Session{
+		ID: "agent-1", Status: store.StatusWorking, Subject: "doing a thing",
+		Backend: "claude", Model: "opus", Role: "implementer",
+		Tags: []string{"alpha", "beta"}, Workdir: "/home/x/dev/warden",
+		Worktree: "/home/x/wt", Branch: "feat/x", Prompt: "a prompt",
+		PR: "123", Ticket: "T-1",
+	}
+	m := detailModel(t, f, s)
+	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 8}) // force overflow
+
+	// Down walks the controls cursor 0 → 1 → 2 while the body stays at the top.
+	m = lstep(m, key("down"))
+	if m.detailSel != detailSelForceCompact || m.vp.YOffset != 0 {
+		t.Fatalf("1st down: want sel=%d YOffset=0, got sel=%d YOffset=%d", detailSelForceCompact, m.detailSel, m.vp.YOffset)
+	}
+	m = lstep(m, key("down"))
+	if m.detailSel != detailSelEvents || m.vp.YOffset != 0 {
+		t.Fatalf("2nd down: want sel=%d YOffset=0, got sel=%d YOffset=%d", detailSelEvents, m.detailSel, m.vp.YOffset)
+	}
+	// Past the last control, down hands off to line-scrolling: cursor sticks, body scrolls.
+	m = lstep(m, key("down"))
+	if m.detailSel != detailSelEvents {
+		t.Fatalf("down past last control should keep sel=%d, got %d", detailSelEvents, m.detailSel)
+	}
+	if m.vp.YOffset == 0 {
+		t.Fatalf("down past last control should scroll the body (YOffset>0), got %d", m.vp.YOffset)
+	}
+	// Up scrolls the body back up first (cursor unchanged while scrolled).
+	scrolled := m.vp.YOffset
+	m = lstep(m, key("up"))
+	if m.vp.YOffset >= scrolled {
+		t.Fatalf("up while scrolled should reduce YOffset (%d → <), got %d", scrolled, m.vp.YOffset)
+	}
+	if m.detailSel != detailSelEvents {
+		t.Fatalf("up while scrolled should not move the cursor, got sel=%d", m.detailSel)
+	}
+	// Once back at the top, up re-enters the controls.
+	m = lstep(m, key("g")) // ensure top
+	m = lstep(m, key("up"))
+	if m.vp.YOffset != 0 || m.detailSel != detailSelForceCompact {
+		t.Fatalf("up at top should walk cursor to %d at YOffset 0, got sel=%d YOffset=%d", detailSelForceCompact, m.detailSel, m.vp.YOffset)
+	}
+}
+
 func TestDetailEnterOnEventsRowOpensEvents(t *testing.T) {
 	f := &fakeAPI{}
 	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, Events: []store.Event{{Type: "spawned"}}}
