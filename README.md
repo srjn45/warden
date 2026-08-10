@@ -57,7 +57,7 @@ warden tui              # open the cockpit
 <table>
   <tr>
     <td width="50%">
-      <a href="https://srjn45.github.io/warden/guides/tui-cockpit/"><img src="site/public/media/tui-cockpit.gif" alt="The warden TUI cockpit in motion: a live agents list grouped by directory, an Approvals row, a shell, and the selected agent's session in the full-height detail pane."></a>
+      <a href="https://srjn45.github.io/warden/guides/tui-cockpit/"><img src="site/public/media/tui-cockpit.gif" alt="The warden TUI cockpit in motion: a live agents list grouped by directory, an Approvals row, a terminal, and the selected agent's session in the full-height agent pane."></a>
       <p align="center"><strong>TUI cockpit</strong> — agents list, shell, and the selected agent's live session, side by side in tmux.</p>
     </td>
     <td width="50%">
@@ -105,7 +105,7 @@ Capability highlights from recent releases (full notes on the [releases page](ht
 - **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role reviewer`) or switch it on a running agent (`warden set-role <id> reviewer`, which relaunches to re-inject). Five built-in roles — `general` (default, no persona), `orchestrator`, `implementer`, `auto-merger`, `reviewer` — each carrying a persona plus default spawn flags (e.g. `reviewer` defaults `--type pr-review`, `auto-merger` turns on auto-approve). `warden role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-role-list--warden-set-role).
 - **Resilience & ergonomics round-up** — `warden recover` re-registers archived-but-alive agents (tombstone-reaper safety net); the web `/tui` cockpit **self-heals** (validated and auto-rebuilt if wedged; `warden tui --rebuild-web-cockpit` forces it); `warden tui` inside an existing tmux session lays out as a **native tmux window** instead of erroring (`--tmux-native`); `wd push --force-with-lease` for safe force-pushes; rate-limit auto-resume now also answers Claude's **wait-menu and monthly spend cap** (`rate_limit.spend_retry_interval`); and all daemon stores (sessions, pipelines, schedules, snapshots, context, mailbox) run on an embedded ScrivaDB — still no database server.
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
-- **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending cloud-model tokens); optionally hosts the cockpit master pane.
+- **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending cloud-model tokens).
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
 - **Agent sub-trees in the TUI** — agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); deleting a parent with live children leaves a muted *terminated tombstone* header so the children never orphan, reaped once the sub-tree finishes.
 - **Fleet at scale** — full-text `warden search` + tags, a `warden history` archive, `warden export`/`import`, an append-only `warden audit log`, spawn `preset`s and variabled `prompt-template`s (browse both via `warden library`), and web batch operations.
@@ -482,7 +482,6 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 | **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic (`goose session -r --name <id>`); no model flag on session launch; context injection via `.goosehints`; spend tokens-only. See [`docs/agent-backends/goose.md`](docs/agent-backends/goose.md) |
 | **Cursor CLI** | `cursor` | C | 🧪 Experimental. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped (`--continue`); live state + approval/trust detection; context injection via `AGENTS.md`. **No structured transcript yet** (interactive store is unreadable SQLite) ⇒ no digests; spend tokens-only. See [`docs/agent-backends/cursor.md`](docs/agent-backends/cursor.md) |
 | **Antigravity CLI** | `antigravity` | A | β Beta. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped (`agy -c`); live state + approval/trust detection; context injection via `AGENTS.md`; spend tokens-only. See [`docs/agent-backends/antigravity.md`](docs/agent-backends/antigravity.md) |
-| **Terminal** (plain shell) | `terminal` | — | **Not an AI agent.** Opens an interactive `$SHELL` in the agent's directory, managed with warden's normal worktree/git/tmux lifecycle (attach, commit/push/sync, snapshot, teardown). No AI features (no digests, resume, model, or spend); the task prompt is ignored. A managed "human seat" beside the fleet. See [`docs/agent-backends/terminal.md`](docs/agent-backends/terminal.md) |
 
 ```bash
 # Drive Aider against a local Ollama model (free, offline)
@@ -502,6 +501,14 @@ warden start "implement the add function" --backend crush --dir .
 GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
 warden start "implement the add function" --backend goose --dir .
 ```
+
+> **Terminals are not a backend.** A plain interactive shell beside the fleet is a
+> first-class **terminal session** (`kind=terminal`), not an agent backend — so
+> `terminal` is no longer a `--backend` choice. Create one from the cockpit (the
+> default terminal on startup, `t`, or `Alt+t`) or over the API with
+> `kind=terminal` (`backend=terminal` is still accepted as a back-compat alias).
+> Terminals get warden's normal worktree/git/tmux lifecycle (attach, commit/push/sync,
+> snapshot, teardown, cockpit listing) but no AI features. See the cockpit section below.
 
 Backends differ in capabilities; warden **degrades gracefully** rather than
 crashing when one lacks a capability (e.g. spend shows tokens-not-dollars for a
@@ -585,7 +592,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `rails.isolation_guard` / `rails.git_redirect` / `rails.check_redirect` / `rails.git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
 | `log.level` / `log.format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
 | `local_llm.enabled` (+ `.url`/`.model`/`.timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden repl` (its `/` commands work without it) |
-| `local_llm.repl` | `false` | Start the cockpit master pane in `warden repl` mode instead of a plain shell |
+| `local_llm.repl` | `false` | **Deprecated / no-op.** Historically started the cockpit's shell pane in `warden repl` mode; the cockpit no longer has a REPL-hosting pane (its bottom-left pane is now a first-class terminal), so this setting is inert. Run the REPL standalone with `warden repl`. |
 
 `warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`, `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline.keep_done` / `pipeline.hint`, `worktree.keep_done` / `worktree.auto_prune`, the `auto_restart.*` and `rate_limit.*` knobs, and the REPL tier knobs (`local_llm.tier` / `local_llm.escalate` / `local_llm.classifier`).
 
@@ -657,21 +664,22 @@ warden tui   # open the cockpit
 warden       # bare invocation — same thing
 ```
 
-`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), a terminal shell for running CLI commands (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive `claude` session. Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
+`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: the **control** pane (top-left), a **terminal** pane (bottom-left), and a full-height **agent** pane (right). The control pane is a navigator tree with four fixed sections — **Approvals · Pipelines · Agents · Terminals** — that you browse freely with `↑`/`↓` without disturbing the viewports; press `Enter` to open the selected entity. Opening an **agent** attaches its interactive `claude` session in the agent pane (right); opening a **terminal** attaches it in the terminal pane (bottom-left). The cockpit always keeps at least one terminal — a default terminal in the launch directory opens on startup.
 
 Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under their parent** as a collapsible sub-tree (`▸ / ▾`, indented per depth — the same affordance pipelines use), so you can see which agents an orchestrator fanned out. Deleting a parent that still has live children keeps it as a muted **terminated tombstone** header (`terminated · N running`) — no terminal/attach pane — so its children never vanish; the daemon reaps the tombstone once the whole sub-tree finishes.
 
 The cockpit **requires tmux ≥ 3.1** (it composites real tmux panes); if tmux isn't installed it exits with an error. Launched from **inside an existing tmux session**, warden detects `$TMUX` and lays the cockpit out as a **native tmux window** in your *current* session instead of nesting (your own keybindings, copy-mode, and resizing apply; `q` closes just the cockpit window). Force the native window with `warden tui --tmux-native`, or the classic own-session cockpit with `env -u TMUX warden tui` — see [docs/USAGE.md §7](docs/USAGE.md).
 
-The list pane polls the daemon about once a second. The daemon must be running (`warden daemon`) before opening the TUI.
+The control pane polls the daemon about once a second. The daemon must be running (`warden daemon`) before opening the TUI.
 
 **Keys (cockpit)**
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` or `j` / `k` | Move selection (detail pane is unaffected) |
-| `←` / `→` or `h` / `l` | Collapse / expand the pipeline or agent sub-tree under the cursor |
-| `Enter` | Open the selected agent (or running pipeline job) in the right detail pane — a finished agent or tombstone shows its stored detail instead of attaching |
+| `↑` / `↓` or `j` / `k` | Move selection (the viewports are unaffected) |
+| `←` / `→` or `h` / `l` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
+| `Enter` | Open the selected entity — an agent (or running pipeline job) attaches in the right agent pane; a terminal attaches in the bottom-left terminal pane; a finished agent or tombstone shows its stored detail instead of attaching |
+| `t` | New/focus a terminal in the opened agent's directory (`(c)reate` a fresh one or `(f)ocus` an existing one in that dir) |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
@@ -680,13 +688,13 @@ The list pane polls the daemon about once a second. The daemon must be running (
 | `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
 | `c` | Shared-context + message-traffic inspector |
 | `r` | Retry a failed / needs-attention pipeline job |
-| `x` | Context-sensitive: terminate the selected agent / cancel a pipeline / close an opened dir (confirm with `y`) |
+| `x` | Context-sensitive: terminate the selected agent / cancel a pipeline / close a terminal / close an opened dir (confirm with `y`) |
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
 | `?` | Toggle help overlay |
-| `Alt+t` | Toggle the bottom-left master pane between Claude and a shell (both stay alive) |
+| `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport — `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Global (works from any pane, even while typing) |
 | `q` | Quit and tear down the cockpit |
 
-Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix); toggle the bottom-left master pane between Claude and a shell with **Alt+t**. See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
+Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix); rotate the terminal/agent viewports with **Alt+t / Alt+a / Alt+p** (see the key table above). See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
 
 ---
 
@@ -1407,7 +1415,7 @@ warden's **interactive mode**: a proper terminal REPL to drive the fleet, with a
 - **Natural language (local LLM)** — any other line is planned into **confirmed** warden tool calls without spending cloud-model tokens. It conducts; it never implements — all code work is delegated by spawning an agent.
 - **Local project grounding (`$0`)** — ask a project question ("where does the spawn gate live?", "how do I run the tests?") via `/memory <q>` (`/mem`/`/ask`) or the `project_memory` tool and warden answers it **locally** from `.warden/memory.md`, citing each entry's trust + provenance. It *removes* a cloud round-trip (rather than adding tokens like injection); read-only, degrades to the matching entries verbatim with no local model, default on via `memory.ground`.
 
-It **starts without a local model** (the `/` commands and `!`-shell always work); only the natural-language half needs `local_llm: true`. Every mutating action passes a mandatory confirm gate. Run standalone, or as the cockpit master pane via the `repl` config / `--repl` flag (Alt+t toggles it with a raw shell). See [docs/FEATURES.md §17](docs/FEATURES.md).
+It **starts without a local model** (the `/` commands and `!`-shell always work); only the natural-language half needs `local_llm: true`. Every mutating action passes a mandatory confirm gate. Run it standalone with `warden repl`. See [docs/FEATURES.md §17](docs/FEATURES.md).
 
 ```sh
 warden repl                           # aliases: warden interactive, warden i

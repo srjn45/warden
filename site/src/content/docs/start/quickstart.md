@@ -18,7 +18,7 @@ warden start "review the auth module for security issues"
 
 What just happened:
 
-- A new agent got an ID like `agent-a1b2` and is launched in the directory you ran the command from (your "master shell" cwd) — no per-agent directory is created.
+- A new agent got an ID like `agent-a1b2` and is launched in the directory you ran the command from (your current shell's cwd) — no per-agent directory is created.
 - It's running `claude` on your prompt inside a tmux window.
 - The type shows as `classifying…` for a moment, then the daemon labels it (e.g. `analysis`) automatically.
 

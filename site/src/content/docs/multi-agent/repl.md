@@ -20,8 +20,6 @@ It drives the fleet two ways — a reliable deterministic half and a natural-lan
 
 Interactive mode **starts without a local model** — the `/` commands and `!`-shell always work. The natural-language half needs `local_llm.enabled: true` (and `local_llm.url`/`.model`/`.timeout`); without it, a bare line tells you so and points you at `/help`. Because execution is always plain warden API calls, the REPL spends **no cloud-model tokens**.
 
-You can also run it as the cockpit master pane via the `repl` config setting / `--repl` flag; **Alt+t** toggles that slot between interactive mode and a raw `$SHELL` without killing either side.
-
 ## Deterministic `/` commands
 
 Every `/` command maps to one warden verb; reads run immediately, mutations pass through the same confirm gate as the model's calls. Type `/help` in-session for the full table. A selection:

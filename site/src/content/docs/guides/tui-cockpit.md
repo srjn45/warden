@@ -1,6 +1,6 @@
 ---
 title: The TUI cockpit
-description: The tmux-composited cockpit — agents list, terminal shell, and a live agent detail pane.
+description: The tmux-composited cockpit — a control-pane navigator tree, a terminal pane, and a live agent pane.
 ---
 
 ```sh
@@ -8,44 +8,53 @@ warden tui   # open the cockpit
 warden       # bare invocation — same thing
 ```
 
-`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: an agents list (top-left), a terminal shell for CLI access (bottom-left), and a full-height live detail pane (right) that opens the selected agent's interactive session (the `claude` process by default). Browse the list freely with `↑`/`↓` without disturbing the detail pane; press `Enter` to open an agent in it.
+`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: a **control pane** (top-left) — a navigator tree of four fixed collapsible sections, **Approvals · Pipelines · Agents · Terminals** — a **terminal pane** (bottom-left) that shows a live terminal session, and a full-height **agent pane** (right) that opens the selected agent's interactive session (the `claude` process by default). A **default terminal** opens in the launch directory at startup, listed under **Terminals** and shown in the terminal pane. Browse the tree freely with `↑`/`↓` without disturbing the agent pane; press `Enter` to open an agent in it.
 
 ```
-┌─ Agents (3) ──────┐┌─ agent-4f98 ──────────────┐
-│ ▸ agent-4f98  ●   ││                           │
-│   agent-c860  ⠿   ││  (live agent session)     │
-│   agent-d01c  ✔   ││                           │
-├─ Shell ───────────┤│ ...                       │
+┌─ Control ─────────┐┌─ agent-4f98 ──────────────┐
+│ ▾ Approvals (1)   ││                           │
+│     agent-c860 ⏳ ││                           │
+│ ▾ Pipelines       ││  (live agent session)     │
+│     ci-refactor   ││                           │
+│ ▾ Agents (3)      ││                           │
+│   ▸ agent-4f98 ●  ││ ...                       │
+│     agent-c860 ⠿  ││                           │
+│     agent-d01c ✔  ││                           │
+│ ▾ Terminals (1)   ││                           │
+│     term-home     ││                           │
+├─ Terminal ────────┤│                           │
 │ $ warden ls       ││                           │
-│ agent-4f98  ●     ││                           │
-│ agent-c860  ⠿     ││                           │
 │ $ _               ││                           │
 └───────────────────┘└───────────────────────────┘
 ```
 
-![The warden cockpit: an agents list grouped by directory with live status and context size, a terminal shell below it, and the selected agent's live session in the full-height detail pane on the right.](/warden/media/cockpit.png)
+![The warden cockpit: a control-pane navigator tree with Approvals, Pipelines, Agents, and Terminals sections on the left, a live terminal session in the terminal pane below it, and the selected agent's live session in the full-height agent pane on the right.](/warden/media/cockpit.png)
 
 ## Cockpit features
 
 | Feature | Description |
 |---|---|
-| **Live list** | Polls the daemon ~1×/sec; browse with `↑`/`↓` without disturbing the detail pane. Each row shows a compact **backend** token (claude/aider/…) and the inspector (`i`) adds a `backend` line; an agent with no recorded backend reads as **claude**. |
-| **Pipeline tree** | Pipelines shown as a collapsible `▸ Pipelines` section; expand/collapse, open running jobs, retry failed jobs. |
+| **Live control tree** | Polls the daemon ~1×/sec; browse with `↑`/`↓` without disturbing the agent pane. The **Agents** section shows each row's compact **backend** token (claude/aider/…) and the inspector (`i`) adds a `backend` line; an agent with no recorded backend reads as **claude**. |
+| **Four fixed sections** | The control pane is a navigator tree of four fixed collapsible sections in order — **Approvals · Pipelines · Agents · Terminals**. Approvals is a persistent section (not an overlay). |
+| **Pipelines section** | Pipelines are the collapsible **Pipelines** section of the control tree; expand/collapse, open running jobs, retry failed jobs. |
+| **Terminals section** | First-class terminal sessions (`kind=terminal`) live under the **Terminals** section; a default terminal opens at startup. |
 | **Agent sub-trees** | Agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); `h`/`l` toggles. See [Agent sub-trees](#agent-sub-trees) below. |
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
-| **In-cockpit actions** | `n` new agent, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
-| **Terminal shell pane** | Bottom-left pane runs `$SHELL` for direct CLI access to `warden` commands and other terminal work. |
-| **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). |
+| **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
+| **Terminal pane** | Bottom-left pane shows a live terminal session (`kind=terminal`) — a `$SHELL` in a managed worktree for direct CLI access to `warden` commands and other terminal work. A default terminal opens in the launch directory at startup. |
+| **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). **Global Alt rotation** works from any pane, even while typing: **M-t** cycles the terminal pane over all live terminals, **M-a** cycles the agent pane over all live agents, **M-p** cycles the agent pane over pipeline agents (pipeline order). |
 | **Native scrolling** | Per-agent tmux sessions enable `mouse on` + raised `history-limit` for wheel/copy-mode scrolling of long output. |
 
 ## Keys (cockpit)
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` or `j` / `k` | Move selection (detail pane is unaffected) |
-| `←` / `→` or `h` / `l` | Collapse / expand the pipeline or agent sub-tree under the cursor |
-| `Enter` | Open the selected agent (or running pipeline job) in the right detail pane — a finished agent or tombstone shows its stored detail instead of attaching |
+| `↑` / `↓` or `j` / `k` | Move selection (agent pane is unaffected) |
+| `←` / `→` or `h` / `l` | Collapse / expand the control-pane section, pipeline, or agent sub-tree under the cursor |
+| `Enter` | Open the selected agent (or running pipeline job) in the right agent pane — a finished agent or tombstone shows its stored detail instead of attaching; `Enter` on a terminal shows it in the terminal pane |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
+| `t` | Open a terminal in the opened agent's directory (`~` if none open) — an inline choice to `(c)reate` a fresh terminal there or `(f)ocus` an existing one in that dir |
+| `M-t` / `M-a` / `M-p` | Global rotation (works from any pane, even while typing): **M-t** cycles the terminal pane over live terminals · **M-a** cycles the agent pane over live agents · **M-p** cycles the agent pane over pipeline agents |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
@@ -99,4 +108,4 @@ Attaching moves your single tmux client onto the agent's session (tmux can't nes
 
 ## Requirements
 
-The cockpit **requires tmux ≥ 3.1** — it composites real tmux panes, and there is no single-pane fallback if tmux isn't installed. From a plain terminal it builds its own tmux session and attaches. From **inside an existing tmux session** (where a plain attach would nest), warden detects `$TMUX` and lays the cockpit out as a **native tmux window** in your *current* session instead — a leaner two-pane layout (list + detail) that uses your own tmux keybindings, copy-mode, and resizing; `q` closes only the cockpit window. Force the native window with `warden tui --tmux-native`, or force the classic own-session cockpit with `env -u TMUX warden tui`. The list pane polls the daemon about once a second, so the daemon must be running before you open the TUI.
+The cockpit **requires tmux ≥ 3.1** — it composites real tmux panes, and there is no single-pane fallback if tmux isn't installed. From a plain terminal it builds its own tmux session and attaches. From **inside an existing tmux session** (where a plain attach would nest), warden detects `$TMUX` and lays the cockpit out as a **native tmux window** in your *current* session instead — a leaner two-pane layout (control + agent, no terminal pane) that uses your own tmux keybindings, copy-mode, and resizing; `q` closes only the cockpit window. In native-window mode the terminal features (default terminal, `t`, `Enter` on a terminal, `M-t`) degrade to a status hint. Force the native window with `warden tui --tmux-native`, or force the classic three-pane own-session cockpit with `env -u TMUX warden tui`. The control pane polls the daemon about once a second, so the daemon must be running before you open the TUI.

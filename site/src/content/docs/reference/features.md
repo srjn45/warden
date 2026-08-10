@@ -45,6 +45,7 @@ default; each in its own tmux session, most in a git worktree).
 | List the built-in role catalog | `role list` | `list_roles` | ✓ | ✓ (Role select) | list | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | List the backend's live model menu | `models` (`--backend`, `--json`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | Backend selection (Claude / Aider / OpenCode / Codex / Crush / Goose / Cursor / Antigravity) | `start --backend` | `spawn_agent` (`backend`) | ✓ | — | — | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — only `claude` is stable; `codex` and `antigravity` are β beta; `aider`, `opencode`, `crush`, `goose`, and `cursor` are 🧪 experimental |
+| Terminal session (`kind=terminal`) — managed `$SHELL` seat, no AI (prompt ignored); back-compat `backend=terminal` alias | `start --kind terminal` | `spawn_agent` (`kind`) | ✓ | ✓ (Terminals tab) | `t` | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Fork an agent's session into a new managed agent (Codex-only; branches the conversation, source keeps running; dirty-tree carry) | `fork` | `fork_agent` | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
@@ -184,16 +185,17 @@ default; each in its own tmux session, most in a git worktree).
 ## 12. Web mission control
 
 The browser GUI (served by the daemon) is a **URL-routed** shell (`/cockpit`
-home · `/tui` · `/pipelines` · `/metrics` · `/archive` · `/others` · `/agent/<id>`
-— deep-linkable, back/forward, shareable). It provides: the **Cockpit** home
-(Fleet header + agent grid), a full-screen **TUI** launcher (top-bar ▢ TUI
-button) that streams the literal `warden tui` into the browser, a **Pipelines**
-tab with a live DAG, a **Metrics**
+home · `/tui` · `/pipelines` · `/metrics` · `/terminals` · `/archive` · `/others`
+· `/agent/<id>` — deep-linkable, back/forward, shareable). It provides: the
+**Cockpit** home (Fleet header + agent grid), a full-screen **TUI** launcher
+(top-bar ▢ TUI button) that streams the literal `warden tui` into the browser, a
+**Pipelines** tab with a live DAG, a **Metrics**
 tab (per-agent **and** fleet-total CPU/memory, per-agent context, fleet size,
-tokens saved — two-column on desktop, single-column on mobile), an **Archive**
-tab, the **Others** catch-all (attention queue, conflicts, activity; sits last),
-in-browser **attach** terminals, a header-button **Context & Messages** overlay,
-spawn modal, bulk actions, keyboard shortcuts, and theming.
+tokens saved — two-column on desktop, single-column on mobile), a **Terminals**
+tab (PTY viewport + New terminal; terminals are excluded from the agent grid/counts),
+an **Archive** tab, the **Others** catch-all (attention queue, conflicts, activity;
+sits last), in-browser **attach** terminals, a header-button **Context & Messages**
+overlay, spawn modal, bulk actions, keyboard shortcuts, and theming.
 
 | Feature | Where | Docs |
 |---|---|---|
@@ -202,6 +204,7 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 | Attention queue / approvals | Others (`/others`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Pipelines tab + live DAG | Pipelines (`/pipelines`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Metrics: per-agent + fleet-total CPU/mem, per-agent context, fleet size, tokens saved (2-col responsive) | Metrics (`/metrics`) | [observability](https://srjn45.github.io/warden/reference/observability/) |
+| Terminals tab (PTY viewport + New terminal; excluded from the agent grid/counts) | Terminals (`/terminals`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Archive (history) | Archive (`/archive`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | In-browser attach terminal | Agent (`/agent/<id>`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Full-screen **TUI** launcher — the three-pane cockpit streamed edge-to-edge into the browser (same panes, shortcuts, real shells & live agent sessions; Ctrl+Q exits); **self-healing** (survives daemon restarts; a wedged session is auto-rebuilt, or force one with `warden tui --rebuild-web-cockpit`) | top-bar ▢ TUI button (`/tui`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
@@ -215,14 +218,17 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 
 ## 13. TUI cockpit (`warden tui`)
 
-A terminal mission-control. Keys: `n` spawn · `enter` attach · `i` info/inspector ·
-`a` approve · `x` terminate · `D` delete · `d` digest · `r` refresh · `f` filter ·
-`g`/`G` top/bottom · `o`/`p` panes · `s` sort · `c` context · `tab` switch view ·
+A terminal mission-control. Keys: `n` spawn · `t` new/focus terminal · `enter` attach ·
+`i` info/inspector · `a` approve · `x` terminate · `D` delete · `d` digest · `r` refresh ·
+`f` filter · `g`/`G` top/bottom · `o`/`p` panes · `s` sort · `c` context · `tab` switch view ·
+`M-t`/`M-a`/`M-p` rotate the terminal pane over terminals / the agent pane over agents / the agent pane over pipeline agents ·
 `?` help · `q` quit. Includes a pipeline view and per-job info.
 
 | Feature | Where | Docs |
 |---|---|---|
-| Agent list + live status (incl. per-agent **backend** token; empty ⇒ claude) | main pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Agent list + live status (incl. per-agent **backend** token; empty ⇒ claude) | control pane → Agents section | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Control-pane navigator tree — four fixed sections (Approvals · Pipelines · Agents · Terminals) | control pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Terminals section + default terminal at startup; `t` create/focus a terminal in the opened agent's dir | control pane → Terminals section / terminal pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Inspector (`i`) — agent & pipeline detail | inspector | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Approvals cockpit (`a`) | cockpit | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Digest (`d`) | inspector | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
@@ -265,7 +271,7 @@ backends warden's own internal thinking may call (**never** a paid one).
 | List the registry (installed, tier, default, enabled, limited) + thinking-mode | `backends list` (alias `ls`) | `list_backends` | ✓ | ✓ (🧩 backends panel) | `b` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Rescan installed CLIs (reconcile detection, preserve prefs) | `backends rescan` | `rescan_backends` | ✓ | ✓ (⟳ Rescan) | `r` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Set a backend's billing tier (free\|subscription\|pay_per_use\|unclassified) | `backends tier <id> <tier>` | `set_backend_tier` | ✓ | ✓ (Tier dropdown) | `t` (cycle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
-| Set the single default backend (rejects local/terminal) | `backends default <id>` | `set_default_backend` | ✓ | ✓ (Default radio) | `d`/`enter` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Set the single default backend (rejects local) | `backends default <id>` | `set_default_backend` | ✓ | ✓ (Default radio) | `d`/`enter` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Enable / disable a backend | `backends enable\|disable <id>` | — (REST `PATCH /backends/{id}`; no MCP tool) | ✓ (via CLI) | ✓ (Enabled checkbox) | `e`/space | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Internal-thinking mode (which backends internal thinking may call) | `backends thinking-mode <mode>` | `set_thinking_mode` | ✓ | ✓ (mode select) | `m` (toggle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Internal free/local thinking router (classification, naming, digest narration, memory curation — never a paid call) | config (`backends.limit_retry`) | automatic | ✓ | — | — | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
