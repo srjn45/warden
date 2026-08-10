@@ -40,13 +40,14 @@ agents**.
 
 | Feature | Description |
 |---|---|
-| **Live control tree** | Polls the daemon ~1×/sec; browse with `↑`/`↓` without disturbing the agent pane. The **Agents** section shows each row's compact **backend** token (claude/aider/…) and the inspector (`i`) adds a `backend` line; an agent with no recorded backend reads as **claude**. |
+| **Live control tree** | Polls the daemon ~1×/sec; browse with `↑`/`↓` without disturbing the agent pane. The **Agents** section shows each row's compact **backend** token (claude/aider/…); the full **agent info** pane (`i`) lists every stored field — backend, model, role, tags, context, location, refs, rate-limit, lifecycle, plumbing, and the last pane excerpt. An agent with no recorded backend reads as **claude**. |
 | **Four fixed sections** | The control pane is a navigator tree of four fixed collapsible sections in order — **Approvals · Pipelines · Agents · Terminals**. Approvals is a persistent section (not an overlay). |
 | **Pipelines section** | Pipelines are the collapsible **Pipelines** section of the control tree; expand/collapse, open running jobs, retry failed jobs. |
 | **Terminals section** | First-class terminal sessions (`kind=terminal`) live under the **Terminals** section; a default terminal opens at startup. |
 | **Agent sub-trees** | Agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); `h`/`l` toggles. See [Agent sub-trees](#agent-sub-trees) below. |
 | **Directory groups** | Agents in the **Agents** section are grouped by project directory. Each group header reads **`<project> [<~path>]`** — the directory's name followed by its `~`-abbreviated path — and its agents are indented beneath it, so the tree nests **section → project → agents**. `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
-| **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
+| **Agent info + editing** | `i` opens the **agent info** pane — every stored field for the selected agent, plus interactive controls to **toggle auto-approve**, **cycle force-compact** (inherit → on → off), and open the **event log** (`e`). See [Agent info pane](#agent-info-pane) below. |
+| **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` agent info, `e` event log, `p` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
 | **Terminal pane** | Bottom-left pane shows a live terminal session (`kind=terminal`) — a `$SHELL` in a managed worktree for direct CLI access to `warden` commands and other terminal work. A default terminal opens in the launch directory at startup. |
 | **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). **Global Alt rotation** works from any pane, even while typing: **M-t** cycles the terminal pane over all live terminals, **M-a** cycles the agent pane over all live agents, **M-p** cycles the agent pane over pipeline agents (pipeline order). Add **Shift** (`M-T`/`M-A`/`M-P`) to rotate in reverse; each rotation grabs focus on the pane it drives. On terminals that don't send Alt/Option as Meta — **macOS Terminal.app and iTerm2 by default** — use the config-free `Ctrl-b` prefix fallback instead: press `Ctrl-b` then `t`/`a`/`p` (add Shift for reverse). See [macOS: the Option key](#macos-the-option-key). |
 | **Opened marker (◆)** | The agent (Agents section or a Pipelines job row) currently shown in the agent pane, and the terminal currently shown in the terminal pane, are marked with a **◆** — and their name carries a bold magenta badge — in the control tree. It tracks both `Enter`-open and the `M-t`/`M-a`/`M-p` rotation, so you can see what's docked even after the cursor moves away. |
@@ -68,13 +69,49 @@ agents**.
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
 | `d` | Completion digest for the selected agent — scrollable overlay; `d`/`esc` to close |
-| `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
+| `i` | **Agent info** — a scrollable pane showing every stored field for the selected agent, plus three interactive controls: `↑`/`↓` move the control cursor, **`space`** toggles **auto-approve** and cycles **force-compact** (inherit → on → off), and **`enter`** on the **events** row (or **`e`**) opens the event log. `pgup`/`pgdn`/`g`/`G` scroll · `r` rename · `i`/`esc` back |
+| `e` | From agent info: open the selected agent's **event log** in the control pane (newest first); `e`/`esc` returns to agent info |
+| `p` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
 | `c` | Shared-context + message-traffic inspector |
 | `r` | Retry a failed / needs-attention pipeline job |
 | `x` | Context-sensitive: terminate the selected agent / cancel a pipeline / close an opened dir (confirm with `y`) |
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
 | `?` | Toggle help overlay |
 | `q` | Quit and tear down the cockpit |
+
+## Agent info pane
+
+Pressing **`i`** on an agent opens the **agent info** pane — a scrollable, read-most
+view of everything warden knows about that agent. It replaces the old terse detail
+overlay and now surfaces every stored field, grouped into sections:
+
+- **controls** — the three interactive rows (see below).
+- **summary** — name, subject, type, backend, **model**, **role**, **tags**, context
+  fill (with when it was last checked), and creation time.
+- **location** — repo/workdir, worktree (and whether warden created or adopted it),
+  and branch.
+- **refs** — ticket, PR, owning pipeline/job, and **parent** agent.
+- **rate-limit** — shown only when the agent has hit a limit: when it started, the
+  scheduled resume time, and the retry count.
+- **lifecycle** — auto-restart count, last restart, last auto-`/compact`.
+- **plumbing** — pid, tmux session, exit code, backend session id, initial prompt.
+- **pane** — the last captured pane excerpt.
+
+The top **controls** block is interactive — move the cursor with `↑`/`↓` and act
+with `space` / `enter`:
+
+| Control | Action |
+|---|---|
+| **auto-approve** | `space` toggles this agent's per-agent auto-approve override **on**/**off** (auto-answers yes/no tool prompts with option 1). |
+| **force-compact** | `space` cycles the per-agent force-compact override **inherit → on → off** — `inherit` follows the global `token_force_compact`; `on`/`off` override it for this agent. |
+| **events** | `enter` (or **`e`** from anywhere in the pane) opens the **event log** — the agent's timestamped history, newest first — in the control pane. `e`/`esc` returns to agent info. |
+
+The navigation nests one level deep: **control tree → (`i`) agent info → (`e`) events**,
+and `esc` walks back out one level at a time (events → info → tree). Edits apply
+immediately via the daemon (the same paths as `warden approve`-policy and the
+`set_force_compact` MCP tool), and the pane re-renders on the next poll so the shown
+values and event count stay live. `pgup`/`pgdn`/`g`/`G` scroll the field dump; `r`
+renames the agent.
 
 ## Agent sub-trees
 

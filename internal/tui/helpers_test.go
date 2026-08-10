@@ -27,30 +27,37 @@ type fakeAPI struct {
 	renamedID   string // id of the last SetName
 	renamedName string // name of the last SetName
 	renameErr   error  // error SetName returns
-	dirListing  client.DirListing
-	dirListErr  error
-	approvals   []approval.View
-	approvalsOn bool
-	approveErr  error
-	approvedID  string
-	approvedOpt int
-	approvedFP  string
-	pipelines   []*pipeline.Pipeline
-	retried     string // "<pid>/<job>" of the last PipelineRetry
-	paused      string // pid of the last PipelinePause
-	resumed     string // pid of the last PipelineResume
-	canceled    string // pid of the last PipelineCancel
-	deletedPipe string // pid of the last PipelineDelete
-	deletePErr  error  // error PipelineDelete returns (e.g. simulating a 409)
-	digest      *digest.Digest
-	digestErr   error
-	pressure    client.PressureStatus
-	pressureErr error
-	ctxEntries  []client.ContextEntry
-	ctxListErr  error
-	messages    []client.Message
-	msgErr      error
-	msgLimit    int // last limit passed to MsgRecent
+
+	autoApproveID   string // id of the last SetAutoApprove
+	autoApproveVal  bool   // enabled value of the last SetAutoApprove
+	autoApproveErr  error  // error SetAutoApprove returns
+	forceCompactID  string // id of the last SetForceCompact
+	forceCompactSt  string // state of the last SetForceCompact
+	forceCompactErr error  // error SetForceCompact returns
+	dirListing      client.DirListing
+	dirListErr      error
+	approvals       []approval.View
+	approvalsOn     bool
+	approveErr      error
+	approvedID      string
+	approvedOpt     int
+	approvedFP      string
+	pipelines       []*pipeline.Pipeline
+	retried         string // "<pid>/<job>" of the last PipelineRetry
+	paused          string // pid of the last PipelinePause
+	resumed         string // pid of the last PipelineResume
+	canceled        string // pid of the last PipelineCancel
+	deletedPipe     string // pid of the last PipelineDelete
+	deletePErr      error  // error PipelineDelete returns (e.g. simulating a 409)
+	digest          *digest.Digest
+	digestErr       error
+	pressure        client.PressureStatus
+	pressureErr     error
+	ctxEntries      []client.ContextEntry
+	ctxListErr      error
+	messages        []client.Message
+	msgErr          error
+	msgLimit        int // last limit passed to MsgRecent
 
 	// backend registry (Backends page)
 	backends     client.BackendsState
@@ -91,6 +98,14 @@ func (f *fakeAPI) Input(_ context.Context, id, text string) error {
 func (f *fakeAPI) SetName(_ context.Context, id, name string) error {
 	f.renamedID, f.renamedName = id, name
 	return f.renameErr
+}
+func (f *fakeAPI) SetAutoApprove(_ context.Context, id string, enabled bool) error {
+	f.autoApproveID, f.autoApproveVal = id, enabled
+	return f.autoApproveErr
+}
+func (f *fakeAPI) SetForceCompact(_ context.Context, id, state string) error {
+	f.forceCompactID, f.forceCompactSt = id, state
+	return f.forceCompactErr
 }
 func (f *fakeAPI) ListDirs(_ context.Context, _ string) (client.DirListing, error) {
 	return f.dirListing, f.dirListErr

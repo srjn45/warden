@@ -53,7 +53,7 @@ func loadAgentDetail(a api, agentID string) (string, error) {
 	}
 	for _, s := range sessions {
 		if s.ID == agentID {
-			return detailBody(s, 100), nil
+			return detailBody(s, -1, 100), nil
 		}
 	}
 	return "", fmt.Errorf("agent %q not found", agentID)
@@ -118,7 +118,7 @@ func jobDetailText(p *pipeline.Pipeline, jobID string, width int) (string, error
 // output/digest) since there is no live session to inspect.
 func jobDetailBody(j *pipeline.Job, sess *store.Session, width int) string {
 	if sess != nil {
-		return detailBody(sess, width)
+		return detailBody(sess, -1, width)
 	}
 	return renderPipelineJob(j, width, 0)
 }
