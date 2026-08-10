@@ -68,6 +68,7 @@ export default defineConfig({
           { label: 'Scheduling agents & pipelines', slug: 'guides/scheduling' },
           { label: 'Snapshots & rollback', slug: 'guides/snapshots' },
           { label: 'Remote access', slug: 'guides/remote-access' },
+          { label: 'Re-auth a backend from your phone', slug: 'guides/reauth-from-phone' },
           { label: 'Autopilot — autonomous runs', slug: 'guides/autopilot' },
         ]},
         { label: 'Multi-agent', items: [
