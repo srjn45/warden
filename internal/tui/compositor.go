@@ -145,7 +145,9 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	// M-t is exactly the key freed by removing the old shell-toggle. The control
 	// pane is targeted explicitly (-t) so rotation works even when another pane has
 	// focus. Alt (not Ctrl) avoids clobbering C-a/C-p readline keys inside shells.
-	for _, key := range []string{"M-t", "M-a", "M-p"} {
+	// The shifted variants (M-T/M-A/M-P = Alt+Shift+t/a/p) rotate the same viewports
+	// in reverse; tmux treats them as keys distinct from their lowercase forms.
+	for _, key := range []string{"M-t", "M-a", "M-p", "M-T", "M-A", "M-P"} {
 		if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", key, "send-keys", "-t", controlPaneID, key); err != nil {
 			return fmt.Errorf("tmux bind-key %s: %w: %s", key, err, out)
 		}

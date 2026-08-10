@@ -691,11 +691,12 @@ The control pane polls the daemon about once a second. The daemon must be runnin
 | `x` | Context-sensitive: terminate the selected agent / cancel a pipeline / close a terminal / close an opened dir (confirm with `y`) |
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
 | `?` | Toggle help overlay |
-| `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport — `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Global (works from any pane, even while typing) |
-| `◆` | Marks the agent/terminal currently shown in a pane (not a key) — tracks both `Enter`-open and the `Alt+t`/`Alt+a`/`Alt+p` rotation |
+| `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport — `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Each grabs focus on the target pane. Global (works from any pane, even while typing) |
+| `Alt+Shift+t` / `Alt+Shift+a` / `Alt+Shift+p` | Same rotations in **reverse** |
+| `◆` | Marks the agent/terminal currently shown in a pane (not a key) — its name carries a bold magenta badge in the control tree, tracking both `Enter`-open and the `Alt+t`/`Alt+a`/`Alt+p` rotation |
 | `q` | Quit and tear down the cockpit |
 
-Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix); rotate the terminal/agent viewports with **Alt+t / Alt+a / Alt+p** (see the key table above). The row currently docked in a pane is marked with a **◆** in the control tree, following both `Enter`-open and the Alt rotation. See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
+Move focus between panes with **Alt+←/→/↑/↓** (no tmux prefix); rotate the terminal/agent viewports with **Alt+t / Alt+a / Alt+p** (add **Shift** to rotate in reverse). Rotation grabs focus on the pane it drives, so cycling agents drops you straight into the session. The row currently docked in a pane is marked with a **◆** and a bold **name badge** in the control tree, following both `Enter`-open and the Alt rotation. See [docs/USAGE.md §7](docs/USAGE.md) for the full cockpit guide and caveats around nested tmux.
 
 ---
 

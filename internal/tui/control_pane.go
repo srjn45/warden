@@ -299,11 +299,14 @@ func (m controlPaneModel) pipelineAgents() []*store.Session {
 	return out
 }
 
-// nextInCycle returns the entity after the one with id `current` in set, wrapping
-// to the first past the end. When current is absent (nothing open yet, or it just
-// exited) it returns the first entity; nil only for an empty set.
-func nextInCycle(set []*store.Session, current string) *store.Session {
-	if len(set) == 0 {
+// stepInCycle returns the entity `step` positions from the one with id `current`
+// in set (step +1 = forward / the next, -1 = reverse / the previous), wrapping in
+// both directions. When current is absent (nothing open yet, or it just exited) a
+// forward step starts at the first entity and a reverse step at the last, so the
+// very first rotation lands predictably. nil only for an empty set.
+func stepInCycle(set []*store.Session, current string, step int) *store.Session {
+	n := len(set)
+	if n == 0 {
 		return nil
 	}
 	idx := -1
@@ -313,18 +316,31 @@ func nextInCycle(set []*store.Session, current string) *store.Session {
 			break
 		}
 	}
-	return set[(idx+1)%len(set)]
+	if idx == -1 {
+		if step < 0 {
+			return set[n-1]
+		}
+		return set[0]
+	}
+	// Go's % keeps the sign of the dividend, so bias by +n before the mod to make
+	// a negative step wrap correctly.
+	return set[((idx+step)%n+n)%n]
 }
 
-// rotateTerminal advances the terminal pane to the next live terminal (§8 M-t),
-// grabbing focus since terminals are interactive. A no-op with a status hint when
-// there is no terminal pane or no terminals.
-func (m controlPaneModel) rotateTerminal() (tea.Model, tea.Cmd) {
+// nextInCycle advances forward one position (§8 forward rotation).
+func nextInCycle(set []*store.Session, current string) *store.Session {
+	return stepInCycle(set, current, 1)
+}
+
+// rotateTerminal advances the terminal pane by step over the live terminals (§8
+// M-t forward / M-T reverse), grabbing focus since terminals are interactive. A
+// no-op with a status hint when there is no terminal pane or no terminals.
+func (m controlPaneModel) rotateTerminal(step int) (tea.Model, tea.Cmd) {
 	if m.terminalPane == "" {
 		m.status = "no terminal pane in this cockpit"
 		return m, nil
 	}
-	next := nextInCycle(m.liveTerminals(), m.openedTerminal)
+	next := stepInCycle(m.liveTerminals(), m.openedTerminal, step)
 	if next == nil {
 		m.status = "no terminals"
 		return m, nil
@@ -334,15 +350,15 @@ func (m controlPaneModel) rotateTerminal() (tea.Model, tea.Cmd) {
 	return m, openInTerminalCmd(m.terminalPane, next.TmuxSession, true)
 }
 
-// rotateAgent advances the agent pane to the next entity in set (§8 M-a/M-p),
-// keeping focus in the control pane (watch-mode, §6). Rotation traverses live
-// agents only, so it always attaches directly. emptyMsg is flashed when the set
-// is empty.
-func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string) (tea.Model, tea.Cmd) {
+// rotateAgent advances the agent pane by step over the entities in set (§8
+// M-a/M-p forward / M-A/M-P reverse), keeping focus in the control pane
+// (watch-mode, §6). Rotation traverses live agents only, so it always attaches
+// directly. emptyMsg is flashed when the set is empty.
+func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string, step int) (tea.Model, tea.Cmd) {
 	if m.agentPane == "" {
 		return m, nil
 	}
-	next := nextInCycle(set, m.openedAgent)
+	next := stepInCycle(set, m.openedAgent, step)
 	if next == nil {
 		m.status = emptyMsg
 		return m, nil
@@ -350,7 +366,9 @@ func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string) (te
 	m.openedAgent = next.ID
 	m.openedAgentDir = sourceDir(next)
 	m.status = ""
-	return m, openInDetailCmd(m.agentPane, next.TmuxSession)
+	// Grab focus on the agent pane so the rotation drops you into the session, the
+	// same way rotateTerminal focuses the terminal pane (§8).
+	return m, openInDetailCmd(m.agentPane, next.TmuxSession, true)
 }
 
 // termDir is a terminal's directory for §6.1 matching: its live pane cwd when
@@ -1123,13 +1141,22 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+t":
 		// §8 global rotation: advance the terminal pane to the next live terminal
 		// (delivered here by the tmux M-t root binding, from any pane).
-		return m.rotateTerminal()
+		return m.rotateTerminal(1)
+	case "alt+T":
+		// §8 reverse: Alt+Shift+t (tmux M-T) steps the terminal pane backward.
+		return m.rotateTerminal(-1)
 	case "alt+a":
 		// §8: advance the agent pane to the next live agent (all agents).
-		return m.rotateAgent(m.liveAgents(), "no agents")
+		return m.rotateAgent(m.liveAgents(), "no agents", 1)
+	case "alt+A":
+		// §8 reverse: Alt+Shift+a (tmux M-A) steps the agent pane backward.
+		return m.rotateAgent(m.liveAgents(), "no agents", -1)
 	case "alt+p":
 		// §8: advance the agent pane to the next pipeline agent (pipeline > agents order).
-		return m.rotateAgent(m.pipelineAgents(), "no pipeline agents")
+		return m.rotateAgent(m.pipelineAgents(), "no pipeline agents", 1)
+	case "alt+P":
+		// §8 reverse: Alt+Shift+p (tmux M-P) steps the pipeline-agent rotation backward.
+		return m.rotateAgent(m.pipelineAgents(), "no pipeline agents", -1)
 	case "c":
 		// Open the read-only shared-context + message-traffic inspector and
 		// kick off an immediate fetch (the tick keeps it fresh while open).
@@ -1175,7 +1202,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.openedAgent = it.session.ID            // anchors §8 M-a/M-p rotation
 					m.openedAgentDir = sourceDir(it.session) // `t` opens a terminal here (§6.1)
 				}
-				return m, openInDetailCmd(m.agentPane, attach)
+				return m, openInDetailCmd(m.agentPane, attach, false)
 			case jobID != "":
 				// A terminal job's agent tmux is gone — render its stored detail
 				// instead of attaching to a dead session (which leaves a blank pane).
@@ -1633,10 +1660,20 @@ func respawnDetailArgs(agentPane, agentSession string) []string {
 		"env -u TMUX tmux attach -t " + agentSession}
 }
 
-// openInDetailCmd opens the given agent's live session in the agent pane.
-func openInDetailCmd(agentPane, agentSession string) tea.Cmd {
+// openInDetailCmd opens the given agent's live session in the agent pane. When
+// focus is set it then selects the agent pane so the user lands in it — the Alt
+// rotation (§8) passes focus=true so cycling agents drops you straight into the
+// session, mirroring the terminal rotation. Enter-open passes focus=false to keep
+// the control pane focused for continued browsing (watch-mode, §6).
+func openInDetailCmd(agentPane, agentSession string, focus bool) tea.Cmd {
 	return func() tea.Msg {
-		return attachDoneMsg{err: exec.Command("tmux", respawnDetailArgs(agentPane, agentSession)...).Run()}
+		if err := exec.Command("tmux", respawnDetailArgs(agentPane, agentSession)...).Run(); err != nil {
+			return attachDoneMsg{err: err}
+		}
+		if focus {
+			_ = exec.Command("tmux", "select-pane", "-t", agentPane).Run()
+		}
+		return attachDoneMsg{err: nil}
 	}
 }
 

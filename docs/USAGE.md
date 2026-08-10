@@ -1196,7 +1196,8 @@ type).
 | `r` | Retry a failed / needs-attention pipeline job |
 | `x` | Context-sensitive — terminate the selected agent / cancel a pipeline / close a terminal / close an opened dir (confirm with `y`) |
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
-| `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport (global — works from any pane, even while typing): `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents |
+| `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport (global — works from any pane, even while typing): `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Each grabs focus on the pane it drives |
+| `Alt+Shift+t` / `Alt+Shift+a` / `Alt+Shift+p` | Same rotations in **reverse** |
 | `?` | Toggle help |
 | `q` | Quit and tear down the whole cockpit |
 
@@ -1245,13 +1246,18 @@ session opens here. You can type directly into the agent, read its output, and
 watch it respond in real time. Scrolling the control pane with `↑`/`↓` or `j`/`k`
 does not replace this pane, so an agent you're actively working with is never
 interrupted by casual browsing. Press `Enter` again on a different agent to
-switch, or **`Alt+a`** / **`Alt+p`** to rotate over all agents / pipeline agents.
+switch, or **`Alt+a`** / **`Alt+p`** to rotate over all agents / pipeline agents
+— add **Shift** (`Alt+Shift+a`/`Alt+Shift+p`) to rotate in reverse. Unlike
+`Enter`-open (which keeps you in the control pane for browsing), a rotation grabs
+focus on the pane it drives, so cycling agents drops you straight into the
+session — the same way `Alt+t` focuses the terminal pane.
 
 Whatever is currently shown in a pane is marked with a **◆** in the control tree
 — the opened agent (in the Agents section or as a Pipelines job row) and the
-opened terminal. The marker tracks both `Enter`-open and the
-`Alt+t`/`Alt+a`/`Alt+p` rotation, so you can always see what's docked in each pane
-even after moving the cursor elsewhere.
+opened terminal — and its name carries a bold magenta badge so it's unmistakable.
+The marker tracks both `Enter`-open and the `Alt+t`/`Alt+a`/`Alt+p` rotation, so
+you can always see what's docked in each pane even after moving the cursor
+elsewhere.
 
 To move focus between panes without leaving the cockpit, use **Alt+←/→/↑/↓**
 (no tmux prefix needed).

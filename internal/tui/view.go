@@ -66,9 +66,10 @@ func helpText() string {
 		"\n" +
 		stPaneTitle.Render("Rotation (global — works from any pane, even while typing)") + "\n" +
 		"  alt+t        cycle the terminal pane through the live terminals (grabs focus)\n" +
-		"  alt+a        cycle the agent pane through all live agents\n" +
+		"  alt+a        cycle the agent pane through all live agents (grabs focus)\n" +
 		"  alt+p        cycle the agent pane through pipeline agents (pipeline > agents order)\n" +
-		"  " + stOpened.Render("◆") + "            marks the agent/terminal currently shown in a pane — it\n" +
+		"  alt+shift+…   add shift to any of the above to rotate in reverse (t/a/p)\n" +
+		"  " + stOpened.Render("◆") + " " + stOpenedName.Render("name") + "     marks the agent/terminal currently shown in a pane — it\n" +
 		"               follows both enter-open and the alt+a/p/t rotation above\n" +
 		"\n" +
 		stPaneTitle.Render("Typing in the Claude pane") + "\n" +
