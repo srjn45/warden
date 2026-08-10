@@ -40,6 +40,11 @@ export interface Session {
   // backend is the AI agent that drives this session (claude, aider, …). It is
   // json `omitempty`, so pre-#52 Claude agents omit it — treat empty as 'claude'.
   backend?: string;
+  // kind discriminates a plain terminal session from an AI agent. json
+  // `omitempty` on the daemon (store.Session), so agents omit it entirely —
+  // treat absent or '' as 'agent'; only an explicit 'terminal' is a terminal.
+  // See lib/kind.ts (mirrors store.Session.IsTerminal()).
+  kind?: string;
   ticket: string;
   tmux_session: string;
   repo: string;

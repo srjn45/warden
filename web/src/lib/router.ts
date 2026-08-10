@@ -4,7 +4,7 @@
 // working Back/Forward.
 //
 // Routes:
-//   /cockpit /pipelines /metrics /archive /others  → fixed tabs
+//   /cockpit /pipelines /terminals /metrics /archive /others  → fixed tabs
 //   /tui                                            → the full-screen cockpit
 //                                                     (launched from the top bar,
 //                                                     not a tab)
@@ -22,7 +22,7 @@ import { useEffect, useState } from 'react';
 // Others is the catch-all and sits last, after the purpose-built tabs.
 // `tui` is deliberately NOT here — it is a full-screen route launched from the
 // top bar, with no tab and no slot in 1-9 / j-k navigation.
-export const FIXED_ROUTE_KINDS = ['cockpit', 'pipelines', 'metrics', 'archive', 'others'] as const;
+export const FIXED_ROUTE_KINDS = ['cockpit', 'pipelines', 'terminals', 'metrics', 'archive', 'others'] as const;
 export type FixedRouteKind = (typeof FIXED_ROUTE_KINDS)[number];
 
 export type Route =

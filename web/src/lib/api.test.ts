@@ -33,7 +33,7 @@ describe('api', () => {
     expect(url).toBe('/api/v1/spawn');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({
-      type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false, prompt: '', cwd: '', supervised: false, role: '', force: false,
+      type: 'development', ticket: 'A-1', repo: '/r', branch: '', pr: '', worktree: false, prompt: '', cwd: '', supervised: false, role: '', force: false, kind: '',
     });
   });
 
@@ -42,7 +42,7 @@ describe('api', () => {
     vi.stubGlobal('fetch', fetchMock);
     await spawn({ prompt: 'do research on X' });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-      type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false, prompt: 'do research on X', cwd: '', supervised: false, role: '', force: false,
+      type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false, prompt: 'do research on X', cwd: '', supervised: false, role: '', force: false, kind: '',
     });
   });
 

@@ -18,7 +18,7 @@ describe('quickAdd', () => {
     expect(url).toBe('/api/v1/spawn');
     expect(JSON.parse(opts.body)).toEqual({
       type: '', ticket: '', repo: '', branch: '', pr: '', worktree: false,
-      prompt: '', cwd: '/work/project', supervised: false, role: '', force: false,
+      prompt: '', cwd: '/work/project', supervised: false, role: '', force: false, kind: '',
     });
     expect(out).toEqual({ kind: 'created', id: 'agent-1' });
   });

@@ -43,6 +43,10 @@ export interface SpawnParams {
   supervised?: boolean;
   role?: string;
   force?: boolean;
+  // kind selects the session kind. Omitted/'' spawns an AI agent (the default);
+  // 'terminal' spawns a plain shell session — the daemon then ignores
+  // backend/model/role/prompt and forces free-form. See createTerminal.
+  kind?: string;
 }
 
 // RoleInfo is a built-in agent role for the picker (GET /roles): name + a
@@ -78,7 +82,7 @@ export async function spawn(p: SpawnParams): Promise<Session> {
       type: p.type ?? '', ticket: p.ticket ?? '', repo: p.repo ?? '',
       branch: p.branch ?? '', pr: p.pr ?? '', worktree: !!p.worktree,
       prompt: p.prompt ?? '', cwd: p.cwd ?? '', supervised: !!p.supervised,
-      role: p.role ?? '', force: !!p.force,
+      role: p.role ?? '', force: !!p.force, kind: p.kind ?? '',
     }),
   });
   if (res.status === 428) {
@@ -86,6 +90,13 @@ export async function spawn(p: SpawnParams): Promise<Session> {
     throw new ConfirmationRequiredError(body.verdict);
   }
   return parse<Session>(res);
+}
+
+// createTerminal spawns a plain terminal session (kind=terminal) in `cwd`. The
+// daemon ignores backend/model/role/prompt for terminals and runs ${SHELL:-bash}
+// with inherited env; an empty cwd lets it fall back to its launch directory.
+export async function createTerminal(cwd: string): Promise<Session> {
+  return spawn({ kind: 'terminal', cwd });
 }
 
 // listRoles returns warden's built-in agent roles (GET /roles): general first,

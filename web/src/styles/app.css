@@ -587,6 +587,22 @@ kbd {
 .backend-logo--letter { width: 1.15rem; height: 1.15rem; font-size: .6rem; font-weight: 700; line-height: 1; border: 1px solid var(--border-strong); border-radius: var(--r-xs); text-transform: uppercase; }
 .mini-term { margin: 0; background: var(--term-bg); color: var(--term-accent); padding: .45rem; font-size: .72rem; line-height: 1.3; white-space: pre-wrap; overflow: hidden; font-family: var(--font-mono); }
 
+/* ============================================================================
+   TERMINALS — list + PTY viewport (web parity for the TUI Terminals section)
+   ============================================================================ */
+.terminals { display: grid; grid-template-columns: minmax(200px, 18rem) 1fr; gap: var(--sp-4); align-items: start; }
+.terminals-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: var(--sp-3); }
+.terminals-head h3 { margin: 0; font-size: 1rem; }
+.terminals-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+.terminals-row { display: flex; align-items: center; gap: .3rem; border: 1px solid transparent; border-radius: var(--r-sm); }
+.terminals-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.terminals-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: .4rem; text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; padding: .35rem .5rem; font: inherit; }
+.terminals-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-close { flex: none; background: transparent; border: 0; color: var(--fg-subtle); cursor: pointer; padding: .2rem .4rem; }
+.terminals-close:hover { color: var(--attention); }
+.terminals-view { min-width: 0; }
+@media (max-width: 720px) { .terminals { grid-template-columns: 1fr; } }
+
 /* Multi-select (batch ops). */
 .grid-tile-wrap { position: relative; display: flex; }
 .grid-tile-wrap > .grid-tile { flex: 1; min-width: 0; }
