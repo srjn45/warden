@@ -170,12 +170,12 @@ func TestRenderListGroupsBySourceDir(t *testing.T) {
 		{ID: "b1", Workdir: "/work/beta", Status: store.StatusWorking, UpdatedAt: time.Now().Add(-2 * time.Minute)},
 	})
 	out := renderList(buildItems(sessions, nil, nil), 0, 120, 12)
-	require.Contains(t, out, "/work/alpha (2)", "alpha group header with count")
-	require.Contains(t, out, "/work/beta (1)", "beta group header with count")
+	require.Contains(t, out, "alpha [/work/alpha] (2)", "alpha group header: project name + path + count")
+	require.Contains(t, out, "beta [/work/beta] (1)", "beta group header: project name + path + count")
 	require.Contains(t, out, "a1")
 	require.Contains(t, out, "b1")
 	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "/work/alpha (2)") {
+		if strings.Contains(line, "alpha [/work/alpha] (2)") {
 			require.NotContains(t, line, "›", "group header is never the cursor row")
 		}
 	}
@@ -342,13 +342,14 @@ func TestLiveStatus(t *testing.T) {
 	}
 }
 
-// treePrefix indents by depth and switches the glyph on collapse; a childless
-// root gets no prefix (flat list unchanged).
+// treePrefix carries a 4-space base indent (dirChildIndent) so every agent row
+// nests one level under its dir-group header, then indents by sub-tree depth and
+// switches the glyph on collapse.
 func TestTreePrefix(t *testing.T) {
-	require.Equal(t, "", treePrefix(item{depth: 0}))
-	require.Equal(t, "▾ ", treePrefix(item{depth: 0, hasKids: true}))
-	require.Equal(t, "▸ ", treePrefix(item{depth: 0, hasKids: true, collapsed: true}))
-	require.Equal(t, "      ", treePrefix(item{depth: 2}), "leaf at depth 2: 4 indent + 2 align = 6 spaces")
+	require.Equal(t, "    ", treePrefix(item{depth: 0}), "childless root: base indent only")
+	require.Equal(t, "    ▾ ", treePrefix(item{depth: 0, hasKids: true}))
+	require.Equal(t, "    ▸ ", treePrefix(item{depth: 0, hasKids: true, collapsed: true}))
+	require.Equal(t, "          ", treePrefix(item{depth: 2}), "leaf at depth 2: 4 base + 4 depth + 2 align = 10 spaces")
 }
 
 func TestBuildItemsEmptyOpenedDirSortsChronologically(t *testing.T) {
@@ -459,7 +460,7 @@ func TestRenderListShowsPlaceholderForEmptyOpenedDir(t *testing.T) {
 		nil,
 	)
 	out := renderList(items, 0, 120, 12)
-	require.Contains(t, out, "/work/empty (0)", "empty opened dir header with zero count")
+	require.Contains(t, out, "empty [/work/empty] (0)", "empty opened dir header: project name + path + zero count")
 	require.Contains(t, out, "no agents", "placeholder hint line")
 }
 

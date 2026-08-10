@@ -68,6 +68,13 @@ func abbrevHome(path string) string {
 	return abbrevHomeWith(path, homeDir())
 }
 
+// dirGroupLabel renders a directory-group header as "<project> [<~path>]": the
+// project name (the directory's basename) followed by its home-abbreviated path,
+// so a group reads as a named project rather than a bare path.
+func dirGroupLabel(dir string) string {
+	return fmt.Sprintf("%s [%s]", filepath.Base(dir), abbrevHome(dir))
+}
+
 // abbrevHomeWith is the pure core of abbrevHome with the home dir injected.
 // An empty home (lookup failed) means no abbreviation.
 func abbrevHomeWith(path, home string) string {
@@ -515,7 +522,12 @@ func buildRows(items []item) []listRow {
 					count++
 				}
 			}
-			rows = append(rows, listRow{header: fmt.Sprintf("%s (%d)", abbrevHome(dir), count)})
+			// Indent the dir-group header one level under its section so the tree
+			// reads section → project → agents (the agent rows indent one level
+			// further, in treePrefix). Header rows carry no cursor gutter, so the
+			// four leading spaces put the label at the same column an agent row's
+			// gutter+base reaches.
+			rows = append(rows, listRow{header: "    " + dirGroupLabel(dir) + fmt.Sprintf(" (%d)", count)})
 			prev = dir
 			started = true
 		}
@@ -706,16 +718,23 @@ func contextLabel(tokens int, state string) (string, lipgloss.Style) {
 	}
 }
 
-// treePrefix renders the sub-tree indentation + collapse glyph for an agent row:
-// two spaces per depth level, then ▾/▸ for a node with children (expanded vs
-// collapsed), or two aligning spaces for a leaf so it lines up under siblings
-// that carry a glyph. A childless root (depth 0) gets no prefix — the flat list
-// renders exactly as before.
+// dirChildIndent is the base indent every dir-grouped body row (agent rows and
+// the empty-dir placeholder) carries so it nests one level under its dir-group
+// header. It matches the header's own leading indent in buildRows.
+const dirChildIndent = "    "
+
+// treePrefix renders the sub-tree indentation + collapse glyph for an agent row.
+// Every agent row starts with a base indent (dirChildIndent) so it sits one level
+// under its dir-group header — which itself sits one level under the section — so
+// the control tree reads section → project → agents. On top of the base it adds
+// two spaces per sub-tree depth level, then ▾/▸ for a node with children (expanded
+// vs collapsed), or two aligning spaces for a leaf so it lines up under siblings
+// that carry a glyph.
 func treePrefix(it item) string {
 	if it.depth == 0 && !it.hasKids {
-		return ""
+		return dirChildIndent
 	}
-	p := strings.Repeat("  ", it.depth)
+	p := dirChildIndent + strings.Repeat("  ", it.depth)
 	switch {
 	case it.hasKids && it.collapsed:
 		return p + "▸ "
@@ -794,7 +813,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		line = fmt.Sprintf("    %s %s %s %s %s%s",
 			st.Render(glyph), jobIDCol, st.Render(statusWord), agentCol, ctxCol, branchInfo) + deps
 	case it.session == nil:
-		line = stMuted.Render("(no agents — n to spawn here)")
+		line = dirChildIndent + stMuted.Render("(no agents — n to spawn here)")
 	case it.tombstone:
 		// A deleted-or-done parent anchoring live children: header-only, muted,
 		// with the running-descendant count. No state badge, gauge, or worktree —
