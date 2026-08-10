@@ -42,8 +42,8 @@ warden       # bare invocation — same thing
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
 | **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
 | **Terminal pane** | Bottom-left pane shows a live terminal session (`kind=terminal`) — a `$SHELL` in a managed worktree for direct CLI access to `warden` commands and other terminal work. A default terminal opens in the launch directory at startup. |
-| **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). **Global Alt rotation** works from any pane, even while typing: **M-t** cycles the terminal pane over all live terminals, **M-a** cycles the agent pane over all live agents, **M-p** cycles the agent pane over pipeline agents (pipeline order). |
-| **Opened marker (◆)** | The agent (Agents section or a Pipelines job row) currently shown in the agent pane, and the terminal currently shown in the terminal pane, are marked with a **◆** in the control tree. It tracks both `Enter`-open and the `M-t`/`M-a`/`M-p` rotation, so you can see what's docked even after the cursor moves away. |
+| **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). **Global Alt rotation** works from any pane, even while typing: **M-t** cycles the terminal pane over all live terminals, **M-a** cycles the agent pane over all live agents, **M-p** cycles the agent pane over pipeline agents (pipeline order). Add **Shift** (`M-T`/`M-A`/`M-P`) to rotate in reverse; each rotation grabs focus on the pane it drives. |
+| **Opened marker (◆)** | The agent (Agents section or a Pipelines job row) currently shown in the agent pane, and the terminal currently shown in the terminal pane, are marked with a **◆** — and their name carries a bold magenta badge — in the control tree. It tracks both `Enter`-open and the `M-t`/`M-a`/`M-p` rotation, so you can see what's docked even after the cursor moves away. |
 | **Native scrolling** | Per-agent tmux sessions enable `mouse on` + raised `history-limit` for wheel/copy-mode scrolling of long output. |
 
 ## Keys (cockpit)
@@ -55,7 +55,8 @@ warden       # bare invocation — same thing
 | `Enter` | Open the selected agent (or running pipeline job) in the right agent pane — a finished agent or tombstone shows its stored detail instead of attaching; `Enter` on a terminal shows it in the terminal pane |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `t` | Open a terminal in the opened agent's directory (`~` if none open) — an inline choice to `(c)reate` a fresh terminal there or `(f)ocus` an existing one in that dir |
-| `M-t` / `M-a` / `M-p` | Global rotation (works from any pane, even while typing): **M-t** cycles the terminal pane over live terminals · **M-a** cycles the agent pane over live agents · **M-p** cycles the agent pane over pipeline agents |
+| `M-t` / `M-a` / `M-p` | Global rotation (works from any pane, even while typing): **M-t** cycles the terminal pane over live terminals · **M-a** cycles the agent pane over live agents · **M-p** cycles the agent pane over pipeline agents. Each grabs focus on the pane it drives |
+| `M-T` / `M-A` / `M-P` | The same three rotations in **reverse** (Alt+Shift) |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |

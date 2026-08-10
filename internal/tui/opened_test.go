@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -73,6 +76,25 @@ func TestOpenedMarkerRendering(t *testing.T) {
 	both := renderItemLine(opened, true, 80)
 	require.Contains(t, both, "›", "the cursor caret shows when the cursor is on the opened row")
 	require.NotContains(t, both, "◆", "the cursor gutter wins over the opened marker")
+}
+
+// The opened agent's name renders as a bold magenta badge (stOpenedName) so it is
+// unmistakable; a non-opened row's name is plain, and the cursor row keeps the
+// name unstyled so the whole-row cursor highlight reaches through it.
+func TestOpenedNameBadge(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(prev)
+
+	s := &store.Session{ID: "a1", Name: "builder", Status: store.StatusWorking}
+	badge := stOpenedName.Render(fmt.Sprintf("%-16s", "builder"))
+
+	require.Contains(t, renderItemLine(item{session: s, opened: true}, false, 80), badge,
+		"the opened agent's name is a bold magenta badge")
+	require.NotContains(t, renderItemLine(item{session: s}, false, 80), badge,
+		"a non-opened agent's name is plain")
+	require.NotContains(t, renderItemLine(item{session: s, opened: true}, true, 80), badge,
+		"the cursor row leaves the name unstyled for the whole-row highlight")
 }
 
 // The opened highlight follows §8 M-a rotation: after Alt+a the marker moves to

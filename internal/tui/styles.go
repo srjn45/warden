@@ -8,20 +8,21 @@ import (
 )
 
 var (
-	stBusy      = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
-	stRunning   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
-	stAttention = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // amber
-	stIdle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // grey
-	stError     = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
-	stHeader    = lipgloss.NewStyle().Bold(true)
-	stCursor    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	stOpened    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")) // magenta — the row shown in a pane now
-	stMuted     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	stPaneTitle = lipgloss.NewStyle().Bold(true)
-	stStatus    = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	stCtxOK     = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
-	stCtxWarn   = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // orange/amber
-	stCtxCrit   = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
+	stBusy       = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+	stRunning    = lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
+	stAttention  = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // amber
+	stIdle       = lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // grey
+	stError      = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
+	stHeader     = lipgloss.NewStyle().Bold(true)
+	stCursor     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	stOpened     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))                                 // magenta — the ◆ gutter marker for the row shown in a pane now
+	stOpenedName = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("5")) // magenta badge on the opened row's name so it's unmistakable
+	stMuted      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	stPaneTitle  = lipgloss.NewStyle().Bold(true)
+	stStatus     = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	stCtxOK      = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+	stCtxWarn    = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // orange/amber
+	stCtxCrit    = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
 )
 
 // badge maps a status to a short label + style (mirrors the web status.ts mapping).

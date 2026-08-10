@@ -22,7 +22,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 
 	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", launchCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
-	require.Len(t, fr.Calls, 20, "unexpected number of tmux calls")
+	require.Len(t, fr.Calls, 23, "unexpected number of tmux calls")
 
 	// Panes are created right-to-left: agent (fills window) → terminal (left) → control.
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", agentPlaceholderCmd()}, fr.Calls[0].Argv)
@@ -46,12 +46,16 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[14].Argv)
 	// Global Alt rotation (§8): M-t/M-a/M-p each forward to the control pane, which
 	// owns the rotation state. M-t is the key freed by removing the old shell-toggle.
+	// The shifted variants (M-T/M-A/M-P) forward likewise for reverse rotation.
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-t", "send-keys", "-t", "%2", "M-t"}, fr.Calls[15].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-a", "send-keys", "-t", "%2", "M-a"}, fr.Calls[16].Argv)
 	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-p", "send-keys", "-t", "%2", "M-p"}, fr.Calls[17].Argv)
-	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[18].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-T", "send-keys", "-t", "%2", "M-T"}, fr.Calls[18].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-A", "send-keys", "-t", "%2", "M-A"}, fr.Calls[19].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-P", "send-keys", "-t", "%2", "M-P"}, fr.Calls[20].Argv)
+	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[21].Argv)
 	// Return-to-dashboard binding for the full-screen attach path (`a`).
-	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[19].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[22].Argv)
 }
 
 // The M-t binding is now the terminal-rotation forwarder (send-keys to the control

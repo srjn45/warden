@@ -747,7 +747,13 @@ func renderItemLine(it item, selected bool, width int) string {
 		if liveStatus(it.session.Status) {
 			glyph, gst = "▪", stRunning
 		}
-		line = "  " + gst.Render(glyph) + " " + it.termName
+		name := it.termName
+		if it.opened && !selected {
+			// The opened terminal: badge its name so it stands out from the others
+			// (the cursor row, guarded out here, gets the whole-row highlight instead).
+			name = stOpenedName.Render(name)
+		}
+		line = "  " + gst.Render(glyph) + " " + name
 	case it.pipeline != nil:
 		exp := "▾" // expanded
 		if it.collapsed {
@@ -762,6 +768,11 @@ func renderItemLine(it item, selected bool, width int) string {
 		}
 		glyph, st := jobBadge(it.pjJob.Status)
 		statusWord := fmt.Sprintf("%-13s", string(it.pjJob.Status))
+		jobIDCol := fmt.Sprintf("%-12s", trunc(it.pjJob.ID, 12))
+		if it.opened && !selected {
+			// The opened pipeline agent's job row: badge its id like a docked agent.
+			jobIDCol = stOpenedName.Render(jobIDCol)
+		}
 		// When the job has a live session, surface the agent's execution badge and
 		// context-token gauge — a "running" job whose agent "needs-input" matters.
 		agentCol, ctxCol := fmt.Sprintf("%-11s", ""), fmt.Sprintf("%-6s", "")
@@ -780,8 +791,8 @@ func renderItemLine(it item, selected bool, width int) string {
 		if branchInfo != "" {
 			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
 		}
-		line = fmt.Sprintf("    %s %-12s %s %s %s%s",
-			st.Render(glyph), trunc(it.pjJob.ID, 12), st.Render(statusWord), agentCol, ctxCol, branchInfo) + deps
+		line = fmt.Sprintf("    %s %s %s %s %s%s",
+			st.Render(glyph), jobIDCol, st.Render(statusWord), agentCol, ctxCol, branchInfo) + deps
 	case it.session == nil:
 		line = stMuted.Render("(no agents — n to spawn here)")
 	case it.tombstone:
@@ -811,21 +822,28 @@ func renderItemLine(it item, selected bool, width int) string {
 		if branchInfo != "" {
 			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
 		}
-		// Display name as first column if present. When the name is blank, use a
-		// plain "—" on the selected row: styling it here would embed an ANSI reset
-		// at the very start of the line, which cuts the cursor highlight applied to
-		// the whole row below — that reset is what left unnamed agents un-highlighted.
-		nameStr := s.Name
-		switch {
-		case nameStr != "":
-			nameStr = trunc(nameStr, 15)
-		case selected:
-			nameStr = "—"
-		default:
-			nameStr = stMuted.Render("—")
+		// Display name as first column if present. Build the 16-wide field from the
+		// raw (unstyled) text first, then style the whole padded field — so any SGR
+		// wraps the column cleanly instead of embedding a reset mid-line. On the
+		// selected row the field stays unstyled so the whole-row cursor highlight
+		// (applied below) reaches through it; that is what keeps unnamed agents lit.
+		rawName := "—"
+		if s.Name != "" {
+			rawName = trunc(s.Name, 15)
 		}
-		line = treePrefix(it) + fmt.Sprintf("%-16s %-14s %-11s %-6s %-5s %s%s",
-			nameStr, s.ID, st.Render(label),
+		nameCol := fmt.Sprintf("%-16s", rawName)
+		switch {
+		case selected:
+			// leave unstyled — the cursor highlight owns the whole row
+		case it.opened:
+			// The opened agent: a bold magenta badge on the name so it is
+			// unmistakable at a glance even when the cursor is elsewhere.
+			nameCol = stOpenedName.Render(nameCol)
+		case s.Name == "":
+			nameCol = stMuted.Render(nameCol)
+		}
+		line = treePrefix(it) + nameCol + " " + fmt.Sprintf("%-14s %-11s %-6s %-5s %s%s",
+			s.ID, st.Render(label),
 			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt),
 			stMuted.Render(fmt.Sprintf("%-7s", trunc(backendOr(s), 7))), branchInfo)
 		// §4.1: a cross-project child surfaced under its own dir keeps a lineage
@@ -845,12 +863,11 @@ func renderItemLine(it item, selected bool, width int) string {
 		}
 	case it.opened:
 		// The row shown in a cockpit pane right now (openedAgent/openedTerminal),
-		// while the cursor is elsewhere: a distinct ◆ gutter marker + tint so it
-		// stays findable as you navigate or Alt-rotate the panes.
+		// while the cursor is elsewhere: a distinct ◆ gutter marker. The row's name
+		// carries the bold magenta badge (stOpenedName, applied above), so it stays
+		// findable as you navigate or Alt-rotate the panes without tinting the whole
+		// line — a line-level tint would be cut short by the row's own SGR resets.
 		cur = stOpened.Render("◆ ")
-		if it.session != nil || it.pjJob != nil {
-			line = stOpened.Render(line)
-		}
 	}
 	return cur + line
 }
