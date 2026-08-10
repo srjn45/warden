@@ -2016,8 +2016,20 @@ components:
         name: store
       type: object
       properties:
-        id: { type: string }
-        name: { type: string }
+        id:
+          type: string
+          description: >
+            opaque, kind-agnostic session token. Always carries the `agent-`
+            prefix regardless of kind (terminals included) — it is NOT a kind
+            hint. Never parse kind (or anything else) from the id; classify with
+            the `kind` field.
+        name:
+          type: string
+          description: >
+            optional human-friendly alias. Omitted from the JSON when unset
+            (encoded with `omitempty`), so an absent key decodes as null/empty —
+            terminals and un-named agents carry no name. Treat as optional and
+            never derive identity or kind from it.
         type: { $ref: "#/components/schemas/TaskType" }
         ticket: { type: string }
         tmux_session: { type: string }
