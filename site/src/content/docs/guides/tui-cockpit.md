@@ -69,7 +69,7 @@ agents**.
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
 | `d` | Completion digest for the selected agent — scrollable overlay; `d`/`esc` to close |
-| `i` | **Agent info** — a scrollable pane showing every stored field for the selected agent, plus three interactive controls: `↑`/`↓` move the control cursor, **`space`** toggles **auto-approve** and cycles **force-compact** (inherit → on → off), and **`enter`** on the **events** row (or **`e`**) opens the event log. `pgup`/`pgdn`/`g`/`G` scroll · `r` rename · `i`/`esc` back |
+| `i` | **Agent info** — a scrollable pane showing every stored field for the selected agent, plus three interactive controls: `↑`/`↓` walk the control cursor and then scroll the body once past the last control, **`space`** toggles **auto-approve** and cycles **force-compact** (inherit → on → off), and **`enter`** on the **events** row (or **`e`**) opens the event log. `pgup`/`pgdn`/`g`/`G` also scroll · `r` rename · `i`/`esc` back |
 | `e` | From agent info: open the selected agent's **event log** in the control pane (newest first); `e`/`esc` returns to agent info |
 | `p` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
 | `c` | Shared-context + message-traffic inspector |
@@ -98,7 +98,10 @@ overlay and now surfaces every stored field, grouped into sections:
 - **pane** — the last captured pane excerpt.
 
 The top **controls** block is interactive — move the cursor with `↑`/`↓` and act
-with `space` / `enter`:
+with `space` / `enter`. The arrows are scroll-aware: they first walk the cursor
+through the three control rows, then hand off to line-scrolling the field dump
+once you press past the last control, so the whole pane is reachable with the
+arrows alone (`↑` scrolls back up and re-enters the controls at the top):
 
 | Control | Action |
 |---|---|

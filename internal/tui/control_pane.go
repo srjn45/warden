@@ -1038,19 +1038,28 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeNormal
 			return m, nil
 		case "up", "k":
-			// Move the controls cursor (interactive agent detail only). GotoTop keeps
-			// the controls block — which lives at the top — in view as it moves.
-			if m.detailSel >= 0 {
-				m.detailSel = (m.detailSel - 1 + detailControls) % detailControls
+			// Scroll-aware: if the body is scrolled, scroll it back up first; only
+			// once the top (where the controls live) is in view does ↑ walk the
+			// controls cursor. Read-only detail (sel<0) just scrolls.
+			switch {
+			case m.vp.YOffset > 0:
+				m.vp.LineUp(1)
+			case m.detailSel > 0:
+				m.detailSel--
 				m.refreshDetail()
-				m.vp.GotoTop()
+			default:
+				m.vp.LineUp(1) // at first control / read-only: plain scroll (no-op at top)
 			}
 			return m, nil
 		case "down", "j":
-			if m.detailSel >= 0 {
-				m.detailSel = (m.detailSel + 1) % detailControls
+			// Scroll-aware mirror: walk the controls cursor while at the top, then
+			// hand off to line-scrolling so every field below the controls is
+			// reachable with the arrows alone.
+			if m.detailSel >= 0 && m.detailSel < detailControls-1 && m.vp.YOffset == 0 {
+				m.detailSel++
 				m.refreshDetail()
-				m.vp.GotoTop()
+			} else {
+				m.vp.LineDown(1)
 			}
 			return m, nil
 		case " ", "enter":
@@ -1514,7 +1523,7 @@ func (m controlPaneModel) View() string {
 		body := titleBox("Details — "+m.detailTitle(), m.vp.View(), m.w, bodyH)
 		keys := "pgup/pgdn g/G scroll · i/esc back · q quit"
 		if m.selected() != nil { // interactive controls apply to a standalone agent only
-			keys = "↑/↓ select · space toggle · e events · r rename · pgup/pgdn scroll · i/esc back · q quit"
+			keys = "↑/↓ controls then scroll · space toggle · e events · r rename · g/G top/bottom · i/esc back · q quit"
 		}
 		return header + "\n" + body + "\n" + stMuted.Render(keys)
 	}
