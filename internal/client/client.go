@@ -355,6 +355,7 @@ type SpawnParams struct {
 	Force          bool
 	Model          string
 	Backend        string
+	Kind           string // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (backend/model/role/prompt ignored)
 	Tags           []string
 	ParentID       string
 	ForkFrom       string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
@@ -368,7 +369,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree, "in_repo": p.InRepo,
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
-		"model": p.Model, "backend": p.Backend, "tags": p.Tags, "parent_id": p.ParentID,
+		"model": p.Model, "backend": p.Backend, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
 		"fork_from": p.ForkFrom, "role": p.Role,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {

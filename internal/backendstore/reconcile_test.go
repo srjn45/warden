@@ -15,7 +15,6 @@ func TestReconcileFirstSightAndLocalSeeding(t *testing.T) {
 	det := []agentbackend.Detected{
 		{ID: "claude", Binary: "claude", Path: "/usr/bin/claude", Installed: true},
 		{ID: "aider", Binary: "aider", Path: "", Installed: false},
-		{ID: "terminal", Binary: "sh", Path: "", Installed: false}, // detector may miss sh; reconcile forces it
 	}
 	require.NoError(t, Reconcile(s, det, true, now))
 
@@ -27,10 +26,9 @@ func TestReconcileFirstSightAndLocalSeeding(t *testing.T) {
 	require.True(t, claude.Enabled)                 // …and enabled
 	require.True(t, claude.DetectedAt.Equal(now))
 
-	// terminal is forced installed regardless of the detector.
-	term, err := s.Get("terminal")
-	require.NoError(t, err)
-	require.True(t, term.Installed)
+	// terminal is no longer a backend (stage 6) — it is never created by reconcile.
+	_, err = s.Get("terminal")
+	require.ErrorIs(t, err, ErrNotFound, "terminal is not a backend row")
 
 	// local row seeded from localInstalled, with the system-set local invariants.
 	local, err := s.Get(idLocal)
@@ -44,6 +42,19 @@ func TestReconcileFirstSightAndLocalSeeding(t *testing.T) {
 
 	// local excluded from being a candidate is enforced via SetDefault too.
 	require.Error(t, s.SetDefault(idLocal))
+}
+
+// A `terminal` row persisted by a pre-stage-6 daemon is pruned on the next
+// reconcile (the backend was removed) so it stops showing in GET /backends.
+func TestReconcilePrunesStaleTerminalRow(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Now().Truncate(time.Second)
+	require.NoError(t, s.Upsert(Backend{ID: "terminal", Installed: true, Tier: TierUnclassified, Enabled: true}))
+
+	require.NoError(t, Reconcile(s, nil, true, now))
+
+	_, err := s.Get("terminal")
+	require.ErrorIs(t, err, ErrNotFound, "the stale terminal row is pruned")
 }
 
 func TestReconcilePreservesPreferences(t *testing.T) {

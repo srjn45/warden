@@ -79,15 +79,15 @@ type terminalSpawnedMsg struct {
 }
 
 // spawnTerminalCmd creates a plain-shell terminal session in cwd via the daemon.
-// It spawns with the `terminal` backend, which the lifecycle classifies as
-// Kind=terminal (a ${SHELL:-bash} pane, not an AI agent). No prompt/name/role:
-// a terminal has none. focus is echoed back on the result so the caller can
+// It spawns with kind=terminal — the explicit session-kind create field (stage 6);
+// the daemon launches a ${SHELL:-bash} pane, not an AI agent, ignoring
+// backend/model/role/prompt. focus is echoed back on the result so the caller can
 // decide whether to move focus onto the terminal pane after opening it.
 func spawnTerminalCmd(a api, cwd string, focus bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		s, err := a.Spawn(ctx, client.SpawnParams{Cwd: cwd, Backend: terminalBackend})
+		s, err := a.Spawn(ctx, client.SpawnParams{Cwd: cwd, Kind: terminalKind})
 		if err != nil {
 			return terminalSpawnedMsg{focus: focus, err: err}
 		}
@@ -95,10 +95,9 @@ func spawnTerminalCmd(a api, cwd string, focus bool) tea.Cmd {
 	}
 }
 
-// terminalBackend is the backend id that yields a Kind=terminal session (mirrors
-// lifecycle's terminalBackendID). Stage 6 removes the terminal backend and
-// replaces this with an explicit kind create field.
-const terminalBackend = "terminal"
+// terminalKind is the session-kind create value that yields a Kind=terminal
+// session (mirrors store.KindTerminal). Terminals are no longer a backend.
+const terminalKind = "terminal"
 
 // terminalLiveInfo is a terminal's live working-directory context, polled from
 // its running tmux pane (§7) rather than its stored fields, so its Terminals-

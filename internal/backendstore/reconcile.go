@@ -13,14 +13,16 @@ import (
 // Tier / Default / Enabled, so those survive an uninstall/reinstall. A backend
 // seen for the first time starts unclassified + enabled.
 //
-// Two rows are special:
-//   - terminal is forced Installed=true (it is the host shell, always present and
-//     a non-AI backend), so it is listed for completeness but never becomes an
-//     internal-thinking candidate or an auto-default.
-//   - the reserved local row (the local model, not a PATH-detected CLI) is
-//     reconciled separately from localInstalled: IsLocal=true, Tier=local, its
-//     LimitedUntil forced to zero (it can never be limited), and it can never be
-//     a user-agent default.
+// The reserved local row (the local model, not a PATH-detected CLI) is reconciled
+// separately from localInstalled: IsLocal=true, Tier=local, its LimitedUntil
+// forced to zero (it can never be limited), and it can never be a user-agent
+// default.
+//
+// terminal was a backend before the cockpit stage-6 redesign; it is no longer
+// registered (terminals are the session Kind=terminal now, created via the spawn
+// `kind` field), so Detect never returns it. Any `terminal` row a pre-stage-6
+// daemon persisted is pruned here so it stops appearing in GET /api/v1/backends —
+// a one-time, idempotent migration folded into every reconcile.
 func Reconcile(store *Store, det []agentbackend.Detected, localInstalled bool, now time.Time) error {
 	for _, d := range det {
 		b, err := store.Get(d.ID)
@@ -32,12 +34,12 @@ func Reconcile(store *Store, det []agentbackend.Detected, localInstalled bool, n
 		b.Installed = d.Installed
 		b.BinaryPath = d.Path
 		b.DetectedAt = now
-		if d.ID == idTerminal {
-			b.Installed = true // host shell is always present
-		}
 		if err := store.Upsert(b); err != nil {
 			return err
 		}
+	}
+	if err := store.Delete(idTerminal); err != nil { // prune a stale pre-stage-6 terminal row
+		return err
 	}
 	return reconcileLocal(store, localInstalled, now)
 }

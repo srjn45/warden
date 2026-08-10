@@ -134,6 +134,24 @@ func (e PipelineJobRunIf) Valid() bool {
 	}
 }
 
+// Defines values for SpawnRequestKind.
+const (
+	SpawnRequestKindAgent    SpawnRequestKind = "agent"
+	SpawnRequestKindTerminal SpawnRequestKind = "terminal"
+)
+
+// Valid indicates whether the value is a known member of the SpawnRequestKind enum.
+func (e SpawnRequestKind) Valid() bool {
+	switch e {
+	case SpawnRequestKindAgent:
+		return true
+	case SpawnRequestKindTerminal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Status.
 const (
 	Done            Status = "done"
@@ -206,6 +224,24 @@ func (e TaskType) Valid() bool {
 	case Tests:
 		return true
 	case Website:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListSessionsParamsKind.
+const (
+	ListSessionsParamsKindAgent    ListSessionsParamsKind = "agent"
+	ListSessionsParamsKindTerminal ListSessionsParamsKind = "terminal"
+)
+
+// Valid indicates whether the value is a known member of the ListSessionsParamsKind enum.
+func (e ListSessionsParamsKind) Valid() bool {
+	switch e {
+	case ListSessionsParamsKindAgent:
+		return true
+	case ListSessionsParamsKindTerminal:
 		return true
 	default:
 		return false
@@ -410,6 +446,12 @@ type CIStatus struct {
 
 // CIStatusState defines model for CIStatus.State.
 type CIStatusState string
+
+// CapabilitiesResponse The optional capability flags this daemon supports (feature detection).
+type CapabilitiesResponse struct {
+	// Capabilities Stable capability-flag strings. Known flags: "terminal-sessions" (session `kind` support — see GET /api/v1/capabilities).
+	Capabilities []string `json:"capabilities"`
+}
 
 // CheckOutcome defines model for CheckOutcome.
 type CheckOutcome struct {
@@ -757,8 +799,11 @@ type SpawnRequest struct {
 	// ForkFrom id of an existing agent whose recorded session this spawn should FORK (codex fork): the new agent branches the source agent's conversation into a divergent session. Requires a backend implementing SessionForker and a source agent whose backend session id is already pinned. Empty = a normal (non-fork) spawn.
 	ForkFrom string `json:"fork_from,omitempty"`
 	InRepo   bool   `json:"in_repo,omitempty"`
-	Model    string `json:"model,omitempty"`
-	Name     string `json:"name,omitempty"`
+
+	// Kind session kind. Empty or "agent" (the default) creates an AI agent with the chosen backend. "terminal" creates a plain interactive shell (${SHELL:-bash}) in `cwd` — NOT an AI agent: `backend`, `model`, `role`, and `prompt` are ignored, and it is excluded from every AI-centric surface (spend, state, approvals, digests). A terminal is created here, not via a backend id — the `terminal` backend was removed (advertised by the `terminal-sessions` capability, see GET /api/v1/capabilities).
+	Kind  SpawnRequestKind `json:"kind,omitempty"`
+	Model string           `json:"model,omitempty"`
+	Name  string           `json:"name,omitempty"`
 
 	// ParentId id of the agent that spawned this one; empty = root
 	ParentId       string `json:"parent_id,omitempty"`
@@ -778,6 +823,9 @@ type SpawnRequest struct {
 	Type     string `json:"type,omitempty"`
 	Worktree bool   `json:"worktree,omitempty"`
 }
+
+// SpawnRequestKind session kind. Empty or "agent" (the default) creates an AI agent with the chosen backend. "terminal" creates a plain interactive shell (${SHELL:-bash}) in `cwd` — NOT an AI agent: `backend`, `model`, `role`, and `prompt` are ignored, and it is excluded from every AI-centric surface (spend, state, approvals, digests). A terminal is created here, not via a backend id — the `terminal` backend was removed (advertised by the `terminal-sessions` capability, see GET /api/v1/capabilities).
+type SpawnRequestKind string
 
 // SpendBucket One cost rollup row — an agent, repo, or day — with priced spend.
 type SpendBucket = spend.Bucket
@@ -959,6 +1007,15 @@ type SearchParams struct {
 	// Closed Also search the archived store
 	Closed bool `form:"closed,omitempty" json:"closed,omitempty"`
 }
+
+// ListSessionsParams defines parameters for ListSessions.
+type ListSessionsParams struct {
+	// Kind filter by session kind: "agent" returns only AI agents (sessions with kind empty or "agent"), "terminal" returns only plain shells. Omitted = every session, agents and terminals alike (unchanged default).
+	Kind ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+}
+
+// ListSessionsParamsKind defines parameters for ListSessions.
+type ListSessionsParamsKind string
 
 // ApproveSessionJSONBody defines parameters for ApproveSession.
 type ApproveSessionJSONBody struct {
@@ -1205,6 +1262,9 @@ type ServerInterface interface {
 	// Update a backend's tier or enabled flag
 	// (PATCH /api/v1/backends/{id})
 	PatchBackend(w http.ResponseWriter, r *http.Request, id string)
+	// Server capability flags
+	// (GET /api/v1/capabilities)
+	GetCapabilities(w http.ResponseWriter, r *http.Request)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(w http.ResponseWriter, r *http.Request)
@@ -1327,7 +1387,7 @@ type ServerInterface interface {
 	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
 	// List active sessions
 	// (GET /api/v1/sessions)
-	ListSessions(w http.ResponseWriter, r *http.Request)
+	ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams)
 	// Get one session by id or name
 	// (GET /api/v1/sessions/{id})
 	GetSession(w http.ResponseWriter, r *http.Request, id SessionId)
@@ -1481,6 +1541,12 @@ func (_ Unimplemented) SetThinkingMode(w http.ResponseWriter, r *http.Request) {
 // Update a backend's tier or enabled flag
 // (PATCH /api/v1/backends/{id})
 func (_ Unimplemented) PatchBackend(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Server capability flags
+// (GET /api/v1/capabilities)
+func (_ Unimplemented) GetCapabilities(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1726,7 +1792,7 @@ func (_ Unimplemented) Search(w http.ResponseWriter, r *http.Request, params Sea
 
 // List active sessions
 // (GET /api/v1/sessions)
-func (_ Unimplemented) ListSessions(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2146,6 +2212,26 @@ func (siw *ServerInterfaceWrapper) PatchBackend(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PatchBackend(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetCapabilities(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCapabilities(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3421,14 +3507,33 @@ func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request
 // ListSessions operation middleware
 func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionsParams
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSessions(w, r)
+		siw.Handler.ListSessions(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4398,6 +4503,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/api/v1/backends/{id}", wrapper.PatchBackend)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/capabilities", wrapper.GetCapabilities)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/check", wrapper.RunCheck)
 	})
 	r.Group(func(r chi.Router) {
@@ -5049,6 +5157,27 @@ func (response PatchBackend404JSONResponse) VisitPatchBackendResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCapabilitiesRequestObject struct {
+}
+
+type GetCapabilitiesResponseObject interface {
+	VisitGetCapabilitiesResponse(w http.ResponseWriter) error
+}
+
+type GetCapabilities200JSONResponse CapabilitiesResponse
+
+func (response GetCapabilities200JSONResponse) VisitGetCapabilitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6273,6 +6402,7 @@ func (response Search400JSONResponse) VisitSearchResponse(w http.ResponseWriter)
 }
 
 type ListSessionsRequestObject struct {
+	Params ListSessionsParams
 }
 
 type ListSessionsResponseObject interface {
@@ -7251,6 +7381,9 @@ type StrictServerInterface interface {
 	// Update a backend's tier or enabled flag
 	// (PATCH /api/v1/backends/{id})
 	PatchBackend(ctx context.Context, request PatchBackendRequestObject) (PatchBackendResponseObject, error)
+	// Server capability flags
+	// (GET /api/v1/capabilities)
+	GetCapabilities(ctx context.Context, request GetCapabilitiesRequestObject) (GetCapabilitiesResponseObject, error)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(ctx context.Context, request RunCheckRequestObject) (RunCheckResponseObject, error)
@@ -7833,6 +7966,30 @@ func (sh *strictHandler) PatchBackend(w http.ResponseWriter, r *http.Request, id
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PatchBackendResponseObject); ok {
 		if err := validResponse.VisitPatchBackendResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCapabilities operation middleware
+func (sh *strictHandler) GetCapabilities(w http.ResponseWriter, r *http.Request) {
+	var request GetCapabilitiesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCapabilities(ctx, request.(GetCapabilitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCapabilities")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCapabilitiesResponseObject); ok {
+		if err := validResponse.VisitGetCapabilitiesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8968,8 +9125,10 @@ func (sh *strictHandler) Search(w http.ResponseWriter, r *http.Request, params S
 }
 
 // ListSessions operation middleware
-func (sh *strictHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams) {
 	var request ListSessionsRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListSessions(ctx, request.(ListSessionsRequestObject))

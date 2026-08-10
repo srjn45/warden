@@ -17,6 +17,20 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
+// serverCapabilities is the fixed set of optional-feature flags this daemon
+// advertises via GET /api/v1/capabilities, for client version-skew negotiation.
+// "terminal-sessions" means the session `kind` field is supported end-to-end:
+// kind=terminal on spawn, ?kind= on list, `kind` on every row, and `terminal`
+// removed as a backend. Append new flags here as capabilities land; never rename
+// or drop a shipped flag (clients feature-detect on the exact string).
+var serverCapabilities = []string{"terminal-sessions"}
+
+// GetCapabilities implements GET /api/v1/capabilities.
+func (s *Server) GetCapabilities(_ context.Context, _ oapi.GetCapabilitiesRequestObject) (oapi.GetCapabilitiesResponseObject, error) {
+	caps := append([]string(nil), serverCapabilities...) // copy so the response can't alias the package var
+	return oapi.GetCapabilities200JSONResponse{Capabilities: caps}, nil
+}
+
 // backendFor resolves a session's agent backend, falling back to the Claude
 // default for an empty or unrecognized backend id (back-compat).
 func backendFor(id string) agentbackend.Backend {
@@ -46,16 +60,37 @@ func approvalView(b agentbackend.Backend, id, pane string) approval.View {
 // ListSessions implements GET /api/v1/sessions. store.List returns pointers; the
 // generated SessionList holds values, so deref into a non-nil slice (the spec
 // marks sessions required, so an empty list still emits []).
-func (s *Server) ListSessions(ctx context.Context, _ oapi.ListSessionsRequestObject) (oapi.ListSessionsResponseObject, error) {
+//
+// An optional ?kind= filter narrows the result to one session kind: "agent"
+// returns only AI agents (kind empty or "agent"), "terminal" only plain shells.
+// Omitted (the default) returns every session, unchanged.
+func (s *Server) ListSessions(ctx context.Context, req oapi.ListSessionsRequestObject) (oapi.ListSessionsResponseObject, error) {
 	sessions, err := s.store.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]oapi.Session, 0, len(sessions))
 	for _, ss := range sessions {
+		if !kindMatches(req.Params.Kind, ss.IsTerminal()) {
+			continue
+		}
 		out = append(out, *ss)
 	}
 	return oapi.ListSessions200JSONResponse{Sessions: out}, nil
+}
+
+// kindMatches reports whether a session (isTerminal) passes the ?kind= filter.
+// An empty filter matches everything (the default); "terminal" matches only
+// terminals; anything else ("agent") matches only agents.
+func kindMatches(filter oapi.ListSessionsParamsKind, isTerminal bool) bool {
+	switch filter {
+	case "":
+		return true
+	case oapi.ListSessionsParamsKindTerminal:
+		return isTerminal
+	default:
+		return !isTerminal
+	}
 }
 
 // GetSession implements GET /api/v1/sessions/{id}.

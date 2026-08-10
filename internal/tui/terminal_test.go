@@ -75,7 +75,8 @@ func TestTKeyCreateSpawnsTerminalInOpenedDir(t *testing.T) {
 	require.NotNil(t, cmd)
 	cmd()
 	require.NotNil(t, f.spawned)
-	require.Equal(t, terminalBackend, f.spawned.Backend)
+	require.Equal(t, terminalKind, f.spawned.Kind, "a terminal is created by kind, not a backend")
+	require.Empty(t, f.spawned.Backend, "a terminal names no backend")
 	require.Equal(t, "/opened/agent/dir", f.spawned.Cwd)
 }
 
@@ -123,7 +124,7 @@ func TestEnsureDefaultTerminalSpawnsWhenNone(t *testing.T) {
 	require.NotNil(t, cmd, "with no terminal, a default one is spawned")
 	cmd()
 	require.NotNil(t, f.spawned)
-	require.Equal(t, terminalBackend, f.spawned.Backend)
+	require.Equal(t, terminalKind, f.spawned.Kind, "a terminal is created by kind, not a backend")
 	// A second session list must not spawn again.
 	f.spawned = nil
 	nm, cmd = m.Update(sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/w"}}})
