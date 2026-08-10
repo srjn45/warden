@@ -241,6 +241,8 @@ opened agent's dir · `i` info/inspector · `a` approve · `x` terminate/close �
 Global **Alt** rotation: `Alt+t` cycles the terminal pane over terminals,
 `Alt+a` the agent pane over agents, `Alt+p` the agent pane over pipeline agents
 (add **Shift** to rotate in reverse); each grabs focus on the pane it drives.
+`Ctrl-b` then `t`/`a`/`p` (Shift for reverse) is a config-free fallback for
+terminals that don't send Alt/Option as Meta (**macOS** Terminal.app / iTerm2).
 A **◆** plus a bold name badge marks the agent/terminal currently shown in a pane
 (tracks both `Enter`-open and the Alt rotation). Includes a pipeline view and per-job info.
 

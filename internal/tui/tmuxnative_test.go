@@ -80,8 +80,14 @@ func lastNonFlag(argv []string) string {
 }
 
 func TestKillCockpitArgs(t *testing.T) {
-	// Classic cockpit owns its session: drop the Enter override, kill the session.
-	require.Equal(t, [][]string{{"unbind-key", "Enter"}, {"kill-session"}}, killCockpitArgs(false))
+	// Classic cockpit owns its session: drop the Enter override AND the <prefix>
+	// t/a/p/T/A/P rotation fallbacks (server-global bindings), then kill the session.
+	require.Equal(t, [][]string{
+		{"unbind-key", "Enter"},
+		{"unbind-key", "t"}, {"unbind-key", "a"}, {"unbind-key", "p"},
+		{"unbind-key", "T"}, {"unbind-key", "A"}, {"unbind-key", "P"},
+		{"kill-session"},
+	}, killCockpitArgs(false))
 	// Native cockpit lives in the user's session: kill only our window, and leave
 	// the user's key bindings untouched (no unbind-key).
 	require.Equal(t, [][]string{{"kill-window"}}, killCockpitArgs(true))

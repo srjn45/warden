@@ -69,6 +69,9 @@ func helpText() string {
 		"  alt+a        cycle the agent pane through all live agents (grabs focus)\n" +
 		"  alt+p        cycle the agent pane through pipeline agents (pipeline > agents order)\n" +
 		"  alt+shift+…   add shift to any of the above to rotate in reverse (t/a/p)\n" +
+		"  ctrl+b t/a/p macOS/no-Meta fallback: <prefix> then t/a/p (add shift for reverse)\n" +
+		"               does the same rotation — for terminals that don't send Alt/Option\n" +
+		"               as Meta (macOS Terminal.app / iTerm2 default; or turn on 'Option as Meta')\n" +
 		"  " + stOpened.Render("◆") + " " + stOpenedName.Render("name") + "     marks the agent/terminal currently shown in a pane — it\n" +
 		"               follows both enter-open and the alt+a/p/t rotation above\n" +
 		"\n" +

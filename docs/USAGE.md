@@ -1198,6 +1198,7 @@ type).
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
 | `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport (global — works from any pane, even while typing): `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Each grabs focus on the pane it drives |
 | `Alt+Shift+t` / `Alt+Shift+a` / `Alt+Shift+p` | Same rotations in **reverse** |
+| `Ctrl-b` then `t`/`a`/`p` | Config-free rotation fallback (add Shift for reverse) — same as `Alt+t/a/p` but via the tmux prefix, for terminals that don't send Alt/Option as Meta (**macOS Terminal.app / iTerm2** default) |
 | `?` | Toggle help |
 | `q` | Quit and tear down the whole cockpit |
 
@@ -1250,7 +1251,11 @@ switch, or **`Alt+a`** / **`Alt+p`** to rotate over all agents / pipeline agents
 — add **Shift** (`Alt+Shift+a`/`Alt+Shift+p`) to rotate in reverse. Unlike
 `Enter`-open (which keeps you in the control pane for browsing), a rotation grabs
 focus on the pane it drives, so cycling agents drops you straight into the
-session — the same way `Alt+t` focuses the terminal pane.
+session — the same way `Alt+t` focuses the terminal pane. On **macOS**,
+Terminal.app and iTerm2 don't send Option as Meta by default, so the `Option+…`
+rotation won't fire; use the config-free `Ctrl-b` prefix fallback (`Ctrl-b` then
+`t`/`a`/`p`, Shift for reverse) or enable "Use Option as Meta key" in your
+terminal.
 
 Whatever is currently shown in a pane is marked with a **◆** in the control tree
 — the opened agent (in the Agents section or as a Pipelines job row) and the

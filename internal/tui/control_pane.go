@@ -1617,7 +1617,16 @@ func killCockpitArgs(killWindow bool) [][]string {
 	if killWindow {
 		return [][]string{{"kill-window"}}
 	}
-	return [][]string{{"unbind-key", "Enter"}, {"kill-session"}}
+	// Drop every binding buildCockpit installed before killing the session: the
+	// <prefix> Enter return-to-dashboard override and the <prefix> t/a/p/T/A/P
+	// rotation fallbacks. tmux key bindings are server-global, so on a shared server
+	// (the cockpit joined an existing tmux server rather than owning it) this restores
+	// the keys instead of leaving warden's overrides behind after teardown.
+	args := [][]string{{"unbind-key", "Enter"}}
+	for _, k := range []string{"t", "a", "p", "T", "A", "P"} {
+		args = append(args, []string{"unbind-key", k})
+	}
+	return append(args, []string{"kill-session"})
 }
 
 // killCockpitCmd tears the cockpit down. All calls are best-effort (harmless if

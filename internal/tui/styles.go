@@ -15,8 +15,8 @@ var (
 	stError      = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
 	stHeader     = lipgloss.NewStyle().Bold(true)
 	stCursor     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	stOpened     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))                                 // magenta — the ◆ gutter marker for the row shown in a pane now
-	stOpenedName = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("5")) // magenta badge on the opened row's name so it's unmistakable
+	stOpened     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))                                  // magenta — the ◆ gutter marker for the row shown in a pane now
+	stOpenedName = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("5")) // magenta badge on the opened row's name so it's unmistakable — bright-white fg (not 0/black, which some themes render as low-contrast grey on magenta)
 	stMuted      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	stPaneTitle  = lipgloss.NewStyle().Bold(true)
 	stStatus     = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
