@@ -68,6 +68,7 @@ type controlPaneModel struct {
 	apprCursor     int                    // focused recognized approval (modeApprovals)
 	digest         *digest.Digest         // last fetched digest (modeDigest)
 	digestID       string                 // agent id the digest is for
+	detailSel      int                    // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
 	autopilot      client.AutopilotStatus // last fetched autopilot status
 	backendsState  client.BackendsState   // agent-backend registry snapshot (modeBackends)
 	backendCursor  int                    // focused row in the Backends page
@@ -228,6 +229,27 @@ func (m controlPaneModel) backendRow() (client.Backend, bool) {
 		return m.backendsState.Backends[m.backendCursor], true
 	}
 	return client.Backend{}, false
+}
+
+// refreshDetail re-renders the detail viewport for the selected agent at the
+// current control-cursor position. Called after an override edit and on each poll
+// tick so the shown values (and event count) track the daemon. No-op for a
+// pipeline-job detail (selected() is nil there); that path keeps its stored body.
+func (m *controlPaneModel) refreshDetail() {
+	if s := m.selected(); s != nil {
+		m.vp.SetContent(detailBody(s, m.detailSel, m.vp.Width))
+	}
+}
+
+// openEvents switches to the event-list view for the selected agent (control
+// --i--> agent info --e--> events), returning the updated model.
+func (m controlPaneModel) openEvents() controlPaneModel {
+	m.mode = modeEvents
+	if s := m.selected(); s != nil {
+		m.vp.SetContent(eventsBody(s, m.vp.Width))
+	}
+	m.vp.GotoTop()
+	return m
 }
 
 // detailTitle is the label for the modeDetails overlay: the agent id, or
@@ -535,6 +557,16 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		prev := m.selectedKey()
 		m.sessions = groupSort(msg.sessions)
 		m.repin(prev)
+		// Keep an open agent-detail or event view live: re-render from the freshly
+		// polled session so edited overrides and new events show without re-opening.
+		switch m.mode {
+		case modeDetails:
+			m.refreshDetail()
+		case modeEvents:
+			if s := m.selected(); s != nil {
+				m.vp.SetContent(eventsBody(s, m.vp.Width))
+			}
+		}
 		// Once we have a session list, make sure a default terminal exists and is
 		// shown in the terminal pane (§5). Runs once (defaultTerminalReady guard).
 		return m, m.ensureDefaultTerminalCmd()
@@ -648,6 +680,13 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "renamed " + msg.id
 		}
 		return m, listCmd(m.api) // refresh so the new name shows immediately
+	case overrideDoneMsg:
+		if msg.err != nil {
+			m.status = "override failed: " + msg.err.Error()
+		} else {
+			m.status = msg.note
+		}
+		return m, listCmd(m.api) // refresh so the new override value shows immediately
 	case cleanupDoneMsg:
 		m.mode = modeNormal
 		m.status = "removed " + msg.id
@@ -998,6 +1037,46 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "i":
 			m.mode = modeNormal
 			return m, nil
+		case "up", "k":
+			// Move the controls cursor (interactive agent detail only). GotoTop keeps
+			// the controls block — which lives at the top — in view as it moves.
+			if m.detailSel >= 0 {
+				m.detailSel = (m.detailSel - 1 + detailControls) % detailControls
+				m.refreshDetail()
+				m.vp.GotoTop()
+			}
+			return m, nil
+		case "down", "j":
+			if m.detailSel >= 0 {
+				m.detailSel = (m.detailSel + 1) % detailControls
+				m.refreshDetail()
+				m.vp.GotoTop()
+			}
+			return m, nil
+		case " ", "enter":
+			// Activate the focused control: toggle auto-approve, cycle force-compact,
+			// or open the event list.
+			if s := m.selected(); s != nil && m.detailSel >= 0 {
+				switch m.detailSel {
+				case detailSelAutoApprove:
+					m.status = "setting auto-approve…"
+					return m, setAutoApproveCmd(m.api, s.ID, !s.AutoApprove)
+				case detailSelForceCompact:
+					next := nextForceCompact(forceCompactState(s))
+					m.status = "setting force-compact…"
+					return m, setForceCompactCmd(m.api, s.ID, next)
+				case detailSelEvents:
+					return m.openEvents(), nil
+				}
+			}
+			return m, nil
+		case "e":
+			// Direct shortcut to the event list from the agent detail (control --i-->
+			// agent info --e--> events).
+			if s := m.selected(); s != nil {
+				return m.openEvents(), nil
+			}
+			return m, nil
 		case "r":
 			// Rename the agent this detail view is for: seed the name field with
 			// its current name and focus it.
@@ -1008,6 +1087,26 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.tn.CursorEnd()
 				m.tn.Focus()
 			}
+			return m, nil
+		case "g":
+			m.vp.GotoTop()
+			return m, nil
+		case "G":
+			m.vp.GotoBottom()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
+	case modeEvents:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, m.quitCmd()
+		case "esc", "e":
+			// Back up one level to the agent detail (esc from events --> agent info).
+			m.mode = modeDetails
+			m.refreshDetail()
+			m.vp.GotoTop()
 			return m, nil
 		case "g":
 			m.vp.GotoTop()
@@ -1320,10 +1419,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case it.session != nil:
 			m.mode = modeDetails
-			m.vp.SetContent(detailBody(it.session, m.vp.Width))
+			m.detailSel = 0
+			m.vp.SetContent(detailBody(it.session, m.detailSel, m.vp.Width))
 			m.vp.GotoTop()
 		case it.pjJob != nil:
 			m.mode = modeDetails
+			m.detailSel = -1 // pipeline-job detail is read-only (no editable overrides)
 			m.vp.SetContent(jobDetailBody(it.pjJob, it.pjSess, m.vp.Width))
 			m.vp.GotoTop()
 		}
@@ -1411,11 +1512,15 @@ func (m controlPaneModel) View() string {
 	}
 	if m.mode == modeDetails {
 		body := titleBox("Details — "+m.detailTitle(), m.vp.View(), m.w, bodyH)
-		keys := "↑/↓ pgup/pgdn g/G scroll · i/esc back · q quit"
-		if m.selected() != nil { // rename applies to a standalone agent only
-			keys = "↑/↓ pgup/pgdn g/G scroll · r rename · i/esc back · q quit"
+		keys := "pgup/pgdn g/G scroll · i/esc back · q quit"
+		if m.selected() != nil { // interactive controls apply to a standalone agent only
+			keys = "↑/↓ select · space toggle · e events · r rename · pgup/pgdn scroll · i/esc back · q quit"
 		}
 		return header + "\n" + body + "\n" + stMuted.Render(keys)
+	}
+	if m.mode == modeEvents {
+		body := titleBox("Events — "+m.selectedID(), m.vp.View(), m.w, bodyH)
+		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · e/esc back to details · q quit")
 	}
 	if m.mode == modeRename {
 		body := titleBox("Details — "+m.selectedID(), m.vp.View(), m.w, bodyH)

@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srjn45/warden/internal/approval"
@@ -189,12 +190,18 @@ func TestApprovalsCmdFetchesEnabledAndViews(t *testing.T) {
 // --- agent details (the `i` key) ---
 
 func TestDetailBodyRendersAllSections(t *testing.T) {
+	fc := true
 	s := &store.Session{
 		ID:              "agent-9f3c",
 		Type:            store.TypeDevelopment,
 		Subject:         "Refactor lifecycle reaper retry path",
 		Status:          store.StatusWaitingForInput,
 		PermissionMode:  "acceptEdits",
+		Model:           "opus",
+		Role:            "implementer",
+		Tags:            []string{"backend", "urgent"},
+		AutoApprove:     true,
+		ForceCompact:    &fc,
 		ContextTokens:   88000,
 		ContextState:    store.ContextWarning,
 		Repo:            "/Users/me/workspace/warden",
@@ -204,12 +211,14 @@ func TestDetailBodyRendersAllSections(t *testing.T) {
 		PR:              "#318",
 		PipelineID:      "ctx-guard",
 		JobID:           "implement",
+		ParentID:        "agent-root",
 		PID:             48213,
 		TmuxSession:     "warden-9f3c",
 		ClaudeSessionID: "7a1c2d3e-1111-2222-3333-444455556666",
 		Prompt:          "Fix the reaper so completed-job records get reaped.",
+		Events:          []store.Event{{Type: "spawned"}, {Type: "compacted"}},
 	}
-	out := detailBody(s, 80)
+	out := detailBody(s, 0, 80)
 	for _, want := range []string{
 		"agent-9f3c",                           // header id
 		"Refactor lifecycle reaper retry path", // subject
@@ -220,6 +229,13 @@ func TestDetailBodyRendersAllSections(t *testing.T) {
 		"ctx-guard",                            // pipeline
 		"acceptEdits",                          // permission mode
 		"48213",                                // pid
+		"opus",                                 // model (new)
+		"implementer",                          // role (new)
+		"urgent",                               // tags (new)
+		"agent-root",                           // parent (new)
+		"auto-approve",                         // control row (new)
+		"force-compact",                        // control row (new)
+		"events",                               // control row (new)
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("detailBody() missing %q in:\n%s", want, out)
@@ -229,8 +245,8 @@ func TestDetailBodyRendersAllSections(t *testing.T) {
 
 func TestDetailBodyOmitsEmptySections(t *testing.T) {
 	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, PID: 10, TmuxSession: "warden-1"}
-	out := detailBody(s, 80)
-	for _, absent := range []string{"ticket", "pr ", "worktree", "pipeline"} {
+	out := detailBody(s, 0, 80)
+	for _, absent := range []string{"ticket", "pr ", "worktree", "pipeline", "rate-limit"} {
 		if strings.Contains(out, absent) {
 			t.Errorf("detailBody() should omit %q for an agent without that data:\n%s", absent, out)
 		}
@@ -238,22 +254,86 @@ func TestDetailBodyOmitsEmptySections(t *testing.T) {
 }
 
 func TestDetailBodyHandlesNil(t *testing.T) {
-	if got := detailBody(nil, 80); !strings.Contains(got, "no agent") {
+	if got := detailBody(nil, 0, 80); !strings.Contains(got, "no agent") {
 		t.Errorf("detailBody(nil) = %q, want a 'no agent' placeholder", got)
 	}
 }
 
 func TestDetailBodyShowsBackend(t *testing.T) {
 	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, Backend: "aider"}
-	if out := detailBody(s, 80); !strings.Contains(out, "backend") || !strings.Contains(out, "aider") {
+	if out := detailBody(s, 0, 80); !strings.Contains(out, "backend") || !strings.Contains(out, "aider") {
 		t.Errorf("detailBody() should show the backend line with 'aider':\n%s", out)
 	}
 }
 
 func TestDetailBodyEmptyBackendDefaultsToClaude(t *testing.T) {
 	s := &store.Session{ID: "agent-1", Status: store.StatusWorking}
-	if out := detailBody(s, 80); !strings.Contains(out, "backend") || !strings.Contains(out, "claude") {
+	if out := detailBody(s, 0, 80); !strings.Contains(out, "backend") || !strings.Contains(out, "claude") {
 		t.Errorf("detailBody() should default an empty backend to claude:\n%s", out)
+	}
+}
+
+func TestDetailBodyShowsRateLimitWhenLimited(t *testing.T) {
+	at := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	resume := at.Add(2 * time.Hour)
+	s := &store.Session{
+		ID: "agent-1", Status: store.StatusRateLimited,
+		RateLimitedAt: &at, RateLimitRestoreAt: &resume, RateLimitRetryCount: 3,
+	}
+	out := detailBody(s, 0, 80)
+	for _, want := range []string{"rate-limit", "resume", "2026-08-10 11:00", "3"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("detailBody() missing rate-limit detail %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestForceCompactStateAndCycle(t *testing.T) {
+	on, off := true, false
+	if got := forceCompactState(&store.Session{}); got != "inherit" {
+		t.Errorf("nil ForceCompact = %q, want inherit", got)
+	}
+	if got := forceCompactState(&store.Session{ForceCompact: &on}); got != "on" {
+		t.Errorf("true ForceCompact = %q, want on", got)
+	}
+	if got := forceCompactState(&store.Session{ForceCompact: &off}); got != "off" {
+		t.Errorf("false ForceCompact = %q, want off", got)
+	}
+	// The cycle walks every state and wraps.
+	if got := nextForceCompact("inherit"); got != "on" {
+		t.Errorf("next(inherit) = %q, want on", got)
+	}
+	if got := nextForceCompact("on"); got != "off" {
+		t.Errorf("next(on) = %q, want off", got)
+	}
+	if got := nextForceCompact("off"); got != "inherit" {
+		t.Errorf("next(off) = %q, want inherit", got)
+	}
+}
+
+func TestEventsBodyRendersNewestFirst(t *testing.T) {
+	t1 := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Minute)
+	s := &store.Session{ID: "agent-1", Events: []store.Event{
+		{TS: t1, Type: "spawned", Detail: "created worktree"},
+		{TS: t2, Type: "compacted", Detail: "auto /compact at 180k"},
+	}}
+	out := eventsBody(s, 80)
+	if !strings.Contains(out, "Events (2)") {
+		t.Errorf("eventsBody() should show the count header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "spawned") || !strings.Contains(out, "compacted") {
+		t.Errorf("eventsBody() should list both event types; got:\n%s", out)
+	}
+	// Newest (compacted) must render above oldest (spawned).
+	if strings.Index(out, "compacted") > strings.Index(out, "spawned") {
+		t.Errorf("eventsBody() should render newest first; got:\n%s", out)
+	}
+}
+
+func TestEventsBodyEmpty(t *testing.T) {
+	if out := eventsBody(&store.Session{ID: "a"}, 80); !strings.Contains(out, "no events") {
+		t.Errorf("eventsBody() with no events should show a placeholder; got:\n%s", out)
 	}
 }
 
@@ -289,5 +369,101 @@ func TestKeyINoOpWhenNoAgentSelected(t *testing.T) {
 	m = mm.(controlPaneModel)
 	if m.mode != modeNormal {
 		t.Fatalf("i should be a no-op with no agent selected, got mode %v", m.mode)
+	}
+}
+
+// detailModel opens the detail view for a single agent and returns the model in
+// modeDetails, ready for control-cursor keys.
+func detailModel(t *testing.T, f *fakeAPI, s *store.Session) controlPaneModel {
+	t.Helper()
+	m := newListPane(f, "", "")
+	m = lstep(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	f.sessions = []*store.Session{s}
+	mm, _ := m.Update(sessionsMsg{sessions: f.sessions})
+	m = mm.(controlPaneModel)
+	mm, _ = m.Update(key("i"))
+	m = mm.(controlPaneModel)
+	if m.mode != modeDetails {
+		t.Fatalf("expected modeDetails, got %v", m.mode)
+	}
+	return m
+}
+
+func TestDetailSpaceTogglesAutoApprove(t *testing.T) {
+	f := &fakeAPI{}
+	m := detailModel(t, f, &store.Session{ID: "agent-1", Status: store.StatusWorking, AutoApprove: false})
+	// detailSel starts at 0 (auto-approve); space toggles it on.
+	mm, cmd := m.Update(key(" "))
+	m = mm.(controlPaneModel)
+	if cmd == nil {
+		t.Fatal("space on the auto-approve row should return a command")
+	}
+	cmd() // run the tea.Cmd so the fake records the call
+	if f.autoApproveID != "agent-1" || f.autoApproveVal != true {
+		t.Fatalf("expected SetAutoApprove(agent-1, true), got id=%q val=%v", f.autoApproveID, f.autoApproveVal)
+	}
+}
+
+func TestDetailSpaceCyclesForceCompact(t *testing.T) {
+	f := &fakeAPI{}
+	m := detailModel(t, f, &store.Session{ID: "agent-1", Status: store.StatusWorking}) // ForceCompact nil ⇒ inherit
+	// Move to the force-compact row, then space cycles inherit → on.
+	mm, _ := m.Update(key("down"))
+	m = mm.(controlPaneModel)
+	if m.detailSel != detailSelForceCompact {
+		t.Fatalf("down should land on force-compact (%d), got %d", detailSelForceCompact, m.detailSel)
+	}
+	mm, cmd := m.Update(key(" "))
+	if cmd == nil {
+		t.Fatal("space on the force-compact row should return a command")
+	}
+	cmd()
+	if f.forceCompactID != "agent-1" || f.forceCompactSt != "on" {
+		t.Fatalf("expected SetForceCompact(agent-1, on), got id=%q state=%q", f.forceCompactID, f.forceCompactSt)
+	}
+}
+
+func TestDetailEOpensEventsAndEscReturns(t *testing.T) {
+	f := &fakeAPI{}
+	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, Events: []store.Event{{Type: "spawned"}}}
+	m := detailModel(t, f, s)
+
+	// e opens the event list.
+	mm, _ := m.Update(key("e"))
+	m = mm.(controlPaneModel)
+	if m.mode != modeEvents {
+		t.Fatalf("e should open modeEvents, got %v", m.mode)
+	}
+	if !strings.Contains(m.vp.View(), "Events") {
+		t.Fatalf("events viewport should render the Events header; got:\n%s", m.vp.View())
+	}
+	// esc from events returns to the agent detail.
+	mm, _ = m.Update(key("esc"))
+	m = mm.(controlPaneModel)
+	if m.mode != modeDetails {
+		t.Fatalf("esc from events should return to modeDetails, got %v", m.mode)
+	}
+	// esc from details returns to the control tree.
+	mm, _ = m.Update(key("esc"))
+	m = mm.(controlPaneModel)
+	if m.mode != modeNormal {
+		t.Fatalf("esc from details should return to modeNormal, got %v", m.mode)
+	}
+}
+
+func TestDetailEnterOnEventsRowOpensEvents(t *testing.T) {
+	f := &fakeAPI{}
+	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, Events: []store.Event{{Type: "spawned"}}}
+	m := detailModel(t, f, s)
+	// Walk the cursor to the events row (index 2) and press enter.
+	m = lstep(m, key("down"))
+	m = lstep(m, key("down"))
+	if m.detailSel != detailSelEvents {
+		t.Fatalf("two downs should land on events (%d), got %d", detailSelEvents, m.detailSel)
+	}
+	mm, _ := m.Update(key("enter"))
+	m = mm.(controlPaneModel)
+	if m.mode != modeEvents {
+		t.Fatalf("enter on the events row should open modeEvents, got %v", m.mode)
 	}
 }

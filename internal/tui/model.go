@@ -19,6 +19,8 @@ type api interface {
 	Delete(ctx context.Context, id string, hard bool) error
 	Input(ctx context.Context, id, text string) error
 	SetName(ctx context.Context, id, name string) error
+	SetAutoApprove(ctx context.Context, id string, enabled bool) error
+	SetForceCompact(ctx context.Context, id, state string) error
 	ListDirs(ctx context.Context, path string) (client.DirListing, error)
 	Approvals(ctx context.Context) (bool, []approval.View, error)
 	Approve(ctx context.Context, id string, option int, fingerprint string) error
@@ -63,6 +65,7 @@ const (
 	modeDigest                // scrollable completion digest for the selected agent
 	modeApprovals             // answer pending tool-permission prompts
 	modeDetails               // scrollable full detail view for the selected agent
+	modeEvents                // the selected agent's event log (opened from modeDetails)
 	modeBackends              // agent-backend registry page (list, tier, default, enabled, thinking-mode)
 	modeTerminalChoice        // `t`: (c)reate a terminal in the opened agent's dir or (f)ocus an existing one
 )

@@ -187,6 +187,34 @@ func renameCmd(a api, id, name string) tea.Cmd {
 	}
 }
 
+// overrideDoneMsg reports the outcome of a per-agent override edit (auto-approve
+// toggle or force-compact cycle) made from the detail view. note is the status
+// line to show on success.
+type overrideDoneMsg struct {
+	note string
+	err  error
+}
+
+// setAutoApproveCmd toggles an agent's auto-approve override via the daemon.
+func setAutoApproveCmd(a api, id string, enabled bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		note := "auto-approve " + boolOnOff(enabled) + " · " + id
+		return overrideDoneMsg{note: note, err: a.SetAutoApprove(ctx, id, enabled)}
+	}
+}
+
+// setForceCompactCmd sets an agent's force-compact override (on/off/inherit) via
+// the daemon.
+func setForceCompactCmd(a api, id, state string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		return overrideDoneMsg{note: "force-compact " + state + " · " + id, err: a.SetForceCompact(ctx, id, state)}
+	}
+}
+
 type pressureMsg struct {
 	status client.PressureStatus
 	err    error

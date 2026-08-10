@@ -925,45 +925,149 @@ func recognizedApprovals(views []approval.View) []approval.View {
 	return out
 }
 
-// detailBody renders the modeDetails overlay: every populated store.Session
-// field for the selected agent, grouped (header, summary, location, refs, mode,
-// plumbing). Empty fields/sections are omitted so the view stays tight. Pure
-// over the session — no fetch. Reuses badge/contextLabel/age/abbrevHome/trunc.
-func detailBody(s *store.Session, width int) string {
+// detailControls is the number of interactive rows in the detail view's controls
+// block, in render order: 0 auto-approve, 1 force-compact, 2 events. The detail
+// selection cursor (Model.detailSel) walks [0, detailControls).
+const detailControls = 3
+
+const (
+	detailSelAutoApprove  = iota // toggle the per-agent auto-approve override
+	detailSelForceCompact        // cycle the per-agent force-compact override
+	detailSelEvents              // open the event list (modeEvents)
+)
+
+// boolOnOff renders a bool as an on/off word for the detail controls.
+func boolOnOff(v bool) string {
+	if v {
+		return "on"
+	}
+	return "off"
+}
+
+// forceCompactState renders an agent's force-compact override as the word
+// SetForceCompact accepts: a nil pointer is "inherit" (follow the global
+// token_force_compact), true is "on", false is "off".
+func forceCompactState(s *store.Session) string {
+	if s.ForceCompact == nil {
+		return "inherit"
+	}
+	return boolOnOff(*s.ForceCompact)
+}
+
+// nextForceCompact advances the force-compact override one step in the toggle
+// cycle inherit → on → off → inherit, so repeated presses walk every state.
+func nextForceCompact(cur string) string {
+	switch cur {
+	case "inherit":
+		return "on"
+	case "on":
+		return "off"
+	default:
+		return "inherit"
+	}
+}
+
+// roleOr returns the agent's role, defaulting to "general" (no persona) when
+// unset — mirroring backendOr so the field never renders blank.
+func roleOr(s *store.Session) string {
+	if s.Role == "" {
+		return "general"
+	}
+	return s.Role
+}
+
+// fmtTime renders an absolute timestamp for the detail view; a zero time is "—".
+func fmtTime(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.Format("2006-01-02 15:04")
+}
+
+// detailControlLine renders one interactive controls row: "<label>  <value>". The
+// focused row (selected) carries a ▸ cursor and is highlighted; the rest align
+// under it with a muted label. Passing selected=false everywhere (sel < 0) renders
+// the block read-only, as the pipeline-job detail uses it.
+func detailControlLine(selected bool, label, val string) string {
+	if selected {
+		return stCursor.Render(fmt.Sprintf("▸ %-13s %s", label, val))
+	}
+	return "  " + stMuted.Render(fmt.Sprintf("%-13s", label)) + " " + val
+}
+
+// detailBody renders the modeDetails overlay: every populated store.Session field
+// for the selected agent, grouped (controls, summary, location, refs, rate-limit,
+// lifecycle, plumbing, pane). Empty fields/sections are omitted so the view stays
+// tight. The controls block (auto-approve, force-compact, events) is interactive
+// when sel >= 0: sel marks the focused row with a ▸ cursor that ↑/↓ move, space
+// toggles/cycles, and enter (on events) opens the event list. sel < 0 renders the
+// same three read-only, as the pipeline-job detail does. Pure over the session — no
+// fetch. Reuses badge/contextLabel/age/abbrevHome/trunc.
+func detailBody(s *store.Session, sel, width int) string {
 	if s == nil {
 		return stMuted.Render("(no agent selected)")
 	}
+	// field renders a flush "label     value" summary line (label padded to 10).
+	field := func(label, val string) string {
+		return stMuted.Render(fmt.Sprintf("%-10s", label)) + val + "\n"
+	}
+	// sub renders an indented "  label    value" line for the grouped sections.
+	sub := func(label, val string) string {
+		return stMuted.Render(fmt.Sprintf("  %-9s ", label)) + val
+	}
+
 	var b strings.Builder
 	label, st := badge(s.Status, s.ExitCode)
 	permMode := s.PermissionMode
 	if permMode == "" {
 		permMode = "default"
 	}
-	// Show name in title if present
 	title := s.ID
 	if s.Name != "" {
 		title = s.ID + " (" + s.Name + ")"
 	}
 	b.WriteString(stPaneTitle.Render(title) + "  " + st.Render(label) + " · " + permMode + "\n\n")
 
-	// summary block
+	// controls — the three per-agent overrides/actions (interactive when sel >= 0).
+	b.WriteString(stPaneTitle.Render("controls") + "\n")
+	evVal := fmt.Sprintf("%d", len(s.Events))
+	if sel >= 0 {
+		evVal += "  ↵ open"
+	}
+	b.WriteString(detailControlLine(sel == detailSelAutoApprove, "auto-approve", boolOnOff(s.AutoApprove)) + "\n")
+	b.WriteString(detailControlLine(sel == detailSelForceCompact, "force-compact", forceCompactState(s)) + "\n")
+	b.WriteString(detailControlLine(sel == detailSelEvents, "events", evVal) + "\n")
+
+	// summary
+	b.WriteString("\n" + stPaneTitle.Render("summary") + "\n")
 	nameStr := s.Name
 	if nameStr == "" {
 		nameStr = "—"
 	}
-	b.WriteString(stMuted.Render("name      ") + nameStr + "\n")
+	b.WriteString(field("name", nameStr))
 	if s.Subject != "" {
-		b.WriteString(stMuted.Render("subject   ") + s.Subject + "\n")
+		b.WriteString(field("subject", s.Subject))
 	}
 	b.WriteString(stMuted.Render("type      ") + typeOr(s) + "   " + stMuted.Render("age ") + age(s.UpdatedAt) + "\n")
-	b.WriteString(stMuted.Render("backend   ") + backendOr(s) + "\n")
-	if cl, _ := contextLabel(s.ContextTokens, s.ContextState); cl != "" {
-		ctxLine := stMuted.Render("context   ") + cl
-		if s.ContextState != "" {
-			ctxLine += " (" + s.ContextState + ")"
-		}
-		b.WriteString(ctxLine + "\n")
+	b.WriteString(field("backend", backendOr(s)))
+	if s.Model != "" {
+		b.WriteString(field("model", s.Model))
 	}
+	b.WriteString(field("role", roleOr(s)))
+	if len(s.Tags) > 0 {
+		b.WriteString(field("tags", strings.Join(s.Tags, ", ")))
+	}
+	if cl, _ := contextLabel(s.ContextTokens, s.ContextState); cl != "" {
+		v := cl
+		if s.ContextState != "" {
+			v += " (" + s.ContextState + ")"
+		}
+		if !s.ContextCheckedAt.IsZero() {
+			v += stMuted.Render("  checked " + age(s.ContextCheckedAt))
+		}
+		b.WriteString(field("context", v))
+	}
+	b.WriteString(field("created", fmtTime(s.CreatedAt)))
 
 	// location
 	var loc []string
@@ -972,15 +1076,24 @@ func detailBody(s *store.Session, width int) string {
 		dir = s.Workdir
 	}
 	if dir != "" {
-		loc = append(loc, stMuted.Render("  dir       ")+abbrevHome(dir))
+		loc = append(loc, sub("dir", abbrevHome(dir)))
 	}
-	// Show worktree first (if exists), then branch - makes it easier to see the working context
+	// Show worktree first (if exists), then branch — the working context at a glance.
 	if s.Worktree != "" {
-		wtName := filepath.Base(s.Worktree)
-		loc = append(loc, stMuted.Render("  worktree  ")+wtName+" "+stMuted.Render("("+abbrevHome(s.Worktree)+")"))
+		wt := filepath.Base(s.Worktree) + " " + stMuted.Render("("+abbrevHome(s.Worktree)+")")
+		if s.WorktreeCreated {
+			wt += stMuted.Render(" · warden-created")
+		} else {
+			wt += stMuted.Render(" · adopted")
+		}
+		loc = append(loc, sub("worktree", wt))
 	}
 	if s.Branch != "" {
-		loc = append(loc, stMuted.Render("  branch    ")+s.Branch)
+		br := s.Branch
+		if s.BranchCreated {
+			br += stMuted.Render(" · warden-created")
+		}
+		loc = append(loc, sub("branch", br))
 	}
 	if len(loc) > 0 {
 		b.WriteString("\n" + stPaneTitle.Render("location") + "\n" + strings.Join(loc, "\n") + "\n")
@@ -989,38 +1102,99 @@ func detailBody(s *store.Session, width int) string {
 	// refs
 	var refs []string
 	if s.Ticket != "" {
-		refs = append(refs, stMuted.Render("  ticket    ")+s.Ticket)
+		refs = append(refs, sub("ticket", s.Ticket))
 	}
 	if s.PR != "" {
-		refs = append(refs, stMuted.Render("  pr        ")+s.PR)
+		refs = append(refs, sub("pr", s.PR))
 	}
 	if s.PipelineID != "" {
-		line := stMuted.Render("  pipeline  ") + s.PipelineID
+		line := sub("pipeline", s.PipelineID)
 		if s.JobID != "" {
 			line += "  " + stMuted.Render("job ") + s.JobID
 		}
 		refs = append(refs, line)
 	}
+	if s.ParentID != "" {
+		refs = append(refs, sub("parent", s.ParentID))
+	}
 	if len(refs) > 0 {
 		b.WriteString("\n" + stPaneTitle.Render("refs") + "\n" + strings.Join(refs, "\n") + "\n")
 	}
 
-	// mode
+	// rate-limit — only when the agent has actually hit a limit.
+	if s.RateLimitedAt != nil {
+		var rl []string
+		rl = append(rl, sub("since", fmtTime(*s.RateLimitedAt)))
+		if s.RateLimitRestoreAt != nil {
+			rl = append(rl, sub("resume", fmtTime(*s.RateLimitRestoreAt)))
+		}
+		if s.RateLimitRetryCount > 0 {
+			rl = append(rl, sub("retries", fmt.Sprintf("%d", s.RateLimitRetryCount)))
+		}
+		b.WriteString("\n" + stPaneTitle.Render("rate-limit") + "\n" + strings.Join(rl, "\n") + "\n")
+	}
+
+	// lifecycle — restart/compact bookkeeping, shown only when any of it is set.
+	var life []string
 	if s.AutoRestart {
-		b.WriteString("\n" + stPaneTitle.Render("mode") + "\n")
-		b.WriteString(fmt.Sprintf("  %s · auto-restart ×%d\n", permMode, s.RestartCount))
+		life = append(life, sub("restart", fmt.Sprintf("auto ×%d", s.RestartCount)))
+	}
+	if s.LastRestartAt != nil {
+		life = append(life, sub("restarted", fmtTime(*s.LastRestartAt)))
+	}
+	if s.LastCompactAt != nil {
+		life = append(life, sub("compacted", fmtTime(*s.LastCompactAt)))
+	}
+	if len(life) > 0 {
+		b.WriteString("\n" + stPaneTitle.Render("lifecycle") + "\n" + strings.Join(life, "\n") + "\n")
 	}
 
 	// plumbing
 	b.WriteString("\n" + stPaneTitle.Render("plumbing") + "\n")
 	b.WriteString(fmt.Sprintf("  pid %d · tmux %s\n", s.PID, s.TmuxSession))
+	if s.ExitCode != nil {
+		b.WriteString(sub("exit", fmt.Sprintf("%d", *s.ExitCode)) + "\n")
+	}
 	if s.ClaudeSessionID != "" {
-		b.WriteString(stMuted.Render("  claude    ") + trunc(s.ClaudeSessionID, 12) + "\n")
+		b.WriteString(sub("session", trunc(s.ClaudeSessionID, 20)) + "\n")
 	}
 	if s.Prompt != "" {
-		b.WriteString(stMuted.Render("  prompt    ") + "\"" + trunc(s.Prompt, max(0, width-14)) + "\"\n")
+		b.WriteString(sub("prompt", "\""+trunc(s.Prompt, max(0, width-14))+"\"") + "\n")
+	}
+
+	// pane — the last captured pane excerpt, flattened to one line.
+	if ex := oneLine(s.LastPaneExcerpt); ex != "" {
+		b.WriteString("\n" + stPaneTitle.Render("pane") + "\n")
+		b.WriteString("  " + stMuted.Render(trunc(ex, max(10, width-4))) + "\n")
 	}
 	return b.String()
+}
+
+// eventsBody renders the modeEvents view: the selected agent's event log, newest
+// first, each row "<mm-dd hh:mm:ss>  <type>  <detail>". Pure over the session — the
+// list refreshes as the poller updates the session. Detail is flattened to one line
+// and truncated to the pane width.
+func eventsBody(s *store.Session, width int) string {
+	if s == nil {
+		return stMuted.Render("(no agent selected)")
+	}
+	var b strings.Builder
+	b.WriteString(stPaneTitle.Render(fmt.Sprintf("Events (%d)", len(s.Events))) + "\n\n")
+	if len(s.Events) == 0 {
+		b.WriteString(stMuted.Render("(no events recorded yet)"))
+		return b.String()
+	}
+	for i := len(s.Events) - 1; i >= 0; i-- { // newest first
+		e := s.Events[i]
+		ts := "—"
+		if !e.TS.IsZero() {
+			ts = e.TS.Format("01-02 15:04:05")
+		}
+		typ := fmt.Sprintf("%-16s", trunc(e.Type, 16))
+		detail := oneLine(e.Detail)
+		b.WriteString(stMuted.Render(ts) + "  " + typ + " " + trunc(detail, max(10, width-32)) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // digestBody renders a completion digest for the modeDigest overlay: task,
