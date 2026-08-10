@@ -170,7 +170,8 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
 
 - **Web GUI** — the daemon embeds a React dashboard at `http://localhost:8765` (no
   separate server): URL-routed shell (`/cockpit` home · `/tui` · `/pipelines` ·
-  `/metrics` · `/archive` · `/others` · `/agent/<id>`), live fleet over SSE, Cockpit Fleet
+  `/metrics` · `/terminals` · `/archive` · `/others` · `/agent/<id>`), a **Terminals**
+  tab (PTY viewport + New terminal; excluded from the agent grid/counts), live fleet over SSE, Cockpit Fleet
   header + agent grid, Others catch-all (attention queue with one-click approvals,
   conflicts, activity; sits last), a Metrics tab (per-agent + fleet-total CPU/memory,
   per-agent context, fleet size, tokens saved; two-column responsive layout),
@@ -179,16 +180,21 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   overlay, archive & search, theme toggle, keyboard shortcuts (`?` for help), batch
   multi-select actions.
 - **Cockpit TUI** — `warden tui` (or bare `warden`): a tmux-composited cockpit with
-  an agents list, a shell pane, and a live detail pane. `n` new, `s` send, `a`
+  a **control pane** (a navigator tree of four fixed sections — Approvals · Pipelines
+  · Agents · Terminals), a **terminal pane** (a live `kind=terminal` session; a
+  default terminal opens in the launch dir at startup), and a live **agent pane**.
+  `n` new, `t` create/focus a terminal in the opened agent's dir, `s` send, `a`
   attach, `d` digest, `i` approvals, `c` context/message inspector, `x`
-  terminate/cancel, `?` help; `Alt+←/→/↑/↓` move pane focus; `Alt+t` toggles the
-  master pane between the REPL and a raw shell. Requires tmux ≥ 3.1. Inside an
-  existing tmux session it lays out as a **native tmux window** in that session
-  instead of nesting (auto-detected via `$TMUX`; force with `--tmux-native`).
+  terminate/cancel, `?` help; `Alt+←/→/↑/↓` move pane focus. **Global Alt rotation**
+  (any pane, even while typing): `M-t` cycles the terminal pane over terminals, `M-a`
+  cycles the agent pane over agents, `M-p` cycles it over pipeline agents. Requires
+  tmux ≥ 3.1. Inside an existing tmux session it lays out as a **native tmux window**
+  in that session instead of nesting (auto-detected via `$TMUX`; force with
+  `--tmux-native`) — two-pane control + agent, terminal features degrade to a hint.
   Hold **Shift** to select text natively (tmux mouse mode eats plain drag).
 - **Web cockpit self-heal** — the browser `/tui` view attaches to a single
   daemon-owned `warden-web-cockpit` tmux session. It's validated (three panes,
-  list pane running the bloom app) and auto-rebuilt if wedged, so you normally
+  control pane running the bloom app) and auto-rebuilt if wedged, so you normally
   needn't touch it. If a user reports a stuck/blank web TUI, run
   `warden tui --rebuild-web-cockpit` to force a kill+rebuild (then have them
   reload `/tui`) — no `tmux kill-session` needed.
@@ -223,8 +229,7 @@ drive the fleet:
 
 Starts without a model (the `/` commands and `!`-shell always work); only the NL
 half needs `local_llm: true`. `!`-prefixed lines run in a persistent embedded shell,
-reported verbatim (no auto-action). Run standalone or as the cockpit master pane
-(`repl` config / `--repl`).
+reported verbatim (no auto-action). Run standalone.
 
 **Picking the local model — `wd llm suggest`.** Auto-detects the machine's **total**
 and **average free** memory (same pool: NVIDIA VRAM / Apple unified / Linux
@@ -288,7 +293,7 @@ MCP-first (all wrap `/api/v1/backends*`):
 | `list_backends` | The whole registry + settings (read-only) | `warden backends list` |
 | `rescan_backends` | Re-detect installed CLIs, reconcile detection, keep preferences | `warden backends rescan` |
 | `set_backend_tier {id, tier}` | Assign a tier: `free`\|`subscription`\|`pay_per_use`\|`unclassified` (the reserved `local` tier is system-set) | `warden backends tier <id> <tier>` |
-| `set_default_backend {id}` | Set the single default; rejects unknown/uninstalled/disabled/`local`/`terminal` | `warden backends default <id>` |
+| `set_default_backend {id}` | Set the single default; rejects unknown/uninstalled/disabled/`local` | `warden backends default <id>` |
 | `set_thinking_mode {mode}` | `local_only` \| `free_plus_local` — which backends warden's own internal thinking may call (never a paid one) | `warden backends thinking-mode <mode>` |
 
 - **Enable/disable is not an MCP tool.** Use the CLI (`warden backends enable|disable

@@ -125,10 +125,10 @@ The reserved ` + "`local`" + ` tier is system-set and cannot be assigned.`,
 func newBackendsDefaultCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "default <id>",
-		Short: "Set the default backend (rejects the local/terminal rows)",
+		Short: "Set the default backend (rejects the reserved local row)",
 		Long: `Make <id> the single default backend used when spawning agents without an
 explicit backend. The daemon rejects an unknown, uninstalled, disabled, or
-reserved (local/terminal) target.`,
+reserved (local) target.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			state, err := clientFor(cmd).SetDefaultBackend(cmd.Context(), args[0])

@@ -96,13 +96,13 @@ warden backends list                 # full table incl. the reserved local row (
 
 warden backends rescan               # re-detect installed CLIs (preferences preserved)
 warden backends tier codex free      # free | subscription | pay_per_use | unclassified
-warden backends default claude       # set the single default (rejects local/terminal)
+warden backends default claude       # set the single default (rejects local)
 warden backends enable codex         # / warden backends disable aider
 warden backends thinking-mode local_only   # or free_plus_local
 ```
 
 `warden backends default <id>` is rejected for an unknown, uninstalled, disabled, or
-reserved (`local`/`terminal`) target — the same rules the daemon enforces.
+reserved (`local`) target — the same rules the daemon enforces.
 
 ### Web — the 🧩 backends panel
 

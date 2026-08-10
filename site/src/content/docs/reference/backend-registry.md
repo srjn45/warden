@@ -60,13 +60,11 @@ A free CLI backend is **eligible** only when `installed && enabled && tier == "f
 exhausted, the caller degrades gracefully — warden never escalates internal thinking
 to a paid backend.
 
-## The reserved rows
+## The reserved `local` row
 
 - **`local`** — a `$0`, never-limited, never-default class for the local model. Its
   tier is the system-set `local`; the terminal candidate of every internal-thinking
   walk.
-- **`terminal`** — the plain host shell backend. Like `local`, it can never be a
-  user-agent default.
 
 ## CLI — `warden backends`
 
@@ -75,7 +73,7 @@ to a paid backend.
 | `warden backends list` (alias `ls`) | Print the registry table (ID, installed, tier, default, enabled, limited) + the thinking mode |
 | `warden backends rescan` | Re-detect installed CLIs, reconcile detection, preserve preferences |
 | `warden backends tier <id> <tier>` | Assign a tier (`free`\|`subscription`\|`pay_per_use`\|`unclassified`) |
-| `warden backends default <id>` | Set the single default (rejects unknown/uninstalled/disabled/`local`/`terminal`) |
+| `warden backends default <id>` | Set the single default (rejects unknown/uninstalled/disabled/`local`) |
 | `warden backends enable <id>` | Enable a backend |
 | `warden backends disable <id>` | Disable a backend |
 | `warden backends thinking-mode <mode>` | Set `local_only` \| `free_plus_local` |

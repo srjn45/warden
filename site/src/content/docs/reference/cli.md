@@ -520,7 +520,7 @@ Usage:
   warden backends [command]
 
 Available Commands:
-  default       Set the default backend (rejects the local/terminal rows)
+  default       Set the default backend (rejects the reserved local row)
   disable       Disable a backend so it is no longer used
   enable        Enable a backend so it may be used
   list          List detected backends (installed, tier, default, enabled, limited)
@@ -543,7 +543,7 @@ Use "warden backends [command] --help" for more information about a command.
 ```text
 Make <id> the single default backend used when spawning agents without an
 explicit backend. The daemon rejects an unknown, uninstalled, disabled, or
-reserved (local/terminal) target.
+reserved (local) target.
 
 Usage:
   warden backends default <id> [flags]

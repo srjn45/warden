@@ -60,7 +60,10 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `auto-merger` | `reviewer` | `worker` | `autopilot` | `brain`. The role's default flags fill only fields you leave
   unset (explicit value wins; tags unioned). See **Roles** below.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
-  Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity` | `terminal`.
+  Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.
+  A plain terminal is **not** a backend — spawn one as a session kind via `--kind
+  terminal` (CLI) / `kind:"terminal"` (MCP `spawn_agent`); the back-compat alias
+  `--backend terminal` still resolves to `kind=terminal`. See the terminal-kind note below.
   **Only `claude` is fully tested and stable**; `codex` and `antigravity` are
   **β beta** (live-verified state, approval, and transcript fidelity, still
   maturing); the rest are 🧪 **experimental / work-in-progress** — functionality
@@ -108,13 +111,16 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   resume** (dir-scoped, `agy -c`), has a **structured Tier-A transcript** (plaintext
   trajectory JSONL ⇒ real digests), **live state + approval detection** and **context
   injection** (`AGENTS.md`).
-  `terminal` is **NOT an AI agent** — it opens a plain interactive `$SHELL` (fallback
-  `bash`) in the agent's directory, managed with warden's normal worktree/git/tmux
-  lifecycle (attach, `commit`/`push`/`sync`, snapshot, teardown, cockpit listing).
-  Every AI feature degrades off (no digests, resume, model, priced spend, approval
-  parsing) and the **prompt is ignored** (a shell would execute it). Use it for the
-  managed "human seat" beside the fleet — a shell parked in a repo/worktree that
-  warden tracks and tears down like any other agent.
+  A **terminal is a first-class session kind (`kind=terminal`), not a `--backend`
+  value** — spawn it with `--kind terminal` / `spawn_agent {kind:"terminal"}` (the
+  legacy `--backend terminal` is a back-compat alias). It is **NOT an AI agent** — it
+  opens a plain interactive `$SHELL` (fallback `bash`) in the agent's directory,
+  managed with warden's normal worktree/git/tmux lifecycle (attach, `commit`/`push`/`sync`,
+  snapshot, teardown, cockpit listing). Every AI feature degrades off (no digests,
+  resume, model, priced spend, approval parsing) and the **prompt is ignored** (a
+  shell would execute it). Use it for the managed "human seat" beside the fleet — a
+  shell parked in a repo/worktree that warden tracks and tears down like any other
+  agent; in the cockpit it lists under the **Terminals** section.
   Claude is the full-fidelity default — leave `backend` unset unless the operator
   explicitly asked for another agent.
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`

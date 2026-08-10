@@ -1,6 +1,6 @@
 ---
 title: Web mission control
-description: The embedded browser dashboard — URL-routed shell, Cockpit home, a Metrics view, live SSE fleet, and interactive terminals.
+description: The embedded browser dashboard — URL-routed shell, Cockpit home, a Metrics view, a Terminals tab, live SSE fleet, and interactive terminals.
 ---
 
 The daemon embeds a React dashboard (Astro + React) and serves it at `http://localhost:8765` alongside the REST API — no separate server required.
@@ -21,6 +21,7 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 | `/cockpit` | ⊞ **Cockpit** | **The home view** (`/` redirects here). A slim **Fleet** header — totals · busy · waiting · errored, pressure, per-directory counts — above the full agent grid. |
 | `/pipelines` | ⛓ **Pipelines** | Pipeline list + live DAG / per-job drawer. |
 | `/metrics` | 📊 **Metrics** | Per-agent and fleet-wide charts — [see below](#metrics-view). |
+| `/terminals` | ▷ **Terminals** | First-class terminal sessions (`kind=terminal`): a live PTY viewport plus a **New terminal** action. Terminals are **excluded** from the agent grid and all agent counts. |
 | `/archive` | 🗄 **Archive** | Ended sessions with since/type filters. |
 | `/others` | ▦ **Others** | The former *Overview*, renamed to a **catch-all** (sits last): *Needs you* (attention queue), *File conflicts*, and *Recent activity*. New/not-yet-homed widgets land here first. |
 | `/agent/<id>` | `<id>` | A pinned agent's live terminal (one closeable tab per pinned agent). |
@@ -39,7 +40,8 @@ Each agent card also shows the **brand logo of the backend** driving it in the t
 | Feature | Description |
 |---|---|
 | **URL routing** | Real History-API routes (above) — back/forward, refresh, middle-click-open-in-new-tab, and shareable deep links all work. |
-| **Cockpit home** | The default view: a **Fleet** summary header above the canonical agent grid. The old *Quick spawn* widget and duplicate *All agents* mini-grid were removed. |
+| **Cockpit home** | The default view: a **Fleet** summary header above the canonical agent grid. Terminals (`kind=terminal`) are **excluded** from the agent grid and all agent counts — they live in the **Terminals** tab. The old *Quick spawn* widget and duplicate *All agents* mini-grid were removed. |
+| **Terminals tab** | A `/terminals` tab with a live PTY viewport and a **New terminal** action for first-class terminal sessions. |
 | **Live fleet over SSE** | No manual refresh; coloured busy/idle badges (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) + each agent's subject. |
 | **Attention queue** | In the **Others** tab: surfaces agents in `waiting_for_input`/`errored`/`orphaned`, with one-click approval buttons. |
 | **Metrics view** | A dedicated `/metrics` tab — see [Metrics view](#metrics-view). |
@@ -69,31 +71,34 @@ with none of the dashboard chrome, and you **exit with Ctrl+Q** from any pane
 (which lands you back on the home view).
 
 It isn't a reimplementation. The daemon builds a shared three-pane tmux cockpit
-(agent **list** pane + a **master** shell/REPL pane + a **detail** pane that opens
-the selected agent) and bridges it to an xterm.js terminal over the same
-WebSocket PTY that powers a per-agent attach. Because it's the real session:
+(a **control** pane — the navigator tree of Approvals · Pipelines · Agents ·
+Terminals — a **terminal** pane showing a live terminal session, and an **agent**
+pane that opens the selected agent) and bridges it to an xterm.js terminal over
+the same WebSocket PTY that powers a per-agent attach. Because it's the real
+session:
 
 - **Every TUI keybinding works** — `enter` open · `n` new · `o` dir · `s` send ·
   `a` attach · `i` info · `x` kill · `r` refresh · `?` help · `j`/`k`, `g`/`G`,
   **Alt+Arrow** to move between panes, and the rest — they reach the cockpit
   unchanged. (**Ctrl+Q** is the one chord held back by the browser, to exit.)
-- **The shells are real shells.** The master pane runs *your* `$SHELL` with your
-  rc files, so tab-completion, autosuggestions, history, and fzf all behave as
-  they do locally — nothing is emulated, only piped.
-- **`q` exits the TUI to the dashboard.** Pressing `q` in the top-left list pane
+- **The shells are real shells.** The terminal pane runs a live terminal session
+  (`kind=terminal`) — *your* `$SHELL` with your rc files — so tab-completion,
+  autosuggestions, history, and fzf all behave as they do locally — nothing is
+  emulated, only piped.
+- **`q` exits the TUI to the dashboard.** Pressing `q` in the top-left control pane
   tears the whole cockpit down and returns you to the home view — exactly as it
-  quits the cockpit locally. It's **pane-scoped**: `q` only exits from the list
-  pane (where it means "quit"); in the master shell or the agent detail pane a
+  quits the cockpit locally. It's **pane-scoped**: `q` only exits from the control
+  pane (where it means "quit"); in the terminal pane or the agent pane a
   literal `q` types normally. **Ctrl+Q** still exits from *any* pane. Re-open the
   TUI from the **▢ TUI** button — the cockpit is rebuilt fresh.
-- **The agent in the detail pane is the real agent** (e.g. Claude Code), with its
+- **The agent in the agent pane is the real agent** (e.g. Claude Code), with its
   full interactive UI. Shift+Enter is mapped to its newline.
 - **Shared across clients.** There's one web cockpit; the most-recently-active
   client drives the window size.
 - **Self-healing.** The cockpit lives in the tmux server, not the daemon, so it
   outlives daemon restarts and reinstalls. Before reusing an existing session the
-  daemon checks it still has the right shape — three panes, with the top-left list
-  pane genuinely running `warden tui --pane=list` — and silently kills and
+  daemon checks it still has the right shape — three panes, with the top-left control
+  pane genuinely running `warden tui --pane=control` — and silently kills and
   rebuilds a wedged one. You always land on a healthy cockpit, no manual
   `tmux kill-session` required. To force a fresh rebuild yourself, run
   `warden tui --rebuild-web-cockpit` (then reload the `/tui` view).

@@ -28,7 +28,7 @@ Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. 
 | Tool | Purpose |
 |---|---|
 | `list_agents` / `get_agent` | List agents / full detail for one |
-| `spawn_agent` | Spawn (prompt mode or `type`+`repo`; `supervised` opt-in) |
+| `spawn_agent` | Spawn (prompt mode or `type`+`repo`; `supervised` opt-in); `kind` arg for a session kind (e.g. `kind:"terminal"` = a plain shell) |
 | `adopt_agent` | Register an existing Claude session |
 | `send_to_agent` / `get_agent_output` / `digest` | Type into / read recent output / catch-up summary of an agent |
 | `stop_agent` | Umbrella teardown (default: terminate + clear record + remove worktree; `keep_record`/`keep_worktree` subtract, `hard`/`pr`/`force` modifiers) |
