@@ -11,22 +11,28 @@ warden       # bare invocation — same thing
 `warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: a **control pane** (top-left) — a navigator tree of four fixed collapsible sections, **Approvals · Pipelines · Agents · Terminals** — a **terminal pane** (bottom-left) that shows a live terminal session, and a full-height **agent pane** (right) that opens the selected agent's interactive session (the `claude` process by default). A **default terminal** opens in the launch directory at startup, listed under **Terminals** and shown in the terminal pane. Browse the tree freely with `↑`/`↓` without disturbing the agent pane; press `Enter` to open an agent in it.
 
 ```
-┌─ Control ─────────┐┌─ agent-4f98 ──────────────┐
-│ ▾ Approvals (1)   ││                           │
-│     agent-c860 ⏳ ││                           │
-│ ▾ Pipelines       ││  (live agent session)     │
-│     ci-refactor   ││                           │
-│ ▾ Agents (3)      ││                           │
-│   ▸ agent-4f98 ●  ││ ...                       │
-│     agent-c860 ⠿  ││                           │
-│     agent-d01c ✔  ││                           │
-│ ▾ Terminals (1)   ││                           │
-│     term-home     ││                           │
-├─ Terminal ────────┤│                           │
-│ $ warden ls       ││                           │
-│ $ _               ││                           │
-└───────────────────┘└───────────────────────────┘
+┌─ Control ─────────────┐┌─ agent-4f98 ──────────────┐
+│ ▾ Approvals (1)       ││                           │
+│     agent-c860 ⏳     ││                           │
+│ ▾ Pipelines           ││  (live agent session)     │
+│     ci-refactor       ││                           │
+│ ▾ Agents (3)          ││                           │
+│   warden [~/dev] (3)  ││                           │
+│     ▸ agent-4f98 ●    ││ ...                       │
+│     agent-c860 ⠿      ││                           │
+│     agent-d01c ✔      ││                           │
+│ ▾ Terminals (1)       ││                           │
+│     term-home         ││                           │
+├─ Terminal ────────────┤│                           │
+│ $ warden ls           ││                           │
+│ $ _                   ││                           │
+└───────────────────────┘└───────────────────────────┘
 ```
+
+Inside **Agents**, agents are grouped by project: each group is a header —
+**`<project> [<~path>]`** (the directory's name, then its `~`-abbreviated path) —
+with its agents indented beneath it, so the tree reads **section → project →
+agents**.
 
 ![The warden cockpit: a control-pane navigator tree with Approvals, Pipelines, Agents, and Terminals sections on the left, a live terminal session in the terminal pane below it, and the selected agent's live session in the full-height agent pane on the right.](/warden/media/cockpit.png)
 
@@ -39,7 +45,7 @@ warden       # bare invocation — same thing
 | **Pipelines section** | Pipelines are the collapsible **Pipelines** section of the control tree; expand/collapse, open running jobs, retry failed jobs. |
 | **Terminals section** | First-class terminal sessions (`kind=terminal`) live under the **Terminals** section; a default terminal opens at startup. |
 | **Agent sub-trees** | Agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); `h`/`l` toggles. See [Agent sub-trees](#agent-sub-trees) below. |
-| **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
+| **Directory groups** | Agents in the **Agents** section are grouped by project directory. Each group header reads **`<project> [<~path>]`** — the directory's name followed by its `~`-abbreviated path — and its agents are indented beneath it, so the tree nests **section → project → agents**. `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
 | **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
 | **Terminal pane** | Bottom-left pane shows a live terminal session (`kind=terminal`) — a `$SHELL` in a managed worktree for direct CLI access to `warden` commands and other terminal work. A default terminal opens in the launch directory at startup. |
 | **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). **Global Alt rotation** works from any pane, even while typing: **M-t** cycles the terminal pane over all live terminals, **M-a** cycles the agent pane over all live agents, **M-p** cycles the agent pane over pipeline agents (pipeline order). Add **Shift** (`M-T`/`M-A`/`M-P`) to rotate in reverse; each rotation grabs focus on the pane it drives. On terminals that don't send Alt/Option as Meta — **macOS Terminal.app and iTerm2 by default** — use the config-free `Ctrl-b` prefix fallback instead: press `Ctrl-b` then `t`/`a`/`p` (add Shift for reverse). See [macOS: the Option key](#macos-the-option-key). |
