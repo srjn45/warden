@@ -25,6 +25,8 @@ To actually listen off-loopback, set a token (above) and bind the address you wa
 
 > Prefer a private overlay (Tailscale) or an authenticated tunnel (Cloudflare Tunnel) over exposing the port directly to the internet. Step-by-step LAN / Tailscale / Cloudflare recipes live in the repo's `docs/USAGE.md`.
 
+Once you can reach a terminal remotely, you can also refresh an **agent backend's** own login (e.g. an expired Claude subscription token) from your phone without a browser on the host — see [Re-authenticate a backend from your phone](/warden/guides/reauth-from-phone/).
+
 ## Read-only access
 
 To hand out view-only access — a wall dashboard, or a teammate who should watch but not act — set an optional **second** token, `WARDEN_READONLY_TOKEN`. A request bearing it may read everything (every GET plus the live event stream) but is denied all state-changing actions and the interactive attach (which can type into a running agent); those return HTTP `403`.
