@@ -131,7 +131,7 @@ func TestDue(t *testing.T) {
 func TestAdvanceCronRearms(t *testing.T) {
 	s := &Schedule{Kind: KindCron, Cron: "0 9 * * *", Enabled: true}
 	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
-	Advance(s, now, nil)
+	Advance(s, now, "", nil)
 	if !s.Enabled {
 		t.Fatal("cron schedule should stay enabled after firing")
 	}
@@ -150,7 +150,7 @@ func TestAdvanceCronRearms(t *testing.T) {
 func TestAdvanceAtGoesInactive(t *testing.T) {
 	at := time.Date(2026, 6, 27, 9, 0, 0, 0, time.UTC)
 	s := &Schedule{Kind: KindAt, At: at.Format(time.RFC3339), Enabled: true, NextRun: &at}
-	Advance(s, at, nil)
+	Advance(s, at, "", nil)
 	if s.Enabled {
 		t.Fatal("single-shot at schedule should be disabled after firing")
 	}
@@ -162,7 +162,7 @@ func TestAdvanceAtGoesInactive(t *testing.T) {
 func TestAdvanceRecordsError(t *testing.T) {
 	s := &Schedule{Kind: KindCron, Cron: "0 9 * * *", Enabled: true}
 	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
-	Advance(s, now, errors.New("boom"))
+	Advance(s, now, "", errors.New("boom"))
 	if s.LastError != "boom" {
 		t.Fatalf("LastError = %q, want boom", s.LastError)
 	}

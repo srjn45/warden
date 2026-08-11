@@ -359,7 +359,7 @@ stay CLI-only). Tools exposed:
 | `retry_pipeline_job` / `edit_pipeline_job` / `emit_pipeline_output` / `delete_pipeline` | Per-job retry / edit a pending job / set handoff output / delete a pipeline |
 | `validate_pipeline` / `list_pipeline_templates` | Local spec validation / built-in templates (no daemon) |
 | `library_list` | Browse saved spawn presets, saved prompt templates, and built-in pipeline templates in one call (no daemon) |
-| `list_schedules` / `create_schedule` / `delete_schedule` | List / create / delete daemon cron/at schedules (see §28) |
+| `list_schedules` / `get_schedule` / `create_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` | List / get / create / enable / disable / delete daemon cron/at schedules (see §28) |
 | `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree+transcript checkpoints & rollback (see §23) |
 | `insights` | Mine fleet history for patterns & parallelization wins (see §25) |
 | `get_metrics` / `get_pressure` | Live/historical resource metrics / memory-pressure gate (see §11) |
@@ -837,10 +837,13 @@ keeping the concern as the default-off gate.
 | **`wd schedule create <name> --at 2026-06-27T09:00 --prompt "…"`** | Single-shot agent spawn — fires once at/after the time, then goes inactive. `--at` is RFC3339 or `2006-01-02T15:04` (local time). |
 | **`wd schedule create <name> --cron "…" --pipeline <spec.yaml>`** | Fire a pipeline instead of an agent. Each fire creates a fresh pipeline whose name is timestamp-suffixed, so recurring runs never collide. |
 | **`wd schedule list`** | All schedules with kind (cron/at), mode (agent/pipeline), spec, enabled state, next run, and last error. |
+| **`wd schedule get <id>`** | One schedule, including the durable `last_run_session_id` + `last_run_status` of its most recent fire. |
+| **`wd schedule enable <id>` / `disable <id>`** | Toggle a schedule without deleting it. Disable clears `next_run`; enable re-arms it (cron → next occurrence, at → its time). Idempotent; the record and last-run history are preserved. |
 | **`wd schedule delete <id>`** | Remove a schedule (id == its name). |
+| **Scheduled-run session linkage** | Every fired run carries a `schedule_id` (+ `schedule_name`) back-reference on its session — set on agent-mode fires and inherited by a scheduled pipeline's job sessions — surfaced in `GET /sessions`, `GET /sessions/{id}`, and the SSE stream. Lets a client separate scheduled runs from ad-hoc agents and drill into a live run's terminal by filtering one field. Advertised by the **`scheduled-agents`** capability (`GET /api/v1/capabilities`). |
 | **No backfill** | On daemon startup each schedule's next-run is recomputed from the wall clock: a cron schedule resumes at its next *future* occurrence (a run missed while the daemon was down is **not** replayed), while a past-due single-shot fires once. |
 | **Fail-soft loop** | A fire error is recorded in the schedule's `last_error` and logged; it never crashes the once-a-minute reconcile loop or stops other schedules firing. An agent-name collision fails just that fire (honest over silently renaming). |
-| **Read-only MCP + audit** | `list_schedules` (MCP) exposes the same view; create/delete are written to the audit log (`schedule_create` / `schedule_delete`). |
+| **Full MCP + audit** | `list_schedules` / `get_schedule` / `create_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` (MCP) mirror the CLI; create/delete/enable/disable are written to the audit log (`schedule_create` / `schedule_delete` / `schedule_enable` / `schedule_disable`). |
 
 Persisted by an **embedded ScrivaDB** (`github.com/srjn45/scriva`, opened with
 `SyncModeNone`) rather than one flat JSON file: schedules live in a `schedules`

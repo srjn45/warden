@@ -223,6 +223,7 @@ func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*
 	return &store.Session{
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Status: store.StatusSpawning, PipelineID: req.PipelineID, JobID: req.JobID,
+		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
 		Branch: branch, Worktree: wt, Workdir: workdir, Tags: req.Tags,
 	}, nil
 }

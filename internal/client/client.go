@@ -1092,6 +1092,33 @@ func (c *Client) ScheduleDelete(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/schedules/"+url.PathEscape(id), nil, nil)
 }
 
+// ScheduleGet fetches one schedule by id.
+func (c *Client) ScheduleGet(ctx context.Context, id string) (*schedule.Schedule, error) {
+	var sc schedule.Schedule
+	if err := c.do(ctx, http.MethodGet, "/schedules/"+url.PathEscape(id), nil, &sc); err != nil {
+		return nil, err
+	}
+	return &sc, nil
+}
+
+// ScheduleEnable re-arms a schedule and returns the updated record.
+func (c *Client) ScheduleEnable(ctx context.Context, id string) (*schedule.Schedule, error) {
+	var sc schedule.Schedule
+	if err := c.do(ctx, http.MethodPost, "/schedules/"+url.PathEscape(id)+"/enable", nil, &sc); err != nil {
+		return nil, err
+	}
+	return &sc, nil
+}
+
+// ScheduleDisable stops a schedule from firing and returns the updated record.
+func (c *Client) ScheduleDisable(ctx context.Context, id string) (*schedule.Schedule, error) {
+	var sc schedule.Schedule
+	if err := c.do(ctx, http.MethodPost, "/schedules/"+url.PathEscape(id)+"/disable", nil, &sc); err != nil {
+		return nil, err
+	}
+	return &sc, nil
+}
+
 // AutopilotStatus mirrors the daemon's GET /autopilot response (autopilot.md §5).
 type AutopilotStatus struct {
 	Enabled      bool                 `json:"enabled"`

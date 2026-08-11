@@ -28,6 +28,8 @@ const (
 	ActionPipelineCancel    = "pipeline_cancel"
 	ActionScheduleCreate    = "schedule_create"
 	ActionScheduleDelete    = "schedule_delete"
+	ActionScheduleEnable    = "schedule_enable"
+	ActionScheduleDisable   = "schedule_disable"
 	ActionAutopilotOn       = "autopilot_on"
 	ActionAutopilotOff      = "autopilot_off"
 	ActionAutopilotLand     = "autopilot_land"

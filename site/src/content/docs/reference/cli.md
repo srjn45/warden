@@ -2523,6 +2523,9 @@ Usage:
 Available Commands:
   create      Create a schedule that fires an agent or a pipeline
   delete      Delete a schedule
+  disable     Disable a schedule so it stops firing (history preserved)
+  enable      Enable a schedule so it fires again (re-arms next run)
+  get         Show one schedule, including its last-run outcome
   list        List schedules
 
 Flags:
@@ -2573,6 +2576,54 @@ Usage:
 
 Flags:
   -h, --help   help for delete
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden schedule disable
+
+```text
+Disable a schedule so it stops firing (history preserved)
+
+Usage:
+  warden schedule disable <id> [flags]
+
+Flags:
+  -h, --help   help for disable
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden schedule enable
+
+```text
+Enable a schedule so it fires again (re-arms next run)
+
+Usage:
+  warden schedule enable <id> [flags]
+
+Flags:
+  -h, --help   help for enable
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden schedule get
+
+```text
+Show one schedule, including its last-run outcome
+
+Usage:
+  warden schedule get <id> [flags]
+
+Flags:
+  -h, --help   help for get
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

@@ -21,9 +21,15 @@ import (
 // advertises via GET /api/v1/capabilities, for client version-skew negotiation.
 // "terminal-sessions" means the session `kind` field is supported end-to-end:
 // kind=terminal on spawn, ?kind= on list, `kind` on every row, and `terminal`
-// removed as a backend. Append new flags here as capabilities land; never rename
-// or drop a shipped flag (clients feature-detect on the exact string).
-var serverCapabilities = []string{"terminal-sessions"}
+// removed as a backend.
+// "scheduled-agents" means schedule↔session linkage is supported end-to-end:
+// schedule-fired runs carry `schedule_id`/`schedule_name` on every session
+// surface (list/get/SSE), the Schedule row carries durable last_run_session_id/
+// last_run_status, and the control verbs GET /schedules/{id} and
+// POST /schedules/{id}/enable|disable exist.
+// Append new flags here as capabilities land; never rename or drop a shipped flag
+// (clients feature-detect on the exact string).
+var serverCapabilities = []string{"terminal-sessions", "scheduled-agents"}
 
 // GetCapabilities implements GET /api/v1/capabilities.
 func (s *Server) GetCapabilities(_ context.Context, _ oapi.GetCapabilitiesRequestObject) (oapi.GetCapabilitiesResponseObject, error) {

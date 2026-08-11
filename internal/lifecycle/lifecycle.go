@@ -2214,6 +2214,8 @@ type JobSpawnRequest struct {
 	PermissionMode string   // explicit mode override; empty = use global default
 	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
 	Tags           []string // labels stamped on the job's session (e.g. inherited autopilot ownership tags)
+	ScheduleID     string   // origin schedule (set when the pipeline was schedule-fired); empty otherwise
+	ScheduleName   string   // origin schedule's display name; empty otherwise
 }
 
 // exitSuffix ensures ExitsDir exists, clears any stale exit-file for id (from a
@@ -2391,6 +2393,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
 		PipelineID: req.PipelineID, JobID: req.JobID,
+		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
 		Model: req.Model, Tags: store.NormalizeTags(req.Tags),
 	}
 	cid, err := store.NewSessionID()

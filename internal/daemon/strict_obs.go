@@ -140,6 +140,72 @@ func (s *Server) DeleteSchedule(ctx context.Context, req oapi.DeleteScheduleRequ
 	return oapi.DeleteSchedule200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
 }
 
+// GetSchedule implements GET /api/v1/schedules/{id}.
+func (s *Server) GetSchedule(_ context.Context, req oapi.GetScheduleRequestObject) (oapi.GetScheduleResponseObject, error) {
+	if !s.scheduler || s.schedStore == nil {
+		return nil, errStatus(http.StatusForbidden, schedulerDisabledMsg)
+	}
+	sc, err := s.schedStore.Get(req.Id)
+	if errors.Is(err, schedule.ErrNotFound) {
+		return nil, errStatus(http.StatusNotFound, "schedule not found")
+	} else if err != nil {
+		return nil, err
+	}
+	return oapi.GetSchedule200JSONResponse(*sc), nil
+}
+
+// EnableSchedule implements POST /api/v1/schedules/{id}/enable. Idempotent:
+// re-arms next_run from now. Returns the updated schedule.
+func (s *Server) EnableSchedule(ctx context.Context, req oapi.EnableScheduleRequestObject) (oapi.EnableScheduleResponseObject, error) {
+	sc, err := s.setScheduleEnabled(ctx, req.Id, true)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.EnableSchedule200JSONResponse(*sc), nil
+}
+
+// DisableSchedule implements POST /api/v1/schedules/{id}/disable. Idempotent:
+// clears next_run; the record and its last-run history are preserved.
+func (s *Server) DisableSchedule(ctx context.Context, req oapi.DisableScheduleRequestObject) (oapi.DisableScheduleResponseObject, error) {
+	sc, err := s.setScheduleEnabled(ctx, req.Id, false)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.DisableSchedule200JSONResponse(*sc), nil
+}
+
+// setScheduleEnabled flips a schedule's enabled state under the store lock,
+// re-arming (enable) or clearing (disable) next_run, records the audit event, and
+// returns the updated record. Shared by EnableSchedule/DisableSchedule.
+func (s *Server) setScheduleEnabled(ctx context.Context, id string, enabled bool) (*schedule.Schedule, error) {
+	if !s.scheduler || s.schedStore == nil {
+		return nil, errStatus(http.StatusForbidden, schedulerDisabledMsg)
+	}
+	var recomputeErr error
+	err := s.schedStore.Update(id, func(stored *schedule.Schedule) {
+		recomputeErr = schedule.SetEnabled(stored, enabled, time.Now())
+	})
+	if errors.Is(err, schedule.ErrNotFound) {
+		return nil, errStatus(http.StatusNotFound, "schedule not found")
+	} else if err != nil {
+		return nil, err
+	}
+	if recomputeErr != nil {
+		return nil, errStatus(http.StatusBadRequest, recomputeErr.Error())
+	}
+	sc, err := s.schedStore.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	action := audit.ActionScheduleDisable
+	if enabled {
+		action = audit.ActionScheduleEnable
+	}
+	s.recordAuditCtx(ctx, action, id, nil)
+	s.notify()
+	return sc, nil
+}
+
 // ListSnapshots implements GET /api/v1/snapshots, newest first, optionally
 // filtered to one ?session=.
 func (s *Server) ListSnapshots(ctx context.Context, req oapi.ListSnapshotsRequestObject) (oapi.ListSnapshotsResponseObject, error) {

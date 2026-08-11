@@ -64,6 +64,15 @@ type Schedule struct {
 	LastRun   *time.Time `json:"last_run,omitempty"`
 	NextRun   *time.Time `json:"next_run,omitempty"`
 	LastError string     `json:"last_error,omitempty"`
+
+	// Durable last-run outcome, so a schedule row can show what its most recent
+	// fire produced even after that session has been rotated or deleted. For an
+	// agent-mode fire LastRunSessionID is the spawned agent; for a pipeline-mode
+	// fire it is the created pipeline id (its jobs back-ref via Session.ScheduleID).
+	// LastRunStatus is refreshed from the run's live status on each reconcile tick
+	// while the session record still exists (running → exited/error).
+	LastRunSessionID string `json:"last_run_session_id,omitempty"`
+	LastRunStatus    string `json:"last_run_status,omitempty"`
 }
 
 // Params are the validated inputs used to build a Schedule (one per CLI/route
@@ -236,6 +245,16 @@ func Recompute(s *Schedule, now time.Time) error {
 	return nil
 }
 
+// SetEnabled flips a schedule's enabled state and re-arms it: enabling recomputes
+// NextRun from now (cron → next occurrence; at → its configured time, which fires
+// on the next tick if already past), disabling clears NextRun so it never fires.
+// It returns an error only if an enabled schedule's spec fails to recompute, which
+// should not happen for a schedule that validated at create time.
+func SetEnabled(s *Schedule, enabled bool, now time.Time) error {
+	s.Enabled = enabled
+	return Recompute(s, now)
+}
+
 // Due reports whether s should fire at now: enabled, with a NextRun that is not
 // in the future.
 func Due(s *Schedule, now time.Time) bool {
@@ -246,7 +265,7 @@ func Due(s *Schedule, now time.Time) bool {
 // NextRun rolls forward to its next future occurrence; a single-shot at schedule
 // goes inactive (Enabled=false, NextRun cleared) so it never re-fires. fireErr
 // (possibly nil) is stored as LastError for operator visibility.
-func Advance(s *Schedule, now time.Time, fireErr error) {
+func Advance(s *Schedule, now time.Time, sessionID string, fireErr error) {
 	t := now
 	s.LastRun = &t
 	if fireErr != nil {
@@ -254,6 +273,11 @@ func Advance(s *Schedule, now time.Time, fireErr error) {
 	} else {
 		s.LastError = ""
 	}
+	// Record the run this fire produced (empty on a fire that spawned nothing, or
+	// on failure). Status is left for the reconcile loop to fill from the live
+	// session; a fresh fire clears any stale status from the prior run.
+	s.LastRunSessionID = sessionID
+	s.LastRunStatus = ""
 	switch s.Kind {
 	case KindCron:
 		if next, err := NextCron(s.Cron, now); err == nil {

@@ -187,6 +187,8 @@ type Session struct {
 	ForceCompact    *bool       `json:"force_compact,omitempty"`   // per-agent force-compact override; nil = inherit global token_force_compact
 	PipelineID      string      `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
 	JobID           string      `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
+	ScheduleID      string      `json:"schedule_id,omitempty"`     // set for schedule-fired runs (back-ref to the schedule that spawned this); agent-mode and pipeline-mode job sessions alike
+	ScheduleName    string      `json:"schedule_name,omitempty"`   // operator-facing name of that schedule (== ScheduleID today, carried for display)
 	ParentID        string      `json:"parent_id,omitempty"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	Model           string      `json:"model,omitempty"`           // claude model (opus/sonnet/haiku or full ID)
 
