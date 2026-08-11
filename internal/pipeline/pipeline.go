@@ -64,6 +64,12 @@ type Pipeline struct {
 	// inherit autopilot's ownership tags from the creating agent, so a pipeline a
 	// manager escalates to stays inside its run's fence.
 	Tags []string `json:"tags,omitempty" yaml:"-"`
+	// ScheduleID/ScheduleName are set (yaml:"-", daemon-stamped at creation) when a
+	// schedule fired this pipeline, so every job session it spawns can back-ref the
+	// origin schedule via Session.ScheduleID — the pipeline-mode analogue of the
+	// agent-mode fire tagging.
+	ScheduleID   string `json:"schedule_id,omitempty" yaml:"-"`
+	ScheduleName string `json:"schedule_name,omitempty" yaml:"-"`
 }
 
 // Job returns a pointer to the job with id, or nil.

@@ -216,7 +216,7 @@ type createScheduleArgs struct {
 	Spec   string `json:"spec,omitempty" jsonschema:"a pipeline YAML spec to fire a whole pipeline on the schedule instead of a single agent"`
 }
 type scheduleIDArgs struct {
-	ID string `json:"id" jsonschema:"the schedule id to delete"`
+	ID string `json:"id" jsonschema:"the schedule id"`
 }
 
 // registerExtraTools registers the parity tools that bring MCP coverage in line
@@ -875,6 +875,39 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("deleted schedule " + a.ID), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "get_schedule",
+		Description: "Get one schedule by id, including its cadence, fire payload, enabled state, next/last run, and durable last-run outcome. Mirrors `warden schedule get`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scheduleIDArgs) (*mcpsdk.CallToolResult, any, error) {
+		sch, err := s.cl.ScheduleGet(ctx, a.ID)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(sch)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "enable_schedule",
+		Description: "Enable a schedule so it fires again, re-arming next_run from now. Idempotent. Mirrors `warden schedule enable`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scheduleIDArgs) (*mcpsdk.CallToolResult, any, error) {
+		sch, err := s.cl.ScheduleEnable(ctx, a.ID)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(sch)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "disable_schedule",
+		Description: "Disable a schedule so it stops firing (record and last-run history preserved). Idempotent. Mirrors `warden schedule disable`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scheduleIDArgs) (*mcpsdk.CallToolResult, any, error) {
+		sch, err := s.cl.ScheduleDisable(ctx, a.ID)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(sch)
 	})
 }
 

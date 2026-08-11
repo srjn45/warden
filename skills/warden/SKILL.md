@@ -85,7 +85,7 @@ auditable, and enforce this repo's safety rails. Concretely:
 | running `go test` / `npm test` / `make build` / lint in **Bash** | `check` MCP tool (`wd check [name]`) | Returns pass/fail with output for only the **failing** checks instead of hundreds of lines you must read. The check-guard hook redirects broad raw runs here. |
 | editing a file another agent may be touching | `who_is_editing_file` / `get_collaboration_status` first, then `send_message` to coordinate | warden watches every agent's worktree and flags conflicts; coordinate rather than overwrite a peer's work. |
 | your own `git stash`/manual checkpoint before a risky change | `snapshot_create` then `snapshot_restore` | Captures worktree **and** transcript non-destructively; rails refuse main and dirty-tree restores. |
-| an external cron / another scheduler skill | `wd schedule` (or `create_schedule` / `list_schedules` / `delete_schedule` over MCP) | Fires agent spawns or whole pipelines on the daemon's own timer, audited. |
+| an external cron / another scheduler skill | `wd schedule` (or `create_schedule` / `list_schedules` / `get_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` over MCP) | Fires agent spawns or whole pipelines on the daemon's own timer, audited. Each fired run's session carries a `schedule_id` back-ref. |
 | eyeballing "which tasks could've been parallel" | `insights` | Mines warden's own history deterministically. |
 
 When you genuinely need something warden does not cover, use the generic tool —

@@ -73,7 +73,7 @@ func TestStoreUpdate(t *testing.T) {
 	st := newTestStore(t)
 	st.Create(mustNew(t, "s")) //nolint:errcheck
 	now := time.Now()
-	if err := st.Update("s", func(sc *Schedule) { Advance(sc, now, nil) }); err != nil {
+	if err := st.Update("s", func(sc *Schedule) { Advance(sc, now, "", nil) }); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	got, _ := st.Get("s")

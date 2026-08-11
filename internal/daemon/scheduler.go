@@ -80,23 +80,58 @@ func (s *Server) scheduleTick(ctx context.Context) {
 		return
 	}
 	for _, sc := range list {
+		// Refresh the durable last-run status from the live session even when this
+		// schedule is not due to fire, so a row shows running → exited/error as the
+		// prior run progresses (best-effort; skipped once the session is gone).
+		s.refreshLastRunStatus(ctx, sc)
 		if !schedule.Due(sc, now) {
 			continue
 		}
-		fireErr := s.fireSchedule(ctx, sc)
+		sessionID, fireErr := s.fireSchedule(ctx, sc)
 		if fireErr != nil {
 			slog.Warn("scheduler: schedule fire failed", "schedule", sc.ID, "err", fireErr)
 		} else {
 			slog.Info("scheduler: fired schedule", "schedule", sc.ID, "mode", sc.Mode)
 		}
-		// Persist the fire under the store lock: stamp LastRun/LastError and re-arm
-		// (cron → next occurrence, at → inactive). Pass the same `now` used for the
-		// due check so LastRun reflects this tick.
+		// Persist the fire under the store lock: stamp LastRun/LastError/last-run id
+		// and re-arm (cron → next occurrence, at → inactive). Pass the same `now`
+		// used for the due check so LastRun reflects this tick.
 		if uerr := s.schedStore.Update(sc.ID, func(stored *schedule.Schedule) {
-			schedule.Advance(stored, now, fireErr)
+			schedule.Advance(stored, now, sessionID, fireErr)
 		}); uerr != nil {
 			slog.Warn("scheduler: persist after fire failed", "schedule", sc.ID, "err", uerr)
 		}
 	}
 	s.notify()
+}
+
+// refreshLastRunStatus best-effort syncs a schedule's durable LastRunStatus from
+// the live status of its last run. For an agent-mode fire LastRunSessionID is a
+// session; for a pipeline-mode fire it is a pipeline. A missing record (the run
+// was rotated or deleted) leaves the stored status untouched — the last-known
+// value stays as the durable record. A no-op when nothing has fired yet or the
+// status is unchanged, so it costs one store lookup per schedule per tick.
+func (s *Server) refreshLastRunStatus(ctx context.Context, sc *schedule.Schedule) {
+	if sc.LastRunSessionID == "" {
+		return
+	}
+	var status string
+	if sess, err := s.store.Get(ctx, sc.LastRunSessionID); err == nil && sess != nil {
+		status = string(sess.Status)
+	} else if s.exec != nil {
+		if p, perr := s.exec.pstore.Get(sc.LastRunSessionID); perr == nil && p != nil {
+			status = string(p.Status)
+		}
+	}
+	if status == "" || status == sc.LastRunStatus {
+		return
+	}
+	if uerr := s.schedStore.Update(sc.ID, func(stored *schedule.Schedule) {
+		// Guard against a concurrent fire having moved on to a new run.
+		if stored.LastRunSessionID == sc.LastRunSessionID {
+			stored.LastRunStatus = status
+		}
+	}); uerr != nil {
+		slog.Warn("scheduler: last-run status refresh failed", "schedule", sc.ID, "err", uerr)
+	}
 }

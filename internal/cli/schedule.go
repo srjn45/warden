@@ -20,7 +20,8 @@ func newScheduleCmd() *cobra.Command {
 			"--prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set\n" +
 			"scheduler_enabled: true in the config file and keep the daemon running.",
 	}
-	cmd.AddCommand(newScheduleCreateCmd(), newScheduleListCmd(), newScheduleDeleteCmd())
+	cmd.AddCommand(newScheduleCreateCmd(), newScheduleListCmd(), newScheduleGetCmd(),
+		newScheduleEnableCmd(), newScheduleDisableCmd(), newScheduleDeleteCmd())
 	return cmd
 }
 
@@ -102,6 +103,66 @@ func newScheduleListCmd() *cobra.Command {
 				}
 				fmt.Fprintln(cmd.OutOrStdout())
 			}
+			return nil
+		},
+	}
+}
+
+func newScheduleGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <id>",
+		Short: "Show one schedule, including its last-run outcome",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sc, err := clientFor(cmd).ScheduleGet(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			state := "enabled"
+			if !sc.Enabled {
+				state = "inactive"
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "%s\t%s\t%s\t%s\tnext=%s\tlast=%s\n",
+				sc.ID, sc.Mode, sc.Kind, state, formatNextRun(sc.NextRun), formatNextRun(sc.LastRun))
+			if sc.LastRunSessionID != "" {
+				fmt.Fprintf(out, "last_run: %s (%s)\n", sc.LastRunSessionID, sc.LastRunStatus)
+			}
+			if sc.LastError != "" {
+				fmt.Fprintf(out, "last_error: %s\n", sc.LastError)
+			}
+			return nil
+		},
+	}
+}
+
+func newScheduleEnableCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "enable <id>",
+		Short: "Enable a schedule so it fires again (re-arms next run)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sc, err := clientFor(cmd).ScheduleEnable(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "enabled %s — next run %s\n", sc.ID, formatNextRun(sc.NextRun))
+			return nil
+		},
+	}
+}
+
+func newScheduleDisableCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "disable <id>",
+		Short: "Disable a schedule so it stops firing (history preserved)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sc, err := clientFor(cmd).ScheduleDisable(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "disabled %s\n", sc.ID)
 			return nil
 		},
 	}

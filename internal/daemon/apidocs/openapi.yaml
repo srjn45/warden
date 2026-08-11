@@ -1818,6 +1818,24 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/schedules/{id}:
+    get:
+      operationId: getSchedule
+      tags: [Schedules]
+      summary: Get one schedule by id
+      description: Gated by the `scheduler_enabled` config setting; returns 403 when disabled.
+      parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
+      responses:
+        "200":
+          description: The schedule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
     delete:
       operationId: deleteSchedule
       tags: [Schedules]
@@ -1826,6 +1844,52 @@ paths:
       parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
       responses:
         "200": { $ref: "#/components/responses/OK" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/schedules/{id}/enable:
+    post:
+      operationId: enableSchedule
+      tags: [Schedules]
+      summary: Enable a schedule
+      description: >
+        Re-arms a disabled schedule: recomputes next_run from now (cron → next
+        occurrence; at → its configured time, which fires on the next tick if
+        already past). Idempotent. Gated by `scheduler_enabled`; 403 when disabled.
+      parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
+      responses:
+        "200":
+          description: The updated schedule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/schedules/{id}/disable:
+    post:
+      operationId: disableSchedule
+      tags: [Schedules]
+      summary: Disable a schedule
+      description: >
+        Stops a schedule from firing: clears next_run and leaves it inactive until
+        re-enabled. The record and its last-run history are preserved. Idempotent.
+        Gated by `scheduler_enabled`; 403 when disabled.
+      parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
+      responses:
+        "200":
+          description: The updated schedule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
         "403":
           description: Scheduler disabled
           content:
@@ -2066,6 +2130,22 @@ components:
         role: { type: string, description: "built-in role name; empty = general (no persona)" }
         pipeline_id: { type: string }
         job_id: { type: string }
+        schedule_id:
+          type: string
+          description: >
+            back-ref to the schedule that fired this run. Set on schedule-spawned
+            sessions — agent-mode fires directly, and pipeline-mode job sessions
+            inherit it from the scheduled pipeline. Absent (omitempty) on normal
+            operator/CLI/API spawns. Present the same way in GET /sessions,
+            GET /sessions/{id}, and the SSE event stream, so a client can tag a
+            running session as schedule-origin and keep it out of the plain agents
+            list by filtering this one field.
+        schedule_name:
+          type: string
+          description: >
+            operator-facing name of that schedule (== schedule_id today), carried
+            for display so a client need not re-fetch the schedule. Absent when
+            schedule_id is.
         model: { type: string }
         context_tokens: { type: integer }
         context_state: { type: string, enum: ["", ok, warning, critical] }
@@ -2767,12 +2847,24 @@ components:
         name: schedule
       type: object
       properties:
-        id: { type: string }
+        id: { type: string, description: "== name; stable key" }
         name: { type: string }
-        kind: { type: string, enum: [cron, at] }
-        mode: { type: string, enum: [agent, pipeline] }
-        cron: { type: string }
-        at: { type: string }
+        kind:
+          type: string
+          enum: [cron, at]
+          description: >
+            CADENCE, not fire mode: `cron` = recurring, `at` = single-shot. This
+            is NOT "agent vs pipeline" — that distinction is the `mode` field
+            below. Do not confuse the two.
+        mode:
+          type: string
+          enum: [agent, pipeline]
+          description: >
+            what the schedule fires: `agent` = one agent spawn (type/repo/prompt/
+            agent/branch), `pipeline` = a whole pipeline (spec). This is the
+            agent-vs-pipeline distinction a UI usually labels "type".
+        cron: { type: string, description: "recurring spec; present when kind=cron" }
+        at: { type: string, description: "single-shot time; present when kind=at" }
         enabled: { type: boolean }
         type: { type: string }
         repo: { type: string }
@@ -2781,9 +2873,22 @@ components:
         branch: { type: string }
         spec: { type: string }
         created_at: { type: string, format: date-time }
-        last_run: { type: string, format: date-time }
-        next_run: { type: string, format: date-time }
+        last_run: { type: string, format: date-time, description: "time of the most recent fire; absent if never fired" }
+        next_run: { type: string, format: date-time, description: "next scheduled fire; absent when disabled or an exhausted one-shot" }
         last_error: { type: string }
+        last_run_session_id:
+          type: string
+          description: >
+            durable id of the most recent fire's result — the spawned agent
+            (agent mode) or the created pipeline (pipeline mode). Survives even
+            after that session is rotated/deleted, so a schedule row can always
+            link to its last run. Empty until the first fire.
+        last_run_status:
+          type: string
+          description: >
+            live status of last_run_session_id (running → exited/error),
+            refreshed each reconcile tick while the session record still exists.
+            Empty once the session is gone or before the first fire.
 
     AutopilotToggleRequest:
       type: object

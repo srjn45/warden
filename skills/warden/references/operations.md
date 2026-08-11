@@ -96,7 +96,8 @@ record: `time`, `action`, `actor`, `target`, action-specific `detail`. Flags:
 Daemon-fired triggers — no external crontab. **Opt-in:** gated by
 `scheduler_enabled` (default **off**); routes return 403 and the loop is a no-op
 until enabled (schedules only fire while the daemon runs). Full MCP coverage:
-`list_schedules` (read-only), `create_schedule {name, cron|at, type/repo/prompt | spec}`,
+`list_schedules` / `get_schedule {id}` (read), `create_schedule {name, cron|at, type/repo/prompt | spec}`,
+`enable_schedule {id}` / `disable_schedule {id}` (toggle without deleting),
 `delete_schedule {id}` (all 403 when disabled).
 
 ```sh
@@ -104,8 +105,16 @@ warden schedule create <name> --cron "0 9 * * *" --type pr-review --repo <p> --p
 warden schedule create <name> --at 2026-06-27T09:00 --prompt "…"        # single-shot
 warden schedule create <name> --cron "…" --pipeline <spec.yaml>          # fire a pipeline
 warden schedule list      # kind (cron/at), mode (agent/pipeline), spec, enabled, next run, last error
+warden schedule get <id>  # + last_run_session_id and last_run_status
+warden schedule enable <id> / disable <id>   # re-arm / stop firing (kept either way)
 warden schedule delete <id>
 ```
+
+Every fired run's session carries a `schedule_id` (+ `schedule_name`) back-ref —
+on agent-mode fires and a scheduled pipeline's job sessions alike — visible in
+`list_agents`/`GET /sessions` and the SSE stream, so scheduled runs are separable
+from ad-hoc agents. Daemons advertise the `scheduled-agents` capability
+(`GET /api/v1/capabilities`) when this is supported end-to-end.
 
 `--cron` is a 5-field spec (`robfig/cron/v3`, `@daily` etc.); `--at` is RFC3339 or
 `2006-01-02T15:04` (local). A pipeline fire gets a timestamp-suffixed name so

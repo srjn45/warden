@@ -13,6 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/schedule"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -172,6 +173,138 @@ func TestScheduleTickFiresPipeline(t *testing.T) {
 	got, _ := srv.schedStore.Get("np")
 	require.False(t, got.Enabled)
 	require.Empty(t, got.LastError)
+}
+
+// An agent-mode fire tags the spawned session with its origin schedule and
+// records the run as the schedule's durable LastRunSessionID.
+func TestScheduleTickTagsSessionWithScheduleID(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+
+	at := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	sc, err := schedule.New(schedule.Params{Name: "fire", At: at, Type: "development", Repo: "/r", Prompt: "go"}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, srv.schedStore.Create(sc))
+
+	srv.scheduleTick(context.Background())
+
+	// The inserted session carries the schedule back-ref, everywhere sessions surface.
+	got, err := srv.store.Get(context.Background(), fl.spawned.ID)
+	require.NoError(t, err)
+	require.Equal(t, "fire", got.ScheduleID)
+	require.Equal(t, "fire", got.ScheduleName)
+
+	// And the schedule records which run it produced.
+	stored, _ := srv.schedStore.Get("fire")
+	require.Equal(t, fl.spawned.ID, stored.LastRunSessionID)
+}
+
+// A pipeline-mode fire propagates the schedule back-ref onto every job session
+// through the executor → JobSpawnRequest → Session path.
+func TestScheduleTickTagsPipelineJobSessions(t *testing.T) {
+	_, srv, _ := newSchedServer(t)
+
+	spec := "name: nightly\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"
+	at := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	sc, err := schedule.New(schedule.Params{Name: "np", At: at, Spec: spec}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, srv.schedStore.Create(sc))
+
+	srv.scheduleTick(context.Background())
+
+	sessions, err := srv.store.List(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, sessions)
+	for _, s := range sessions {
+		require.Equal(t, "np", s.ScheduleID, "job session %s should inherit the schedule id", s.ID)
+		require.Equal(t, "np", s.ScheduleName)
+	}
+}
+
+// LastRunStatus is refreshed from the live session's status on a later tick.
+func TestScheduleRefreshesLastRunStatus(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+
+	at := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	sc, err := schedule.New(schedule.Params{Name: "fire", At: at, Type: "development", Repo: "/r", Prompt: "go"}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, srv.schedStore.Create(sc))
+	srv.scheduleTick(context.Background())
+
+	// Move the run's session to a terminal status, then tick again (not due).
+	// fakeStore.Get returns the stored pointer, so mutating it updates the store.
+	sess, _ := srv.store.Get(context.Background(), fl.spawned.ID)
+	sess.Status = store.StatusDone
+	srv.scheduleTick(context.Background())
+
+	stored, _ := srv.schedStore.Get("fire")
+	require.Equal(t, string(store.StatusDone), stored.LastRunStatus)
+}
+
+// GET /schedules/{id} returns one schedule, and 404 for an unknown id.
+func TestGetScheduleByID(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"0 9 * * *","prompt":"x"}`)) //nolint:errcheck
+
+	resp, err := http.Get(ts.URL + "/api/v1/schedules/s")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var sc schedule.Schedule
+	json.NewDecoder(resp.Body).Decode(&sc) //nolint:errcheck
+	require.Equal(t, "s", sc.ID)
+
+	resp2, err := http.Get(ts.URL + "/api/v1/schedules/ghost")
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp2.StatusCode)
+}
+
+// disable clears NextRun; enable re-arms it. Both return the updated schedule.
+func TestScheduleEnableDisable(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"* * * * *","prompt":"x"}`)) //nolint:errcheck
+
+	// Disable → enabled false, NextRun nil.
+	resp, err := http.Post(ts.URL+"/api/v1/schedules/s/disable", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var d schedule.Schedule
+	json.NewDecoder(resp.Body).Decode(&d) //nolint:errcheck
+	require.False(t, d.Enabled)
+	require.Nil(t, d.NextRun)
+
+	// Enable → enabled true, NextRun re-armed.
+	resp2, err := http.Post(ts.URL+"/api/v1/schedules/s/enable", "application/json", nil)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+	var e schedule.Schedule
+	json.NewDecoder(resp2.Body).Decode(&e) //nolint:errcheck
+	require.True(t, e.Enabled)
+	require.NotNil(t, e.NextRun)
+
+	// Enable/disable on an unknown id → 404.
+	resp3, err := http.Post(ts.URL+"/api/v1/schedules/ghost/enable", "application/json", nil)
+	require.NoError(t, err)
+	defer resp3.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp3.StatusCode)
+}
+
+// The scheduled-agents capability is advertised end-to-end.
+func TestCapabilitiesIncludesScheduledAgents(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/api/v1/capabilities")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var out struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out) //nolint:errcheck
+	require.Contains(t, out.Capabilities, "scheduled-agents")
 }
 
 // A cron schedule re-arms (stays enabled, NextRun rolls forward) after firing.

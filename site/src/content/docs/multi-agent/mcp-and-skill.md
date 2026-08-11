@@ -51,7 +51,7 @@ Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. 
 | `start_pipeline` / `pause_pipeline` / `resume_pipeline` / `cancel_pipeline` | Run / pause / resume / cancel a pipeline |
 | `show_pipeline` / `list_pipelines` / `delete_pipeline` | Inspect / list / delete pipelines |
 | `retry_pipeline_job` / `edit_pipeline_job` / `emit_pipeline_output` | Per-job retry / edit a pending job / set handoff output |
-| `list_schedules` / `create_schedule` / `delete_schedule` | List / create / delete the daemon's cron/at schedules (403 when disabled) |
+| `list_schedules` / `get_schedule` / `create_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` | List / get / create / enable / disable / delete the daemon's cron/at schedules (403 when disabled) |
 | `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree + transcript checkpoints and rollback |
 | `insights` / `savings` / `spend` | History-mined patterns / the token-savings ledger / the $ spend rollup |
 | `get_metrics` / `get_pressure` | Live/historical resource metrics / memory-pressure gate verdict |

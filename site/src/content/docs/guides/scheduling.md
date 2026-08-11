@@ -28,12 +28,38 @@ warden schedule create launch --at 2026-06-27T09:00 \
 warden schedule create nightly --cron "0 2 * * *" --pipeline ci.yaml
 ```
 
-## Inspecting & removing
+## Inspecting & controlling
 
 ```sh
 warden schedule list              # kind (cron/at), mode (agent/pipeline), spec, enabled, next run, last error
-warden schedule delete daily-review
+warden schedule get daily-review  # one schedule + its last-run session id and outcome
+warden schedule disable daily-review   # stop firing (record + history preserved)
+warden schedule enable  daily-review   # re-arm: next_run is recomputed from now
+warden schedule delete  daily-review
 ```
+
+`disable`/`enable` are idempotent and toggle a schedule without losing it —
+disable clears `next_run`; enable recomputes it (a cron schedule to its next
+occurrence, an `at` schedule to its configured time, which fires on the next tick
+if already past).
+
+## Following a scheduled run
+
+Every session a schedule fires carries a **`schedule_id`** (and `schedule_name`)
+back-reference — set on agent-mode spawns directly, and inherited by a scheduled
+pipeline's job sessions. It appears everywhere sessions surface: `GET /sessions`,
+`GET /sessions/{id}`, and the live SSE event stream. A client can therefore tag a
+running session as schedule-origin, keep it out of the plain agents list, and jump
+straight into the live run's terminal — all by filtering that one field.
+
+The schedule record itself also keeps a **durable** pointer to its most recent
+run: `last_run_session_id` plus `last_run_status` (refreshed from the run's live
+status while its session exists, and preserved even after the session is rotated
+or deleted). `warden schedule get` prints both.
+
+Daemons that support this end-to-end advertise the **`scheduled-agents`** flag in
+`GET /api/v1/capabilities`, so a client can feature-detect it the same way it
+detects `terminal-sessions`.
 
 ## Behaviour
 
@@ -42,9 +68,10 @@ warden schedule delete daily-review
   the daemon was down is not replayed), and a past-due single-shot fires once.
 - **Fail-soft.** A fire error is recorded in the schedule's `last_error` and logged;
   it never crashes the reconcile loop or stops other schedules firing.
-- **Fully driveable over MCP.** `create_schedule` / `list_schedules` / `delete_schedule`
-  mirror the CLI; create/delete are written to the audit log (`schedule_create` /
-  `schedule_delete`).
+- **Fully driveable over MCP.** `create_schedule` / `list_schedules` /
+  `get_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule`
+  mirror the CLI; create/delete/enable/disable are written to the audit log
+  (`schedule_create` / `schedule_delete` / `schedule_enable` / `schedule_disable`).
 
 Schedules persist to an embedded ScrivaDB store under `~/.warden/schedules-db/`
 (one record per schedule). On the first daemon launch after upgrading, any legacy
