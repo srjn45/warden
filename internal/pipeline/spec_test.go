@@ -76,3 +76,78 @@ func TestParseSpecInvalidRejected(t *testing.T) {
 		t.Fatalf("expected yaml parse error")
 	}
 }
+
+func TestParseSpecRoleTierBackendModel(t *testing.T) {
+	spec := `
+name: tiered-pipeline
+repo: /repo
+jobs:
+  - id: plan
+    prompt: "plan architecture"
+    role: orchestrator
+    tier: tier-1
+    backend: claude
+    model: claude-opus
+    worktree: none
+  - id: impl
+    prompt: "implement feature"
+    role: implementer
+    tier: tier-2
+    backend: codex
+    model: gpt-4.1
+    depends_on: [plan]
+    worktree: fresh
+  - id: test
+    prompt: "run tests"
+    role: worker
+    tier: tier-3
+    backend: cursor
+    model: composer-2.5-fast
+    depends_on: [impl]
+    worktree: from:impl
+`
+	p, err := ParseSpec([]byte(spec))
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if len(p.Jobs) != 3 {
+		t.Fatalf("want 3 jobs, got %d", len(p.Jobs))
+	}
+
+	plan := p.Job("plan")
+	if plan.Role != "orchestrator" || plan.Tier != "tier-1" || plan.Backend != "claude" || plan.Model != "claude-opus" {
+		t.Fatalf("plan job fields wrong: %+v", plan)
+	}
+
+	impl := p.Job("impl")
+	if impl.Role != "implementer" || impl.Tier != "tier-2" || impl.Backend != "codex" || impl.Model != "gpt-4.1" {
+		t.Fatalf("impl job fields wrong: %+v", impl)
+	}
+
+	test := p.Job("test")
+	if test.Role != "worker" || test.Tier != "tier-3" || test.Backend != "cursor" || test.Model != "composer-2.5-fast" {
+		t.Fatalf("test job fields wrong: %+v", test)
+	}
+}
+
+func TestParseSpecTierValidation(t *testing.T) {
+	validTiers := []string{"tier-1", "tier-2", "tier-3"}
+	for _, tier := range validTiers {
+		spec := "name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n    tier: " + tier + "\n"
+		p, err := ParseSpec([]byte(spec))
+		if err != nil {
+			t.Fatalf("valid tier %q rejected: %v", tier, err)
+		}
+		if p.Job("a").Tier != tier {
+			t.Fatalf("tier %q not set, got %q", tier, p.Job("a").Tier)
+		}
+	}
+
+	invalidTiers := []string{"tier-4", "tier-0", "fast", "Tier-1", "invalid"}
+	for _, tier := range invalidTiers {
+		spec := "name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n    tier: " + tier + "\n"
+		if _, err := ParseSpec([]byte(spec)); err == nil {
+			t.Fatalf("expected error for invalid tier %q", tier)
+		}
+	}
+}

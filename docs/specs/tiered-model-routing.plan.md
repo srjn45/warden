@@ -86,9 +86,9 @@
 ---
 
 ### Stage 4: Pipeline Integration, CLI & OpenAPI Surfaces
-- [ ] **Task 4.1: Pipeline Spec Updates** (`internal/pipeline/`)
-  - [ ] Support `role:`, `tier:`, and explicit `backend:` / `model:` in `Job` YAML.
-  - [ ] Update built-in pipeline templates.
+- [x] **Task 4.1: Pipeline Spec Updates** (`internal/pipeline/`)
+  - [x] Support `role:`, `tier:`, and explicit `backend:` / `model:` in `Job` YAML.
+  - [x] Update built-in pipeline templates.
 - [ ] **Task 4.2: CLI Commands** (`internal/cli/`)
   - [ ] `warden models list [--by-tier]`
   - [ ] `warden models tier <backend> <model> <tier>`

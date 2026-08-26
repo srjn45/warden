@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -45,6 +46,10 @@ type Job struct {
 	Supervised bool     `json:"supervised,omitempty" yaml:"supervised,omitempty"`
 	Type       string   `json:"type,omitempty" yaml:"type,omitempty"`
 	RunIf      string   `json:"run_if,omitempty" yaml:"run_if,omitempty"` // success (default) | failure | always
+	Role       string   `json:"role,omitempty" yaml:"role,omitempty"`
+	Tier       string   `json:"tier,omitempty" yaml:"tier,omitempty"`
+	Backend    string   `json:"backend,omitempty" yaml:"backend,omitempty"`
+	Model      string   `json:"model,omitempty" yaml:"model,omitempty"`
 
 	SessionID string         `json:"session_id,omitempty" yaml:"-"`
 	Status    JobStatus      `json:"status,omitempty" yaml:"-"`
@@ -151,6 +156,9 @@ func Validate(p *Pipeline) error {
 		case "", "success", "failure", "always":
 		default:
 			return fmt.Errorf("job %q: invalid run_if %q (want success|failure|always)", j.ID, j.RunIf)
+		}
+		if j.Tier != "" && !backendstore.ModelTier(j.Tier).Valid() {
+			return fmt.Errorf("job %q: invalid tier %q (want tier-1|tier-2|tier-3)", j.ID, j.Tier)
 		}
 	}
 	for i := range p.Jobs {

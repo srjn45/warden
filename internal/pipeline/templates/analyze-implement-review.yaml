@@ -4,6 +4,8 @@ repo: {{REPO}}
 jobs:
   - id: analyze
     type: analysis
+    role: orchestrator
+    tier: tier-1
     worktree: none
     prompt: |
       Analyze the task below and produce a concise implementation plan: the
@@ -14,6 +16,8 @@ jobs:
 
   - id: implement
     type: development
+    role: implementer
+    tier: tier-2
     worktree: fresh
     depends_on: [analyze]
     prompt: |
@@ -25,6 +29,8 @@ jobs:
 
   - id: review
     type: pr-review
+    role: reviewer
+    tier: tier-1
     worktree: from:implement
     depends_on: [implement]
     prompt: |
