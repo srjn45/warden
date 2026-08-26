@@ -11,7 +11,7 @@
 - [x] **Prerequisites: Antigravity Warden Skill Setup**
 - [x] **Stage 1: Data Model, ScrivaDB Store & Model Catalog**
 - [x] **Stage 2: Quota Tracking & Dynamic Weighted Resolver**
-- [ ] **Stage 3: Universal Context Dump & Mid-Session Hot-Swap Engine**
+- [x] **Stage 3: Universal Context Dump & Mid-Session Hot-Swap Engine**
 - [ ] **Stage 4: Pipeline Integration, CLI & OpenAPI Surfaces**
 
 ---
@@ -61,14 +61,27 @@
 ---
 
 ### Stage 3: Universal Context Dump & Mid-Session Hot-Swap (`internal/handoff/`, `internal/lifecycle/`)
-- [ ] **Task 3.1: Context Extractor** (`internal/handoff/extract.go`)
-  - [ ] Extract Goal, Decisions Log, Git Diff State, and Immediate Next Step from `Turn` history.
-- [ ] **Task 3.2: Structured Markdown Serializer** (`internal/handoff/serialize.go`)
-  - [ ] Write `.warden/handoff-<session-id>.md`.
-- [ ] **Task 3.3: Hot-Swap Engine** (`internal/lifecycle/switch.go`)
-  - [ ] Retire active CLI, launch successor backend + model, inject context via `AGENTS.md` / system prompt.
-- [ ] **Task 3.4: 90% Poller Threshold Trigger** (`internal/lifecycle/poller.go`)
-- [ ] **Task 3.5: Hot-Swap Tests** (`internal/lifecycle/switch_test.go`)
+- [x] **Task 3.1: Context Extractor** (`internal/handoff/extract.go`)
+  - [x] Extract Goal, Decisions Log, Git Diff State, and Immediate Next Step from `Turn` history.
+  - Pure/deterministic `Extract([]agentbackend.Turn) Handoff`; git-diff enriched by the caller.
+- [x] **Task 3.2: Structured Markdown Serializer** (`internal/handoff/serialize.go`)
+  - [x] Write `.warden/handoff-<session-id>.md` with Goal, Decisions, Modified Files, Next Step, System Context.
+- [x] **Task 3.3: Hot-Swap Engine** (`internal/lifecycle/switch.go`)
+  - [x] Extract → persist handoff → resolve successor (explicit / tier via `internal/router`) → retire active
+    CLI (kill tmux) → launch successor in the SAME worktree → inject context via `AGENTS.md`
+    (`ContextInjector`) + a continuation prompt that points the successor at the handoff file.
+  - Successor resolution via the narrow `SuccessorResolver` seam (`*router.Resolver` satisfies it).
+- [x] **Task 3.4: 90% Poller Threshold Trigger** (`internal/lifecycle/poller.go`, `internal/poller/context.go`)
+  - [x] Pure `DecideHotSwap(ThresholdInput) HotSwapSignal` policy (context-fill OR provider-quota ≥ 90%,
+    with cooldown + unknown-measurement guards) in `internal/lifecycle/poller.go`.
+  - [x] Thin, inert-by-default signal wired into the poller (`HandoverEnabled` + `OnHotSwap`), edge-triggered
+    once per critical-context episode; the daemon backs `OnHotSwap` with `DecideHotSwap` + `HotSwap`.
+- [x] **Task 3.5: Hot-Swap Tests** (`internal/handoff/*_test.go`, `internal/lifecycle/switch_test.go`,
+  `internal/lifecycle/poller_test.go`, `internal/poller/hotswap_test.go`)
+
+> **Stage-4 wiring note:** `Lifecycle.Resolver` and the poller's `HandoverEnabled`/`OnHotSwap` seams are
+> defined and unit-tested but NOT yet wired by the daemon — that (plus the CLI `warden switch` / MCP surface)
+> lands in Stage 4.
 
 ---
 

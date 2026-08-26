@@ -143,6 +143,34 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 	if d.Compact && !forceHandling {
 		p.sendCompact(ctx, s, tokens, outUsage, usageOK, now)
 	}
+
+	// Hot-swap threshold trigger (Task 3.4): signal a mid-session hot-swap the first
+	// time this agent's context fills to critical, when handover is enabled. Runs
+	// after the compact paths so a swap is a considered last resort once the window
+	// is genuinely full — not a substitute for compaction.
+	p.evalHotSwap(s, cur, tokens)
+}
+
+// evalHotSwap fires the hot-swap signal once per critical-context episode when the
+// feature is wired (HandoverEnabled + OnHotSwap). It edge-triggers on the entry into
+// the critical band and clears the per-agent flag when the agent drops back out, so
+// a later episode can re-signal. The poller does not itself decide or perform the
+// swap — it hands the session to OnHotSwap, which the daemon backs with the full
+// lifecycle.DecideHotSwap policy (fill %, provider-quota headroom, cooldown) and the
+// actual lifecycle.HotSwap. Tick goroutine only.
+func (p *Poller) evalHotSwap(s *store.Session, cur ctxtokens.State, tokens int) {
+	if cur != ctxtokens.StateCritical {
+		delete(p.hotSwapFlagged, s.ID) // episode over — re-arm for the next one
+		return
+	}
+	if !p.HandoverEnabled || p.OnHotSwap == nil {
+		return
+	}
+	if p.hotSwapFlagged[s.ID] {
+		return // already signalled for this critical episode
+	}
+	p.hotSwapFlagged[s.ID] = true
+	p.OnHotSwap(s, tokens)
 }
 
 // sendCompact issues /compact to s and parks the pre-compact reading so the
