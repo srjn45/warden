@@ -140,6 +140,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			PipelineID: p.ID, JobID: job.ID, Repo: p.Repo,
 			Prompt: pipeline.ComposePrompt(p, job), Worktree: worktree,
 			BaseBranch: base, Type: store.NormalizeType(job.Type), PermissionMode: permissionMode,
+			Role: job.Role, Tier: job.Tier, Backend: job.Backend, Model: job.Model,
 			Tags: p.Tags, ScheduleID: p.ScheduleID, ScheduleName: p.ScheduleName,
 		}
 		if lvl, _ := e.life.MemoryPressure(ctx); lvl >= pressure.Warn {

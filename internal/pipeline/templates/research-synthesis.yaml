@@ -4,6 +4,8 @@ repo: {{REPO}}
 jobs:
   - id: research-breadth
     type: analysis
+    role: worker
+    tier: tier-2
     worktree: none
     prompt: |
       Research the topic below for BREADTH: survey the available options,
@@ -14,6 +16,8 @@ jobs:
 
   - id: research-depth
     type: analysis
+    role: worker
+    tier: tier-1
     worktree: none
     prompt: |
       Research the topic below for DEPTH: dig into the most promising approach,
@@ -24,6 +28,8 @@ jobs:
 
   - id: synthesize
     type: analysis
+    role: orchestrator
+    tier: tier-1
     worktree: none
     depends_on: [research-breadth, research-depth]
     prompt: |

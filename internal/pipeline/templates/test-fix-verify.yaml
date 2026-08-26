@@ -4,6 +4,8 @@ repo: {{REPO}}
 jobs:
   - id: test
     type: tests
+    role: worker
+    tier: tier-3
     worktree: fresh
     prompt: |
       Reproduce the problem below with a failing automated test (or identify
@@ -14,6 +16,8 @@ jobs:
 
   - id: fix
     type: development
+    role: implementer
+    tier: tier-2
     worktree: from:test
     depends_on: [test]
     prompt: |
@@ -25,6 +29,8 @@ jobs:
 
   - id: verify
     type: tests
+    role: worker
+    tier: tier-3
     worktree: from:fix
     depends_on: [fix]
     prompt: |

@@ -2219,6 +2219,9 @@ type JobSpawnRequest struct {
 	BaseBranch     string // worktree base ref ("" = off HEAD); ignored when Worktree is false
 	Type           store.Type
 	PermissionMode string   // explicit mode override; empty = use global default
+	Role           string   // built-in role (persona + default flags); empty = "general" (no persona)
+	Tier           string   // explicit model tier ("tier-1", "tier-2", "tier-3")
+	Backend        string   // agent backend id (claude, aider, …); empty = default
 	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
 	Tags           []string // labels stamped on the job's session (e.g. inherited autopilot ownership tags)
 	ScheduleID     string   // origin schedule (set when the pipeline was schedule-fired); empty otherwise
@@ -2395,13 +2398,32 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	if err := store.SafeID(id); err != nil {
 		return nil, fmt.Errorf("invalid job session id %q: %w", id, err)
 	}
+	if req.Role != "" {
+		if r, ok := role.Get(req.Role); ok {
+			if r.Name == role.Default {
+				req.Role = ""
+			} else {
+				req.Role = r.Name
+			}
+			if req.PermissionMode == "" && r.Defaults.PermissionMode != "" {
+				req.PermissionMode = r.Defaults.PermissionMode
+			}
+			if req.Model == "" && r.Defaults.Model != "" {
+				req.Model = r.Defaults.Model
+			}
+			if len(r.Defaults.Tags) > 0 {
+				req.Tags = store.NormalizeTags(append(append([]string{}, req.Tags...), r.Defaults.Tags...))
+			}
+		}
+	}
 	sess := &store.Session{
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
 		PipelineID: req.PipelineID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
-		Model: req.Model, Tags: store.NormalizeTags(req.Tags),
+		Role: req.Role, Backend: req.Backend, Model: req.Model,
+		Tags: store.NormalizeTags(req.Tags),
 	}
 	cid, err := store.NewSessionID()
 	if err != nil {
@@ -2454,14 +2476,19 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	// deliver the same collab addendum by writing it into the workdir before launch.
 	// A flag-based backend (Claude) skips this — its hint rides the launch line below.
 	// A write failure degrades (no hints) but does not fail spawn.
+	// The role persona is prepended ahead of the collab hints so it reads first;
+	// it is always injected when non-empty (general = "" = nothing).
+	persona := personaGuidance(sess.Role)
 	mem := l.memoryGuidance(ctx, sess.Workdir)
 	if err := l.injectContext(b, sess.Workdir,
+		persona,
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
 	); err != nil {
 		slog.Warn("spawn job: context injection failed", "agent", id, "backend", b.ID(), "err", err)
 	}
 	hints := l.systemPromptHints(ctx, b, id,
+		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{

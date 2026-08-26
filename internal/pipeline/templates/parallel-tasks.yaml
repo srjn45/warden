@@ -4,6 +4,8 @@ repo: {{REPO}}
 jobs:
   - id: task-a
     type: development
+    role: implementer
+    tier: tier-2
     worktree: fresh
     prompt: |
       Implement the task below independently of any other in-flight work.
@@ -13,6 +15,8 @@ jobs:
 
   - id: task-b
     type: development
+    role: implementer
+    tier: tier-2
     worktree: fresh
     prompt: |
       Implement the task below independently of any other in-flight work.
@@ -22,6 +26,8 @@ jobs:
 
   - id: integrate
     type: development
+    role: implementer
+    tier: tier-2
     worktree: from:task-a
     depends_on: [task-a, task-b]
     prompt: |

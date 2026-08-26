@@ -60,6 +60,14 @@ func TestEveryTemplateRendersToValidSpec(t *testing.T) {
 		if len(p.Jobs) == 0 {
 			t.Errorf("template %q rendered to a pipeline with no jobs", ti.Name)
 		}
+		for _, j := range p.Jobs {
+			if j.Role == "" {
+				t.Errorf("template %q job %q has empty role", ti.Name, j.ID)
+			}
+			if j.Tier == "" {
+				t.Errorf("template %q job %q has empty tier", ti.Name, j.ID)
+			}
+		}
 	}
 }
 

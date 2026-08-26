@@ -225,6 +225,7 @@ func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*
 		Status: store.StatusSpawning, PipelineID: req.PipelineID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
 		Branch: branch, Worktree: wt, Workdir: workdir, Tags: req.Tags,
+		Role: req.Role, Backend: req.Backend, Model: req.Model,
 	}, nil
 }
 
