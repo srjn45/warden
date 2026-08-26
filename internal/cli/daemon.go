@@ -25,6 +25,7 @@ import (
 	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/groupstore"
 	"github.com/srjn45/warden/internal/internalrouter"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/llm"
@@ -285,6 +286,17 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer schedStore.Close()
 			srv.SetScheduler(cfg.SchedulerEnabled, schedStore, time.Minute)
+
+			// Collaboration groups (docs/specs/2026-08-26-collaboration-groups.md
+			// §4.3): a lean, durable ScrivaDB store of group rosters. The record
+			// holds only membership (agent id, project key, summary, joined_at) —
+			// never transcripts or logs. Opened here so its lifecycle matches the
+			// other daemon stores; join/leave routes are wired in a later stage.
+			groupStore, err := groupstore.NewStore(filepath.Join(cfg.DataDir, "groups"))
+			if err != nil {
+				return err
+			}
+			defer groupStore.Close()
 
 			// Backend registry (docs/specs/2026-08-06-backend-registry.md): the DB
 			// is the source of truth for which backends exist, their tier, and the
