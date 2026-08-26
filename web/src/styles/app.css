@@ -590,18 +590,18 @@ kbd {
 /* ============================================================================
    TERMINALS — list + PTY viewport (web parity for the TUI Terminals section)
    ============================================================================ */
-.terminals { display: grid; grid-template-columns: minmax(200px, 18rem) 1fr; gap: var(--sp-4); align-items: start; }
-.terminals-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: var(--sp-3); }
-.terminals-head h3 { margin: 0; font-size: 1rem; }
-.terminals-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
-.terminals-row { display: flex; align-items: center; gap: .3rem; border: 1px solid transparent; border-radius: var(--r-sm); }
-.terminals-row.on { border-color: var(--accent); background: var(--accent-soft); }
-.terminals-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: .4rem; text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; padding: .35rem .5rem; font: inherit; }
-.terminals-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.terminals-close { flex: none; background: transparent; border: 0; color: var(--fg-subtle); cursor: pointer; padding: .2rem .4rem; }
-.terminals-close:hover { color: var(--attention); }
-.terminals-view { min-width: 0; }
-@media (max-width: 720px) { .terminals { grid-template-columns: 1fr; } }
+.terminals, .agents { display: grid; grid-template-columns: minmax(200px, 18rem) 1fr; gap: var(--sp-4); align-items: start; }
+.terminals-head, .agents-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: var(--sp-3); }
+.terminals-head h3, .agents-head h3 { margin: 0; font-size: 1rem; }
+.terminals-list ul, .agents-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+.terminals-row, .agents-row { display: flex; align-items: center; gap: .3rem; border: 1px solid transparent; border-radius: var(--r-sm); }
+.terminals-row.on, .agents-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.terminals-pick, .agents-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: .4rem; text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; padding: .35rem .5rem; font: inherit; }
+.terminals-name, .agents-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-close, .agents-close { flex: none; background: transparent; border: 0; color: var(--fg-subtle); cursor: pointer; padding: .2rem .4rem; }
+.terminals-close:hover, .agents-close:hover { color: var(--attention); }
+.terminals-view, .agents-view { min-width: 0; }
+@media (max-width: 720px) { .terminals, .agents { grid-template-columns: 1fr; } }
 
 /* Multi-select (batch ops). */
 .grid-tile-wrap { position: relative; display: flex; }
