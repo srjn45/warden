@@ -201,3 +201,20 @@ func (a *lifecycleAdapter) Check(ctx context.Context, dir, name string) (lifecyc
 func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, error) {
 	return a.lc.MemoryPressure(ctx)
 }
+
+func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *store.Session, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
+	res, err := a.lc.HotSwap(ctx, sess, req)
+	if err != nil {
+		return nil, err
+	}
+	if a.store != nil && sess != nil {
+		_ = a.store.Update(ctx, sess.ID, func(s *store.Session) error {
+			s.Backend = sess.Backend
+			s.Model = sess.Model
+			s.ClaudeSessionID = sess.ClaudeSessionID
+			s.UpdatedAt = sess.UpdatedAt
+			return nil
+		})
+	}
+	return res, nil
+}

@@ -405,6 +405,9 @@ type Lifecycle interface {
 	// Linux PSI; Normal on other platforms or any read error). Used by the
 	// sampler loop and the spawn gate.
 	MemoryPressure(ctx context.Context) (pressure.Level, error)
+	// HotSwap retires the active agent process and launches a successor backend
+	// in the same worktree with extracted context.
+	HotSwap(ctx context.Context, sess *store.Session, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error)
 }
 
 // recoverMiddleware converts a panic in any handler into a 500 response instead

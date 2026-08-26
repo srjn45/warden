@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/role"
 )
 
@@ -47,14 +49,17 @@ Examples:
 	}
 }
 
-// newRoleCmd groups the read-side role verbs (currently just `list`). The role set
-// is a fixed built-in catalog, so `list` is driven straight off the registry.
+// newRoleCmd groups the role inspection and tier management verbs.
 func newRoleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "role",
-		Short: "Inspect warden's built-in agent roles",
+		Short: "Inspect warden's built-in agent roles and tier mappings",
 	}
-	cmd.AddCommand(newRoleListCmd())
+	cmd.AddCommand(
+		newRoleListCmd(),
+		newRoleTierCmd(),
+		newRoleSetTierCmd(),
+	)
 	return cmd
 }
 
@@ -74,6 +79,135 @@ func newRoleListCmd() *cobra.Command {
 				fmt.Fprintf(w, "%s\t%s\n", r.Name, desc)
 			}
 			return w.Flush()
+		},
+	}
+}
+
+func newRoleTierCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "tier",
+		Short: "Inspect and manage role-to-tier mappings",
+		Long: `Inspect and manage default model tier mappings for agent roles.
+
+Subcommands:
+  list    List all role-to-tier mappings
+  set     Set the default model tier for a role
+
+When run without subcommands, ` + "`warden role tier`" + ` lists all mappings.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			st, err := openBackendStore(cmd)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			mappings, err := st.ListRoleTiers()
+			if err != nil {
+				return err
+			}
+
+			out := cmd.OutOrStdout()
+			if asJSON {
+				if mappings == nil {
+					mappings = []backendstore.RoleTierMapping{}
+				}
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				return enc.Encode(mappings)
+			}
+
+			w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+			fmt.Fprintln(w, "ROLE\tDEFAULT TIER")
+			for _, m := range mappings {
+				fmt.Fprintf(w, "%s\t%s\n", m.RoleName, m.DefaultTier)
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit role tier mappings as a JSON array")
+
+	cmd.AddCommand(newRoleTierListCmd())
+	return cmd
+}
+
+func newRoleTierListCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:     "list",
+		Short:   "List agent roles and their default model tiers",
+		Aliases: []string{"ls"},
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			st, err := openBackendStore(cmd)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			mappings, err := st.ListRoleTiers()
+			if err != nil {
+				return err
+			}
+
+			out := cmd.OutOrStdout()
+			if asJSON {
+				if mappings == nil {
+					mappings = []backendstore.RoleTierMapping{}
+				}
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				return enc.Encode(mappings)
+			}
+
+			w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+			fmt.Fprintln(w, "ROLE\tDEFAULT TIER")
+			for _, m := range mappings {
+				fmt.Fprintf(w, "%s\t%s\n", m.RoleName, m.DefaultTier)
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit role tier mappings as a JSON array")
+	return cmd
+}
+
+func newRoleSetTierCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set-tier <role> <tier>",
+		Short: "Set the default model tier for an agent role (tier-1|tier-2|tier-3)",
+		Long: `Set the default model tier assigned when creating agents with this role.
+
+Tiers:
+  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
+  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
+  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
+
+Example:
+  warden role set-tier implementation tier-2
+  warden role set-tier architecture tier-1`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			roleName := args[0]
+			tierStr := args[1]
+
+			tier := backendstore.ModelTier(tierStr)
+			if !tier.Valid() {
+				return fmt.Errorf("invalid tier %q (valid: tier-1, tier-2, tier-3)", tierStr)
+			}
+
+			st, err := openBackendStore(cmd)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			if err := st.SetRoleTier(roleName, tier); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "role %q default tier set to %s\n", roleName, tier)
+			return nil
 		},
 	}
 }

@@ -53,7 +53,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newMemoryCmd())
 	root.AddCommand(newSnapshotCmd())
 	root.AddCommand(newPluginCmd())
-	root.AddCommand(newApprovalsCmd(), newApproveCmd(), newAutoApproveCmd(), newForceCompactCmd(), newSetPermissionModeCmd(), newSetRoleCmd(), newRoleCmd(), newRotateCmd(), newHandoffCmd())
+	root.AddCommand(newApprovalsCmd(), newApproveCmd(), newAutoApproveCmd(), newForceCompactCmd(), newSetPermissionModeCmd(), newSetRoleCmd(), newRoleCmd(), newRotateCmd(), newHandoffCmd(), newSwitchCmd())
 	root.AddCommand(newTokenCmd())
 	root.AddCommand(newHookCmd())
 	root.AddCommand(newCtxCmd())
