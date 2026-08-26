@@ -81,7 +81,7 @@ func TestResolver_RoundRobinTieBreaking(t *testing.T) {
 	require.NoError(t, s.SetEnabled("codex", false))
 
 	// Ensure antigravity only has 1 enabled model for tier-1 so candidates count is 1 per backend
-	require.NoError(t, s.SetModelEnabled("antigravity", "Claude Opus 4.6 (Thinking)", true))
+	require.NoError(t, s.SetModelEnabled("antigravity", "gemini-3.1-pro-high", false))
 
 	r := router.NewResolver(s)
 	ctx := context.Background()
@@ -115,7 +115,7 @@ func TestResolver_HighestHeadroomSelection(t *testing.T) {
 	require.NoError(t, s.RecordQuotaUsage("claude", 350000, "claude-3-7-sonnet", now))
 
 	// Antigravity: 100,000 / 1,000,000 tokens (10% usage -> 90% headroom)
-	require.NoError(t, s.RecordQuotaUsage("antigravity", 100000, "Claude Sonnet 4.6 (Thinking)", now))
+	require.NoError(t, s.RecordQuotaUsage("antigravity", 100000, "claude-sonnet-4-6", now))
 
 	// Antigravity has significantly higher headroom (90% vs 30%), so it must be selected
 	res, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier2})
@@ -140,7 +140,7 @@ func TestResolver_Automatic90PercentThresholdFailover(t *testing.T) {
 	require.NoError(t, s.RecordQuotaUsage("claude", 460000, "claude-3-7-sonnet", now))
 
 	// Antigravity has 50% usage (500,000 / 1,000,000 tokens -> 50% headroom)
-	require.NoError(t, s.RecordQuotaUsage("antigravity", 500000, "Claude Sonnet 4.6 (Thinking)", now))
+	require.NoError(t, s.RecordQuotaUsage("antigravity", 500000, "claude-sonnet-4-6", now))
 
 	// Claude exceeds 90% threshold and must failover to Antigravity
 	res, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier2})
@@ -194,14 +194,14 @@ func TestResolver_ExplicitPreferredBackendAndModel(t *testing.T) {
 	r := router.NewResolver(s)
 	ctx := context.Background()
 
-	// Explicit preference: antigravity + Gemini 3.1 Pro (High)
+	// Explicit preference: antigravity + gemini-3.7-flash-high
 	res, err := r.Resolve(ctx, router.ResolveOptions{
 		PreferredBackend: "antigravity",
-		PreferredModel:   "Gemini 3.1 Pro (High)",
+		PreferredModel:   "gemini-3.7-flash-high",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "antigravity", res.BackendID)
-	require.Equal(t, "Gemini 3.1 Pro (High)", res.ModelID)
+	require.Equal(t, "gemini-3.7-flash-high", res.ModelID)
 	require.Equal(t, backendstore.Tier2, res.Tier)
 }
 
@@ -214,10 +214,10 @@ func TestResolver_AllExhaustedReturnsError(t *testing.T) {
 	ctx := context.Background()
 
 	// Push all backends over 90% threshold
-	require.NoError(t, s.RecordQuotaUsage("claude", 480000, "claude-opus", now))      // 96%
-	require.NoError(t, s.RecordQuotaUsage("antigravity", 950000, "claude-opus", now)) // 95%
-	require.NoError(t, s.RecordQuotaUsage("cursor", 490, "claude-3-opus", now))       // 98%
-	require.NoError(t, s.RecordQuotaUsage("codex", 490000, "o1", now))                // 98%
+	require.NoError(t, s.RecordQuotaUsage("claude", 480000, "claude-opus", now))                   // 96%
+	require.NoError(t, s.RecordQuotaUsage("antigravity", 950000, "claude-opus-4-6-thinking", now)) // 95%
+	require.NoError(t, s.RecordQuotaUsage("cursor", 490, "claude-3-opus", now))                    // 98%
+	require.NoError(t, s.RecordQuotaUsage("codex", 490000, "o1", now))                             // 98%
 
 	_, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier1})
 	require.ErrorIs(t, err, router.ErrAllExhausted)
@@ -235,7 +235,8 @@ func TestResolver_TierFallback(t *testing.T) {
 	require.NoError(t, s.SetEnabled("cursor", false))
 	require.NoError(t, s.SetEnabled("codex", false))
 	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
-	require.NoError(t, s.SetModelEnabled("antigravity", "Claude Opus 4.6 (Thinking)", false))
+	require.NoError(t, s.SetModelEnabled("antigravity", "claude-opus-4-6-thinking", false))
+	require.NoError(t, s.SetModelEnabled("antigravity", "gemini-3.1-pro-high", false))
 
 	// Without fallback -> ErrAllExhausted
 	_, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier1, AllowFallback: false})

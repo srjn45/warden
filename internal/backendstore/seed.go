@@ -13,9 +13,16 @@ func DefaultModels() []ModelEntry {
 		},
 		{
 			BackendID:   "antigravity",
-			ModelID:     "Claude Opus 4.6 (Thinking)",
+			ModelID:     "claude-opus-4-6-thinking",
 			Tier:        Tier1,
 			DisplayName: "Claude Opus 4.6 (Thinking)",
+			Enabled:     true,
+		},
+		{
+			BackendID:   "antigravity",
+			ModelID:     "gemini-3.1-pro-high",
+			Tier:        Tier1,
+			DisplayName: "Gemini 3.1 Pro (High)",
 			Enabled:     true,
 		},
 		{
@@ -43,16 +50,23 @@ func DefaultModels() []ModelEntry {
 		},
 		{
 			BackendID:   "antigravity",
-			ModelID:     "Claude Sonnet 4.6 (Thinking)",
+			ModelID:     "claude-sonnet-4-6",
 			Tier:        Tier2,
 			DisplayName: "Claude Sonnet 4.6 (Thinking)",
 			Enabled:     true,
 		},
 		{
 			BackendID:   "antigravity",
-			ModelID:     "Gemini 3.1 Pro (High)",
+			ModelID:     "gemini-3.7-flash-high",
 			Tier:        Tier2,
-			DisplayName: "Gemini 3.1 Pro (High)",
+			DisplayName: "Gemini 3.7 Flash (High)",
+			Enabled:     true,
+		},
+		{
+			BackendID:   "antigravity",
+			ModelID:     "gpt-oss-120b-medium",
+			Tier:        Tier2,
+			DisplayName: "GPT-OSS 120B (Medium)",
 			Enabled:     true,
 		},
 		{
@@ -87,9 +101,16 @@ func DefaultModels() []ModelEntry {
 		},
 		{
 			BackendID:   "antigravity",
-			ModelID:     "Gemini 3.5 Flash",
+			ModelID:     "gemini-3.5-flash-high",
 			Tier:        Tier3,
-			DisplayName: "Gemini 3.5 Flash",
+			DisplayName: "Gemini 3.5 Flash (High)",
+			Enabled:     true,
+		},
+		{
+			BackendID:   "antigravity",
+			ModelID:     "gemini-3.7-flash-low",
+			Tier:        Tier3,
+			DisplayName: "Gemini 3.7 Flash (Low)",
 			Enabled:     true,
 		},
 		{
