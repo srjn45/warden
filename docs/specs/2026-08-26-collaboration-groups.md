@@ -68,9 +68,11 @@ explicitly out of scope here.
   introductions through warden, and persists the roster in a store.
 - **The four edge rulings** (§4): project identity, capability/summary,
   storage, leave-vs-terminate.
-- **Cockpit UI changes** (§6) that apply the pipeline demotion: TUI control
-  pane (conditional Approvals, pipelines nested under their orchestrator,
-  Agents/Terminals as nested frames) and a new web **Agents** tab.
+- **Cockpit UI changes** (§6): a **projects-first** TUI control pane (Projects
+  frame grouping agents by project + unchanged Terminals frame; Approvals and
+  Pipelines top-level sections removed; pipelines nested inside Projects; `o`
+  becomes a full-pane Open Project panel that auto-spawns the orchestrator) and
+  a new web **Agents** tab.
 
 ### Out of scope
 
@@ -324,85 +326,108 @@ the 2026-08-09 cockpit spec (`control`/`agent`/`terminal` panes; the
 four-section control tree). **TUI is the priority surface** (it's the one used
 most); web follows once the TUI shape is validated.
 
-### 6.1 TUI — control pane (`internal/tui/control_pane.go`, `boxes.go`, `compositor.go`)
+### 6.1 TUI — control pane: Projects frame + Terminals frame (`internal/tui/control_pane.go`, `boxes.go`, `compositor.go`)
 
-Four changes.
-
-**(a) Approvals: conditional, not always-present.**
-Today `secApprovals` is emitted as a permanent header. Change: emit it **only
-when `len(recognizedApprovals) > 0`**. Zero pending ⇒ the section vanishes
-entirely (no header, no count row), decluttering the common case. Cursor-home
-(`firstEntityCursor`) already skips section headers, so nothing else moves.
-
-**(b) Pipelines: demoted — delegated ones nest under their owner; only
-orchestrator-less ones keep a conditional top-level section.**
-`secPipelines` stops being an always-present peer of Agents. A **delegated**
-pipeline renders as a **node in the Agents tree, under the orchestrator that
-owns it**, a sibling of that orchestrator's subagents:
+The cockpit becomes **project-first**. What the 2026-08-09 spec (and today's
+code) call a **dir** is renamed **Project** throughout the TUI (frame title,
+headers, hints, help). The control frame holds exactly two inner frames —
+**Projects** and **Terminals** — and the always-present **Approvals and
+Pipelines sections are removed**.
 
 ```
-Agents
-  <dir>
-    orch-agent
-      subagent
-      <pipeline name>
-        job-1
-        job-2  (deps: job-1)
+┌ Control ─────────────────────────────┐
+│ ┌ Projects ─────────────────────────┐ │
+│ │ warden (git)                       │ │
+│ │   orch-agent          [needs-input]│ │
+│ │     subagent                       │ │
+│ │     my-pipeline                    │ │
+│ │       job-1                        │ │
+│ │       job-2  (deps: job-1)         │ │
+│ │   agent-2                          │ │
+│ │ rdq (git)                          │ │
+│ │   orch-agent                       │ │
+│ └────────────────────────────────────┘ │
+│ ┌ Terminals ────────────────────────┐ │
+│ │ 1. site build …                    │ │
+│ └────────────────────────────────────┘ │
+└───────────────────────────────────────┘
 ```
 
-- The pipeline node shows its name; its **jobs** nest under it, each annotated
-  `(deps: …)` when it has dependencies — the DAG is legible inline.
-- This unifies with §2: a **subagent is a one-job pipeline**. A subagent shows
-  as a leaf; a pipeline shows as a named node with job children. Both are
-  warden-owned work hanging off the orchestrator.
-- **Ownership / where a pipeline lives:**
-  - A **delegated** pipeline nests under the orchestrator that created it
-    (a `parent_id`-style link pipeline → owning agent) — inside the Agents
-    tree, as shown above.
-  - A **human-created** pipeline (direct-to-engine, no orchestrator, §2.2) has
-    no owning agent, so it keeps a **minimal top-level `Pipelines` section** —
-    but that section is **conditional, exactly like Approvals: shown only when
-    there is at least one human-owned pipeline to display** (zero ⇒ no header,
-    no section). Delegated pipelines never appear here (they're in the Agents
-    tree), so on a fleet with only delegated pipelines the section stays hidden.
-  - So `secPipelines` survives, but demoted to a *conditional home for
-    orchestrator-less pipelines only* — not the always-present peer of Agents
-    it is today.
-- Job rows keep today's collapse-completed-by-default behaviour and the cancel
-  affordance (currently `secPipelines`-scoped) — reattached to the pipeline
-  node. `pipelineAgents()` still resolves the same live sessions; only their
-  render position changes.
+**(a) Projects frame replaces the Agents frame — agents grouped by project.**
+Agents are grouped under their **Project** node. A project = the agent's
+worktree's git project, keyed by the canonical remote URL (with the `local:`
+fallback for remoteless repos) — the **same normalizer as §4.1 / Track B (B2)**.
+Multiple worktrees of one repo collapse to a single project node. Under each
+project, **top-level agents are listed directly**; each agent's **subagents and
+pipelines nest beneath it** (unchanged render rule: a pipeline is a named node
+whose **jobs** nest under it, each `(deps: …)`-annotated; a subagent is a leaf —
+a one-job pipeline). Cursor-home lands on the first agent under the first
+project.
 
-**(c) Agents & Terminals as nested frames inside the control frame.**
-Today the control pane is one box holding flat sections. Introduce two **inner
-frames** — an **Agents frame** and a **Terminals frame** — each bordered/titled
-like the outer control frame (reuse `boxes.go`), so the control frame becomes a
-container:
+**(b) Approvals section removed.** `secApprovals` is deleted; there is no
+top-level Approvals list. A worker blocked on a prompt surfaces through its
+agent node's existing **needs-input** status — you open that agent to answer.
+(Correctness fix, owned by **Track A**: an agent that has *finished its task and
+is sitting at an empty prompt* must classify as **idle/done**, not `needs-input`
+— today it wrongly shows `needs-input`. See A2/A5.)
 
-```
-┌ Control ──────────────────┐
-│ (Approvals — only if >0)   │
-│ (Pipelines — only if >0)   │   ← human-owned pipelines only (§6.1b)
-│ ┌ Agents ──────────────┐   │
-│ │ <dir> / orch / …      │   │
-│ └──────────────────────┘   │
-│ ┌ Terminals ───────────┐   │
-│ │ 1. warden:site/ …     │   │
-│ └──────────────────────┘   │
-└───────────────────────────┘
-```
+**(c) Pipelines section removed.** `secPipelines` is deleted; there is no
+top-level Pipelines home. Every pipeline renders **inside the Projects frame**:
+- a **delegated** pipeline (carrying an owner link, A3) nests **under its owning
+  orchestrator** (sibling of that orchestrator's subagents);
+- a **human-created / orchestrator-less** pipeline (direct `create_pipeline`,
+  §2.2) has no owning agent, so it renders **directly under its project node**
+  (sibling to that project's agents) — every pipeline still runs in some
+  project's worktree, so it always has a project home.
 
-- Each inner frame scrolls independently and can collapse.
-- Approvals and the human-pipelines section, when non-empty, are thin
-  **conditional** banners above the Agents frame (neither is an agent or a
-  terminal). Both follow the same "hide when zero" rule.
-- This is a compositor/`boxes.go` change; the `item` model is unchanged — rows
-  are routed into the frame that owns them.
+Job rows keep today's collapse-completed-by-default behaviour and the cancel
+affordance, reattached to the pipeline node; `pipelineAgents()` resolves the
+same live sessions — only their render position changes.
 
-**(d) Rotation hotkeys** (`M-a` agents, `M-t` terminals, `M-p` pipeline agents)
-keep their behaviour; only the render position of pipeline rows changes.
+**(d) Terminals frame — unchanged.** Terminals stay a flat,
+**non-project-scoped** frame exactly as today: a `cd` inside a terminal roams
+across projects, so a terminal has no fixed project. The Projects and Terminals
+frames are bordered/titled inner frames inside the control frame (reuse
+`boxes.go`); each scrolls/collapses independently. This is a
+compositor/`boxes.go` change; the `item` model is unchanged — rows route into
+the frame (and, for Projects, the project subtree) that owns them.
 
-### 6.2 Web — new Agents tab
+**(e) Rotation hotkeys.** `M-a` now cycles the **Projects** frame (was agents);
+`M-t` cycles Terminals. `M-p` (pipeline-agents) is **retired** — pipelines no
+longer form a rotation target of their own; they're reached inside the Projects
+tree.
+
+### 6.2 TUI — Open Project panel (`o`)
+
+`o` no longer opens the highlighted row. It **takes over the whole
+control/project pane** with a full-pane **Open Project** panel offering three
+ways in:
+
+1. **Recent projects** — a persisted list of previously-opened projects
+   (project-key, display name, remote/path, last-opened). Selecting one
+   re-focuses its live orchestrator, or re-opens it if dormant.
+2. **Open local** — a directory navigator (reuse the existing dir navigation) to
+   pick a local repo; a git repo keys by its remote, a plain dir by the
+   `local:` fallback.
+3. **Open via git** — prompt for a git URL; warden **clones into
+   `~/.warden/workspace/<project>`**, then treats it as a local project.
+   `<project>` derives from the repo name; on collision it is disambiguated
+   (e.g. `<host>-<org>-<repo>`).
+
+**Opening a project auto-spawns its orchestrator** (decision, 2026-08-26): on
+open, warden spawns the project's single orchestrator agent, enforcing
+**one-orchestrator-per-project** (reuse B3 — if one already exists, focus it
+rather than erroring). The project then appears in the Projects frame with its
+orchestrator as its top-level agent, ready to delegate. `Esc` returns the pane
+to the Projects view.
+
+Persistence is a lean **projectstore** (ScrivaDB, roster-style records — never
+transcripts) or an extension of the group store, holding the recent-projects
+list. Open-Project (spawns the orchestrator) and `wd collaborate group join`
+(B8, opt-in cross-project *membership*) are distinct but share the
+one-orchestrator invariant (B3) and the project key (B2).
+
+### 6.3 Web — new Agents tab
 
 Web fixed tabs today: `['cockpit','pipelines','terminals','metrics','archive','others']`
 (`web/src/lib/tabs.ts`, `web/src/lib/router.ts`). Add an **`agents`** tab
@@ -416,11 +441,12 @@ mirroring the Terminals tab's master-detail layout:
   view).
 - Selecting an agent on the left opens it on the right, exactly like Terminals.
 
-**Open consistency point — the web `pipelines` tab.** To fully mirror the TUI
-demotion, pipelines should stop being a peer tab and render nested under agents
-too. This spec's web scope is **only** adding the Agents tab; the pipelines-tab
-fate (leave it, or fold pipeline rows into the Agents tab as nested nodes like
-the TUI) is a deliberate follow-up decision — flagged, not decided here.
+**Web scope this wave.** The projects-first restructure and the Open Project
+panel (§6.1–6.2) are **TUI-only**; web keeps its flat, tab-based Agents model
+for now. Bringing the web cockpit to the Projects model (project grouping, an
+Open Project flow, dropping the peer pipelines tab) is a deliberate follow-up,
+flagged and not in this wave. This wave's only web change is adding the Agents
+tab.
 
 ---
 
@@ -480,7 +506,8 @@ Per repo `CLAUDE.md`, when this is built each item must be walked:
 - **Skill** — update `skills/warden/` so agents know how to join/leave groups
   and how delegated monitoring changes their orchestration pattern.
 - **MCP/CLI parity** — a `collaborate_group` MCP tool alongside the CLI command.
-- **UI** — TUI cockpit (`internal/tui/`: control-pane frames, conditional
-  Approvals, pipeline nesting) and the web app (`web/src/`: new Agents tab,
-  plus the pipelines-tab consistency decision from §6.2). Keep the TUI and web
-  cockpit behaving identically per the daemon-owns-state principle.
+- **UI** — TUI cockpit (`internal/tui/`: Projects + Terminals frames, pipelines
+  nested inside Projects, Open Project panel; Approvals + Pipelines sections
+  removed) and the web app (`web/src/`: new Agents tab; web stays flat/tab-based
+  this wave, §6.3). The web cockpit reaches Projects-model parity in a later
+  pass — until then the two surfaces intentionally differ here.

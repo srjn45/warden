@@ -47,9 +47,9 @@ tasks:
   - id: A1
     prompt: "Stage A1 (impl §4): worker done-signal — BOTH `wd job done --summary` (primary) and a <<WARDEN_DONE>>{json} sentinel (backstop). Warden captures status+summary with no extra turn."
   - id: A2
-    prompt: "Stage A2 (impl §4): stuck detection — reuse the pane-state classifier (working/idle/blocked/exited) + a wall-clock watchdog that notifies on a hang."
+    prompt: "Stage A2 (impl §4): stuck detection — reuse the pane-state classifier (working/idle/blocked/exited) + a wall-clock watchdog that notifies on a hang. Correctness fix: a done-but-idle agent must classify idle/done, never needs-input (this drives the TUI badge once C1 removes the Approvals section)."
   - id: A3
-    prompt: "Stage A3 (impl §4): pipeline → owning-orchestrator link on the pipeline record (openapi-first; extend create_pipeline). Unblocks C3b and A4."
+    prompt: "Stage A3 (impl §4): pipeline → owning-orchestrator link on the pipeline record (openapi-first; extend create_pipeline). Unblocks C3 and A4."
   - id: A4
     prompt: "Stage A4 (impl §4): delegated monitoring — EXTEND create_pipeline with optional callback points + owner subscription; warden wakes the owner at callbacks/completion, owner blocks on wait_for_message (no polling)."
     after: [A3]
@@ -57,24 +57,26 @@ tasks:
     prompt: "Stage A5 (impl §4): ambiguous-idle fallback — on the transition to idle-at-prompt, ask once for {status,details,summary}; never on a loop."
     after: [A2]
 
-  # ── Track C — Cockpit UI ──
+  # ── Track C — Projects-first cockpit UI ──
   - id: C1
-    prompt: "Stage C1 (impl §2): TUI — hide the Approvals section when zero pending."
+    prompt: "Stage C1 (impl §2): TUI — remove the top-level Approvals section entirely. Pending approvals surface only via an agent's needs-input status (the classifier fix is A2, not here)."
   - id: C2
-    prompt: "Stage C2 (impl §2): TUI — render Agents and Terminals as two nested bordered frames inside the control frame."
-  - id: C3a
-    prompt: "Stage C3a (impl §2): TUI — conditional top-level human-Pipelines section (hide at zero) + the pipeline-node render rule (job children, (deps: …) annotated)."
-  - id: C3b
-    prompt: "Stage C3b (impl §2): TUI — nest delegated (owner-linked) pipelines under their orchestrator in the Agents tree; coexists with C3a's human pipelines."
-    after: [C3a, A3]
+    prompt: "Stage C2 (impl §2): TUI — replace the Agents frame with a Projects frame grouping agents by project-key (B2 normalizer; worktrees of one repo collapse to one node), top-level agents listed directly with subagents/pipelines nested; keep Terminals a flat non-project-scoped frame; rename dir→Project across TUI titles/hints/help; M-a cycles Projects, M-p retired."
+    after: [B2]
+  - id: C3
+    prompt: "Stage C3 (impl §2): TUI — remove the top-level Pipelines section; render every pipeline inside the Projects frame (delegated → nested under its owning orchestrator via the A3 owner link; human/orchestrator-less → under its project node), with job children and (deps: …) annotations, collapse-completed + cancel preserved."
+    after: [C2, A3]
+  - id: C5
+    prompt: "Stage C5 (impl §2): TUI — repurpose `o` into a full-pane Open Project panel (persisted recent-projects list, open-local via a dir navigator, open-via-git cloning into ~/.warden/workspace/<project>); opening a project auto-spawns its single orchestrator (one-per-project via B3, existing⇒focus)."
+    after: [C2, B2, B3]
   - id: C4
-    prompt: "Stage C4 (impl §2): web — add an Agents fixed tab mirroring the Terminals tab (list left / AgentTab right). Leave the web Pipelines tab untouched."
+    prompt: "Stage C4 (impl §2): web — add an Agents fixed tab mirroring the Terminals tab (list left / AgentTab right). Web stays flat/tab-based this wave; leave the web Pipelines tab untouched."
 
 # Acceptance the brain verifies before declaring the run complete.
 done_when:
   - "wd check passes on the integration branch (tests, vet, verify-fast all green)."
   - "Groups: join/leave works, one-orchestrator-per-project enforced (dup→409), brokered intros delivered, leave-soft vs terminate-hard gated, recover re-joins."
   - "Monitoring: create_pipeline carries owner + callback points; both wd job done and the sentinel close a job with a summary and no interrogation turn; the stuck watchdog notifies."
-  - "TUI: Approvals hidden at zero; Agents/Terminals in nested frames; human pipelines conditional top-level; delegated pipelines nested under their orchestrator with job+deps."
+  - "TUI: Approvals + Pipelines top-level sections removed; Projects frame groups agents by project (Terminals unchanged); pipelines render inside Projects (delegated under owner, human under project node); Open Project (`o`) panel opens + auto-spawns the project orchestrator; dir renamed Project."
   - "Web: Agents tab present mirroring Terminals; the Pipelines tab is unchanged."
   - "Docs + skill updated per impl §5 DoD; make gendocs-check green. No v* tag has been pushed."

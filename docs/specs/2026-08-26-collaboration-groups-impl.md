@@ -49,27 +49,28 @@ Two rules keep this token-cheap — the whole reason for small tasks:
 |------|------|---------------------------|------------------|
 | **U-B — Collaboration groups** | **pipeline · 8 jobs** | B1 store · B2 git-key · B3 join/leave (←B1,B2) · B4 intros (←B3) · B5 summary (←B4) · B6 leave/terminate (←B3) · B7 recover-rejoin (←B3) · B8 CLI+MCP+docs (←B4,B5,B6) | none |
 | **U-A — Pipeline monitoring** | **pipeline · 5 jobs** | A1 done-signal · A2 stuck-detect · A3 owner-link · A4 delegated-push (←A3) · A5 idle-self-report (←A2) | none |
-| **U-C3 — TUI pipeline demotion** | **pipeline · 2 jobs** | C3a conditional-section+render-rule · C3b delegated-nesting (←C3a) | **C3b needs A3** |
-| **U-C1 — TUI conditional approvals** | **subagent** | — | none |
-| **U-C2 — TUI nested frames** | **subagent** | — | none |
+| **U-C — TUI projects-first** | **pipeline · 3 jobs** | C2 projects-frame+rename (←B2) · C3 pipeline-placement (←C2,A3) · C5 open-project+auto-orch (←C2,B2,B3) | **C2←B2; C3←A3; C5←B2,B3** |
+| **U-C1 — TUI remove approvals** | **subagent** | — | none |
 | **U-C4 — Web agents tab** | **subagent** | — | none |
 
-**The only cross-track edge:** `C3b` (delegated-pipeline nesting) needs `A3`
-(owner link) merged first. Everything else is independent.
+**Cross-track edges (Track C now depends on B and A):** `C2←B2`,
+`C3←{C2,A3}`, `C5←{C2,B2,B3}`. `C1` and `C4` are fully independent. The
+needs-input→idle correctness fix rides in **A2** (Track A), not Track C.
 
 ### Autopilot launch plan
 
-Autopilot starts almost everything at once; the DAGs self-sequence:
+Autopilot starts everything dep-free at once; the DAGs self-sequence:
 
 - **Launch immediately (parallel):** the **U-B pipeline**, the **U-A pipeline**,
-  subagents **U-C1 / U-C2 / U-C4**, and pipeline job **C3a**.
-- **Gate:** start **C3b** only after **A3** merges.
+  and subagents **U-C1 / U-C4**.
+- **Track C pipeline gates:** `C2` starts after **B2** merges; `C3` after
+  **C2 + A3**; `C5` after **C2 + B2 + B3**.
 - Within each pipeline, no-dep jobs run in parallel (B1‖B2; A1‖A2‖A3); the rest
   fall in behind their deps.
 
-Shape: two long pipelines (groups, monitoring) running beside three quick UI
-subagents plus one two-step UI pipeline with a single gated job. The manager
-stays idle/cheap between worker completions.
+Shape: two long pipelines (groups, monitoring) plus a Track-C pipeline that
+leans on B2/B3/A3, beside two quick independent UI subagents (remove-approvals,
+web-agents-tab). The manager stays idle/cheap between worker completions.
 
 ### Per-job worker brief (what autopilot hands each worker)
 
@@ -85,63 +86,86 @@ stays idle/cheap between worker completions.
 
 ## 2. Track C — Cockpit UI
 
-Units: **U-C1**, **U-C2** (subagents); **U-C3** (2-job pipeline: C3a, C3b);
-**U-C4** (subagent). See §1 for types/deps.
+Projects-first restructure (design §6, revised 2026-08-26). Units: **U-C1**,
+**U-C4** (independent subagents); **U-C** pipeline (C2 → C3, C5 — internal +
+cross-track deps). See §1 for types/deps.
 
-### C1 — TUI: hide Approvals when zero  · *subagent*
-- **Goal:** `secApprovals` header/section emitted only when
-  `len(recognizedApprovals) > 0`.
-- **Files:** `internal/tui/control_pane.go` (the section-build around the
-  `recognizedApprovals(m.approvals)` / `secApprovals` append, ~L152–155).
-- **Acceptance:** `control_pane_test.go` — no Approvals row when approvals empty;
-  count row + expansion unchanged when non-empty; `firstEntityCursor` still
-  lands on the first entity.
-- **Out of scope:** any other section.
+Cross-track deps: **C2 ← B2** (project-key normalizer); **C3 ← C2, A3**
+(pipeline owner link); **C5 ← C2, B2, B3** (project key + orchestrator
+spawn/dup). The needs-input→idle correctness fix lives in **Track A (A2/A5)**,
+not here.
 
-### C2 — TUI: Agents & Terminals nested frames  · *subagent*
-- **Goal:** wrap Agents rows and Terminals rows in two bordered/titled inner
-  frames inside the control frame; each scrolls/collapses independently.
-- **Files:** `internal/tui/boxes.go`, `internal/tui/compositor.go`,
-  `internal/tui/control_pane.go` (view/routing only; the `item` model is
-  unchanged — rows route into the owning frame).
-- **Acceptance:** box/compositor tests for the nested layout; Agents/Terminals in
-  separate frames; Approvals (when present) a banner above them.
-- **Out of scope:** pipeline nesting (C3); web.
+### C1 — TUI: remove the Approvals section entirely  · *subagent*
+- **Goal:** delete `secApprovals` from the control tree — there is no top-level
+  Approvals list. Pending approvals surface only via an agent node's existing
+  **needs-input** status (the classifier refinement is A2/A5, not this task).
+- **Files:** `internal/tui/control_pane.go` (remove the `recognizedApprovals` /
+  `secApprovals` build, ~L152–155, and any Approvals-only helpers/rotation refs).
+- **Acceptance:** `control_pane_test.go` — no Approvals section/row ever emitted;
+  `firstEntityCursor` lands on the first agent under the first project.
+- **Out of scope:** the needs-input status semantics (Track A); other sections.
 
-### C3a — TUI: conditional human-Pipelines section + render rule  · *pipeline job (U-C3)*
-- **Goal:** stop emitting `secPipelines` as an always-present peer. Render a
-  **conditional** top-level `Pipelines` banner holding **only orchestrator-less
-  (human) pipelines**, shown only when ≥1 (same rule as Approvals). Establish the
-  agent-tree render rule so a pipeline *can* appear as a node with job children
-  (`(deps: …)` annotated) — even if no delegated pipelines exist yet.
-- **Files:** `internal/tui/control_pane.go` (`secPipelines` build ~L163–165, agent
-  tree build ~L170–172, `pipelineAgents()` ~L301), `internal/tui/pipeline_view.go`.
-- **Acceptance:** Pipelines section hidden at zero human pipelines; a human
-  pipeline appears top-level; render rule renders a pipeline node + job children
-  with deps; collapse-completed + cancel affordance preserved.
-- **Out of scope:** the delegated (owner-linked) nesting — that is C3b.
+### C2 — TUI: Projects frame + Terminals frame (+ dir→Project rename)  · *pipeline job (U-C), ←B2*
+- **Goal:** replace the flat Agents frame with a **Projects** frame that groups
+  agents under their project node (project-key from B2's normalizer; multiple
+  worktrees of one repo collapse to one node), top-level agents listed directly
+  with subagents/pipelines nesting beneath each. Keep Terminals a flat,
+  non-project-scoped frame. Both are bordered/titled inner frames inside the
+  control frame. Rename the **dir** vocabulary to **Project** across TUI titles,
+  headers, hints, help. Rotation: `M-a` cycles Projects, `M-p` retired.
+- **Depends on:** **B2** (project-key normalizer).
+- **Files:** `internal/tui/control_pane.go`, `internal/tui/boxes.go`,
+  `internal/tui/compositor.go` (view/routing + grouping; `item` model unchanged),
+  plus hint/help/header strings.
+- **Acceptance:** box/compositor tests for the nested Projects/Terminals layout;
+  agents grouped by project; two worktrees of one repo → one project node;
+  Terminals unchanged; no "dir" wording remains in TUI strings.
+- **Out of scope:** pipeline placement (C3); Open Project panel (C5); web.
 
-### C3b — TUI: nest delegated pipelines under their orchestrator  · *pipeline job (U-C3), gated on A3*
-- **Goal:** render a **delegated** pipeline (one carrying an owner link from A3)
-  nested under its owning orchestrator in the Agents tree, as a sibling of that
-  orchestrator's subagents.
-- **Depends on:** C3a (render rule) **and A3** (owner link on the pipeline
-  record).
-- **Files:** `internal/tui/control_pane.go` (agent-tree grouping).
-- **Acceptance:** a delegated pipeline nests under its orchestrator with job
-  children; a human pipeline still renders top-level (C3a) — the two coexist.
+### C3 — TUI: remove Pipelines section + place pipelines in the Projects frame  · *pipeline job (U-C), ←C2, A3*
+- **Goal:** delete `secPipelines` (no top-level Pipelines home). Render every
+  pipeline **inside the Projects frame**: a **delegated** pipeline (owner link
+  from A3) nests under its owning orchestrator; a **human/orchestrator-less**
+  pipeline renders directly under its **project node** (sibling to that
+  project's agents). Pipeline node shows job children, each `(deps: …)`
+  annotated; collapse-completed + cancel affordance preserved.
+- **Depends on:** **C2** (Projects frame) **and A3** (owner link on pipeline).
+- **Files:** `internal/tui/control_pane.go` (`secPipelines` build ~L163–165,
+  project-tree grouping, `pipelineAgents()` ~L301), `internal/tui/pipeline_view.go`.
+- **Acceptance:** no top-level Pipelines section; a delegated pipeline nests under
+  its orchestrator; a human pipeline renders under its project node; job children
+  + deps render; collapse/cancel preserved.
 - **Out of scope:** creating delegated pipelines (A4).
+
+### C5 — TUI: Open Project panel (`o`) + auto-spawn orchestrator  · *pipeline job (U-C), ←C2, B2, B3*
+- **Goal:** repurpose `o` to take over the whole control/project pane with an
+  **Open Project** panel: (1) a persisted **recent-projects** list; (2) **open
+  local** via a directory navigator (reuse existing dir nav); (3) **open via
+  git** — clone into `~/.warden/workspace/<project>` (disambiguate name
+  collisions). Opening any project **auto-spawns its orchestrator**, enforcing
+  one-per-project via B3 (existing ⇒ focus, not error). `Esc` returns to the
+  Projects view.
+- **Depends on:** **C2** (the pane it takes over), **B2** (project key), **B3**
+  (orchestrator spawn + dup→focus).
+- **Files:** new `internal/tui/open_project.go` (panel + navigator + clone),
+  `internal/tui/control_pane.go` (`o` binding routes to the panel), a lean
+  `internal/projectstore` (ScrivaDB, recent list) or a group-store extension.
+- **Acceptance:** `o` opens the panel; recent list persists across restart; local
+  open registers + spawns orchestrator; git open clones into the workspace then
+  spawns; re-opening a live project focuses its orchestrator (no dup).
+- **Out of scope:** group membership (`collaborate group`, B8); web.
 
 ### C4 — Web: new Agents tab  · *subagent*
 - **Goal:** add an `agents` fixed tab mirroring the Terminals tab's master-detail
-  (agent list left, focused agent right).
+  (agent list left, focused agent right). Web stays flat/tab-based this wave —
+  the Projects model is TUI-only (design §6.3).
 - **Files:** `web/src/lib/tabs.ts` (add `'agents'` to `FIXED_TABS`),
   `web/src/lib/router.ts`, new `web/src/components/AgentsTab.tsx` (list reuses the
   `kind`-filtered agents list from `web/src/lib/kind.ts`; detail reuses
   `web/src/components/AgentTab.tsx`), `web/src/styles/app.css`.
 - **Acceptance:** `tabs.test.ts` asserts `FIXED_TABS` includes `'agents'`;
   selecting an agent opens it on the right.
-- **Out of scope:** the web `pipelines` tab — it **stays as-is** in v1 (§6.1);
+- **Out of scope:** the web `pipelines` tab — it **stays as-is** in this wave;
   do not touch it.
 
 ---
@@ -250,16 +274,22 @@ One warden-managed pipeline. A1/A2/A3 run in parallel; A4←A3, A5←A2.
 - **Goal:** reuse the existing pane-reading machinery (behind auto-approve /
   trust-prompt / rate-limit handling) to classify each worker pane as `working` /
   `idle-at-prompt` / `blocked-on-approval` / `exited` (zero-token); add a
-  wall-clock watchdog → `possibly-stuck` notification.
+  wall-clock watchdog → `possibly-stuck` notification. **Correctness fix (drives
+  the TUI, since C1 removes the Approvals section):** an agent that has *finished
+  its task and sits at an empty prompt* must classify as **idle/done**, NOT
+  `needs-input`/`blocked` — today it wrongly reports `needs-input` when simply
+  done. `needs-input` must mean a genuine pending prompt only.
 - **Files:** the pane-state classifier (locate the auto-approve/rate-limit pane
-  reader in `internal/lifecycle` or `internal/daemon`), watchdog wiring.
+  reader in `internal/lifecycle` or `internal/daemon`), the status field the TUI
+  renders as `needs-input`, watchdog wiring.
 - **Acceptance:** blocked/exited detected free; watchdog fires + notifies on a
-  no-state-change hang.
+  no-state-change hang; a done-but-idle agent reports idle/done, never
+  `needs-input`.
 - **Out of scope:** ambiguous-idle self-report (A5); delegation.
 
 ### A3 — Pipeline → owning-orchestrator link
 - **Goal:** add an owner/parent link on the pipeline record so a delegated
-  pipeline knows its orchestrator — unblocks C3b nesting and A4's push target.
+  pipeline knows its orchestrator — unblocks C3 nesting and A4's push target.
   (Mirror how `ParentID` was threaded for agents.)
 - **Files:** `internal/pipeline/pipeline.go` + `store.go`; `create_pipeline` API
   (`openapi.yaml` + `make generate`) + MCP (`internal/mcp`).
@@ -307,12 +337,16 @@ One warden-managed pipeline. A1/A2/A3 run in parallel; A4←A3, A5←A2.
 Walk when each *feature* (not each job) completes:
 - **Tag & release** — one tag per feature; confirm before pushing `v*`. Suggested:
   **collaboration-groups** (U-B) = minor; **pipeline-substrate+monitoring** (U-A)
-  = minor; UI jobs fold into whichever feature they serve (C1–C3 with the pipeline
-  feature; C4 a small patch).
+  = minor; **projects-first-cockpit** (U-C: C1/C2/C3/C5 — projects frame, pipeline
+  placement, Open Project panel) = minor; **web-agents-tab** (C4) = small patch.
 - **Docs** — `README.md`, `docs/FEATURES.md` (+ root matrix), `docs/USAGE.md`,
   the two spec docs, website (`site/` guide + generated `reference/cli.md`).
+  Projects-first: document the Project vocabulary, the Open Project panel (recent
+  / local / git-clone-into-`~/.warden/workspace`), and that opening auto-spawns
+  the orchestrator.
 - **Skill** — `skills/warden/`: join/leave groups; delegated monitoring (delegate
-  + `wait_for_message` instead of polling).
+  + `wait_for_message` instead of polling); Open Project + one-orchestrator-per-
+  project.
 
 ---
 
@@ -334,3 +368,19 @@ Walk when each *feature* (not each job) completes:
    accordingly. **Caveat for the future hub:** a local key is not
    portable/cross-machine — B2 must tag fallback keys as `local:` so the
    hub/cluster work can treat them distinctly later.
+
+*Projects-first TUI (added 2026-08-26):*
+
+5. **Projects replace Agents as the first-class TUI grouping** — "dir" is renamed
+   **Project**; the control frame holds a **Projects** frame (agents grouped by
+   project-key) + an unchanged **Terminals** frame. The **Approvals and Pipelines
+   top-level sections are removed** (not made conditional). Pipelines render only
+   inside the Projects frame (delegated → under owner; human → under project).
+6. **Approvals surface via `needs-input`, not a section** — no new TUI mechanism.
+   The correctness fix (a done-but-idle agent must show idle/done, never
+   `needs-input`) is implemented in **A2** (pane classifier), not Track C.
+7. **Open Project (`o`) auto-spawns the project orchestrator** — `o` is a
+   full-pane panel (recent / open-local / open-via-git-clone-into
+   `~/.warden/workspace/<project>`); opening a project spawns its single
+   orchestrator (one-per-project via B3; existing ⇒ focus). Web stays flat/tab-
+   based this wave (design §6.3).
