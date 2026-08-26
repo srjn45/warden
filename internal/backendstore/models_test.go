@@ -22,30 +22,30 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	// Verify default models
 	models, err := s.ListModels("")
 	require.NoError(t, err)
-	require.Len(t, models, 14)
+	require.Len(t, models, 17)
 
-	// Verify Tier 1 models (4 models)
+	// Verify Tier 1 models (5 models)
 	tier1Models, err := s.ListModels(Tier1)
 	require.NoError(t, err)
-	require.Len(t, tier1Models, 4)
+	require.Len(t, tier1Models, 5)
 	for _, m := range tier1Models {
 		require.Equal(t, Tier1, m.Tier)
 		require.True(t, m.Enabled)
 	}
 
-	// Verify Tier 2 models (6 models)
+	// Verify Tier 2 models (7 models)
 	tier2Models, err := s.ListModels(Tier2)
 	require.NoError(t, err)
-	require.Len(t, tier2Models, 6)
+	require.Len(t, tier2Models, 7)
 	for _, m := range tier2Models {
 		require.Equal(t, Tier2, m.Tier)
 		require.True(t, m.Enabled)
 	}
 
-	// Verify Tier 3 models (4 models)
+	// Verify Tier 3 models (5 models)
 	tier3Models, err := s.ListModels(Tier3)
 	require.NoError(t, err)
-	require.Len(t, tier3Models, 4)
+	require.Len(t, tier3Models, 5)
 	for _, m := range tier3Models {
 		require.Equal(t, Tier3, m.Tier)
 		require.True(t, m.Enabled)
@@ -64,9 +64,15 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.Equal(t, "Claude Opus", m.DisplayName)
 	require.True(t, m.Enabled)
 
-	m, err = s.GetModel("antigravity", "Claude Opus 4.6 (Thinking)")
+	m, err = s.GetModel("antigravity", "claude-opus-4-6-thinking")
 	require.NoError(t, err)
 	require.Equal(t, Tier1, m.Tier)
+	require.Equal(t, "Claude Opus 4.6 (Thinking)", m.DisplayName)
+
+	m, err = s.GetModel("antigravity", "gemini-3.1-pro-high")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, m.Tier)
+	require.Equal(t, "Gemini 3.1 Pro (High)", m.DisplayName)
 
 	m, err = s.GetModel("cursor", "claude-3-opus")
 	require.NoError(t, err)
@@ -80,13 +86,20 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Tier2, m.Tier)
 
-	m, err = s.GetModel("antigravity", "Claude Sonnet 4.6 (Thinking)")
+	m, err = s.GetModel("antigravity", "claude-sonnet-4-6")
 	require.NoError(t, err)
 	require.Equal(t, Tier2, m.Tier)
+	require.Equal(t, "Claude Sonnet 4.6 (Thinking)", m.DisplayName)
 
-	m, err = s.GetModel("antigravity", "Gemini 3.1 Pro (High)")
+	m, err = s.GetModel("antigravity", "gemini-3.7-flash-high")
 	require.NoError(t, err)
 	require.Equal(t, Tier2, m.Tier)
+	require.Equal(t, "Gemini 3.7 Flash (High)", m.DisplayName)
+
+	m, err = s.GetModel("antigravity", "gpt-oss-120b-medium")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+	require.Equal(t, "GPT-OSS 120B (Medium)", m.DisplayName)
 
 	m, err = s.GetModel("cursor", "sonnet-3.7")
 	require.NoError(t, err)
@@ -104,9 +117,15 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Tier3, m.Tier)
 
-	m, err = s.GetModel("antigravity", "Gemini 3.5 Flash")
+	m, err = s.GetModel("antigravity", "gemini-3.5-flash-high")
 	require.NoError(t, err)
 	require.Equal(t, Tier3, m.Tier)
+	require.Equal(t, "Gemini 3.5 Flash (High)", m.DisplayName)
+
+	m, err = s.GetModel("antigravity", "gemini-3.7-flash-low")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, m.Tier)
+	require.Equal(t, "Gemini 3.7 Flash (Low)", m.DisplayName)
 
 	m, err = s.GetModel("cursor", "composer-2.5-fast")
 	require.NoError(t, err)
