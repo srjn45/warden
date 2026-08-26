@@ -1,0 +1,5 @@
+name: architecture
+description: "System architecture, component design"
+tier: 1
+roles:
+  - planner

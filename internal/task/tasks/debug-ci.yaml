@@ -1,0 +1,5 @@
+name: debug-ci
+description: "Resolve CI failures or merge conflicts"
+tier: 3
+roles:
+  - worker

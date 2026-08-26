@@ -1,0 +1,5 @@
+name: research
+description: "Researching approaches, reading docs, gathering context"
+tier: 1
+roles:
+  - planner

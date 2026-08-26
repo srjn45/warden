@@ -1,0 +1,7 @@
+name: docs
+description: "Documentation writing"
+tier: 2
+roles:
+  - worker
+  - planner
+  - general
