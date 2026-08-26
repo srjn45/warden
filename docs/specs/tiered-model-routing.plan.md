@@ -89,10 +89,18 @@
 - [x] **Task 4.1: Pipeline Spec Updates** (`internal/pipeline/`)
   - [x] Support `role:`, `tier:`, and explicit `backend:` / `model:` in `Job` YAML.
   - [x] Update built-in pipeline templates.
-- [ ] **Task 4.2: CLI Commands** (`internal/cli/`)
-  - [ ] `warden models list [--by-tier]`
-  - [ ] `warden models tier <backend> <model> <tier>`
-  - [ ] `warden role tier list` / `warden role set-tier <role> <tier>`
-  - [ ] `warden switch [--backend <id>] [--model <id>] [--tier <tier>]`
-- [ ] **Task 4.3: OpenAPI & MCP Tools** (`internal/daemon/`, `internal/mcp/`)
-- [ ] **Task 4.4: Full End-to-End Verification & Docs**
+- [x] **Task 4.2: CLI Commands & Daemon Wiring** (`internal/cli/`, `internal/daemon/`)
+  - [x] `warden models list [--by-tier]`
+  - [x] `warden models tier <backend> <model> <tier>`
+  - [x] `warden role tier list` / `warden role set-tier <role> <tier>`
+  - [x] `warden switch [--backend <id>] [--model <id>] [--tier <tier>]`
+  - [x] Daemon wiring: `Lifecycle.Resolver = router.NewResolver(d.backendStore)`, poller `HandoverEnabled` and `OnHotSwap` hooks wired to `DecideHotSwap` and `HotSwap`.
+- [x] **Task 4.3: OpenAPI & MCP Tools** (`internal/daemon/`, `internal/mcp/`)
+  - [x] Expose REST endpoints (`GET /models`, `PUT /models/{backend}/{model}/tier`, `GET /roles/tiers`, `PUT /roles/tiers/{role}`, `POST /sessions/{id}/switch`, `GET /handover/settings`, `PUT /handover/settings`).
+  - [x] Regenerate OpenAPI code via `make generate` (`internal/daemon/oapi/api.gen.go`).
+  - [x] Register MCP tools (`list_models`, `set_model_tier`, `list_role_tiers`, `set_role_tier`, `switch_agent`, `get_handover_settings`, `set_handover_settings`).
+  - [x] Comprehensive client, daemon, and MCP tests.
+- [x] **Task 4.4: Full End-to-End Verification & Docs**
+  - [x] Full test verification (`make verify-fast`, `go test ./...`, `npm test`, `astro build`).
+  - [x] CLI reference docs generated and synced (`site/src/content/docs/reference/cli.md`).
+  - [x] All 4 stages complete and verified on `main`. (Release tag `v*` pending maintainer confirmation).
