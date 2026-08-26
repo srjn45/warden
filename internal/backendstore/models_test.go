@@ -322,3 +322,114 @@ func TestReopenPreservesModelAndTierChanges(t *testing.T) {
 	require.Equal(t, 92, settings.ContextFillThreshold)
 	require.Equal(t, 20*time.Minute, settings.CooldownPeriod)
 }
+
+func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir)
+	require.NoError(t, err)
+
+	// 1. Mutate an existing default model and role tier
+	require.NoError(t, s.SetModelTier("claude", "claude-opus", Tier3))
+	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
+	require.NoError(t, s.SetRoleTier("analysis", Tier3))
+
+	// 2. Add custom model, custom role, and custom quota
+	require.NoError(t, s.UpsertModel(ModelEntry{
+		BackendID:   "custom",
+		ModelID:     "custom-1",
+		Tier:        Tier1,
+		DisplayName: "Custom Model 1",
+		Enabled:     true,
+	}))
+	require.NoError(t, s.SetRoleTier("custom-role", Tier1))
+	require.NoError(t, s.SetQuota(BackendQuota{
+		BackendID:  "custom",
+		QuotaLimit: 1000,
+		WindowType: WindowDaily,
+	}))
+
+	// 3. Remove a few default models, a default role tier, and a default quota from the store
+	missingModelKey1 := modelKey("antigravity", "gemini-3.7-flash-high")
+	missingModelKey2 := modelKey("claude", "claude-3-7-sonnet")
+	require.NoError(t, s.modelsCol.DeleteByKey(missingModelKey1))
+	require.NoError(t, s.modelsCol.DeleteByKey(missingModelKey2))
+	require.NoError(t, s.rolesCol.DeleteByKey("ci-triage"))
+	require.NoError(t, s.quotasCol.DeleteByKey("cursor"))
+
+	// Verify they are deleted before reopening
+	_, err = s.GetModel("antigravity", "gemini-3.7-flash-high")
+	require.ErrorIs(t, err, ErrModelNotFound)
+	_, err = s.GetModel("claude", "claude-3-7-sonnet")
+	require.ErrorIs(t, err, ErrModelNotFound)
+	_, err = s.GetRoleTier("ci-triage")
+	require.ErrorIs(t, err, ErrRoleNotFound)
+	_, err = s.GetQuota("cursor")
+	require.ErrorIs(t, err, ErrNotFound)
+
+	require.NoError(t, s.Close())
+
+	// 4. Reopen the store
+	s2, err := NewStore(dir)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	// 5. Verify the missing default models were restored cleanly with defaults
+	m1, err := s2.GetModel("antigravity", "gemini-3.7-flash-high")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m1.Tier)
+	require.Equal(t, "Gemini 3.7 Flash (High)", m1.DisplayName)
+	require.True(t, m1.Enabled)
+
+	m2, err := s2.GetModel("claude", "claude-3-7-sonnet")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m2.Tier)
+	require.Equal(t, "Claude 3.7 Sonnet", m2.DisplayName)
+	require.True(t, m2.Enabled)
+
+	// 6. Verify missing role tier and quota were restored cleanly
+	rt, err := s2.GetRoleTier("ci-triage")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, rt)
+
+	q, err := s2.GetQuota("cursor")
+	require.NoError(t, err)
+	require.Equal(t, WindowMonthly, q.WindowType)
+	require.Equal(t, 500.0, q.QuotaLimit)
+
+	// 7. Verify mutated default model and role tier were NOT overwritten
+	mutatedModel, err := s2.GetModel("claude", "claude-opus")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, mutatedModel.Tier)
+	require.False(t, mutatedModel.Enabled)
+
+	mutatedRole, err := s2.GetRoleTier("analysis")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, mutatedRole)
+
+	// 8. Verify custom model, role, and quota were preserved
+	customModel, err := s2.GetModel("custom", "custom-1")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, customModel.Tier)
+	require.Equal(t, "Custom Model 1", customModel.DisplayName)
+
+	customRoleTier, err := s2.GetRoleTier("custom-role")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, customRoleTier)
+
+	customQ, err := s2.GetQuota("custom")
+	require.NoError(t, err)
+	require.Equal(t, 1000.0, customQ.QuotaLimit)
+
+	// 9. Total counts: 17 defaults + 1 custom = 18 models; 11 defaults + 1 custom = 12 roles; 4 defaults + 1 custom = 5 quotas
+	models, err := s2.ListModels("")
+	require.NoError(t, err)
+	require.Len(t, models, 18)
+
+	roles, err := s2.ListRoleTiers()
+	require.NoError(t, err)
+	require.Len(t, roles, 12)
+
+	quotas, err := s2.ListQuotas()
+	require.NoError(t, err)
+	require.Len(t, quotas, 5)
+}
