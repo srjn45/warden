@@ -812,34 +812,33 @@ func (s *Store) seedDefaultsIfEmpty() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Seed models if models collection is empty
-	modelResults, err := s.modelsCol.Scan(query.MatchAll)
-	if err != nil {
-		return err
-	}
-	if len(modelResults) == 0 {
-		for _, m := range DefaultModels() {
+	// Seed any missing default models
+	for _, m := range DefaultModels() {
+		key := modelKey(m.BackendID, m.ModelID)
+		_, err := s.modelsCol.GetByKey(key)
+		if errors.Is(err, engine.ErrKeyNotFound) {
 			if err := s.upsertModel(m); err != nil {
 				return err
 			}
+		} else if err != nil {
+			return err
 		}
 	}
 
-	// Seed role tiers if role_tiers collection is empty
-	roleResults, err := s.rolesCol.Scan(query.MatchAll)
-	if err != nil {
-		return err
-	}
-	if len(roleResults) == 0 {
-		for _, rm := range DefaultRoleTiers() {
+	// Seed any missing default role tiers
+	for _, rm := range DefaultRoleTiers() {
+		_, err := s.rolesCol.GetByKey(rm.RoleName)
+		if errors.Is(err, engine.ErrKeyNotFound) {
 			if err := s.setRoleTier(rm.RoleName, rm.DefaultTier); err != nil {
 				return err
 			}
+		} else if err != nil {
+			return err
 		}
 	}
 
 	// Seed handover settings if unconfigured
-	_, err = s.handoverCol.GetByKey(HandoverSettingsKey)
+	_, err := s.handoverCol.GetByKey(HandoverSettingsKey)
 	if errors.Is(err, engine.ErrKeyNotFound) {
 		if err := s.setHandoverSettings(DefaultHandoverSettings()); err != nil {
 			return err
@@ -848,16 +847,15 @@ func (s *Store) seedDefaultsIfEmpty() error {
 		return err
 	}
 
-	// Seed quotas if quotas collection is empty
-	quotaResults, err := s.quotasCol.Scan(query.MatchAll)
-	if err != nil {
-		return err
-	}
-	if len(quotaResults) == 0 {
-		for _, q := range DefaultQuotas() {
+	// Seed any missing default quotas
+	for _, q := range DefaultQuotas() {
+		_, err := s.quotasCol.GetByKey(q.BackendID)
+		if errors.Is(err, engine.ErrKeyNotFound) {
 			if err := s.upsertQuota(q); err != nil {
 				return err
 			}
+		} else if err != nil {
+			return err
 		}
 	}
 
