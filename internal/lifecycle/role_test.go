@@ -13,17 +13,17 @@ import (
 // resolveRole fills unset spawn fields from the role's defaults, with precedence
 // explicit request value > role default > global default.
 func TestResolveRolePrecedence(t *testing.T) {
-	// implementer: default type=development fills an unset type; the canonical role
+	// worker: default type=development fills an unset type; the canonical role
 	// name is persisted.
-	req := SpawnRequest{Role: "implementer"}
+	req := SpawnRequest{Role: "worker"}
 	r, err := resolveRole(&req)
 	require.NoError(t, err)
-	require.Equal(t, "implementer", r.Name)
-	require.Equal(t, "implementer", req.Role)
+	require.Equal(t, "worker", r.Name)
+	require.Equal(t, "worker", req.Role)
 	require.Equal(t, store.TypeDevelopment, req.Type)
 
 	// An explicit type wins over the role default.
-	req = SpawnRequest{Role: "implementer", Type: store.TypeSpike}
+	req = SpawnRequest{Role: "worker", Type: store.TypeSpike}
 	_, err = resolveRole(&req)
 	require.NoError(t, err)
 	require.Equal(t, store.TypeSpike, req.Type)
@@ -39,8 +39,8 @@ func TestResolveRolePrecedence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "acceptEdits", req.PermissionMode)
 
-	// auto-merger: both permission_mode=auto and auto_approve=true are applied.
-	req = SpawnRequest{Role: "auto-merger"}
+	// brain: both permission_mode=auto and auto_approve=true are applied.
+	req = SpawnRequest{Role: "brain"}
 	_, err = resolveRole(&req)
 	require.NoError(t, err)
 	require.Equal(t, "auto", req.PermissionMode)
@@ -48,7 +48,7 @@ func TestResolveRolePrecedence(t *testing.T) {
 
 	// auto_approve is OR-ed: an explicit true survives a role with no auto_approve
 	// default.
-	req = SpawnRequest{Role: "implementer", AutoApprove: true}
+	req = SpawnRequest{Role: "worker", AutoApprove: true}
 	_, err = resolveRole(&req)
 	require.NoError(t, err)
 	require.True(t, req.AutoApprove)
@@ -59,11 +59,11 @@ func TestResolveRolePrecedence(t *testing.T) {
 // is a passthrough: the request's own tags survive resolution untouched (Spawn
 // normalizes them afterward via store.NormalizeTags).
 func TestResolveRoleTagsPreserved(t *testing.T) {
-	req := SpawnRequest{Role: "reviewer", Tags: []string{"frontend", "urgent"}}
+	req := SpawnRequest{Role: "worker", Tags: []string{"frontend", "urgent"}}
 	_, err := resolveRole(&req)
 	require.NoError(t, err)
 	require.Equal(t, []string{"frontend", "urgent"}, req.Tags)
-	require.Equal(t, store.TypePRReview, req.Type)
+	require.Equal(t, store.TypeDevelopment, req.Type)
 }
 
 // unionTags is the exact tag-union step resolveRole applies when a role DOES ship
@@ -113,12 +113,12 @@ func TestSpawnRolePersistsAndInjectsPersona(t *testing.T) {
 	lc := New(fr, &FakeConfig{})
 	lc.HintsDir = "/state/hints"
 	s, err := lc.Spawn(context.Background(), SpawnRequest{
-		Type: store.TypeDevelopment, Ticket: "PROJ-360", Repo: "/repo", Role: "reviewer",
+		Type: store.TypeDevelopment, Ticket: "PROJ-360", Repo: "/repo", Role: "worker",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "reviewer", s.Role, "the resolved role name is persisted on the session")
+	require.Equal(t, "worker", s.Role, "the resolved role name is persisted on the session")
 
-	persona := personaGuidance("reviewer")
+	persona := personaGuidance("worker")
 	require.NotEmpty(t, persona)
 
 	// The persona is written into the per-agent hints file FIRST (before the
@@ -133,7 +133,7 @@ func TestSpawnRolePersistsAndInjectsPersona(t *testing.T) {
 		` --append-system-prompt "$(cat ` + shellQuoteArg(hintFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	// The persona never rides the tmux launch line itself.
-	require.NotContains(t, launch, "You are a reviewer")
+	require.NotContains(t, launch, "You are a worker")
 }
 
 // The general (empty) role injects no persona: the launch line stays byte-identical
@@ -166,13 +166,13 @@ func TestSpawnRoleDefaultTypeFlipsFreeForm(t *testing.T) {
 	}}
 	lc := New(fr, &FakeConfig{})
 	lc.PromptsDir = "/state/prompts"
-	// No Type given, but implementer defaults type=development, so this becomes a
+	// No Type given, but worker defaults type=development, so this becomes a
 	// managed worktree spawn rather than a free-form one.
 	s, err := lc.Spawn(context.Background(), SpawnRequest{
-		Repo: "/repo", Cwd: "/repo", Role: "implementer", Prompt: "do the thing",
+		Repo: "/repo", Cwd: "/repo", Role: "worker", Prompt: "do the thing",
 	})
 	require.NoError(t, err)
 	require.Equal(t, store.TypeDevelopment, s.Type)
 	require.NotEmpty(t, s.Worktree, "role default type=development creates a worktree")
-	require.Equal(t, "implementer", s.Role)
+	require.Equal(t, "worker", s.Role)
 }

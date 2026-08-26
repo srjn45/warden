@@ -45,8 +45,8 @@ func TestComposeDigestFromFixtureState(t *testing.T) {
 		},
 		Ledger: l,
 		Sources: fakeSources{
-			agents: []AgentInfo{{ID: "A-1", Name: "api-worker", Role: "implementer", State: "running", Branch: "autopilot/api"}},
-			audit:  []AuditEntry{{Time: "2026-07-09T10:05:00Z", Action: "spawn", Target: "A-1", Detail: "role=implementer"}},
+			agents: []AgentInfo{{ID: "A-1", Name: "api-worker", Role: "worker", State: "running", Branch: "autopilot/api"}},
+			audit:  []AuditEntry{{Time: "2026-07-09T10:05:00Z", Action: "spawn", Target: "A-1", Detail: "role=worker"}},
 		},
 	}
 

@@ -883,7 +883,7 @@ func TestHandleSetRolePersistsAndRelaunches(t *testing.T) {
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
 
-	body := bytes.NewReader([]byte(`{"role":"reviewer"}`))
+	body := bytes.NewReader([]byte(`{"role":"worker"}`))
 	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/sessions/A-1/role", body)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
@@ -892,15 +892,15 @@ func TestHandleSetRolePersistsAndRelaunches(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	got, _ := fs.Get(context.Background(), "A-1")
-	require.Equal(t, "reviewer", got.Role)
+	require.Equal(t, "worker", got.Role)
 	require.Equal(t, "A-1", fl.switchedRole)
-	require.Equal(t, "reviewer", fl.switchedRoleName)
+	require.Equal(t, "worker", fl.switchedRoleName)
 	require.Equal(t, store.StatusSpawning, got.Status)
 }
 
 func TestHandleSetRoleGeneralStoresEmpty(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Role: "reviewer", Status: store.StatusIdle})
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Role: "worker", Status: store.StatusIdle})
 	srv := lifeServer(t, fs, &fakeLife{})
 
 	body := bytes.NewReader([]byte(`{"role":"general"}`))
@@ -948,7 +948,7 @@ func TestHandleListRoles(t *testing.T) {
 	for _, r := range out.Roles {
 		names[r.Name] = true
 	}
-	require.True(t, names["reviewer"])
+	require.True(t, names["worker"])
 	require.True(t, names["orchestrator"])
 }
 

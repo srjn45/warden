@@ -198,7 +198,7 @@ func TestDetailBodyRendersAllSections(t *testing.T) {
 		Status:          store.StatusWaitingForInput,
 		PermissionMode:  "acceptEdits",
 		Model:           "opus",
-		Role:            "implementer",
+		Role:            "worker",
 		Tags:            []string{"backend", "urgent"},
 		AutoApprove:     true,
 		ForceCompact:    &fc,
@@ -230,7 +230,7 @@ func TestDetailBodyRendersAllSections(t *testing.T) {
 		"acceptEdits",                          // permission mode
 		"48213",                                // pid
 		"opus",                                 // model (new)
-		"implementer",                          // role (new)
+		"worker",                               // role (new)
 		"urgent",                               // tags (new)
 		"agent-root",                           // parent (new)
 		"auto-approve",                         // control row (new)
@@ -457,7 +457,7 @@ func TestDetailArrowsWalkControlsThenScroll(t *testing.T) {
 	// is scrollable below the controls.
 	s := &store.Session{
 		ID: "agent-1", Status: store.StatusWorking, Subject: "doing a thing",
-		Backend: "claude", Model: "opus", Role: "implementer",
+		Backend: "claude", Model: "opus", Role: "worker",
 		Tags: []string{"alpha", "beta"}, Workdir: "/home/x/dev/warden",
 		Worktree: "/home/x/wt", Branch: "feat/x", Prompt: "a prompt",
 		PR: "123", Ticket: "T-1",
