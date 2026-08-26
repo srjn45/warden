@@ -647,6 +647,13 @@ type Lifecycle struct {
 	// nil disables recording. Called inline on the offload path, so it must be cheap
 	// and must not panic.
 	SavingsHook func(feature, agent string, rawTokens, keptTokens int, rawSample, keptSample string)
+	// Resolver selects the successor backend+model for a mid-session hot-swap
+	// (HotSwap) when the caller did not pin them explicitly — the quota-balanced
+	// weighted-headroom router (internal/router). nil (unit tests, or a daemon built
+	// before the tiered-routing wiring) disables tier-based resolution: a hot-swap
+	// must then pin an explicit backend/model, or it is refused with a clear error.
+	// See SuccessorResolver.
+	Resolver SuccessorResolver
 	// goos and readPSI are the platform seams for MemoryPressure: runtime.GOOS
 	// and a /proc/pressure/memory read in production, injected by tests so both
 	// kernel sources are exercised on any host.

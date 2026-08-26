@@ -197,6 +197,20 @@ type Poller struct {
 	// and gate-aware on the receiving side.
 	OnSaving func(feature, agent string, rawTokens, keptTokens, costTokens int)
 
+	// Hot-swap threshold trigger (Task 3.4): when HandoverEnabled and OnHotSwap are
+	// set, the poller signals a mid-session hot-swap the first time an agent's
+	// context-window fill reaches the critical band (warden's existing near-full
+	// signal, the same one that drives auto-/compact). It is edge-triggered per
+	// critical episode via hotSwapFlagged, so the daemon's handler is called once —
+	// not every tick — while the window stays full. The poller stays deliberately
+	// thin: it detects the crossing and hands the session to OnHotSwap; the daemon
+	// runs the full lifecycle.DecideHotSwap policy (fill %, provider-quota headroom,
+	// cooldown) and performs the swap. nil OnHotSwap or a false HandoverEnabled makes
+	// the whole path inert (the default), so existing deployments are unaffected.
+	HandoverEnabled bool
+	OnHotSwap       func(s *store.Session, tokens int)
+	hotSwapFlagged  map[string]bool // per-agent: hot-swap already signalled this critical episode (tick goroutine only)
+
 	// OnSpend, if set, records an agent's cumulative billed spend (input+output
 	// tokens read from its transcript) so the report can express savings as a share
 	// of REAL measured spend AND price it per model into the cost-governance rollup.
@@ -395,6 +409,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		paneHistory:     map[string][]string{},
 		loopFlagged:     map[string]bool{},
 		preCrashFlagged: map[string]bool{},
+		hotSwapFlagged:  map[string]bool{},
 		forceCompact:    map[string]fcState{},
 		approveBreaker:  approval.NewBreaker(),
 		lastForward:     map[string]string{},
@@ -885,6 +900,7 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 &&
 		len(p.pendingCompact) == 0 && len(p.paneHistory) == 0 &&
 		len(p.loopFlagged) == 0 && len(p.preCrashFlagged) == 0 &&
+		len(p.hotSwapFlagged) == 0 &&
 		len(p.forceCompact) == 0 && p.approveBreaker.Len() == 0 {
 		return
 	}
@@ -920,6 +936,11 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	for id := range p.preCrashFlagged {
 		if _, ok := live[id]; !ok {
 			delete(p.preCrashFlagged, id)
+		}
+	}
+	for id := range p.hotSwapFlagged {
+		if _, ok := live[id]; !ok {
+			delete(p.hotSwapFlagged, id)
 		}
 	}
 	for id := range p.forceCompact {
