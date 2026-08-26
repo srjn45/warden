@@ -1,0 +1,5 @@
+name: monitor-ci
+description: "Watch CI pipeline, report status"
+tier: 3
+roles:
+  - worker

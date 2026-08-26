@@ -1,0 +1,5 @@
+name: spike
+description: "Exploratory proof-of-concept investigation"
+tier: 1
+roles:
+  - planner

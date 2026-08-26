@@ -1,0 +1,5 @@
+name: pr-review
+description: "Review an open pull request"
+tier: 2
+roles:
+  - worker

@@ -1,0 +1,5 @@
+name: merge-pr
+description: "Merge PR once CI is green"
+tier: 3
+roles:
+  - worker

@@ -1,0 +1,5 @@
+name: design
+description: "Tech spec, RFC, detailed design document"
+tier: 1
+roles:
+  - planner

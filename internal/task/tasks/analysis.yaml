@@ -1,0 +1,5 @@
+name: analysis
+description: "Codebase analysis, understanding the problem"
+tier: 1
+roles:
+  - planner

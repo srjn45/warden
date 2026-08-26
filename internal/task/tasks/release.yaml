@@ -1,0 +1,6 @@
+name: release
+description: "Version bumping, changelog, release tagging"
+tier: 3
+roles:
+  - worker
+  - general

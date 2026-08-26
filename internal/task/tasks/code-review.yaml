@@ -1,0 +1,5 @@
+name: code-review
+description: "Code coverage, quality, best-practices review"
+tier: 2
+roles:
+  - worker
