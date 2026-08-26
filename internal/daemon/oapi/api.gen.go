@@ -995,6 +995,9 @@ type SetModelTierJSONBody struct {
 
 // CreatePipelineJSONBody defines parameters for CreatePipeline.
 type CreatePipelineJSONBody struct {
+	// Owner Optional id of the orchestrator agent that owns (delegated) this pipeline, recorded as the pipeline's owner_id. When omitted the daemon falls back to the caller's actor identity, so an agent-created pipeline back-refs its creator automatically (mirrors how a spawned agent's parent_id is threaded). A human/CLI create leaves it empty.
+	Owner string `json:"owner,omitempty"`
+
 	// Spec pipeline YAML
 	Spec string `json:"spec,omitempty"`
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/daemon/oapi"
@@ -36,6 +37,20 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	// Captured at creation because jobs spawn later from the executor's ticker,
 	// where no request (and so no actor identity) exists anymore.
 	p.Tags = s.inheritOwnershipTags(ctx, p.Tags)
+	// Link a delegated pipeline back to its owning orchestrator (the agent-mode
+	// analogue of Session.ParentID). An explicit owner on the request wins; else
+	// fall back to the caller's actor identity, so an agent-created pipeline
+	// back-refs its creator without the persona having to pass anything.
+	owner := ""
+	if req.Body != nil {
+		owner = strings.TrimSpace(req.Body.Owner)
+	}
+	if owner == "" {
+		if caller := s.callerSession(ctx); caller != nil {
+			owner = caller.ID
+		}
+	}
+	p.OwnerID = owner
 	if err := s.exec.pstore.Create(p); errors.Is(err, pipeline.ErrExists) {
 		return nil, errStatus(http.StatusConflict, "pipeline "+p.ID+" already exists")
 	} else if err != nil {

@@ -75,6 +75,14 @@ type Pipeline struct {
 	// agent-mode fire tagging.
 	ScheduleID   string `json:"schedule_id,omitempty" yaml:"-"`
 	ScheduleName string `json:"schedule_name,omitempty" yaml:"-"`
+	// OwnerID links a delegated pipeline back to the orchestrator agent that
+	// created it, the pipeline-mode analogue of a spawned agent's Session.ParentID.
+	// Daemon-stamped at creation (yaml:"-") from the caller's actor identity (or an
+	// explicit owner on the create request), never spec-authored. Empty means an
+	// orchestrator-less pipeline — a direct human/CLI create. The cockpit groups a
+	// delegated pipeline under its owner and an owner-less one under its project
+	// node; A4 uses it as the wake/push target.
+	OwnerID string `json:"owner_id,omitempty" yaml:"-"`
 }
 
 // Job returns a pointer to the job with id, or nil.

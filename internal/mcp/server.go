@@ -661,7 +661,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_pipeline",
-		Description: "Create a DAG pipeline of agent jobs from a YAML spec (the daemon parses, validates, and stores it). Use this to drive a multi-stage / dependent agent workflow (e.g. analyze→implement→review) instead of spawning and wiring agents by hand. The pipeline starts in `pending` — call start_pipeline to spawn its entry jobs. Returns the created pipeline {id, status, jobs}.",
+		Description: "Create a DAG pipeline of agent jobs from a YAML spec (the daemon parses, validates, and stores it). Use this to drive a multi-stage / dependent agent workflow (e.g. analyze→implement→review) instead of spawning and wiring agents by hand. When you call this as an orchestrator, the pipeline records you as its owner (owner_id, the pipeline-mode analogue of a spawned agent's parent_id) so a delegated pipeline knows who to report back to. The pipeline starts in `pending` — call start_pipeline to spawn its entry jobs. Returns the created pipeline {id, status, owner_id, jobs}.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPipelineArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PipelineCreate(ctx, a.Spec)
 		if err != nil {
