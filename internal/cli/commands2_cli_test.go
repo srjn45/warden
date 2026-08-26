@@ -271,16 +271,16 @@ func TestSetPermissionModeCmdInvalid(t *testing.T) {
 func TestSetRoleCmd(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"PATCH /api/v1/sessions/A-1/role": `{"role":"reviewer"}`,
+		"PATCH /api/v1/sessions/A-1/role": `{"role":"worker"}`,
 	}, nil, body))
-	out, err := runCLI(t, addr, "set-role", "A-1", "reviewer")
+	out, err := runCLI(t, addr, "set-role", "A-1", "worker")
 	if err != nil {
 		t.Fatalf("set-role: %v", err)
 	}
-	if !strings.Contains(out, `role set to "reviewer" for A-1`) {
+	if !strings.Contains(out, `role set to "worker" for A-1`) {
 		t.Fatalf("set-role output: %q", out)
 	}
-	if !strings.Contains(body["/api/v1/sessions/A-1/role"], `"role":"reviewer"`) {
+	if !strings.Contains(body["/api/v1/sessions/A-1/role"], `"role":"worker"`) {
 		t.Fatalf("role not forwarded: %q", body["/api/v1/sessions/A-1/role"])
 	}
 }
@@ -298,7 +298,7 @@ func TestRoleListCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("role list: %v", err)
 	}
-	for _, want := range []string{"general", "orchestrator", "implementer", "auto-merger", "reviewer", "autopilot"} {
+	for _, want := range []string{"general", "orchestrator", "planner", "worker", "autopilot", "brain"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("role list missing %q: %q", want, out)
 		}

@@ -11,9 +11,9 @@ func TestRoleList(t *testing.T) {
 	out, err := runGit(t, "127.0.0.1:0", "role", "list")
 	require.NoError(t, err)
 	require.Contains(t, out, "ROLE")
-	require.Contains(t, out, "DESCRIPTION")
-	require.Contains(t, out, "implementer")
-	require.Contains(t, out, "reviewer")
+	require.Contains(t, out, "general")
+	require.Contains(t, out, "worker")
+	require.Contains(t, out, "orchestrator")
 }
 
 func TestRoleTierList(t *testing.T) {

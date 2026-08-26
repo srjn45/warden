@@ -7,7 +7,7 @@ import (
 
 func TestGetKnownRoles(t *testing.T) {
 	// Every built-in role resolves, carries its name back, and has a description.
-	for _, name := range []string{"general", "orchestrator", "implementer", "auto-merger", "reviewer", "autopilot", "worker", "brain"} {
+	for _, name := range []string{"general", "orchestrator", "autopilot", "worker", "brain", "planner"} {
 		r, ok := Get(name)
 		if !ok {
 			t.Fatalf("Get(%q): want ok, got not found", name)
@@ -17,6 +17,17 @@ func TestGetKnownRoles(t *testing.T) {
 		}
 		if strings.TrimSpace(r.Description) == "" {
 			t.Errorf("role %q has empty description", name)
+		}
+	}
+
+	// Legacy roles map to worker
+	for _, name := range []string{"implementer", "auto-merger", "reviewer"} {
+		r, ok := Get(name)
+		if !ok {
+			t.Fatalf("Get(%q): want ok, got not found", name)
+		}
+		if r.Name != "worker" {
+			t.Errorf("Get(%q).Name = %q, want %q", name, r.Name, "worker")
 		}
 	}
 }
@@ -42,8 +53,8 @@ func TestGetEmptyAndUnknown(t *testing.T) {
 
 func TestNamesDefaultFirstAndComplete(t *testing.T) {
 	names := Names()
-	if len(names) != 8 {
-		t.Fatalf("Names() len = %d, want 8 (%v)", len(names), names)
+	if len(names) != 6 {
+		t.Fatalf("Names() len = %d, want 6 (%v)", len(names), names)
 	}
 	if names[0] != Default {
 		t.Errorf("Names()[0] = %q, want %q first", names[0], Default)
@@ -83,9 +94,7 @@ func TestBuiltinDefaults(t *testing.T) {
 	cases := map[string]Defaults{
 		"general":      {},
 		"orchestrator": {PermissionMode: "auto"},
-		"implementer":  {Type: "development"},
-		"auto-merger":  {PermissionMode: "auto", AutoApprove: true},
-		"reviewer":     {Type: "pr-review"},
+		"planner":      {PermissionMode: "plan"},
 		"worker":       {Type: "development", PermissionMode: "auto", AutoApprove: true},
 		"brain":        {PermissionMode: "auto", AutoApprove: true},
 	}

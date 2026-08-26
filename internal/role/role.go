@@ -100,11 +100,17 @@ func init() {
 }
 
 // Get returns the role named name and whether it exists. The empty name and
-// "general" both resolve to the built-in default role. An unknown name returns
-// (zero, false); it is the call site's job to turn that into an error.
+// "general" both resolve to the built-in default role. Legacy roles ("reviewer",
+// "implementer", "auto-merger") are mapped to "worker" for backward compatibility.
+// An unknown name returns (zero, false); it is the call site's job to turn that
+// into an error.
 func Get(name string) (Role, bool) {
 	if name == "" {
 		name = Default
+	}
+	switch name {
+	case "reviewer", "implementer", "auto-merger":
+		name = "worker"
 	}
 	r, ok := registry[name]
 	return r, ok

@@ -89,7 +89,7 @@ func TestListRolesTool(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), `"general"`)
-	require.Contains(t, textOf(res), `"reviewer"`)
+	require.Contains(t, textOf(res), `"worker"`)
 }
 
 // TestSetRoleTool exercises the PATCH /sessions/{id}/role round-trip and the
@@ -100,7 +100,7 @@ func TestSetRoleTool(t *testing.T) {
 		hit = r.Method + " " + r.URL.Path
 		b, _ := io.ReadAll(r.Body)
 		body = string(b)
-		_, _ = w.Write([]byte(`{"role":"reviewer"}`))
+		_, _ = w.Write([]byte(`{"role":"worker"}`))
 	}))
 	defer daemon.Close()
 	session := connectTo(t, daemon.URL)
@@ -108,13 +108,13 @@ func TestSetRoleTool(t *testing.T) {
 
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "set_role",
-		Arguments: map[string]any{"ticket": "A-1", "role": "reviewer"},
+		Arguments: map[string]any{"ticket": "A-1", "role": "worker"},
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
 	require.Equal(t, "PATCH /api/v1/sessions/A-1/role", hit)
-	require.Contains(t, body, `"role":"reviewer"`)
-	require.Contains(t, textOf(res), "set to reviewer")
+	require.Contains(t, body, `"role":"worker"`)
+	require.Contains(t, textOf(res), "set to worker")
 
 	// An unknown role is rejected before any daemon call.
 	bad, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
