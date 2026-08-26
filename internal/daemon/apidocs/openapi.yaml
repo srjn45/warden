@@ -1545,6 +1545,15 @@ paths:
               type: object
               properties:
                 spec: { type: string, description: "pipeline YAML" }
+                owner:
+                  type: string
+                  description: >-
+                    Optional id of the orchestrator agent that owns (delegated)
+                    this pipeline, recorded as the pipeline's owner_id. When
+                    omitted the daemon falls back to the caller's actor identity,
+                    so an agent-created pipeline back-refs its creator
+                    automatically (mirrors how a spawned agent's parent_id is
+                    threaded). A human/CLI create leaves it empty.
       responses:
         "201":
           description: The parsed + stored pipeline
@@ -2869,6 +2878,14 @@ components:
             Labels stamped onto every job agent this pipeline spawns. Set by the
             daemon at creation time (not spec-authored) — e.g. autopilot
             ownership tags inherited from the creating agent.
+        owner_id:
+          type: string
+          description: >-
+            Id of the orchestrator agent that created (delegated) this pipeline —
+            the pipeline-mode analogue of a spawned agent's parent_id. Stamped by
+            the daemon at creation from the caller's actor identity (or an explicit
+            owner on the create request). Empty for a direct human/CLI create; the
+            cockpit groups a delegated pipeline under this owner.
         jobs:
           type: array
           items: { $ref: "#/components/schemas/PipelineJob" }

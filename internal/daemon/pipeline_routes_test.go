@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
@@ -467,6 +468,60 @@ func TestPipelineResumeNotPaused409(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("resume running want 409, got %d", resp.StatusCode)
 	}
+}
+
+// postPipeline issues a create request with an optional actor header and returns
+// the created pipeline.
+func postPipeline(t *testing.T, url, body, actor string) pipeline.Pipeline {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, url+"/api/v1/pipelines", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	if actor != "" {
+		req.Header.Set(auth.ActorHeader, actor)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var p pipeline.Pipeline
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&p))
+	return p
+}
+
+// TestPipelineCreateStampsOwner proves the owner link (A3): a create by an
+// orchestrator agent records that agent as owner_id (from its actor identity),
+// an explicit owner on the request wins over the caller, and a plain human/CLI
+// create (no actor, no owner) leaves the pipeline orchestrator-less.
+func TestPipelineCreateStampsOwner(t *testing.T) {
+	ps, _ := pipeline.NewStore(t.TempDir())
+	cs, _ := ctxstore.New(t.TempDir())
+	ss := newFakeStore()
+	require.NoError(t, ss.Insert(context.Background(), &store.Session{ID: "orchestrator-1"}))
+	exec := NewExecutor(ps, ss, &fakeLife{}, cs, func() {})
+	srv := &Server{store: ss, life: &fakeLife{}, exec: exec, hub: newHub(), done: make(chan struct{})}
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	t.Run("agent create records caller as owner", func(t *testing.T) {
+		p := postPipeline(t, ts.URL, yamlBody, "orchestrator-1")
+		require.Equal(t, "orchestrator-1", p.OwnerID)
+		got, err := ps.Get(p.ID)
+		require.NoError(t, err)
+		require.Equal(t, "orchestrator-1", got.OwnerID)
+	})
+
+	t.Run("explicit owner wins over caller", func(t *testing.T) {
+		body := `{"spec":"name: explicit\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n","owner":"other-orch"}`
+		p := postPipeline(t, ts.URL, body, "orchestrator-1")
+		require.Equal(t, "other-orch", p.OwnerID)
+	})
+
+	t.Run("human create is orchestrator-less", func(t *testing.T) {
+		body := `{"spec":"name: human\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`
+		p := postPipeline(t, ts.URL, body, "")
+		require.Empty(t, p.OwnerID)
+	})
 }
 
 func TestPipelinePause404(t *testing.T) {

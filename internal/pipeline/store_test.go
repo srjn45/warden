@@ -34,6 +34,44 @@ func TestStoreCreateGetList(t *testing.T) {
 	}
 }
 
+// TestStoreOwnerIDRoundTrip verifies a delegated pipeline's OwnerID (its
+// back-ref to the owning orchestrator, the pipeline-mode analogue of an agent's
+// ParentID) survives create → read → list, and that an unset owner stays empty
+// (an orchestrator-less human/CLI create).
+func TestStoreOwnerIDRoundTrip(t *testing.T) {
+	s, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	owned := &Pipeline{ID: "delegated", Name: "delegated", Repo: "/r", Status: StatusPending,
+		OwnerID: "orchestrator-1",
+		Jobs:    []Job{{ID: "a", Prompt: "x", Worktree: "none", Status: JobPending}}}
+	root := &Pipeline{ID: "human", Name: "human", Repo: "/r", Status: StatusPending,
+		Jobs: []Job{{ID: "a", Prompt: "x", Worktree: "none", Status: JobPending}}}
+	if err := s.Create(owned); err != nil {
+		t.Fatalf("Create owned: %v", err)
+	}
+	if err := s.Create(root); err != nil {
+		t.Fatalf("Create root: %v", err)
+	}
+	gotOwned, err := s.Get("delegated")
+	if err != nil || gotOwned.OwnerID != "orchestrator-1" {
+		t.Fatalf("Get delegated OwnerID: %+v err=%v", gotOwned, err)
+	}
+	gotRoot, err := s.Get("human")
+	if err != nil || gotRoot.OwnerID != "" {
+		t.Fatalf("Get human OwnerID want empty, got %q err=%v", gotRoot.OwnerID, err)
+	}
+	all, _ := s.List()
+	byID := map[string]string{}
+	for _, p := range all {
+		byID[p.ID] = p.OwnerID
+	}
+	if byID["delegated"] != "orchestrator-1" || byID["human"] != "" {
+		t.Fatalf("List OwnerID mismatch: %v", byID)
+	}
+}
+
 func TestStoreUpdate(t *testing.T) {
 	s, _ := NewStore(t.TempDir())
 	s.Create(&Pipeline{ID: "p1", Name: "p1", Repo: "/r", Status: StatusPending,
