@@ -606,6 +606,9 @@ type GuardVerdict struct {
 // GuardVerdictDecision defines model for GuardVerdict.Decision.
 type GuardVerdictDecision string
 
+// HandoverSettings Configuration for mid-session context handover and quota headroom triggers.
+type HandoverSettings = backendstore.HandoverSettings
+
 // ImportResult defines model for ImportResult.
 type ImportResult = store.ImportResult
 
@@ -619,6 +622,9 @@ type Message = mailbox.Message
 
 // MetricsSample A resource snapshot (system + per-agent + daemon stats).
 type MetricsSample = metrics.Sample
+
+// ModelEntry A model supported by an agent backend with its tier and status.
+type ModelEntry = backendstore.ModelEntry
 
 // OutputResponse defines model for OutputResponse.
 type OutputResponse struct {
@@ -712,6 +718,9 @@ type RoleInfo struct {
 	Description string `json:"description"`
 	Name        string `json:"name"`
 }
+
+// RoleTierMapping An agent role mapped to its default model tier.
+type RoleTierMapping = backendstore.RoleTierMapping
 
 // SavingsFeature Rolled-up token saving for one lifecycle feature.
 type SavingsFeature struct {
@@ -835,6 +844,9 @@ type SpendReport = spend.Report
 
 // Status Agent lifecycle status
 type Status string
+
+// SwapResult Outcome of a completed hot-swap.
+type SwapResult = lifecycle.SwapResult
 
 // SyncResult defines model for SyncResult.
 type SyncResult = lifecycle.SyncResult
@@ -970,6 +982,17 @@ type GetMetricsHistoryParams struct {
 	Agent string `form:"agent,omitempty" json:"agent,omitempty"`
 }
 
+// ListModelsParams defines parameters for ListModels.
+type ListModelsParams struct {
+	Tier string `form:"tier,omitempty" json:"tier,omitempty"`
+}
+
+// SetModelTierJSONBody defines parameters for SetModelTier.
+type SetModelTierJSONBody struct {
+	// Tier tier-1 | tier-2 | tier-3
+	Tier string `json:"tier"`
+}
+
 // CreatePipelineJSONBody defines parameters for CreatePipeline.
 type CreatePipelineJSONBody struct {
 	// Spec pipeline YAML
@@ -985,6 +1008,12 @@ type EditPipelineJobJSONBody struct {
 // EmitPipelineJobJSONBody defines parameters for EmitPipelineJob.
 type EmitPipelineJobJSONBody struct {
 	Text string `json:"text,omitempty"`
+}
+
+// SetRoleTierJSONBody defines parameters for SetRoleTier.
+type SetRoleTierJSONBody struct {
+	// Tier tier-1 | tier-2 | tier-3
+	Tier string `json:"tier"`
 }
 
 // GetSavingsParams defines parameters for GetSavings.
@@ -1094,6 +1123,27 @@ type SetRoleJSONBody struct {
 	Role string `json:"role,omitempty"`
 }
 
+// SwitchSessionJSONBody defines parameters for SwitchSession.
+type SwitchSessionJSONBody struct {
+	// Backend explicit successor backend id (e.g. antigravity)
+	Backend string `json:"backend,omitempty"`
+
+	// Model explicit successor model id
+	Model string `json:"model,omitempty"`
+
+	// Prompt optional extra instruction appended to successor's continuation prompt
+	Prompt string `json:"prompt,omitempty"`
+
+	// Reason reason recorded for hot-swap (manual | context_fill | quota)
+	Reason string `json:"reason,omitempty"`
+
+	// Role role to resolve tier from when tier is not given
+	Role string `json:"role,omitempty"`
+
+	// Tier resolve successor via quota-balanced router at this tier (tier-1 | tier-2 | tier-3)
+	Tier string `json:"tier,omitempty"`
+}
+
 // ListSnapshotsParams defines parameters for ListSnapshots.
 type ListSnapshotsParams struct {
 	// Session Filter to one session
@@ -1155,11 +1205,17 @@ type GitPushJSONRequestBody = GitPushRequest
 // GitSyncJSONRequestBody defines body for GitSync for application/json ContentType.
 type GitSyncJSONRequestBody = GitSyncRequest
 
+// SetHandoverSettingsJSONRequestBody defines body for SetHandoverSettings for application/json ContentType.
+type SetHandoverSettingsJSONRequestBody = HandoverSettings
+
 // GuardHookJSONRequestBody defines body for GuardHook for application/json ContentType.
 type GuardHookJSONRequestBody = GuardRequest
 
 // ImportSessionsJSONRequestBody defines body for ImportSessions for application/json ContentType.
 type ImportSessionsJSONRequestBody = Export
+
+// SetModelTierJSONRequestBody defines body for SetModelTier for application/json ContentType.
+type SetModelTierJSONRequestBody SetModelTierJSONBody
 
 // CreatePipelineJSONRequestBody defines body for CreatePipeline for application/json ContentType.
 type CreatePipelineJSONRequestBody CreatePipelineJSONBody
@@ -1175,6 +1231,9 @@ type PruneWorktreesJSONRequestBody = PruneRequest
 
 // RecoverAgentsJSONRequestBody defines body for RecoverAgents for application/json ContentType.
 type RecoverAgentsJSONRequestBody = RecoverRequest
+
+// SetRoleTierJSONRequestBody defines body for SetRoleTier for application/json ContentType.
+type SetRoleTierJSONRequestBody SetRoleTierJSONBody
 
 // CreateScheduleJSONRequestBody defines body for CreateSchedule for application/json ContentType.
 type CreateScheduleJSONRequestBody = ScheduleCreateRequest
@@ -1211,6 +1270,9 @@ type RemoveWorktreeJSONRequestBody = RemoveWorktreeRequest
 
 // SetRoleJSONRequestBody defines body for SetRole for application/json ContentType.
 type SetRoleJSONRequestBody SetRoleJSONBody
+
+// SwitchSessionJSONRequestBody defines body for SwitchSession for application/json ContentType.
+type SwitchSessionJSONRequestBody SwitchSessionJSONBody
 
 // CreateSnapshotJSONRequestBody defines body for CreateSnapshot for application/json ContentType.
 type CreateSnapshotJSONRequestBody = SnapshotCreateRequest
@@ -1307,6 +1369,12 @@ type ServerInterface interface {
 	// Rebase a worktree's branch onto origin/base
 	// (POST /api/v1/git/sync)
 	GitSync(w http.ResponseWriter, r *http.Request)
+	// Get handover configuration
+	// (GET /api/v1/handover/settings)
+	GetHandoverSettings(w http.ResponseWriter, r *http.Request)
+	// Update handover configuration
+	// (PUT /api/v1/handover/settings)
+	SetHandoverSettings(w http.ResponseWriter, r *http.Request)
 	// Browse the archived (closed) session store
 	// (GET /api/v1/history)
 	ListHistory(w http.ResponseWriter, r *http.Request, params ListHistoryParams)
@@ -1325,6 +1393,12 @@ type ServerInterface interface {
 	// Recorded metrics samples or per-agent summaries
 	// (GET /api/v1/metrics/history)
 	GetMetricsHistory(w http.ResponseWriter, r *http.Request, params GetMetricsHistoryParams)
+	// List models in the catalog and their assigned tiers
+	// (GET /api/v1/models)
+	ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams)
+	// Set a model's tier classification
+	// (PUT /api/v1/models/{backend}/{model}/tier)
+	SetModelTier(w http.ResponseWriter, r *http.Request, backend string, model string)
 	// List pipelines
 	// (GET /api/v1/pipelines)
 	ListPipelines(w http.ResponseWriter, r *http.Request)
@@ -1370,6 +1444,12 @@ type ServerInterface interface {
 	// List the built-in agent roles
 	// (GET /api/v1/roles)
 	ListRoles(w http.ResponseWriter, r *http.Request)
+	// List role-to-tier mappings
+	// (GET /api/v1/roles/tiers)
+	ListRoleTiers(w http.ResponseWriter, r *http.Request)
+	// Set the default model tier for an agent role
+	// (PUT /api/v1/roles/tiers/{role})
+	SetRoleTier(w http.ResponseWriter, r *http.Request, role string)
 	// Aggregated token-savings summary
 	// (GET /api/v1/savings)
 	GetSavings(w http.ResponseWriter, r *http.Request, params GetSavingsParams)
@@ -1448,6 +1528,9 @@ type ServerInterface interface {
 	// Set an agent's built-in role
 	// (PATCH /api/v1/sessions/{id}/role)
 	SetRole(w http.ResponseWriter, r *http.Request, id SessionId)
+	// Hot-swap an agent session to a different backend, model, or tier mid-task
+	// (POST /api/v1/sessions/{id}/switch)
+	SwitchSession(w http.ResponseWriter, r *http.Request, id SessionId)
 	// Terminate an agent
 	// (POST /api/v1/sessions/{id}/terminate)
 	TerminateSession(w http.ResponseWriter, r *http.Request, id SessionId)
@@ -1643,6 +1726,18 @@ func (_ Unimplemented) GitSync(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Get handover configuration
+// (GET /api/v1/handover/settings)
+func (_ Unimplemented) GetHandoverSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update handover configuration
+// (PUT /api/v1/handover/settings)
+func (_ Unimplemented) SetHandoverSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Browse the archived (closed) session store
 // (GET /api/v1/history)
 func (_ Unimplemented) ListHistory(w http.ResponseWriter, r *http.Request, params ListHistoryParams) {
@@ -1676,6 +1771,18 @@ func (_ Unimplemented) GetMetrics(w http.ResponseWriter, r *http.Request) {
 // Recorded metrics samples or per-agent summaries
 // (GET /api/v1/metrics/history)
 func (_ Unimplemented) GetMetricsHistory(w http.ResponseWriter, r *http.Request, params GetMetricsHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List models in the catalog and their assigned tiers
+// (GET /api/v1/models)
+func (_ Unimplemented) ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set a model's tier classification
+// (PUT /api/v1/models/{backend}/{model}/tier)
+func (_ Unimplemented) SetModelTier(w http.ResponseWriter, r *http.Request, backend string, model string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1766,6 +1873,18 @@ func (_ Unimplemented) RecoverAgents(w http.ResponseWriter, r *http.Request) {
 // List the built-in agent roles
 // (GET /api/v1/roles)
 func (_ Unimplemented) ListRoles(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List role-to-tier mappings
+// (GET /api/v1/roles/tiers)
+func (_ Unimplemented) ListRoleTiers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set the default model tier for an agent role
+// (PUT /api/v1/roles/tiers/{role})
+func (_ Unimplemented) SetRoleTier(w http.ResponseWriter, r *http.Request, role string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1922,6 +2041,12 @@ func (_ Unimplemented) RestoreSession(w http.ResponseWriter, r *http.Request, id
 // Set an agent's built-in role
 // (PATCH /api/v1/sessions/{id}/role)
 func (_ Unimplemented) SetRole(w http.ResponseWriter, r *http.Request, id SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Hot-swap an agent session to a different backend, model, or tier mid-task
+// (POST /api/v1/sessions/{id}/switch)
+func (_ Unimplemented) SwitchSession(w http.ResponseWriter, r *http.Request, id SessionId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2646,6 +2771,46 @@ func (siw *ServerInterfaceWrapper) GitSync(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// GetHandoverSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetHandoverSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetHandoverSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetHandoverSettings operation middleware
+func (siw *ServerInterfaceWrapper) SetHandoverSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetHandoverSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListHistory operation middleware
 func (siw *ServerInterfaceWrapper) ListHistory(w http.ResponseWriter, r *http.Request) {
 
@@ -2898,6 +3063,86 @@ func (siw *ServerInterfaceWrapper) GetMetricsHistory(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMetricsHistory(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListModels operation middleware
+func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListModelsParams
+
+	// ------------- Optional query parameter "tier" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tier", r.URL.Query(), &params.Tier, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tier"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tier", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListModels(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetModelTier operation middleware
+func (siw *ServerInterfaceWrapper) SetModelTier(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "backend" -------------
+	var backend string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backend", chi.URLParam(r, "backend"), &backend, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backend", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "model" -------------
+	var model string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model", chi.URLParam(r, "model"), &model, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetModelTier(w, r, backend, model)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3333,6 +3578,58 @@ func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListRoles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRoleTiers operation middleware
+func (siw *ServerInterfaceWrapper) ListRoleTiers(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoleTiers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetRoleTier operation middleware
+func (siw *ServerInterfaceWrapper) SetRoleTier(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "role" -------------
+	var role string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role", chi.URLParam(r, "role"), &role, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetRoleTier(w, r, role)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4271,6 +4568,38 @@ func (siw *ServerInterfaceWrapper) SetRole(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// SwitchSession operation middleware
+func (siw *ServerInterfaceWrapper) SwitchSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SwitchSession(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // TerminateSession operation middleware
 func (siw *ServerInterfaceWrapper) TerminateSession(w http.ResponseWriter, r *http.Request) {
 
@@ -4671,6 +5000,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/git/sync", wrapper.GitSync)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/handover/settings", wrapper.GetHandoverSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/handover/settings", wrapper.SetHandoverSettings)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/history", wrapper.ListHistory)
 	})
 	r.Group(func(r chi.Router) {
@@ -4687,6 +5022,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/metrics/history", wrapper.GetMetricsHistory)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/models", wrapper.ListModels)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/models/{backend}/{model}/tier", wrapper.SetModelTier)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/pipelines", wrapper.ListPipelines)
@@ -4732,6 +5073,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/roles", wrapper.ListRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/roles/tiers", wrapper.ListRoleTiers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/roles/tiers/{role}", wrapper.SetRoleTier)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/savings", wrapper.GetSavings)
@@ -4810,6 +5157,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/api/v1/sessions/{id}/role", wrapper.SetRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/sessions/{id}/switch", wrapper.SwitchSession)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/sessions/{id}/terminate", wrapper.TerminateSession)
@@ -5665,6 +6015,91 @@ func (response GitSync200JSONResponse) VisitGitSyncResponse(w http.ResponseWrite
 	return err
 }
 
+type GetHandoverSettingsRequestObject struct {
+}
+
+type GetHandoverSettingsResponseObject interface {
+	VisitGetHandoverSettingsResponse(w http.ResponseWriter) error
+}
+
+type GetHandoverSettings200JSONResponse HandoverSettings
+
+func (response GetHandoverSettings200JSONResponse) VisitGetHandoverSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetHandoverSettings503JSONResponse Error
+
+func (response GetHandoverSettings503JSONResponse) VisitGetHandoverSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetHandoverSettingsRequestObject struct {
+	Body *SetHandoverSettingsJSONRequestBody
+}
+
+type SetHandoverSettingsResponseObject interface {
+	VisitSetHandoverSettingsResponse(w http.ResponseWriter) error
+}
+
+type SetHandoverSettings200JSONResponse HandoverSettings
+
+func (response SetHandoverSettings200JSONResponse) VisitSetHandoverSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetHandoverSettings400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetHandoverSettings400JSONResponse) VisitSetHandoverSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetHandoverSettings503JSONResponse Error
+
+func (response SetHandoverSettings503JSONResponse) VisitSetHandoverSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListHistoryRequestObject struct {
 	Params ListHistoryParams
 }
@@ -5826,6 +6261,122 @@ func (response GetMetricsHistory400JSONResponse) VisitGetMetricsHistoryResponse(
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelsRequestObject struct {
+	Params ListModelsParams
+}
+
+type ListModelsResponseObject interface {
+	VisitListModelsResponse(w http.ResponseWriter) error
+}
+
+type ListModels200JSONResponse []ModelEntry
+
+func (response ListModels200JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModels400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListModels400JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModels503JSONResponse Error
+
+func (response ListModels503JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetModelTierRequestObject struct {
+	Backend string `json:"backend"`
+	Model   string `json:"model"`
+	Body    *SetModelTierJSONRequestBody
+}
+
+type SetModelTierResponseObject interface {
+	VisitSetModelTierResponse(w http.ResponseWriter) error
+}
+
+type SetModelTier200JSONResponse ModelEntry
+
+func (response SetModelTier200JSONResponse) VisitSetModelTierResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetModelTier400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetModelTier400JSONResponse) VisitSetModelTierResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetModelTier404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetModelTier404JSONResponse) VisitSetModelTierResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetModelTier503JSONResponse Error
+
+func (response SetModelTier503JSONResponse) VisitSetModelTierResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6306,6 +6857,106 @@ func (response ListRoles200JSONResponse) VisitListRolesResponse(w http.ResponseW
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRoleTiersRequestObject struct {
+}
+
+type ListRoleTiersResponseObject interface {
+	VisitListRoleTiersResponse(w http.ResponseWriter) error
+}
+
+type ListRoleTiers200JSONResponse []RoleTierMapping
+
+func (response ListRoleTiers200JSONResponse) VisitListRoleTiersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRoleTiers503JSONResponse Error
+
+func (response ListRoleTiers503JSONResponse) VisitListRoleTiersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRoleTierRequestObject struct {
+	Role string `json:"role"`
+	Body *SetRoleTierJSONRequestBody
+}
+
+type SetRoleTierResponseObject interface {
+	VisitSetRoleTierResponse(w http.ResponseWriter) error
+}
+
+type SetRoleTier200JSONResponse RoleTierMapping
+
+func (response SetRoleTier200JSONResponse) VisitSetRoleTierResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRoleTier400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetRoleTier400JSONResponse) VisitSetRoleTierResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRoleTier404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetRoleTier404JSONResponse) VisitSetRoleTierResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRoleTier503JSONResponse Error
+
+func (response SetRoleTier503JSONResponse) VisitSetRoleTierResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7352,6 +8003,71 @@ func (response SetRole404JSONResponse) VisitSetRoleResponse(w http.ResponseWrite
 	return err
 }
 
+type SwitchSessionRequestObject struct {
+	Id   SessionId `json:"id"`
+	Body *SwitchSessionJSONRequestBody
+}
+
+type SwitchSessionResponseObject interface {
+	VisitSwitchSessionResponse(w http.ResponseWriter) error
+}
+
+type SwitchSession200JSONResponse SwapResult
+
+func (response SwitchSession200JSONResponse) VisitSwitchSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SwitchSession400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SwitchSession400JSONResponse) VisitSwitchSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SwitchSession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SwitchSession404JSONResponse) VisitSwitchSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SwitchSession500JSONResponse Error
+
+func (response SwitchSession500JSONResponse) VisitSwitchSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type TerminateSessionRequestObject struct {
 	Id SessionId `json:"id"`
 }
@@ -7708,6 +8424,12 @@ type StrictServerInterface interface {
 	// Rebase a worktree's branch onto origin/base
 	// (POST /api/v1/git/sync)
 	GitSync(ctx context.Context, request GitSyncRequestObject) (GitSyncResponseObject, error)
+	// Get handover configuration
+	// (GET /api/v1/handover/settings)
+	GetHandoverSettings(ctx context.Context, request GetHandoverSettingsRequestObject) (GetHandoverSettingsResponseObject, error)
+	// Update handover configuration
+	// (PUT /api/v1/handover/settings)
+	SetHandoverSettings(ctx context.Context, request SetHandoverSettingsRequestObject) (SetHandoverSettingsResponseObject, error)
 	// Browse the archived (closed) session store
 	// (GET /api/v1/history)
 	ListHistory(ctx context.Context, request ListHistoryRequestObject) (ListHistoryResponseObject, error)
@@ -7726,6 +8448,12 @@ type StrictServerInterface interface {
 	// Recorded metrics samples or per-agent summaries
 	// (GET /api/v1/metrics/history)
 	GetMetricsHistory(ctx context.Context, request GetMetricsHistoryRequestObject) (GetMetricsHistoryResponseObject, error)
+	// List models in the catalog and their assigned tiers
+	// (GET /api/v1/models)
+	ListModels(ctx context.Context, request ListModelsRequestObject) (ListModelsResponseObject, error)
+	// Set a model's tier classification
+	// (PUT /api/v1/models/{backend}/{model}/tier)
+	SetModelTier(ctx context.Context, request SetModelTierRequestObject) (SetModelTierResponseObject, error)
 	// List pipelines
 	// (GET /api/v1/pipelines)
 	ListPipelines(ctx context.Context, request ListPipelinesRequestObject) (ListPipelinesResponseObject, error)
@@ -7771,6 +8499,12 @@ type StrictServerInterface interface {
 	// List the built-in agent roles
 	// (GET /api/v1/roles)
 	ListRoles(ctx context.Context, request ListRolesRequestObject) (ListRolesResponseObject, error)
+	// List role-to-tier mappings
+	// (GET /api/v1/roles/tiers)
+	ListRoleTiers(ctx context.Context, request ListRoleTiersRequestObject) (ListRoleTiersResponseObject, error)
+	// Set the default model tier for an agent role
+	// (PUT /api/v1/roles/tiers/{role})
+	SetRoleTier(ctx context.Context, request SetRoleTierRequestObject) (SetRoleTierResponseObject, error)
 	// Aggregated token-savings summary
 	// (GET /api/v1/savings)
 	GetSavings(ctx context.Context, request GetSavingsRequestObject) (GetSavingsResponseObject, error)
@@ -7849,6 +8583,9 @@ type StrictServerInterface interface {
 	// Set an agent's built-in role
 	// (PATCH /api/v1/sessions/{id}/role)
 	SetRole(ctx context.Context, request SetRoleRequestObject) (SetRoleResponseObject, error)
+	// Hot-swap an agent session to a different backend, model, or tier mid-task
+	// (POST /api/v1/sessions/{id}/switch)
+	SwitchSession(ctx context.Context, request SwitchSessionRequestObject) (SwitchSessionResponseObject, error)
 	// Terminate an agent
 	// (POST /api/v1/sessions/{id}/terminate)
 	TerminateSession(ctx context.Context, request TerminateSessionRequestObject) (TerminateSessionResponseObject, error)
@@ -8694,6 +9431,61 @@ func (sh *strictHandler) GitSync(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetHandoverSettings operation middleware
+func (sh *strictHandler) GetHandoverSettings(w http.ResponseWriter, r *http.Request) {
+	var request GetHandoverSettingsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetHandoverSettings(ctx, request.(GetHandoverSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetHandoverSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetHandoverSettingsResponseObject); ok {
+		if err := validResponse.VisitGetHandoverSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetHandoverSettings operation middleware
+func (sh *strictHandler) SetHandoverSettings(w http.ResponseWriter, r *http.Request) {
+	var request SetHandoverSettingsRequestObject
+
+	var body SetHandoverSettingsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetHandoverSettings(ctx, request.(SetHandoverSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetHandoverSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetHandoverSettingsResponseObject); ok {
+		if err := validResponse.VisitSetHandoverSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListHistory operation middleware
 func (sh *strictHandler) ListHistory(w http.ResponseWriter, r *http.Request, params ListHistoryParams) {
 	var request ListHistoryRequestObject
@@ -8853,6 +9645,66 @@ func (sh *strictHandler) GetMetricsHistory(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMetricsHistoryResponseObject); ok {
 		if err := validResponse.VisitGetMetricsHistoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListModels operation middleware
+func (sh *strictHandler) ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams) {
+	var request ListModelsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListModels(ctx, request.(ListModelsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListModels")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListModelsResponseObject); ok {
+		if err := validResponse.VisitListModelsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetModelTier operation middleware
+func (sh *strictHandler) SetModelTier(w http.ResponseWriter, r *http.Request, backend string, model string) {
+	var request SetModelTierRequestObject
+
+	request.Backend = backend
+	request.Model = model
+
+	var body SetModelTierJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetModelTier(ctx, request.(SetModelTierRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetModelTier")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetModelTierResponseObject); ok {
+		if err := validResponse.VisitSetModelTierResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9275,6 +10127,63 @@ func (sh *strictHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListRolesResponseObject); ok {
 		if err := validResponse.VisitListRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRoleTiers operation middleware
+func (sh *strictHandler) ListRoleTiers(w http.ResponseWriter, r *http.Request) {
+	var request ListRoleTiersRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRoleTiers(ctx, request.(ListRoleTiersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRoleTiers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRoleTiersResponseObject); ok {
+		if err := validResponse.VisitListRoleTiersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetRoleTier operation middleware
+func (sh *strictHandler) SetRoleTier(w http.ResponseWriter, r *http.Request, role string) {
+	var request SetRoleTierRequestObject
+
+	request.Role = role
+
+	var body SetRoleTierJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetRoleTier(ctx, request.(SetRoleTierRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetRoleTier")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetRoleTierResponseObject); ok {
+		if err := validResponse.VisitSetRoleTierResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -10043,6 +10952,39 @@ func (sh *strictHandler) SetRole(w http.ResponseWriter, r *http.Request, id Sess
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetRoleResponseObject); ok {
 		if err := validResponse.VisitSetRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SwitchSession operation middleware
+func (sh *strictHandler) SwitchSession(w http.ResponseWriter, r *http.Request, id SessionId) {
+	var request SwitchSessionRequestObject
+
+	request.Id = id
+
+	var body SwitchSessionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SwitchSession(ctx, request.(SwitchSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SwitchSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SwitchSessionResponseObject); ok {
+		if err := validResponse.VisitSwitchSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

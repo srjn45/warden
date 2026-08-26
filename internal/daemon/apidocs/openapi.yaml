@@ -512,6 +512,55 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/sessions/{id}/switch:
+    post:
+      operationId: switchSession
+      tags: [Sessions]
+      summary: Hot-swap an agent session to a different backend, model, or tier mid-task
+      description: >
+        Mid-session hot-swap: retire the active CLI process and launch a successor backend
+        in the SAME worktree, carrying forward structured context (Goal, Decisions Log,
+        Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                backend:
+                  type: string
+                  description: "explicit successor backend id (e.g. antigravity)"
+                model:
+                  type: string
+                  description: "explicit successor model id"
+                tier:
+                  type: string
+                  description: "resolve successor via quota-balanced router at this tier (tier-1 | tier-2 | tier-3)"
+                role:
+                  type: string
+                  description: "role to resolve tier from when tier is not given"
+                reason:
+                  type: string
+                  description: "reason recorded for hot-swap (manual | context_fill | quota)"
+                prompt:
+                  type: string
+                  description: "optional extra instruction appended to successor's continuation prompt"
+      responses:
+        "200":
+          description: Hot-swap result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwapResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500":
+          description: Hot-swap execution failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/roles:
     get:
       operationId: listRoles
@@ -532,6 +581,182 @@ paths:
                   roles:
                     type: array
                     items: { $ref: "#/components/schemas/RoleInfo" }
+
+  /api/v1/roles/tiers:
+    get:
+      operationId: listRoleTiers
+      tags: [Sessions]
+      summary: List role-to-tier mappings
+      description: >
+        Returns default model tier mappings for agent roles. Read-only.
+      responses:
+        "200":
+          description: List of role-to-tier mappings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RoleTierMapping" }
+        "503":
+          description: Backend registry unconfigured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/roles/tiers/{role}:
+    put:
+      operationId: setRoleTier
+      tags: [Sessions]
+      summary: Set the default model tier for an agent role
+      description: >
+        Updates the default model tier (tier-1 | tier-2 | tier-3) assigned when
+        creating agents with this role. Returns the updated mapping.
+      parameters:
+        - name: role
+          in: path
+          required: true
+          schema: { type: string }
+          description: Role name (e.g. architecture, implementation, triage, code-review)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier]
+              properties:
+                tier:
+                  type: string
+                  description: "tier-1 | tier-2 | tier-3"
+      responses:
+        "200":
+          description: The updated role-to-tier mapping
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoleTierMapping" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503":
+          description: Backend registry unconfigured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/models:
+    get:
+      operationId: listModels
+      tags: [Sessions]
+      summary: List models in the catalog and their assigned tiers
+      description: >
+        Returns models registered in the catalog, optionally filtered by tier
+        (tier-1, tier-2, tier-3). Read-only.
+      parameters:
+        - name: tier
+          in: query
+          required: false
+          schema:
+            type: string
+            description: "Optional tier filter: tier-1 | tier-2 | tier-3"
+      responses:
+        "200":
+          description: List of models
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ModelEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Backend registry unconfigured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/models/{backend}/{model}/tier:
+    put:
+      operationId: setModelTier
+      tags: [Sessions]
+      summary: Set a model's tier classification
+      description: >
+        Updates the tier classification (tier-1 | tier-2 | tier-3) for a model
+        in the catalog. Returns the updated model entry.
+      parameters:
+        - name: backend
+          in: path
+          required: true
+          schema: { type: string }
+          description: Backend ID (e.g. claude, antigravity, codex)
+        - name: model
+          in: path
+          required: true
+          schema: { type: string }
+          description: Model ID (e.g. claude-3-7-sonnet)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier]
+              properties:
+                tier:
+                  type: string
+                  description: "tier-1 | tier-2 | tier-3"
+      responses:
+        "200":
+          description: The updated model entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503":
+          description: Backend registry unconfigured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/handover/settings:
+    get:
+      operationId: getHandoverSettings
+      tags: [Sessions]
+      summary: Get handover configuration
+      description: >
+        Returns the current configuration for mid-session context handover and quota headroom triggers.
+      responses:
+        "200":
+          description: Current handover settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HandoverSettings" }
+        "503":
+          description: Backend registry unconfigured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      operationId: setHandoverSettings
+      tags: [Sessions]
+      summary: Update handover configuration
+      description: >
+        Persists the handover configuration for mid-session context handover and quota headroom triggers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HandoverSettings" }
+      responses:
+        "200":
+          description: Updated handover settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HandoverSettings" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Backend registry unconfigured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/backends:
     get:
@@ -2254,6 +2479,66 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Backend" }
         settings: { $ref: "#/components/schemas/BackendSettings" }
+
+    ModelEntry:
+      x-go-type: backendstore.ModelEntry
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendstore
+        name: backendstore
+      type: object
+      description: A model supported by an agent backend with its tier and status.
+      required: [backend_id, model_id, tier, display_name, enabled]
+      properties:
+        backend_id: { type: string }
+        model_id: { type: string }
+        tier: { type: string, description: "tier-1 | tier-2 | tier-3" }
+        display_name: { type: string }
+        enabled: { type: boolean }
+
+    RoleTierMapping:
+      x-go-type: backendstore.RoleTierMapping
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendstore
+        name: backendstore
+      type: object
+      description: An agent role mapped to its default model tier.
+      required: [role_name, default_tier]
+      properties:
+        role_name: { type: string }
+        default_tier: { type: string, description: "tier-1 | tier-2 | tier-3" }
+
+    HandoverSettings:
+      x-go-type: backendstore.HandoverSettings
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendstore
+        name: backendstore
+      type: object
+      description: Configuration for mid-session context handover and quota headroom triggers.
+      required: [enabled, threshold_percent, rolling_quota_threshold, context_fill_threshold, cooldown_period]
+      properties:
+        enabled: { type: boolean }
+        threshold_percent: { type: integer }
+        rolling_quota_threshold: { type: integer }
+        context_fill_threshold: { type: integer }
+        cooldown_period: { type: integer, description: "cooldown period in nanoseconds" }
+
+    SwapResult:
+      x-go-type: lifecycle.SwapResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
+      type: object
+      description: Outcome of a completed hot-swap.
+      required: [session, handoff_path, from_backend, to_backend, reason, resolver_used]
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+        handoff_path: { type: string }
+        from_backend: { type: string }
+        from_model: { type: string }
+        to_backend: { type: string }
+        to_model: { type: string }
+        reason: { type: string }
+        resolver_used: { type: boolean }
 
     Verdict:
       x-go-type: pressure.Verdict
