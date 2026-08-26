@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -162,4 +163,44 @@ func TestAdapterForkSourceNoBranch(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no branch")
+}
+
+func TestAdapterHotSwap(t *testing.T) {
+	workdir := t.TempDir()
+	sess := &store.Session{
+		ID:          "swap-agent",
+		TmuxSession: "swap-agent",
+		Backend:     "claude",
+		Model:       "opus",
+		Repo:        workdir,
+		Workdir:     workdir,
+		Branch:      "feat/swap",
+		Worktree:    ".worktrees/swap-agent",
+	}
+
+	st := newFakeStore()
+	require.NoError(t, st.Insert(context.Background(), sess))
+
+	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
+	lc := lifecycle.New(fr, &lifecycle.FakeConfig{})
+	lc.ProjectsDir = t.TempDir()
+	lc.PromptsDir = filepath.Join(t.TempDir(), "prompts")
+
+	a := NewLifecycleAdapter(lc, st)
+
+	res, err := a.HotSwap(context.Background(), sess, lifecycle.SwapRequest{
+		Backend: "codex",
+		Model:   "gpt-5-codex",
+		Reason:  lifecycle.SwapReasonManual,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "codex", res.ToBackend)
+	require.Equal(t, "gpt-5-codex", res.ToModel)
+	require.Equal(t, "codex", sess.Backend)
+
+	// Verify store was updated
+	stored, err := st.Get(context.Background(), "swap-agent")
+	require.NoError(t, err)
+	require.Equal(t, "codex", stored.Backend)
+	require.Equal(t, "gpt-5-codex", stored.Model)
 }

@@ -58,15 +58,15 @@ type SwapRequest struct {
 // handoff file written, and the extracted context. The daemon persists the mutated
 // session (Backend/Model/ClaudeSessionID) and can surface HandoffPath to the operator.
 type SwapResult struct {
-	Session      *store.Session
-	Handoff      handoff.Handoff
-	HandoffPath  string
-	FromBackend  string
-	FromModel    string
-	ToBackend    string
-	ToModel      string
-	Reason       SwapReason
-	ResolverUsed bool // true when the successor was chosen by the router (vs pinned)
+	Session      *store.Session  `json:"session"`
+	Handoff      handoff.Handoff `json:"handoff"`
+	HandoffPath  string          `json:"handoff_path"`
+	FromBackend  string          `json:"from_backend"`
+	FromModel    string          `json:"from_model,omitempty"`
+	ToBackend    string          `json:"to_backend"`
+	ToModel      string          `json:"to_model,omitempty"`
+	Reason       SwapReason      `json:"reason"`
+	ResolverUsed bool            `json:"resolver_used"` // true when the successor was chosen by the router (vs pinned)
 }
 
 // ErrNoSwapTarget is returned when a SwapRequest names no successor at all (no

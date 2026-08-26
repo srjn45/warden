@@ -85,6 +85,9 @@ type fakeLife struct {
 	prBase           string
 	prResult         lifecycle.PRResult
 	prErr            error
+	hotSwapCalls     int
+	hotSwapResult    *lifecycle.SwapResult
+	hotSwapErr       error
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -271,6 +274,24 @@ func (f *fakeLife) Check(_ context.Context, dir, name string) (lifecycle.CheckRe
 	defer f.mu.Unlock()
 	f.checkDir, f.checkName = dir, name
 	return f.checkResult, f.checkErr
+}
+
+func (f *fakeLife) HotSwap(_ context.Context, sess *store.Session, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.hotSwapErr != nil {
+		return nil, f.hotSwapErr
+	}
+	if f.hotSwapResult != nil {
+		return f.hotSwapResult, nil
+	}
+	return &lifecycle.SwapResult{
+		Session:     sess,
+		FromBackend: sess.Backend,
+		ToBackend:   req.Backend,
+		ToModel:     req.Model,
+		Reason:      req.Reason,
+	}, nil
 }
 
 func lifeServer(t *testing.T, fs *fakeStore, fl *fakeLife) *httptest.Server {

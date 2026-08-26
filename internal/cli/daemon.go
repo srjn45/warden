@@ -36,6 +36,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/router"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
@@ -302,6 +303,53 @@ func newDaemonCmd() *cobra.Command {
 				return rerr
 			}
 			srv.SetBackends(backendStore)
+			lc.Resolver = router.NewResolver(backendStore)
+			if handoverSettings, err := backendStore.GetHandoverSettings(); err == nil {
+				pl.HandoverEnabled = handoverSettings.Enabled
+			}
+			pl.OnHotSwap = func(sess *store.Session, tokens int) {
+				settings, err := backendStore.GetHandoverSettings()
+				if err != nil {
+					settings = backendstore.DefaultHandoverSettings()
+				}
+				if !settings.Enabled {
+					return
+				}
+				in := lifecycle.ThresholdInput{
+					Settings:      settings,
+					ContextTokens: tokens,
+					ContextLimit:  cfg.Tokens.Critical,
+					ContextKnown:  tokens > 0 && cfg.Tokens.Critical > 0,
+				}
+				if _, used, limit, _, qerr := backendStore.GetHeadroom(sess.Backend, time.Now()); qerr == nil && limit > 0 {
+					in.QuotaUsed = used
+					in.QuotaLimit = limit
+					in.QuotaKnown = true
+				}
+				sig := lifecycle.DecideHotSwap(in)
+				if !sig.Trigger {
+					return
+				}
+				slog.Info("poller: triggering mid-session hot-swap", "agent", sess.ID, "reason", sig.Reason, "detail", sig.Detail)
+				swapReq := lifecycle.SwapRequest{
+					Role:   sess.Role,
+					Reason: sig.Reason,
+				}
+				res, swapErr := lc.HotSwap(context.Background(), sess, swapReq)
+				if swapErr != nil {
+					slog.Error("hot-swap failed", "agent", sess.ID, "err", swapErr)
+					return
+				}
+				_ = st.Update(context.Background(), sess.ID, func(s *store.Session) error {
+					s.Backend = sess.Backend
+					s.Model = sess.Model
+					s.ClaudeSessionID = sess.ClaudeSessionID
+					s.UpdatedAt = sess.UpdatedAt
+					return nil
+				})
+				srv.Notify()
+				slog.Info("hot-swap completed", "agent", sess.ID, "from_backend", res.FromBackend, "to_backend", res.ToBackend, "to_model", res.ToModel, "handoff", res.HandoffPath)
+			}
 			// Autopilot cost-tier ladder unification (docs/specs/
 			// 2026-08-06-backend-registry.md §8): fold the deprecated
 			// autopilot.brain.backends ladder + allow_pay_per_use gate into the
