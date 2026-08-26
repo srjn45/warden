@@ -564,11 +564,11 @@ func summaryArg(text string) string {
 func parseType(out string) store.Type {
 	for _, raw := range strings.Fields(strings.ToLower(out)) {
 		tok := strings.Trim(raw, ".,:;'\"`*()[]")
-		if t := store.NormalizeType(tok); t != store.TypeOther || tok == "other" {
+		if t := store.NormalizeType(tok); t != "" {
 			return t
 		}
 	}
-	return store.TypeOther
+	return ""
 }
 
 // shellQuoteArg single-quotes s for safe inclusion in a shell command line
@@ -802,13 +802,25 @@ func resolveID(req SpawnRequest) (string, error) {
 // checkout (a PR laid over your tree). The investigation types (analysis/spike)
 // remain opt-in via --worktree; the free-form catch-all (other) never isolates.
 func wantWorktree(req SpawnRequest) bool {
-	if req.Type == store.TypePRReview {
-		return true
+	if req.Role == "" {
+		if req.Type == store.TypePRReview {
+			return true
+		}
+		if req.Type.DefaultWorktree() {
+			return !req.InRepo
+		}
+		return req.Worktree && (req.Type == store.TypeAnalysis || req.Type == store.TypeSpike)
 	}
-	if req.Type.DefaultWorktree() {
+	switch req.Role {
+	case "worker", "planner":
 		return !req.InRepo
+	case "autopilot":
+		return !req.InRepo
+	case "general":
+		return req.Worktree
+	default: // orchestrator, brain
+		return false
 	}
-	return req.Worktree && (req.Type == store.TypeAnalysis || req.Type == store.TypeSpike)
 }
 
 // wrapWorktreeError detects common git worktree failure patterns and adds recovery hints.

@@ -40,10 +40,10 @@ func lookupCustomType(name string) (CustomTypePolicy, bool) {
 // reused by Valid and by the plugin loader to reject a custom type that would
 // shadow a built-in.
 func (t Type) Builtin() bool {
-	switch t {
-	case TypeDevelopment, TypeAnalysis, TypeSpike, TypePRReview,
-		TypeCode, TypeDocs, TypeWebsite, TypeDebugCI, TypeTests, TypeOther:
-		return true
+	for _, b := range Builtin() {
+		if t == b {
+			return true
+		}
 	}
 	return false
 }

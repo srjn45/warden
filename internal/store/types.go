@@ -82,17 +82,33 @@ const (
 type Type string
 
 const (
-	TypeDevelopment Type = "development"
-	TypeAnalysis    Type = "analysis"
-	TypeSpike       Type = "spike"
-	TypePRReview    Type = "pr-review"
-	TypeCode        Type = "code"
-	TypeDocs        Type = "docs"
-	TypeWebsite     Type = "website"
-	TypeDebugCI     Type = "debug-ci"
-	TypeTests       Type = "tests"
-	TypeOther       Type = "other"
+	TypeDevelopment  Type = "development"
+	TypeAnalysis     Type = "analysis"
+	TypeSpike        Type = "spike"
+	TypePRReview     Type = "pr-review"
+	TypeCode         Type = "code"
+	TypeDocs         Type = "docs"
+	TypeWebsite      Type = "website"
+	TypeDebugCI      Type = "debug-ci"
+	TypeTests        Type = "tests"
+	TypeOther        Type = "other"
+	TypeResearch     Type = "research"
+	TypeArchitecture Type = "architecture"
+	TypeDesign       Type = "design"
+	TypeCodeReview   Type = "code-review"
+	TypeMonitorCI    Type = "monitor-ci"
+	TypeMergePR      Type = "merge-pr"
+	TypeRelease      Type = "release"
 )
+
+// Builtin returns all canonical task types.
+func Builtin() []Type {
+	return []Type{
+		TypeDevelopment, TypeAnalysis, TypeSpike, TypePRReview,
+		TypeResearch, TypeArchitecture, TypeDesign, TypeCodeReview,
+		TypeDocs, TypeMonitorCI, TypeDebugCI, TypeMergePR, TypeRelease,
+	}
+}
 
 // Valid reports whether t is a known task type: a built-in, or a custom type a
 // plugin registered via the lookup seam (#47). With no plugins installed this is
@@ -113,6 +129,10 @@ func NormalizeType(s string) Type {
 		return TypeDebugCI
 	case "test-run", "env-test":
 		return TypeTests
+	case "code", "website", "tests":
+		return TypeDevelopment
+	case "other":
+		return ""
 	}
 	t := Type(s)
 	if t.Builtin() {
@@ -123,7 +143,7 @@ func NormalizeType(s string) Type {
 	if _, ok := lookupCustomType(s); ok {
 		return t
 	}
-	return TypeOther
+	return ""
 }
 
 // DefaultWorktree reports whether spawning this type creates a git worktree by

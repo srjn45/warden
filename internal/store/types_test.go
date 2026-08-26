@@ -116,7 +116,7 @@ func TestStatusValid(t *testing.T) {
 func TestTypeNormalizeAndWorktreePolicy(t *testing.T) {
 	// Known types keep their value; unknown collapses to "other".
 	require.Equal(t, TypeDevelopment, NormalizeType("development"))
-	require.Equal(t, TypeOther, NormalizeType("totally-made-up"))
+	require.Equal(t, Type(""), NormalizeType("totally-made-up"))
 
 	// Default worktree policy (Phase 0a: every write-agent isolates by default).
 	require.True(t, TypeDevelopment.DefaultWorktree())

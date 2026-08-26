@@ -22,15 +22,18 @@ var builtins = []struct {
 	worktree bool
 }{
 	{TypeDevelopment, true},
-	{TypePRReview, true},
-	{TypeCode, true},
-	{TypeDocs, true},
-	{TypeWebsite, true},
-	{TypeDebugCI, true},
-	{TypeTests, true},
 	{TypeAnalysis, false},
 	{TypeSpike, false},
-	{TypeOther, false},
+	{TypePRReview, true},
+	{TypeResearch, false},
+	{TypeArchitecture, false},
+	{TypeDesign, false},
+	{TypeCodeReview, false},
+	{TypeDocs, true},
+	{TypeMonitorCI, false},
+	{TypeDebugCI, true},
+	{TypeMergePR, false},
+	{TypeRelease, false},
 }
 
 func TestBuiltinsUnchangedWithoutPlugins(t *testing.T) {
@@ -100,8 +103,8 @@ func TestUnknownTypeStillRejectedAndCollapsed(t *testing.T) {
 	if Type("totally-unknown").DefaultWorktree() {
 		t.Error("an unregistered type must not get a worktree")
 	}
-	if got := NormalizeType("totally-unknown"); got != TypeOther {
-		t.Errorf("NormalizeType(unknown) = %s, want other", got)
+	if got := NormalizeType("totally-unknown"); got != "" {
+		t.Errorf("NormalizeType(unknown) = %s, want \"\"", got)
 	}
 }
 
