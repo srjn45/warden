@@ -1,0 +1,305 @@
+package backendstore
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestModelTier_Valid(t *testing.T) {
+	require.True(t, Tier1.Valid())
+	require.True(t, Tier2.Valid())
+	require.True(t, Tier3.Valid())
+	require.False(t, ModelTier("tier-4").Valid())
+	require.False(t, ModelTier("").Valid())
+	require.False(t, ModelTier("t1").Valid())
+}
+
+func TestSeedDefaultsOnFreshStore(t *testing.T) {
+	s := newTestStore(t)
+
+	// Verify default models
+	models, err := s.ListModels("")
+	require.NoError(t, err)
+	require.Len(t, models, 14)
+
+	// Verify Tier 1 models (4 models)
+	tier1Models, err := s.ListModels(Tier1)
+	require.NoError(t, err)
+	require.Len(t, tier1Models, 4)
+	for _, m := range tier1Models {
+		require.Equal(t, Tier1, m.Tier)
+		require.True(t, m.Enabled)
+	}
+
+	// Verify Tier 2 models (6 models)
+	tier2Models, err := s.ListModels(Tier2)
+	require.NoError(t, err)
+	require.Len(t, tier2Models, 6)
+	for _, m := range tier2Models {
+		require.Equal(t, Tier2, m.Tier)
+		require.True(t, m.Enabled)
+	}
+
+	// Verify Tier 3 models (4 models)
+	tier3Models, err := s.ListModels(Tier3)
+	require.NoError(t, err)
+	require.Len(t, tier3Models, 4)
+	for _, m := range tier3Models {
+		require.Equal(t, Tier3, m.Tier)
+		require.True(t, m.Enabled)
+	}
+
+	// Invalid tier filter
+	_, err = s.ListModels("invalid-tier")
+	require.ErrorIs(t, err, ErrInvalidTier)
+
+	// Verify specific seeded models
+	m, err := s.GetModel("claude", "claude-opus")
+	require.NoError(t, err)
+	require.Equal(t, "claude", m.BackendID)
+	require.Equal(t, "claude-opus", m.ModelID)
+	require.Equal(t, Tier1, m.Tier)
+	require.Equal(t, "Claude Opus", m.DisplayName)
+	require.True(t, m.Enabled)
+
+	m, err = s.GetModel("antigravity", "Claude Opus 4.6 (Thinking)")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, m.Tier)
+
+	m, err = s.GetModel("cursor", "claude-3-opus")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, m.Tier)
+
+	m, err = s.GetModel("codex", "o1")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, m.Tier)
+
+	m, err = s.GetModel("claude", "claude-3-7-sonnet")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+
+	m, err = s.GetModel("antigravity", "Claude Sonnet 4.6 (Thinking)")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+
+	m, err = s.GetModel("antigravity", "Gemini 3.1 Pro (High)")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+
+	m, err = s.GetModel("cursor", "sonnet-3.7")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+
+	m, err = s.GetModel("codex", "gpt-4.1")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+
+	m, err = s.GetModel("codex", "o3-mini (high)")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+
+	m, err = s.GetModel("claude", "claude-3-5-haiku")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, m.Tier)
+
+	m, err = s.GetModel("antigravity", "Gemini 3.5 Flash")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, m.Tier)
+
+	m, err = s.GetModel("cursor", "composer-2.5-fast")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, m.Tier)
+
+	m, err = s.GetModel("codex", "gpt-4.1-mini")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, m.Tier)
+
+	// Verify default role tiers (11 roles)
+	roleTiers, err := s.ListRoleTiers()
+	require.NoError(t, err)
+	require.Len(t, roleTiers, 11)
+
+	expectedRoles := map[string]ModelTier{
+		"analysis":           Tier1,
+		"architecture":       Tier1,
+		"planning":           Tier1,
+		"design":             Tier1,
+		"arch-design-review": Tier1,
+		"autopilot":          Tier1,
+		"pr-review":          Tier1,
+		"implementation":     Tier2,
+		"debugger":           Tier2,
+		"code-review":        Tier2,
+		"ci-triage":          Tier3,
+	}
+
+	for role, expectedTier := range expectedRoles {
+		tier, err := s.GetRoleTier(role)
+		require.NoError(t, err, "role %s", role)
+		require.Equal(t, expectedTier, tier, "role %s", role)
+	}
+
+	// Verify default handover settings
+	handover, err := s.GetHandoverSettings()
+	require.NoError(t, err)
+	require.True(t, handover.Enabled)
+	require.Equal(t, 90, handover.ThresholdPercent)
+	require.Equal(t, 90, handover.RollingQuotaThreshold)
+	require.Equal(t, 90, handover.ContextFillThreshold)
+	require.Equal(t, 15*time.Minute, handover.CooldownPeriod)
+}
+
+func TestModelOperations(t *testing.T) {
+	s := newTestStore(t)
+
+	// Get non-existent model
+	_, err := s.GetModel("claude", "unknown-model")
+	require.ErrorIs(t, err, ErrModelNotFound)
+	_, err = s.GetModel("", "claude-opus")
+	require.ErrorIs(t, err, ErrModelNotFound)
+
+	// SetModelTier
+	require.NoError(t, s.SetModelTier("claude", "claude-opus", Tier2))
+	m, err := s.GetModel("claude", "claude-opus")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+
+	// SetModelTier with invalid tier
+	require.ErrorIs(t, s.SetModelTier("claude", "claude-opus", "invalid-tier"), ErrInvalidTier)
+
+	// SetModelTier for non-existent model
+	require.ErrorIs(t, s.SetModelTier("claude", "ghost-model", Tier1), ErrModelNotFound)
+
+	// SetModelEnabled
+	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
+	m, err = s.GetModel("claude", "claude-opus")
+	require.NoError(t, err)
+	require.False(t, m.Enabled)
+
+	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", true))
+	m, err = s.GetModel("claude", "claude-opus")
+	require.NoError(t, err)
+	require.True(t, m.Enabled)
+
+	require.ErrorIs(t, s.SetModelEnabled("claude", "ghost-model", false), ErrModelNotFound)
+
+	// UpsertModel (insert new)
+	newModel := ModelEntry{
+		BackendID:   "custom",
+		ModelID:     "custom-ultra",
+		Tier:        Tier1,
+		DisplayName: "Custom Ultra",
+		Enabled:     true,
+	}
+	require.NoError(t, s.UpsertModel(newModel))
+
+	got, err := s.GetModel("custom", "custom-ultra")
+	require.NoError(t, err)
+	require.Equal(t, "custom", got.BackendID)
+	require.Equal(t, "custom-ultra", got.ModelID)
+	require.Equal(t, Tier1, got.Tier)
+	require.Equal(t, "Custom Ultra", got.DisplayName)
+	require.True(t, got.Enabled)
+
+	// UpsertModel with invalid tier / missing IDs
+	require.ErrorIs(t, s.UpsertModel(ModelEntry{BackendID: "custom", ModelID: "test", Tier: "invalid"}), ErrInvalidTier)
+	require.Error(t, s.UpsertModel(ModelEntry{BackendID: "", ModelID: "test", Tier: Tier1}))
+	require.Error(t, s.UpsertModel(ModelEntry{BackendID: "custom", ModelID: "", Tier: Tier1}))
+}
+
+func TestRoleTierOperations(t *testing.T) {
+	s := newTestStore(t)
+
+	// Get non-existent role
+	_, err := s.GetRoleTier("ghost-role")
+	require.ErrorIs(t, err, ErrRoleNotFound)
+	_, err = s.GetRoleTier("")
+	require.ErrorIs(t, err, ErrRoleNotFound)
+
+	// Update existing role tier
+	require.NoError(t, s.SetRoleTier("analysis", Tier2))
+	tier, err := s.GetRoleTier("analysis")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, tier)
+
+	// Set new role tier
+	require.NoError(t, s.SetRoleTier("security-audit", Tier1))
+	tier, err = s.GetRoleTier("security-audit")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, tier)
+
+	// List role tiers includes new role
+	roles, err := s.ListRoleTiers()
+	require.NoError(t, err)
+	require.Len(t, roles, 12)
+
+	// Errors
+	require.ErrorIs(t, s.SetRoleTier("analysis", "invalid-tier"), ErrInvalidTier)
+	require.Error(t, s.SetRoleTier("", Tier1))
+}
+
+func TestHandoverSettingsOperations(t *testing.T) {
+	s := newTestStore(t)
+
+	customSettings := HandoverSettings{
+		Enabled:               false,
+		ThresholdPercent:      85,
+		RollingQuotaThreshold: 80,
+		ContextFillThreshold:  75,
+		CooldownPeriod:        30 * time.Minute,
+	}
+
+	require.NoError(t, s.SetHandoverSettings(customSettings))
+
+	got, err := s.GetHandoverSettings()
+	require.NoError(t, err)
+	require.False(t, got.Enabled)
+	require.Equal(t, 85, got.ThresholdPercent)
+	require.Equal(t, 80, got.RollingQuotaThreshold)
+	require.Equal(t, 75, got.ContextFillThreshold)
+	require.Equal(t, 30*time.Minute, got.CooldownPeriod)
+}
+
+func TestReopenPreservesModelAndTierChanges(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir)
+	require.NoError(t, err)
+
+	// Modify model, role tier, and handover settings
+	require.NoError(t, s.SetModelTier("claude", "claude-opus", Tier3))
+	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
+	require.NoError(t, s.SetRoleTier("analysis", Tier3))
+	require.NoError(t, s.SetHandoverSettings(HandoverSettings{
+		Enabled:               false,
+		ThresholdPercent:      95,
+		RollingQuotaThreshold: 85,
+		ContextFillThreshold:  92,
+		CooldownPeriod:        20 * time.Minute,
+	}))
+	require.NoError(t, s.Close())
+
+	// Reopen store
+	s2, err := NewStore(dir)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	// Verify changes persisted and were NOT overwritten by initial seed
+	m, err := s2.GetModel("claude", "claude-opus")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, m.Tier)
+	require.False(t, m.Enabled)
+
+	roleTier, err := s2.GetRoleTier("analysis")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, roleTier)
+
+	settings, err := s2.GetHandoverSettings()
+	require.NoError(t, err)
+	require.False(t, settings.Enabled)
+	require.Equal(t, 95, settings.ThresholdPercent)
+	require.Equal(t, 85, settings.RollingQuotaThreshold)
+	require.Equal(t, 92, settings.ContextFillThreshold)
+	require.Equal(t, 20*time.Minute, settings.CooldownPeriod)
+}
