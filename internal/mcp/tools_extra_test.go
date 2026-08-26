@@ -52,6 +52,8 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"validate_pipeline", "list_pipeline_templates", "library_list",
 		"create_schedule", "delete_schedule",
 		"set_autopilot", "autopilot_status", "land", "autopilot_complete",
+		"list_models", "set_model_tier", "list_role_tiers", "set_role_tier",
+		"switch_agent", "get_handover_settings", "set_handover_settings",
 	}
 	for _, name := range want {
 		require.Truef(t, got[name], "tool %q should be registered", name)

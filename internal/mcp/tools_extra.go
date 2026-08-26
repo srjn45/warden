@@ -219,6 +219,36 @@ type scheduleIDArgs struct {
 	ID string `json:"id" jsonschema:"the schedule id"`
 }
 
+type listModelsArgs struct {
+	Tier string `json:"tier,omitempty" jsonschema:"optional filter by model tier: tier-1 | tier-2 | tier-3"`
+}
+type setModelTierArgs struct {
+	Backend string `json:"backend" jsonschema:"the backend id (e.g. claude, antigravity, codex)"`
+	Model   string `json:"model" jsonschema:"the model id (e.g. claude-3-7-sonnet)"`
+	Tier    string `json:"tier" jsonschema:"the model tier: tier-1 | tier-2 | tier-3"`
+}
+type setRoleTierArgs struct {
+	Role string `json:"role" jsonschema:"the agent role name (e.g. architecture, implementation, triage, code-review)"`
+	Tier string `json:"tier" jsonschema:"the default model tier: tier-1 | tier-2 | tier-3"`
+}
+type switchAgentArgs struct {
+	Ticket  string `json:"ticket" jsonschema:"the agent's ticket / session id to switch"`
+	Backend string `json:"backend,omitempty" jsonschema:"explicit successor backend id (claude, antigravity, codex, …)"`
+	Model   string `json:"model,omitempty" jsonschema:"explicit successor model id"`
+	Tier    string `json:"tier,omitempty" jsonschema:"resolve successor via quota-balanced router at this tier (tier-1 | tier-2 | tier-3)"`
+	Role    string `json:"role,omitempty" jsonschema:"role to resolve tier from when tier is not given"`
+	Reason  string `json:"reason,omitempty" jsonschema:"reason for switch: manual | context_fill | quota"`
+	Prompt  string `json:"prompt,omitempty" jsonschema:"optional extra instruction appended to successor's continuation prompt"`
+}
+type setHandoverSettingsArgs struct {
+	Enabled               *bool   `json:"enabled,omitempty" jsonschema:"enable or disable automated mid-session hot-swap on context fill"`
+	ThresholdPercent      *int    `json:"threshold_percent,omitempty" jsonschema:"context fill threshold percent (default 90)"`
+	RollingQuotaThreshold *int    `json:"rolling_quota_threshold,omitempty" jsonschema:"provider rolling quota headroom threshold percent (default 90)"`
+	ContextFillThreshold  *int    `json:"context_fill_threshold,omitempty" jsonschema:"context fill threshold percent (default 90)"`
+	CooldownPeriod        *string `json:"cooldown_period,omitempty" jsonschema:"minimum cooldown between swaps, e.g. 15m, 1h"`
+	CooldownMinutes       *int    `json:"cooldown_minutes,omitempty" jsonschema:"minimum cooldown between swaps in minutes"`
+}
+
 // registerExtraTools registers the parity tools that bring MCP coverage in line
 // with the CLI: read/insight verbs, lifecycle controls, the rest of the pipeline
 // and schedule verbs, and delegation. Each is a thin wrapper over an existing
@@ -594,6 +624,117 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(settings)
+	})
+
+	// --- model routing & hot-swap (Stage 4) ---
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_models",
+		Description: "List models in the catalog and their assigned tiers (tier-1, tier-2, tier-3). Optional tier filter.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a listModelsArgs) (*mcpsdk.CallToolResult, any, error) {
+		models, err := s.cl.ListModels(ctx, a.Tier)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(models)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_model_tier",
+		Description: "Assign a model's tier classification (tier-1: architecture/complex planning, tier-2: standard implementation, tier-3: fast/low-cost/CI triage).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setModelTierArgs) (*mcpsdk.CallToolResult, any, error) {
+		m, err := s.cl.SetModelTier(ctx, a.Backend, a.Model, a.Tier)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(m)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_role_tiers",
+		Description: "List agent roles and their default model tiers.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		mappings, err := s.cl.ListRoleTiers(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(mappings)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_role_tier",
+		Description: "Set the default model tier for an agent role (tier-1 | tier-2 | tier-3).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setRoleTierArgs) (*mcpsdk.CallToolResult, any, error) {
+		m, err := s.cl.SetRoleTier(ctx, a.Role, a.Tier)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(m)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "switch_agent",
+		Description: "Hot-swap an agent session to a different backend, model, or tier mid-task: retire active CLI and launch successor backend in SAME worktree with extracted context handoff.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a switchAgentArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.SwitchSession(ctx, a.Ticket, client.SwitchSessionParams{
+			Backend: a.Backend,
+			Model:   a.Model,
+			Tier:    a.Tier,
+			Role:    a.Role,
+			Reason:  a.Reason,
+			Prompt:  a.Prompt,
+		})
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(res)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "get_handover_settings",
+		Description: "Get configuration for mid-session context handover and quota headroom triggers.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		settings, err := s.cl.GetHandoverSettings(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(settings)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "set_handover_settings",
+		Description: "Update configuration for mid-session context handover and quota headroom triggers.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setHandoverSettingsArgs) (*mcpsdk.CallToolResult, any, error) {
+		current, err := s.cl.GetHandoverSettings(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		if a.Enabled != nil {
+			current.Enabled = *a.Enabled
+		}
+		if a.ThresholdPercent != nil {
+			current.ThresholdPercent = *a.ThresholdPercent
+		}
+		if a.RollingQuotaThreshold != nil {
+			current.RollingQuotaThreshold = *a.RollingQuotaThreshold
+		}
+		if a.ContextFillThreshold != nil {
+			current.ContextFillThreshold = *a.ContextFillThreshold
+		}
+		if a.CooldownPeriod != nil && strings.TrimSpace(*a.CooldownPeriod) != "" {
+			d, err := time.ParseDuration(strings.TrimSpace(*a.CooldownPeriod))
+			if err != nil {
+				return textResult("error: invalid cooldown_period: " + err.Error()), nil, nil
+			}
+			current.CooldownPeriod = d
+		} else if a.CooldownMinutes != nil {
+			current.CooldownPeriod = time.Duration(*a.CooldownMinutes) * time.Minute
+		}
+		updated, err := s.cl.SetHandoverSettings(ctx, current)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(updated)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

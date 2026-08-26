@@ -60,7 +60,7 @@ Available Commands:
   ls                  List all active agent sessions
   mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
   memory              Show or edit this repo's warden project memory (.warden/memory.md)
-  models              List the agent backend's live model menu
+  models              Inspect and manage model catalog and live model menus
   msg                 Send and receive directed messages between agents
   pipeline            Define and run DAG pipelines of agent jobs
   plugin              Inspect warden's plugin system (#47): custom task types + lifecycle hooks
@@ -73,7 +73,7 @@ Available Commands:
   repl                Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
   restore             Recreate and resume a lost/orphaned agent (claude --resume)
   review              Run the agent backend's native diff review on the worktree
-  role                Inspect warden's built-in agent roles
+  role                Inspect warden's built-in agent roles and tier mappings
   rotate              Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
   savings             Show the token reductions warden's lifecycle features have earned
   schedule            Schedule recurring (--cron) or single-shot (--at) agents and pipelines
@@ -88,6 +88,7 @@ Available Commands:
   stats               Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
   status              Show full status for one session
   stop                Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
+  switch              Hot-swap an agent session to a different backend, model, or tier mid-task
   sync                Fetch and rebase the current branch onto its base (warden conflict detect)
   tail                Print the recent output of an agent's claude session
   terminate           Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
@@ -1713,26 +1714,77 @@ Global Flags:
 ## warden models
 
 ```text
-Show the live, currently-available model menu the agent's backend exposes — the
-agent-native counterpart to warden's static model aliases. Backends whose model
-set is a runtime, multi-vendor menu (Antigravity: `agy models`, listing Gemini,
-Claude, and GPT-OSS variants) report exactly which ids they will accept on
---model right now, so you don't have to guess from a hard-coded table.
+Show the live, currently-available model menu the agent's backend exposes, or
+inspect and configure the tiered model catalog in warden.
 
-Listing is a metadata read — it runs the backend's own list subcommand, not a
-generation request — so it does not spend a hosted backend's request quota. The
-menu prints one id per line; pass --json for a JSON array instead.
+Subcommands:
+  list      List models in the catalog and their assigned tiers
+  tier      Set a model's tier classification (tier-1|tier-2|tier-3)
 
-Backends with a static model set (e.g. Claude) have no live menu and are not
-offered the verb — it exits non-zero pointing you at `--model` with a known id.
+When run without subcommands, `warden models` shows the live model menu of the
+current or specified backend.
 
 Usage:
   warden models [flags]
+  warden models [command]
+
+Available Commands:
+  list        List models in the catalog and their assigned tiers
+  tier        Set a model's tier classification (tier-1|tier-2|tier-3)
 
 Flags:
       --backend string   list models for this backend id (default: the current agent's backend)
   -h, --help             help for models
       --json             emit the menu as a JSON array instead of one id per line
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Use "warden models [command] --help" for more information about a command.
+```
+
+## warden models list
+
+```text
+List models in the catalog and their assigned tiers
+
+Usage:
+  warden models list [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+      --backend string   filter models by backend ID
+      --by-tier          group and display models by tier
+  -h, --help             help for list
+      --json             emit models as a JSON array
+      --tier string      filter models by tier (tier-1|tier-2|tier-3)
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden models tier
+
+```text
+Set a model's tier classification in the catalog.
+
+Tiers:
+  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
+  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
+  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
+
+Example:
+  warden models tier claude claude-3-7-sonnet tier-2
+
+Usage:
+  warden models tier <backend> <model> <tier> [flags]
+
+Flags:
+  -h, --help   help for tier
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2431,13 +2483,15 @@ Global Flags:
 ## warden role
 
 ```text
-Inspect warden's built-in agent roles
+Inspect warden's built-in agent roles and tier mappings
 
 Usage:
   warden role [command]
 
 Available Commands:
   list        List the built-in agent roles and their descriptions
+  set-tier    Set the default model tier for an agent role (tier-1|tier-2|tier-3)
+  tier        Inspect and manage role-to-tier mappings
 
 Flags:
   -h, --help   help for role
@@ -2459,6 +2513,80 @@ Usage:
 
 Flags:
   -h, --help   help for list
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden role set-tier
+
+```text
+Set the default model tier assigned when creating agents with this role.
+
+Tiers:
+  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
+  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
+  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
+
+Example:
+  warden role set-tier implementation tier-2
+  warden role set-tier architecture tier-1
+
+Usage:
+  warden role set-tier <role> <tier> [flags]
+
+Flags:
+  -h, --help   help for set-tier
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden role tier
+
+```text
+Inspect and manage default model tier mappings for agent roles.
+
+Subcommands:
+  list    List all role-to-tier mappings
+  set     Set the default model tier for a role
+
+When run without subcommands, `warden role tier` lists all mappings.
+
+Usage:
+  warden role tier [flags]
+  warden role tier [command]
+
+Available Commands:
+  list        List agent roles and their default model tiers
+
+Flags:
+  -h, --help   help for tier
+      --json   emit role tier mappings as a JSON array
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Use "warden role tier [command] --help" for more information about a command.
+```
+
+## warden role tier list
+
+```text
+List agent roles and their default model tiers
+
+Usage:
+  warden role tier list [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+  -h, --help   help for list
+      --json   emit role tier mappings as a JSON array
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3008,6 +3136,39 @@ Flags:
       --keep-worktree           do not remove the git worktree (this + default == the old 'done')
       --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
       --yes                     skip the worktree-removal confirmation prompt
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden switch
+
+```text
+Mid-session hot-swap: retire the active CLI process and launch a successor backend
+in the SAME worktree, carrying forward structured context (Goal, Decisions Log,
+Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.
+
+The successor can be chosen by explicit --backend and/or --model, or by --tier
+(resolved via quota-balanced weighted headroom routing across eligible backends).
+
+Examples:
+  warden switch --backend antigravity --model gemini-3.1-pro
+  warden switch --tier tier-1
+  warden switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'
+
+Usage:
+  warden switch [agent-id] [flags]
+
+Flags:
+  -b, --backend string   explicit successor backend id (claude, antigravity, codex, …)
+  -h, --help             help for switch
+      --json             emit result as JSON
+  -m, --model string     explicit successor model id
+  -p, --prompt string    optional extra instruction appended to successor's continuation prompt
+      --reason string    reason recorded for hot-swap (manual|context_fill|quota) (default "manual")
+  -r, --role string      role to resolve tier from when --tier is not given
+  -t, --tier string      resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

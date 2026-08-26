@@ -17,6 +17,7 @@ import (
 
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/auth"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/metrics"
@@ -1527,4 +1528,86 @@ func (c *Client) SetForceCompact(ctx context.Context, id, state string) error {
 func (c *Client) SetName(ctx context.Context, id, name string) error {
 	body := map[string]string{"name": name}
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/name", body, nil)
+}
+
+// ListModels returns all registered models, optionally filtered by tier (tier-1, tier-2, tier-3).
+func (c *Client) ListModels(ctx context.Context, tier string) ([]backendstore.ModelEntry, error) {
+	var out []backendstore.ModelEntry
+	path := "/models"
+	if tier != "" {
+		path += "?tier=" + url.QueryEscape(tier)
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SetModelTier updates the tier for a specific model in the catalog.
+func (c *Client) SetModelTier(ctx context.Context, backend, model, tier string) (backendstore.ModelEntry, error) {
+	var out backendstore.ModelEntry
+	body := map[string]string{"tier": tier}
+	path := fmt.Sprintf("/models/%s/%s/tier", url.PathEscape(backend), url.PathEscape(model))
+	if err := c.do(ctx, http.MethodPut, path, body, &out); err != nil {
+		return backendstore.ModelEntry{}, err
+	}
+	return out, nil
+}
+
+// ListRoleTiers returns all role-to-tier mappings.
+func (c *Client) ListRoleTiers(ctx context.Context) ([]backendstore.RoleTierMapping, error) {
+	var out []backendstore.RoleTierMapping
+	if err := c.do(ctx, http.MethodGet, "/roles/tiers", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SetRoleTier updates the default model tier for an agent role.
+func (c *Client) SetRoleTier(ctx context.Context, role, tier string) (backendstore.RoleTierMapping, error) {
+	var out backendstore.RoleTierMapping
+	body := map[string]string{"tier": tier}
+	path := fmt.Sprintf("/roles/tiers/%s", url.PathEscape(role))
+	if err := c.do(ctx, http.MethodPut, path, body, &out); err != nil {
+		return backendstore.RoleTierMapping{}, err
+	}
+	return out, nil
+}
+
+// SwitchSessionParams holds the parameters for switching an agent session mid-task.
+type SwitchSessionParams struct {
+	Backend string `json:"backend,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Tier    string `json:"tier,omitempty"`
+	Role    string `json:"role,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	Prompt  string `json:"prompt,omitempty"`
+}
+
+// SwitchSession hot-swaps an agent session mid-task.
+func (c *Client) SwitchSession(ctx context.Context, id string, params SwitchSessionParams) (lifecycle.SwapResult, error) {
+	var out lifecycle.SwapResult
+	path := fmt.Sprintf("/sessions/%s/switch", url.PathEscape(id))
+	if err := c.do(ctx, http.MethodPost, path, params, &out); err != nil {
+		return lifecycle.SwapResult{}, err
+	}
+	return out, nil
+}
+
+// GetHandoverSettings returns the current handover configuration.
+func (c *Client) GetHandoverSettings(ctx context.Context) (backendstore.HandoverSettings, error) {
+	var out backendstore.HandoverSettings
+	if err := c.do(ctx, http.MethodGet, "/handover/settings", nil, &out); err != nil {
+		return backendstore.HandoverSettings{}, err
+	}
+	return out, nil
+}
+
+// SetHandoverSettings updates the handover configuration.
+func (c *Client) SetHandoverSettings(ctx context.Context, settings backendstore.HandoverSettings) (backendstore.HandoverSettings, error) {
+	var out backendstore.HandoverSettings
+	if err := c.do(ctx, http.MethodPut, "/handover/settings", settings, &out); err != nil {
+		return backendstore.HandoverSettings{}, err
+	}
+	return out, nil
 }
