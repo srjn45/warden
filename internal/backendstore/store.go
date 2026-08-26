@@ -26,6 +26,12 @@ var (
 	ErrNotFound = errors.New("backend not found")
 	// ErrExists is the store-boundary translation of engine.ErrDuplicateKey.
 	ErrExists = errors.New("backend already exists")
+	// ErrModelNotFound is returned when a model is not found in the catalog.
+	ErrModelNotFound = errors.New("model not found")
+	// ErrRoleNotFound is returned when a role tier mapping is not found.
+	ErrRoleNotFound = errors.New("role tier mapping not found")
+	// ErrInvalidTier is returned when an invalid model tier is specified.
+	ErrInvalidTier = errors.New("invalid model tier")
 )
 
 const (
@@ -33,6 +39,9 @@ const (
 	// It shares the "backends" collection but is excluded from List() so it never
 	// surfaces as a backend row.
 	SettingsKey = "__settings__"
+
+	// HandoverSettingsKey is the reserved ScrivaDB key of the singleton HandoverSettings record.
+	HandoverSettingsKey = "__handover_settings__"
 
 	// ThinkingModeLocalOnly routes internal thinking to the local model only.
 	ThinkingModeLocalOnly = "local_only"
@@ -98,9 +107,13 @@ type Settings struct {
 // guards the read-then-write critical sections. Read-only methods take it too for
 // a behaviour-identical mutex model.
 type Store struct {
-	mu  sync.Mutex
-	db  *scriva.DB
-	col *engine.Collection
+	mu          sync.Mutex
+	db          *scriva.DB
+	col         *engine.Collection
+	modelsCol   *engine.Collection
+	rolesCol    *engine.Collection
+	handoverCol *engine.Collection
+	quotasCol   *engine.Collection
 }
 
 // NewStore opens (creating if needed) the ScrivaDB-backed backend registry at
@@ -119,7 +132,39 @@ func NewStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, col: col}, nil
+	modelsCol, err := db.Collection("models")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	rolesCol, err := db.Collection("role_tiers")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	handoverCol, err := db.Collection("handover_settings")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	quotasCol, err := db.Collection("quotas")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	s := &Store{
+		db:          db,
+		col:         col,
+		modelsCol:   modelsCol,
+		rolesCol:    rolesCol,
+		handoverCol: handoverCol,
+		quotasCol:   quotasCol,
+	}
+	if err := s.seedDefaultsIfEmpty(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 // toRecord decomposes v into a ScrivaDB record body via a JSON round-trip, so its
@@ -461,6 +506,362 @@ func (s *Store) putSettings(st Settings) error {
 	}
 	_, err = s.col.UpdateByKey(SettingsKey, rec)
 	return err
+}
+
+// --- Models Catalog ---------------------------------------------------------
+
+func modelKey(backendID, modelID string) string {
+	return backendID + ":" + modelID
+}
+
+func modelFromRecord(d map[string]any) (ModelEntry, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return ModelEntry{}, err
+	}
+	var out ModelEntry
+	if err := json.Unmarshal(b, &out); err != nil {
+		return ModelEntry{}, err
+	}
+	return out, nil
+}
+
+// ListModels returns all registered models, optionally filtered by tier (if tierFilter is non-empty).
+// If tierFilter is non-empty and not a valid tier, ErrInvalidTier is returned.
+func (s *Store) ListModels(tierFilter ModelTier) ([]ModelEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listModels(tierFilter)
+}
+
+func (s *Store) listModels(tierFilter ModelTier) ([]ModelEntry, error) {
+	if tierFilter != "" && !tierFilter.Valid() {
+		return nil, ErrInvalidTier
+	}
+	results, err := s.modelsCol.Scan(query.MatchAll)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ModelEntry, 0, len(results))
+	for _, r := range results {
+		m, err := modelFromRecord(r.Data)
+		if err != nil {
+			continue
+		}
+		if tierFilter != "" && m.Tier != tierFilter {
+			continue
+		}
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].BackendID == out[j].BackendID {
+			return out[i].ModelID < out[j].ModelID
+		}
+		return out[i].BackendID < out[j].BackendID
+	})
+	return out, nil
+}
+
+// GetModel returns the model entry for backendID and modelID, or ErrModelNotFound.
+func (s *Store) GetModel(backendID, modelID string) (ModelEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getModel(backendID, modelID)
+}
+
+func (s *Store) getModel(backendID, modelID string) (ModelEntry, error) {
+	if backendID == "" || modelID == "" {
+		return ModelEntry{}, ErrModelNotFound
+	}
+	r, err := s.modelsCol.GetByKey(modelKey(backendID, modelID))
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		return ModelEntry{}, ErrModelNotFound
+	}
+	if err != nil {
+		return ModelEntry{}, err
+	}
+	return modelFromRecord(r.Data)
+}
+
+// SetModelTier updates the tier for a specific model (RMW). Returns ErrModelNotFound if missing, or ErrInvalidTier if tier is invalid.
+func (s *Store) SetModelTier(backendID, modelID string, tier ModelTier) error {
+	if !tier.Valid() {
+		return ErrInvalidTier
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.getModel(backendID, modelID)
+	if err != nil {
+		return err
+	}
+	m.Tier = tier
+	return s.upsertModel(m)
+}
+
+// SetModelEnabled enables or disables a specific model (RMW). Returns ErrModelNotFound if missing.
+func (s *Store) SetModelEnabled(backendID, modelID string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.getModel(backendID, modelID)
+	if err != nil {
+		return err
+	}
+	m.Enabled = enabled
+	return s.upsertModel(m)
+}
+
+// UpsertModel inserts or updates a model entry in the store.
+func (s *Store) UpsertModel(m ModelEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.upsertModel(m)
+}
+
+func (s *Store) upsertModel(m ModelEntry) error {
+	if m.BackendID == "" || m.ModelID == "" {
+		return errors.New("backend ID and model ID cannot be empty")
+	}
+	if !m.Tier.Valid() {
+		return ErrInvalidTier
+	}
+	key := modelKey(m.BackendID, m.ModelID)
+	rec, err := toRecord(m)
+	if err != nil {
+		return err
+	}
+	_, err = s.modelsCol.GetByKey(key)
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		if _, _, err := s.modelsCol.InsertWithKey(key, rec); err != nil {
+			if errors.Is(err, engine.ErrDuplicateKey) {
+				return ErrExists
+			}
+			return err
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.modelsCol.UpdateByKey(key, rec)
+	return err
+}
+
+// --- Role Tier Mappings -----------------------------------------------------
+
+func roleTierFromRecord(d map[string]any) (RoleTierMapping, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return RoleTierMapping{}, err
+	}
+	var out RoleTierMapping
+	if err := json.Unmarshal(b, &out); err != nil {
+		return RoleTierMapping{}, err
+	}
+	return out, nil
+}
+
+// ListRoleTiers returns all role-to-tier mappings sorted by role name.
+func (s *Store) ListRoleTiers() ([]RoleTierMapping, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listRoleTiers()
+}
+
+func (s *Store) listRoleTiers() ([]RoleTierMapping, error) {
+	results, err := s.rolesCol.Scan(query.MatchAll)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RoleTierMapping, 0, len(results))
+	for _, r := range results {
+		rm, err := roleTierFromRecord(r.Data)
+		if err != nil {
+			continue
+		}
+		out = append(out, rm)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].RoleName < out[j].RoleName
+	})
+	return out, nil
+}
+
+// GetRoleTier returns the default model tier for a role, or ErrRoleNotFound.
+func (s *Store) GetRoleTier(roleName string) (ModelTier, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getRoleTier(roleName)
+}
+
+func (s *Store) getRoleTier(roleName string) (ModelTier, error) {
+	if roleName == "" {
+		return "", ErrRoleNotFound
+	}
+	r, err := s.rolesCol.GetByKey(roleName)
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		return "", ErrRoleNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	rm, err := roleTierFromRecord(r.Data)
+	if err != nil {
+		return "", err
+	}
+	return rm.DefaultTier, nil
+}
+
+// SetRoleTier sets or updates the model tier mapping for a role. Returns ErrInvalidTier if tier is invalid.
+func (s *Store) SetRoleTier(roleName string, tier ModelTier) error {
+	if roleName == "" {
+		return errors.New("role name cannot be empty")
+	}
+	if !tier.Valid() {
+		return ErrInvalidTier
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.setRoleTier(roleName, tier)
+}
+
+func (s *Store) setRoleTier(roleName string, tier ModelTier) error {
+	rm := RoleTierMapping{
+		RoleName:    roleName,
+		DefaultTier: tier,
+	}
+	rec, err := toRecord(rm)
+	if err != nil {
+		return err
+	}
+	_, err = s.rolesCol.GetByKey(roleName)
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		_, _, err = s.rolesCol.InsertWithKey(roleName, rec)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.rolesCol.UpdateByKey(roleName, rec)
+	return err
+}
+
+// --- Handover Settings ------------------------------------------------------
+
+func handoverSettingsFromRecord(d map[string]any) (HandoverSettings, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return HandoverSettings{}, err
+	}
+	var out HandoverSettings
+	if err := json.Unmarshal(b, &out); err != nil {
+		return HandoverSettings{}, err
+	}
+	return out, nil
+}
+
+// GetHandoverSettings returns the current handover configuration, or the default settings if unconfigured.
+func (s *Store) GetHandoverSettings() (HandoverSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getHandoverSettings()
+}
+
+func (s *Store) getHandoverSettings() (HandoverSettings, error) {
+	defaults := DefaultHandoverSettings()
+	r, err := s.handoverCol.GetByKey(HandoverSettingsKey)
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		return defaults, nil
+	}
+	if err != nil {
+		return HandoverSettings{}, err
+	}
+	hs, err := handoverSettingsFromRecord(r.Data)
+	if err != nil {
+		return HandoverSettings{}, err
+	}
+	return hs, nil
+}
+
+// SetHandoverSettings persists the handover configuration in the store.
+func (s *Store) SetHandoverSettings(settings HandoverSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.setHandoverSettings(settings)
+}
+
+func (s *Store) setHandoverSettings(settings HandoverSettings) error {
+	rec, err := toRecord(settings)
+	if err != nil {
+		return err
+	}
+	_, err = s.handoverCol.GetByKey(HandoverSettingsKey)
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		_, _, err = s.handoverCol.InsertWithKey(HandoverSettingsKey, rec)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.handoverCol.UpdateByKey(HandoverSettingsKey, rec)
+	return err
+}
+
+// --- Seeding ----------------------------------------------------------------
+
+func (s *Store) seedDefaultsIfEmpty() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Seed models if models collection is empty
+	modelResults, err := s.modelsCol.Scan(query.MatchAll)
+	if err != nil {
+		return err
+	}
+	if len(modelResults) == 0 {
+		for _, m := range DefaultModels() {
+			if err := s.upsertModel(m); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Seed role tiers if role_tiers collection is empty
+	roleResults, err := s.rolesCol.Scan(query.MatchAll)
+	if err != nil {
+		return err
+	}
+	if len(roleResults) == 0 {
+		for _, rm := range DefaultRoleTiers() {
+			if err := s.setRoleTier(rm.RoleName, rm.DefaultTier); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Seed handover settings if unconfigured
+	_, err = s.handoverCol.GetByKey(HandoverSettingsKey)
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		if err := s.setHandoverSettings(DefaultHandoverSettings()); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	// Seed quotas if quotas collection is empty
+	quotaResults, err := s.quotasCol.Scan(query.MatchAll)
+	if err != nil {
+		return err
+	}
+	if len(quotaResults) == 0 {
+		for _, q := range DefaultQuotas() {
+			if err := s.upsertQuota(q); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // Close flushes the ScrivaDB index and stops its background compaction goroutine.
