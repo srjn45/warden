@@ -31,14 +31,14 @@ func TestAdapterInteractiveSpawnStaysFreeForm(t *testing.T) {
 }
 
 // TestAdapterTypedSpawnNormalizes confirms the typed path still normalizes an
-// unknown type down to "other".
+// unknown type down to empty.
 func TestAdapterTypedSpawnNormalizes(t *testing.T) {
 	lc := lifecycle.New(&lifecycle.FakeRunner{}, &lifecycle.FakeConfig{})
 	a := NewLifecycleAdapter(lc, newFakeStore())
 
-	sess, err := a.Spawn(context.Background(), SpawnRequest{Type: "bogus", Repo: t.TempDir()})
+	sess, err := a.Spawn(context.Background(), SpawnRequest{Type: "bogus", Repo: t.TempDir(), Cwd: "/work"})
 	require.NoError(t, err)
-	require.Equal(t, store.TypeOther, sess.Type, "unknown type collapses to other")
+	require.Equal(t, store.Type(""), sess.Type, "unknown type collapses to empty")
 }
 
 // newForkAdapter wires a real codex-capable lifecycle (FakeRunner reporting no

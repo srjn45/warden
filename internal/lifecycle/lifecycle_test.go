@@ -527,8 +527,8 @@ func TestParseType(t *testing.T) {
 	require.Equal(t, store.TypePRReview, parseType("pr-review\n"))
 	require.Equal(t, store.TypeAnalysis, parseType("This is an analysis task."))
 	require.Equal(t, store.TypeDebugCI, parseType("Label: debug-ci"))
-	require.Equal(t, store.TypeOther, parseType("I am not sure"))
-	require.Equal(t, store.TypeOther, parseType(""))
+	require.Equal(t, store.Type(""), parseType("I am not sure"))
+	require.Equal(t, store.Type(""), parseType(""))
 }
 
 func TestClassifyCallsClaudeP(t *testing.T) {
@@ -573,7 +573,7 @@ func TestClassifyUsesLocalLLMWhenSet(t *testing.T) {
 
 	got, err := lc.Classify(context.Background(), prompt)
 	require.NoError(t, err)
-	require.Equal(t, store.TypeTests, got)
+	require.Equal(t, store.TypeDevelopment, got)
 	require.Equal(t, 1, fc.calls)
 	require.NotContains(t, fr.calledArgs(), []string{"claude", "-p", classifyArg(prompt)},
 		"a successful local classify must not also spend warden's Claude")
@@ -642,7 +642,7 @@ func TestClassifyUsesInternalRouter(t *testing.T) {
 
 	got, err := lc.Classify(context.Background(), prompt)
 	require.NoError(t, err)
-	require.Equal(t, store.TypeTests, got)
+	require.Equal(t, store.TypeDevelopment, got)
 	require.Equal(t, 1, fc.calls)
 	require.NotContains(t, fr.calledArgs(), []string{"claude", "-p", classifyArg(prompt)},
 		"the registry walk must never fall back to paid Claude")
