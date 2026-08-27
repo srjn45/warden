@@ -248,12 +248,15 @@ func TestUpdateAutopilotConfig_IdempotentWithExistingPlans(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(cfg), 0o644))
 
 	var out bytes.Buffer
-	require.NoError(t, updateAutopilotConfig(path, "new.yaml", nil, &out))
-	require.Contains(t, out.String(), "already set")
+	// Pass the already-registered plan — PR #323 changed idempotency to be
+	// per-plan: if THIS specific plan is in the list, skip; the old "any plans
+	// exist → skip" behaviour is gone.
+	require.NoError(t, updateAutopilotConfig(path, "existing.yaml", nil, &out))
+	require.Contains(t, out.String(), "already registered")
 
 	data, _ := os.ReadFile(path)
 	require.True(t, strings.Contains(string(data), "existing.yaml"), "existing plan must not be overwritten")
-	require.False(t, strings.Contains(string(data), "new.yaml"), "new plan must not be added")
+	require.Equal(t, 1, strings.Count(string(data), "existing.yaml"), "plan must not be duplicated")
 }
 
 func TestUpdateAutopilotConfig_SetsDetectedBackends(t *testing.T) {
