@@ -486,8 +486,54 @@ func (c *Client) Check(ctx context.Context, session, dir, name string) (lifecycl
 	return res, nil
 }
 
+// Terminate kills an agent's tmux session unconditionally, ignoring any
+// collaboration-group membership. It sends no body, so the daemon takes the
+// legacy path (no friction gate, group seats left untouched) — used by
+// self-succession/rotate where a successor inherits the work. For an operator-
+// driven "stop this agent" that must respect the group friction gate and emit
+// abandonment notices, use TerminateGated.
 func (c *Client) Terminate(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", nil, nil)
+}
+
+// GroupTerminateSeat names one group the terminate target seats and the peers
+// whose in-flight work the terminate would abandon.
+type GroupTerminateSeat struct {
+	Name  string   `json:"name"`
+	Peers []string `json:"peers"`
+}
+
+// ErrGroupTerminateConfirm is returned by TerminateGated when the target holds
+// collaboration-group seats and confirm was false: the caller must re-issue with
+// confirm=true to accept abandoning the listed peers' in-flight work.
+type ErrGroupTerminateConfirm struct {
+	Message string
+	Groups  []GroupTerminateSeat
+}
+
+func (e *ErrGroupTerminateConfirm) Error() string { return e.Message }
+
+// TerminateGated is the group-aware terminate behind the operator "stop this
+// agent" verbs. It sends a body, so the daemon runs the friction gate: when the
+// target seats any collaboration group and confirm is false, the daemon refuses
+// with 409 and this returns *ErrGroupTerminateConfirm carrying the groups + peers
+// so the caller can surface the cost and re-run with confirm=true. With confirm
+// true (or an ungrouped target) the agent is terminated and, if it was grouped,
+// its seats are vacated and each remaining peer is sent an abandonment notice.
+func (c *Client) TerminateGated(ctx context.Context, id string, confirm bool) error {
+	body := map[string]bool{"confirm": confirm}
+	err := c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", body, nil)
+	var se *StatusError
+	if errors.As(err, &se) && se.Code == http.StatusConflict {
+		var payload struct {
+			Error  string               `json:"error"`
+			Groups []GroupTerminateSeat `json:"groups"`
+		}
+		if json.Unmarshal(se.Body, &payload) == nil && len(payload.Groups) > 0 {
+			return &ErrGroupTerminateConfirm{Message: payload.Error, Groups: payload.Groups}
+		}
+	}
+	return err
 }
 
 func (c *Client) Delete(ctx context.Context, id string, hard bool) error {
