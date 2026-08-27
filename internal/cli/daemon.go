@@ -445,6 +445,9 @@ func newDaemonCmd() *cobra.Command {
 			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled, cfg.Tokens.Warn, cfg.Tokens.Critical)
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(cfg.Pipeline.KeepDone)
+			// Delegated monitoring (A4): the executor push-wakes a subscribed
+			// pipeline's owning orchestrator through the mailbox + pane-nudge path.
+			exec.SetOwnerWaker(srv.WakePipelineOwner)
 			// Memory auto-curation (#53 PR-2), opt-in via memory.curate (default OFF).
 			// The proposer routes through the internal-thinking router (free/local
 			// candidate walk); an exhausted walk yields no proposal (Run left nil), so

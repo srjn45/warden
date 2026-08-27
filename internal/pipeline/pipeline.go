@@ -50,6 +50,13 @@ type Job struct {
 	Tier       string   `json:"tier,omitempty" yaml:"tier,omitempty"`
 	Backend    string   `json:"backend,omitempty" yaml:"backend,omitempty"`
 	Model      string   `json:"model,omitempty" yaml:"model,omitempty"`
+	// Callback marks this job as a decision point in a delegated plan: when it
+	// completes (emits), warden push-wakes the pipeline's owning orchestrator so
+	// the agent spends a turn only where its judgment is genuinely needed (design
+	// §2.3). Spec-authored; honored only when the pipeline sets NotifyOwner and has
+	// an OwnerID. A pure DAG marks no callbacks — the owner is woken just once, at
+	// completion.
+	Callback bool `json:"callback,omitempty" yaml:"callback,omitempty"`
 
 	SessionID string         `json:"session_id,omitempty" yaml:"-"`
 	Status    JobStatus      `json:"status,omitempty" yaml:"-"`
@@ -83,6 +90,14 @@ type Pipeline struct {
 	// delegated pipeline under its owner and an owner-less one under its project
 	// node; A4 uses it as the wake/push target.
 	OwnerID string `json:"owner_id,omitempty" yaml:"-"`
+	// NotifyOwner is the owner subscription for delegated monitoring (design §2.3):
+	// when true (and OwnerID is set), warden push-wakes the owning orchestrator via
+	// a directed message at each declared callback point (Job.Callback) and once
+	// when the pipeline reaches a terminal state (done or stalled), so the owner can
+	// block on wait_for_message and spend tokens only at real decision points — no
+	// polling. Spec-authored so a delegation plan declares "wake me"; a direct
+	// human/CLI or scheduled create leaves it false and warden wakes no one.
+	NotifyOwner bool `json:"notify_owner,omitempty" yaml:"notify_owner,omitempty"`
 }
 
 // Job returns a pointer to the job with id, or nil.

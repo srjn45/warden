@@ -2854,6 +2854,14 @@ components:
         supervised: { type: boolean }
         type: { type: string }
         run_if: { type: string, enum: [success, failure, always] }
+        callback:
+          type: boolean
+          description: >-
+            Spec-authored: marks this job a delegated-monitoring callback point. On
+            its completion warden push-wakes the pipeline's owning orchestrator
+            (honored only when the pipeline sets notify_owner and has an owner_id) so
+            the owner spends a turn only at a real decision point. A pure DAG marks
+            no callbacks and the owner is woken just once, on completion.
         session_id: { type: string }
         status: { type: string }
         output: { type: string }
@@ -2886,6 +2894,15 @@ components:
             the daemon at creation from the caller's actor identity (or an explicit
             owner on the create request). Empty for a direct human/CLI create; the
             cockpit groups a delegated pipeline under this owner.
+        notify_owner:
+          type: boolean
+          description: >-
+            Spec-authored owner subscription for delegated monitoring: when true (and
+            owner_id is set) warden push-wakes the owning orchestrator via a directed
+            message at each callback-point job (job.callback) and once when the
+            pipeline reaches a terminal state (done or stalled). The owner can then
+            block on wait_for_message and spend tokens only at decision points — no
+            polling. False (a direct human/CLI or scheduled create) wakes no one.
         jobs:
           type: array
           items: { $ref: "#/components/schemas/PipelineJob" }
