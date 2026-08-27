@@ -174,6 +174,33 @@ func (s *Store) List() ([]*Group, error) {
 	return out, nil
 }
 
+// GroupsForAgent returns all groups that contain agentID as a member, sorted
+// by name. An empty (non-nil) slice is returned when the agent holds no seats.
+// Undecodable records are skipped rather than failing the scan.
+func (s *Store) GroupsForAgent(agentID string) ([]*Group, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	results, err := s.col.Scan(query.MatchAll)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Group, 0)
+	for _, r := range results {
+		g, err := fromRecord(r.Data)
+		if err != nil {
+			continue
+		}
+		for _, m := range g.Members {
+			if m.AgentID == agentID {
+				out = append(out, g)
+				break
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
 // Update applies fn to the stored group under the lock and writes it back
 // atomically. It returns ErrNotFound if the name is absent. This is the seam
 // join/leave (B3/B6) use to add or remove a seat without racing.
