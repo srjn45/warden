@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/srjn45/warden/internal/groupstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -32,12 +33,75 @@ type RecoverResult struct {
 // pointer never touched by archiving) reconnect automatically with no edits
 // of their own. The stale closed copy is left in place — recovering does not
 // remove archived history.
+//
+// When apply=true, recovered orchestrators are also automatically re-seated in
+// their collaboration groups and their peers are notified (B7: recover
+// auto-rejoin).
 func (s *Server) Recover(ctx context.Context, apply bool) ([]RecoverResult, error) {
 	var alive func(ctx context.Context, tmuxSession string) bool
 	if s.poller != nil {
 		alive = s.poller.SessionAlive
 	}
-	return recoverCandidates(ctx, s.store, alive, apply)
+	results, err := recoverCandidates(ctx, s.store, alive, apply)
+	if err != nil {
+		return nil, err
+	}
+	if apply {
+		var recovered []*store.Session
+		for _, r := range results {
+			if !r.Recovered {
+				continue
+			}
+			if sess, serr := s.store.Get(ctx, r.ID); serr == nil {
+				recovered = append(recovered, sess)
+			}
+		}
+		if len(recovered) > 0 {
+			s.rejoinGroups(ctx, recovered)
+		}
+	}
+	return results, nil
+}
+
+// rejoinGroups re-seats recovered orchestrators in their collaboration groups
+// and re-announces their return to peers (B7: recover auto-rejoin). The group
+// record is durable so membership entries already exist; this refreshes the
+// JoinedAt timestamp (so peers can see when the agent came back) and delivers a
+// targeted re-announce notice to each peer. Best-effort throughout — failures
+// are logged but never returned (recovery itself must not be interrupted).
+func (s *Server) rejoinGroups(ctx context.Context, recovered []*store.Session) {
+	if s.groups == nil {
+		return
+	}
+	now := time.Now().UTC()
+	for _, sess := range recovered {
+		groups, err := s.groups.GroupsForAgent(sess.ID)
+		if err != nil || len(groups) == 0 {
+			continue
+		}
+		for _, grp := range groups {
+			// Refresh the JoinedAt so peers can see the recovery time.
+			var mem groupstore.Member
+			_ = s.groups.Update(grp.Name, func(g *groupstore.Group) {
+				for i := range g.Members {
+					if g.Members[i].AgentID == sess.ID {
+						g.Members[i].JoinedAt = now
+						mem = g.Members[i]
+						break
+					}
+				}
+			})
+			if mem.AgentID == "" {
+				continue
+			}
+			// Re-read so the updated record is used for the announcement.
+			fresh, ferr := s.groups.Get(grp.Name)
+			if ferr != nil {
+				continue
+			}
+			s.brokerReannounce(ctx, fresh, mem, sess.Name)
+		}
+	}
 }
 
 // recoverCandidates is Recover's testable core: the store and liveness check
