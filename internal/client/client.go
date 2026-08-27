@@ -1035,6 +1035,16 @@ func (c *Client) PipelineEmit(ctx context.Context, pid, job, text string) error 
 	return c.doT(ctx, longTimeout, http.MethodPost, path, map[string]string{"text": text}, nil)
 }
 
+// PipelineJobDone records a worker's self-reported completion (A1 done-signal):
+// status ("success"/"failure"/"blocked", empty ⇒ success) + a one-line summary.
+// Warden closes the job in one shot — no interrogation turn.
+func (c *Client) PipelineJobDone(ctx context.Context, pid, job, status, summary string) error {
+	path := "/pipelines/" + url.PathEscape(pid) + "/jobs/" + url.PathEscape(job) + "/done"
+	// longTimeout: a success done reconciles and may spawn dependent worktree jobs.
+	return c.doT(ctx, longTimeout, http.MethodPost, path,
+		map[string]string{"status": status, "summary": summary}, nil)
+}
+
 // PipelineEditJob updates a pending job's prompt and/or handoff (nil = unchanged).
 func (c *Client) PipelineEditJob(ctx context.Context, pid, job string, prompt, handoff *string) error {
 	body := map[string]*string{}

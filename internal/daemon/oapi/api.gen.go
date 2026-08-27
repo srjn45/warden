@@ -1055,6 +1055,15 @@ type CreatePipelineJSONBody struct {
 	Spec string `json:"spec,omitempty"`
 }
 
+// DonePipelineJobJSONBody defines parameters for DonePipelineJob.
+type DonePipelineJobJSONBody struct {
+	// Status success | failure | blocked (empty ⇒ success)
+	Status string `json:"status,omitempty"`
+
+	// Summary worker's one-line summary of what it did
+	Summary string `json:"summary,omitempty"`
+}
+
 // EditPipelineJobJSONBody defines parameters for EditPipelineJob.
 type EditPipelineJobJSONBody struct {
 	Handoff *string `json:"handoff,omitempty"`
@@ -1282,6 +1291,9 @@ type SetModelTierJSONRequestBody SetModelTierJSONBody
 // CreatePipelineJSONRequestBody defines body for CreatePipeline for application/json ContentType.
 type CreatePipelineJSONRequestBody CreatePipelineJSONBody
 
+// DonePipelineJobJSONRequestBody defines body for DonePipelineJob for application/json ContentType.
+type DonePipelineJobJSONRequestBody DonePipelineJobJSONBody
+
 // EditPipelineJobJSONRequestBody defines body for EditPipelineJob for application/json ContentType.
 type EditPipelineJobJSONRequestBody EditPipelineJobJSONBody
 
@@ -1482,6 +1494,9 @@ type ServerInterface interface {
 	// Cancel a pipeline
 	// (POST /api/v1/pipelines/{pid}/cancel)
 	CancelPipeline(w http.ResponseWriter, r *http.Request, pid PipelineId)
+	// Record a worker's self-reported completion (done-signal)
+	// (POST /api/v1/pipelines/{pid}/jobs/{job}/done)
+	DonePipelineJob(w http.ResponseWriter, r *http.Request, pid PipelineId, job JobId)
 	// Edit a pending job's prompt and/or handoff
 	// (POST /api/v1/pipelines/{pid}/jobs/{job}/edit)
 	EditPipelineJob(w http.ResponseWriter, r *http.Request, pid PipelineId, job JobId)
@@ -1893,6 +1908,12 @@ func (_ Unimplemented) GetPipeline(w http.ResponseWriter, r *http.Request, pid P
 // Cancel a pipeline
 // (POST /api/v1/pipelines/{pid}/cancel)
 func (_ Unimplemented) CancelPipeline(w http.ResponseWriter, r *http.Request, pid PipelineId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record a worker's self-reported completion (done-signal)
+// (POST /api/v1/pipelines/{pid}/jobs/{job}/done)
+func (_ Unimplemented) DonePipelineJob(w http.ResponseWriter, r *http.Request, pid PipelineId, job JobId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3423,6 +3444,47 @@ func (siw *ServerInterfaceWrapper) CancelPipeline(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CancelPipeline(w, r, pid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DonePipelineJob operation middleware
+func (siw *ServerInterfaceWrapper) DonePipelineJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "pid" -------------
+	var pid PipelineId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "pid", chi.URLParam(r, "pid"), &pid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "job" -------------
+	var job JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "job", chi.URLParam(r, "job"), &job, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "job", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DonePipelineJob(w, r, pid, job)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5195,6 +5257,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/pipelines/{pid}/cancel", wrapper.CancelPipeline)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/pipelines/{pid}/jobs/{job}/done", wrapper.DonePipelineJob)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/pipelines/{pid}/jobs/{job}/edit", wrapper.EditPipelineJob)
 	})
 	r.Group(func(r chi.Router) {
@@ -6803,6 +6868,44 @@ func (response CancelPipeline200JSONResponse) VisitCancelPipelineResponse(w http
 type CancelPipeline404JSONResponse struct{ NotFoundJSONResponse }
 
 func (response CancelPipeline404JSONResponse) VisitCancelPipelineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DonePipelineJobRequestObject struct {
+	Pid  PipelineId `json:"pid"`
+	Job  JobId      `json:"job"`
+	Body *DonePipelineJobJSONRequestBody
+}
+
+type DonePipelineJobResponseObject interface {
+	VisitDonePipelineJobResponse(w http.ResponseWriter) error
+}
+
+type DonePipelineJob200JSONResponse struct{ OKJSONResponse }
+
+func (response DonePipelineJob200JSONResponse) VisitDonePipelineJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DonePipelineJob404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DonePipelineJob404JSONResponse) VisitDonePipelineJobResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -8741,6 +8844,9 @@ type StrictServerInterface interface {
 	// Cancel a pipeline
 	// (POST /api/v1/pipelines/{pid}/cancel)
 	CancelPipeline(ctx context.Context, request CancelPipelineRequestObject) (CancelPipelineResponseObject, error)
+	// Record a worker's self-reported completion (done-signal)
+	// (POST /api/v1/pipelines/{pid}/jobs/{job}/done)
+	DonePipelineJob(ctx context.Context, request DonePipelineJobRequestObject) (DonePipelineJobResponseObject, error)
 	// Edit a pending job's prompt and/or handoff
 	// (POST /api/v1/pipelines/{pid}/jobs/{job}/edit)
 	EditPipelineJob(ctx context.Context, request EditPipelineJobRequestObject) (EditPipelineJobResponseObject, error)
@@ -10176,6 +10282,40 @@ func (sh *strictHandler) CancelPipeline(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CancelPipelineResponseObject); ok {
 		if err := validResponse.VisitCancelPipelineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DonePipelineJob operation middleware
+func (sh *strictHandler) DonePipelineJob(w http.ResponseWriter, r *http.Request, pid PipelineId, job JobId) {
+	var request DonePipelineJobRequestObject
+
+	request.Pid = pid
+	request.Job = job
+
+	var body DonePipelineJobJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DonePipelineJob(ctx, request.(DonePipelineJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DonePipelineJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DonePipelineJobResponseObject); ok {
+		if err := validResponse.VisitDonePipelineJobResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

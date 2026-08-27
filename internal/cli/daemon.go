@@ -516,6 +516,20 @@ func newDaemonCmd() *cobra.Command {
 			// reaches them too (previously a second, independent notifier).
 			pl.OnAnomaly = daemon.NotifyOnAnomaly(notifSwitch)
 
+			// A1 done-signal backstop: parse a pipeline-job pane for a
+			// `<<WARDEN_DONE>>{json}` sentinel and close the job via the executor —
+			// the fallback for backends that print the sentinel instead of running
+			// `wd job done`. Idempotent: Executor.Done no-ops once the job is closed.
+			pl.OnPipelineJobPane = func(ctx context.Context, sess *store.Session, pane string) {
+				sig, ok := lifecycle.ParseDoneSignal(pane)
+				if !ok {
+					return
+				}
+				if err := exec.Done(ctx, sess.PipelineID, sess.JobID, sig.Status, sig.Summary); err != nil {
+					slog.Debug("daemon: done-signal capture failed", "agent", sess.ID, "pipeline", sess.PipelineID, "job", sess.JobID, "err", err)
+				}
+			}
+
 			// Reconstruct rate limit timers from persisted state
 			if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
 				slog.Warn("daemon: failed to reconstruct rate limit timers", "err", err)

@@ -201,6 +201,12 @@ type emitPipelineArgs struct {
 	Job      string `json:"job" jsonschema:"the job id whose handoff output to set"`
 	Text     string `json:"text" jsonschema:"the output text to emit downstream"`
 }
+type jobDoneArgs struct {
+	Pipeline string `json:"pipeline" jsonschema:"the pipeline id"`
+	Job      string `json:"job" jsonschema:"the job id to mark complete"`
+	Status   string `json:"status,omitempty" jsonschema:"job outcome: success (default) | failure | blocked"`
+	Summary  string `json:"summary,omitempty" jsonschema:"one-line summary of what the job accomplished"`
+}
 type validatePipelineArgs struct {
 	Spec string `json:"spec" jsonschema:"the pipeline YAML spec to validate (same schema as create_pipeline); does not contact the daemon"`
 }
@@ -933,6 +939,16 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("emitted output for job " + a.Job + " in pipeline " + a.Pipeline), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "mark_job_done",
+		Description: "Record a pipeline job's completion via the A1 done-signal: status (success|failure|blocked) + one-line summary, captured in one shot with no interrogation turn. success commits + fans out to dependents (summary becomes the handoff); failure/blocked parks the job as needs_attention. Mirrors `warden job done`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a jobDoneArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.PipelineJobDone(ctx, a.Pipeline, a.Job, a.Status, a.Summary); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("marked job " + a.Job + " done in pipeline " + a.Pipeline), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
