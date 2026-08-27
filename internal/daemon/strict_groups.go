@@ -52,12 +52,16 @@ func (s *Server) JoinGroup(ctx context.Context, req oapi.JoinGroupRequestObject)
 	// Seat the agent atomically, enforcing one-orchestrator-per-project. A fresh
 	// group has no possible conflict, so the create path seats directly; an
 	// existing group is mutated under the store lock so the conflict check and the
-	// seat cannot race a concurrent join.
+	// seat cannot race a concurrent join. seated tracks whether this call added a
+	// NEW seat (vs an idempotent re-join of the agent's own seat) so introductions
+	// are brokered exactly once per real join, not on every idempotent poll.
 	var conflict *groupstore.Member
+	seated := false
 	cerr := s.groups.Create(&groupstore.Group{Name: name, Members: []groupstore.Member{member}})
 	switch {
 	case cerr == nil:
 		// created + seated
+		seated = true
 	case errors.Is(cerr, groupstore.ErrExists):
 		if uerr := s.groups.Update(name, func(g *groupstore.Group) {
 			for i := range g.Members {
@@ -74,6 +78,7 @@ func (s *Server) JoinGroup(ctx context.Context, req oapi.JoinGroupRequestObject)
 				return
 			}
 			g.Members = append(g.Members, member)
+			seated = true
 		}); uerr != nil {
 			if errors.Is(uerr, groupstore.ErrNotFound) {
 				// Racy delete between Create and Update; the group is gone again.
@@ -102,6 +107,12 @@ func (s *Server) JoinGroup(ctx context.Context, req oapi.JoinGroupRequestObject)
 	grp, err := s.groups.Get(name)
 	if err != nil {
 		return nil, err
+	}
+	// Broker introductions in both directions (design §3.2), but only on a real
+	// new seat — an idempotent re-join must not re-announce. Warden composes and
+	// delivers every message here, so the joining agent spends no tokens.
+	if seated {
+		s.brokerIntroductions(ctx, grp, member, sess.Name)
 	}
 	s.recordAuditCtx(ctx, "group.join", name, map[string]string{"agent": sess.ID, "project": projectKey})
 	s.notify()
