@@ -158,6 +158,51 @@ func TestStorePersistsAcrossInstances(t *testing.T) {
 	}
 }
 
+// TestGroupsForAgent is the B7 acceptance for the store layer: GroupsForAgent
+// returns exactly the groups an agent is seated in, sorted by name, and an
+// empty slice for an agent with no seats.
+func TestGroupsForAgent(t *testing.T) {
+	st := newTestStore(t)
+	_ = st.Create(group("alpha", member("a1", "p1"), member("a2", "p2")))
+	_ = st.Create(group("beta", member("a1", "p1")))
+	_ = st.Create(group("gamma", member("a2", "p2")))
+
+	// a1 is in alpha and beta.
+	got, err := st.GroupsForAgent("a1")
+	if err != nil {
+		t.Fatalf("GroupsForAgent a1: %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "alpha" || got[1].Name != "beta" {
+		t.Fatalf("GroupsForAgent a1 = %v, want [alpha beta]", groupNames(got))
+	}
+
+	// a2 is in alpha and gamma.
+	got, err = st.GroupsForAgent("a2")
+	if err != nil {
+		t.Fatalf("GroupsForAgent a2: %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "alpha" || got[1].Name != "gamma" {
+		t.Fatalf("GroupsForAgent a2 = %v, want [alpha gamma]", groupNames(got))
+	}
+
+	// unknown agent returns an empty slice.
+	got, err = st.GroupsForAgent("nobody")
+	if err != nil {
+		t.Fatalf("GroupsForAgent nobody: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("GroupsForAgent nobody = %v, want []", groupNames(got))
+	}
+}
+
+func groupNames(gs []*Group) []string {
+	names := make([]string, len(gs))
+	for i, g := range gs {
+		names[i] = g.Name
+	}
+	return names
+}
+
 // The group record must stay lean (§4.3): only the roster, never transcripts or
 // logs, so it never approaches the oversized-record (>64 KB) ReadAt / index-
 // corruption regime. A generously-sized roster still serialises well under it.
