@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,14 @@ import (
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// OwnerWaker delivers a delegated pipeline's push-wake to its owning orchestrator
+// (design §2.3): body is landed durably in the owner's inbox and, if the owner is
+// parked, its pane is nudged so an idle orchestrator blocked on wait_for_message
+// actually wakes. Wired by the Server to the mailbox + lifecycle input path; nil ⇒
+// delegated push-wake disabled (a server built without messaging simply never
+// wakes anyone, and the DAG runs unchanged).
+type OwnerWaker func(ownerID, body string)
 
 // Curator is the memory auto-curation seam (#53 PR-2): the executor hands it one
 // Signal per completed job on the EXISTING completion-digest hook, and it debounces a
@@ -66,6 +75,7 @@ type Executor struct {
 
 	digestFn func(context.Context, *store.Session) digest.Digest // nil ⇒ skip snapshot
 	curator  Curator                                             // nil ⇒ memory auto-curation disabled
+	waker    OwnerWaker                                          // nil ⇒ delegated push-wake disabled
 	keepDone bool                                                // pipeline_keep_done config setting — keep done agents alive
 	snapWG   sync.WaitGroup                                      // tracks in-flight digest snapshots (test sync)
 }
@@ -89,6 +99,22 @@ func (e *Executor) SetKeepDoneAgents(v bool) { e.keepDone = v }
 // SetCurator wires the memory auto-curation seam (#53 PR-2); nil (the default) leaves
 // curation off. Set once at construction, before concurrent use.
 func (e *Executor) SetCurator(c Curator) { e.curator = c }
+
+// SetOwnerWaker wires the delegated-monitoring push-wake seam (A4); nil (the
+// default) leaves delegated wakes off. Set once at construction, before concurrent
+// use.
+func (e *Executor) SetOwnerWaker(w OwnerWaker) { e.waker = w }
+
+// wakeOwner push-wakes a delegated pipeline's owning orchestrator with body, but
+// only when the pipeline has subscribed to monitoring (NotifyOwner) and carries an
+// owner link. Best-effort and off the DAG's critical path: a delivery failure is
+// swallowed by the waker so it can never block or fail a reconcile/emit.
+func (e *Executor) wakeOwner(p *pipeline.Pipeline, body string) {
+	if e.waker == nil || !p.NotifyOwner || p.OwnerID == "" {
+		return
+	}
+	e.waker(p.OwnerID, body)
+}
 
 // JobDigest returns a job's stored completion-digest snapshot, or nil.
 func (e *Executor) JobDigest(pid, jobID string) *digest.Digest {
@@ -163,6 +189,8 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 	}
 
 	// Persist statuses: spawned→running, skipped→skipped, and pipeline status.
+	prevStatus := p.Status
+	var newStatus pipeline.Status
 	if err := e.pstore.Update(pid, func(p *pipeline.Pipeline) {
 		for _, s := range ok {
 			if j := p.Job(s.jobID); j != nil {
@@ -176,13 +204,35 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			}
 		}
 		p.Status = pipeline.Plan(p).Status // recompute from the just-applied statuses
+		newStatus = p.Status
 	}); err != nil {
 		return err
 	}
 	if e.notify != nil {
 		e.notify()
 	}
+	// Delegated monitoring (A4): on the transition into a terminal state the DAG
+	// has stopped and needs the owner's judgment, so push-wake the owning
+	// orchestrator once. Fires exactly once — the prev!=new guard makes a repeated
+	// stalled reconcile idempotent, and the top-of-Reconcile guard bails on an
+	// already-done pipeline. Stalled is included so an owner blocked on
+	// wait_for_message is released when a job fails, not left to time out.
+	if newStatus != prevStatus && (newStatus == pipeline.StatusDone || newStatus == pipeline.StatusStalled) {
+		e.wakeOwnerOnCompletion(pid, newStatus)
+	}
 	return nil
+}
+
+// wakeOwnerOnCompletion re-reads the pipeline and push-wakes its owner with an
+// aggregate completion summary. Split out of Reconcile so the summary is composed
+// off the reconcile fast path; a no-op when the pipeline is not a subscribed
+// delegation.
+func (e *Executor) wakeOwnerOnCompletion(pid string, status pipeline.Status) {
+	p, err := e.pstore.Get(pid)
+	if err != nil {
+		return
+	}
+	e.wakeOwner(p, composeCompletionWake(p, status))
 }
 
 // resolveWorktree maps a job's worktree spec to (createWorktree, baseBranch).
@@ -444,6 +494,14 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	}); err != nil {
 		return err
 	}
+	// Delegated monitoring (A4): if this job is a declared callback point, push-wake
+	// the owning orchestrator now — a decision point it asked to be woken for. The
+	// pipeline's own completion is a separate wake from Reconcile. p, job, and the
+	// owner/subscription fields are unchanged by the update above, so the snapshot is
+	// safe to read here.
+	if job.Callback {
+		e.wakeOwner(p, composeCallbackWake(p, jobID, text))
+	}
 	// Reap the completed agent (free the slot + RAM) and snapshot its digest.
 	// Terminate ONLY — never Teardown — so the worktree + branch survive for
 	// downstream `from:<job>` jobs (same invariant as `rotate`).
@@ -484,6 +542,45 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		}
 	}
 	return e.Reconcile(ctx, pid)
+}
+
+// composeCallbackWake builds the directed-message body warden delivers to a
+// delegated pipeline's owner when a callback-point job completes. It carries the
+// job's handoff output inline so the orchestrator can decide without a follow-up
+// read (spending a turn only on the decision itself).
+func composeCallbackWake(p *pipeline.Pipeline, jobID, output string) string {
+	return fmt.Sprintf(
+		"⏸ delegated pipeline %q reached callback point %q.\n\nJob output:\n%s\n\n"+
+			"You are being woken because this job is a declared decision point. Inspect it "+
+			"(show_pipeline %s), then act — the pipeline continues on its own until the next "+
+			"callback or completion.",
+		p.Name, jobID, strings.TrimSpace(output), p.ID)
+}
+
+// composeCompletionWake builds the aggregate wake body warden delivers to a
+// delegated pipeline's owner when the DAG reaches a terminal state — a compact
+// per-job status roll-up so the orchestrator sees the outcome without reading each
+// job (details remain in show_pipeline / shared context).
+func composeCompletionWake(p *pipeline.Pipeline, status pipeline.Status) string {
+	var head string
+	switch status {
+	case pipeline.StatusStalled:
+		head = fmt.Sprintf("⚠️ delegated pipeline %q stalled — a job failed with nothing downstream to handle it and it needs your attention (retry or cancel).", p.Name)
+	default: // StatusDone
+		head = fmt.Sprintf("✅ delegated pipeline %q completed.", p.Name)
+	}
+	var b strings.Builder
+	b.WriteString(head)
+	b.WriteString("\n\nJobs:")
+	for i := range p.Jobs {
+		j := &p.Jobs[i]
+		fmt.Fprintf(&b, "\n  - %s: %s", j.ID, j.Status)
+		if j.Branch != "" {
+			fmt.Fprintf(&b, " [%s]", j.Branch)
+		}
+	}
+	fmt.Fprintf(&b, "\n\nFull outputs are in show_pipeline %s.", p.ID)
+	return b.String()
 }
 
 // signalFromDigest projects a completed job's digest + session into the neutral

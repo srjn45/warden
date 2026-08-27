@@ -639,7 +639,10 @@ type Pipeline = pipeline.Pipeline
 
 // PipelineJob defines model for PipelineJob.
 type PipelineJob struct {
-	Branch     string           `json:"branch,omitempty"`
+	Branch string `json:"branch,omitempty"`
+
+	// Callback Spec-authored: marks this job a delegated-monitoring callback point. On its completion warden push-wakes the pipeline's owning orchestrator (honored only when the pipeline sets notify_owner and has an owner_id) so the owner spends a turn only at a real decision point. A pure DAG marks no callbacks and the owner is woken just once, on completion.
+	Callback   bool             `json:"callback,omitempty"`
 	DependsOn  []string         `json:"depends_on,omitempty"`
 	Digest     Digest           `json:"digest,omitempty"`
 	Handoff    string           `json:"handoff,omitempty"`
