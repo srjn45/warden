@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srjn45/warden/internal/approval"
@@ -25,6 +26,14 @@ type Server struct {
 type listArgs struct{}
 type ticketArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the ticket / session id, e.g. PROJ-350"`
+}
+
+// terminateArgs backs terminate_agent: Confirm clears the collaboration-group
+// friction gate when the target is a grouped orchestrator (a hard teardown that
+// abandons peers' in-flight work).
+type terminateArgs struct {
+	Ticket  string `json:"ticket" jsonschema:"the ticket / session id, e.g. PROJ-350"`
+	Confirm bool   `json:"confirm,omitempty" jsonschema:"proceed with terminating a collaboration-group orchestrator, accepting that peers' in-flight delegations are abandoned; required only when the first call reports the agent holds group seats"`
 }
 
 // All fields are optional in the schema: the daemon validates that EITHER a
@@ -232,6 +241,26 @@ func jsonResult(v any) (*mcpsdk.CallToolResult, error) {
 		return nil, err
 	}
 	return textResult(string(b)), nil
+}
+
+// terminateGateMessage renders the collaboration-group friction gate hit when
+// terminate_agent targets a grouped orchestrator without confirm: it names each
+// group and the peers whose in-flight work would be abandoned, and tells the
+// caller how to proceed. The gate is advisory, not a hard block — re-running with
+// confirm=true goes through.
+func terminateGateMessage(ticket string, gate *client.ErrGroupTerminateConfirm) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "⚠️ %s\n\n", gate.Message)
+	for _, g := range gate.Groups {
+		if len(g.Peers) == 0 {
+			fmt.Fprintf(&b, "  • group %q — no other members\n", g.Name)
+			continue
+		}
+		fmt.Fprintf(&b, "  • group %q — peers notified: %s\n", g.Name, strings.Join(g.Peers, ", "))
+	}
+	fmt.Fprintf(&b, "\nTo proceed, re-run terminate_agent with confirm=true (ticket %s). "+
+		"To keep the group intact, leave it instead (a soft leave — peers' replies still route to it).", ticket)
+	return b.String()
 }
 
 func NewServer(daemonBase string) *Server {
@@ -588,13 +617,19 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "terminate_agent",
-		Description: "Stop an agent: kill its tmux+claude session. Keeps the record and worktree (reversible via restore_agent). The default 'stop this agent' action.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ticketArgs) (*mcpsdk.CallToolResult, any, error) {
-		if err := s.cl.Terminate(ctx, a.Ticket); err != nil {
+		Description: "Stop an agent: kill its tmux+claude session. Keeps the record and worktree (reversible via restore_agent). The default 'stop this agent' action. If the target is a collaboration-group orchestrator, this is a hard teardown that orphans peers' in-flight delegations, so it is gated: the first call is refused with the group(s) + peers it would abandon — re-run with confirm=true to proceed (warden then vacates its seats and notifies each peer).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a terminateArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.TerminateGated(ctx, a.Ticket, a.Confirm); err != nil {
+			var gate *client.ErrGroupTerminateConfirm
+			if errors.As(err, &gate) {
+				return textResult(terminateGateMessage(a.Ticket, gate)), nil, nil
+			}
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("terminated " + a.Ticket), nil, nil
 	})
+
+	// (terminateGateMessage renders the friction gate; defined below.)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "delete_agent",
@@ -633,7 +668,10 @@ func NewServer(daemonBase string) *Server {
 			}
 			prefix = verb + ": " + res.URL + "; "
 		}
-		if err := s.cl.Terminate(ctx, a.Ticket); err != nil {
+		// Umbrella teardown implies the operator already committed to removing this
+		// agent (it even removes the worktree), so it clears the group friction gate
+		// (confirm=true) — but still vacates any group seats and notifies peers.
+		if err := s.cl.TerminateGated(ctx, a.Ticket, true); err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		if !a.KeepRecord {

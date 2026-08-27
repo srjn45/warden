@@ -3,12 +3,16 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/groupstore"
+	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -121,9 +125,12 @@ func (s *Server) JoinGroup(ctx context.Context, req oapi.JoinGroupRequestObject)
 
 // LeaveGroup implements POST /api/v1/collaborate/groups/{name}/leave. It removes
 // the calling agent's seat from the named group and returns the updated roster.
-// The durable group record remains even when its last seat leaves. Soft
-// leave-vs-terminate semantics are refined in a later stage; this stage only
-// removes the seat.
+// The durable group record remains even when its last seat leaves.
+//
+// Soft-leave semantics (B6): the seat is vacated and each remaining peer receives
+// a "no new inbound" notice. In-flight replies already sent to the leaving agent's
+// id still route because the mailbox is addressed by agent-id, not group
+// membership — this requires no extra mechanism.
 func (s *Server) LeaveGroup(ctx context.Context, req oapi.LeaveGroupRequestObject) (oapi.LeaveGroupResponseObject, error) {
 	if s.groups == nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "collaboration groups unavailable")
@@ -143,6 +150,18 @@ func (s *Server) LeaveGroup(ctx context.Context, req oapi.LeaveGroupRequestObjec
 	if err != nil {
 		return nil, err
 	}
+
+	// Snapshot the remaining peers BEFORE removing the seat so the soft-leave
+	// notice reaches everyone who shared the group with the leaving agent.
+	var peers []string
+	if g, gerr := s.groups.Get(name); gerr == nil {
+		for _, m := range g.Members {
+			if m.AgentID != sess.ID {
+				peers = append(peers, m.AgentID)
+			}
+		}
+	}
+
 	if err := s.groups.Update(name, func(g *groupstore.Group) {
 		kept := g.Members[:0]
 		for _, m := range g.Members {
@@ -162,8 +181,143 @@ func (s *Server) LeaveGroup(ctx context.Context, req oapi.LeaveGroupRequestObjec
 		return nil, err
 	}
 	s.recordAuditCtx(ctx, "group.leave", name, map[string]string{"agent": sess.ID})
+
+	// Soft-leave notice: peers know no new inbound will come from the leaver;
+	// in-flight replies (already addressed by agent-id) still route normally.
+	who := sessionDisplayName(sess)
+	notice := fmt.Sprintf("ℹ️ warden: %s has left group %q. "+
+		"No new inbound from it; replies already in flight still deliver.", who, name)
+	for _, peer := range peers {
+		s.notifyGroupMember(ctx, peer, notice)
+	}
+
 	s.notify()
 	return oapi.LeaveGroup200JSONResponse(toOAPIGroup(grp)), nil
+}
+
+// groupsForAgent returns every group agentID currently holds a seat in. It is the
+// membership lookup behind the terminate friction gate (B6): a hard terminate of a
+// grouped orchestrator orphans peers, so the terminate path must know the seats
+// first. Returns nil when groups are unconfigured (the feature is simply off).
+func (s *Server) groupsForAgent(agentID string) ([]*groupstore.Group, error) {
+	if s.groups == nil {
+		return nil, nil
+	}
+	all, err := s.groups.List()
+	if err != nil {
+		return nil, err
+	}
+	var out []*groupstore.Group
+	for _, g := range all {
+		for _, m := range g.Members {
+			if m.AgentID == agentID {
+				out = append(out, g)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// terminateConfirmResponse builds the 409 that fronts the terminate friction gate:
+// it names each group the target seats and the peers whose in-flight work would be
+// abandoned, so the caller can weigh the cost before re-issuing with confirm=true.
+func terminateConfirmResponse(sess *store.Session, groups []*groupstore.Group) oapi.TerminateSession409JSONResponse {
+	who := sessionDisplayName(sess)
+	seats := make([]oapi.GroupTerminateSeat, 0, len(groups))
+	names := make([]string, 0, len(groups))
+	for _, g := range groups {
+		peers := make([]string, 0, len(g.Members))
+		for _, m := range g.Members {
+			if m.AgentID != sess.ID {
+				peers = append(peers, m.AgentID)
+			}
+		}
+		seats = append(seats, oapi.GroupTerminateSeat{Name: g.Name, Peers: peers})
+		names = append(names, g.Name)
+	}
+	return oapi.TerminateSession409JSONResponse{
+		Error: "terminating " + who + " abandons its seat in group(s) " +
+			strings.Join(names, ", ") + " and orphans peers' in-flight work; " +
+			"re-run with confirm=true to proceed",
+		Groups: seats,
+	}
+}
+
+// abandonGroupSeats runs the hard-terminate teardown (design §4.4): it vacates the
+// terminated agent's seat in each group and notifies each remaining peer that the
+// work it delegated is orphaned. Best-effort throughout — a store or mailbox
+// failure is logged and swallowed so it can never fail the terminate that already
+// tore the agent down. Deep per-delegation tracking is out of scope (v1 minimal):
+// the group roster is the proxy for "who had outstanding work with this agent".
+func (s *Server) abandonGroupSeats(ctx context.Context, sess *store.Session, groups []*groupstore.Group) {
+	if s.groups == nil {
+		return
+	}
+	who := sessionDisplayName(sess)
+	for _, g := range groups {
+		// Snapshot the peers before removing the seat so a notice reaches everyone
+		// who shared the group with the terminated agent.
+		var peers []string
+		for _, m := range g.Members {
+			if m.AgentID != sess.ID {
+				peers = append(peers, m.AgentID)
+			}
+		}
+		if err := s.groups.Update(g.Name, func(grp *groupstore.Group) {
+			kept := grp.Members[:0]
+			for _, m := range grp.Members {
+				if m.AgentID != sess.ID {
+					kept = append(kept, m)
+				}
+			}
+			grp.Members = kept
+		}); err != nil && !errors.Is(err, groupstore.ErrNotFound) {
+			slog.Warn("group: vacate terminated seat failed", "group", g.Name, "agent", sess.ID, "err", err)
+		}
+		notice := fmt.Sprintf("⚠️ warden: %s (orchestrator in group %q) was terminated. "+
+			"Any in-flight work you delegated to it is abandoned — it will not reply. "+
+			"Re-delegate elsewhere if the work still matters.", who, g.Name)
+		for _, peer := range peers {
+			s.notifyGroupMember(ctx, peer, notice)
+		}
+		s.recordAuditCtx(ctx, "group.abandon", g.Name, map[string]string{
+			"agent": sess.ID,
+			"peers": strconv.Itoa(len(peers)),
+		})
+	}
+}
+
+// notifyGroupMember lands a warden-originated notice in one member's inbox and
+// nudges its pane if parked, mirroring WakePipelineOwner's trusted daemon-internal
+// write (reserved "daemon" sender, no sanitizeSender gate). Best-effort: a missing
+// mailbox or absent recipient is a silent no-op.
+func (s *Server) notifyGroupMember(ctx context.Context, memberID, body string) {
+	if s.mbox == nil || memberID == "" {
+		return
+	}
+	if _, err := s.mbox.Append(mailbox.Message{To: memberID, From: pipelineWakeSender, Body: body}); err != nil {
+		slog.Warn("group: deliver abandonment notice failed", "member", memberID, "err", err)
+		return
+	}
+	if sess, err := s.store.Get(ctx, memberID); err == nil && sess != nil && parked(sess.Status) {
+		_ = s.life.Input(ctx, sess.TmuxSession, groupNotifyNudge)
+	}
+	s.notify()
+}
+
+// groupNotifyNudge is the pane prod injected into a parked member so it surfaces a
+// warden group notice (the durable content is already in the inbox; this only
+// prompts the agent to read it), mirroring pipelineWakeNotice.
+const groupNotifyNudge = "📨 warden: a collaboration-group update arrived. Run `warden msg inbox` to read."
+
+// sessionDisplayName is the human-facing label for an agent in notices/gates: its
+// friendly name when set, else its id.
+func sessionDisplayName(sess *store.Session) string {
+	if sess.Name != "" {
+		return sess.Name
+	}
+	return sess.ID
 }
 
 // sessionRepoDir picks the directory used to resolve an agent's project key: its
