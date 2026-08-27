@@ -149,16 +149,21 @@ func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
 
 func newAutopilotInitCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "init",
+		Use:   "init [plan-file]",
 		Short: "Scaffold autopilot adoption in the current repo",
-		Long: "Creates a template autopilot.plan.yaml in the current git repository (if absent),\n" +
+		Long: "Creates a template autopilot plan file in the current git repository (if absent),\n" +
 			"updates the autopilot block in the warden config with the plan file and detected\n" +
 			"backends (assign them to cost tiers before enabling), creates the integration branch\n" +
 			"off the default branch if absent, and prints a CI-coverage hint when no workflow\n" +
 			"covers integration pull requests. After init, edit the plan file and run\n" +
-			"`warden autopilot on` to enable.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+			"`warden autopilot on` to enable.\n\n" +
+			"If plan-file is not provided, it defaults to autopilot.plan.yaml.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			planFile := "autopilot.plan.yaml"
+			if len(args) > 0 {
+				planFile = args[0]
+			}
 			env := autopilot.NewExecEnv()
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -172,7 +177,7 @@ func newAutopilotInitCmd() *cobra.Command {
 			cfg := config.Load(cfgPath)
 			return autopilot.Init(cmd.Context(), env, repo, autopilot.InitConfig{
 				ConfigPath:        cfgPath,
-				PlanFile:          "autopilot.plan.yaml",
+				PlanFile:          planFile,
 				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
 				Backends:          detectInstalledBackends(),
 			}, cmd.OutOrStdout())

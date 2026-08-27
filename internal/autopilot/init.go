@@ -114,18 +114,33 @@ func updateAutopilotConfig(path, planFile string, backends []string, out io.Writ
 	}
 
 	plansNode := yamlValueOf(apNode, "plans")
-	if plansNode != nil && plansNode.Kind == yaml.SequenceNode && len(plansNode.Content) > 0 {
-		fmt.Fprintf(out, "  autopilot.plans already set in %s — skipped\n", path)
-		return nil
-	}
 
-	// Update plans list.
+	// Check if plan is already present.
 	planEntry := buildPlanEntry(planFile)
-	if plansNode != nil {
-		plansNode.Kind = yaml.SequenceNode
-		plansNode.Tag = "!!seq"
-		plansNode.Style = 0
-		plansNode.Value = ""
+	if plansNode != nil && plansNode.Kind == yaml.SequenceNode {
+		found := false
+		for _, p := range plansNode.Content {
+			if f := yamlValueOf(p, "file"); f != nil && f.Value == planFile {
+				found = true
+				break
+			}
+		}
+		if found {
+			fmt.Fprintf(out, "  autopilot plan %s already registered in %s — skipped\n", planFile, path)
+			return nil
+		}
+		plansNode.Content = append(plansNode.Content, planEntry)
+	} else {
+		// Create plans list.
+		if plansNode == nil {
+			plansNode = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: 0}
+			apNode.Content = append(apNode.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "plans"}, plansNode)
+		} else {
+			plansNode.Kind = yaml.SequenceNode
+			plansNode.Tag = "!!seq"
+			plansNode.Style = 0
+			plansNode.Value = ""
+		}
 		plansNode.Content = []*yaml.Node{planEntry}
 	}
 
