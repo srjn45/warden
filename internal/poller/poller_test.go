@@ -152,7 +152,7 @@ func TestClassifyRoutesThroughBackend(t *testing.T) {
 	require.Equal(t, store.StatusWorking, got)
 
 	// Backend reports needs-input → waiting, despite no "❯"/"Do you want".
-	got = classify(fakeBackend{state: agentbackend.StateNeedsInput}, s, pane, true, 0, 5*time.Minute)
+	got = classify(fakeBackend{state: agentbackend.StateNeedsInput, approval: &agentbackend.Approval{}}, s, pane, true, 0, 5*time.Minute)
 	require.Equal(t, store.StatusWaitingForInput, got)
 
 	// Backend positively reports idle → idle (Claude never does this).
@@ -189,7 +189,7 @@ func TestHeuristicConfirmsWaitingAfterThreshold(t *testing.T) {
 		UpdatedAt: time.Now().Add(-10 * time.Minute),
 		Events:    []store.Event{{Type: "Notification", TS: time.Now().Add(-10 * time.Minute)}},
 	}
-	got := classify(backends.Claude{}, s, "Do you want to proceed? ❯ 1. Yes", true, 10*time.Minute, 5*time.Minute)
+	got := classify(backends.Claude{}, s, "Bash(ls)\nDo you want to proceed?\n❯ 1. Yes\n  2. No", true, 10*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusWaitingForInput, got)
 }
 

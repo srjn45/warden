@@ -52,10 +52,15 @@ func classify(b agentbackend.Backend, s *store.Session, pane string, sessionAliv
 	if isLimited, _, _ := detectRateLimit(pane); isLimited {
 		return store.StatusRateLimited
 	}
-	// A visible prompt box ("❯ 1." / "Do you want", or a backend's own approval
-	// marker) confirms waiting_for_input.
+	// A genuine approval prompt confirms waiting_for_input.
+	// If the backend returns StateNeedsInput but there is no parseable approval
+	// (e.g. an agent finished its task and sits at an empty prompt), classify as idle.
 	if st == agentbackend.StateNeedsInput {
-		return store.StatusWaitingForInput
+		ap, ok := b.ParseApproval(pane)
+		if ok && ap != nil {
+			return store.StatusWaitingForInput
+		}
+		return store.StatusIdle
 	}
 	// A backend that positively reports idle (Claude does not) is at rest.
 	if st == agentbackend.StateIdle {

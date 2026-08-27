@@ -38,7 +38,7 @@ func notifyMessage(sess *store.Session, to store.Status) (title, body string, ac
 	case store.StatusWaitingForInput:
 		return "warden — needs input", sess.ID + ": " + subj, true
 	case store.StatusIdle:
-		return "warden — stuck", sess.ID + " went idle: " + subj, true
+		return "warden — possibly-stuck", sess.ID + " went idle: " + subj, true
 	case store.StatusOrphaned:
 		return "warden — agent lost", sess.ID + " tmux gone: " + subj, true
 	case store.StatusErrored:

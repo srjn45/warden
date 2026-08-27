@@ -34,7 +34,7 @@ func TestNotifyMessageActionable(t *testing.T) {
 		wantInBody string
 	}{
 		{store.StatusWaitingForInput, "warden — needs input", "review auth"},
-		{store.StatusIdle, "warden — stuck", "went idle"},
+		{store.StatusIdle, "warden — possibly-stuck", "went idle"},
 		{store.StatusOrphaned, "warden — agent lost", "tmux gone"},
 		{store.StatusErrored, "warden — errored", "agent-x"},
 	}
