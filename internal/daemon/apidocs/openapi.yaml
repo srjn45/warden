@@ -48,7 +48,7 @@ tags:
   - name: Messages
     description: Directed inter-agent mailbox
   - name: Collaboration
-    description: Inter-agent file-conflict view
+    description: Inter-agent file-conflict view and collaboration groups
   - name: Pipelines
     description: Multi-stage DAG pipelines of dependent jobs
   - name: Snapshots
@@ -1516,6 +1516,78 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/BranchStatus" }
 
+  /api/v1/collaborate/groups/{name}/join:
+    post:
+      operationId: joinGroup
+      tags: [Collaboration]
+      summary: Join a collaboration group as a project's orchestrator
+      description: >
+        Seats the calling agent in group `name`, creating the group if it does
+        not exist. The agent's project is keyed by its canonical git remote
+        (two worktrees of one repo are the same project); a remoteless repo
+        falls back to a `local:` path key. Enforces one orchestrator per
+        project: a duplicate join (a seat already held for this project key)
+        fails with 409 and returns the seated incumbent so the caller can
+        message it instead. On success the caller is switched to the
+        `orchestrator` role. Introductions, summary resolution, and the CLI/MCP
+        surface are added in later stages.
+      parameters: [{ $ref: "#/components/parameters/GroupName" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id:
+                  type: string
+                  description: id or name of the joining agent
+      responses:
+        "200":
+          description: The joined group's roster and the caller's new role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JoinGroupResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: This project already holds a seat in the group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroupJoinConflict" }
+
+  /api/v1/collaborate/groups/{name}/leave:
+    post:
+      operationId: leaveGroup
+      tags: [Collaboration]
+      summary: Leave a collaboration group
+      description: >
+        Removes the calling agent's seat from group `name`. The durable group
+        record remains even when the last seat leaves. Returns the group's
+        updated roster. (Soft leave-vs-terminate semantics are refined in a
+        later stage.)
+      parameters: [{ $ref: "#/components/parameters/GroupName" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id:
+                  type: string
+                  description: id or name of the leaving agent
+      responses:
+        "200":
+          description: The group's roster after the seat was removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/pipelines:
     get:
       operationId: listPipelines
@@ -2176,6 +2248,12 @@ components:
       required: true
       description: Schedule id (== its name)
       schema: { type: string }
+    GroupName:
+      name: name
+      in: path
+      required: true
+      description: Collaboration group name
+      schema: { type: string }
 
   responses:
     OK:
@@ -2203,6 +2281,52 @@ components:
       properties:
         error: { type: string }
       required: [error]
+
+    GroupMember:
+      type: object
+      description: >
+        One seat in a collaboration group — the lean roster descriptor only
+        (never transcripts or logs).
+      required: [agent_id, project_key, joined_at]
+      properties:
+        agent_id: { type: string }
+        project_key:
+          type: string
+          description: normalized git-remote key, or a `local:` path fallback
+        summary:
+          type: string
+          description: one-line project summary (resolved in a later stage)
+        joined_at: { type: string, format: date-time }
+
+    Group:
+      type: object
+      description: A durable collaboration group and its live roster.
+      required: [name, members]
+      properties:
+        name: { type: string }
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/GroupMember" }
+
+    JoinGroupResult:
+      type: object
+      description: Result of a successful join — the roster plus the caller's new role.
+      required: [group, role]
+      properties:
+        group: { $ref: "#/components/schemas/Group" }
+        role:
+          type: string
+          description: the caller's role after join (orchestrator)
+
+    GroupJoinConflict:
+      type: object
+      description: >
+        409 body when the caller's project already holds a seat: the standard
+        error envelope plus the seated incumbent so the caller can message it.
+      required: [error, incumbent]
+      properties:
+        error: { type: string }
+        incumbent: { $ref: "#/components/schemas/GroupMember" }
 
     SavingsFeature:
       type: object
