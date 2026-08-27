@@ -271,6 +271,11 @@ type stubDeps struct {
 	sentSeq   map[string][]string      // tmuxSession -> ordered keys sent
 	sendKeysN int                      // total SendKeys calls
 	events    map[string][]store.Event // id -> recorded anomaly events
+
+	// AskStatus recording (idle self-report). Guarded by sendMu for symmetry.
+	askStatus       map[string]int    // id -> AskStatus call count
+	askStatusPrompt map[string]string // id -> last prompt sent
+	askStatusErr    error             // when set, AskStatus fails (guard must not latch)
 }
 
 func (d *stubDeps) SendKeys(_ context.Context, tmuxSession, keys string) error {
@@ -432,8 +437,27 @@ func (d *stubDeps) UpdateContext(_ context.Context, _ string, _ int, _ string) e
 func (d *stubDeps) Compact(_ context.Context, _ *store.Session) error                { return nil }
 func (d *stubDeps) Interrupt(_ context.Context, _ *store.Session) error              { return nil }
 func (d *stubDeps) Resume(_ context.Context, _ *store.Session, _ string) error       { return nil }
-func (d *stubDeps) StampCompact(_ context.Context, _ string) error                   { return nil }
-func (d *stubDeps) SessionAlive(_ context.Context, name string) bool                 { return d.alive[name] }
+func (d *stubDeps) AskStatus(_ context.Context, s *store.Session, prompt string) error {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	if d.askStatus == nil {
+		d.askStatus = map[string]int{}
+		d.askStatusPrompt = map[string]string{}
+	}
+	d.askStatus[s.ID]++
+	d.askStatusPrompt[s.ID] = prompt
+	if d.askStatusErr != nil {
+		return d.askStatusErr
+	}
+	return nil
+}
+func (d *stubDeps) askStatusCount(id string) int {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	return d.askStatus[id]
+}
+func (d *stubDeps) StampCompact(_ context.Context, _ string) error   { return nil }
+func (d *stubDeps) SessionAlive(_ context.Context, name string) bool { return d.alive[name] }
 func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {
 	if d.captureErr != nil {
 		return "", d.captureErr
@@ -535,6 +559,77 @@ func TestTickFlagsStuckWorkingAsIdle(t *testing.T) {
 	p := New(d, 5*time.Minute)
 	require.NoError(t, p.tick(context.Background()))
 	require.Equal(t, store.StatusIdle, d.updates["A-1"])
+}
+
+// idleWorker builds a monitored pipeline worker that classifies as idle-at-prompt
+// every tick via the stuck-working→idle path (stale UpdatedAt, quiet pane).
+func idleWorker() *stubDeps {
+	return &stubDeps{
+		sessions: []*store.Session{{
+			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, PipelineID: "P-1",
+			UpdatedAt:       time.Now().Add(-10 * time.Minute),
+			LastPaneExcerpt: "quiet pane",
+		}},
+		alive:   map[string]bool{"A-1": true},
+		panes:   map[string]string{"A-1": "quiet pane"},
+		updates: map[string]store.Status{},
+	}
+}
+
+func TestTickIdleSelfReportFiresOnceOnIdleTransition(t *testing.T) {
+	// The ambiguous-idle self-report (design §2.4(4)) must fire exactly once when a
+	// monitored worker goes idle-at-prompt, and never again — even though the worker
+	// re-derives idle on every subsequent tick (no repeated polling).
+	d := idleWorker()
+	p := New(d, 5*time.Minute)
+	p.IdleSelfReport = true
+
+	for range 3 {
+		require.NoError(t, p.tick(context.Background()))
+	}
+	require.Equal(t, store.StatusIdle, d.updates["A-1"])
+	require.Equal(t, 1, d.askStatusCount("A-1"), "exactly one query on the idle transition, no poll loop")
+	require.Contains(t, d.askStatusPrompt["A-1"], `"status"`, "query carries the {status,details,summary} contract")
+}
+
+func TestTickIdleSelfReportOffByDefault(t *testing.T) {
+	// Feature is off unless the daemon enables it: a stock poller never injects a
+	// query, so existing behavior is unchanged.
+	d := idleWorker()
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, 0, d.askStatusCount("A-1"))
+}
+
+func TestTickIdleSelfReportSkipsNonPipelineAgent(t *testing.T) {
+	// A human-driven (non-pipeline) agent is never asked — its operator is present,
+	// so its idle needs no disambiguation.
+	d := idleWorker()
+	d.sessions[0].PipelineID = ""
+	p := New(d, 5*time.Minute)
+	p.IdleSelfReport = true
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, 0, d.askStatusCount("A-1"))
+}
+
+func TestTickIdleSelfReportRetriesAfterSendFailure(t *testing.T) {
+	// A transient send failure must NOT latch the one-shot guard: the query retries
+	// on a later idle tick and only latches once it actually lands.
+	d := idleWorker()
+	d.askStatusErr = errors.New("tmux paste failed")
+	p := New(d, 5*time.Minute)
+	p.IdleSelfReport = true
+
+	require.NoError(t, p.tick(context.Background()))
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, 2, d.askStatusCount("A-1"), "failed sends do not latch the guard")
+
+	d.sendMu.Lock()
+	d.askStatusErr = nil
+	d.sendMu.Unlock()
+	require.NoError(t, p.tick(context.Background())) // lands → guard latches
+	require.NoError(t, p.tick(context.Background())) // guard holds → no re-fire
+	require.Equal(t, 3, d.askStatusCount("A-1"))
 }
 
 func TestTickSkipsClassifyWhenCaptureFails(t *testing.T) {

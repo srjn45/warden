@@ -204,6 +204,11 @@ func newDaemonCmd() *cobra.Command {
 			pl.CompactResumePrompt = cfg.Tokens.CompactResumePrompt
 			pl.AutoApprovePolicy = cfg.AutoApprove
 			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
+			// Ambiguous-idle self-report (design §2.4(4)): on the transition to
+			// idle-at-prompt, ask a monitored pipeline worker ONCE for
+			// {status, details, summary} — the one case pane-state can't disambiguate.
+			// One-shot per session, so it never becomes a poll loop.
+			pl.IdleSelfReport = true
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
 				return err

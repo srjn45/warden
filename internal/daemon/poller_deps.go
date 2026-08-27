@@ -124,6 +124,13 @@ func (d *pollerDeps) Resume(ctx context.Context, s *store.Session, prompt string
 	return d.lc.Input(ctx, s.ID, prompt)
 }
 
+// AskStatus sends the ambiguous-idle self-report query to the agent's pane (the
+// same bracketed-paste + Enter path as Resume), asking it once for its
+// {status, details, summary} when it goes idle-at-prompt.
+func (d *pollerDeps) AskStatus(ctx context.Context, s *store.Session, prompt string) error {
+	return d.lc.Input(ctx, s.ID, prompt)
+}
+
 func (d *pollerDeps) StampCompact(ctx context.Context, id string) error {
 	return d.store.StampCompact(ctx, id)
 }
