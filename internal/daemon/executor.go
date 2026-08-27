@@ -583,6 +583,72 @@ func composeCompletionWake(p *pipeline.Pipeline, status pipeline.Status) string 
 	return b.String()
 }
 
+// Done records a worker's self-reported completion (A1 done-signal) captured
+// from `wd job done --summary` or a `<<WARDEN_DONE>>{json}` transcript sentinel,
+// so warden closes the job with status + summary in one shot — no interrogation
+// turn. status is one of "success" / "failure" / "blocked" (empty ⇒ success).
+//
+//   - success: record the self-report, then run the normal Emit path (commit the
+//     work, mark the job done, reap the agent, fan out to dependents) using the
+//     summary as the downstream handoff.
+//   - failure/blocked: record the self-report and surface the job as
+//     needs_attention WITHOUT fanning out — a worker that believes it failed or
+//     is blocked must not spawn dependents off incomplete work. The pipeline
+//     stays parked for the orchestrator/human (retry, or emit on its behalf).
+//
+// It is a no-op (nil) when the job has already left the running/needs_attention
+// state, so a sentinel that lingers on the pane across poller ticks records the
+// completion exactly once.
+func (e *Executor) Done(ctx context.Context, pid, jobID, status, summary string) error {
+	status = lifecycle.NormalizeDoneStatus(status)
+
+	p, err := e.pstore.Get(pid)
+	if err != nil {
+		return err
+	}
+	job := p.Job(jobID)
+	if job == nil {
+		return ErrJobNotFound
+	}
+	if job.Status != pipeline.JobRunning && job.Status != pipeline.JobNeedsAttention {
+		// Already finalized (done/failed/skipped) — or a duplicate signal after a
+		// prior non-success done left it needs_attention and it since moved on.
+		// Idempotent no-op rather than an error so the sentinel backstop can fire
+		// each tick harmlessly.
+		if job.Result != "" {
+			return nil
+		}
+		return fmt.Errorf("%w (status %s)", ErrJobNotRunning, job.Status)
+	}
+
+	if status == "success" {
+		// Persist the self-report first; Emit's own Update sets Output/Branch/
+		// Status without touching Result/Summary, so both survive.
+		e.markJob(pid, jobID, func(j *pipeline.Job) {
+			j.Result = status
+			j.Summary = summary
+		})
+		return e.Emit(ctx, pid, jobID, summary)
+	}
+
+	// Non-success: a self-declared failure/blocker must not resurrect to done or
+	// fan out. Record it and park the job as needs_attention (idempotent — a
+	// second signal finds Result already set and returns above).
+	if job.Status == pipeline.JobNeedsAttention && job.Result != "" {
+		return nil
+	}
+	e.markJob(pid, jobID, func(j *pipeline.Job) {
+		j.Result = status
+		j.Summary = summary
+		j.Output = summary
+		j.Status = pipeline.JobNeedsAttention
+	})
+	if e.notify != nil {
+		e.notify()
+	}
+	return e.Reconcile(ctx, pid)
+}
+
 // signalFromDigest projects a completed job's digest + session into the neutral
 // curate.Signal the curation pass reads — the agent id and any produced branch become
 // the entry provenance, the files/summary the extraction evidence. It carries no

@@ -1716,6 +1716,34 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/pipelines/{pid}/jobs/{job}/done:
+    post:
+      operationId: donePipelineJob
+      tags: [Pipelines]
+      summary: Record a worker's self-reported completion (done-signal)
+      description: >
+        The A1 done-signal: a worker declares its job complete with a status and
+        one-line summary, so warden closes the job in one shot without spending an
+        interrogation turn. status "success" (or empty) commits the work, marks the
+        job done, and fans out to dependents (the summary becomes the downstream
+        handoff); "failure"/"blocked" parks the job as needs_attention without
+        fanning out.
+      parameters:
+        - { $ref: "#/components/parameters/PipelineId" }
+        - { $ref: "#/components/parameters/JobId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, description: "success | failure | blocked (empty ⇒ success)" }
+                summary: { type: string, description: "worker's one-line summary of what it did" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/pipelines/{pid}/jobs/{job}/edit:
     post:
       operationId: editPipelineJob

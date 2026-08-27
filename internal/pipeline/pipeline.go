@@ -63,6 +63,15 @@ type Job struct {
 	Output    string         `json:"output,omitempty" yaml:"-"`
 	Branch    string         `json:"branch,omitempty" yaml:"-"`
 	Digest    *digest.Digest `json:"digest,omitempty" yaml:"-"` // completion snapshot (nil until reaped)
+
+	// Result and Summary are the worker's self-reported completion (A1 done-
+	// signal), captured either from `wd job done --summary` or a
+	// `<<WARDEN_DONE>>{json}` transcript sentinel. They let warden close the job
+	// with status + one-line summary in a single shot — no interrogation turn.
+	// Result is the reported outcome ("success" | "failure" | "blocked"); Summary
+	// is the worker's own one-line description of what it did.
+	Result  string `json:"result,omitempty" yaml:"-"`
+	Summary string `json:"summary,omitempty" yaml:"-"`
 }
 
 type Pipeline struct {
