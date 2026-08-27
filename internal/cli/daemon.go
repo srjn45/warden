@@ -297,6 +297,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			defer groupStore.Close()
+			srv.SetGroups(groupStore)
 
 			// Backend registry (docs/specs/2026-08-06-backend-registry.md): the DB
 			// is the source of truth for which backends exist, their tier, and the

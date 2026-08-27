@@ -21,6 +21,7 @@ import (
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/groupstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
@@ -195,6 +196,11 @@ type Server struct {
 	// the registry routes added in later stages guard on it. Set by the daemon via
 	// SetBackends after the startup reconcile.
 	backends *backendstore.Store
+	// groups is the collaboration-group store (docs/specs/
+	// 2026-08-26-collaboration-groups.md): a lean, durable roster of per-project
+	// orchestrator seats. nil ⇒ the join/leave routes report the feature
+	// unavailable. Set by the daemon via SetGroups.
+	groups *groupstore.Store
 	// autoApprovePersist persists a replaced auto-approve policy to the config
 	// file (set by the daemon to config.WriteAutoApprove). nil ⇒ the PUT
 	// /auto-approve/policy endpoint changes the live policy but does not persist.
@@ -269,6 +275,11 @@ func (s *Server) SetScheduler(enabled bool, store *schedule.Store, interval time
 // (the routes added in later stages then report it unavailable). Call before
 // Start, after the startup detection reconcile.
 func (s *Server) SetBackends(store *backendstore.Store) { s.backends = store }
+
+// SetGroups wires the collaboration-group store (docs/specs/
+// 2026-08-26-collaboration-groups.md). A nil store makes the join/leave routes
+// report the feature unavailable. Call before Start.
+func (s *Server) SetGroups(store *groupstore.Store) { s.groups = store }
 
 // SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
 // at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.

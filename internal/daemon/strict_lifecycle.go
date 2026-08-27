@@ -587,11 +587,26 @@ func (s *Server) SetRole(ctx context.Context, req oapi.SetRoleRequestObject) (oa
 	if err != nil {
 		return nil, err
 	}
+	if err := s.applyRole(ctx, sess, canonical); err != nil {
+		return nil, err
+	}
+	s.notify()
+	return oapi.SetRole200JSONResponse{Role: canonical}, nil
+}
+
+// applyRole persists the canonical role on sess and relaunches the agent so the
+// new persona re-injects, mutating sess.Role in place. Relaunch is best-effort:
+// the not-currently-resumable cases (no pinned session / missing workdir / a
+// non-resuming backend) leave the persisted role standing to apply on the next
+// launch; only a genuine relaunch failure is returned. It is the shared seam
+// used by SetRole and by the collaboration join handler (which flips a joining
+// agent to orchestrator). The caller emits notify() once its own work is done.
+func (s *Server) applyRole(ctx context.Context, sess *store.Session, canonical string) error {
 	if err := s.store.UpdateRole(ctx, sess.ID, canonical); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, errStatus(http.StatusNotFound, "session not found")
+			return errStatus(http.StatusNotFound, "session not found")
 		}
-		return nil, err
+		return err
 	}
 	// Relaunch with the freshly resolved persona. Soft-fail the not-currently-
 	// resumable cases so the persisted role stands (it applies on the next launch).
@@ -603,13 +618,12 @@ func (s *Server) SetRole(ctx context.Context, req oapi.SetRoleRequestObject) (oa
 			errors.Is(err, lifecycle.ErrNoTranscript):
 			slog.Info("set-role: role persisted but agent not resumable now; applies on next launch", "agent", sess.ID, "err", err)
 		default:
-			return nil, err
+			return err
 		}
 	} else if err := s.store.UpdateStatus(ctx, sess.ID, store.StatusSpawning); err != nil {
-		return nil, err
+		return err
 	}
-	s.notify()
-	return oapi.SetRole200JSONResponse{Role: canonical}, nil
+	return nil
 }
 
 // ListRoles implements GET /api/v1/roles: the built-in role catalog (name +

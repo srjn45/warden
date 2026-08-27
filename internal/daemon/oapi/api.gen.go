@@ -590,6 +590,32 @@ type GitSyncRequest struct {
 	Session string `json:"session,omitempty"`
 }
 
+// Group A durable collaboration group and its live roster.
+type Group struct {
+	Members []GroupMember `json:"members"`
+	Name    string        `json:"name"`
+}
+
+// GroupJoinConflict 409 body when the caller's project already holds a seat: the standard error envelope plus the seated incumbent so the caller can message it.
+type GroupJoinConflict struct {
+	Error string `json:"error"`
+
+	// Incumbent One seat in a collaboration group — the lean roster descriptor only (never transcripts or logs).
+	Incumbent GroupMember `json:"incumbent"`
+}
+
+// GroupMember One seat in a collaboration group — the lean roster descriptor only (never transcripts or logs).
+type GroupMember struct {
+	AgentId  string    `json:"agent_id"`
+	JoinedAt time.Time `json:"joined_at"`
+
+	// ProjectKey normalized git-remote key, or a `local:` path fallback
+	ProjectKey string `json:"project_key"`
+
+	// Summary one-line project summary (resolved in a later stage)
+	Summary string `json:"summary,omitempty"`
+}
+
 // GuardRequest defines model for GuardRequest.
 type GuardRequest struct {
 	Path    string `json:"path,omitempty"`
@@ -615,6 +641,15 @@ type ImportResult = store.ImportResult
 // InputRequest defines model for InputRequest.
 type InputRequest struct {
 	Text string `json:"text"`
+}
+
+// JoinGroupResult Result of a successful join — the roster plus the caller's new role.
+type JoinGroupResult struct {
+	// Group A durable collaboration group and its live roster.
+	Group Group `json:"group"`
+
+	// Role the caller's role after join (orchestrator)
+	Role string `json:"role"`
 }
 
 // Message defines model for Message.
@@ -863,6 +898,9 @@ type WorktreeListing = lifecycle.WorktreeListing
 // CtxKey defines model for CtxKey.
 type CtxKey = string
 
+// GroupName defines model for GroupName.
+type GroupName = string
+
 // JobId defines model for JobId.
 type JobId = string
 
@@ -910,6 +948,18 @@ type PatchBackendJSONBody struct {
 
 	// Tier free | subscription | pay_per_use | unclassified (omit to leave unchanged)
 	Tier *string `json:"tier,omitempty"`
+}
+
+// JoinGroupJSONBody defines parameters for JoinGroup.
+type JoinGroupJSONBody struct {
+	// AgentId id or name of the joining agent
+	AgentId string `json:"agent_id"`
+}
+
+// LeaveGroupJSONBody defines parameters for LeaveGroup.
+type LeaveGroupJSONBody struct {
+	// AgentId id or name of the leaving agent
+	AgentId string `json:"agent_id"`
 }
 
 // ListContextParams defines parameters for ListContext.
@@ -1187,6 +1237,12 @@ type PatchBackendJSONRequestBody PatchBackendJSONBody
 // RunCheckJSONRequestBody defines body for RunCheck for application/json ContentType.
 type RunCheckJSONRequestBody = CheckRequest
 
+// JoinGroupJSONRequestBody defines body for JoinGroup for application/json ContentType.
+type JoinGroupJSONRequestBody JoinGroupJSONBody
+
+// LeaveGroupJSONRequestBody defines body for LeaveGroup for application/json ContentType.
+type LeaveGroupJSONRequestBody LeaveGroupJSONBody
+
 // SetContextJSONRequestBody defines body for SetContext for application/json ContentType.
 type SetContextJSONRequestBody SetContextJSONBody
 
@@ -1339,6 +1395,12 @@ type ServerInterface interface {
 	// Current inter-agent file conflicts
 	// (GET /api/v1/collab/conflicts)
 	GetConflicts(w http.ResponseWriter, r *http.Request)
+	// Join a collaboration group as a project's orchestrator
+	// (POST /api/v1/collaborate/groups/{name}/join)
+	JoinGroup(w http.ResponseWriter, r *http.Request, name GroupName)
+	// Leave a collaboration group
+	// (POST /api/v1/collaborate/groups/{name}/leave)
+	LeaveGroup(w http.ResponseWriter, r *http.Request, name GroupName)
 	// List shared-context entries
 	// (GET /api/v1/context)
 	ListContext(w http.ResponseWriter, r *http.Request, params ListContextParams)
@@ -1660,6 +1722,18 @@ func (_ Unimplemented) GetBranchStatus(w http.ResponseWriter, r *http.Request) {
 // Current inter-agent file conflicts
 // (GET /api/v1/collab/conflicts)
 func (_ Unimplemented) GetConflicts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Join a collaboration group as a project's orchestrator
+// (POST /api/v1/collaborate/groups/{name}/join)
+func (_ Unimplemented) JoinGroup(w http.ResponseWriter, r *http.Request, name GroupName) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Leave a collaboration group
+// (POST /api/v1/collaborate/groups/{name}/leave)
+func (_ Unimplemented) LeaveGroup(w http.ResponseWriter, r *http.Request, name GroupName) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2447,6 +2521,70 @@ func (siw *ServerInterfaceWrapper) GetConflicts(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetConflicts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// JoinGroup operation middleware
+func (siw *ServerInterfaceWrapper) JoinGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name GroupName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.JoinGroup(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LeaveGroup operation middleware
+func (siw *ServerInterfaceWrapper) LeaveGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name GroupName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LeaveGroup(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4970,6 +5108,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/collab/conflicts", wrapper.GetConflicts)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/collaborate/groups/{name}/join", wrapper.JoinGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/collaborate/groups/{name}/leave", wrapper.LeaveGroup)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/context", wrapper.ListContext)
 	})
 	r.Group(func(r chi.Router) {
@@ -5731,6 +5875,122 @@ func (response GetConflicts200JSONResponse) VisitGetConflictsResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type JoinGroupRequestObject struct {
+	Name GroupName `json:"name"`
+	Body *JoinGroupJSONRequestBody
+}
+
+type JoinGroupResponseObject interface {
+	VisitJoinGroupResponse(w http.ResponseWriter) error
+}
+
+type JoinGroup200JSONResponse JoinGroupResult
+
+func (response JoinGroup200JSONResponse) VisitJoinGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type JoinGroup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response JoinGroup400JSONResponse) VisitJoinGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type JoinGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response JoinGroup404JSONResponse) VisitJoinGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type JoinGroup409JSONResponse GroupJoinConflict
+
+func (response JoinGroup409JSONResponse) VisitJoinGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroupRequestObject struct {
+	Name GroupName `json:"name"`
+	Body *LeaveGroupJSONRequestBody
+}
+
+type LeaveGroupResponseObject interface {
+	VisitLeaveGroupResponse(w http.ResponseWriter) error
+}
+
+type LeaveGroup200JSONResponse Group
+
+func (response LeaveGroup200JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response LeaveGroup400JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LeaveGroup404JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -8394,6 +8654,12 @@ type StrictServerInterface interface {
 	// Current inter-agent file conflicts
 	// (GET /api/v1/collab/conflicts)
 	GetConflicts(ctx context.Context, request GetConflictsRequestObject) (GetConflictsResponseObject, error)
+	// Join a collaboration group as a project's orchestrator
+	// (POST /api/v1/collaborate/groups/{name}/join)
+	JoinGroup(ctx context.Context, request JoinGroupRequestObject) (JoinGroupResponseObject, error)
+	// Leave a collaboration group
+	// (POST /api/v1/collaborate/groups/{name}/leave)
+	LeaveGroup(ctx context.Context, request LeaveGroupRequestObject) (LeaveGroupResponseObject, error)
 	// List shared-context entries
 	// (GET /api/v1/context)
 	ListContext(ctx context.Context, request ListContextRequestObject) (ListContextResponseObject, error)
@@ -9100,6 +9366,72 @@ func (sh *strictHandler) GetConflicts(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetConflictsResponseObject); ok {
 		if err := validResponse.VisitGetConflictsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// JoinGroup operation middleware
+func (sh *strictHandler) JoinGroup(w http.ResponseWriter, r *http.Request, name GroupName) {
+	var request JoinGroupRequestObject
+
+	request.Name = name
+
+	var body JoinGroupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.JoinGroup(ctx, request.(JoinGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "JoinGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(JoinGroupResponseObject); ok {
+		if err := validResponse.VisitJoinGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LeaveGroup operation middleware
+func (sh *strictHandler) LeaveGroup(w http.ResponseWriter, r *http.Request, name GroupName) {
+	var request LeaveGroupRequestObject
+
+	request.Name = name
+
+	var body LeaveGroupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LeaveGroup(ctx, request.(LeaveGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LeaveGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LeaveGroupResponseObject); ok {
+		if err := validResponse.VisitLeaveGroupResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

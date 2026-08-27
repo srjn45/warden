@@ -1422,6 +1422,48 @@ func (c *Client) ListRoles(ctx context.Context) ([]RoleInfo, error) {
 	return resp.Roles, nil
 }
 
+// GroupMember is one seat in a collaboration group, mirroring the daemon's
+// GroupMember wire shape (docs/specs/2026-08-26-collaboration-groups.md).
+type GroupMember struct {
+	AgentID    string    `json:"agent_id"`
+	ProjectKey string    `json:"project_key"`
+	Summary    string    `json:"summary,omitempty"`
+	JoinedAt   time.Time `json:"joined_at"`
+}
+
+// Group is a collaboration group and its live roster.
+type Group struct {
+	Name    string        `json:"name"`
+	Members []GroupMember `json:"members"`
+}
+
+// JoinGroupResult is the body of a successful join: the roster plus the caller's
+// new role (orchestrator).
+type JoinGroupResult struct {
+	Group Group  `json:"group"`
+	Role  string `json:"role"`
+}
+
+// JoinGroup seats agentID in the named collaboration group (creating it if
+// absent) and switches that agent to the orchestrator role. A duplicate join
+// (the agent's project already seated by a different agent) returns a
+// *StatusError with Code 409 whose Body carries the seated incumbent.
+func (c *Client) JoinGroup(ctx context.Context, group, agentID string) (JoinGroupResult, error) {
+	var out JoinGroupResult
+	body := map[string]string{"agent_id": agentID}
+	err := c.do(ctx, http.MethodPost, "/collaborate/groups/"+url.PathEscape(group)+"/join", body, &out)
+	return out, err
+}
+
+// LeaveGroup removes agentID's seat from the named group and returns the updated
+// roster. The durable group record persists even when its last seat leaves.
+func (c *Client) LeaveGroup(ctx context.Context, group, agentID string) (Group, error) {
+	var out Group
+	body := map[string]string{"agent_id": agentID}
+	err := c.do(ctx, http.MethodPost, "/collaborate/groups/"+url.PathEscape(group)+"/leave", body, &out)
+	return out, err
+}
+
 // Backend is one row of the agent-backend registry, mirroring the daemon's
 // backendstore.Backend wire shape (docs/specs/2026-08-06-backend-registry.md).
 type Backend struct {
