@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/groupstore"
+	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -26,11 +28,35 @@ func newGroupServer(t *testing.T) (*Server, *fakeStore, *fakeLife) {
 	return srv, fs, fl
 }
 
+// newGroupServerMbox is newGroupServer plus a real (temp-dir) directed-message
+// store, so join can exercise the warden-brokered introductions (Stage B4).
+func newGroupServerMbox(t *testing.T) (*Server, *fakeStore, *fakeLife, *mailbox.Store) {
+	t.Helper()
+	srv, fs, fl := newGroupServer(t)
+	mb, err := mailbox.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("mailbox.New: %v", err)
+	}
+	t.Cleanup(func() { mb.Close() })
+	srv.mbox = mb
+	return srv, fs, fl, mb
+}
+
 // seedAgent inserts a session with the given id and workdir (which drives its
 // project key — a non-repo temp dir resolves to a stable `local:` key).
 func seedAgent(t *testing.T, fs *fakeStore, id, workdir string) {
 	t.Helper()
 	if err := fs.Insert(context.Background(), &store.Session{ID: id, Workdir: workdir, Status: store.StatusWorking}); err != nil {
+		t.Fatalf("seed %s: %v", id, err)
+	}
+}
+
+// seedNamedAgent inserts a session with an explicit alias and status so intro
+// content (name in the descriptor) and wake behaviour (parked recipients) are
+// testable.
+func seedNamedAgent(t *testing.T, fs *fakeStore, id, name, workdir string, st store.Status) {
+	t.Helper()
+	if err := fs.Insert(context.Background(), &store.Session{ID: id, Name: name, Workdir: workdir, Status: st}); err != nil {
 		t.Fatalf("seed %s: %v", id, err)
 	}
 }
@@ -168,4 +194,114 @@ func TestGroupsUnconfigured(t *testing.T) {
 	var ae apiError
 	require.ErrorAs(t, err, &ae)
 	require.Equal(t, 503, ae.code)
+}
+
+// introBodies reads a recipient's inbox and returns just the message bodies.
+func introBodies(t *testing.T, mb *mailbox.Store, to string) []string {
+	t.Helper()
+	msgs, err := mb.Messages(to)
+	require.NoError(t, err)
+	out := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		require.Equal(t, "daemon", m.From, "intros are stamped with the reserved daemon provenance")
+		out = append(out, m.Body)
+	}
+	return out
+}
+
+// TestJoinGroupBrokersIntroductionsBothDirections is the B4 acceptance: on join,
+// each of the N existing members receives exactly one intro announcing the
+// joiner, and the joiner receives exactly N intros (one per existing member),
+// with zero agent turns.
+func TestJoinGroupBrokersIntroductionsBothDirections(t *testing.T) {
+	srv, fs, _, mb := newGroupServerMbox(t)
+	seedNamedAgent(t, fs, "a1", "alpha", t.TempDir(), store.StatusWorking)
+	seedNamedAgent(t, fs, "a2", "beta", t.TempDir(), store.StatusWorking)
+	seedNamedAgent(t, fs, "a3", "gamma", t.TempDir(), store.StatusWorking)
+
+	// First seat: no existing members ⇒ nobody is introduced.
+	_, err := srv.JoinGroup(context.Background(), joinReq("team", "a1"))
+	require.NoError(t, err)
+	require.Empty(t, introBodies(t, mb, "a1"), "first joiner has no peers to be introduced to")
+
+	// Second seat: a1 (existing) learns about a2; a2 (joiner) learns about a1.
+	_, err = srv.JoinGroup(context.Background(), joinReq("team", "a2"))
+	require.NoError(t, err)
+
+	a1 := introBodies(t, mb, "a1")
+	require.Len(t, a1, 1)
+	require.Contains(t, a1[0], "a2")
+	require.Contains(t, a1[0], "beta", "descriptor carries the joiner's alias")
+	require.Contains(t, a1[0], "joined")
+
+	a2 := introBodies(t, mb, "a2")
+	require.Len(t, a2, 1)
+	require.Contains(t, a2[0], "a1")
+	require.Contains(t, a2[0], "alpha")
+
+	// Third seat (N=2 existing): a1 and a2 each get one more; a3 gets two.
+	_, err = srv.JoinGroup(context.Background(), joinReq("team", "a3"))
+	require.NoError(t, err)
+
+	require.Len(t, introBodies(t, mb, "a1"), 2, "each existing member gets exactly one intro per join")
+	require.Len(t, introBodies(t, mb, "a2"), 2, "a2: one from its own join (a1) + one when a3 joined")
+
+	a3 := introBodies(t, mb, "a3")
+	require.Len(t, a3, 2, "joiner receives one intro per existing member (N=2)")
+	joined := strings.Join(a3, "\n")
+	require.Contains(t, joined, "a1")
+	require.Contains(t, joined, "a2")
+}
+
+// TestJoinGroupIdempotentRejoinDoesNotReBroker guards against re-announcing on an
+// idempotent re-join of the agent's own seat.
+func TestJoinGroupIdempotentRejoinDoesNotReBroker(t *testing.T) {
+	srv, fs, _, mb := newGroupServerMbox(t)
+	seedNamedAgent(t, fs, "a1", "alpha", t.TempDir(), store.StatusWorking)
+	seedNamedAgent(t, fs, "a2", "beta", t.TempDir(), store.StatusWorking)
+
+	_, err := srv.JoinGroup(context.Background(), joinReq("team", "a1"))
+	require.NoError(t, err)
+	_, err = srv.JoinGroup(context.Background(), joinReq("team", "a2"))
+	require.NoError(t, err)
+	require.Len(t, introBodies(t, mb, "a1"), 1)
+
+	// a2 re-joins its own seat: idempotent ⇒ no new intros in either inbox.
+	_, err = srv.JoinGroup(context.Background(), joinReq("team", "a2"))
+	require.NoError(t, err)
+	require.Len(t, introBodies(t, mb, "a1"), 1, "idempotent re-join must not re-announce")
+	require.Len(t, introBodies(t, mb, "a2"), 1)
+}
+
+// TestJoinGroupIntroWakesParkedRecipient checks a parked (idle) existing member is
+// nudged to read, while the join still succeeds.
+func TestJoinGroupIntroWakesParkedRecipient(t *testing.T) {
+	srv, fs, fl, _ := newGroupServerMbox(t)
+	seedNamedAgent(t, fs, "a1", "alpha", t.TempDir(), store.StatusIdle)
+	seedNamedAgent(t, fs, "a2", "beta", t.TempDir(), store.StatusWorking)
+
+	_, err := srv.JoinGroup(context.Background(), joinReq("team", "a1"))
+	require.NoError(t, err)
+	// Joining flips a1 to the orchestrator role, which momentarily marks it
+	// spawning; simulate it settling back to idle before its peer arrives.
+	require.NoError(t, fs.UpdateStatus(context.Background(), "a1", store.StatusIdle))
+
+	_, err = srv.JoinGroup(context.Background(), joinReq("team", "a2"))
+	require.NoError(t, err)
+
+	require.Equal(t, groupIntroNotice, fl.lastInput, "a parked recipient is nudged to read its inbox")
+}
+
+// TestJoinGroupIntrosNoMboxIsNoop confirms join still works when messaging is
+// unconfigured (nil mbox) — intros are simply skipped.
+func TestJoinGroupIntrosNoMboxIsNoop(t *testing.T) {
+	srv, fs, _ := newGroupServer(t) // no mbox wired
+	seedAgent(t, fs, "a1", t.TempDir())
+	seedAgent(t, fs, "a2", t.TempDir())
+
+	_, err := srv.JoinGroup(context.Background(), joinReq("team", "a1"))
+	require.NoError(t, err)
+	resp, err := srv.JoinGroup(context.Background(), joinReq("team", "a2"))
+	require.NoError(t, err)
+	require.Len(t, resp.(oapi.JoinGroup200JSONResponse).Group.Members, 2)
 }
