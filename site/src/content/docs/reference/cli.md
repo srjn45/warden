@@ -37,6 +37,7 @@ Available Commands:
   branches            Per-agent CI + branch-vs-main status
   check               Run the project's configured checks and report only failures
   collab              Inter-agent collaboration: see which agents are editing the same files
+  collaborate         Collaboration groups: join or leave a named set of per-project orchestrators
   commit              Stage and commit the worktree (warden rails + hooks + bookkeeping)
   completion          Generate shell completion scripts
   config              Show the resolved configuration (and its file path)
@@ -773,6 +774,62 @@ Flags:
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden collaborate
+
+```text
+Manage collaboration groups — named sets of per-project orchestrator agents
+that become mutually discoverable so they can message and delegate across projects.
+
+Join a group to seat this agent as its project's orchestrator; warden brokers
+introductions to existing members. Leave to remove this agent's seat (soft:
+in-flight messages still deliver; no new inbound work is accepted).
+
+Usage:
+  warden collaborate [command]
+
+Available Commands:
+  group       Join or leave a collaboration group
+
+Flags:
+      --as string   act as this agent id (defaults to $WARDEN_SESSION_ID)
+  -h, --help        help for collaborate
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Use "warden collaborate [command] --help" for more information about a command.
+```
+
+## warden collaborate group
+
+```text
+Join or leave a named collaboration group.
+
+join: seat this agent in <name> as its project's orchestrator, creating the group
+if it does not exist. Warden enforces one orchestrator per project (duplicate join
+returns the already-seated agent id), switches this agent to the orchestrator role,
+resolves its project summary, and brokers introductions both directions.
+
+leave: remove this agent's seat from <name> and notify peers. Soft — in-flight
+replies still deliver; only new inbound delegations are stopped.
+
+Usage:
+  warden collaborate group <name> (join|leave) [flags]
+
+Examples:
+  wd collaborate group my-team join
+  wd collaborate group my-team leave
+
+Flags:
+  -h, --help   help for group
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --as string       act as this agent id (defaults to $WARDEN_SESSION_ID)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 

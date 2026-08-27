@@ -225,6 +225,11 @@ type scheduleIDArgs struct {
 	ID string `json:"id" jsonschema:"the schedule id"`
 }
 
+type collaborateGroupArgs struct {
+	Group  string `json:"group" jsonschema:"the collaboration group name"`
+	Action string `json:"action" jsonschema:"join (seat this agent as orchestrator, creating the group if absent) or leave (soft-remove this agent's seat)"`
+}
+
 type listModelsArgs struct {
 	Tier string `json:"tier,omitempty" jsonschema:"optional filter by model tier: tier-1 | tier-2 | tier-3"`
 }
@@ -1065,6 +1070,49 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(sch)
+	})
+
+	// --- collaboration groups (docs/specs/2026-08-26-collaboration-groups.md) ---
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name: "collaborate_group",
+		Description: "Join or leave a collaboration group — a named set of per-project orchestrator agents that become\n" +
+			"mutually discoverable for cross-project messaging and delegation.\n\n" +
+			"action=join: seat this agent in the group as its project's orchestrator (creates the group if absent).\n" +
+			"Warden enforces one orchestrator per project (duplicate returns the seated agent), switches this agent\n" +
+			"to the orchestrator role, resolves its project summary, and brokers introductions both directions.\n\n" +
+			"action=leave: remove this agent's seat (soft — in-flight messages still deliver; no new inbound work).\n\n" +
+			"Mirrors `warden collaborate group <name> join|leave`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a collaborateGroupArgs) (*mcpsdk.CallToolResult, any, error) {
+		self := sessionID()
+		if self == "" {
+			return textResult("error: no agent id — set WARDEN_SESSION_ID or run inside a warden session"), nil, nil
+		}
+		switch strings.ToLower(strings.TrimSpace(a.Action)) {
+		case "join":
+			res, err := s.cl.JoinGroup(ctx, a.Group, self)
+			if err != nil {
+				return textResult("error: " + err.Error()), nil, nil
+			}
+			return jsonResultAny(map[string]any{
+				"action": "joined",
+				"group":  res.Group.Name,
+				"role":   res.Role,
+				"roster": res.Group.Members,
+			})
+		case "leave":
+			res, err := s.cl.LeaveGroup(ctx, a.Group, self)
+			if err != nil {
+				return textResult("error: " + err.Error()), nil, nil
+			}
+			return jsonResultAny(map[string]any{
+				"action": "left",
+				"group":  res.Name,
+				"roster": res.Members,
+			})
+		default:
+			return textResult("error: unknown action " + strconv.Quote(a.Action) + ": want join or leave"), nil, nil
+		}
 	})
 }
 
