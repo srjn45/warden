@@ -169,3 +169,51 @@ func TestGroupsUnconfigured(t *testing.T) {
 	require.ErrorAs(t, err, &ae)
 	require.Equal(t, 503, ae.code)
 }
+
+func TestLeaveGroupNotifiesPeers(t *testing.T) {
+	// Soft leave must send a "no new inbound" notice to every remaining peer;
+	// in-flight replies still route by agent-id (no extra mechanism needed).
+	srv, fs, _, mb := newGroupServerWithMbox(t)
+	seedAgent(t, fs, "leaver", t.TempDir())
+	seedAgent(t, fs, "peer1", t.TempDir())
+	seedAgent(t, fs, "peer2", t.TempDir())
+	fs.data["leaver"].Name = "leaver-orch"
+
+	for _, id := range []string{"leaver", "peer1", "peer2"} {
+		_, err := srv.JoinGroup(context.Background(), joinReq("team", id))
+		require.NoError(t, err)
+	}
+
+	resp, err := srv.LeaveGroup(context.Background(), leaveReq("team", "leaver"))
+	require.NoError(t, err)
+	g := oapi.Group(resp.(oapi.LeaveGroup200JSONResponse))
+	require.Len(t, g.Members, 2, "leaver's seat is removed")
+
+	// Each remaining peer received exactly one soft-leave notice.
+	for _, peer := range []string{"peer1", "peer2"} {
+		msgs, merr := mb.Messages(peer)
+		require.NoError(t, merr)
+		require.Len(t, msgs, 1, "peer %s should have exactly one notice", peer)
+		require.Contains(t, msgs[0].Body, "leaver-orch", "notice names the leaving agent")
+		require.Contains(t, msgs[0].Body, "team", "notice names the group")
+	}
+
+	// The leaver itself receives no notice.
+	leaverMsgs, _ := mb.Messages("leaver")
+	require.Empty(t, leaverMsgs)
+}
+
+func TestLeaveGroupSoleMemberEmitsNoNotice(t *testing.T) {
+	// A sole member leaving has no peers to notify.
+	srv, fs, _, mb := newGroupServerWithMbox(t)
+	seedAgent(t, fs, "solo", t.TempDir())
+	_, err := srv.JoinGroup(context.Background(), joinReq("loner", "solo"))
+	require.NoError(t, err)
+
+	_, err = srv.LeaveGroup(context.Background(), leaveReq("loner", "solo"))
+	require.NoError(t, err)
+
+	all, err := mb.All()
+	require.NoError(t, err)
+	require.Empty(t, all, "no peers → no notices on soft leave")
+}

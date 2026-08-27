@@ -114,9 +114,12 @@ func (s *Server) JoinGroup(ctx context.Context, req oapi.JoinGroupRequestObject)
 
 // LeaveGroup implements POST /api/v1/collaborate/groups/{name}/leave. It removes
 // the calling agent's seat from the named group and returns the updated roster.
-// The durable group record remains even when its last seat leaves. Soft
-// leave-vs-terminate semantics are refined in a later stage; this stage only
-// removes the seat.
+// The durable group record remains even when its last seat leaves.
+//
+// Soft-leave semantics (B6): the seat is vacated and each remaining peer receives
+// a "no new inbound" notice. In-flight replies already sent to the leaving agent's
+// id still route because the mailbox is addressed by agent-id, not group
+// membership — this requires no extra mechanism.
 func (s *Server) LeaveGroup(ctx context.Context, req oapi.LeaveGroupRequestObject) (oapi.LeaveGroupResponseObject, error) {
 	if s.groups == nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "collaboration groups unavailable")
@@ -136,6 +139,18 @@ func (s *Server) LeaveGroup(ctx context.Context, req oapi.LeaveGroupRequestObjec
 	if err != nil {
 		return nil, err
 	}
+
+	// Snapshot the remaining peers BEFORE removing the seat so the soft-leave
+	// notice reaches everyone who shared the group with the leaving agent.
+	var peers []string
+	if g, gerr := s.groups.Get(name); gerr == nil {
+		for _, m := range g.Members {
+			if m.AgentID != sess.ID {
+				peers = append(peers, m.AgentID)
+			}
+		}
+	}
+
 	if err := s.groups.Update(name, func(g *groupstore.Group) {
 		kept := g.Members[:0]
 		for _, m := range g.Members {
@@ -155,6 +170,16 @@ func (s *Server) LeaveGroup(ctx context.Context, req oapi.LeaveGroupRequestObjec
 		return nil, err
 	}
 	s.recordAuditCtx(ctx, "group.leave", name, map[string]string{"agent": sess.ID})
+
+	// Soft-leave notice: peers know no new inbound will come from the leaver;
+	// in-flight replies (already addressed by agent-id) still route normally.
+	who := sessionDisplayName(sess)
+	notice := fmt.Sprintf("ℹ️ warden: %s has left group %q. "+
+		"No new inbound from it; replies already in flight still deliver.", who, name)
+	for _, peer := range peers {
+		s.notifyGroupMember(ctx, peer, notice)
+	}
+
 	s.notify()
 	return oapi.LeaveGroup200JSONResponse(toOAPIGroup(grp)), nil
 }
