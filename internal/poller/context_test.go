@@ -96,6 +96,9 @@ func (f *ctxFakeDeps) Resume(_ context.Context, _ *store.Session, prompt string)
 }
 func (f *ctxFakeDeps) StampCompact(context.Context, string) error     { f.stamped++; return nil }
 func (f *ctxFakeDeps) SendKeys(context.Context, string, string) error { return nil }
+func (f *ctxFakeDeps) AskStatus(context.Context, *store.Session, string) error {
+	return nil
+}
 func (f *ctxFakeDeps) RecordEvent(_ context.Context, _ string, ev store.Event) error {
 	f.events = append(f.events, ev)
 	return nil

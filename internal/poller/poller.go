@@ -118,6 +118,11 @@ type Deps interface {
 	StampCompact(ctx context.Context, id string) error
 	// SendKeys sends a single key (e.g. numbered menu option) to the agent's tmux pane.
 	SendKeys(ctx context.Context, tmuxSession, keys string) error
+	// AskStatus sends the ambiguous-idle self-report query (the bracketed-paste +
+	// Enter prompt path) to the agent, asking it once for its {status, details,
+	// summary}. Used by the idle self-report fallback (askIdleStatus); a plain
+	// prompt send, no different in mechanism from Resume.
+	AskStatus(ctx context.Context, s *store.Session, prompt string) error
 	// RecordEvent appends a durable event to the agent's record (used for health
 	// anomalies the poller raises — OOM-suspected crashes, infinite loops,
 	// pre-crash context warnings). A missing session is a soft no-op.
@@ -276,6 +281,20 @@ type Poller struct {
 	lastForward map[string]string
 	fwdMu       sync.Mutex
 
+	// IdleSelfReport enables the ambiguous-idle self-report fallback
+	// (docs/specs/2026-08-26-collaboration-groups.md §2.4(4)): the one case
+	// pane-state cannot disambiguate — a monitored worker idle at its prompt
+	// (finished vs. waiting for a human). When on, the poller asks the worker ONCE,
+	// on its transition to idle, for {status, details, summary}. Off by default; the
+	// daemon enables it. Restricted to monitored pipeline workers and made one-shot
+	// per session (idleQueried) so it never degrades into a poll loop.
+	IdleSelfReport bool
+	// idleQueried marks sessions already asked to self-report on their idle
+	// transition. Sticky per session (reset only on teardown via pruneSummaryState,
+	// NOT when the agent leaves idle) so the query fires at most once and never
+	// re-fires on the working→idle cycle the query itself induces. Tick goroutine only.
+	idleQueried map[string]bool
+
 	// ApprovalEvents is a buffered channel for approval opportunities.
 	// Published when: (1) status transitions to waiting_for_input, OR
 	// (2) pane changes while already in waiting_for_input.
@@ -416,6 +435,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		preCrashFlagged: map[string]bool{},
 		hotSwapFlagged:  map[string]bool{},
 		forceCompact:    map[string]fcState{},
+		idleQueried:     map[string]bool{},
 		approveBreaker:  approval.NewBreaker(),
 		lastForward:     map[string]string{},
 		CheckEvery:      20 * time.Second,
@@ -657,6 +677,41 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane stri
 	}
 }
 
+// idleSelfReportQuery is the one-shot prompt warden sends a monitored worker the
+// first time it transitions to idle-at-prompt — the single case pane-state can't
+// disambiguate (finished vs. waiting for a human). It asks for the
+// {status, details, summary} contract (design §2.4(4)) and points a finished
+// worker at the deterministic done-signal so its reply is machine-captured. Var
+// (not const) so tests can shrink/inspect it.
+var idleSelfReportQuery = "warden: you appear idle at your prompt. If you have FINISHED your task, run " +
+	"`wd job done --summary '<one line>'`. Otherwise reply with one line of JSON describing your state: " +
+	`{"status":"working|blocked|done","details":"<what you're waiting on or why you're stuck>","summary":"<one-line result>"}.`
+
+// askIdleStatus fires the ambiguous-idle self-report exactly once per session, on
+// its transition to idle-at-prompt (design §2.4(4): ask once, never on a poll
+// loop). It is gated on IdleSelfReport, restricted to monitored pipeline workers
+// (a human-driven agent's idle needs no disambiguation — its operator is present),
+// and guarded by idleQueried so it never re-fires — including on the working→idle
+// cycle the query itself induces. The guard is set only after a successful send so
+// a transient tmux failure retries on a later idle tick. Tick goroutine only.
+func (p *Poller) askIdleStatus(ctx context.Context, s *store.Session) {
+	if !p.IdleSelfReport {
+		return
+	}
+	if s.PipelineID == "" {
+		return
+	}
+	if p.idleQueried[s.ID] {
+		return
+	}
+	if err := p.deps.AskStatus(ctx, s, idleSelfReportQuery); err != nil {
+		slog.Warn("poller: idle self-report query failed", "agent", s.ID, "err", err)
+		return
+	}
+	p.idleQueried[s.ID] = true
+	slog.Info("poller: sent ambiguous-idle self-report query", "agent", s.ID)
+}
+
 // menuVerifyDelay is how long tryLimitMenu waits after its first keystroke
 // before re-capturing the pane to confirm the menu cleared. A menu redraw is
 // near-instant; the small pause avoids a false "still showing" read that would
@@ -866,6 +921,7 @@ func (p *Poller) tick(ctx context.Context) error {
 		// (orphaned, pane-independent) or we captured the pane successfully.
 		if !alive || captureOK {
 			next := classify(p.backendFor(s), s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
+			idleNow := false
 			if next != s.Status {
 				// CAS on the snapshot's status: if a hook changed it since List,
 				// the swap is skipped and the hook's newer status stands.
@@ -880,7 +936,17 @@ func (p *Poller) tick(ctx context.Context) error {
 					if next == store.StatusWaitingForInput && pane != "" {
 						p.publishApprovalEvent(s, pane)
 					}
+					idleNow = next == store.StatusIdle
 				}
+			} else {
+				idleNow = s.Status == store.StatusIdle
+			}
+			// Ambiguous-idle self-report (design §2.4(4)): the one case pane-state
+			// can't disambiguate. Fire once when the worker is confirmed idle-at-prompt
+			// (whether this tick moved it there or it was already idle); askIdleStatus
+			// is gated + one-shot, so this never becomes a poll loop.
+			if idleNow {
+				p.askIdleStatus(ctx, s)
 			}
 		}
 		if alive && paneChanged && now.Sub(p.lastSummary[s.ID]) >= p.SummarizeAfter {
@@ -906,7 +972,8 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 		len(p.pendingCompact) == 0 && len(p.paneHistory) == 0 &&
 		len(p.loopFlagged) == 0 && len(p.preCrashFlagged) == 0 &&
 		len(p.hotSwapFlagged) == 0 &&
-		len(p.forceCompact) == 0 && p.approveBreaker.Len() == 0 {
+		len(p.forceCompact) == 0 && len(p.idleQueried) == 0 &&
+		p.approveBreaker.Len() == 0 {
 		return
 	}
 	live := make(map[string]struct{}, len(sessions))
@@ -951,6 +1018,11 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 	for id := range p.forceCompact {
 		if _, ok := live[id]; !ok {
 			delete(p.forceCompact, id)
+		}
+	}
+	for id := range p.idleQueried {
+		if _, ok := live[id]; !ok {
+			delete(p.idleQueried, id)
 		}
 	}
 	p.approveBreaker.Prune(live)
