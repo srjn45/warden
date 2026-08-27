@@ -48,7 +48,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"recover_agents",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
 		"pause_pipeline", "resume_pipeline", "retry_pipeline_job",
-		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",
+		"edit_pipeline_job", "emit_pipeline_output", "mark_job_done", "delete_pipeline",
 		"validate_pipeline", "list_pipeline_templates", "library_list",
 		"create_schedule", "delete_schedule",
 		"set_autopilot", "autopilot_status", "land", "autopilot_complete",

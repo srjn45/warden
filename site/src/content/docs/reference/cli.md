@@ -54,6 +54,7 @@ Available Commands:
   history             Browse archived (closed) agents, newest first
   import              Insert agent session metadata from a JSON dump on stdin
   insights            Mine agent history for patterns and parallelization suggestions
+  job                 Worker-side pipeline job commands (run from inside a job)
   land                Land an autopilot worker branch into the integration branch
   library             Browse saved spawn presets, prompt templates, and pipeline templates in one place
   llm                 Local-LLM helpers for the REPL (wd repl)
@@ -422,15 +423,17 @@ Use "warden autopilot [command] --help" for more information about a command.
 ## warden autopilot init
 
 ```text
-Creates a template autopilot.plan.yaml in the current git repository (if absent),
+Creates a template autopilot plan file in the current git repository (if absent),
 updates the autopilot block in the warden config with the plan file and detected
 backends (assign them to cost tiers before enabling), creates the integration branch
 off the default branch if absent, and prints a CI-coverage hint when no workflow
 covers integration pull requests. After init, edit the plan file and run
 `warden autopilot on` to enable.
 
+If plan-file is not provided, it defaults to autopilot.plan.yaml.
+
 Usage:
-  warden autopilot init [flags]
+  warden autopilot init [plan-file] [flags]
 
 Flags:
   -h, --help   help for init
@@ -1447,6 +1450,56 @@ Flags:
       --limit int        cap the number of archived sessions mined (0 = daemon default)
       --session string   scope parallelization suggestions to one session (by id or name)
       --since string     only mine sessions since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden job
+
+```text
+Commands a pipeline worker runs from inside its own job.
+
+`warden job done` is the primary completion signal: a worker declares its
+job complete with a status + one-line summary, so warden closes the job in
+one shot without spending a follow-up interrogation turn.
+
+Usage:
+  warden job [command]
+
+Available Commands:
+  done        Signal this pipeline job complete with a status + summary
+
+Flags:
+  -h, --help   help for job
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Use "warden job [command] --help" for more information about a command.
+```
+
+## warden job done
+
+```text
+Declare the current pipeline job complete.
+
+Warden captures the status and summary in one shot — no extra turn. Run
+from inside a pipeline job (WARDEN_PIPELINE_ID / WARDEN_JOB_ID are set
+automatically), or pass --pipeline and --job explicitly. Outside a pipeline
+it prints a <<WARDEN_DONE>> sentinel line and exits.
+
+Usage:
+  warden job done [flags]
+
+Flags:
+  -h, --help              help for done
+      --job string        job id (defaults to $WARDEN_JOB_ID)
+      --pipeline string   pipeline id (defaults to $WARDEN_PIPELINE_ID)
+      --status string     job outcome: success | failure | blocked (default "success")
+      --summary string    one-line summary of what the job accomplished
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

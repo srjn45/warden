@@ -86,6 +86,29 @@ func (s *Server) deliverIntro(ctx context.Context, to, body string) {
 	}
 }
 
+// brokerReannounce delivers a "re-joined after recovery" notice to the existing
+// members of grp when the recovered orchestrator `rejoiner` comes back online.
+// Only existing peers are notified — the recovered agent is NOT re-sent the
+// full roster; it retains that context from the initial join. Best-effort
+// throughout; all failures are swallowed so recovery is never interrupted.
+func (s *Server) brokerReannounce(ctx context.Context, grp *groupstore.Group, rejoiner groupstore.Member, rejoinerName string) {
+	if s.mbox == nil || grp == nil {
+		return
+	}
+	msg := composeIntro("re-joined after recovery", grp.Name, rejoiner, rejoinerName)
+	delivered := false
+	for _, m := range grp.Members {
+		if m.AgentID == rejoiner.AgentID {
+			continue
+		}
+		s.deliverIntro(ctx, m.AgentID, msg)
+		delivered = true
+	}
+	if delivered {
+		s.notify()
+	}
+}
+
 // sessionName resolves an agent's human-friendly alias for the intro descriptor,
 // returning "" (which composeIntro renders as the bare id) when the session is
 // gone or unnamed.

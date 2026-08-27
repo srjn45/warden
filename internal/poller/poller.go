@@ -229,6 +229,15 @@ type Poller struct {
 	// raises a session's figure). Best-effort and gate-aware on the receiving side.
 	OnSpend func(s *store.Session, inputTokens, outputTokens int)
 
+	// OnPipelineJobPane, if set, is handed the freshly captured pane of a live
+	// pipeline-job session (one with PipelineID+JobID) whenever that pane changes.
+	// It is the A1 done-signal backstop seam: the daemon parses the pane for a
+	// `<<WARDEN_DONE>>{json}` sentinel and, when present, closes the job via the
+	// executor — for backends that print the sentinel instead of running
+	// `wd job done`. The poller stays thin (it only forwards the bytes); a nil
+	// hook or a non-pipeline session makes the whole path inert.
+	OnPipelineJobPane func(ctx context.Context, s *store.Session, pane string)
+
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
 
 	// pendingCompact tracks /compact sends whose reclaim hasn't shown up yet: a
@@ -909,6 +918,14 @@ func (p *Poller) tick(ctx context.Context) error {
 					// parks instead of sitting on an unanswered menu. Gated on
 					// auto_resume; a no-op for any other pane.
 					p.tryLimitMenu(ctx, s, pane)
+
+					// A1 done-signal backstop: hand a pipeline-job pane to the daemon
+					// so it can capture a `<<WARDEN_DONE>>{json}` sentinel and close
+					// the job without an interrogation turn. Edge-triggered on pane
+					// change; inert for non-pipeline sessions or a nil hook.
+					if p.OnPipelineJobPane != nil && s.PipelineID != "" && s.JobID != "" {
+						p.OnPipelineJobPane(ctx, s, pane)
+					}
 
 					// Publish approval event if already waiting
 					if s.Status == store.StatusWaitingForInput && pane != "" {

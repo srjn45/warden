@@ -215,6 +215,29 @@ func (s *Server) EmitPipelineJob(_ context.Context, req oapi.EmitPipelineJobRequ
 	return oapi.EmitPipelineJob200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "emitted"}}, nil
 }
 
+// DonePipelineJob implements POST /api/v1/pipelines/{pid}/jobs/{job}/done — the
+// A1 done-signal: a worker's self-reported completion (status + summary) closes
+// the job in one shot, no interrogation turn.
+func (s *Server) DonePipelineJob(_ context.Context, req oapi.DonePipelineJobRequestObject) (oapi.DonePipelineJobResponseObject, error) {
+	var status, summary string
+	if req.Body != nil {
+		status = req.Body.Status
+		summary = req.Body.Summary
+	}
+	// Background context: done can trigger a reconcile that spawns dependents.
+	switch err := s.exec.Done(context.Background(), req.Pid, req.Job, status, summary); {
+	case errors.Is(err, pipeline.ErrNotFound):
+		return nil, errStatus(http.StatusNotFound, "pipeline not found")
+	case errors.Is(err, ErrJobNotFound):
+		return nil, errStatus(http.StatusNotFound, "job not found")
+	case errors.Is(err, ErrJobNotRunning):
+		return nil, errStatus(http.StatusConflict, err.Error())
+	case err != nil:
+		return nil, err
+	}
+	return oapi.DonePipelineJob200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "done"}}, nil
+}
+
 // EditPipelineJob implements POST /api/v1/pipelines/{pid}/jobs/{job}/edit. A nil
 // prompt/handoff means "leave unchanged"; non-nil (incl. "") sets the value.
 func (s *Server) EditPipelineJob(_ context.Context, req oapi.EditPipelineJobRequestObject) (oapi.EditPipelineJobResponseObject, error) {

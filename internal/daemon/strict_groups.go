@@ -47,9 +47,21 @@ func (s *Server) JoinGroup(ctx context.Context, req oapi.JoinGroupRequestObject)
 		return nil, err
 	}
 	projectKey := ProjectKeyForDir(ctx, sessionRepoDir(sess))
+
+	// Resolve the project summary before seating (design §4.2): declared blurb
+	// beats cached beats agent-generated-once. We load any existing group record
+	// here to consult its SummaryCache; the group may not exist yet for a fresh
+	// create, in which case preGrp is nil and only the file-read path runs.
+	var preGrp *groupstore.Group
+	if existing, gErr := s.groups.Get(name); gErr == nil {
+		preGrp = existing
+	}
+	resolvedSummary := resolveGroupSummary(ctx, s, sess, preGrp, name, projectKey)
+
 	member := groupstore.Member{
 		AgentID:    sess.ID,
 		ProjectKey: projectKey,
+		Summary:    resolvedSummary,
 		JoinedAt:   time.Now().UTC(),
 	}
 
@@ -98,6 +110,13 @@ func (s *Server) JoinGroup(ctx context.Context, req oapi.JoinGroupRequestObject)
 			Error:     "project already seated by agent " + conflict.AgentID,
 			Incumbent: toOAPIMember(*conflict),
 		}, nil
+	}
+
+	// Persist the resolved summary in the group's SummaryCache so it survives a
+	// leave/rejoin cycle (the member record is removed on leave, but the cache
+	// is not). Best-effort: a write failure never fails the join itself.
+	if resolvedSummary != "" && seated {
+		_ = s.groups.CacheSummary(name, projectKey, resolvedSummary)
 	}
 
 	// Switch the seated agent to the orchestrator role (best-effort relaunch;
