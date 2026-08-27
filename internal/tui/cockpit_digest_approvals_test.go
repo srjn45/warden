@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -66,126 +65,8 @@ func TestKeyDOnAgentFetchesDigestAndEntersDigestMode(t *testing.T) {
 
 // --- approvals (the `i` key + number answering) ---
 
-func TestItemsIncludesApprovalsRowWhenPending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = true
-	m.approvals = []approval.View{
-		{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}},
-		{ID: "agent-2", Recognized: false}, // unrecognized → not counted
-	}
-	items := m.items()
-	// The Approvals section is always the first row; its count reflects recognized
-	// menus only, and the recognized prompt expands to its own row beneath it.
-	if len(items) == 0 || items[0].section != secApprovals {
-		t.Fatalf("expected the Approvals section header first; got %+v", items)
-	}
-	if items[0].secCount != 1 {
-		t.Errorf("secCount = %d, want 1 (recognized only)", items[0].secCount)
-	}
-	var apprIDs []string
-	for _, it := range items {
-		if it.apprView != nil {
-			apprIDs = append(apprIDs, it.apprView.ID)
-		}
-	}
-	if len(apprIDs) != 1 || apprIDs[0] != "agent-1" {
-		t.Fatalf("approval rows = %v, want exactly [agent-1] (recognized only)", apprIDs)
-	}
-}
-
-func TestNoApprovalsRowWhenNonePending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = true // enabled but nothing waiting
-	sawHeader := false
-	for _, it := range m.items() {
-		if it.section == secApprovals {
-			sawHeader = true
-			if it.secCount != 0 {
-				t.Fatalf("Approvals header count = %d, want 0 when nothing pending", it.secCount)
-			}
-		}
-		if it.apprView != nil {
-			t.Fatal("no approval rows should appear when no recognized approvals pending")
-		}
-	}
-	if !sawHeader {
-		t.Fatal("the Approvals section header must always be present")
-	}
-}
-
 // Note: the standalone `i` key now opens the agent-detail overlay (modeDetails);
 // it no longer enters the approvals overlay. The approvals binding moved to `p`.
-
-func TestKeyPEntersApprovalsModeWhenPending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = true
-	m.approvals = []approval.View{{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}}}
-	mm, _ := m.Update(key("p"))
-	m = mm.(controlPaneModel)
-	if m.mode != modeApprovals {
-		t.Fatalf("expected modeApprovals after p, got %v", m.mode)
-	}
-}
-
-func TestKeyPStatusWhenDisabled(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = false
-	mm, _ := m.Update(key("p"))
-	m = mm.(controlPaneModel)
-	if m.mode != modeNormal {
-		t.Fatalf("p should not open the overlay when disabled, got %v", m.mode)
-	}
-	if !strings.Contains(m.status, "approvals disabled") {
-		t.Fatalf("expected an 'approvals disabled' status, got %q", m.status)
-	}
-}
-
-func TestKeyPStatusWhenEnabledButEmpty(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = true
-	m.approvals = nil
-	mm, _ := m.Update(key("p"))
-	m = mm.(controlPaneModel)
-	if m.mode != modeNormal {
-		t.Fatalf("p should not open an empty overlay, got %v", m.mode)
-	}
-	if !strings.Contains(m.status, "no approvals pending") {
-		t.Fatalf("expected 'no approvals pending' status, got %q", m.status)
-	}
-}
-
-func TestDigitInApprovalsModeAnswersFocusedApproval(t *testing.T) {
-	f := &fakeAPI{}
-	m := newListPane(f, "", "")
-	m.apprEnabled = true
-	m.mode = modeApprovals
-	m.apprCursor = 0
-	m.approvals = []approval.View{
-		{ID: "agent-7", Recognized: true, Fingerprint: "fp123", Options: []string{"Yes", "No"}},
-	}
-
-	mm, cmd := m.Update(key("1"))
-	m = mm.(controlPaneModel)
-	if cmd == nil {
-		t.Fatal("pressing 1 in approvals mode produced no command")
-	}
-	cmd() // drives fakeAPI.Approve
-	if f.approvedID != "agent-7" || f.approvedOpt != 1 || f.approvedFP != "fp123" {
-		t.Fatalf("Approve called with (%q,%d,%q), want (agent-7,1,fp123)", f.approvedID, f.approvedOpt, f.approvedFP)
-	}
-}
-
-func TestApprovalsCmdFetchesEnabledAndViews(t *testing.T) {
-	f := &fakeAPI{approvalsOn: true, approvals: []approval.View{{ID: "a", Recognized: true}}}
-	msg := approvalsCmd(f)()
-	am, ok := msg.(approvalsMsg)
-	if !ok {
-		t.Fatalf("expected approvalsMsg, got %T", msg)
-	}
-	if !am.enabled || len(am.views) != 1 {
-		t.Fatalf("approvalsMsg = %+v, want enabled with 1 view", am)
-	}
-}
 
 // --- agent details (the `i` key) ---
 

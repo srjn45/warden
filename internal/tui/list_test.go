@@ -10,7 +10,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
-	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
@@ -486,7 +485,7 @@ func TestCompleteDirAdvancesAndPreservesTyped(t *testing.T) {
 
 func TestBuildRowsSectionHeaderHasNoDirGroup(t *testing.T) {
 	items := []item{
-		{section: secApprovals, secCount: 2},
+		{section: secPipelines, secCount: 2},
 		{session: &store.Session{ID: "a1"}, dir: "/repo"},
 	}
 	rows := buildRows(items)
@@ -496,8 +495,6 @@ func TestBuildRowsSectionHeaderHasNoDirGroup(t *testing.T) {
 }
 
 func TestItemKeySection(t *testing.T) {
-	require.Equal(t, secKey(secApprovals), itemKey(item{section: secApprovals}))
-	require.Equal(t, "appr\x00agent-9", itemKey(item{apprView: &approval.View{ID: "agent-9"}}))
 }
 
 func TestRenderListGroupedSmallHeightKeepsCursor(t *testing.T) {
@@ -1046,7 +1043,7 @@ func TestItemsFourFixedSectionsInOrder(t *testing.T) {
 			secs = append(secs, it.section)
 		}
 	}
-	require.Equal(t, []string{secApprovals, secPipelines, secAgents, secTerminals}, secs)
+	require.Equal(t, []string{secPipelines, secAgents, secTerminals}, secs)
 }
 
 // A terminal-kind session renders under Terminals with its §7 name and never in
@@ -1093,25 +1090,11 @@ func TestSectionCollapseHidesChildren(t *testing.T) {
 	require.True(t, sawHeader, "the Agents section header stays present when collapsed")
 }
 
-// enter on a section header toggles its collapse; enter on an approval row opens
-// the approvals overlay focused on that prompt.
-func TestEnterOnSectionTogglesAndOnApprovalOpens(t *testing.T) {
+// enter on a section header toggles its collapse.
+func TestEnterOnSectionToggles(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = true
-	m.approvals = []approval.View{
-		{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}},
-		{ID: "agent-2", Recognized: true, Options: []string{"Yes", "No"}},
-	}
-	// Toggle the Pipelines section closed via enter.
 	m.cursor = cursorOn(m, func(it item) bool { return it.section == secPipelines })
 	m2, _ := m.handleKey(key("enter"))
 	mc := m2.(controlPaneModel)
 	require.True(t, mc.collapsed[secKey(secPipelines)], "enter on a section header toggles its fold")
-
-	// Enter on the second approval row opens the overlay focused on it.
-	m.cursor = cursorOn(m, func(it item) bool { return it.apprView != nil && it.apprView.ID == "agent-2" })
-	m3, _ := m.handleKey(key("enter"))
-	ma := m3.(controlPaneModel)
-	require.Equal(t, modeApprovals, ma.mode, "enter on an approval row opens the overlay")
-	require.Equal(t, 1, ma.apprCursor, "overlay focuses the selected prompt (index 1)")
 }

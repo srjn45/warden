@@ -168,7 +168,6 @@ func flatSessions(sessions []*store.Session, pipelines []*pipeline.Pipeline) []*
 // order (spec §4). Every cockpit list opens with these four headers, each of
 // which the user can collapse to fold its whole sub-tree away.
 const (
-	secApprovals = "Approvals"
 	secPipelines = "Pipelines"
 	secAgents    = "Agents"
 	secTerminals = "Terminals"
@@ -197,9 +196,6 @@ type item struct {
 	// openedAgent/openedTerminal without moving the cursor.
 	opened bool
 
-	apprView *approval.View // an individual pending-approval row (Approvals section)
-	apprIdx  int            // its index into recognizedApprovals (for modeApprovals focus)
-
 	termName string // §7 display name for a Terminals-section row
 
 	pipeline  *pipeline.Pipeline // pipeline header row
@@ -225,9 +221,6 @@ func itemKey(it item) string {
 	if it.section != "" {
 		return secKey(it.section)
 	}
-	if it.apprView != nil {
-		return "appr\x00" + it.apprView.ID
-	}
 	if it.pipeline != nil {
 		return "pipe\x00" + it.pipeline.ID
 	}
@@ -245,7 +238,7 @@ func itemKey(it item) string {
 // all live outside the Agents dir grouping. Only Agents-section agent rows carry
 // a dir group.
 func (it item) noDirGroup() bool {
-	return it.section != "" || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
+	return it.section != "" || it.pipeline != nil || it.pjJob != nil ||
 		(it.session != nil && it.session.IsTerminal())
 }
 
@@ -752,13 +745,6 @@ func renderItemLine(it item, selected bool, width int) string {
 	switch {
 	case it.section != "":
 		line = renderSectionHeader(it)
-	case it.apprView != nil:
-		v := it.apprView
-		q := v.Question
-		if q == "" {
-			q = "(prompt — attach to answer)"
-		}
-		line = "  " + stStatus.Render("⏳ ") + fmt.Sprintf("%-14s ", trunc(v.ID, 14)) + stMuted.Render(trunc(q, 44))
 	case it.session != nil && it.session.IsTerminal():
 		// A Terminals-section row: the §7 name, with a live glyph. Terminals carry no
 		// AI status badge/gauge — they are plain shells.
@@ -877,7 +863,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		// The cursor wins the gutter when it sits on the opened row — you are
 		// looking right at it, so its own marker would be redundant.
 		cur = stCursor.Render("› ")
-		if it.session != nil || it.section != "" || it.apprView != nil || it.pipeline != nil || it.pjJob != nil {
+		if it.session != nil || it.section != "" || it.pipeline != nil || it.pjJob != nil {
 			line = stCursor.Render(line)
 		}
 	case it.opened:
@@ -899,30 +885,9 @@ func renderSectionHeader(it item) string {
 	if it.collapsed {
 		glyph = "▸"
 	}
-	var suffix string
-	if it.section == secApprovals {
-		suffix = fmt.Sprintf(" (%d pending)", it.secCount)
-	} else {
-		suffix = fmt.Sprintf(" (%d)", it.secCount)
-	}
+	var suffix string = fmt.Sprintf(" (%d)", it.secCount)
 	label := glyph + " " + it.section + suffix
-	if it.section == secApprovals && it.secCount > 0 {
-		return stStatus.Render(label)
-	}
 	return stHeader.Render(label)
-}
-
-// recognizedApprovals returns the subset of views that are answerable menus
-// (Recognized) — the ones the cockpit can present option keys for. Unrecognized
-// prompts must be attached to, not answered here.
-func recognizedApprovals(views []approval.View) []approval.View {
-	out := make([]approval.View, 0, len(views))
-	for _, v := range views {
-		if v.Recognized {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 // detailControls is the number of interactive rows in the detail view's controls

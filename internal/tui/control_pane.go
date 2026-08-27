@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/srjn45/warden/internal/agentbackend"
-	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -63,9 +61,6 @@ type controlPaneModel struct {
 	ctxEntries     []client.ContextEntry  // inspector: shared-context snapshot
 	messages       []client.Message       // inspector: recent message traffic
 	vp             viewport.Model         // scroll viewport (modeInspector / modeDigest)
-	approvals      []approval.View        // pending tool-permission prompts
-	apprEnabled    bool                   // approvals config setting on
-	apprCursor     int                    // focused recognized approval (modeApprovals)
 	digest         *digest.Digest         // last fetched digest (modeDigest)
 	digestID       string                 // agent id the digest is for
 	detailSel      int                    // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
@@ -148,17 +143,6 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 func (m controlPaneModel) items() []item {
 	agents, terminals := splitByKind(flatSessions(m.sessions, m.pipelines))
 	var out []item
-
-	// ── Approvals: recognized menus only; unrecognized prompts must be attached to.
-	rec := recognizedApprovals(m.approvals)
-	apprCollapsed := m.collapsed[secKey(secApprovals)]
-	out = append(out, item{section: secApprovals, secCount: len(rec), collapsed: apprCollapsed})
-	if m.apprEnabled && !apprCollapsed {
-		for i := range rec {
-			v := rec[i] // fresh var → distinct pointer per row
-			out = append(out, item{apprView: &v, apprIdx: i})
-		}
-	}
 
 	// ── Pipelines: pipeline-owned sessions live here, under their pipeline.
 	pipeCollapsed := m.collapsed[secKey(secPipelines)]
@@ -463,7 +447,7 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 }
 
 func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
+	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), autopilotCmd(m.api), tick())
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -483,7 +467,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
+		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -605,17 +589,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = ""
 		}
 		return m, pipelinesCmd(m.api)
-	case approvalsMsg:
-		if msg.err == nil {
-			prev := m.selectedKey()
-			m.apprEnabled = msg.enabled
-			m.approvals = msg.views
-			if rc := len(recognizedApprovals(m.approvals)); m.apprCursor >= rc {
-				m.apprCursor = 0
-			}
-			m.repin(prev) // the approvals row appearing/disappearing shifts indices
-		}
-		return m, nil
+
 	case digestMsg:
 		if msg.err != nil {
 			m.status = "digest failed: " + msg.err.Error()
@@ -627,13 +601,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vp.GotoTop()
 		m.status = ""
 		return m, nil
-	case approveDoneMsg:
-		if msg.err != nil {
-			m.status = "approve failed: " + msg.err.Error()
-		} else {
-			m.status = "answered"
-		}
-		return m, approvalsCmd(m.api) // refresh the queue right away
+
 	case dirListMsg:
 		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {
 			completed, cands := completeDir(msg.listing, msg.typed)
@@ -1127,30 +1095,6 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.vp, cmd = m.vp.Update(msg)
 		return m, cmd
-	case modeApprovals:
-		rec := recognizedApprovals(m.approvals)
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, m.quitCmd()
-		case "esc", "p":
-			m.mode = modeNormal
-			return m, nil
-		case "tab":
-			if len(rec) > 0 {
-				m.apprCursor = (m.apprCursor + 1) % len(rec)
-			}
-			return m, nil
-		}
-		// A digit 1..len(options) answers the focused prompt.
-		if n, err := strconv.Atoi(msg.String()); err == nil && len(rec) > 0 && m.apprCursor < len(rec) {
-			v := rec[m.apprCursor]
-			if n >= 1 && n <= len(v.Options) {
-				m.mode = modeNormal
-				m.status = "answering " + v.ID + " → " + strconv.Itoa(n)
-				return m, approveCmd(m.api, v.ID, n, v.Fingerprint)
-			}
-		}
-		return m, nil
 	case modeBackends:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -1280,13 +1224,6 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			key := secKey(it.section)
 			m.collapsed[key] = !m.collapsed[key]
 			m.repin(key)
-			return m, nil
-		}
-		if it.apprView != nil {
-			if m.apprEnabled && len(recognizedApprovals(m.approvals)) > 0 {
-				m.mode = modeApprovals
-				m.apprCursor = it.apprIdx // open the overlay focused on this prompt
-			}
 			return m, nil
 		}
 		// A terminal opens in the terminal pane (and grabs focus — terminals are
@@ -1439,7 +1376,6 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "p":
 		// On a pipeline row, p pauses a running pipeline / resumes a paused one.
-		// Elsewhere it opens the pending-approvals view.
 		if it := itemAt(m.items(), m.cursor); it.pipeline != nil {
 			switch it.pipeline.Status {
 			case pipeline.StatusRunning:
@@ -1453,14 +1389,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if len(recognizedApprovals(m.approvals)) > 0 {
-			m.mode = modeApprovals
-			m.apprCursor = 0
-		} else if !m.apprEnabled {
-			m.status = "approvals disabled (enable approvals: true in config)"
-		} else {
-			m.status = "no approvals pending"
-		}
+
 	case "b":
 		// Open the agent-backend registry page and kick off an immediate load (the
 		// tick keeps it fresh — including the limited-until countdown — while open).
@@ -1536,10 +1465,7 @@ func (m controlPaneModel) View() string {
 		input := stPaneTitle.Render("Rename "+m.renameID+" (enter save · blank clears · esc cancel):") + " " + m.tn.View()
 		return header + "\n" + body + "\n" + input
 	}
-	if m.mode == modeApprovals {
-		body := titleBox("Approvals", approvalsBody(recognizedApprovals(m.approvals), m.apprCursor, m.w-2), m.w, bodyH)
-		return header + "\n" + body + "\n" + stMuted.Render("1-9 answer · tab next · p/esc back · q quit")
-	}
+
 	if m.mode == modeBackends {
 		body := titleBox("Backends", backendsBody(m.backendsState, m.backendCursor), m.w, bodyH)
 		footer := stMuted.Render("↑/↓ move · t tier · d default · e enable · r rescan · m mode · b/esc back")
