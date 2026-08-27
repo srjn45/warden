@@ -14,6 +14,7 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
+	"github.com/srjn45/warden/internal/groupstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/role"
@@ -221,6 +222,27 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	if err := s.guardOwnership(ctx, sess); err != nil {
 		return nil, err
 	}
+
+	// Group-aware terminate (B6 leave-vs-terminate, design §4.4). A request that
+	// carries a body opts into the hard-teardown semantics: if the target holds a
+	// collaboration-group seat, terminating it orphans peers' in-flight
+	// delegations, so it is gated behind explicit confirmation. A bodyless
+	// (legacy) terminate — e.g. self-succession/rotate, where a successor
+	// inherits the work — is unconditional and leaves group seats untouched.
+	var abandoned []*groupstore.Group
+	if req.Body != nil {
+		grps, gerr := s.groupsForAgent(sess.ID)
+		if gerr != nil {
+			return nil, gerr
+		}
+		if len(grps) > 0 {
+			if !req.Body.Confirm {
+				return terminateConfirmResponse(sess, grps), nil
+			}
+			abandoned = grps
+		}
+	}
+
 	if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 		return nil, err
 	}
@@ -232,6 +254,12 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	// owning pipeline job here too — otherwise it stays stuck running.
 	s.reconcileJobOnTerminal(sess, store.StatusDone)
 	s.recordAuditCtx(ctx, audit.ActionTerminate, sess.ID, nil)
+	// The agent is down: vacate its group seats and tell each remaining peer its
+	// in-flight work is abandoned. Best-effort — a notify failure never fails the
+	// terminate the operator already committed to.
+	if len(abandoned) > 0 {
+		s.abandonGroupSeats(ctx, sess, abandoned)
+	}
 	return oapi.TerminateSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "terminated"}}, nil
 }
 

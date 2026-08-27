@@ -616,6 +616,20 @@ type GroupMember struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+// GroupTerminateConfirm 409 body when terminating a grouped orchestrator without confirm: the error envelope plus the group seats and the peers who would be notified, so the caller can weigh the abandonment before re-issuing with confirm.
+type GroupTerminateConfirm struct {
+	Error  string               `json:"error"`
+	Groups []GroupTerminateSeat `json:"groups"`
+}
+
+// GroupTerminateSeat One group the target holds a seat in and the peers whose in-flight work would be abandoned (v1: the group's other members, notified on confirm).
+type GroupTerminateSeat struct {
+	Name string `json:"name"`
+
+	// Peers agent ids of the remaining members who would be notified
+	Peers []string `json:"peers"`
+}
+
 // GuardRequest defines model for GuardRequest.
 type GuardRequest struct {
 	Path    string `json:"path,omitempty"`
@@ -891,6 +905,12 @@ type SyncResult = lifecycle.SyncResult
 
 // TaskType Normalized task type
 type TaskType string
+
+// TerminateRequest Optional terminate options. Its presence marks a group-aware terminate: when the target holds collaboration-group seats, `confirm` must be true to proceed (the hard teardown that abandons peers' in-flight work). Omit the body entirely for a legacy unconditional terminate that ignores group membership (self-succession/rotate).
+type TerminateRequest struct {
+	// Confirm Acknowledges the hard group teardown. Required (true) to terminate a grouped orchestrator; ignored for an ungrouped agent.
+	Confirm bool `json:"confirm,omitempty"`
+}
 
 // Verdict defines model for Verdict.
 type Verdict = pressure.Verdict
@@ -1347,6 +1367,9 @@ type SetRoleJSONRequestBody SetRoleJSONBody
 
 // SwitchSessionJSONRequestBody defines body for SwitchSession for application/json ContentType.
 type SwitchSessionJSONRequestBody SwitchSessionJSONBody
+
+// TerminateSessionJSONRequestBody defines body for TerminateSession for application/json ContentType.
+type TerminateSessionJSONRequestBody = TerminateRequest
 
 // CreateSnapshotJSONRequestBody defines body for CreateSnapshot for application/json ContentType.
 type CreateSnapshotJSONRequestBody = SnapshotCreateRequest
@@ -8438,7 +8461,8 @@ func (response SwitchSession500JSONResponse) VisitSwitchSessionResponse(w http.R
 }
 
 type TerminateSessionRequestObject struct {
-	Id SessionId `json:"id"`
+	Id   SessionId `json:"id"`
+	Body *TerminateSessionJSONRequestBody
 }
 
 type TerminateSessionResponseObject interface {
@@ -8469,6 +8493,20 @@ func (response TerminateSession404JSONResponse) VisitTerminateSessionResponse(w 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TerminateSession409JSONResponse GroupTerminateConfirm
+
+func (response TerminateSession409JSONResponse) VisitTerminateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -11475,6 +11513,16 @@ func (sh *strictHandler) TerminateSession(w http.ResponseWriter, r *http.Request
 	var request TerminateSessionRequestObject
 
 	request.Id = id
+
+	var body TerminateSessionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.TerminateSession(ctx, request.(TerminateSessionRequestObject))

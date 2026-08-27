@@ -235,11 +235,30 @@ paths:
       operationId: terminateSession
       tags: [Sessions]
       summary: Terminate an agent
-      description: Kills the agent's tmux session; keeps the record and worktree.
+      description: >
+        Kills the agent's tmux session; keeps the record and worktree. When the
+        request carries a `confirm` field the terminate is group-aware: if the
+        target holds a collaboration-group seat (a hard teardown that orphans
+        peers' in-flight delegations) the first call with `confirm:false` is
+        refused with 409 naming the group(s) and the peers who would be notified.
+        Re-issue with `confirm:true` to proceed — warden then removes the seats
+        and sends each remaining peer an abandonment notice. A request with no
+        body (the legacy caller, e.g. self-succession/rotate) terminates
+        unconditionally and leaves group seats untouched.
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TerminateRequest" }
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The target holds group seats; confirmation required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroupTerminateConfirm" }
 
   /api/v1/sessions/{id}/delete:
     post:
@@ -2355,6 +2374,47 @@ components:
       properties:
         error: { type: string }
         incumbent: { $ref: "#/components/schemas/GroupMember" }
+
+    TerminateRequest:
+      type: object
+      description: >
+        Optional terminate options. Its presence marks a group-aware terminate:
+        when the target holds collaboration-group seats, `confirm` must be true
+        to proceed (the hard teardown that abandons peers' in-flight work). Omit
+        the body entirely for a legacy unconditional terminate that ignores
+        group membership (self-succession/rotate).
+      properties:
+        confirm:
+          type: boolean
+          description: >
+            Acknowledges the hard group teardown. Required (true) to terminate a
+            grouped orchestrator; ignored for an ungrouped agent.
+
+    GroupTerminateSeat:
+      type: object
+      description: >
+        One group the target holds a seat in and the peers whose in-flight work
+        would be abandoned (v1: the group's other members, notified on confirm).
+      required: [name, peers]
+      properties:
+        name: { type: string }
+        peers:
+          type: array
+          description: agent ids of the remaining members who would be notified
+          items: { type: string }
+
+    GroupTerminateConfirm:
+      type: object
+      description: >
+        409 body when terminating a grouped orchestrator without confirm: the
+        error envelope plus the group seats and the peers who would be notified,
+        so the caller can weigh the abandonment before re-issuing with confirm.
+      required: [error, groups]
+      properties:
+        error: { type: string }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/GroupTerminateSeat" }
 
     SavingsFeature:
       type: object
