@@ -45,9 +45,15 @@ type Member struct {
 // Group is one durable collaboration group, keyed by Name in ScrivaDB. The group
 // is durable (survives daemon restarts); its membership is live (tied to running
 // agents) and re-seated on recover. The record stays small and mostly static.
+//
+// SummaryCache holds one-line project summaries keyed by project_key. It
+// survives member leave/rejoin so a resolved summary (whether declared or
+// agent-generated) is never re-requested for the same project. It is a pure
+// cache: empty on the first join, populated once, reused forever after.
 type Group struct {
-	Name    string   `json:"name"`
-	Members []Member `json:"members"`
+	Name         string            `json:"name"`
+	Members      []Member          `json:"members"`
+	SummaryCache map[string]string `json:"summary_cache,omitempty"`
 }
 
 // Store persists groups as records in an embedded ScrivaDB "groups" collection,
@@ -191,6 +197,22 @@ func (s *Store) Update(name string, fn func(*Group)) error {
 	}
 	_, err = s.col.UpdateByKey(name, rec)
 	return err
+}
+
+// CacheSummary atomically stores summary in the group's SummaryCache under
+// projectKey, so rejoining agents reuse the resolved value without re-asking.
+// No-op when the group is absent or the summary is empty. Best-effort: the
+// caller should not fail the join on a cache-write error.
+func (s *Store) CacheSummary(name, projectKey, summary string) error {
+	if summary == "" {
+		return nil
+	}
+	return s.Update(name, func(g *Group) {
+		if g.SummaryCache == nil {
+			g.SummaryCache = make(map[string]string)
+		}
+		g.SummaryCache[projectKey] = summary
+	})
 }
 
 // Delete removes a group by name, returning ErrNotFound if absent.
