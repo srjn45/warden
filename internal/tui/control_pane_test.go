@@ -186,20 +186,239 @@ func TestListPaneEnterNoopWithoutSelection(t *testing.T) {
 	require.Nil(t, cmd, "Enter with no selection does nothing")
 }
 
-func TestListPaneOpenDirAddsPlaceholder(t *testing.T) {
-	f := &fakeAPI{dirListing: client.DirListing{Path: "/work/api"}}
-	m := newListPane(f, "%9", "")
-	m = lstep(m, key("o"))
-	require.Equal(t, modeOpenDir, m.mode)
-	m.tp.SetValue("/work/api")
-	_, cmd := m.Update(key("enter"))
-	require.NotNil(t, cmd, "enter dispatches openDirCmd")
+func TestListPaneOpenDirMsgAddsPlaceholder(t *testing.T) {
+	// openDirCmd/openDirMsg are the validated-dir plumbing the "Local" option of
+	// the open-project menu (modeOpenProjectMenu) will drive; exercise the
+	// placeholder-adding behavior directly rather than through a mode that
+	// doesn't wire it up yet.
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, openDirMsg{dir: "/work/api"}) // the validated result
 	require.Equal(t, modeNormal, m.mode)
 	// The opened dir adds a placeholder row under Agents (alongside the four
 	// always-present section headers).
 	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/api" })
 	require.GreaterOrEqual(t, idx, 0, "opening a dir adds its placeholder row")
+}
+
+func TestListPaneOpenProjectMenuOpensOnLocal(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	require.Equal(t, modeOpenProjectMenu, m.mode)
+	require.Equal(t, 0, m.openProjectIdx, "menu opens with Local highlighted")
+}
+
+func TestListPaneOpenProjectMenuJKNavigateAndWrap(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+
+	m = lstep(m, key("j"))
+	require.Equal(t, 1, m.openProjectIdx, "j moves to Remote")
+	m = lstep(m, key("j"))
+	require.Equal(t, 2, m.openProjectIdx, "j moves to New")
+	m = lstep(m, key("j"))
+	require.Equal(t, 0, m.openProjectIdx, "j wraps from New back to Local")
+
+	m = lstep(m, key("k"))
+	require.Equal(t, 2, m.openProjectIdx, "k wraps from Local back to New")
+}
+
+func TestListPaneOpenProjectMenuEscCancels(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeNormal, m.mode)
+}
+
+func TestListPaneOpenProjectMenuLocalEntersPathInput(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("enter")) // Local is highlighted by default
+	require.Equal(t, modeOpenProjectLocal, m.mode)
+	require.True(t, m.tp.Focused(), "path input focuses on entering Local")
+	require.Equal(t, "", m.tp.Value(), "path input starts blank")
+}
+
+func TestListPaneOpenProjectLocalEscReturnsToMenu(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectLocal, m.mode)
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeOpenProjectMenu, m.mode, "esc backs out to the picker, not all the way to normal")
+	require.False(t, m.tp.Focused())
+}
+
+func TestListPaneOpenProjectLocalTabCompletes(t *testing.T) {
+	f := &fakeAPI{dirListing: client.DirListing{Entries: []client.DirEntry{{Name: "api", Path: "/work/api"}}}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("/work/a"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	require.NotNil(t, cmd, "tab in the Local path input requests a dir listing")
+	msg := cmd()
+	dm, ok := msg.(dirListMsg)
+	require.True(t, ok)
+	m = lstep(m, dm)
+	require.Equal(t, "/work/api", m.tp.Value(), "single match completes the typed path")
+}
+
+func TestListPaneOpenProjectLocalEnterOpensDir(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("/work/api"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd, "enter in the Local path input validates the typed dir")
+	msg := cmd()
+	dm, ok := msg.(openDirMsg)
+	require.True(t, ok)
+	require.Equal(t, "/work/api", dm.dir)
+	m = lstep(m, dm)
+	require.Equal(t, modeNormal, m.mode, "a validated dir closes the input back to normal")
+	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/api" })
+	require.GreaterOrEqual(t, idx, 0, "opening the dir adds its placeholder row")
+}
+
+func TestListPaneOpenProjectMenuRemoteEntersURLInput(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j")) // Remote
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectRemote, m.mode)
+	require.True(t, m.tp.Focused(), "URL input focuses on entering Remote")
+	require.Equal(t, "", m.tp.Value(), "URL input starts blank")
+}
+
+func TestListPaneOpenProjectRemoteEscReturnsToMenu(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectRemote, m.mode)
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeOpenProjectMenu, m.mode, "esc backs out to the picker, not all the way to normal")
+	require.False(t, m.tp.Focused())
+}
+
+func TestListPaneOpenProjectRemoteEnterClonesURL(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("https://github.com/acme/widgets"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd, "enter in the Remote URL input requests a clone")
+	msg := cmd()
+	require.Equal(t, "https://github.com/acme/widgets", f.clonedURL, "the typed URL is passed to CloneRepo")
+	dm, ok := msg.(cloneDoneMsg)
+	require.True(t, ok)
+	require.NoError(t, dm.err)
+}
+
+func TestListPaneOpenProjectRemoteEmptyURLNoops(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Nil(t, cmd, "enter with a blank URL does nothing")
+	require.Equal(t, "", f.clonedURL)
+}
+
+func TestListPaneCloneDoneMsgAddsPlaceholder(t *testing.T) {
+	f := &fakeAPI{clonedDir: "/work/widgets"}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("https://github.com/acme/widgets"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	m = lstep(m, msg)
+	require.Equal(t, modeNormal, m.mode, "a successful clone closes the input back to normal")
+	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/widgets" })
+	require.GreaterOrEqual(t, idx, 0, "cloning adds the destination's placeholder row")
+}
+
+func TestListPaneCloneDoneMsgErrorStaysInInput(t *testing.T) {
+	f := &fakeAPI{cloneErr: fmt.Errorf("git clone failed: repository not found")}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("https://github.com/acme/missing"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	m = lstep(m, msg)
+	require.Equal(t, modeOpenProjectRemote, m.mode, "a failed clone stays on the URL input so the user can retry")
+	require.Contains(t, m.status, "clone failed")
+}
+
+func TestListPaneOpenProjectMenuNewEntersNameInput(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j")) // Remote
+	m = lstep(m, key("j")) // New
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectNew, m.mode, "selecting New opens the project-name prompt")
+	require.Equal(t, "", m.tpn.Value(), "name input starts blank")
+}
+
+func TestListPaneOpenProjectNewEscReturnsToMenu(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectNew, m.mode)
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeOpenProjectMenu, m.mode, "esc backs out to the menu, not all the way to normal")
+}
+
+func TestListPaneOpenProjectNewBlankNameRejected(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	_, cmd := m.Update(key("enter")) // blank name
+	require.Nil(t, cmd, "a blank name does not attempt to create anything")
+}
+
+func TestListPaneOpenProjectNewEnterCreatesProject(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("my-project"))
+	_, cmd := m.Update(key("enter"))
+	require.NotNil(t, cmd, "enter with a non-blank name kicks off newProjectCmd")
+}
+
+func TestListPaneNewProjectMsgAddsPlaceholder(t *testing.T) {
+	// newProjectMsg is newProjectCmd's result; exercise the placeholder-adding
+	// behavior directly, mirroring TestListPaneOpenDirMsgAddsPlaceholder.
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.mode = modeOpenProjectNew
+	m = lstep(m, newProjectMsg{dir: "/work/my-project"})
+	require.Equal(t, modeNormal, m.mode, "success returns to normal mode")
+	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/my-project" })
+	require.GreaterOrEqual(t, idx, 0, "creating a project adds its placeholder row")
+}
+
+func TestListPaneNewProjectMsgErrorStaysInMode(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.mode = modeOpenProjectNew
+	m = lstep(m, newProjectMsg{dir: "/work/my-project", err: fmt.Errorf("already exists")})
+	require.Equal(t, modeOpenProjectNew, m.mode, "an error leaves the user in the name prompt to retry")
+	require.Contains(t, m.status, "already exists")
 }
 
 func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
