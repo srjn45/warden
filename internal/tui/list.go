@@ -68,9 +68,11 @@ func abbrevHome(path string) string {
 	return abbrevHomeWith(path, homeDir())
 }
 
-// dirGroupLabel renders a directory-group header as "<project> [<~path>]": the
-// project name (the directory's basename) followed by its home-abbreviated path,
-// so a group reads as a named project rather than a bare path.
+// dirGroupLabel renders a project-node header as "<project> [<~path>]": the
+// project name (the representative directory's basename) followed by its
+// home-abbreviated path, so a group reads as a named project rather than a bare
+// path. Worktrees of one repo collapse to a single node (buildItems keys by
+// project), and this labels it by that node's representative directory.
 func dirGroupLabel(dir string) string {
 	return fmt.Sprintf("%s [%s]", filepath.Base(dir), abbrevHome(dir))
 }
@@ -164,12 +166,15 @@ func flatSessions(sessions []*store.Session, pipelines []*pipeline.Pipeline) []*
 	return out
 }
 
-// The four fixed top-level sections of the control-pane navigator, in render
-// order (spec §4). Every cockpit list opens with these four headers, each of
-// which the user can collapse to fold its whole sub-tree away.
+// The top-level sections of the control-pane navigator, in render order. Each is
+// a bordered/titled inner frame inside the control frame (renderFrames), which
+// the user can collapse to fold its whole sub-tree away. The Agents frame is now
+// a Projects frame: agents are grouped under their project node (project key from
+// the B2 normalizer), so worktrees of one repo collapse to a single node.
+// (Pipelines still renders as a top-level frame here; C3 folds it into Projects.)
 const (
 	secPipelines = "Pipelines"
-	secAgents    = "Agents"
+	secProjects  = "Projects"
 	secTerminals = "Terminals"
 )
 
@@ -233,10 +238,9 @@ func itemKey(it item) string {
 	return dirKey(it.dir)
 }
 
-// noDirGroup reports whether a row must render bare, never under a dir-group
-// header: the section headers, approval rows, pipeline rows, and terminal rows
-// all live outside the Agents dir grouping. Only Agents-section agent rows carry
-// a dir group.
+// noDirGroup reports whether a row must render bare, never under a project-node
+// header: the section headers, pipeline rows, and terminal rows all live outside
+// the Projects grouping. Only Projects-frame agent rows carry a project group.
 func (it item) noDirGroup() bool {
 	return it.section != "" || it.pipeline != nil || it.pjJob != nil ||
 		(it.session != nil && it.session.IsTerminal())
@@ -255,16 +259,20 @@ func liveStatus(s store.Status) bool {
 
 // buildItems flattens grouped sessions plus opened directories into the list the
 // cursor walks, nesting agent-spawned children under their parent (agent sub-tree
-// grouping). Dir grouping is over ROOT agents only — a child nests under its
-// root's dir regardless of its own sourceDir. Directory groups are ordered
-// chronologically by their FIRST (oldest) root's CreatedAt (asc), so a directory
-// keeps its place as new agents are created under it; an empty opened dir's key is
-// when it was opened, so it sorts in among the dirs by that time (newest → bottom).
-// An opened dir that has agents emits its sub-trees and no placeholder; one with none
-// emits a single placeholder. A node listed in `collapsed` hides its whole
-// sub-tree. Pure: returns a new slice, leaves inputs untouched. Callers pass
-// sessions already grouped by groupSort; within-group root order is preserved.
-func buildItems(sessions []*store.Session, opened map[string]time.Time, collapsed map[string]bool) []item {
+// grouping). Grouping is over ROOT agents only — a child nests under its root's
+// project regardless of its own project. Agents group by PROJECT KEY (projKey,
+// the B2 normalizer): worktrees of one repo share a key and collapse to a single
+// project node, whose header/spawn dir is the first root's dir. Project groups are
+// ordered chronologically by their FIRST (oldest) root's CreatedAt (asc), so a
+// project keeps its place as new agents are created under it; an empty opened dir
+// sorts in by when it was opened (newest → bottom). An opened dir that shares a
+// project with agents emits no placeholder; one alone emits a single placeholder.
+// A node listed in `collapsed` hides its whole sub-tree. Pure: returns a new
+// slice, leaves inputs untouched. Callers pass sessions already grouped by
+// groupSort; within-project root order is preserved.
+func buildItems(sessions []*store.Session, opened map[string]time.Time, collapsed map[string]bool, projKey func(dir string) string) []item {
+	// key returns a session's project key (worktrees collapse to one key).
+	key := func(s *store.Session) string { return projKey(sourceDir(s)) }
 	// Index for parent lookup + child grouping. A child whose parent id is absent
 	// from the set is an orphan → promoted to a root so it never vanishes.
 	byID := make(map[string]*store.Session, len(sessions))
@@ -272,16 +280,15 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 		byID[s.ID] = s
 	}
 	// §4.1 render rule: a child nests under its parent only when they share a
-	// project (same sourceDir — warden gives each agent its own worktree, so
-	// "same dir" means same project root). A cross-project child surfaces under
-	// ITS OWN dir as a normal root, keeping a "↳ from <parent>" lineage backlink,
-	// so the dir grouping stays truthful and cross-dir work isn't force-nested.
+	// project (same project key). A cross-project child surfaces under ITS OWN
+	// project as a normal root, keeping a "↳ from <parent>" lineage backlink, so
+	// the project grouping stays truthful and cross-project work isn't force-nested.
 	childrenByParent := map[string][]*store.Session{}
 	crossParent := map[string]string{} // childID → parent label for surfaced-as-root children
 	var roots []*store.Session
 	for _, s := range sessions {
 		if parent := byID[s.ParentID]; s.ParentID != "" && parent != nil {
-			if sourceDir(s) == sourceDir(parent) {
+			if key(s) == key(parent) {
 				childrenByParent[s.ParentID] = append(childrenByParent[s.ParentID], s)
 				continue
 			}
@@ -293,14 +300,15 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 	type grp struct {
 		first time.Time
 		seen  int
+		dir   string // representative directory (first root's / the opened dir)
 	}
 	groups := map[string]*grp{}
 	var order []string
-	note := func(dir string, t time.Time) {
-		g := groups[dir]
+	note := func(k, dir string, t time.Time) {
+		g := groups[k]
 		if g == nil {
-			groups[dir] = &grp{first: t, seen: len(order)}
-			order = append(order, dir)
+			groups[k] = &grp{first: t, seen: len(order), dir: dir}
+			order = append(order, k)
 			return
 		}
 		if t.Before(g.first) {
@@ -308,10 +316,10 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 		}
 	}
 	for _, s := range roots {
-		note(sourceDir(s), s.CreatedAt)
+		note(key(s), sourceDir(s), s.CreatedAt)
 	}
 	for dir, at := range opened {
-		note(dir, at)
+		note(projKey(dir), dir, at)
 	}
 	sort.SliceStable(order, func(a, b int) bool {
 		ga, gb := groups[order[a]], groups[order[b]]
@@ -320,16 +328,17 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 		}
 		return ga.first.Before(gb.first)
 	})
-	byDir := map[string][]*store.Session{}
+	byKey := map[string][]*store.Session{}
 	for _, s := range roots {
-		byDir[sourceDir(s)] = append(byDir[sourceDir(s)], s)
+		byKey[key(s)] = append(byKey[key(s)], s)
 	}
 	var items []item
 	seen := map[string]bool{} // cycle guard across the whole forest
-	for _, dir := range order {
-		rs := byDir[dir]
+	for _, k := range order {
+		dir := groups[k].dir // every row in the project renders under this one dir header
+		rs := byKey[k]
 		if len(rs) == 0 {
-			items = append(items, item{dir: dir}) // empty opened dir → placeholder
+			items = append(items, item{dir: dir}) // empty opened project → placeholder
 			continue
 		}
 		for _, s := range rs {
@@ -877,9 +886,11 @@ func renderItemLine(it item, selected bool, width int) string {
 	return cur + line
 }
 
-// renderSectionHeader renders one of the four fixed top-level section headers
-// (spec §4): a collapse glyph, the section name, and a count badge. The Approvals
-// header turns amber when prompts are actually waiting; the rest stay bold.
+// renderSectionHeader renders a top-level section header inline (a collapse glyph,
+// the section name, and a count badge). The control pane now composes sections as
+// bordered frames (renderFrames), where the header becomes the frame title; this
+// inline form is retained for the flat renderList path (used by tests and any
+// non-framed listing).
 func renderSectionHeader(it item) string {
 	glyph := "▾"
 	if it.collapsed {

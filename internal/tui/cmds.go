@@ -12,6 +12,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectkey"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -170,6 +171,33 @@ func gitRootBranch(dir string) (root, branch string) {
 		branch = strings.TrimSpace(string(b))
 	}
 	return root, branch
+}
+
+// projectKeysMsg carries freshly-resolved project keys, one per source directory
+// (dir → canonical project key). It's how the Projects frame collapses multiple
+// worktrees of one repo to a single node: two worktree dirs resolve to the same
+// git-remote key (§4.1 / B2's normalizer), so they group together.
+type projectKeysMsg struct {
+	keys map[string]string
+}
+
+// projectKeysCmd resolves each directory's canonical project key off the UI
+// goroutine, on the refresh tick — the same off-tick pattern as terminalInfoCmd.
+// It reuses the B2 normalizer (internal/projectkey) so the TUI keys projects
+// exactly as the daemon's group membership does. A dir whose remote can't be read
+// falls back to a `local:` key rooted at the repo; the caller only passes dirs it
+// hasn't resolved yet, so git runs at most once per new project.
+func projectKeysCmd(dirs []string) tea.Cmd {
+	list := append([]string(nil), dirs...)
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		keys := make(map[string]string, len(list))
+		for _, d := range list {
+			keys[d] = projectkey.ForDir(ctx, d)
+		}
+		return projectKeysMsg{keys: keys}
+	}
 }
 
 // renameDoneMsg reports the outcome of a SetName call.

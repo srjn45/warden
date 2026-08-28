@@ -50,8 +50,8 @@ func TestItemsMarkOpenedAgentAndTerminal(t *testing.T) {
 	require.False(t, itemFor(m, onSessionID("t2")).opened, "a non-opened terminal is not flagged")
 }
 
-// A pipeline agent opened via M-p flags its Pipelines job row (matched on the
-// linked live session), so the marker shows where that agent actually renders.
+// A pipeline agent shown in the agent pane flags its Pipelines job row (matched on
+// the linked live session), so the marker shows where that agent actually renders.
 func TestItemsMarkOpenedPipelineJob(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9", "%1")
 	m.defaultTerminalReady = true

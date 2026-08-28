@@ -11,7 +11,7 @@ import (
 )
 
 // altKey builds the tea.KeyMsg an Alt-letter produces (String() == "alt+<r>"),
-// exactly what the tmux M-t/M-a/M-p bindings forward into the control pane.
+// exactly what the tmux M-t/M-a bindings forward into the control pane.
 func altKey(r rune) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: true} }
 
 // liveAgent is a plain live (non-terminal) agent session.
@@ -105,27 +105,33 @@ func TestRotateAgentEmpty(t *testing.T) {
 	require.Contains(t, m.status, "no agents")
 }
 
-// M-p cycles the agent pane through pipeline agents only, in pipeline > job order,
-// skipping standalone agents.
-func TestRotatePipelineAgents(t *testing.T) {
+// M-p (the old pipeline-agent rotation) is retired in C2: pressing it is inert —
+// it never moves the agent pane. The pipelineAgents() resolver stays, though,
+// because C3 renders pipelines inside the Projects frame off the same mapping.
+func TestMpRotationRetired(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9", "%1")
 	m.defaultTerminalReady = true
 	m.sessions = []*store.Session{
 		liveAgent("pa1", "/p/a1"),
 		liveAgent("pa2", "/p/a2"),
-		liveAgent("solo", "/solo"), // not in any pipeline → never selected by M-p
+		liveAgent("solo", "/solo"),
 	}
 	m.pipelines = []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{
 		{ID: "j1", SessionID: "pa1", Status: pipeline.JobRunning},
 		{ID: "j2", SessionID: "pa2", Status: pipeline.JobRunning},
 	}}}
 
-	m = lstep(m, altKey('p')) // from nothing open → first pipeline agent
-	require.Equal(t, "pa1", m.openedAgent)
 	m = lstep(m, altKey('p'))
-	require.Equal(t, "pa2", m.openedAgent)
-	m = lstep(m, altKey('p'))
-	require.Equal(t, "pa1", m.openedAgent, "M-p wraps within the pipeline set, skipping the standalone agent")
+	require.Equal(t, "", m.openedAgent, "M-p no longer rotates the agent pane")
+	m = lstep(m, altKey('P'))
+	require.Equal(t, "", m.openedAgent, "M-P is likewise inert")
+
+	// The resolver still maps pipeline jobs to their live sessions (used by C3).
+	ids := make([]string, 0)
+	for _, s := range m.pipelineAgents() {
+		ids = append(ids, s.ID)
+	}
+	require.Equal(t, []string{"pa1", "pa2"}, ids, "pipelineAgents resolves live pipeline sessions in job order")
 }
 
 // nextInCycle wraps and treats an unknown/absent current as "start at the first".
@@ -179,19 +185,4 @@ func TestRotateAgentReverse(t *testing.T) {
 	require.Equal(t, "/a3", m.openedAgentDir, "reverse rotation tracks the opened agent's dir")
 	m = lstep(m, altKey('A'))
 	require.Equal(t, "a2", m.openedAgent, "M-A steps backward")
-}
-
-// Alt+Shift+p (M-P) rotates the pipeline-agent set in reverse.
-func TestRotatePipelineAgentsReverse(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "%9", "%1")
-	m.defaultTerminalReady = true
-	m.sessions = []*store.Session{liveAgent("pa1", "/p/a1"), liveAgent("pa2", "/p/a2")}
-	m.pipelines = []*pipeline.Pipeline{{ID: "demo", Name: "demo", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{
-		{ID: "j1", SessionID: "pa1", Status: pipeline.JobRunning},
-		{ID: "j2", SessionID: "pa2", Status: pipeline.JobRunning},
-	}}}
-	m.openedAgent = "pa1"
-
-	m = lstep(m, altKey('P'))
-	require.Equal(t, "pa2", m.openedAgent, "M-P wraps back within the pipeline set")
 }

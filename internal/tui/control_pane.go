@@ -94,6 +94,12 @@ type controlPaneModel struct {
 	// termInfo holds each terminal's live cwd/branch (polled from its tmux pane on
 	// the tick, §7), keyed by session id; feeds the Terminals-section names.
 	termInfo map[string]terminalLiveInfo
+	// projKeys caches each source directory's canonical project key (dir → key),
+	// resolved off the tick via the B2 normalizer (internal/projectkey). It's what
+	// groups agents into Project nodes: worktrees of one repo share a key and
+	// collapse to a single node. A dir absent here (not yet resolved) falls back to
+	// grouping by the dir itself until the resolution lands.
+	projKeys map[string]string
 	// killWindow scopes the `q`/`ctrl+c` teardown to the cockpit's tmux *window*
 	// instead of the whole session. It is set in the tmux-native cockpit, where
 	// the cockpit is a window inside the user's own session — killing the session
@@ -116,7 +122,7 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 	ti := textinput.New()
 	ti.Placeholder = "message…"
 	tp := textinput.New()
-	tp.Placeholder = "~/path/to/dir"
+	tp.Placeholder = "~/path/to/project"
 	tn := textinput.New()
 	tn.Placeholder = "agent-name (optional; blank = auto)"
 	tn.CharLimit = 32
@@ -131,15 +137,18 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 		backends:   backendCatalog(),
 		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{}, connected: true,
 		termInfo: map[string]terminalLiveInfo{},
+		projKeys: map[string]string{},
 		vp:       viewport.New(0, 0),
 	}
 }
 
-// items assembles the control-pane navigator as four fixed, collapsible
-// top-level sections (spec §4), in order: Approvals · Pipelines · Agents ·
-// Terminals. Each section header is always present; collapsing one (its secKey in
-// m.collapsed) folds away its whole sub-tree. Terminals are split out of the
-// Agents tree entirely (§3) and rendered with their §7 names.
+// items assembles the control-pane navigator as fixed, collapsible top-level
+// sections, in order: Pipelines · Projects · Terminals. renderFrames composes each
+// as a bordered inner frame. Each section header is always present; collapsing one
+// (its secKey in m.collapsed) folds away its whole sub-tree. Agents are grouped by
+// project key (worktrees of one repo collapse to one node); terminals are split
+// out of the Projects tree entirely (§3) and rendered with their §7 names.
+// (Pipelines stays a top-level section here; C3 folds it into the Projects frame.)
 func (m controlPaneModel) items() []item {
 	agents, terminals := splitByKind(flatSessions(m.sessions, m.pipelines))
 	var out []item
@@ -151,11 +160,12 @@ func (m controlPaneModel) items() []item {
 		out = append(out, pipelineItems(m.pipelines, m.sessions, m.collapsed)...)
 	}
 
-	// ── Agents: dir-grouped, subagents nested per the §4.1 render rule.
-	agentCollapsed := m.collapsed[secKey(secAgents)]
-	out = append(out, item{section: secAgents, secCount: len(agents), collapsed: agentCollapsed})
-	if !agentCollapsed {
-		out = append(out, buildItems(agents, m.openedDirs, m.collapsed)...)
+	// ── Projects: agents grouped by project key (worktrees of one repo collapse
+	// to one node), subagents nested per the §4.1 render rule.
+	projCollapsed := m.collapsed[secKey(secProjects)]
+	out = append(out, item{section: secProjects, secCount: len(agents), collapsed: projCollapsed})
+	if !projCollapsed {
+		out = append(out, buildItems(agents, m.openedDirs, m.collapsed, m.projectKey)...)
 	}
 
 	// ── Terminals: plain shells, named per §7 (live cwd/branch from termInfo).
@@ -282,9 +292,53 @@ func (m controlPaneModel) liveAgents() []*store.Session {
 	return out
 }
 
+// projectKey maps a source directory to its cached canonical project key, or
+// returns the dir itself when it hasn't been resolved yet (or is unknown), so
+// grouping stays stable until the async resolution lands. This is the key
+// function the Projects frame groups agents by — worktrees of one repo resolve to
+// the same key and collapse to one node.
+func (m controlPaneModel) projectKey(dir string) string {
+	if dir == "" || dir == "—" {
+		return dir
+	}
+	if key, ok := m.projKeys[dir]; ok {
+		return key
+	}
+	return dir
+}
+
+// unresolvedProjectDirs is the set of source directories (live agents' dirs plus
+// opened project dirs) whose project key hasn't been cached yet — the dirs the
+// tick asks projectKeysCmd to resolve. Unknown ("—"/"") dirs are skipped.
+func (m controlPaneModel) unresolvedProjectDirs() []string {
+	seen := map[string]bool{}
+	var out []string
+	want := func(dir string) {
+		if dir == "" || dir == "—" || seen[dir] {
+			return
+		}
+		if _, ok := m.projKeys[dir]; ok {
+			return
+		}
+		seen[dir] = true
+		out = append(out, dir)
+	}
+	for _, s := range m.sessions {
+		if !s.IsTerminal() {
+			want(sourceDir(s))
+		}
+	}
+	for dir := range m.openedDirs {
+		want(dir)
+	}
+	return out
+}
+
 // pipelineAgents returns the live agents that belong to a pipeline, ordered
-// pipeline-by-pipeline then job order (the M-p rotation set, §8: "pipeline >
-// agents"). A job with no live session (pending/reaped) is skipped.
+// pipeline-by-pipeline then job order. A job with no live session (pending/reaped)
+// is skipped. The M-p rotation that used to consume this is retired (C2); the
+// resolver stays because C3 renders pipelines inside the Projects frame off the
+// same live-session mapping.
 func (m controlPaneModel) pipelineAgents() []*store.Session {
 	byID := make(map[string]*store.Session, len(m.sessions))
 	for _, s := range m.sessions {
@@ -481,6 +535,11 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, terminalInfoCmd(terms))
 			}
 		}
+		// Resolve any not-yet-cached project keys (dirs of agents + opened projects)
+		// off the tick, so the Projects frame collapses worktrees of one repo.
+		if dirs := m.unresolvedProjectDirs(); len(dirs) > 0 {
+			cmds = append(cmds, projectKeysCmd(dirs))
+		}
 		return m, tea.Batch(cmds...)
 	case pressureMsg:
 		if msg.err == nil {
@@ -573,6 +632,15 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.info != nil {
 			m.termInfo = msg.info
 		}
+		return m, nil
+	case projectKeysMsg:
+		// Merge freshly-resolved keys; re-pin so a cursor whose project node just
+		// merged with another (worktrees collapsing) rides its row across the regroup.
+		prev := m.selectedKey()
+		for dir, key := range msg.keys {
+			m.projKeys[dir] = key
+		}
+		m.repin(prev)
 		return m, nil
 	case pipelinesMsg:
 		if msg.err == nil {
@@ -1198,17 +1266,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// §8 reverse: Alt+Shift+t (tmux M-T) steps the terminal pane backward.
 		return m.rotateTerminal(-1)
 	case "alt+a":
-		// §8: advance the agent pane to the next live agent (all agents).
+		// §8: advance the agent pane to the next agent in the Projects frame (all
+		// live agents). M-p (a separate pipeline-agent rotation) is retired —
+		// pipelines are reached inside the Projects tree, not a rotation of their own.
 		return m.rotateAgent(m.liveAgents(), "no agents", 1)
 	case "alt+A":
 		// §8 reverse: Alt+Shift+a (tmux M-A) steps the agent pane backward.
 		return m.rotateAgent(m.liveAgents(), "no agents", -1)
-	case "alt+p":
-		// §8: advance the agent pane to the next pipeline agent (pipeline > agents order).
-		return m.rotateAgent(m.pipelineAgents(), "no pipeline agents", 1)
-	case "alt+P":
-		// §8 reverse: Alt+Shift+p (tmux M-P) steps the pipeline-agent rotation backward.
-		return m.rotateAgent(m.pipelineAgents(), "no pipeline agents", -1)
 	case "c":
 		// Open the read-only shared-context + message-traffic inspector and
 		// kick off an immediate fetch (the tick keeps it fresh while open).
@@ -1474,17 +1538,20 @@ func (m controlPaneModel) View() string {
 		}
 		return header + "\n" + body + "\n" + footer
 	}
-	body := titleBox("Control", renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
+	// The control pane is composed of stacked bordered/titled inner frames — one
+	// per top-level section (Projects, Terminals, and, until C3, Pipelines) — inside
+	// the outer Control frame, each windowing/collapsing independently.
+	body := titleBox("Control", renderFrames(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.
-	footer := stMuted.Render("enter open · n new · t term · o dir · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · t term · o project · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
 	switch m.mode {
 	case modeNewAgent:
-		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: dir · ctrl+n: name · ctrl+r: role · ctrl+t: backend · ctrl+s submit (blank = just open & wait) · esc cancel)") +
+		footer = stPaneTitle.Render("New agent — "+abbrevHome(m.targetDir)+"  (tab: path · ctrl+n: name · ctrl+r: role · ctrl+t: backend · ctrl+s submit (blank = just open & wait) · esc cancel)") +
 			"\n" + m.ta.View() +
 			"\n" + stMuted.Render("name: ") + newAgentNameLabel(m.tn.Value()) +
 			stMuted.Render("  ·  role: ") + m.selectedRoleName() +
@@ -1496,9 +1563,9 @@ func (m controlPaneModel) View() string {
 	case modeNewAgentBackend:
 		footer = stPaneTitle.Render("Backend (↑/↓ or j/k select · enter/esc back to prompt):") + "\n" + m.backendPickerView()
 	case modeNewAgentDir:
-		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
+		footer = stPaneTitle.Render("Launch path (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenDir:
-		footer = stPaneTitle.Render("Open directory (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
+		footer = stPaneTitle.Render("Open project by path (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
@@ -1658,12 +1725,12 @@ func killCockpitArgs(killWindow bool) [][]string {
 		return [][]string{{"kill-window"}}
 	}
 	// Drop every binding buildCockpit installed before killing the session: the
-	// <prefix> Enter return-to-dashboard override and the <prefix> t/a/p/T/A/P
-	// rotation fallbacks. tmux key bindings are server-global, so on a shared server
-	// (the cockpit joined an existing tmux server rather than owning it) this restores
-	// the keys instead of leaving warden's overrides behind after teardown.
+	// <prefix> Enter return-to-dashboard override and the <prefix> t/a/T/A rotation
+	// fallbacks. tmux key bindings are server-global, so on a shared server (the
+	// cockpit joined an existing tmux server rather than owning it) this restores the
+	// keys instead of leaving warden's overrides behind after teardown.
 	args := [][]string{{"unbind-key", "Enter"}}
-	for _, k := range []string{"t", "a", "p", "T", "A", "P"} {
+	for _, k := range []string{"t", "a", "T", "A"} {
 		args = append(args, []string{"unbind-key", k})
 	}
 	return append(args, []string{"kill-session"})
