@@ -28,7 +28,7 @@ var tierTrioNow = time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 // runner-up. Only claude and antigravity get backend rows, so cursor/codex seed
 // models are auto-ineligible ("backend not registered") and never compete. claude
 // carries exactly one enabled model per tier in the seed catalog
-// (claude-opus / sonnet / claude-3-5-haiku), so the winning MODEL is
+// (opus / sonnet / claude-3-5-haiku), so the winning MODEL is
 // deterministic — there is no round-robin among tied same-backend models.
 func newTierTrioStore(t *testing.T) *backendstore.Store {
 	t.Helper()
@@ -76,7 +76,7 @@ func TestTierTrioEndToEnd(t *testing.T) {
 		// headroom (1.0) over antigravity (0.5), and claude's only tier-1 model is
 		// claude-opus.
 		require.Equal(t, "claude", s.Backend)
-		require.Equal(t, "claude-opus", s.Model)
+		require.Equal(t, "opus", s.Model)
 	})
 
 	t.Run("task tier overrides the role tier", func(t *testing.T) {
@@ -100,7 +100,7 @@ func TestTierTrioEndToEnd(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "claude", s.Backend)
-		require.Equal(t, "claude-3-5-haiku", s.Model) // claude's tier-3 model
+		require.Equal(t, "haiku", s.Model) // claude's tier-3 model
 	})
 
 	t.Run("pinned backend and model bypass the resolver", func(t *testing.T) {

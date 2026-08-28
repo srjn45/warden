@@ -282,7 +282,7 @@ func TestResolver_AllExhaustedReturnsError(t *testing.T) {
 	ctx := context.Background()
 
 	// Push all backends over 90% threshold
-	require.NoError(t, s.RecordQuotaUsage("claude", 480000, "claude-opus", now))                   // 96%
+	require.NoError(t, s.RecordQuotaUsage("claude", 480000, "opus", now))                          // 96%
 	require.NoError(t, s.RecordQuotaUsage("antigravity", 950000, "claude-opus-4-6-thinking", now)) // 95%
 	require.NoError(t, s.RecordQuotaUsage("cursor", 490, "claude-3-opus", now))                    // 98%
 	require.NoError(t, s.RecordQuotaUsage("codex", 490000, "o1", now))                             // 98%
@@ -302,7 +302,7 @@ func TestResolver_TierFallback(t *testing.T) {
 	// Push Claude and Antigravity over 90% in Tier 1, disable cursor and codex
 	require.NoError(t, s.SetEnabled("cursor", false))
 	require.NoError(t, s.SetEnabled("codex", false))
-	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
+	require.NoError(t, s.SetModelEnabled("claude", "opus", false))
 	require.NoError(t, s.SetModelEnabled("antigravity", "claude-opus-4-6-thinking", false))
 	require.NoError(t, s.SetModelEnabled("antigravity", "gemini-3.1-pro-high", false))
 

@@ -57,7 +57,7 @@ func TestModelsList(t *testing.T) {
 	require.Contains(t, out, "BACKEND")
 	require.Contains(t, out, "MODEL")
 	require.Contains(t, out, "TIER")
-	require.Contains(t, out, "claude-opus")
+	require.Contains(t, out, "opus")
 	require.Contains(t, out, "tier-1")
 }
 
@@ -69,7 +69,7 @@ func TestModelsListByTier(t *testing.T) {
 	require.Contains(t, out, "=== TIER-1 ===")
 	require.Contains(t, out, "=== TIER-2 ===")
 	require.Contains(t, out, "=== TIER-3 ===")
-	require.Contains(t, out, "claude-opus")
+	require.Contains(t, out, "opus")
 	require.Contains(t, out, "sonnet")
 }
 
@@ -78,9 +78,9 @@ func TestModelsListFilterTier(t *testing.T) {
 
 	out, err := runGit(t, "127.0.0.1:0", "models", "list", "--tier", "tier-1")
 	require.NoError(t, err)
-	require.Contains(t, out, "claude-opus")
+	require.Contains(t, out, "opus")
 	require.NotContains(t, out, "sonnet")
-	require.NotContains(t, out, "claude-3-5-haiku")
+	require.NotContains(t, out, "haiku")
 }
 
 func TestModelsListJSON(t *testing.T) {
@@ -89,7 +89,7 @@ func TestModelsListJSON(t *testing.T) {
 	out, err := runGit(t, "127.0.0.1:0", "models", "list", "--json")
 	require.NoError(t, err)
 	require.Contains(t, out, `"backend_id": "claude"`)
-	require.Contains(t, out, `"model_id": "claude-opus"`)
+	require.Contains(t, out, `"model_id": "opus"`)
 	require.Contains(t, out, `"tier": "tier-1"`)
 }
 

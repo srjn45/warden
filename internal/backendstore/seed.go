@@ -6,7 +6,7 @@ func DefaultModels() []ModelEntry {
 		// Tier 1 models
 		{
 			BackendID:   "claude",
-			ModelID:     "claude-opus",
+			ModelID:     "opus",
 			Tier:        Tier1,
 			DisplayName: "Claude Opus",
 			Enabled:     true,
@@ -94,7 +94,7 @@ func DefaultModels() []ModelEntry {
 		// Tier 3 models
 		{
 			BackendID:   "claude",
-			ModelID:     "claude-3-5-haiku",
+			ModelID:     "haiku",
 			Tier:        Tier3,
 			DisplayName: "Claude 3.5 Haiku",
 			Enabled:     true,

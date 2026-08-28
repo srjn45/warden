@@ -56,10 +56,10 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidTier)
 
 	// Verify specific seeded models
-	m, err := s.GetModel("claude", "claude-opus")
+	m, err := s.GetModel("claude", "opus")
 	require.NoError(t, err)
 	require.Equal(t, "claude", m.BackendID)
-	require.Equal(t, "claude-opus", m.ModelID)
+	require.Equal(t, "opus", m.ModelID)
 	require.Equal(t, Tier1, m.Tier)
 	require.Equal(t, "Claude Opus", m.DisplayName)
 	require.True(t, m.Enabled)
@@ -113,7 +113,7 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Tier2, m.Tier)
 
-	m, err = s.GetModel("claude", "claude-3-5-haiku")
+	m, err = s.GetModel("claude", "haiku")
 	require.NoError(t, err)
 	require.Equal(t, Tier3, m.Tier)
 
@@ -171,29 +171,29 @@ func TestModelOperations(t *testing.T) {
 	// Get non-existent model
 	_, err := s.GetModel("claude", "unknown-model")
 	require.ErrorIs(t, err, ErrModelNotFound)
-	_, err = s.GetModel("", "claude-opus")
+	_, err = s.GetModel("", "opus")
 	require.ErrorIs(t, err, ErrModelNotFound)
 
 	// SetModelTier
-	require.NoError(t, s.SetModelTier("claude", "claude-opus", Tier2))
-	m, err := s.GetModel("claude", "claude-opus")
+	require.NoError(t, s.SetModelTier("claude", "opus", Tier2))
+	m, err := s.GetModel("claude", "opus")
 	require.NoError(t, err)
 	require.Equal(t, Tier2, m.Tier)
 
 	// SetModelTier with invalid tier
-	require.ErrorIs(t, s.SetModelTier("claude", "claude-opus", "invalid-tier"), ErrInvalidTier)
+	require.ErrorIs(t, s.SetModelTier("claude", "opus", "invalid-tier"), ErrInvalidTier)
 
 	// SetModelTier for non-existent model
 	require.ErrorIs(t, s.SetModelTier("claude", "ghost-model", Tier1), ErrModelNotFound)
 
 	// SetModelEnabled
-	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
-	m, err = s.GetModel("claude", "claude-opus")
+	require.NoError(t, s.SetModelEnabled("claude", "opus", false))
+	m, err = s.GetModel("claude", "opus")
 	require.NoError(t, err)
 	require.False(t, m.Enabled)
 
-	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", true))
-	m, err = s.GetModel("claude", "claude-opus")
+	require.NoError(t, s.SetModelEnabled("claude", "opus", true))
+	m, err = s.GetModel("claude", "opus")
 	require.NoError(t, err)
 	require.True(t, m.Enabled)
 
@@ -282,8 +282,8 @@ func TestReopenPreservesModelAndTierChanges(t *testing.T) {
 	require.NoError(t, err)
 
 	// Modify model, role tier, and handover settings
-	require.NoError(t, s.SetModelTier("claude", "claude-opus", Tier3))
-	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
+	require.NoError(t, s.SetModelTier("claude", "opus", Tier3))
+	require.NoError(t, s.SetModelEnabled("claude", "opus", false))
 	require.NoError(t, s.SetRoleTier("general", Tier3))
 	require.NoError(t, s.SetHandoverSettings(HandoverSettings{
 		Enabled:               false,
@@ -300,7 +300,7 @@ func TestReopenPreservesModelAndTierChanges(t *testing.T) {
 	defer s2.Close()
 
 	// Verify changes persisted and were NOT overwritten by initial seed
-	m, err := s2.GetModel("claude", "claude-opus")
+	m, err := s2.GetModel("claude", "opus")
 	require.NoError(t, err)
 	require.Equal(t, Tier3, m.Tier)
 	require.False(t, m.Enabled)
@@ -324,8 +324,8 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.NoError(t, err)
 
 	// 1. Mutate an existing default model and role tier
-	require.NoError(t, s.SetModelTier("claude", "claude-opus", Tier3))
-	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
+	require.NoError(t, s.SetModelTier("claude", "opus", Tier3))
+	require.NoError(t, s.SetModelEnabled("claude", "opus", false))
 	require.NoError(t, s.SetRoleTier("general", Tier3))
 
 	// 2. Add custom model, custom role, and custom quota
@@ -392,7 +392,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.Equal(t, 500.0, q.QuotaLimit)
 
 	// 7. Verify mutated default model and role tier were NOT overwritten
-	mutatedModel, err := s2.GetModel("claude", "claude-opus")
+	mutatedModel, err := s2.GetModel("claude", "opus")
 	require.NoError(t, err)
 	require.Equal(t, Tier3, mutatedModel.Tier)
 	require.False(t, mutatedModel.Enabled)

@@ -77,7 +77,7 @@ func TestSwitchByTier(t *testing.T) {
 		ID:          "agent-2",
 		TmuxSession: "agent-2",
 		Backend:     "claude",
-		Model:       "claude-opus",
+		Model:       "opus",
 		Workdir:     t.TempDir(),
 	}
 	addr := switchSessionStub(t, sess)
@@ -89,7 +89,7 @@ func TestSwitchByTier(t *testing.T) {
 		return &lifecycle.SwapResult{
 			Session:      s,
 			FromBackend:  "claude",
-			FromModel:    "claude-opus",
+			FromModel:    "opus",
 			ToBackend:    "antigravity",
 			ToModel:      "gemini-3.1-pro",
 			HandoffPath:  "/tmp/handoff-agent-2.md",
@@ -101,7 +101,7 @@ func TestSwitchByTier(t *testing.T) {
 
 	out, err := runGit(t, addr, "switch", "agent-2", "--tier", "tier-2", "--prompt", "Run tests", "--reason", "quota")
 	require.NoError(t, err)
-	require.Contains(t, out, "switched agent agent-2: claude (claude-opus) → antigravity (gemini-3.1-pro)")
+	require.Contains(t, out, "switched agent agent-2: claude (opus) → antigravity (gemini-3.1-pro)")
 	require.Equal(t, backendstore.Tier2, recordedReq.Tier)
 	require.Equal(t, "Run tests", recordedReq.Prompt)
 	require.Equal(t, lifecycle.SwapReasonQuota, recordedReq.Reason)

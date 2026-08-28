@@ -87,7 +87,7 @@ jobs:
     role: orchestrator
     tier: tier-1
     backend: claude
-    model: claude-opus
+    model: opus
     worktree: none
   - id: impl
     prompt: "implement feature"
@@ -115,7 +115,7 @@ jobs:
 	}
 
 	plan := p.Job("plan")
-	if plan.Role != "orchestrator" || plan.Tier != "tier-1" || plan.Backend != "claude" || plan.Model != "claude-opus" {
+	if plan.Role != "orchestrator" || plan.Tier != "tier-1" || plan.Backend != "claude" || plan.Model != "opus" {
 		t.Fatalf("plan job fields wrong: %+v", plan)
 	}
 

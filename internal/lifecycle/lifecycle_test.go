@@ -1619,12 +1619,12 @@ func TestSpawnJobWithRoleAndBackendAndModel(t *testing.T) {
 	s, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
 		PipelineID: "p", JobID: "impl", Repo: "/repo",
 		Prompt: "implement it", Worktree: true, Type: store.TypeDevelopment,
-		Role: "worker", Backend: "claude", Model: "claude-opus",
+		Role: "worker", Backend: "claude", Model: "opus",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "worker", s.Role)
 	require.Equal(t, "claude", s.Backend)
-	require.Equal(t, "claude-opus", s.Model)
+	require.Equal(t, "opus", s.Model)
 }
 
 func TestSpawnInjectsPipelineHint(t *testing.T) {
