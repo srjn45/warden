@@ -19,7 +19,7 @@ type frameSeg struct {
 }
 
 // splitSections carves a section-tagged item list (as control_pane.items()
-// produces: Pipelines · Projects · Terminals headers, each followed by its rows)
+// produces: Projects · Terminals headers, each followed by its rows)
 // into one frameSeg per section. A collapsed section contributes only its header
 // (items() emits no body rows for it), so its segment has an empty body.
 func splitSections(items []item) []frameSeg {
@@ -39,7 +39,7 @@ func splitSections(items []item) []frameSeg {
 }
 
 // renderFrames composes the control pane as stacked bordered/titled inner frames —
-// one per top-level section (Projects, Terminals, and, until C3, Pipelines) —
+// one per top-level section (Projects and Terminals) —
 // filling exactly width×height. Each frame is a titleBox whose title carries the
 // section's collapse glyph, name, and count; its body is the section's rows
 // windowed independently around the global cursor (so the frame holding the cursor
@@ -99,8 +99,8 @@ func frameTitle(it item, onHeader bool) string {
 // splitFrameHeights divides total outer height across N frames by row-count weight.
 // Every frame gets a floor of 3 (top border + one content/blank line + bottom
 // border); the surplus is shared out proportionally to each frame's row count, so a
-// busy Projects frame gets more room than an empty Pipelines one, with the rounding
-// remainder handed to the heaviest frame. When total < 3·N the floors still apply
+// busy Projects frame gets more room than an empty Terminals one, with the rounding
+// remainder handed to the heaviest frame. When total < 3*N the floors still apply
 // (the composite then overflows and the outer Control box clips it).
 func splitFrameHeights(weights []int, total int) []int {
 	n := len(weights)
