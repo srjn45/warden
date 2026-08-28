@@ -44,6 +44,8 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		ParentID:       b.ParentId,
 		ForkFrom:       b.ForkFrom,
 		Role:           b.Role,
+		Tier:           b.Tier,
+		Task:           b.Task,
 	}
 }
 

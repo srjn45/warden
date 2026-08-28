@@ -824,9 +824,15 @@ type SpawnRequest struct {
 	Repo string `json:"repo,omitempty"`
 
 	// Role built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset.
-	Role   string   `json:"role,omitempty"`
-	Tags   []string `json:"tags,omitempty"`
-	Ticket string   `json:"ticket,omitempty"`
+	Role string   `json:"role,omitempty"`
+	Tags []string `json:"tags,omitempty"`
+
+	// Task task name (task registry) used to derive the model tier via the task→tier map when tier is empty. Empty = none.
+	Task   string `json:"task,omitempty"`
+	Ticket string `json:"ticket,omitempty"`
+
+	// Tier explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the backend+model at spawn. Empty derives the tier from task, then role. A pinned backend/model still wins over the resolver.
+	Tier string `json:"tier,omitempty"`
 
 	// Type task type (typed mode); empty = free-form
 	Type     string `json:"type,omitempty"`

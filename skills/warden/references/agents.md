@@ -13,7 +13,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 |---|---|
 | list / check / triage agents | `list_agents`; summarize by status. Call out `waiting_for_input` (needs them) and `errored`/`orphaned`. Show each agent's `subject` and `workdir`. |
 | spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Only add `type`+`repo` (+`branch`/`pr`/`worktree`) for a managed worktree tied to a repo/ticket. Add `model`, `permission_mode`/`supervised`, `tags`, `role` as needed. |
-| give an agent a role / persona | `spawn_agent {..., role: "reviewer"}` at spawn, or `set_role {ticket, role}` on a running agent (relaunches to re-inject; `general`/empty clears it). `list_roles` returns the catalog. See **Roles** below. |
+| give an agent a role / persona | `spawn_agent {..., role: "worker"}` at spawn, or `set_role {ticket, role}` on a running agent (relaunches to re-inject; `general`/empty clears it). `list_roles` returns the catalog. Over MCP, routing follows the role's default tier (no `task`/`tier` params). See **Roles** below. |
 | fork agent <id>'s session into a new one | `fork_agent {source: "<id>", prompt?}` — branches the source's recorded conversation into a NEW managed agent (fresh sibling worktree, dirty-tree carry; the source keeps running). **Codex-only** (a non-forking backend like Claude returns a clean "cannot fork"); the source's session id must already be pinned (let it run a turn first). See **Fork** below. |
 | what is agent <id> doing | `get_agent` (status, subject, workdir, events) + `get_agent_output` (recent terminal) → report concisely. |
 | tell / ask agent <id> to do Y | `send_to_agent` (id as `ticket`, plus `text`). Echo back what you sent. |
@@ -34,7 +34,8 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | recent terminal output | `warden tail <id>` (`--lines N`) |
 | spawn from a prompt | `warden start "<prompt>"` |
 | spawn a managed worktree agent | `warden start <TICKET> --type <TYPE> --repo <repo>` |
-| spawn with a role / switch a role | `warden start "<prompt>" --role reviewer`; `warden set-role <id> <role>` (relaunches); `warden role list`. See **Roles** below |
+| spawn with a role / switch a role | `warden start "<prompt>" --role worker`; `warden set-role <id> <role>` (relaunches); `warden role list`. See **Roles** below |
+| route a spawn to a model tier | `warden start … --task <name>` (tier from the task registry) or `--tier tier-1\|tier-2\|tier-3` (`--tier` also a pipeline `tier:`; neither on MCP). A pinned `--backend`/`--model` bypasses it. See **Roles** below |
 | send a message to an agent | `warden send <id> "<text>"` |
 | full teardown (terminate + clear record + remove worktree) | `warden stop <id>` (asks before removing the worktree unless `--yes`; `--keep-record`/`--keep-worktree` subtract steps; `--hard`; `--pr [--base <b>]` opens a PR first) |
 | terminate + clear record (keeps worktree) | `warden done <id>` (= `warden stop <id> --keep-worktree`; `--create-pr` pushes the branch and opens a GitHub PR before terminating, `--base` sets target, default main) |
@@ -56,9 +57,20 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   config default `model_default`; fallback `claude-sonnet-4-6`. Shown in the MODEL
   column, preserved on restore.
 - **Role** — `--role` (CLI) / `role` (MCP): attach a built-in persona + default
-  flags. `general` (default, no persona) | `orchestrator` | `implementer` |
-  `auto-merger` | `reviewer` | `worker` | `autopilot` | `brain`. The role's default flags fill only fields you leave
-  unset (explicit value wins; tags unioned). See **Roles** below.
+  flags + a default model tier — *who the agent is*. `general` (default, no
+  persona) | `orchestrator` | `planner` | `worker` | `autopilot` | `brain` (legacy
+  `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). The
+  role's default flags fill only fields you leave unset (explicit value wins; tags
+  unioned). See **Roles** below.
+- **Task / Tier** — `--task` / `--tier` (`warden start` + REST; `--tier` is also a
+  pipeline-job field `tier:`, but the Job spec has **no** `task:`; **not** MCP
+  `spawn_agent`, which routes by `role`): steer the quota-balanced model router
+  — *what the agent is doing*. `--task` names a unit of work from the task registry
+  whose tier drives routing (tier-1 `analysis`/`architecture`/`design`/`research`/`spike`,
+  tier-2 `code-review`/`development`/`docs`/`pr-review`, tier-3 `debug-ci`/`merge-pr`/`monitor-ci`/`release`);
+  `--tier` pins `tier-1`/`tier-2`/`tier-3` directly. Precedence: explicit `--tier` >
+  task tier > role default tier > tier-2. A pinned `--backend`/`--model` bypasses the
+  router. Distinct from `--type` (worktree policy). See **Roles** below.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
   Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.
   A plain terminal is **not** a backend — spawn one as a session kind via `--kind
@@ -165,23 +177,24 @@ plus a set of default spawn flags. Every agent has exactly one role; the default
 catalog** — no user-defined roles. Browse it with `warden role list` / MCP
 `list_roles`.
 
-| Role | Persona | Default flags |
-|---|---|---|
-| `general` | *(none — plain agent)* | — |
-| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, doesn't write feature code unless trivial | `permission_mode=auto` |
-| `implementer` | implements a task end-to-end on its own branch (code, tests, checks, commit, PR) | `type=development` |
-| `auto-merger` | owns getting an open PR merged — watches CI, fixes failures/conflicts, merges when green | `permission_mode=auto`, `auto_approve=on` |
-| `reviewer` | reviews a branch/PR for correctness, coverage, style; findings + verdict, no fixes unless asked | `type=pr-review` |
-| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `type=development`, `permission_mode=auto`, `auto_approve=on` |
-| `autopilot` | long-lived headless **manager** of a whole autopilot run — decomposes, spawns workers/brains, gates + lands into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=on` |
-| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction | `permission_mode=auto`, `auto_approve=on` |
+| Role | Persona | Default flags | Default tier |
+|---|---|---|---|
+| `general` | *(none — plain agent)* | — | tier-2 |
+| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, doesn't write feature code unless trivial | `permission_mode=auto` | tier-1 |
+| `planner` | research/analysis/planning only — specs, RFCs, design docs; must not edit code | `permission_mode=plan` | tier-1 |
+| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `type=development`, `permission_mode=auto`, `auto_approve=on` | tier-2 |
+| `autopilot` | long-lived headless **manager** of a whole autopilot run — decomposes, spawns workers/brains, gates + lands into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=on` | tier-1 |
+| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction | `permission_mode=auto`, `auto_approve=on` | tier-2 |
 
-The last three (`autopilot`, `worker`, `brain`) form autopilot's manager → worker
-→ brain topology.
+`autopilot`, `worker`, and `brain` form autopilot's manager → worker → brain
+topology. **Legacy aliases:** `reviewer`, `implementer`, and `auto-merger` are no
+longer first-class roles — that work is now a **task** (`pr-review`/`development`/`merge-pr`)
+— but all three names still resolve to `worker`. The **default tier** feeds the
+quota-balanced model router unless a `--task` or `--tier` overrides it.
 
 Drive it:
 
-- **At spawn** — `warden start "<prompt>" --role reviewer` / `spawn_agent {role:"reviewer"}`.
+- **At spawn** — `warden start "<prompt>" --role worker` / `spawn_agent {role:"worker"}`.
   The role's default flags fill only fields you left unset (**explicit value >
   role default > global default**; tags unioned, `auto_approve` OR-ed).
 - **On a running agent** — `warden set-role <id> <role>` / `set_role {ticket, role}`.

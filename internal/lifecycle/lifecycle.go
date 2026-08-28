@@ -746,6 +746,8 @@ type SpawnRequest struct {
 	Kind           store.SessionKind // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
 	Tags           []string          // optional free-form labels for grouping/filtering (#30)
 	Role           string            // built-in role (persona + default flags); empty = "general" (no persona)
+	Tier           string            // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
+	Task           string            // task name (task registry) for tier routing via task.TierFor; empty = none
 	ParentID       string            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 
 	// Fork fields (codex fork superpower, #52). Set by the daemon adapter when a
@@ -1417,6 +1419,16 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	id, err := resolveID(req)
 	if err != nil {
 		return nil, err
+	}
+
+	// Route the initial backend+model through the quota-balanced resolver exactly
+	// like a hot-swap picks its successor. A pinned backend/model (or a role's
+	// default model, already folded into req.Model by resolveRole) wins; otherwise
+	// the router selects by tier/task/role. Degrades to req's values when no
+	// resolver is wired — a first spawn must never hard-fail on resolution.
+	// A terminal is a plain shell (no backend), so it is left untouched.
+	if req.Kind != store.KindTerminal {
+		req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	}
 
 	sess := &store.Session{
@@ -2233,6 +2245,7 @@ type JobSpawnRequest struct {
 	PermissionMode string   // explicit mode override; empty = use global default
 	Role           string   // built-in role (persona + default flags); empty = "general" (no persona)
 	Tier           string   // explicit model tier ("tier-1", "tier-2", "tier-3")
+	Task           string   // task name (task registry) for tier routing via task.TierFor; empty = none
 	Backend        string   // agent backend id (claude, aider, …); empty = default
 	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
 	Tags           []string // labels stamped on the job's session (e.g. inherited autopilot ownership tags)
@@ -2428,6 +2441,12 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 			}
 		}
 	}
+	// Route the initial backend+model through the quota-balanced resolver, exactly
+	// like Spawn (and hot-swap). A pinned backend/model (or a role default model,
+	// applied just above) wins; otherwise the router picks by tier/task/role.
+	// Degrades to req's values when no resolver is wired — a job spawn must never
+	// hard-fail on resolution.
+	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	sess := &store.Session{
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),

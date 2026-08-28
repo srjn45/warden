@@ -130,19 +130,28 @@ func DefaultModels() []ModelEntry {
 	}
 }
 
-// DefaultRoleTiers returns the default mapping of agent roles to model tiers.
+// DefaultRoleTiers returns the default mapping of agent ROLES to model tiers,
+// keyed by the actual role names defined under internal/role/roles/*.yaml.
+//
+// These feed GetRoleTier(role), which the router consults as the Role tier in
+// its precedence chain (explicit tier > task tier > role tier > Tier2 default).
+// Task-to-tier mappings do NOT live here — internal/task (task.TierFor) is the
+// single canonical source for that. A role without an explicit entry here falls
+// through to Tier2 in the resolver.
+//
+// Migration note: earlier builds mis-seeded this collection with TASK-like keys
+// (analysis, architecture, planning, design, arch-design-review, autopilot,
+// pr-review, implementation, debugger, code-review, ci-triage). Seeding is
+// idempotent and never deletes existing keys, so those stale keys survive in
+// already-seeded stores but are simply dead: nothing queries role_tiers by task
+// name once tasks route through task.TierFor. They cause no runtime breakage.
 func DefaultRoleTiers() []RoleTierMapping {
 	return []RoleTierMapping{
-		{RoleName: "analysis", DefaultTier: Tier1},
-		{RoleName: "architecture", DefaultTier: Tier1},
-		{RoleName: "planning", DefaultTier: Tier1},
-		{RoleName: "design", DefaultTier: Tier1},
-		{RoleName: "arch-design-review", DefaultTier: Tier1},
+		{RoleName: "general", DefaultTier: Tier2},
+		{RoleName: "orchestrator", DefaultTier: Tier1},
+		{RoleName: "planner", DefaultTier: Tier1},
+		{RoleName: "worker", DefaultTier: Tier2},
 		{RoleName: "autopilot", DefaultTier: Tier1},
-		{RoleName: "pr-review", DefaultTier: Tier1},
-		{RoleName: "implementation", DefaultTier: Tier2},
-		{RoleName: "debugger", DefaultTier: Tier2},
-		{RoleName: "code-review", DefaultTier: Tier2},
-		{RoleName: "ci-triage", DefaultTier: Tier3},
+		{RoleName: "brain", DefaultTier: Tier2},
 	}
 }

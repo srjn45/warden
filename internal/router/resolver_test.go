@@ -55,21 +55,89 @@ func TestResolver_RoleToTierResolution(t *testing.T) {
 	r := router.NewResolver(s)
 	ctx := context.Background()
 
-	// 1. Role: analysis -> Tier 1
-	res, err := r.ResolveRole(ctx, "analysis")
+	// 1. Role: orchestrator -> Tier 1 (seeded default)
+	res, err := r.ResolveRole(ctx, "orchestrator")
 	require.NoError(t, err)
 	require.Equal(t, backendstore.Tier1, res.Tier)
 	require.Contains(t, []string{"claude", "antigravity", "cursor", "codex"}, res.BackendID)
 
-	// 2. Role: implementation -> Tier 2
-	res, err = r.ResolveRole(ctx, "implementation")
+	// 2. Role: general -> Tier 2 (seeded default)
+	res, err = r.ResolveRole(ctx, "general")
 	require.NoError(t, err)
 	require.Equal(t, backendstore.Tier2, res.Tier)
 
-	// 3. Role: ci-triage -> Tier 3
-	res, err = r.ResolveRole(ctx, "ci-triage")
+	// 3. Role: worker -> Tier 2 (seeded default)
+	res, err = r.ResolveRole(ctx, "worker")
 	require.NoError(t, err)
-	require.Equal(t, backendstore.Tier3, res.Tier)
+	require.Equal(t, backendstore.Tier2, res.Tier)
+
+	// 4. Unknown role falls through to the Tier 2 default.
+	res, err = r.ResolveRole(ctx, "no-such-role")
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier2, res.Tier)
+}
+
+// TestResolver_DetermineTargetTierPrecedence verifies the tier precedence chain:
+// explicit tier > task tier (task.TierFor) > role tier (GetRoleTier) > Tier2 default.
+func TestResolver_DetermineTargetTierPrecedence(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	r := router.NewResolver(s)
+
+	// Explicit tier wins over both task and role.
+	tier, err := r.DetermineTargetTier(router.ResolveOptions{
+		Tier: backendstore.Tier3,
+		Task: "analysis",     // task tier 1
+		Role: "orchestrator", // role tier 1
+	})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier3, tier)
+
+	// Task tier beats role tier: analysis (task tier 1) over general (role tier 2).
+	tier, err = r.DetermineTargetTier(router.ResolveOptions{
+		Task: "analysis",
+		Role: "general",
+	})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier1, tier)
+
+	// Task tier 3 drives the task branch (monitor-ci is a tier-3 task).
+	tier, err = r.DetermineTargetTier(router.ResolveOptions{Task: "monitor-ci"})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier3, tier)
+
+	// A task tier-2 example (development).
+	tier, err = r.DetermineTargetTier(router.ResolveOptions{Task: "development"})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier2, tier)
+
+	// Role tier applies when no task is given: orchestrator -> Tier 1.
+	tier, err = r.DetermineTargetTier(router.ResolveOptions{Role: "orchestrator"})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier1, tier)
+
+	// An unknown task name falls through to the role tier.
+	tier, err = r.DetermineTargetTier(router.ResolveOptions{
+		Task: "does-not-exist",
+		Role: "orchestrator",
+	})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier1, tier)
+
+	// Neither task nor role -> Tier 2 default.
+	tier, err = r.DetermineTargetTier(router.ResolveOptions{})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier2, tier)
+
+	// An unknown role also falls through to the Tier 2 default.
+	tier, err = r.DetermineTargetTier(router.ResolveOptions{Role: "ghost-role"})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier2, tier)
+
+	// An explicit invalid tier is rejected.
+	_, err = r.DetermineTargetTier(router.ResolveOptions{Tier: "tier-9"})
+	require.ErrorIs(t, err, backendstore.ErrInvalidTier)
 }
 
 func TestResolver_RoundRobinTieBreaking(t *testing.T) {

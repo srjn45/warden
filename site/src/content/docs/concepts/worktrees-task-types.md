@@ -25,3 +25,12 @@ By default every agent runs fully autonomously with permission prompts suppresse
 Pick the permission posture with `--permission-mode` (`acceptEdits|auto|bypassPermissions|default|dontAsk|plan`); the default comes from the `default_permission_mode` config setting. `--supervised` is a kept-for-compatibility alias for `--permission-mode acceptEdits`: file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer from the web AttentionQueue (one-click buttons), the TUI (`⏳ Approvals` row → `i`/`1`-`9`), or the CLI (`warden approve`) when approvals are enabled. Change an existing agent's posture with `warden set-permission-mode <id> <mode>`, or let the daemon answer recognized yes/no prompts for you with `warden auto-approve <id> on` (global default: the `auto_approve` config setting). A restored agent keeps its permission setting.
 
 If a worktree for the ticket already exists on disk, the spawn adopts it (reattaches claude to the existing branch) instead of erroring.
+
+:::note[`--type` is not `--task`]
+This `--type` flag decides **worktree and branch policy**. A separate `--task`
+flag (from the built-in *task registry*) decides the **model tier** the
+quota-balanced router targets — e.g. `--task architecture` → tier-1,
+`--task merge-pr` → tier-3. The two name-sets overlap (`development`, `docs`,
+`pr-review`, `analysis`, `spike`) but are independent flags. See
+[Agent roles → Roles, tasks, and tiers](/warden/guides/agent-roles/#roles-tasks-and-tiers).
+:::

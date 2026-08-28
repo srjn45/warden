@@ -1,8 +1,21 @@
 # Tiered Model-Based Agent Creation & Quota-Balanced Routing — Implementation Plan
 
 > **Plan Tracking Document**  
-> **Status:** In Progress  
+> **Status:** Complete  
 > **Target:** Multi-backend model tiering, quota headroom round-robin, and 90% mid-session context handoff.
+
+> **First-spawn wiring (tier trio, done).** The one remaining gap after Stage 4 —
+> the **initial** `Lifecycle.Spawn` / `SpawnJob` still bypassed the resolver and
+> only hot-swaps routed through it — is now closed. Both spawn paths call
+> `resolveSpawnTarget`, which routes the initial backend+model through the same
+> quota-balanced resolver by `{role, task, tier}` (a pinned backend/model still
+> wins; it degrades to request defaults when no resolver is wired, so a first spawn
+> never hard-fails). The task registry (`internal/task`) is the canonical task→tier
+> source, roles carry real default tiers, and precedence is
+> `explicit tier > task tier > role tier > tier-2`. See
+> [`docs/specs/agent-roles.md`](agent-roles.md#tier-at-spawn-resolution) for the
+> roles-vs-tasks model and an end-to-end test in
+> `internal/lifecycle/tier_trio_integration_test.go`.
 
 ---
 
@@ -12,7 +25,8 @@
 - [x] **Stage 1: Data Model, ScrivaDB Store & Model Catalog**
 - [x] **Stage 2: Quota Tracking & Dynamic Weighted Resolver**
 - [x] **Stage 3: Universal Context Dump & Mid-Session Hot-Swap Engine**
-- [ ] **Stage 4: Pipeline Integration, CLI & OpenAPI Surfaces**
+- [x] **Stage 4: Pipeline Integration, CLI & OpenAPI Surfaces**
+- [x] **Tier trio: first-spawn routing** — `Spawn`/`SpawnJob` resolve backend+model via the router; task→tier registry + role default tiers wired
 
 ---
 
@@ -95,6 +109,7 @@
   - [x] `warden role tier list` / `warden role set-tier <role> <tier>`
   - [x] `warden switch [--backend <id>] [--model <id>] [--tier <tier>]`
   - [x] Daemon wiring: `Lifecycle.Resolver = router.NewResolver(d.backendStore)`, poller `HandoverEnabled` and `OnHotSwap` hooks wired to `DecideHotSwap` and `HotSwap`.
+  - [x] **First-spawn wiring (tier trio):** `Spawn` and `SpawnJob` route the *initial* backend+model through `resolveSpawnTarget` → `Resolver.Resolve({role, task, tier})`, with a pinned backend/model taking precedence and graceful degradation when no resolver is wired. `--tier` / `--task` added to `warden start` and the REST spawn body (`tier` / `task`); `tier:` (with `role:`) on pipeline jobs — the Job spec has no `task:`.
 - [x] **Task 4.3: OpenAPI & MCP Tools** (`internal/daemon/`, `internal/mcp/`)
   - [x] Expose REST endpoints (`GET /models`, `PUT /models/{backend}/{model}/tier`, `GET /roles/tiers`, `PUT /roles/tiers/{role}`, `POST /sessions/{id}/switch`, `GET /handover/settings`, `PUT /handover/settings`).
   - [x] Regenerate OpenAPI code via `make generate` (`internal/daemon/oapi/api.gen.go`).

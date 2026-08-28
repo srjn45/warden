@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/task"
 )
 
 var (
@@ -36,7 +37,8 @@ type Store interface {
 
 // ResolveOptions configures the resolution request.
 type ResolveOptions struct {
-	Role             string                 // agent role (e.g. "analysis", "implementation", "ci-triage")
+	Role             string                 // agent role (e.g. "general", "orchestrator", "worker")
+	Task             string                 // task name (e.g. "analysis", "development", "code-review"); tier resolved via task.TierFor
 	Tier             backendstore.ModelTier // explicit tier override ("tier-1", "tier-2", "tier-3")
 	PreferredBackend string                 // explicit backend ID preference ("claude", "antigravity", ...)
 	PreferredModel   string                 // explicit model ID preference
@@ -107,13 +109,27 @@ func (r *Resolver) ResolveTier(ctx context.Context, tier backendstore.ModelTier)
 	return r.Resolve(ctx, ResolveOptions{Tier: tier})
 }
 
-// DetermineTargetTier determines the target model tier from explicit options or role mapping.
+// DetermineTargetTier determines the target model tier, applying this precedence
+// (top wins):
+//
+//	explicit opts.Tier
+//	  > Task tier   (task.TierFor, if opts.Task != "")
+//	  > Role tier   (store.GetRoleTier, if opts.Role != "")
+//	  > Tier2 default
 func (r *Resolver) DetermineTargetTier(opts ResolveOptions) (backendstore.ModelTier, error) {
 	if opts.Tier != "" {
 		if !opts.Tier.Valid() {
 			return "", backendstore.ErrInvalidTier
 		}
 		return opts.Tier, nil
+	}
+	// Task registry is the canonical task->tier source.
+	if opts.Task != "" {
+		if n, ok := task.TierFor(opts.Task); ok {
+			if tier := tierFromInt(n); tier.Valid() {
+				return tier, nil
+			}
+		}
 	}
 	if opts.Role != "" {
 		tier, err := r.store.GetRoleTier(opts.Role)
@@ -123,6 +139,21 @@ func (r *Resolver) DetermineTargetTier(opts ResolveOptions) (backendstore.ModelT
 	}
 	// Default to Tier 2 (standard development & implementation tier)
 	return backendstore.Tier2, nil
+}
+
+// tierFromInt maps a task registry tier (1, 2, or 3) to a backendstore.ModelTier.
+// Any out-of-range value yields the empty tier, which fails Valid().
+func tierFromInt(n int) backendstore.ModelTier {
+	switch n {
+	case 1:
+		return backendstore.Tier1
+	case 2:
+		return backendstore.Tier2
+	case 3:
+		return backendstore.Tier3
+	default:
+		return ""
+	}
 }
 
 // EvaluateCandidates evaluates all model candidates for a specific tier.
