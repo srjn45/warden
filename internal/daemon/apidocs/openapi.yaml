@@ -690,7 +690,7 @@ paths:
           in: path
           required: true
           schema: { type: string }
-          description: Model ID (e.g. claude-3-7-sonnet-20250219)
+          description: Model ID (e.g. sonnet)
       requestBody:
         required: true
         content:

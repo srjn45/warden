@@ -82,7 +82,7 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Tier1, m.Tier)
 
-	m, err = s.GetModel("claude", "claude-3-7-sonnet-20250219")
+	m, err = s.GetModel("claude", "sonnet")
 	require.NoError(t, err)
 	require.Equal(t, Tier2, m.Tier)
 
@@ -345,7 +345,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 
 	// 3. Remove a few default models, a default role tier, and a default quota from the store
 	missingModelKey1 := modelKey("antigravity", "gemini-3.7-flash-high")
-	missingModelKey2 := modelKey("claude", "claude-3-7-sonnet-20250219")
+	missingModelKey2 := modelKey("claude", "sonnet")
 	require.NoError(t, s.modelsCol.DeleteByKey(missingModelKey1))
 	require.NoError(t, s.modelsCol.DeleteByKey(missingModelKey2))
 	require.NoError(t, s.rolesCol.DeleteByKey("orchestrator"))
@@ -354,7 +354,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	// Verify they are deleted before reopening
 	_, err = s.GetModel("antigravity", "gemini-3.7-flash-high")
 	require.ErrorIs(t, err, ErrModelNotFound)
-	_, err = s.GetModel("claude", "claude-3-7-sonnet-20250219")
+	_, err = s.GetModel("claude", "sonnet")
 	require.ErrorIs(t, err, ErrModelNotFound)
 	_, err = s.GetRoleTier("orchestrator")
 	require.ErrorIs(t, err, ErrRoleNotFound)
@@ -375,7 +375,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.Equal(t, "Gemini 3.7 Flash (High)", m1.DisplayName)
 	require.True(t, m1.Enabled)
 
-	m2, err := s2.GetModel("claude", "claude-3-7-sonnet-20250219")
+	m2, err := s2.GetModel("claude", "sonnet")
 	require.NoError(t, err)
 	require.Equal(t, Tier2, m2.Tier)
 	require.Equal(t, "Claude 3.7 Sonnet", m2.DisplayName)

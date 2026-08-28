@@ -56,7 +56,7 @@ func TestStore_ClaudeRolling5HourWindow(t *testing.T) {
 	require.False(t, limited)
 
 	// Record 100,000 tokens at 10:00 (20% usage -> 80% headroom)
-	err = s.RecordQuotaUsage("claude", 100000, "claude-3-7-sonnet-20250219", baseTime)
+	err = s.RecordQuotaUsage("claude", 100000, "sonnet", baseTime)
 	require.NoError(t, err)
 
 	headroom, used, limit, limited, err = s.GetHeadroom("claude", baseTime.Add(30*time.Minute))
@@ -67,7 +67,7 @@ func TestStore_ClaudeRolling5HourWindow(t *testing.T) {
 	require.False(t, limited)
 
 	// Record another 300,000 tokens at 12:00 (total 400,000 tokens = 80% usage -> 20% headroom)
-	err = s.RecordQuotaUsage("claude", 300000, "claude-3-7-sonnet-20250219", baseTime.Add(2*time.Hour))
+	err = s.RecordQuotaUsage("claude", 300000, "sonnet", baseTime.Add(2*time.Hour))
 	require.NoError(t, err)
 
 	headroom, used, _, _, err = s.GetHeadroom("claude", baseTime.Add(2*time.Hour))

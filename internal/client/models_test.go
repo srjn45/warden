@@ -14,7 +14,7 @@ import (
 
 func TestClientListModels(t *testing.T) {
 	var c capture
-	ts := jsonServer(t, &c, 0, `[{"backend_id":"claude","model_id":"claude-3-7-sonnet-20250219","tier":"tier-2","display_name":"Claude 3.7 Sonnet","enabled":true}]`)
+	ts := jsonServer(t, &c, 0, `[{"backend_id":"claude","model_id":"sonnet","tier":"tier-2","display_name":"Claude 3.7 Sonnet","enabled":true}]`)
 	cl := New(ts.URL)
 
 	models, err := cl.ListModels(context.Background(), "")
@@ -22,7 +22,7 @@ func TestClientListModels(t *testing.T) {
 	require.Equal(t, http.MethodGet, c.method)
 	require.Equal(t, "/api/v1/models", c.path)
 	require.Len(t, models, 1)
-	require.Equal(t, "claude-3-7-sonnet-20250219", models[0].ModelID)
+	require.Equal(t, "sonnet", models[0].ModelID)
 
 	_, err = cl.ListModels(context.Background(), "tier-1")
 	require.NoError(t, err)
@@ -32,13 +32,13 @@ func TestClientListModels(t *testing.T) {
 
 func TestClientSetModelTier(t *testing.T) {
 	var c capture
-	ts := jsonServer(t, &c, 0, `{"backend_id":"claude","model_id":"claude-3-7-sonnet-20250219","tier":"tier-1","display_name":"Claude 3.7 Sonnet","enabled":true}`)
+	ts := jsonServer(t, &c, 0, `{"backend_id":"claude","model_id":"sonnet","tier":"tier-1","display_name":"Claude 3.7 Sonnet","enabled":true}`)
 	cl := New(ts.URL)
 
-	m, err := cl.SetModelTier(context.Background(), "claude", "claude-3-7-sonnet-20250219", "tier-1")
+	m, err := cl.SetModelTier(context.Background(), "claude", "sonnet", "tier-1")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPut, c.method)
-	require.Equal(t, "/api/v1/models/claude/claude-3-7-sonnet-20250219/tier", c.path)
+	require.Equal(t, "/api/v1/models/claude/sonnet/tier", c.path)
 	require.Equal(t, "tier-1", c.body["tier"])
 	require.Equal(t, backendstore.Tier1, m.Tier)
 }

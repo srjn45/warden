@@ -25,7 +25,7 @@ func TestListModelsTool(t *testing.T) {
 		models := []backendstore.ModelEntry{
 			{
 				BackendID:   "claude",
-				ModelID:     "claude-3-7-sonnet-20250219",
+				ModelID:     "sonnet",
 				Tier:        backendstore.Tier2,
 				DisplayName: "Claude 3.7 Sonnet",
 				Enabled:     true,
@@ -44,7 +44,7 @@ func TestListModelsTool(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
-	require.Contains(t, textOf(res), "claude-3-7-sonnet-20250219")
+	require.Contains(t, textOf(res), "sonnet")
 	require.Empty(t, query)
 
 	// With tier filter
@@ -65,7 +65,7 @@ func TestSetModelTierTool(t *testing.T) {
 		body = string(b)
 		m := backendstore.ModelEntry{
 			BackendID: "claude",
-			ModelID:   "claude-3-7-sonnet-20250219",
+			ModelID:   "sonnet",
 			Tier:      backendstore.Tier1,
 		}
 		_ = json.NewEncoder(w).Encode(m)
@@ -79,13 +79,13 @@ func TestSetModelTierTool(t *testing.T) {
 		Name: "set_model_tier",
 		Arguments: map[string]any{
 			"backend": "claude",
-			"model":   "claude-3-7-sonnet-20250219",
+			"model":   "sonnet",
 			"tier":    "tier-1",
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
-	require.Equal(t, "PUT /api/v1/models/claude/claude-3-7-sonnet-20250219/tier", hit)
+	require.Equal(t, "PUT /api/v1/models/claude/sonnet/tier", hit)
 	require.Contains(t, body, `"tier":"tier-1"`)
 	require.Contains(t, textOf(res), `"tier": "tier-1"`)
 }

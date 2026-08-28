@@ -70,7 +70,7 @@ func TestModelsListByTier(t *testing.T) {
 	require.Contains(t, out, "=== TIER-2 ===")
 	require.Contains(t, out, "=== TIER-3 ===")
 	require.Contains(t, out, "claude-opus")
-	require.Contains(t, out, "claude-3-7-sonnet-20250219")
+	require.Contains(t, out, "sonnet")
 }
 
 func TestModelsListFilterTier(t *testing.T) {
@@ -79,7 +79,7 @@ func TestModelsListFilterTier(t *testing.T) {
 	out, err := runGit(t, "127.0.0.1:0", "models", "list", "--tier", "tier-1")
 	require.NoError(t, err)
 	require.Contains(t, out, "claude-opus")
-	require.NotContains(t, out, "claude-3-7-sonnet-20250219")
+	require.NotContains(t, out, "sonnet")
 	require.NotContains(t, out, "claude-3-5-haiku")
 }
 
@@ -104,11 +104,11 @@ func TestModelsListInvalidTier(t *testing.T) {
 func TestModelsTierSet(t *testing.T) {
 	st := withTestBackendStore(t)
 
-	out, err := runGit(t, "127.0.0.1:0", "models", "tier", "claude", "claude-3-7-sonnet-20250219", "tier-1")
+	out, err := runGit(t, "127.0.0.1:0", "models", "tier", "claude", "sonnet", "tier-1")
 	require.NoError(t, err)
-	require.Contains(t, out, "model claude/claude-3-7-sonnet-20250219 tiered as tier-1")
+	require.Contains(t, out, "model claude/sonnet tiered as tier-1")
 
-	m, err := st.GetModel("claude", "claude-3-7-sonnet-20250219")
+	m, err := st.GetModel("claude", "sonnet")
 	require.NoError(t, err)
 	require.Equal(t, backendstore.Tier1, m.Tier)
 }
@@ -116,7 +116,7 @@ func TestModelsTierSet(t *testing.T) {
 func TestModelsTierInvalid(t *testing.T) {
 	_ = withTestBackendStore(t)
 
-	_, err := runGit(t, "127.0.0.1:0", "models", "tier", "claude", "claude-3-7-sonnet-20250219", "tier-invalid")
+	_, err := runGit(t, "127.0.0.1:0", "models", "tier", "claude", "sonnet", "tier-invalid")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid tier")
 }
