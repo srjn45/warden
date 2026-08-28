@@ -3,6 +3,16 @@
 Status: shipped (all four stages — core, surfaces, uis, docs — landed on the
 `agent-roles` branch). Issue: *agent roles*.
 
+> **Update (tier trio):** the role catalog has since been split from the **task**
+> dimension. The *task-like* roles that used to live here (`implementer`,
+> `auto-merger`, `reviewer`) were removed as first-class roles and are now
+> expressed as **tasks** (see [Roles vs. tasks](#roles-vs-tasks-two-dimensions)
+> below); the names remain accepted as **back-compat aliases** that resolve to the
+> `worker` role. A `planner` role was added. Every role also carries a **default
+> model tier** that feeds the quota-balanced resolver at spawn — see
+> [Tier-at-spawn resolution](#tier-at-spawn-resolution) and
+> [`docs/specs/tiered-model-routing.plan.md`](tiered-model-routing.plan.md).
+
 A **role** is a named, persistent system-prompt PERSONA attached to an agent,
 plus an optional set of default spawn flags. Every agent has exactly one role;
 the empty role is the built-in `general` role, which injects no persona and
@@ -92,21 +102,90 @@ API:
 The registry is loaded once at package init from the embedded YAML; a malformed
 embedded file panics at init (it is a build-time asset, never user input).
 
-### Built-in roles (exactly five)
+### Built-in roles
 
-| name | persona | defaults |
-|------|---------|----------|
-| `general` | *(empty)* | none |
-| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, does not write feature code itself unless trivial | `permission_mode=auto` |
-| `implementer` | implements a task end-to-end on its own branch (code, tests, checks, commit, PR) | `type=development` |
-| `auto-merger` | owns getting an open PR merged: monitors CI, fixes failures/conflicts, merges when green | `permission_mode=auto`, `auto_approve=true` |
-| `reviewer` | reviews a branch/PR for correctness, coverage, style; findings + verdict, no fixes unless asked | `type=pr-review` |
-| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `type=development`, `permission_mode=auto`, `auto_approve=true` |
-| `autopilot` | long-lived headless manager driving a whole autopilot run: decompose, spawn workers/brains, gate + land into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=true` |
-| `brain` | on-demand decision resolver: unblocks a stuck agent or makes an ad-hoc design/arch call without human interaction | `permission_mode=auto`, `auto_approve=true` |
+The catalog is six roles (source of truth: `internal/role/roles/*.yaml`). Each row
+also lists its **default model tier** (`internal/backendstore` `DefaultRoleTiers`),
+which the router consults when nothing more specific pins the tier.
 
-The last three (`autopilot`, `worker`, `brain`) form autopilot's manager →
-worker → brain topology; see `docs/specs/autopilot.md`.
+| name | persona | defaults | default tier |
+|------|---------|----------|--------------|
+| `general` | *(empty)* | none | tier-2 |
+| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, does not write feature code itself unless trivial | `permission_mode=auto` | tier-1 |
+| `planner` | research/analysis/planning only — produces specs, RFCs, design docs; must not edit code | `permission_mode=plan` | tier-1 |
+| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `type=development`, `permission_mode=auto`, `auto_approve=true` | tier-2 |
+| `autopilot` | long-lived headless manager driving a whole autopilot run: decompose, spawn workers/brains, gate + land into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=true`, `tags=[autopilot]` | tier-1 |
+| `brain` | on-demand decision resolver: unblocks a stuck agent or makes an ad-hoc design/arch call without human interaction | `permission_mode=auto`, `auto_approve=true` | tier-2 |
+
+`autopilot`, `worker`, and `brain` form autopilot's manager → worker → brain
+topology; see `docs/specs/autopilot.md`.
+
+**Legacy aliases.** `reviewer`, `implementer`, and `auto-merger` are no longer
+first-class roles — the work they named is now a **task** (`pr-review`,
+`development`, `merge-pr`). `role.Get` still maps all three to the `worker` role,
+so existing spawns, presets, and `--role reviewer` keep working; the CLI/MCP
+`--role` help still lists them for discoverability.
+
+## Roles vs. tasks (two dimensions)
+
+A spawn now has two orthogonal, optional axes plus a backend:
+
+- **Role** (`--role`) — *who the agent is*: a persistent persona + default spawn
+  flags + a default model tier. Fixed catalog above; persists on the session and
+  re-injects at every (re)launch.
+- **Task** (`--task`) — *what the agent is doing*: a named unit of work from the
+  **task registry** (`internal/task`, embedded `tasks/*.yaml`). Each task carries a
+  **tier** and the set of roles it is valid for. It is a routing input only — it is
+  not persisted as an identity the way a role is.
+
+The task registry (13 built-in tasks) is the **canonical task→tier source**
+(`task.TierFor`); role→tier mappings never encode task tiers:
+
+| tier | tasks |
+|------|-------|
+| tier-1 | `analysis`, `architecture`, `design`, `research`, `spike` |
+| tier-2 | `code-review`, `development`, `docs`, `pr-review` |
+| tier-3 | `debug-ci`, `merge-pr`, `monitor-ci`, `release` |
+
+> **`--task` is not `--type`.** The `--type` worktree types (`development`,
+> `docs`, `pr-review`, `analysis`, `spike`, …) decide branch/worktree policy; the
+> `--task` registry decides the **model tier**. The two name-sets overlap but are
+> independent flags.
+
+## Tier-at-spawn resolution
+
+`router.Resolver.DetermineTargetTier` picks the target tier with this precedence
+(top wins):
+
+```
+explicit --tier
+  > task tier          (task.TierFor, when --task is set)
+  > role default tier  (backendstore.GetRoleTier, when --role is set)
+  > tier-2 default
+```
+
+The resolved tier drives candidate selection: the resolver scores every model in
+that tier by **quota headroom** (`1 − used/limit`), filters out ineligible or
+rate-limited (≥ threshold, default 90%) backends, and picks the highest-headroom
+candidate (round-robin among ties). See the routing plan for the full algorithm.
+
+**Backend + model at first spawn** (`lifecycle.resolveSpawnTarget`) layers on top,
+mirroring how a hot-swap picks its successor but never hard-failing:
+
+1. a pinned `--backend` wins outright (keeps `--model`, or the backend default);
+2. a pinned or **role-default** `--model` (folded into the request before this runs)
+   on the default backend wins over the router;
+3. otherwise the quota-balanced router picks backend+model from
+   `{Role, Task, Tier, AllowFallback}`;
+4. with **no resolver wired**, or on any resolver error / no-candidate, the spawn
+   **degrades** to the request's backend+model — a first spawn never fails because
+   routing is absent or empty.
+
+**Surfaces.** `--tier` / `--task` are on `warden start` (CLI) and the daemon REST
+spawn body (`tier` / `task`). `tier:` (alongside `role:`) is also a **pipeline job**
+field (`pipeline.Job`) — the Job spec has **no** `task:`. Over **MCP**,
+`spawn_agent` routes by `role` only (its default tier feeds the resolver) — it does
+not take `tier`/`task` params.
 
 ## 3. Spawn resolution + persona injection
 

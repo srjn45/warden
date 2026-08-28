@@ -102,7 +102,8 @@ Capability highlights from recent releases (full notes on the [releases page](ht
 - **Autopilot** — a goal-directed, long-running autonomous mode. Author a plan file (`autopilot.plan.yaml`), run `warden autopilot init` to scaffold the config, then `warden autopilot on` to start. A **manager** agent (role `autopilot`) drives a fleet of **worker** agents (role `worker`, one per task) in isolated worktrees, gates their PRs through CI, and lands them into `autopilot/integration` — all without human intervention, spawning a **resolver** (role `brain`) on demand to unblock a stuck worker. A guardian heal loop keeps the manager alive through stalls, a daemon-internal overwatch nudges it to tend idle/waiting workers, and a cost-tier backend ladder escalates from free (Antigravity) to subscription (Claude, Codex) when rate-limited. The kill switch is `warden autopilot off`. The switch is **per-repo** — `warden autopilot on` enables only the current repository (add `--repo <root>` to target another), the enabled set is persisted so repos come back up across a daemon restart, and the manager marks its plan `status: complete` in place when it finishes so a done run is never re-run. See [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) and [Autopilot concepts](https://srjn45.github.io/warden/concepts/autopilot/).
 - **Backend registry** — warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) plus a reserved `local` row for the free/local model, and persists each with a billing **tier** (`free`/`subscription`/`pay_per_use`/`unclassified`), an **enabled** flag, and at most one **default**. The store is the **single source of truth** — autopilot's cost-tier ladder and the internal free/local **thinking router** (warden's own task classification, agent naming, digest narration, and memory curation, routed *strictly* through free/local backends — never a paid call) both read from it. Manage it with `warden backends list|rescan|tier|default|enable|disable|thinking-mode`, the web **🧩 backends** panel, the TUI Backends page (`b`), or MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`, `set_thinking_mode`). It supersedes the deprecated `autopilot.brain.backends` / `allow_pay_per_use` config (imported once, then ignored). See [Backend registry guide](https://srjn45.github.io/warden/guides/backend-registry/).
 - **Live config hot-reload** — edit `~/.warden/config.yaml` and warden **applies it with no daemon restart**: the autopilot template, `auto_approve` policy, token/context guard (`tokens.*`), `rails.*`, `model_default`, `default_permission_mode`, hint gates, and `notify.*`/webhook all re-apply on the next tick or spawn. A bad edit **keeps the last-good config** and alerts you rather than falling back to defaults; keys that genuinely need a restart (`addr`, `data_dir`, timers, loop cadences) are logged as changed-but-pending. See [Configuration](docs/FEATURES.md#12-configuration-yaml-config-file).
-- **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role reviewer`) or switch it on a running agent (`warden set-role <id> reviewer`, which relaunches to re-inject). Five built-in roles — `general` (default, no persona), `orchestrator`, `implementer`, `auto-merger`, `reviewer` — each carrying a persona plus default spawn flags (e.g. `reviewer` defaults `--type pr-review`, `auto-merger` turns on auto-approve). `warden role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-role-list--warden-set-role).
+- **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role worker`) or switch it on a running agent (`warden set-role <id> worker`, which relaunches to re-inject). Six built-in roles — `general` (default, no persona), `orchestrator`, `planner`, `worker`, `autopilot`, `brain` — each carrying a persona, default spawn flags, and a default model tier (the legacy names `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). `warden role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-role-list--warden-set-role).
+- **Tiered model routing (`--task` / `--tier`)** — warden picks each spawn's backend+model by **quota headroom** within a **model tier**, so a fleet spreads across providers instead of hammering one. The tier is resolved with the precedence `explicit --tier > task tier > role default tier > tier-2`: a **task** (`--task architecture`, the *what*, from the task registry) or **role** (`--role planner`, the *who*) derives the tier, or pin it with `--tier tier-1`. A pinned `--backend`/`--model` bypasses the resolver, and a first spawn degrades to defaults if routing is unavailable — it never hard-fails. `--tier` is also a pipeline-job field (`tier:`). See [Tiered model routing](docs/specs/tiered-model-routing.plan.md) and [`docs/specs/agent-roles.md`](docs/specs/agent-roles.md).
 - **Resilience & ergonomics round-up** — `warden recover` re-registers archived-but-alive agents (tombstone-reaper safety net); the web `/tui` cockpit **self-heals** (validated and auto-rebuilt if wedged; `warden tui --rebuild-web-cockpit` forces it); `warden tui` inside an existing tmux session lays out as a **native tmux window** instead of erroring (`--tmux-native`); `wd push --force-with-lease` for safe force-pushes; rate-limit auto-resume now also answers Claude's **wait-menu and monthly spend cap** (`rate_limit.spend_retry_interval`); and all daemon stores (sessions, pipelines, schedules, snapshots, context, mailbox) run on an embedded ScrivaDB — still no database server.
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
 - **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending cloud-model tokens).
@@ -767,7 +768,9 @@ Flags:
 - `--worktree` — opt-in worktree for analysis/spike
 - `--in-repo` — write-type opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
 - `--model <model>` — per-agent model (id or alias `opus`/`sonnet`/`haiku`/`fable`); defaults to the `model_default` config setting
-- `--role <role>` — built-in agent role: `general` (default, no persona) · `orchestrator` · `implementer` · `auto-merger` · `reviewer`. Injects the role's persona as a system-prompt addendum and fills its default spawn flags (`--type`/`--model`/`--permission-mode`/auto-approve/tags) for any you leave unset (explicit flags still win). See [`warden role list`](#warden-role-list--warden-set-role)
+- `--role <role>` — built-in agent role (*who the agent is*): `general` (default, no persona) · `orchestrator` · `planner` · `worker` · `autopilot` · `brain` (the legacy names `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). Injects the role's persona as a system-prompt addendum and fills its default spawn flags (`--type`/`--model`/`--permission-mode`/auto-approve/tags) for any you leave unset (explicit flags still win). See [`warden role list`](#warden-role-list--warden-set-role)
+- `--task <name>` — the unit of work (*what the agent is doing*) from the task registry, used to derive the model **tier** for quota-balanced routing when `--tier` is empty (e.g. `architecture`→tier-1, `development`→tier-2, `merge-pr`→tier-3). Distinct from `--type` (which controls worktree policy)
+- `--tier <tier>` — pin the model tier for the resolver directly (`tier-1`/`tier-2`/`tier-3`). Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--backend`/`--model` still wins over the resolver. See [Tiered model routing](#warden-role-list--warden-set-role)
 - `--tags <a,b>` — attach tags (lowercased, deduped); searchable and filterable with `warden ls --tag`
 - `--preset <name>` — seed spawn defaults from a saved preset (`warden preset save`); explicit flags still override
 - `--prompt-template <name> --set VAR=value` — fill a saved prompt template (`warden prompt-template save`) into the spawn prompt; repeat `--set` per variable. A positional prompt still wins; free-form only (no `--type`)
@@ -1328,15 +1331,24 @@ warden set-permission-mode agent-abc123 dontAsk
 A **role** is a named, persistent system-prompt **persona** attached to an
 agent, plus a set of default spawn flags. Every agent has exactly one role; the
 default is `general`, which injects no persona and behaves exactly as agents do
-today. The role set is a **fixed built-in catalog** (no user-defined roles):
+today. The role set is a **fixed built-in catalog** (no user-defined roles). Each role
+also carries a **default model tier** that feeds the [tiered router](#tiered-model-routing) when
+nothing more specific pins the tier:
 
-| Role | Persona | Default flags |
-|---|---|---|
-| `general` | *(none — plain agent)* | — |
-| `orchestrator` | coordinates a fleet of warden agents; plans and delegates, doesn't write feature code itself unless trivial | `--permission-mode auto` |
-| `implementer` | implements a task end-to-end on its own branch (code, tests, checks, commit, PR) | `--type development` |
-| `auto-merger` | owns getting an open PR merged: watches CI, fixes failures/conflicts, merges when green | `--permission-mode auto`, auto-approve on |
-| `reviewer` | reviews a branch/PR for correctness, coverage, and style; produces findings + a verdict, no fixes unless asked | `--type pr-review` |
+| Role | Persona | Default flags | Default tier |
+|---|---|---|---|
+| `general` | *(none — plain agent)* | — | tier-2 |
+| `orchestrator` | coordinates a fleet of warden agents; plans and delegates, doesn't write feature code itself unless trivial | `--permission-mode auto` | tier-1 |
+| `planner` | research/analysis/planning only — produces specs, RFCs, design docs; must not edit code | `--permission-mode plan` | tier-1 |
+| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `--type development`, `--permission-mode auto`, auto-approve on | tier-2 |
+| `autopilot` | long-lived headless **manager** of a whole autopilot run — decomposes, spawns workers/brains, gates + lands into the integration branch | `--permission-mode bypassPermissions`, auto-approve on | tier-1 |
+| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction | `--permission-mode auto`, auto-approve on | tier-2 |
+
+`autopilot`, `worker`, and `brain` power autopilot's manager →
+worker → brain topology. **Legacy aliases:** `reviewer`, `implementer`, and
+`auto-merger` are no longer first-class roles — that work is now a **task**
+(`pr-review`/`development`/`merge-pr`, see [Tiered model routing](#tiered-model-routing)) —
+but the three names still resolve to the `worker` role for back-compat.
 
 The persona is injected through the same system-prompt seam warden already uses
 for its collab/git/pipeline hints (Claude via `--append-system-prompt`, the
@@ -1350,10 +1362,10 @@ left unset (explicit `start` flags win); default tags are unioned in.
 warden role list
 
 # Spawn an agent with a role (its default flags apply unless you override them)
-warden start "review PR 1234 for correctness" --role reviewer
+warden start "ship the auth refactor end-to-end" --role worker
 
 # Switch a running agent's role — relaunches to re-inject the new persona
-warden set-role agent-abc123 reviewer
+warden set-role agent-abc123 worker
 
 # Clear the persona (back to a plain agent)
 warden set-role agent-abc123 general
@@ -1365,6 +1377,45 @@ Roles are also drivable from the UIs (TUI new-agent `ctrl+r` picker, web
 `set-role` **relaunches** the agent (its in-flight turn is discarded) because a
 persona only takes effect at (re)launch, mirroring how `set-permission-mode`
 persists a value but a persona additionally needs a fresh launch.
+
+### Tiered model routing (`--task` / `--tier`)
+
+warden resolves each spawn's **backend + model** by **quota headroom within a
+model tier**, so a fleet spreads across providers instead of exhausting one. Two
+optional, orthogonal inputs feed it (a spawn's third axis, alongside `--backend`
+and `--role`):
+
+- **`--task <name>`** — *what the agent is doing*, from the built-in **task
+  registry**. Each task carries a tier: tier-1 (`analysis`, `architecture`,
+  `design`, `research`, `spike`), tier-2 (`code-review`, `development`, `docs`,
+  `pr-review`), tier-3 (`debug-ci`, `merge-pr`, `monitor-ci`, `release`). This is
+  the canonical task→tier source.
+- **`--tier <tier>`** — pin the tier directly (`tier-1`/`tier-2`/`tier-3`).
+
+The target tier is resolved with the precedence **`explicit --tier` > task tier >
+role default tier > tier-2**; within the tier the router scores every model by
+headroom (`1 − used/limit`), skips rate-limited or ineligible backends, and picks
+the highest-headroom candidate (round-robin among ties). A pinned `--backend` or
+`--model` **bypasses** the router, and a first spawn **degrades** to the request
+defaults if no resolver is wired — routing never hard-fails a spawn.
+
+```sh
+warden start "design the sync protocol" --role planner        # role → tier-1
+warden start PROJ-9 --type development --task development      # task → tier-2
+warden start "cut the v9 release" --task release              # task → tier-3
+warden start "urgent hotfix" --tier tier-1                    # pin the tier
+warden start "run it on codex" --backend codex --model o1     # pins bypass routing
+```
+
+> **`--task` ≠ `--type`.** `--type` decides worktree/branch policy (see
+> [worktrees & task types](#warden-worktree)); `--task` decides the model tier.
+> The two name-sets overlap but are independent. **Surfaces:** `--tier` and
+> `--task` are on `warden start` and the REST spawn body; `--tier` is also a
+> pipeline-job field (`tier:`, alongside `role:`). Over MCP, `spawn_agent` routes
+> by `role` only (its default tier feeds the resolver) — no `tier`/`task` params.
+> See
+> [`docs/specs/tiered-model-routing.plan.md`](docs/specs/tiered-model-routing.plan.md)
+> and [`docs/specs/agent-roles.md`](docs/specs/agent-roles.md) for the full model.
 
 ### `warden worktree`
 
