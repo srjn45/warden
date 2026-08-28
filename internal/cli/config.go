@@ -79,6 +79,7 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"addr", cfg.Addr},
 			{"data_dir", cfg.DataDir},
 			{"claude_projects_dir", cfg.ClaudeProjectsDir},
+			{"workspace_path", cfg.WorkspacePath},
 			{"allow_nonloopback", fmt.Sprintf("%t", cfg.AllowNonLoopback)},
 		}},
 		{"agents", [][2]string{
