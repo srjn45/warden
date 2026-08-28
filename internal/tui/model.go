@@ -53,7 +53,7 @@ const (
 	modeSendMsg
 	modeConfirmKill
 	modeHelp
-	modeOpenDir               // path input for `o`
+	modeOpenProjectMenu       // Local/Remote/New project picker for `o`
 	modeNewAgentDir           // dir-override sub-state of modeNewAgent
 	modeNewAgentName          // name-input sub-state of modeNewAgent
 	modeNewAgentRole          // role-select sub-state of modeNewAgent

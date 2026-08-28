@@ -49,7 +49,7 @@ func helpText() string {
 		"               the terminal pane (grabs focus) — or toggle a section header's fold\n" +
 		"  n            new agent (prompt)\n" +
 		"  t            open a terminal in the focused agent's dir: (c)reate new or (f)ocus existing\n" +
-		"  o            open a directory as a group (spawn target for n)\n" +
+		"  o            open a project: Local / Remote / New (↑/↓ or j/k · enter · esc)\n" +
 		"  s            send a message to the selected agent\n" +
 		"  a            full-screen attach to its tmux session (or a running pipeline job's session)\n" +
 		"  d            completion digest for the selected agent (scrollable; d/esc to close)\n" +

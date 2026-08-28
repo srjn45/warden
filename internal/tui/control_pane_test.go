@@ -186,20 +186,56 @@ func TestListPaneEnterNoopWithoutSelection(t *testing.T) {
 	require.Nil(t, cmd, "Enter with no selection does nothing")
 }
 
-func TestListPaneOpenDirAddsPlaceholder(t *testing.T) {
-	f := &fakeAPI{dirListing: client.DirListing{Path: "/work/api"}}
-	m := newListPane(f, "%9", "")
-	m = lstep(m, key("o"))
-	require.Equal(t, modeOpenDir, m.mode)
-	m.tp.SetValue("/work/api")
-	_, cmd := m.Update(key("enter"))
-	require.NotNil(t, cmd, "enter dispatches openDirCmd")
+func TestListPaneOpenDirMsgAddsPlaceholder(t *testing.T) {
+	// openDirCmd/openDirMsg are the validated-dir plumbing the "Local" option of
+	// the open-project menu (modeOpenProjectMenu) will drive; exercise the
+	// placeholder-adding behavior directly rather than through a mode that
+	// doesn't wire it up yet.
+	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, openDirMsg{dir: "/work/api"}) // the validated result
 	require.Equal(t, modeNormal, m.mode)
 	// The opened dir adds a placeholder row under Agents (alongside the four
 	// always-present section headers).
 	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/api" })
 	require.GreaterOrEqual(t, idx, 0, "opening a dir adds its placeholder row")
+}
+
+func TestListPaneOpenProjectMenuOpensOnLocal(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	require.Equal(t, modeOpenProjectMenu, m.mode)
+	require.Equal(t, 0, m.openProjectIdx, "menu opens with Local highlighted")
+}
+
+func TestListPaneOpenProjectMenuJKNavigateAndWrap(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+
+	m = lstep(m, key("j"))
+	require.Equal(t, 1, m.openProjectIdx, "j moves to Remote")
+	m = lstep(m, key("j"))
+	require.Equal(t, 2, m.openProjectIdx, "j moves to New")
+	m = lstep(m, key("j"))
+	require.Equal(t, 0, m.openProjectIdx, "j wraps from New back to Local")
+
+	m = lstep(m, key("k"))
+	require.Equal(t, 2, m.openProjectIdx, "k wraps from Local back to New")
+}
+
+func TestListPaneOpenProjectMenuEnterSelectsAndCloses(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j")) // Remote
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeNormal, m.mode, "enter closes the menu back to normal mode")
+	require.Contains(t, m.status, "Remote", "status reflects the selected option")
+}
+
+func TestListPaneOpenProjectMenuEscCancels(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeNormal, m.mode)
 }
 
 func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {

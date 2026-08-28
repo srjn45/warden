@@ -40,6 +40,7 @@ type controlPaneModel struct {
 	openedDirs     map[string]time.Time
 	dirCandidates  []string
 	targetDir      string
+	openProjectIdx int             // selected option in the open-project menu (modeOpenProjectMenu, `o`)
 	roles          []role.Role     // built-in role catalog for the new-agent picker
 	roleIdx        int             // selected role in the new-agent form (0 ⇒ general)
 	backends       []backendChoice // registered backend catalog for the new-agent picker
@@ -638,7 +639,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, approvalsCmd(m.api) // refresh the queue right away
 	case dirListMsg:
-		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {
+		if msg.err == nil && m.mode == modeNewAgentDir {
 			completed, cands := completeDir(msg.listing, msg.typed)
 			m.tp.SetValue(completed)
 			m.tp.CursorEnd()
@@ -897,23 +898,31 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.tn, cmd = m.tn.Update(msg)
 		return m, cmd
-	case modeOpenDir:
+	case modeOpenProjectMenu:
 		switch msg.Type {
 		case tea.KeyEsc:
 			m.mode = modeNormal
-			m.tp.Blur()
-			m.dirCandidates = nil
 			return m, nil
-		case tea.KeyTab:
-			typed := expandPath(m.tp.Value(), homeDir())
-			listDir, _ := dirCompletionTarget(typed)
-			return m, listDirsCmd(m.api, typed, listDir)
+		case tea.KeyUp:
+			m.openProjectIdx = (m.openProjectIdx - 1 + len(openProjectOptions)) % len(openProjectOptions)
+			return m, nil
+		case tea.KeyDown:
+			m.openProjectIdx = (m.openProjectIdx + 1) % len(openProjectOptions)
+			return m, nil
 		case tea.KeyEnter:
-			return m, openDirCmd(m.api, expandPath(m.tp.Value(), homeDir()))
+			choice := openProjectOptions[m.openProjectIdx]
+			m.mode = modeNormal
+			m.status = "open " + choice + ": not yet implemented"
+			return m, nil
 		}
-		var cmd tea.Cmd
-		m.tp, cmd = m.tp.Update(msg)
-		return m, cmd
+		// j/k also cycle, matching the list's vim-style navigation.
+		switch msg.String() {
+		case "k":
+			m.openProjectIdx = (m.openProjectIdx - 1 + len(openProjectOptions)) % len(openProjectOptions)
+		case "j":
+			m.openProjectIdx = (m.openProjectIdx + 1) % len(openProjectOptions)
+		}
+		return m, nil
 	case modeNewAgentDir:
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -1374,10 +1383,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.roleIdx = 0    // reset the role picker to general on every fresh form
 		m.backendIdx = 0 // reset the backend picker to claude on every fresh form
 	case "o":
-		m.mode = modeOpenDir
-		m.tp.Reset()
-		m.tp.Focus()
-		m.dirCandidates = nil
+		m.mode = modeOpenProjectMenu
+		m.openProjectIdx = 0
 	case "s":
 		if m.selected() != nil {
 			m.mode = modeSendMsg
@@ -1555,7 +1562,7 @@ func (m controlPaneModel) View() string {
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.
-	footer := stMuted.Render("enter open · n new · t term · o dir · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · n new · t term · o open project · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
@@ -1574,8 +1581,8 @@ func (m controlPaneModel) View() string {
 		footer = stPaneTitle.Render("Backend (↑/↓ or j/k select · enter/esc back to prompt):") + "\n" + m.backendPickerView()
 	case modeNewAgentDir:
 		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
-	case modeOpenDir:
-		footer = stPaneTitle.Render("Open directory (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
+	case modeOpenProjectMenu:
+		footer = stPaneTitle.Render("Open project (↑/↓ or j/k select · enter · esc):") + "\n" + m.openProjectMenuView()
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
@@ -1588,6 +1595,26 @@ func (m controlPaneModel) View() string {
 		footer = stPaneTitle.Render("Terminal in " + abbrevHome(m.termChoiceDir) + ":  (c)reate new  ·  (f)ocus existing  ·  esc cancel")
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
+}
+
+// openProjectOptions is the fixed choice list for modeOpenProjectMenu (`o`).
+var openProjectOptions = []string{"Local", "Remote", "New"}
+
+// openProjectMenuView renders the Local/Remote/New picker with the selected
+// option marked, matching the layout of rolePickerView/backendPickerView.
+func (m controlPaneModel) openProjectMenuView() string {
+	var b strings.Builder
+	for i, opt := range openProjectOptions {
+		if i == m.openProjectIdx {
+			b.WriteString(stCursor.Render("› " + opt))
+		} else {
+			b.WriteString(stMuted.Render("  " + opt))
+		}
+		if i < len(openProjectOptions)-1 {
+			b.WriteString("  ")
+		}
+	}
+	return b.String()
 }
 
 // selectedRole returns the role name chosen in the new-agent form. The general
