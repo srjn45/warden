@@ -1037,8 +1037,8 @@ func TestBuildItemsSameProjectChildStillNestsWithRepo(t *testing.T) {
 	require.Equal(t, "", items[1].fromParent, "nested child carries no backlink")
 }
 
-// items() always emits the four fixed section headers, in order, even when empty.
-func TestItemsFourFixedSectionsInOrder(t *testing.T) {
+// items() always emits the fixed section headers, in order, even when empty.
+func TestItemsFixedSectionsInOrder(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
 	var secs []string
 	for _, it := range m.items() {
@@ -1046,7 +1046,7 @@ func TestItemsFourFixedSectionsInOrder(t *testing.T) {
 			secs = append(secs, it.section)
 		}
 	}
-	require.Equal(t, []string{secPipelines, secAgents, secTerminals}, secs)
+	require.Equal(t, []string{secAgents, secTerminals}, secs)
 }
 
 // A terminal-kind session renders under Terminals with its §7 name and never in
@@ -1093,18 +1093,17 @@ func TestSectionCollapseHidesChildren(t *testing.T) {
 	require.True(t, sawHeader, "the Agents section header stays present when collapsed")
 }
 
-// enter on a section header toggles its collapse; enter on an approval row opens
-// the approvals overlay focused on that prompt.
-func TestEnterOnSectionTogglesAndOnApprovalOpens(t *testing.T) {
+// enter on a section header toggles its collapse.
+func TestEnterOnSectionToggles(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
 	m.apprEnabled = true
 	m.approvals = []approval.View{
 		{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}},
 		{ID: "agent-2", Recognized: true, Options: []string{"Yes", "No"}},
 	}
-	// Toggle the Pipelines section closed via enter.
-	m.cursor = cursorOn(m, func(it item) bool { return it.section == secPipelines })
+	// Toggle the Agents section closed via enter.
+	m.cursor = cursorOn(m, func(it item) bool { return it.section == secAgents })
 	m2, _ := m.handleKey(key("enter"))
 	mc := m2.(controlPaneModel)
-	require.True(t, mc.collapsed[secKey(secPipelines)], "enter on a section header toggles its fold")
+	require.True(t, mc.collapsed[secKey(secAgents)], "enter on a section header toggles its fold")
 }

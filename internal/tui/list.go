@@ -779,7 +779,7 @@ func renderItemLine(it item, selected bool, width int) string {
 			exp = "▸" // collapsed
 		}
 		label, st, glyph := pipelineDisplayStatus(it.pipeline)
-		line = exp + " " + stPaneTitle.Render(it.pipeline.ID) + "  " + st.Render(glyph+" "+label)
+		line = "  " + exp + " " + stPaneTitle.Render(it.pipeline.ID) + "  " + st.Render(glyph+" "+label)
 	case it.pjJob != nil:
 		deps := ""
 		if len(it.pjJob.DependsOn) > 0 {

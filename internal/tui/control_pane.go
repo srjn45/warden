@@ -162,10 +162,12 @@ func (m controlPaneModel) items() []item {
 	// }
 
 	// ── Pipelines: pipeline-owned sessions live here, under their pipeline.
-	pipeCollapsed := m.collapsed[secKey(secPipelines)]
-	out = append(out, item{section: secPipelines, secCount: len(m.pipelines), collapsed: pipeCollapsed})
-	if !pipeCollapsed {
-		out = append(out, pipelineItems(m.pipelines, m.sessions, m.collapsed)...)
+	if len(m.pipelines) > 0 {
+		pipeCollapsed := m.collapsed[secKey(secPipelines)]
+		out = append(out, item{section: secPipelines, secCount: len(m.pipelines), collapsed: pipeCollapsed})
+		if !pipeCollapsed {
+			out = append(out, pipelineItems(m.pipelines, m.sessions, m.collapsed)...)
+		}
 	}
 
 	// ── Agents: dir-grouped, subagents nested per the §4.1 render rule.
