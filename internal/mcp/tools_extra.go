@@ -224,7 +224,7 @@ type listModelsArgs struct {
 }
 type setModelTierArgs struct {
 	Backend string `json:"backend" jsonschema:"the backend id (e.g. claude, antigravity, codex)"`
-	Model   string `json:"model" jsonschema:"the model id (e.g. claude-3-7-sonnet)"`
+	Model   string `json:"model" jsonschema:"the model id (e.g. claude-3-7-sonnet-20250219)"`
 	Tier    string `json:"tier" jsonschema:"the model tier: tier-1 | tier-2 | tier-3"`
 }
 type setRoleTierArgs struct {

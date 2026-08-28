@@ -1778,7 +1778,7 @@ Tiers:
   tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
 
 Example:
-  warden models tier claude claude-3-7-sonnet tier-2
+  warden models tier claude claude-3-7-sonnet-20250219 tier-2
 
 Usage:
   warden models tier <backend> <model> <tier> [flags]

@@ -169,7 +169,7 @@ Tiers:
   tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
 
 Example:
-  warden models tier claude claude-3-7-sonnet tier-2`,
+  warden models tier claude claude-3-7-sonnet-20250219 tier-2`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			backendID := args[0]

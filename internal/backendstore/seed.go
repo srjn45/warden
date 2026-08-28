@@ -43,7 +43,7 @@ func DefaultModels() []ModelEntry {
 		// Tier 2 models
 		{
 			BackendID:   "claude",
-			ModelID:     "claude-3-7-sonnet",
+			ModelID:     "claude-3-7-sonnet-20250219",
 			Tier:        Tier2,
 			DisplayName: "Claude 3.7 Sonnet",
 			Enabled:     true,

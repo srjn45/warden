@@ -46,7 +46,7 @@
   - [x] Define `HandoverSettings` struct (`enabled`, `threshold_percent` = 90, `rolling_quota_threshold` = 90, `context_fill_threshold` = 90, `cooldown_period` = 15m).
 - [x] **Task 1.2: Seed Default Catalog & Role Mappings** (`internal/backendstore/seed.go`)
   - [x] Seed Tier-1 models (`claude-opus`, `Claude Opus 4.6 (Thinking)`, `claude-3-opus`, `o1`).
-  - [x] Seed Tier-2 models (`claude-3-7-sonnet`, `Claude Sonnet 4.6 (Thinking)` / `Gemini 3.1 Pro`, `sonnet-3.7`, `gpt-4.1`).
+  - [x] Seed Tier-2 models (`claude-3-7-sonnet-20250219`, `Claude Sonnet 4.6 (Thinking)` / `Gemini 3.1 Pro`, `sonnet-3.7`, `gpt-4.1`).
   - [x] Seed Tier-3 models (`claude-3-5-haiku`, `Gemini 3.5 Flash`, `composer-2.5-fast`, `gpt-4.1-mini`).
   - [x] Seed Role Tier mappings (`analysis` -> `tier-1`, `architecture` -> `tier-1`, `planning` -> `tier-1`, `design` -> `tier-1`, `arch-design-review` -> `tier-1`, `autopilot` -> `tier-1`, `pr-review` -> `tier-1`, `implementation` -> `tier-2`, `debugger` -> `tier-2`, `code-review` -> `tier-2`, `ci-triage` -> `tier-3`).
 - [x] **Task 1.3: Store Methods & Migration** (`internal/backendstore/store.go`)

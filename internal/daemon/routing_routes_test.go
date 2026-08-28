@@ -25,7 +25,7 @@ func TestHandleModelsRoutes(t *testing.T) {
 		defer resp.Body.Close()
 		require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 
-		req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/models/claude/claude-3-7-sonnet/tier", bytes.NewReader([]byte(`{"tier":"tier-1"}`)))
+		req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/models/claude/claude-3-7-sonnet-20250219/tier", bytes.NewReader([]byte(`{"tier":"tier-1"}`)))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
 		resp2, err := http.DefaultClient.Do(req)
@@ -71,9 +71,9 @@ func TestHandleModelsRoutes(t *testing.T) {
 		srv, _ := lifeServerBackends(t, newFakeStore(), &fakeLife{})
 		defer srv.Close()
 
-		// Update claude/claude-3-7-sonnet to tier-1
+		// Update claude/claude-3-7-sonnet-20250219 to tier-1
 		body, _ := json.Marshal(map[string]string{"tier": "tier-1"})
-		req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/models/claude/claude-3-7-sonnet/tier", bytes.NewReader(body))
+		req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/models/claude/claude-3-7-sonnet-20250219/tier", bytes.NewReader(body))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
@@ -84,12 +84,12 @@ func TestHandleModelsRoutes(t *testing.T) {
 		var updated backendstore.ModelEntry
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
 		require.Equal(t, "claude", updated.BackendID)
-		require.Equal(t, "claude-3-7-sonnet", updated.ModelID)
+		require.Equal(t, "claude-3-7-sonnet-20250219", updated.ModelID)
 		require.Equal(t, backendstore.Tier1, updated.Tier)
 
 		// Invalid tier -> 400
 		badBody, _ := json.Marshal(map[string]string{"tier": "tier-99"})
-		reqBad, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/models/claude/claude-3-7-sonnet/tier", bytes.NewReader(badBody))
+		reqBad, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/models/claude/claude-3-7-sonnet-20250219/tier", bytes.NewReader(badBody))
 		require.NoError(t, err)
 		reqBad.Header.Set("Content-Type", "application/json")
 		respBad, err := http.DefaultClient.Do(reqBad)
@@ -238,7 +238,7 @@ func TestHandleSwitchSessionRoute(t *testing.T) {
 	sess := &store.Session{
 		ID:          "agent-switch-test",
 		Backend:     "claude",
-		Model:       "claude-3-7-sonnet",
+		Model:       "claude-3-7-sonnet-20250219",
 		TmuxSession: "agent-switch-test",
 		Status:      store.StatusWorking,
 	}

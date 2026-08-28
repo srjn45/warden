@@ -180,7 +180,7 @@ func TestResolver_HighestHeadroomSelection(t *testing.T) {
 
 	// Record usage:
 	// Claude: 350,000 / 500,000 tokens (70% usage -> 30% headroom)
-	require.NoError(t, s.RecordQuotaUsage("claude", 350000, "claude-3-7-sonnet", now))
+	require.NoError(t, s.RecordQuotaUsage("claude", 350000, "claude-3-7-sonnet-20250219", now))
 
 	// Antigravity: 100,000 / 1,000,000 tokens (10% usage -> 90% headroom)
 	require.NoError(t, s.RecordQuotaUsage("antigravity", 100000, "claude-sonnet-4-6", now))
@@ -205,7 +205,7 @@ func TestResolver_Automatic90PercentThresholdFailover(t *testing.T) {
 	ctx := context.Background()
 
 	// Claude hits 92% quota usage (460,000 / 500,000 tokens)
-	require.NoError(t, s.RecordQuotaUsage("claude", 460000, "claude-3-7-sonnet", now))
+	require.NoError(t, s.RecordQuotaUsage("claude", 460000, "claude-3-7-sonnet-20250219", now))
 
 	// Antigravity has 50% usage (500,000 / 1,000,000 tokens -> 50% headroom)
 	require.NoError(t, s.RecordQuotaUsage("antigravity", 500000, "claude-sonnet-4-6", now))
