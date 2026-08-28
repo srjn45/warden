@@ -216,9 +216,9 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 			continue
 		}
 
-		if !m.IsDefault && !(opts.PreferredBackend == m.BackendID && opts.PreferredModel == m.ModelID) && !(opts.PreferredBackend == "" && opts.PreferredModel == m.ModelID) {
+		if !m.AutoAssign && !(opts.PreferredBackend == m.BackendID && opts.PreferredModel == m.ModelID) && !(opts.PreferredBackend == "" && opts.PreferredModel == m.ModelID) {
 			eval.Eligible = false
-			eval.RejectReason = "model is not the default for this tier (manual selection only)"
+			eval.RejectReason = "model is not auto-assigned for this tier (manual selection only)"
 			evals = append(evals, eval)
 			continue
 		}

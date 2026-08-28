@@ -821,11 +821,11 @@ func (s *Store) seedDefaultsIfEmpty() error {
 				return err
 			}
 		} else if err == nil {
-			if _, ok := rec.Data["is_default"]; !ok {
-				// Backfill missing IsDefault for existing records
+			if _, ok := rec.Data["auto_assign"]; !ok {
+				// Backfill missing AutoAssign for existing records
 				model, err := modelFromRecord(rec.Data)
 				if err == nil {
-					model.IsDefault = m.IsDefault
+					model.AutoAssign = m.AutoAssign
 					s.upsertModel(model)
 				}
 			}

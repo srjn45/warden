@@ -10,7 +10,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier1,
 			DisplayName: "Claude Opus",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "antigravity",
@@ -18,7 +18,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier1,
 			DisplayName: "Claude Opus 4.6 (Thinking)",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "antigravity",
@@ -26,6 +26,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier1,
 			DisplayName: "Gemini 3.1 Pro (High)",
 			Enabled:     true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "cursor",
@@ -33,7 +34,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier1,
 			DisplayName: "Claude 3 Opus",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "codex",
@@ -41,7 +42,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier1,
 			DisplayName: "GPT-5.5",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 
 		// Tier 2 models
@@ -51,7 +52,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "Claude 3.7 Sonnet",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "antigravity",
@@ -59,7 +60,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "Claude Sonnet 4.6 (Thinking)",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "antigravity",
@@ -67,6 +68,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "Gemini 3.7 Flash (High)",
 			Enabled:     true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "antigravity",
@@ -95,7 +97,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "Sonnet 3.7",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "codex",
@@ -103,7 +105,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "GPT-5.6 Terra",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "codex",
@@ -120,7 +122,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Claude 3.5 Haiku",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "antigravity",
@@ -128,7 +130,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Gemini 3.7 Flash (Medium)",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "antigravity",
@@ -178,7 +180,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Composer 2.5 Fast",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "codex",
@@ -186,7 +188,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "GPT-5.6 Luna",
 			Enabled:     true,
-			IsDefault:   true,
+			AutoAssign:  true,
 		},
 		{
 			BackendID:   "codex",
