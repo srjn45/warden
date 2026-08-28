@@ -150,15 +150,16 @@ func (m controlPaneModel) items() []item {
 	var out []item
 
 	// ── Approvals: recognized menus only; unrecognized prompts must be attached to.
-	rec := recognizedApprovals(m.approvals)
-	apprCollapsed := m.collapsed[secKey(secApprovals)]
-	out = append(out, item{section: secApprovals, secCount: len(rec), collapsed: apprCollapsed})
-	if m.apprEnabled && !apprCollapsed {
-		for i := range rec {
-			v := rec[i] // fresh var → distinct pointer per row
-			out = append(out, item{apprView: &v, apprIdx: i})
-		}
-	}
+	// Approvals section hidden per user request, but feature kept live.
+	// rec := recognizedApprovals(m.approvals)
+	// apprCollapsed := m.collapsed[secKey(secApprovals)]
+	// out = append(out, item{section: secApprovals, secCount: len(rec), collapsed: apprCollapsed})
+	// if m.apprEnabled && !apprCollapsed {
+	// 	for i := range rec {
+	// 		v := rec[i] // fresh var → distinct pointer per row
+	// 		out = append(out, item{apprView: &v, apprIdx: i})
+	// 	}
+	// }
 
 	// ── Pipelines: pipeline-owned sessions live here, under their pipeline.
 	pipeCollapsed := m.collapsed[secKey(secPipelines)]

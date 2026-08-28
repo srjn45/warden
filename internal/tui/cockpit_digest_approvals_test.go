@@ -66,52 +66,8 @@ func TestKeyDOnAgentFetchesDigestAndEntersDigestMode(t *testing.T) {
 
 // --- approvals (the `i` key + number answering) ---
 
-func TestItemsIncludesApprovalsRowWhenPending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = true
-	m.approvals = []approval.View{
-		{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}},
-		{ID: "agent-2", Recognized: false}, // unrecognized → not counted
-	}
-	items := m.items()
-	// The Approvals section is always the first row; its count reflects recognized
-	// menus only, and the recognized prompt expands to its own row beneath it.
-	if len(items) == 0 || items[0].section != secApprovals {
-		t.Fatalf("expected the Approvals section header first; got %+v", items)
-	}
-	if items[0].secCount != 1 {
-		t.Errorf("secCount = %d, want 1 (recognized only)", items[0].secCount)
-	}
-	var apprIDs []string
-	for _, it := range items {
-		if it.apprView != nil {
-			apprIDs = append(apprIDs, it.apprView.ID)
-		}
-	}
-	if len(apprIDs) != 1 || apprIDs[0] != "agent-1" {
-		t.Fatalf("approval rows = %v, want exactly [agent-1] (recognized only)", apprIDs)
-	}
-}
-
-func TestNoApprovalsRowWhenNonePending(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = true // enabled but nothing waiting
-	sawHeader := false
-	for _, it := range m.items() {
-		if it.section == secApprovals {
-			sawHeader = true
-			if it.secCount != 0 {
-				t.Fatalf("Approvals header count = %d, want 0 when nothing pending", it.secCount)
-			}
-		}
-		if it.apprView != nil {
-			t.Fatal("no approval rows should appear when no recognized approvals pending")
-		}
-	}
-	if !sawHeader {
-		t.Fatal("the Approvals section header must always be present")
-	}
-}
+// Tests TestItemsIncludesApprovalsRowWhenPending and TestNoApprovalsRowWhenNonePending
+// have been removed because the Approvals section was hidden from the TUI list.
 
 // Note: the standalone `i` key now opens the agent-detail overlay (modeDetails);
 // it no longer enters the approvals overlay. The approvals binding moved to `p`.

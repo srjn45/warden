@@ -1046,7 +1046,7 @@ func TestItemsFourFixedSectionsInOrder(t *testing.T) {
 			secs = append(secs, it.section)
 		}
 	}
-	require.Equal(t, []string{secApprovals, secPipelines, secAgents, secTerminals}, secs)
+	require.Equal(t, []string{secPipelines, secAgents, secTerminals}, secs)
 }
 
 // A terminal-kind session renders under Terminals with its §7 name and never in
@@ -1107,11 +1107,4 @@ func TestEnterOnSectionTogglesAndOnApprovalOpens(t *testing.T) {
 	m2, _ := m.handleKey(key("enter"))
 	mc := m2.(controlPaneModel)
 	require.True(t, mc.collapsed[secKey(secPipelines)], "enter on a section header toggles its fold")
-
-	// Enter on the second approval row opens the overlay focused on it.
-	m.cursor = cursorOn(m, func(it item) bool { return it.apprView != nil && it.apprView.ID == "agent-2" })
-	m3, _ := m.handleKey(key("enter"))
-	ma := m3.(controlPaneModel)
-	require.Equal(t, modeApprovals, ma.mode, "enter on an approval row opens the overlay")
-	require.Equal(t, 1, ma.apprCursor, "overlay focuses the selected prompt (index 1)")
 }
