@@ -94,7 +94,7 @@ jobs:
     role: worker
     tier: tier-2
     backend: codex
-    model: gpt-4.1
+    model: gpt-5.6-terra
     depends_on: [plan]
     worktree: fresh
   - id: test
@@ -120,7 +120,7 @@ jobs:
 	}
 
 	impl := p.Job("impl")
-	if impl.Role != "worker" || impl.Tier != "tier-2" || impl.Backend != "codex" || impl.Model != "gpt-4.1" {
+	if impl.Role != "worker" || impl.Tier != "tier-2" || impl.Backend != "codex" || impl.Model != "gpt-5.6-terra" {
 		t.Fatalf("impl job fields wrong: %+v", impl)
 	}
 
