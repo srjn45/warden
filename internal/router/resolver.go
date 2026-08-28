@@ -237,11 +237,12 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 			continue
 		}
 
-		// Check tier eligibility (subscription or free; pay_per_use only if explicitly allowed)
-		if b.Tier != backendstore.TierSubscription && b.Tier != backendstore.TierFree {
+		// Check tier eligibility (subscription; pay_per_use only if explicitly allowed).
+		// Free tier backends are reserved exclusively for internal warden thinking.
+		if b.Tier != backendstore.TierSubscription {
 			if !(opts.AllowPaid && b.Tier == backendstore.TierPayPerUse) {
 				eval.Eligible = false
-				eval.RejectReason = fmt.Sprintf("backend tier '%s' not eligible for subscription/free routing", b.Tier)
+				eval.RejectReason = fmt.Sprintf("backend tier '%s' not eligible for standard agent routing", b.Tier)
 				evals = append(evals, eval)
 				continue
 			}
