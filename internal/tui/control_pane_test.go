@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -186,20 +187,42 @@ func TestListPaneEnterNoopWithoutSelection(t *testing.T) {
 	require.Nil(t, cmd, "Enter with no selection does nothing")
 }
 
-func TestListPaneOpenDirAddsPlaceholder(t *testing.T) {
+func TestOpenProjectLocalAddsPlaceholderAndSpawnsOrchestrator(t *testing.T) {
 	f := &fakeAPI{dirListing: client.DirListing{Path: "/work/api"}}
 	m := newListPane(f, "%9", "")
 	m = lstep(m, key("o"))
-	require.Equal(t, modeOpenDir, m.mode)
+	require.Equal(t, modeOpenProject, m.mode, "o opens the full-pane Open Project panel")
+	m = lstep(m, key("l"))
+	require.Equal(t, modeOpenProjectLocal, m.mode, "l enters the local navigator")
 	m.tp.SetValue("/work/api")
-	_, cmd := m.Update(key("enter"))
-	require.NotNil(t, cmd, "enter dispatches openDirCmd")
-	m = lstep(m, openDirMsg{dir: "/work/api"}) // the validated result
+	nm, cmd := m.Update(key("enter"))
+	m = nm.(controlPaneModel)
+	require.NotNil(t, cmd, "enter dispatches project resolution")
 	require.Equal(t, modeNormal, m.mode)
-	// The opened dir adds a placeholder row under Projects (alongside the
-	// always-present section headers).
+	// Resolving a fresh (no incumbent orchestrator) project adds its placeholder
+	// row under Projects and spawns the orchestrator.
+	nm2, spawn := m.Update(projectOpenMsg{rec: projectstore.Recent{Key: "local:/work/api", Name: "api", Path: "/work/api"}})
+	m = nm2.(controlPaneModel)
 	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/api" })
-	require.GreaterOrEqual(t, idx, 0, "opening a dir adds its placeholder row")
+	require.GreaterOrEqual(t, idx, 0, "opening a project adds its placeholder row")
+	require.NotNil(t, spawn, "a fresh project dispatches an orchestrator spawn")
+	spawn() // execute the spawn command against the fake api
+	require.NotNil(t, f.spawned, "a fresh project spawns its orchestrator")
+	require.Equal(t, "orchestrator", f.spawned.Role)
+	require.Equal(t, "/work/api", f.spawned.Cwd)
+}
+
+func TestOpenProjectFocusesExistingOrchestrator(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	orch := liveAgent("orch1", "/work/api")
+	orch.Role = "orchestrator"
+	m.sessions = []*store.Session{orch}
+	m.projKeys = map[string]string{"/work/api": "local:/work/api"}
+	// An incumbent orchestrator for the same key is focused, not duplicated.
+	m2, _ := m.openResolvedProject(projectOpenMsg{rec: projectstore.Recent{Key: "local:/work/api", Name: "api", Path: "/work/api"}})
+	mm := m2.(controlPaneModel)
+	require.Equal(t, "orch1", mm.openedAgent, "the incumbent orchestrator is focused")
+	require.Contains(t, mm.status, "focused")
 }
 
 func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {

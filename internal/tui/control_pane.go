@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -105,6 +106,13 @@ type controlPaneModel struct {
 	// the cockpit is a window inside the user's own session — killing the session
 	// there would take the user's entire tmux session down with it.
 	killWindow bool
+	// recents is the persistence seam for the Open Project panel's recent list
+	// (Stage C5). nil ⇒ the panel still works but the recent list is not persisted
+	// (e.g. the store failed to open, or a second co-located cockpit already holds
+	// it). recentList is the loaded snapshot; recentCursor is the focused row.
+	recents      ProjectRecents
+	recentList   []projectstore.Recent
+	recentCursor int
 }
 
 // quitCmd is what `q`/`ctrl+c` runs: tear the whole cockpit down (killCockpitCmd
@@ -675,25 +683,32 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case dirListMsg:
-		if msg.err == nil && (m.mode == modeOpenDir || m.mode == modeNewAgentDir) {
+		if msg.err == nil && (m.mode == modeOpenProjectLocal || m.mode == modeNewAgentDir) {
 			completed, cands := completeDir(msg.listing, msg.typed)
 			m.tp.SetValue(completed)
 			m.tp.CursorEnd()
 			m.dirCandidates = cands
 		}
 		return m, nil
-	case openDirMsg:
+	case recentsMsg:
 		if msg.err != nil {
-			m.status = "cannot open " + msg.dir + ": " + msg.err.Error()
+			m.status = "recent projects unavailable: " + msg.err.Error()
 			return m, nil
 		}
-		m.openedDirs[msg.dir] = time.Now()
-		m.pendingSelect = dirKey(msg.dir)
-		m.mode = modeNormal
-		m.tp.Blur()
-		m.dirCandidates = nil
-		m.repin("")
+		m.recentList = msg.list
+		if m.recentCursor >= len(m.recentList) {
+			m.recentCursor = 0
+		}
 		return m, nil
+	case cloneDoneMsg:
+		if msg.err != nil {
+			m.status = "clone failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.status = "cloned into " + abbrevHome(msg.dir) + " — opening…"
+		return m, resolveProjectCmd(msg.dir)
+	case projectOpenMsg:
+		return m.openResolvedProject(msg)
 	case spawnDoneMsg:
 		switch {
 		case msg.confirm != nil:
@@ -934,10 +949,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.tn, cmd = m.tn.Update(msg)
 		return m, cmd
-	case modeOpenDir:
+	case modeOpenProject:
+		return m.handleOpenProjectKey(msg)
+	case modeOpenProjectLocal:
 		switch msg.Type {
 		case tea.KeyEsc:
-			m.mode = modeNormal
+			// Back to the Open Project landing panel, not straight to the list.
+			m.mode = modeOpenProject
 			m.tp.Blur()
 			m.dirCandidates = nil
 			return m, nil
@@ -946,7 +964,31 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			listDir, _ := dirCompletionTarget(typed)
 			return m, listDirsCmd(m.api, typed, listDir)
 		case tea.KeyEnter:
-			return m, openDirCmd(m.api, expandPath(m.tp.Value(), homeDir()))
+			dir := expandPath(m.tp.Value(), homeDir())
+			m.mode = modeNormal
+			m.tp.Blur()
+			m.dirCandidates = nil
+			m.status = "opening " + abbrevHome(dir) + "…"
+			return m, resolveProjectCmd(dir)
+		}
+		var cmd tea.Cmd
+		m.tp, cmd = m.tp.Update(msg)
+		return m, cmd
+	case modeOpenProjectGit:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.mode = modeOpenProject
+			m.tp.Blur()
+			return m, nil
+		case tea.KeyEnter:
+			url := strings.TrimSpace(m.tp.Value())
+			if url == "" {
+				return m, nil
+			}
+			m.mode = modeNormal
+			m.tp.Blur()
+			m.status = "cloning " + url + "…"
+			return m, cloneProjectCmd(url)
 		}
 		var cmd tea.Cmd
 		m.tp, cmd = m.tp.Update(msg)
@@ -1376,10 +1418,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.roleIdx = 0    // reset the role picker to general on every fresh form
 		m.backendIdx = 0 // reset the backend picker to claude on every fresh form
 	case "o":
-		m.mode = modeOpenDir
-		m.tp.Reset()
-		m.tp.Focus()
-		m.dirCandidates = nil
+		// `o` takes over the whole control pane with the Open Project panel: a
+		// persisted recent list, open-local, and open-via-git (Stage C5). It no
+		// longer opens the highlighted row.
+		m.mode = modeOpenProject
+		m.recentCursor = 0
+		m.status = ""
+		return m, recentsLoadCmd(m.recents)
 	case "s":
 		if m.selected() != nil {
 			m.mode = modeSendMsg
@@ -1542,6 +1587,21 @@ func (m controlPaneModel) View() string {
 		}
 		return header + "\n" + body + "\n" + footer
 	}
+	if m.mode == modeOpenProject || m.mode == modeOpenProjectLocal || m.mode == modeOpenProjectGit {
+		body := titleBox("Open Project", m.openProjectBody(), m.w, bodyH)
+		footer := stMuted.Render("↑/↓ move · enter open recent · l open local · g open via git · esc back")
+		switch m.mode {
+		case modeOpenProjectLocal:
+			footer = stPaneTitle.Render("Open local (tab complete · enter open · esc back)") + " " + m.tp.View() +
+				"\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
+		case modeOpenProjectGit:
+			footer = stPaneTitle.Render("Open via git — clone URL (enter clone · esc back):") + " " + m.tp.View()
+		}
+		if m.status != "" && m.mode == modeOpenProject {
+			footer = stStatus.Render(m.status)
+		}
+		return header + "\n" + body + "\n" + footer
+	}
 	// The control pane is composed of stacked bordered/titled inner frames — one
 	// per top-level section (Projects and Terminals) — inside the outer Control
 	// frame, each windowing/collapsing independently.
@@ -1568,8 +1628,6 @@ func (m controlPaneModel) View() string {
 		footer = stPaneTitle.Render("Backend (↑/↓ or j/k select · enter/esc back to prompt):") + "\n" + m.backendPickerView()
 	case modeNewAgentDir:
 		footer = stPaneTitle.Render("Launch path (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
-	case modeOpenDir:
-		footer = stPaneTitle.Render("Open project by path (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
@@ -1879,10 +1937,12 @@ func openAgentDetailCmd(agentPane, agentID string) tea.Cmd {
 // Enter, terminals in the latter). terminalPane is "" in the tmux-native cockpit,
 // which has no terminal pane. killWindow scopes the `q` teardown to the cockpit
 // window instead of the whole session — set in the tmux-native cockpit, where the
-// cockpit lives inside the user's own tmux session.
-func RunControlPane(a api, agentPane, terminalPane string, killWindow bool) error {
+// cockpit lives inside the user's own tmux session. recents backs the Open Project
+// panel's recent list (nil ⇒ the panel works without persistence).
+func RunControlPane(a api, agentPane, terminalPane string, killWindow bool, recents ProjectRecents) error {
 	m := newListPane(a, agentPane, terminalPane)
 	m.killWindow = killWindow
+	m.recents = recents
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
