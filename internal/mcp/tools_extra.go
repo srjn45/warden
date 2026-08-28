@@ -228,7 +228,7 @@ type setModelTierArgs struct {
 	Tier    string `json:"tier" jsonschema:"the model tier: tier-1 | tier-2 | tier-3"`
 }
 type setRoleTierArgs struct {
-	Role string `json:"role" jsonschema:"the agent role name (e.g. architecture, implementation, triage, code-review)"`
+	Role string `json:"role" jsonschema:"the agent role name (e.g. general, orchestrator, planner, worker)"`
 	Tier string `json:"tier" jsonschema:"the default model tier: tier-1 | tier-2 | tier-3"`
 }
 type switchAgentArgs struct {

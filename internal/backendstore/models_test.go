@@ -135,23 +135,18 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Tier3, m.Tier)
 
-	// Verify default role tiers (11 roles)
+	// Verify default role tiers (6 roles), keyed by real role names.
 	roleTiers, err := s.ListRoleTiers()
 	require.NoError(t, err)
-	require.Len(t, roleTiers, 11)
+	require.Len(t, roleTiers, 6)
 
 	expectedRoles := map[string]ModelTier{
-		"analysis":           Tier1,
-		"architecture":       Tier1,
-		"planning":           Tier1,
-		"design":             Tier1,
-		"arch-design-review": Tier1,
-		"autopilot":          Tier1,
-		"pr-review":          Tier1,
-		"implementation":     Tier2,
-		"debugger":           Tier2,
-		"code-review":        Tier2,
-		"ci-triage":          Tier3,
+		"general":      Tier2,
+		"orchestrator": Tier1,
+		"planner":      Tier1,
+		"worker":       Tier2,
+		"autopilot":    Tier1,
+		"brain":        Tier2,
 	}
 
 	for role, expectedTier := range expectedRoles {
@@ -237,11 +232,11 @@ func TestRoleTierOperations(t *testing.T) {
 	_, err = s.GetRoleTier("")
 	require.ErrorIs(t, err, ErrRoleNotFound)
 
-	// Update existing role tier
-	require.NoError(t, s.SetRoleTier("analysis", Tier2))
-	tier, err := s.GetRoleTier("analysis")
+	// Update existing (seeded) role tier: general defaults to Tier2.
+	require.NoError(t, s.SetRoleTier("general", Tier3))
+	tier, err := s.GetRoleTier("general")
 	require.NoError(t, err)
-	require.Equal(t, Tier2, tier)
+	require.Equal(t, Tier3, tier)
 
 	// Set new role tier
 	require.NoError(t, s.SetRoleTier("security-audit", Tier1))
@@ -249,10 +244,10 @@ func TestRoleTierOperations(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Tier1, tier)
 
-	// List role tiers includes new role
+	// List role tiers includes new role (6 seeded defaults + 1 custom).
 	roles, err := s.ListRoleTiers()
 	require.NoError(t, err)
-	require.Len(t, roles, 12)
+	require.Len(t, roles, 7)
 
 	// Errors
 	require.ErrorIs(t, s.SetRoleTier("analysis", "invalid-tier"), ErrInvalidTier)
@@ -289,7 +284,7 @@ func TestReopenPreservesModelAndTierChanges(t *testing.T) {
 	// Modify model, role tier, and handover settings
 	require.NoError(t, s.SetModelTier("claude", "claude-opus", Tier3))
 	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
-	require.NoError(t, s.SetRoleTier("analysis", Tier3))
+	require.NoError(t, s.SetRoleTier("general", Tier3))
 	require.NoError(t, s.SetHandoverSettings(HandoverSettings{
 		Enabled:               false,
 		ThresholdPercent:      95,
@@ -310,7 +305,7 @@ func TestReopenPreservesModelAndTierChanges(t *testing.T) {
 	require.Equal(t, Tier3, m.Tier)
 	require.False(t, m.Enabled)
 
-	roleTier, err := s2.GetRoleTier("analysis")
+	roleTier, err := s2.GetRoleTier("general")
 	require.NoError(t, err)
 	require.Equal(t, Tier3, roleTier)
 
@@ -331,7 +326,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	// 1. Mutate an existing default model and role tier
 	require.NoError(t, s.SetModelTier("claude", "claude-opus", Tier3))
 	require.NoError(t, s.SetModelEnabled("claude", "claude-opus", false))
-	require.NoError(t, s.SetRoleTier("analysis", Tier3))
+	require.NoError(t, s.SetRoleTier("general", Tier3))
 
 	// 2. Add custom model, custom role, and custom quota
 	require.NoError(t, s.UpsertModel(ModelEntry{
@@ -353,7 +348,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	missingModelKey2 := modelKey("claude", "claude-3-7-sonnet")
 	require.NoError(t, s.modelsCol.DeleteByKey(missingModelKey1))
 	require.NoError(t, s.modelsCol.DeleteByKey(missingModelKey2))
-	require.NoError(t, s.rolesCol.DeleteByKey("ci-triage"))
+	require.NoError(t, s.rolesCol.DeleteByKey("orchestrator"))
 	require.NoError(t, s.quotasCol.DeleteByKey("cursor"))
 
 	// Verify they are deleted before reopening
@@ -361,7 +356,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.ErrorIs(t, err, ErrModelNotFound)
 	_, err = s.GetModel("claude", "claude-3-7-sonnet")
 	require.ErrorIs(t, err, ErrModelNotFound)
-	_, err = s.GetRoleTier("ci-triage")
+	_, err = s.GetRoleTier("orchestrator")
 	require.ErrorIs(t, err, ErrRoleNotFound)
 	_, err = s.GetQuota("cursor")
 	require.ErrorIs(t, err, ErrNotFound)
@@ -387,9 +382,9 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.True(t, m2.Enabled)
 
 	// 6. Verify missing role tier and quota were restored cleanly
-	rt, err := s2.GetRoleTier("ci-triage")
+	rt, err := s2.GetRoleTier("orchestrator")
 	require.NoError(t, err)
-	require.Equal(t, Tier3, rt)
+	require.Equal(t, Tier1, rt)
 
 	q, err := s2.GetQuota("cursor")
 	require.NoError(t, err)
@@ -402,7 +397,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.Equal(t, Tier3, mutatedModel.Tier)
 	require.False(t, mutatedModel.Enabled)
 
-	mutatedRole, err := s2.GetRoleTier("analysis")
+	mutatedRole, err := s2.GetRoleTier("general")
 	require.NoError(t, err)
 	require.Equal(t, Tier3, mutatedRole)
 
@@ -420,14 +415,14 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1000.0, customQ.QuotaLimit)
 
-	// 9. Total counts: 17 defaults + 1 custom = 18 models; 11 defaults + 1 custom = 12 roles; 4 defaults + 1 custom = 5 quotas
+	// 9. Total counts: 17 defaults + 1 custom = 18 models; 6 defaults + 1 custom = 7 roles; 4 defaults + 1 custom = 5 quotas
 	models, err := s2.ListModels("")
 	require.NoError(t, err)
 	require.Len(t, models, 18)
 
 	roles, err := s2.ListRoleTiers()
 	require.NoError(t, err)
-	require.Len(t, roles, 12)
+	require.Len(t, roles, 7)
 
 	quotas, err := s2.ListQuotas()
 	require.NoError(t, err)

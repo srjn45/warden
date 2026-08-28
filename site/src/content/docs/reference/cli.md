@@ -2530,8 +2530,8 @@ Tiers:
   tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
 
 Example:
-  warden role set-tier implementation tier-2
-  warden role set-tier architecture tier-1
+  warden role set-tier worker tier-2
+  warden role set-tier orchestrator tier-1
 
 Usage:
   warden role set-tier <role> <tier> [flags]
