@@ -196,7 +196,7 @@ func TestListPaneOpenDirAddsPlaceholder(t *testing.T) {
 	require.NotNil(t, cmd, "enter dispatches openDirCmd")
 	m = lstep(m, openDirMsg{dir: "/work/api"}) // the validated result
 	require.Equal(t, modeNormal, m.mode)
-	// The opened dir adds a placeholder row under Agents (alongside the four
+	// The opened dir adds a placeholder row under Projects (alongside the
 	// always-present section headers).
 	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/api" })
 	require.GreaterOrEqual(t, idx, 0, "opening a dir adds its placeholder row")

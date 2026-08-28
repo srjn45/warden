@@ -81,11 +81,12 @@ func lastNonFlag(argv []string) string {
 
 func TestKillCockpitArgs(t *testing.T) {
 	// Classic cockpit owns its session: drop the Enter override AND the <prefix>
-	// t/a/p/T/A/P rotation fallbacks (server-global bindings), then kill the session.
+	// t/a/T/A rotation fallbacks (server-global bindings), then kill the session.
+	// (p/P are gone — the M-p pipeline-agent rotation is retired in C2.)
 	require.Equal(t, [][]string{
 		{"unbind-key", "Enter"},
-		{"unbind-key", "t"}, {"unbind-key", "a"}, {"unbind-key", "p"},
-		{"unbind-key", "T"}, {"unbind-key", "A"}, {"unbind-key", "P"},
+		{"unbind-key", "t"}, {"unbind-key", "a"},
+		{"unbind-key", "T"}, {"unbind-key", "A"},
 		{"kill-session"},
 	}, killCockpitArgs(false))
 	// Native cockpit lives in the user's session: kill only our window, and leave

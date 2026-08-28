@@ -43,13 +43,13 @@ func pressureChip(p client.PressureStatus) string {
 func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
-		"  ←/→ or h/l   fold / unfold: a section header (Approvals·Pipelines·Agents·Terminals),\n" +
+		"  ←/→ or h/l   fold / unfold: a frame (Pipelines·Projects·Terminals),\n" +
 		"               a pipeline, or an agent sub-tree — whatever is under the cursor\n" +
 		"  enter        open the selected entity — an agent in the agent pane, a terminal in\n" +
-		"               the terminal pane (grabs focus) — or toggle a section header's fold\n" +
+		"               the terminal pane (grabs focus) — or toggle a frame's fold\n" +
 		"  n            new agent (prompt)\n" +
-		"  t            open a terminal in the focused agent's dir: (c)reate new or (f)ocus existing\n" +
-		"  o            open a directory as a group (spawn target for n)\n" +
+		"  t            open a terminal in the focused agent's folder: (c)reate new or (f)ocus existing\n" +
+		"  o            open a project by path (spawn target for n)\n" +
 		"  s            send a message to the selected agent\n" +
 		"  a            full-screen attach to its tmux session (or a running pipeline job's session)\n" +
 		"  d            completion digest for the selected agent (scrollable; d/esc to close)\n" +
@@ -58,7 +58,7 @@ func helpText() string {
 		"  c            shared-context + message-traffic inspector\n" +
 		"  b            agent-backend registry page (tier / default / enable · r rescan · m thinking-mode)\n" +
 		"  r            retry a failed/needs-attention pipeline job\n" +
-		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
+		"  x            kill agent / cancel pipeline / close project (context-sensitive)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +
 		"  ctrl+a       toggle autopilot on/off (run `warden autopilot init` first if not configured)\n" +
 		"  ?            toggle this help\n" +
@@ -66,10 +66,9 @@ func helpText() string {
 		"\n" +
 		stPaneTitle.Render("Rotation (global — works from any pane, even while typing)") + "\n" +
 		"  alt+t        cycle the terminal pane through the live terminals (grabs focus)\n" +
-		"  alt+a        cycle the agent pane through all live agents (grabs focus)\n" +
-		"  alt+p        cycle the agent pane through pipeline agents (pipeline > agents order)\n" +
-		"  alt+shift+…   add shift to any of the above to rotate in reverse (t/a/p)\n" +
-		"  ctrl+b t/a/p macOS/no-Meta fallback: <prefix> then t/a/p (add shift for reverse)\n" +
+		"  alt+a        cycle the agent pane through the Projects frame's live agents (grabs focus)\n" +
+		"  alt+shift+…   add shift to either of the above to rotate in reverse (t/a)\n" +
+		"  ctrl+b t/a   macOS/no-Meta fallback: <prefix> then t/a (add shift for reverse)\n" +
 		"               does the same rotation — for terminals that don't send Alt/Option\n" +
 		"               as Meta (macOS Terminal.app / iTerm2 default; or turn on 'Option as Meta')\n" +
 		"  " + stOpened.Render("◆") + " " + stOpenedName.Render("name") + "     marks the agent/terminal currently shown in a pane — it\n" +

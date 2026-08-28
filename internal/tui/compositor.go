@@ -52,7 +52,7 @@ func agentPlaceholderCmd() string {
 // or one picked with Enter/`t`). `exec sleep` so it is cleanly replaceable by
 // `respawn-pane`, exactly like the agent pane's placeholder.
 func terminalPlaceholderCmd() string {
-	return `sh -c 'printf "Opening a terminal here…\n\nPress t in the control pane for a terminal in the focused agent'\''s dir.\n"; exec sleep 2147483647'`
+	return `sh -c 'printf "Opening a terminal here…\n\nPress t in the control pane for a terminal in the focused agent'\''s folder.\n"; exec sleep 2147483647'`
 }
 
 // runPaneCreate runs a pane-creating tmux command (-P -F '#{pane_id}') and
@@ -141,27 +141,29 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	// pane, so you can rotate while typing in a shell or agent. Each key just
 	// forwards itself to the control pane, which owns the rotation state
 	// (openedTerminal/openedAgent) and respawns the target pane — M-t cycles the
-	// terminal pane, M-a all agents, M-p pipeline agents (all in the agent pane).
-	// M-t is exactly the key freed by removing the old shell-toggle. The control
-	// pane is targeted explicitly (-t) so rotation works even when another pane has
-	// focus. Alt (not Ctrl) avoids clobbering C-a/C-p readline keys inside shells.
-	// The shifted variants (M-T/M-A/M-P = Alt+Shift+t/a/p) rotate the same viewports
-	// in reverse; tmux treats them as keys distinct from their lowercase forms.
-	for _, key := range []string{"M-t", "M-a", "M-p", "M-T", "M-A", "M-P"} {
+	// terminal pane, M-a the agent pane through the Projects frame's live agents.
+	// (M-p, the old pipeline-agent rotation, is retired — pipelines are reached
+	// inside the Projects tree, not a rotation of their own.) M-t is exactly the key
+	// freed by removing the old shell-toggle. The control pane is targeted explicitly
+	// (-t) so rotation works even when another pane has focus. Alt (not Ctrl) avoids
+	// clobbering C-a/C-p readline keys inside shells. The shifted variants (M-T/M-A =
+	// Alt+Shift+t/a) rotate the same viewports in reverse; tmux treats them as keys
+	// distinct from their lowercase forms.
+	for _, key := range []string{"M-t", "M-a", "M-T", "M-A"} {
 		if out, err := run.Run(ctx, "", "tmux", "bind-key", "-n", key, "send-keys", "-t", controlPaneID, key); err != nil {
 			return fmt.Errorf("tmux bind-key %s: %w: %s", key, err, out)
 		}
 	}
-	// Config-free prefix fallback for the SAME rotation: <prefix> t/a/p (and shifted
-	// T/A/P). The root M-… bindings above only fire if the terminal emulator sends
+	// Config-free prefix fallback for the SAME rotation: <prefix> t/a (and shifted
+	// T/A). The root M-… bindings above only fire if the terminal emulator sends
 	// Meta for Alt/Option combos — which macOS Terminal.app and iTerm2 do NOT by
 	// default (Option+a emits "å", not ESC+a), so those users would otherwise have no
 	// rotation key. <prefix> (Ctrl-b) is a plain control byte every terminal produces,
 	// so this path needs no emulator setting. Each key forwards the matching M-<key>
 	// to the control pane, reusing the identical rotation handling. These override the
-	// tmux defaults for t (clock)/p (previous-window) inside this session and are
-	// unbound on teardown (killCockpitArgs).
-	for _, m := range [][2]string{{"t", "M-t"}, {"a", "M-a"}, {"p", "M-p"}, {"T", "M-T"}, {"A", "M-A"}, {"P", "M-P"}} {
+	// tmux default for t (clock) inside this session and are unbound on teardown
+	// (killCockpitArgs).
+	for _, m := range [][2]string{{"t", "M-t"}, {"a", "M-a"}, {"T", "M-T"}, {"A", "M-A"}} {
 		if out, err := run.Run(ctx, "", "tmux", "bind-key", m[0], "send-keys", "-t", controlPaneID, m[1]); err != nil {
 			return fmt.Errorf("tmux bind-key %s: %w: %s", m[0], err, out)
 		}
