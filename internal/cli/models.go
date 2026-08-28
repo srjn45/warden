@@ -199,7 +199,7 @@ Example:
 
 func printModelsTable(out io.Writer, models []backendstore.ModelEntry) error {
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "BACKEND\tMODEL\tTIER\tDISPLAY NAME\tENABLED\tDEFAULT")
+	fmt.Fprintln(w, "BACKEND\tMODEL\tTIER\tDISPLAY NAME\tENABLED\tAUTO-ASSIGN")
 	for _, m := range models {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			m.BackendID,
@@ -207,7 +207,7 @@ func printModelsTable(out io.Writer, models []backendstore.ModelEntry) error {
 			m.Tier,
 			m.DisplayName,
 			checkMark(m.Enabled),
-			checkMark(m.IsDefault),
+			checkMark(m.AutoAssign),
 		)
 	}
 	return w.Flush()
@@ -240,14 +240,14 @@ func printModelsByTier(out io.Writer, models []backendstore.ModelEntry) error {
 
 		fmt.Fprintf(out, "=== %s ===\n", strings.ToUpper(string(t)))
 		w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(w, "BACKEND\tMODEL\tDISPLAY NAME\tENABLED\tDEFAULT")
+		fmt.Fprintln(w, "BACKEND\tMODEL\tDISPLAY NAME\tENABLED\tAUTO-ASSIGN")
 		for _, m := range entries {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 				m.BackendID,
 				m.ModelID,
 				m.DisplayName,
 				checkMark(m.Enabled),
-				checkMark(m.IsDefault),
+				checkMark(m.AutoAssign),
 			)
 		}
 		if err := w.Flush(); err != nil {
