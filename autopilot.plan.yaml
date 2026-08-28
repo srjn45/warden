@@ -1,14 +1,9 @@
 version: 1
-
 goal: >-
-  Implement the collaboration-groups, pipeline-as-substrate/monitoring, and
-  cockpit-UI work described in docs/specs/2026-08-26-collaboration-groups-impl.md.
-  One task = one bounded PR, gated on CI. Do not cut or push any release.
-
+  Implement the collaboration-groups, pipeline-as-substrate/monitoring, and cockpit-UI work described in docs/specs/2026-08-26-collaboration-groups-impl.md. One task = one bounded PR, gated on CI. Do not cut or push any release.
 # Rules every worker must follow (the brain injects these into each spawn).
 constraints:
-  - Read ONLY your own stage brief in docs/specs/2026-08-26-collaboration-groups-impl.md
-    plus the design doc docs/specs/2026-08-26-collaboration-groups.md. Do not load the whole plan.
+  - Read ONLY your own stage brief in docs/specs/2026-08-26-collaboration-groups-impl.md plus the design doc docs/specs/2026-08-26-collaboration-groups.md. Do not load the whole plan.
   - Work in an isolated git worktree branched off the latest origin/main; one worker per task.
   - Keep the tree green — run `make verify-fast` before every commit/push. The rail has no bypass.
   - API is spec-first — edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit generated code.
@@ -17,7 +12,6 @@ constraints:
   - The four decisions in impl §6 are final; do not re-open them.
   - Do NOT push any v* tag or cut a release — that is a human touchpoint.
   - End each task with `wd job done --summary '<what shipped>'` once the PR is up and CI is green.
-
 tasks:
   # ── Track B — Collaboration groups (pipeline U-B) ──
   - id: B1
@@ -42,7 +36,6 @@ tasks:
   - id: B8
     prompt: "Stage B8 (impl §3): `wd collaborate group <name> join|leave` CLI + `collaborate_group` MCP tool (parity) + `make gendocs`."
     after: [B4, B5, B6]
-
   # ── Track A — Pipeline-as-substrate & monitoring (pipeline U-A) ──
   - id: A1
     prompt: "Stage A1 (impl §4): worker done-signal — BOTH `wd job done --summary` (primary) and a <<WARDEN_DONE>>{json} sentinel (backstop). Warden captures status+summary with no extra turn."
@@ -56,7 +49,6 @@ tasks:
   - id: A5
     prompt: "Stage A5 (impl §4): ambiguous-idle fallback — on the transition to idle-at-prompt, ask once for {status,details,summary}; never on a loop."
     after: [A2]
-
   # ── Track C — Projects-first cockpit UI ──
   - id: C1
     prompt: "Stage C1 (impl §2): TUI — remove the top-level Approvals section entirely. Pending approvals surface only via an agent's needs-input status (the classifier fix is A2, not here)."
@@ -71,7 +63,6 @@ tasks:
     after: [C2, B2, B3]
   - id: C4
     prompt: "Stage C4 (impl §2): web — add an Agents fixed tab mirroring the Terminals tab (list left / AgentTab right). Web stays flat/tab-based this wave; leave the web Pipelines tab untouched."
-
 # Acceptance the brain verifies before declaring the run complete.
 done_when:
   - "wd check passes on the integration branch (tests, vet, verify-fast all green)."
@@ -80,3 +71,5 @@ done_when:
   - "TUI: Approvals + Pipelines top-level sections removed; Projects frame groups agents by project (Terminals unchanged); pipelines render inside Projects (delegated under owner, human under project node); Open Project (`o`) panel opens + auto-spawns the project orchestrator; dir renamed Project."
   - "Web: Agents tab present mirroring Terminals; the Pipelines tab is unchanged."
   - "Docs + skill updated per impl §5 DoD; make gendocs-check green. No v* tag has been pushed."
+status: complete
+completed_at: "2026-08-28T07:33:38Z"
