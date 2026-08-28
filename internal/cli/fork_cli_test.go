@@ -63,7 +63,7 @@ func TestStartForkFromFlag(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"POST /api/v1/spawn": `{"id":"development-ef56","type":"development","status":"spawning"}`,
 	}, nil, body))
-	if _, err := runCLI(t, addr, "start", "--fork-from", "src-agent", "--repo", t.TempDir()); err != nil {
+	if _, err := runCLI(t, addr, "start", "--fork-from", "src-agent", "--repo", t.TempDir(), "--role", "general"); err != nil {
 		t.Fatalf("start --fork-from: %v", err)
 	}
 	var sent map[string]any

@@ -45,13 +45,20 @@ func parseTags(flag string) []string {
 
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "start [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>]",
-		Short: "Spawn an agent — `start \"<prompt>\"` (auto-typed), `start --dir <path>` (interactive: open Claude & wait), or `start TICKET --type <TYPE>` (managed worktree)",
-		Long: `Spawn an agent.
+		Use:   "start --role <ROLE> [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>]",
+		Short: "Spawn an agent — `start --role <ROLE> \"<prompt>\"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)",
+		Long: `Spawn an agent. --role is required (see 'warden role list'); there is no
+implicit fallback role.
 
-Free-form:   warden start "<prompt>" [--dir <path>]   (autonomous)
-Interactive: warden start --dir <path>                (opens the agent and waits)
-Managed:     warden start TICKET --type <TYPE>        (isolated worktree)
+Free-form:   warden start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
+Interactive: warden start --role <ROLE> --dir <path>                (opens the agent and waits)
+Managed:     warden start --role <ROLE> TICKET --type <TYPE>        (isolated worktree)
+
+The spawn's backend+model is resolved (top wins): an explicit --backend/--model
+pin > --tier (or --task, which derives a tier) routed through the quota-balanced
+resolver > the resolver routed by --role alone > warden's configured defaults.
+So --role on its own is always enough to spawn — --tier/--backend/--model are
+optional refinements, not additional requirements.
 
 Backends (--backend): warden drives Claude Code by default. Accepted values:
   claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
@@ -86,10 +93,14 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				typ = "development"
 			}
 
-			// Resolve the built-in role up front so a bad name fails fast with a clear
-			// list (the daemon validates too). Empty/general = no persona. The role's
-			// default flags (type/model/etc.) are applied daemon-side.
+			// --role is mandatory: no implicit fallback to "general". Resolve the
+			// built-in role up front so a missing/bad name fails fast with a clear
+			// list (the daemon validates too). The role's default flags
+			// (type/model/etc.) are applied daemon-side.
 			roleName, _ := cmd.Flags().GetString("role")
+			if strings.TrimSpace(roleName) == "" {
+				return fmt.Errorf("--role is required (valid: %s)", strings.Join(role.Names(), ", "))
+			}
 			if _, ok := role.Get(roleName); !ok {
 				return fmt.Errorf("unknown role %q (valid: %s)", roleName, strings.Join(role.Names(), ", "))
 			}
@@ -233,8 +244,8 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
 	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
-	cmd.Flags().String("role", "", "built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer | worker. Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
-	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role. An explicit --backend/--model still wins over the resolver")
+	cmd.Flags().String("role", "", "REQUIRED — built-in agent role: general | orchestrator | implementer | auto-merger | reviewer | worker. Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
+	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --backend/--model still wins over the resolver")
 	cmd.Flags().String("task", "", "task name (task registry) used to derive the model tier when --tier is empty. Empty = none")
 	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
 	return cmd

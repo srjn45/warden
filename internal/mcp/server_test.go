@@ -62,7 +62,7 @@ func TestSpawnAgentToolSendsPrompt(t *testing.T) {
 
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "spawn_agent",
-		Arguments: map[string]any{"prompt": "research SSE reconnection"},
+		Arguments: map[string]any{"prompt": "research SSE reconnection", "role": "general"},
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
@@ -99,7 +99,7 @@ func TestSpawnAgentToolStampsParentID(t *testing.T) {
 
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "spawn_agent",
-		Arguments: map[string]any{"prompt": "do X"},
+		Arguments: map[string]any{"prompt": "do X", "role": "general"},
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
@@ -142,7 +142,7 @@ func TestSpawnAgentToolSendsPermissionMode(t *testing.T) {
 
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "spawn_agent",
-		Arguments: map[string]any{"prompt": "do X", "permission_mode": "acceptEdits"},
+		Arguments: map[string]any{"prompt": "do X", "permission_mode": "acceptEdits", "role": "general"},
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
@@ -175,11 +175,135 @@ func TestSpawnAgentToolSendsExplicitDirAsCwd(t *testing.T) {
 
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "spawn_agent",
-		Arguments: map[string]any{"prompt": "do X", "dir": "/work/proj"},
+		Arguments: map[string]any{"prompt": "do X", "dir": "/work/proj", "role": "general"},
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, gotBody, `"cwd":"/work/proj"`)
+}
+
+// TestSpawnAgentToolRequiresRole verifies role is strictly mandatory: no
+// implicit fallback to "general". The SDK's generated schema rejects a
+// wholly-missing role before the handler even runs.
+func TestSpawnAgentToolRequiresRole(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("daemon must not be contacted when role is missing")
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, serverTransport) }()
+
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "spawn_agent",
+		Arguments: map[string]any{"prompt": "do X"},
+	})
+	// A wholly-missing required field fails at the SDK's schema-validation
+	// layer, either as a top-level error or as an IsError tool result
+	// depending on SDK version — accept either, so this test isn't coupled to
+	// exactly which layer rejects it.
+	if err != nil {
+		require.Contains(t, err.Error(), "role")
+	} else {
+		require.True(t, res.IsError, "missing role must be rejected")
+		require.Contains(t, textOf(res), "role")
+	}
+}
+
+// TestSpawnAgentToolBlankRoleRejected covers a whitespace-only role, which
+// clears the SDK's required-field check but must still be caught by the
+// handler as "no role provided".
+func TestSpawnAgentToolBlankRoleRejected(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("daemon must not be contacted when role is blank")
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, serverTransport) }()
+
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "spawn_agent",
+		Arguments: map[string]any{"prompt": "do X", "role": "   "},
+	})
+	require.NoError(t, err)
+	require.Contains(t, textOf(res), "role is required")
+}
+
+// TestSpawnAgentToolUnknownRoleRejected keeps the unknown-role validation
+// intact now that the missing/blank cases are handled separately.
+func TestSpawnAgentToolUnknownRoleRejected(t *testing.T) {
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("daemon must not be contacted for an unknown role")
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, serverTransport) }()
+
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "spawn_agent",
+		Arguments: map[string]any{"prompt": "do X", "role": "not-a-real-role"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, textOf(res), "unknown role")
+}
+
+// TestSpawnAgentToolSendsTierAndTask verifies tier/task now thread through to
+// the daemon's spawn request (previously unreachable via this tool).
+func TestSpawnAgentToolSendsTierAndTask(t *testing.T) {
+	var gotBody string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/spawn" {
+			b, _ := io.ReadAll(r.Body)
+			gotBody = string(b)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"agent-x","status":"spawning"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, serverTransport) }()
+
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "spawn_agent",
+		Arguments: map[string]any{"prompt": "do X", "role": "worker", "tier": "tier-2", "task": "code-review"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, gotBody, `"tier":"tier-2"`)
+	require.Contains(t, gotBody, `"task":"code-review"`)
 }
 
 func TestRestoreAgentTool(t *testing.T) {
