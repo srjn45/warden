@@ -658,6 +658,18 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dirCandidates = nil
 		m.repin("")
 		return m, nil
+	case cloneDoneMsg:
+		if msg.err != nil {
+			m.status = "clone failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.openedDirs[msg.dir] = time.Now()
+		m.pendingSelect = dirKey(msg.dir)
+		m.mode = modeNormal
+		m.tp.Blur()
+		m.status = "cloned into " + abbrevHome(msg.dir)
+		m.repin("")
+		return m, nil
 	case spawnDoneMsg:
 		switch {
 		case msg.confirm != nil:
@@ -911,11 +923,17 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnter:
 			choice := openProjectOptions[m.openProjectIdx]
-			if choice == "Local" {
+			switch choice {
+			case "Local":
 				m.mode = modeOpenProjectLocal
 				m.tp.Reset()
 				m.tp.Focus()
 				m.dirCandidates = nil
+				return m, nil
+			case "Remote":
+				m.mode = modeOpenProjectRemote
+				m.tp.Reset()
+				m.tp.Focus()
 				return m, nil
 			}
 			m.mode = modeNormal
@@ -943,6 +961,23 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, listDirsCmd(m.api, typed, listDir)
 		case tea.KeyEnter:
 			return m, openDirCmd(m.api, expandPath(m.tp.Value(), homeDir()))
+		}
+		var cmd tea.Cmd
+		m.tp, cmd = m.tp.Update(msg)
+		return m, cmd
+	case modeOpenProjectRemote:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.mode = modeOpenProjectMenu
+			m.tp.Blur()
+			return m, nil
+		case tea.KeyEnter:
+			url := strings.TrimSpace(m.tp.Value())
+			if url == "" {
+				return m, nil
+			}
+			m.status = "cloning " + url + "…"
+			return m, cloneCmd(m.api, url)
 		}
 		var cmd tea.Cmd
 		m.tp, cmd = m.tp.Update(msg)
@@ -1609,6 +1644,8 @@ func (m controlPaneModel) View() string {
 		footer = stPaneTitle.Render("Open project (↑/↓ or j/k select · enter · esc):") + "\n" + m.openProjectMenuView()
 	case modeOpenProjectLocal:
 		footer = stPaneTitle.Render("Open local project (tab complete · enter · esc back to menu)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
+	case modeOpenProjectRemote:
+		footer = stPaneTitle.Render("Open remote project — GitHub/GitLab URL (enter clone · esc back to menu)") + "\n" + m.tp.View()
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:

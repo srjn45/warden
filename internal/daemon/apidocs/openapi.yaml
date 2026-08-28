@@ -690,7 +690,7 @@ paths:
           in: path
           required: true
           schema: { type: string }
-          description: Model ID (e.g. claude-3-7-sonnet)
+          description: Model ID (e.g. sonnet)
       requestBody:
         required: true
         content:
@@ -1211,6 +1211,34 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DirListing" }
+
+  /api/v1/fs/clone:
+    post:
+      operationId: cloneRepo
+      tags: [Filesystem]
+      summary: Clone a remote Git repository into the configured workspace directory
+      description: >
+        Backs the "Open remote project" TUI flow. Runs `git clone url` into
+        <workspace_path>/<repo-name> (workspace_path is the workspace_path
+        config setting, default ~/.warden/workspace), creating the workspace
+        directory if needed. Fails if the destination already exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CloneRepoRequest" }
+      responses:
+        "200":
+          description: Cloned directory
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CloneRepoResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500":
+          description: Clone execution failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/approvals:
     get:
@@ -2696,6 +2724,18 @@ components:
         entries:
           type: array
           items: { $ref: "#/components/schemas/DirEntry" }
+
+    CloneRepoRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, description: "Git remote URL (https or ssh) to clone" }
+
+    CloneRepoResponse:
+      type: object
+      required: [dir]
+      properties:
+        dir: { type: string, description: "Absolute path the repo was cloned into" }
 
     ApprovalView:
       x-go-type: approval.View

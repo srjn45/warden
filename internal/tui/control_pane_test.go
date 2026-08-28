@@ -223,12 +223,15 @@ func TestListPaneOpenProjectMenuJKNavigateAndWrap(t *testing.T) {
 }
 
 func TestListPaneOpenProjectMenuEnterSelectsAndCloses(t *testing.T) {
+	// "New" is the one option still unwired (tui-new's job); Local/Remote both
+	// transition into their own sub-mode rather than hitting this placeholder.
 	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, key("o"))
 	m = lstep(m, key("j")) // Remote
+	m = lstep(m, key("j")) // New
 	m = lstep(m, key("enter"))
 	require.Equal(t, modeNormal, m.mode, "enter closes the menu back to normal mode")
-	require.Contains(t, m.status, "Remote", "status reflects the selected option")
+	require.Contains(t, m.status, "New", "status reflects the selected option")
 }
 
 func TestListPaneOpenProjectMenuEscCancels(t *testing.T) {
@@ -288,6 +291,85 @@ func TestListPaneOpenProjectLocalEnterOpensDir(t *testing.T) {
 	require.Equal(t, modeNormal, m.mode, "a validated dir closes the input back to normal")
 	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/api" })
 	require.GreaterOrEqual(t, idx, 0, "opening the dir adds its placeholder row")
+}
+
+func TestListPaneOpenProjectMenuRemoteEntersURLInput(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j")) // Remote
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectRemote, m.mode)
+	require.True(t, m.tp.Focused(), "URL input focuses on entering Remote")
+	require.Equal(t, "", m.tp.Value(), "URL input starts blank")
+}
+
+func TestListPaneOpenProjectRemoteEscReturnsToMenu(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectRemote, m.mode)
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeOpenProjectMenu, m.mode, "esc backs out to the picker, not all the way to normal")
+	require.False(t, m.tp.Focused())
+}
+
+func TestListPaneOpenProjectRemoteEnterClonesURL(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("https://github.com/acme/widgets"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd, "enter in the Remote URL input requests a clone")
+	msg := cmd()
+	require.Equal(t, "https://github.com/acme/widgets", f.clonedURL, "the typed URL is passed to CloneRepo")
+	dm, ok := msg.(cloneDoneMsg)
+	require.True(t, ok)
+	require.NoError(t, dm.err)
+}
+
+func TestListPaneOpenProjectRemoteEmptyURLNoops(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Nil(t, cmd, "enter with a blank URL does nothing")
+	require.Equal(t, "", f.clonedURL)
+}
+
+func TestListPaneCloneDoneMsgAddsPlaceholder(t *testing.T) {
+	f := &fakeAPI{clonedDir: "/work/widgets"}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("https://github.com/acme/widgets"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	m = lstep(m, msg)
+	require.Equal(t, modeNormal, m.mode, "a successful clone closes the input back to normal")
+	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/widgets" })
+	require.GreaterOrEqual(t, idx, 0, "cloning adds the destination's placeholder row")
+}
+
+func TestListPaneCloneDoneMsgErrorStaysInInput(t *testing.T) {
+	f := &fakeAPI{cloneErr: fmt.Errorf("git clone failed: repository not found")}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("https://github.com/acme/missing"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	m = lstep(m, msg)
+	require.Equal(t, modeOpenProjectRemote, m.mode, "a failed clone stays on the URL input so the user can retry")
+	require.Contains(t, m.status, "clone failed")
 }
 
 func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {

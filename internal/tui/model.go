@@ -22,6 +22,7 @@ type api interface {
 	SetAutoApprove(ctx context.Context, id string, enabled bool) error
 	SetForceCompact(ctx context.Context, id, state string) error
 	ListDirs(ctx context.Context, path string) (client.DirListing, error)
+	CloneRepo(ctx context.Context, url string) (string, error)
 	Approvals(ctx context.Context) (bool, []approval.View, error)
 	Approve(ctx context.Context, id string, option int, fingerprint string) error
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
@@ -55,6 +56,7 @@ const (
 	modeHelp
 	modeOpenProjectMenu       // Local/Remote/New project picker for `o`
 	modeOpenProjectLocal      // path-completion input for the menu's "Local" option
+	modeOpenProjectRemote     // URL input for the menu's "Remote" option
 	modeNewAgentDir           // dir-override sub-state of modeNewAgent
 	modeNewAgentName          // name-input sub-state of modeNewAgent
 	modeNewAgentRole          // role-select sub-state of modeNewAgent

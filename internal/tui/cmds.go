@@ -290,6 +290,25 @@ func openDirCmd(a api, dir string) tea.Cmd {
 	}
 }
 
+// cloneDoneMsg is the result of cloning a remote repo into the daemon's
+// configured workspace directory (the "Remote" option of the open-project menu).
+type cloneDoneMsg struct {
+	dir string
+	err error
+}
+
+// cloneCmd clones url via the daemon's /fs/clone (a `git clone` into the
+// configured workspace dir). Uses bgLong — cloning is a network round-trip
+// that can take a while for a large repo.
+func cloneCmd(a api, url string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bgLong()
+		defer cancel()
+		dir, err := a.CloneRepo(ctx, url)
+		return cloneDoneMsg{dir: dir, err: err}
+	}
+}
+
 // contextMsg / messagesMsg carry the inspector's read-only fetches. On error we
 // keep the last good data (like outputMsg) so a transient blip doesn't blank the
 // view the user is reading.

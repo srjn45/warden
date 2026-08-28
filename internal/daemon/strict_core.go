@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -189,6 +190,49 @@ func (s *Server) ListDirs(_ context.Context, req oapi.ListDirsRequestObject) (oa
 		parent = "" // already at the filesystem root
 	}
 	return oapi.ListDirs200JSONResponse{Path: path, Parent: parent, Entries: entries}, nil
+}
+
+// CloneRepo implements POST /api/v1/fs/clone: clones url via `git clone` into
+// <workspace_path>/<repo-name> (workspace_path from the live config,
+// config.defaultWorkspaceDir when unset), creating the workspace directory if
+// needed. Backs the TUI's "Open remote project" flow.
+func (s *Server) CloneRepo(ctx context.Context, req oapi.CloneRepoRequestObject) (oapi.CloneRepoResponseObject, error) {
+	var b oapi.CloneRepoRequest
+	if req.Body != nil {
+		b = *req.Body
+	}
+	remote := strings.TrimSpace(b.Url)
+	if remote == "" {
+		return nil, errStatus(http.StatusBadRequest, "url is required")
+	}
+	name := repoNameFromURL(remote)
+	if name == "" {
+		return nil, errStatus(http.StatusBadRequest, "cannot derive a directory name from url: "+remote)
+	}
+	workspace := s.snapshotConfig().WorkspacePath
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "cannot create workspace dir: "+err.Error())
+	}
+	dest := filepath.Join(workspace, name)
+	if _, err := os.Stat(dest); err == nil {
+		return nil, errStatus(http.StatusBadRequest, "destination already exists: "+dest)
+	}
+	out, err := exec.CommandContext(ctx, "git", "clone", remote, dest).CombinedOutput()
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "git clone failed: "+strings.TrimSpace(string(out)))
+	}
+	return oapi.CloneRepo200JSONResponse{Dir: dest}, nil
+}
+
+// repoNameFromURL derives a destination directory name from a git remote URL,
+// e.g. "https://github.com/user/repo.git" or "git@github.com:user/repo.git" ->
+// "repo". Returns "" when no usable name can be derived (e.g. a bare host).
+func repoNameFromURL(remote string) string {
+	trimmed := strings.TrimSuffix(strings.TrimRight(remote, "/"), ".git")
+	if i := strings.LastIndexAny(trimmed, "/:"); i >= 0 {
+		trimmed = trimmed[i+1:]
+	}
+	return trimmed
 }
 
 // ListApprovals implements GET /api/v1/approvals: the live queue of every
