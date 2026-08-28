@@ -815,10 +815,19 @@ func (s *Store) seedDefaultsIfEmpty() error {
 	// Seed any missing default models
 	for _, m := range DefaultModels() {
 		key := modelKey(m.BackendID, m.ModelID)
-		_, err := s.modelsCol.GetByKey(key)
+		rec, err := s.modelsCol.GetByKey(key)
 		if errors.Is(err, engine.ErrKeyNotFound) {
 			if err := s.upsertModel(m); err != nil {
 				return err
+			}
+		} else if err == nil {
+			if _, ok := rec.Data["is_default"]; !ok {
+				// Backfill missing IsDefault for existing records
+				model, err := modelFromRecord(rec.Data)
+				if err == nil {
+					model.IsDefault = m.IsDefault
+					s.upsertModel(model)
+				}
 			}
 		} else if err != nil {
 			return err
