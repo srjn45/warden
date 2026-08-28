@@ -22,7 +22,7 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	// Verify default models
 	models, err := s.ListModels("")
 	require.NoError(t, err)
-	require.Len(t, models, 18)
+	require.Len(t, models, 25)
 
 	// Verify Tier 1 models (5 models)
 	tier1Models, err := s.ListModels(Tier1)
@@ -36,7 +36,7 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	// Verify Tier 2 models (7 models)
 	tier2Models, err := s.ListModels(Tier2)
 	require.NoError(t, err)
-	require.Len(t, tier2Models, 7)
+	require.Len(t, tier2Models, 9)
 	for _, m := range tier2Models {
 		require.Equal(t, Tier2, m.Tier)
 		require.True(t, m.Enabled)
@@ -45,7 +45,7 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	// Verify Tier 3 models (5 models)
 	tier3Models, err := s.ListModels(Tier3)
 	require.NoError(t, err)
-	require.Len(t, tier3Models, 6)
+	require.Len(t, tier3Models, 11)
 	for _, m := range tier3Models {
 		require.Equal(t, Tier3, m.Tier)
 		require.True(t, m.Enabled)
@@ -418,7 +418,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	// 9. Total counts: 17 defaults + 1 custom = 18 models; 6 defaults + 1 custom = 7 roles; 4 defaults + 1 custom = 5 quotas
 	models, err := s2.ListModels("")
 	require.NoError(t, err)
-	require.Len(t, models, 19)
+	require.Len(t, models, 26)
 
 	roles, err := s2.ListRoleTiers()
 	require.NoError(t, err)
