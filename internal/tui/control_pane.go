@@ -639,7 +639,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, approvalsCmd(m.api) // refresh the queue right away
 	case dirListMsg:
-		if msg.err == nil && m.mode == modeNewAgentDir {
+		if msg.err == nil && (m.mode == modeNewAgentDir || m.mode == modeOpenProjectLocal) {
 			completed, cands := completeDir(msg.listing, msg.typed)
 			m.tp.SetValue(completed)
 			m.tp.CursorEnd()
@@ -911,6 +911,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnter:
 			choice := openProjectOptions[m.openProjectIdx]
+			if choice == "Local" {
+				m.mode = modeOpenProjectLocal
+				m.tp.Reset()
+				m.tp.Focus()
+				m.dirCandidates = nil
+				return m, nil
+			}
 			m.mode = modeNormal
 			m.status = "open " + choice + ": not yet implemented"
 			return m, nil
@@ -923,6 +930,23 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.openProjectIdx = (m.openProjectIdx + 1) % len(openProjectOptions)
 		}
 		return m, nil
+	case modeOpenProjectLocal:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.mode = modeOpenProjectMenu
+			m.tp.Blur()
+			m.dirCandidates = nil
+			return m, nil
+		case tea.KeyTab:
+			typed := expandPath(m.tp.Value(), homeDir())
+			listDir, _ := dirCompletionTarget(typed)
+			return m, listDirsCmd(m.api, typed, listDir)
+		case tea.KeyEnter:
+			return m, openDirCmd(m.api, expandPath(m.tp.Value(), homeDir()))
+		}
+		var cmd tea.Cmd
+		m.tp, cmd = m.tp.Update(msg)
+		return m, cmd
 	case modeNewAgentDir:
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -1583,6 +1607,8 @@ func (m controlPaneModel) View() string {
 		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenProjectMenu:
 		footer = stPaneTitle.Render("Open project (↑/↓ or j/k select · enter · esc):") + "\n" + m.openProjectMenuView()
+	case modeOpenProjectLocal:
+		footer = stPaneTitle.Render("Open local project (tab complete · enter · esc back to menu)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:

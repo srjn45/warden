@@ -238,6 +238,58 @@ func TestListPaneOpenProjectMenuEscCancels(t *testing.T) {
 	require.Equal(t, modeNormal, m.mode)
 }
 
+func TestListPaneOpenProjectMenuLocalEntersPathInput(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("enter")) // Local is highlighted by default
+	require.Equal(t, modeOpenProjectLocal, m.mode)
+	require.True(t, m.tp.Focused(), "path input focuses on entering Local")
+	require.Equal(t, "", m.tp.Value(), "path input starts blank")
+}
+
+func TestListPaneOpenProjectLocalEscReturnsToMenu(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectLocal, m.mode)
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeOpenProjectMenu, m.mode, "esc backs out to the picker, not all the way to normal")
+	require.False(t, m.tp.Focused())
+}
+
+func TestListPaneOpenProjectLocalTabCompletes(t *testing.T) {
+	f := &fakeAPI{dirListing: client.DirListing{Entries: []client.DirEntry{{Name: "api", Path: "/work/api"}}}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("/work/a"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	require.NotNil(t, cmd, "tab in the Local path input requests a dir listing")
+	msg := cmd()
+	dm, ok := msg.(dirListMsg)
+	require.True(t, ok)
+	m = lstep(m, dm)
+	require.Equal(t, "/work/api", m.tp.Value(), "single match completes the typed path")
+}
+
+func TestListPaneOpenProjectLocalEnterOpensDir(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("/work/api"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd, "enter in the Local path input validates the typed dir")
+	msg := cmd()
+	dm, ok := msg.(openDirMsg)
+	require.True(t, ok)
+	require.Equal(t, "/work/api", dm.dir)
+	m = lstep(m, dm)
+	require.Equal(t, modeNormal, m.mode, "a validated dir closes the input back to normal")
+	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/api" })
+	require.GreaterOrEqual(t, idx, 0, "opening the dir adds its placeholder row")
+}
+
 func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
 	now := time.Now()
 	m := newListPane(&fakeAPI{}, "%9", "")
