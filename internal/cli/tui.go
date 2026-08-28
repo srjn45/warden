@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/tui"
 )
 
@@ -25,7 +28,8 @@ func newTUICmd() *cobra.Command {
 			a := clientFor(cmd)
 			switch pane {
 			case "control":
-				return tui.RunControlPane(a, agentPane, terminalPane, killWindow)
+				recents := openProjectRecents(cmd)
+				return tui.RunControlPane(a, agentPane, terminalPane, killWindow, recents)
 			case "jobdetail":
 				return tui.RunJobDetailPane(a, pipelineID, jobID)
 			case "agentdetail":
@@ -50,6 +54,21 @@ func newTUICmd() *cobra.Command {
 		_ = cmd.Flags().MarkHidden(f)
 	}
 	return cmd
+}
+
+// openProjectRecents opens the cockpit's recent-projects store (~/.warden/projects)
+// for the Open Project panel. It is best-effort: on any error — a store already
+// held by a co-located cockpit, an unwritable data dir — it returns nil, and the
+// panel runs without a persisted recent list rather than failing the cockpit. The
+// control pane runs in the daemon-host's filesystem, so DataDir resolves the same
+// store the (non-participating) daemon's other stores live beside.
+func openProjectRecents(cmd *cobra.Command) tui.ProjectRecents {
+	cfg := config.Load(configPathFor(cmd))
+	store, err := projectstore.NewStore(filepath.Join(cfg.DataDir, "projects"))
+	if err != nil {
+		return nil
+	}
+	return store
 }
 
 // cockpitTmuxNative decides whether to launch the tmux-native cockpit (a window

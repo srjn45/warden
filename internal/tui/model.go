@@ -53,7 +53,9 @@ const (
 	modeSendMsg
 	modeConfirmKill
 	modeHelp
-	modeOpenDir               // path input for `o`
+	modeOpenProject           // `o`: full-pane Open Project panel — recent list + open-local + open-via-git (Stage C5)
+	modeOpenProjectLocal      // open-local sub-state of modeOpenProject: dir navigator (path input + tab-complete)
+	modeOpenProjectGit        // open-via-git sub-state of modeOpenProject: git URL input → clone into ~/.warden/workspace
 	modeNewAgentDir           // dir-override sub-state of modeNewAgent
 	modeNewAgentName          // name-input sub-state of modeNewAgent
 	modeNewAgentRole          // role-select sub-state of modeNewAgent

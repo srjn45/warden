@@ -292,12 +292,6 @@ type dirListMsg struct {
 	err     error
 }
 
-// openDirMsg is the result of validating a dir the user asked to open.
-type openDirMsg struct {
-	dir string
-	err error
-}
-
 // listDirsCmd fetches listDir's subdirectories for completing `typed`.
 func listDirsCmd(a api, typed, listDir string) tea.Cmd {
 	return func() tea.Msg {
@@ -305,16 +299,6 @@ func listDirsCmd(a api, typed, listDir string) tea.Cmd {
 		defer cancel()
 		l, err := a.ListDirs(ctx, listDir)
 		return dirListMsg{typed: typed, listing: l, err: err}
-	}
-}
-
-// openDirCmd validates that dir is a readable directory (via /fs/dirs).
-func openDirCmd(a api, dir string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := bg()
-		defer cancel()
-		_, err := a.ListDirs(ctx, dir)
-		return openDirMsg{dir: dir, err: err}
 	}
 }
 
