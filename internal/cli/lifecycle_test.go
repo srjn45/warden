@@ -144,7 +144,9 @@ func TestStartWithRolePassesRoleValidation(t *testing.T) {
 	cmd := newStartCmd()
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
-	cmd.SetArgs([]string{"do the thing", "--role", "worker"})
+	// Set an invalid addr so it definitely fails on the daemon call, rather than
+	// accidentally hitting a live user daemon and spawning a real "do the thing" agent!
+	cmd.SetArgs([]string{"do the thing", "--role", "worker", "--addr", "127.0.0.1:1"})
 	err := cmd.Execute()
 	if err != nil {
 		require.NotContains(t, err.Error(), "--role is required")
