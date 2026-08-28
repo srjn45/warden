@@ -238,6 +238,67 @@ func TestListPaneOpenProjectMenuEscCancels(t *testing.T) {
 	require.Equal(t, modeNormal, m.mode)
 }
 
+func TestListPaneOpenProjectMenuNewEntersNameInput(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j")) // Remote
+	m = lstep(m, key("j")) // New
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectNew, m.mode, "selecting New opens the project-name prompt")
+	require.Equal(t, "", m.tpn.Value(), "name input starts blank")
+}
+
+func TestListPaneOpenProjectNewEscReturnsToMenu(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	require.Equal(t, modeOpenProjectNew, m.mode)
+	m = lstep(m, key("esc"))
+	require.Equal(t, modeOpenProjectMenu, m.mode, "esc backs out to the menu, not all the way to normal")
+}
+
+func TestListPaneOpenProjectNewBlankNameRejected(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	_, cmd := m.Update(key("enter")) // blank name
+	require.Nil(t, cmd, "a blank name does not attempt to create anything")
+}
+
+func TestListPaneOpenProjectNewEnterCreatesProject(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, key("o"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("j"))
+	m = lstep(m, key("enter"))
+	m = lstep(m, key("my-project"))
+	_, cmd := m.Update(key("enter"))
+	require.NotNil(t, cmd, "enter with a non-blank name kicks off newProjectCmd")
+}
+
+func TestListPaneNewProjectMsgAddsPlaceholder(t *testing.T) {
+	// newProjectMsg is newProjectCmd's result; exercise the placeholder-adding
+	// behavior directly, mirroring TestListPaneOpenDirMsgAddsPlaceholder.
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.mode = modeOpenProjectNew
+	m = lstep(m, newProjectMsg{dir: "/work/my-project"})
+	require.Equal(t, modeNormal, m.mode, "success returns to normal mode")
+	idx := cursorOn(m, func(it item) bool { return it.section == "" && it.session == nil && it.dir == "/work/my-project" })
+	require.GreaterOrEqual(t, idx, 0, "creating a project adds its placeholder row")
+}
+
+func TestListPaneNewProjectMsgErrorStaysInMode(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.mode = modeOpenProjectNew
+	m = lstep(m, newProjectMsg{dir: "/work/my-project", err: fmt.Errorf("already exists")})
+	require.Equal(t, modeOpenProjectNew, m.mode, "an error leaves the user in the name prompt to retry")
+	require.Contains(t, m.status, "already exists")
+}
+
 func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
 	now := time.Now()
 	m := newListPane(&fakeAPI{}, "%9", "")

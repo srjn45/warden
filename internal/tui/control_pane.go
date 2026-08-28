@@ -37,6 +37,7 @@ type controlPaneModel struct {
 	ti             textinput.Model
 	tp             textinput.Model
 	tn             textinput.Model // agent name input (new-agent form + rename)
+	tpn            textinput.Model // new-project name input (modeOpenProjectNew)
 	openedDirs     map[string]time.Time
 	dirCandidates  []string
 	targetDir      string
@@ -126,8 +127,11 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 	tn := textinput.New()
 	tn.Placeholder = "agent-name (optional; blank = auto)"
 	tn.CharLimit = 32
+	tpn := textinput.New()
+	tpn.Placeholder = "my-project"
+	tpn.CharLimit = 64
 	return controlPaneModel{
-		api: a, ta: ta, ti: ti, tp: tp, tn: tn, agentPane: agentPane, terminalPane: terminalPane,
+		api: a, ta: ta, ti: ti, tp: tp, tn: tn, tpn: tpn, agentPane: agentPane, terminalPane: terminalPane,
 		// roles is the fixed built-in catalog embedded in the binary (general
 		// first), so the picker is populated synchronously — no daemon round-trip.
 		roles: role.All(),
@@ -658,6 +662,18 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dirCandidates = nil
 		m.repin("")
 		return m, nil
+	case newProjectMsg:
+		if msg.err != nil {
+			m.status = "cannot create project: " + msg.err.Error()
+			return m, nil
+		}
+		m.openedDirs[msg.dir] = time.Now()
+		m.pendingSelect = dirKey(msg.dir)
+		m.mode = modeNormal
+		m.tpn.Blur()
+		m.status = "created " + msg.dir
+		m.repin("")
+		return m, nil
 	case spawnDoneMsg:
 		switch {
 		case msg.confirm != nil:
@@ -911,8 +927,16 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnter:
 			choice := openProjectOptions[m.openProjectIdx]
-			m.mode = modeNormal
-			m.status = "open " + choice + ": not yet implemented"
+			switch choice {
+			case "New":
+				m.mode = modeOpenProjectNew
+				m.tpn.SetValue("")
+				m.tpn.CursorEnd()
+				m.tpn.Focus()
+			default:
+				m.mode = modeNormal
+				m.status = "open " + choice + ": not yet implemented"
+			}
 			return m, nil
 		}
 		// j/k also cycle, matching the list's vim-style navigation.
@@ -923,6 +947,24 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.openProjectIdx = (m.openProjectIdx + 1) % len(openProjectOptions)
 		}
 		return m, nil
+	case modeOpenProjectNew:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.mode = modeOpenProjectMenu
+			m.tpn.Blur()
+			return m, nil
+		case tea.KeyEnter:
+			name := strings.TrimSpace(m.tpn.Value())
+			if name == "" {
+				m.status = "project name cannot be blank"
+				return m, nil
+			}
+			m.status = "creating " + name + "…"
+			return m, newProjectCmd(expandPath(name, homeDir()), name)
+		}
+		var cmd tea.Cmd
+		m.tpn, cmd = m.tpn.Update(msg)
+		return m, cmd
 	case modeNewAgentDir:
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -1583,6 +1625,8 @@ func (m controlPaneModel) View() string {
 		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenProjectMenu:
 		footer = stPaneTitle.Render("Open project (↑/↓ or j/k select · enter · esc):") + "\n" + m.openProjectMenuView()
+	case modeOpenProjectNew:
+		footer = stPaneTitle.Render("New project name (enter create · esc back):") + " " + m.tpn.View()
 	case modeSendMsg:
 		footer = stPaneTitle.Render("Send to "+m.selectedID()+" (enter · esc):") + " " + m.ti.View()
 	case modeConfirmKill:
