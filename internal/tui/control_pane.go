@@ -18,10 +18,14 @@ import (
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
+	"io"
+	"log/slog"
+	"path/filepath"
 )
 
 // controlPaneModel is the top-left cockpit pane: the agents list plus the
@@ -931,10 +935,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			m.mode = modeNormal
 			return m, nil
-		case tea.KeyUp:
+		case tea.KeyUp, tea.KeyLeft:
 			m.openProjectIdx = (m.openProjectIdx - 1 + len(openProjectOptions)) % len(openProjectOptions)
 			return m, nil
-		case tea.KeyDown:
+		case tea.KeyDown, tea.KeyRight:
 			m.openProjectIdx = (m.openProjectIdx + 1) % len(openProjectOptions)
 			return m, nil
 		case tea.KeyEnter:
@@ -963,11 +967,11 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// j/k also cycle, matching the list's vim-style navigation.
+		// h/l/j/k also cycle, matching the list's vim-style navigation.
 		switch msg.String() {
-		case "k":
+		case "k", "h":
 			m.openProjectIdx = (m.openProjectIdx - 1 + len(openProjectOptions)) % len(openProjectOptions)
-		case "j":
+		case "j", "l":
 			m.openProjectIdx = (m.openProjectIdx + 1) % len(openProjectOptions)
 		}
 		return m, nil
@@ -1019,7 +1023,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.status = "creating " + name + "…"
-			return m, newProjectCmd(expandPath(name, homeDir()), name)
+			dir := filepath.Join(expandPath(getWorkspacePath(), homeDir()), name)
+			return m, newProjectCmd(dir, name)
 		}
 		var cmd tea.Cmd
 		m.tpn, cmd = m.tpn.Update(msg)
@@ -1683,7 +1688,7 @@ func (m controlPaneModel) View() string {
 	case modeNewAgentDir:
 		footer = stPaneTitle.Render("Launch dir (tab complete · enter · esc)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenProjectMenu:
-		footer = stPaneTitle.Render("Open project (↑/↓ or j/k select · enter · esc):") + "\n" + m.openProjectMenuView()
+		footer = stPaneTitle.Render("Open project (←/→ or h/l select · enter · esc):") + "\n" + m.openProjectMenuView()
 	case modeOpenProjectLocal:
 		footer = stPaneTitle.Render("Open local project (tab complete · enter · esc back to menu)") + "\n" + m.tp.View() + "\n" + stMuted.Render(strings.Join(m.dirCandidates, "  "))
 	case modeOpenProjectRemote:
@@ -2026,4 +2031,13 @@ func RunControlPane(a api, agentPane, terminalPane string, killWindow bool) erro
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
+}
+
+// getWorkspacePath loads the config silently to avoid slog warnings from
+// bleeding into the active TUI display during mid-run config loads.
+func getWorkspacePath() string {
+	oldHandler := slog.Default().Handler()
+	defer slog.SetDefault(slog.New(oldHandler))
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return config.Load(config.DefaultPath()).WorkspacePath
 }

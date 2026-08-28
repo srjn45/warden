@@ -1,0 +1,32 @@
+version: 1
+name: open-project-flow
+repo: /home/srjn45/dev/warden
+jobs:
+  - id: tui-menu
+    tier: tier-2
+    role: worker
+    prompt: |
+      Rename `modeOpenDir` to `modeOpenProjectMenu` in `internal/tui/model.go` and `internal/tui/control_pane.go`.
+      Implement a 3-option menu (Local, Remote, New) when the user presses `o`.
+      Render this menu with j/k navigation and Enter selection.
+      
+  - id: tui-local
+    tier: tier-2
+    role: worker
+    depends_on: [tui-menu]
+    prompt: |
+      Implement the 'Open local project' option. It should function similarly to the old `modeOpenDir` with path completion.
+
+  - id: tui-remote
+    tier: tier-2
+    role: worker
+    depends_on: [tui-menu]
+    prompt: |
+      Implement the 'Open remote project' option. Prompt the user for a GitHub/GitLab URL, then clone it into a workspace directory. Ensure the global workspace path is configurable.
+
+  - id: tui-new
+    tier: tier-2
+    role: worker
+    depends_on: [tui-menu]
+    prompt: |
+      Implement the 'New project' option. Prompt the user for a project name, create a new local directory, run `git init`, add a README.md with the project name, and make a first commit.
