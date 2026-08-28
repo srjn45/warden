@@ -34,9 +34,9 @@ func DefaultModels() []ModelEntry {
 		},
 		{
 			BackendID:   "codex",
-			ModelID:     "o1",
+			ModelID:     "gpt-5.5",
 			Tier:        Tier1,
-			DisplayName: "o1",
+			DisplayName: "GPT-5.5",
 			Enabled:     true,
 		},
 
@@ -78,16 +78,16 @@ func DefaultModels() []ModelEntry {
 		},
 		{
 			BackendID:   "codex",
-			ModelID:     "gpt-4.1",
+			ModelID:     "gpt-5.6-terra",
 			Tier:        Tier2,
-			DisplayName: "GPT-4.1",
+			DisplayName: "GPT-5.6 Terra",
 			Enabled:     true,
 		},
 		{
 			BackendID:   "codex",
-			ModelID:     "o3-mini (high)",
+			ModelID:     "gpt-5.4",
 			Tier:        Tier2,
-			DisplayName: "o3-mini (high)",
+			DisplayName: "GPT-5.4",
 			Enabled:     true,
 		},
 
@@ -122,9 +122,16 @@ func DefaultModels() []ModelEntry {
 		},
 		{
 			BackendID:   "codex",
-			ModelID:     "gpt-4.1-mini",
+			ModelID:     "gpt-5.6-luna",
 			Tier:        Tier3,
-			DisplayName: "GPT-4.1 Mini",
+			DisplayName: "GPT-5.6 Luna",
+			Enabled:     true,
+		},
+		{
+			BackendID:   "codex",
+			ModelID:     "gpt-5.4-mini",
+			Tier:        Tier3,
+			DisplayName: "GPT-5.4 Mini",
 			Enabled:     true,
 		},
 	}
