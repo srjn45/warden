@@ -1,0 +1,19 @@
+version: 1
+name: strict-spawn-api
+repo: /home/srjn45/dev/warden
+jobs:
+  - id: enforce-role
+    tier: tier-2
+    role: worker
+    prompt: |
+      Modify the CLI (`internal/cli/lifecycle.go` or wherever `warden start` args are parsed) and the MCP `spawn_agent` tool (`internal/mcp/tools_extra.go`) to make the `role` parameter strictly mandatory. If `role` is not provided, return an error.
+      Remove any implicit fallbacks to "general" role.
+      Also enforce that either `tier` OR both `backend` and `model` must be provided, OR that it dynamically infers from the provided `role`.
+      
+  - id: fix-tests
+    tier: tier-2
+    role: worker
+    depends_on: [enforce-role]
+    prompt: |
+      Run `make test`. It will fail massively because dozens of integration tests call `warden start` or `spawn_agent` without a role.
+      Go through the failing test files and update the mock calls, CLI invocations, and MCP tool tests to explicitly provide `--role general` (or another appropriate role). Ensure all tests pass.
