@@ -16,7 +16,7 @@ func TestStartFreeFormPrompt(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"POST /api/v1/spawn": `{"id":"code-1","name":"scout","status":"spawning"}`,
 	}, nil, body))
-	out, err := runCLI(t, addr, "start", "research SSE reconnection", "--name", "scout")
+	out, err := runCLI(t, addr, "start", "research SSE reconnection", "--name", "scout", "--role", "general")
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestStartInteractiveNoPrompt(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"POST /api/v1/spawn": `{"id":"code-2","status":"spawning"}`,
 	}, nil, nil))
-	out, err := runCLI(t, addr, "start", "--dir", t.TempDir())
+	out, err := runCLI(t, addr, "start", "--dir", t.TempDir(), "--role", "general")
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestStartTypedManaged(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"POST /api/v1/spawn": `{"id":"DEV-1","type":"development","status":"spawning"}`,
 	}, nil, body))
-	out, err := runCLI(t, addr, "start", "DEV-1", "--type", "development", "--repo", t.TempDir(), "--tags", "backend, urgent")
+	out, err := runCLI(t, addr, "start", "DEV-1", "--type", "development", "--repo", t.TempDir(), "--tags", "backend, urgent", "--role", "worker")
 	if err != nil {
 		t.Fatalf("start typed: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestStartMemoryPressureGate(t *testing.T) {
 			"verdict":               map[string]any{"elevated": true, "reason": "pressure: warn"},
 		})
 	})
-	out, err := runCLI(t, addr, "start", "do a thing")
+	out, err := runCLI(t, addr, "start", "do a thing", "--role", "general")
 	if err == nil {
 		t.Fatal("a warned memory-pressure gate must return an error")
 	}

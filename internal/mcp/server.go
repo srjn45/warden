@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/role"
 )
 
 const approvalsDisabledMsg = "approvals disabled (enable with approvals: true in the config file)"
@@ -27,8 +29,10 @@ type ticketArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the ticket / session id, e.g. PROJ-350"`
 }
 
-// All fields are optional in the schema: the daemon validates that EITHER a
-// prompt OR (type + repo) is provided, so no single field is required here.
+// `role` is REQUIRED (validated in the handler below — there is no implicit
+// fallback to "general"; see role.Names() for the valid set). Every other
+// field is optional in the schema: the daemon validates that EITHER a prompt
+// OR (type + repo) is provided.
 type spawnArgs struct {
 	Type           string   `json:"type,omitempty" jsonschema:"task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other"`
 	Ticket         string   `json:"ticket,omitempty" jsonschema:"optional Jira ticket; becomes the session id when present"`
@@ -42,11 +46,13 @@ type spawnArgs struct {
 	PermissionMode string   `json:"permission_mode,omitempty" jsonschema:"permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; defaults to config or 'auto'"`
 	Force          bool     `json:"force,omitempty" jsonschema:"spawn even when the memory-pressure gate warns (default false)"`
 	Name           string   `json:"name,omitempty" jsonschema:"optional human-readable name for the agent (max 50 chars, alphanumeric/dash/underscore only)"`
-	Model          string   `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to the model_default config setting (sonnet)"`
+	Model          string   `json:"model,omitempty" jsonschema:"claude model: opus, sonnet, haiku, fable, or full model ID; defaults to the model_default config setting (sonnet). Only needed alongside backend, or to override tier/role-based resolution — see role"`
 	Backend        string   `json:"backend,omitempty" jsonschema:"agent backend to drive: claude (default), aider, opencode, codex, crush, goose, cursor, or antigravity. Backends differ in capabilities — aider & opencode are bring-your-own-model (set model, e.g. ollama_chat/qwen2.5-coder:3b or ollama/qwen2.5-coder:3b), with tokens-only spend. aider has no resume and runs an autonomous task that exits when done; opencode has a structured (Tier A) transcript and DOES resume the worktree's last session"`
 	Kind           string   `json:"kind,omitempty" jsonschema:"session kind: empty/agent (default) spawns an AI agent with the chosen backend; terminal opens a plain interactive shell ($SHELL) in dir — NOT an AI agent (backend/model/role/prompt are ignored), excluded from spend/state/approvals"`
 	Tags           []string `json:"tags,omitempty" jsonschema:"optional free-form labels for grouping/filtering (e.g. [\"backend\",\"urgent\"]); searchable and filterable via warden ls --tag"`
-	Role           string   `json:"role,omitempty" jsonschema:"built-in agent role: general (default, no persona) | orchestrator | implementer | auto-merger | reviewer. Injects the role's persona as a system-prompt addendum and applies its default flags (type/model/permission_mode/auto_approve/tags) to any field left unset"`
+	Role           string   `json:"role" jsonschema:"REQUIRED — built-in agent role: general | orchestrator | implementer | auto-merger | reviewer | worker. Injects the role's persona as a system-prompt addendum and applies its default flags (type/model/permission_mode/auto_approve/tags) to any field left unset. See list_roles. On its own it is enough to spawn — backend+model are resolved from tier/task/role by the quota-balanced resolver when not pinned explicitly"`
+	Tier           string   `json:"tier,omitempty" jsonschema:"optional model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from task, then role. An explicit backend/model still wins over the resolver"`
+	Task           string   `json:"task,omitempty" jsonschema:"optional task name (task registry) used to derive the model tier when tier is empty"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -266,8 +272,15 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "spawn_agent",
-		Description: "Spawn an agent. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree. Every write-agent (development/pr-review/code/docs/website/debug-ci/tests) is isolated in its own worktree by default so parallel agents never collide; pass `in_repo=true` to deliberately share the repo (ignored for pr-review). analysis/spike take an optional worktree via `worktree=true`. Launches the configured default model (sonnet) and permission mode (auto) unless `model`/`permission_mode` override them; risky tools prompt → answerable in the approvals inbox. If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
+		Description: "Spawn an agent. `role` is REQUIRED — no implicit fallback (see list_roles for the valid set); it alone is enough to resolve a backend+model, or pin one explicitly with `tier`, or `backend`+`model`. Provide `prompt` for a quick auto-typed agent (no repo needed). OR provide `type`+`repo` for a managed worktree. Every write-agent (development/pr-review/code/docs/website/debug-ci/tests) is isolated in its own worktree by default so parallel agents never collide; pass `in_repo=true` to deliberately share the repo (ignored for pr-review). analysis/spike take an optional worktree via `worktree=true`. Launches the configured default model (sonnet) and permission mode (auto) unless `model`/`permission_mode` override them; risky tools prompt → answerable in the approvals inbox. If the memory-pressure gate blocks the spawn, re-call with force=true to bypass the warning.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a spawnArgs) (*mcpsdk.CallToolResult, any, error) {
+		roleName := strings.TrimSpace(a.Role)
+		if roleName == "" {
+			return textResult("error: role is required (valid: " + strings.Join(role.Names(), ", ") + ")"), nil, nil
+		}
+		if _, ok := role.Get(roleName); !ok {
+			return textResult("error: unknown role " + fmt.Sprintf("%q", roleName) + " (valid: " + strings.Join(role.Names(), ", ") + ")"), nil, nil
+		}
 		cwd := a.Dir
 		if cwd == "" {
 			if wd, err := os.Getwd(); err == nil {
@@ -280,7 +293,8 @@ func NewServer(daemonBase string) *Server {
 			Type: a.Type, Ticket: a.Ticket, Repo: a.Repo,
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree, InRepo: a.InRepo,
 			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
-			Name: a.Name, Model: a.Model, Backend: a.Backend, Kind: a.Kind, Tags: a.Tags, Role: a.Role, ParentID: sessionID(),
+			Name: a.Name, Model: a.Model, Backend: a.Backend, Kind: a.Kind, Tags: a.Tags,
+			Role: roleName, Tier: a.Tier, Task: a.Task, ParentID: sessionID(),
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired

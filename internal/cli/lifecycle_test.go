@@ -99,3 +99,55 @@ func TestStartTagsFlagRegistered(t *testing.T) {
 	require.NotNil(t, f, "--tags flag must be registered on start")
 	require.Equal(t, "", f.DefValue, "--tags must default to empty")
 }
+
+// TestStartRequiresRole verifies --role is strictly mandatory: no implicit
+// fallback to "general" for a spawn with no --role at all. This must fail
+// before any daemon call, so it needs no running daemon to assert on.
+func TestStartRequiresRole(t *testing.T) {
+	cmd := newStartCmd()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"do the thing"})
+	err := cmd.Execute()
+	require.Error(t, err, "spawning with no --role must fail")
+	require.Contains(t, err.Error(), "--role is required")
+}
+
+// TestStartRequiresRoleBlankIsAlsoMissing verifies a whitespace-only --role is
+// treated as missing, not as a (bogus) role name.
+func TestStartRequiresRoleBlankIsAlsoMissing(t *testing.T) {
+	cmd := newStartCmd()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"do the thing", "--role", "   "})
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--role is required")
+}
+
+// TestStartUnknownRoleStillRejected keeps the existing unknown-role validation
+// intact now that the empty-role case is handled separately.
+func TestStartUnknownRoleStillRejected(t *testing.T) {
+	cmd := newStartCmd()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"do the thing", "--role", "not-a-real-role"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown role")
+}
+
+// TestStartWithRolePassesRoleValidation confirms a valid --role clears the
+// mandatory-role check (it may still fail later trying to reach a daemon —
+// this only asserts the failure is not about role).
+func TestStartWithRolePassesRoleValidation(t *testing.T) {
+	cmd := newStartCmd()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"do the thing", "--role", "worker"})
+	err := cmd.Execute()
+	if err != nil {
+		require.NotContains(t, err.Error(), "--role is required")
+		require.NotContains(t, err.Error(), "unknown role")
+	}
+}
