@@ -47,13 +47,24 @@ func trunc(s string, n int) string {
 // triggered from. Repo (set for typed/worktree agents) wins; otherwise Workdir
 // (the caller cwd for prompt agents); "—" when neither is known.
 func sourceDir(s *store.Session) string {
-	if s.Repo != "" {
-		return s.Repo
+	dir := s.Repo
+	if dir == "" {
+		dir = s.Workdir
 	}
-	if s.Workdir != "" {
-		return s.Workdir
+	if dir == "" {
+		return "—"
 	}
-	return "—"
+	// The daemon sometimes returns relative paths for worktrees when Repo is empty.
+	// Resolve to absolute path so it matches the other absolute paths in the TUI.
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	// Normalize worktree paths to their parent project root so they group correctly
+	// rather than spawning a separate pseudo-project grouping in the TUI.
+	if idx := strings.Index(dir, string(filepath.Separator)+".worktrees"); idx != -1 {
+		dir = dir[:idx]
+	}
+	return dir
 }
 
 // homeDir resolves the user's home directory once per process; abbrevHome runs
