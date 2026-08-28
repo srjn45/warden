@@ -51,6 +51,8 @@ tags:
     description: Inter-agent file-conflict view
   - name: Pipelines
     description: Multi-stage DAG pipelines of dependent jobs
+  - name: Projects
+    description: First-class projects that agents and pipelines group under
   - name: Snapshots
     description: Worktree + transcript checkpoints
   - name: Savings
@@ -890,6 +892,72 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Backend" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects:
+    get:
+      operationId: listProjects
+      tags: [Projects]
+      summary: List first-class projects
+      description: >
+        Returns every persisted project (docs/specs/2026-08-28-project-centric-ui.md
+        Phase 1), sorted by display name. A project is the parent that agents and
+        pipelines group under via their project_id; worktrees are not projects of
+        their own. Closed projects are hibernated (kept, not deleted) and are
+        returned here with status "closed" so a client can filter them. Read-only.
+      responses:
+        "200":
+          description: The project list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectList" }
+
+  /api/v1/projects/open:
+    post:
+      operationId: openProject
+      tags: [Projects]
+      summary: Register a project and mark it open
+      description: >
+        Registers a project by its canonical id (the main checkout's local path or
+        the remote URL) and marks it open. A first open inserts the row; reopening a
+        previously closed project flips it back to open. An empty name or path
+        leaves the stored value unchanged, so reopening by id alone never blanks the
+        display name. Phase 1 only persists the record — the git clone/init
+        mechanics are Phase 2. Returns the resulting project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OpenProjectRequest" }
+      responses:
+        "200":
+          description: The opened project
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/projects/{id}/close:
+    post:
+      operationId: closeProject
+      tags: [Projects]
+      summary: Hibernate (close) a project
+      description: >
+        Marks a project closed (IDE-like hibernation): the record is kept, only its
+        status flips, and it is hidden from the active cockpit/TUI surfaces until
+        reopened. Never deletes the project. Returns the updated project, or 404 if
+        the id is unknown.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The closed project
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/sessions/{id}/name:
@@ -2400,6 +2468,15 @@ components:
             for display so a client need not re-fetch the schedule. Absent when
             schedule_id is.
         model: { type: string }
+        project_id:
+          type: string
+          description: >
+            back-ref to the first-class project (GET /api/v1/projects) this agent
+            belongs to; empty/absent = ungrouped. It is the PARENT project's id: an
+            agent in a git worktree links to its repo's project here and carries its
+            own worktree path in `worktree` — a worktree is never a project of its
+            own. Present the same way across GET /sessions, GET /sessions/{id}, and
+            the SSE stream so a client can group agents by project.
         context_tokens: { type: integer }
         context_state: { type: string, enum: ["", ok, warning, critical] }
       required: [id, type, status, created_at, updated_at]
@@ -2499,6 +2576,43 @@ components:
         id: { type: string }
         internal_thinking_mode: { type: string, description: "local_only | free_plus_local" }
         allow_paid_autopilot: { type: boolean }
+
+    Project:
+      x-go-type: projectstore.Project
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/projectstore
+        name: projectstore
+      type: object
+      description: >
+        A first-class project (docs/specs/2026-08-28-project-centric-ui.md Phase 1):
+        the parent that agents and pipelines group under via project_id. The id is
+        the canonical, stable key (the main checkout's local path or the remote
+        URL) — every agent/pipeline in any worktree of the repo shares it. A
+        worktree is never a project of its own.
+      required: [id, name, path, status, created_at, updated_at]
+      properties:
+        id: { type: string, description: "canonical key: main checkout path or remote URL" }
+        name: { type: string, description: "human-friendly display name" }
+        path: { type: string, description: "local absolute path of the main checkout (may be empty for a not-yet-cloned remote)" }
+        status: { type: string, enum: [open, closed], description: "open | closed (hibernated, kept in the DB)" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ProjectList:
+      type: object
+      required: [projects]
+      properties:
+        projects:
+          type: array
+          items: { $ref: "#/components/schemas/Project" }
+
+    OpenProjectRequest:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string, description: "canonical project key (main checkout path or remote URL)" }
+        name: { type: string, description: "display name; empty leaves an existing name unchanged" }
+        path: { type: string, description: "local absolute path; empty leaves an existing path unchanged" }
 
     BackendsState:
       type: object

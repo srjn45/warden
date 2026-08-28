@@ -36,6 +36,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/router"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
@@ -304,6 +305,17 @@ func newDaemonCmd() *cobra.Command {
 			}
 			srv.SetBackends(backendStore)
 			lc.Resolver = router.NewResolver(backendStore)
+
+			// First-class project store (docs/specs/2026-08-28-project-centric-ui.md
+			// Phase 1): the parent entity agents and pipelines group under via
+			// ProjectID. A fresh embedded ScrivaDB store; the /api/v1/projects routes
+			// guard on it.
+			projectStore, err := projectstore.NewStore(filepath.Join(cfg.DataDir, "projects"))
+			if err != nil {
+				return err
+			}
+			defer projectStore.Close()
+			srv.SetProjects(projectStore)
 			if handoverSettings, err := backendStore.GetHandoverSettings(); err == nil {
 				pl.HandoverEnabled = handoverSettings.Enabled
 			}

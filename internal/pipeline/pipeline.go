@@ -75,6 +75,11 @@ type Pipeline struct {
 	// agent-mode fire tagging.
 	ScheduleID   string `json:"schedule_id,omitempty" yaml:"-"`
 	ScheduleName string `json:"schedule_name,omitempty" yaml:"-"`
+	// ProjectID back-refs the first-class project (projectstore) this pipeline
+	// belongs to; empty = ungrouped. Daemon-stamped at creation (yaml:"-", not
+	// spec-authored), the pipeline-mode analogue of Session.ProjectID: it groups a
+	// pipeline and all its job agents under one parent project in the cockpit/TUI.
+	ProjectID string `json:"project_id,omitempty" yaml:"-"`
 }
 
 // Job returns a pointer to the job with id, or nil.
