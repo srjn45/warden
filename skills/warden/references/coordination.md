@@ -40,6 +40,51 @@ A *working* agent is never interrupted (woken only when idle/waiting). `msg wait
 with no busy-loop. Identity defaults to `$WARDEN_SESSION_ID`; override with `--as
 <id>`.
 
+## Collaboration groups — make per-project orchestrators discoverable
+
+MCP `collaborate_group {group, action}`; CLI `warden collaborate group <name> join|leave`.
+
+A collaboration group is a **roster + introduction broker**, not a new channel: it
+lets one developer's **per-project orchestrator agents** discover each other and
+then message/delegate over the *existing* directed-message bus (`send_message` /
+`wait_for_message`). It adds no wire format — the group just says who is present.
+
+```sh
+warden collaborate group my-team join     # seat this agent as its project's orchestrator
+warden collaborate group my-team leave    # remove this agent's seat (soft)
+```
+
+- **join** creates the group if absent, then: enforces **one orchestrator per
+  project** (project = the canonical git-remote key, with a `local:` fallback for
+  remoteless repos; a duplicate join returns **409** naming the already-seated
+  agent, so you message the incumbent instead of erroring); switches the caller to
+  the **orchestrator** role; resolves a one-line **project summary** (declared blurb
+  in `CLAUDE.md`/`README.md` → else asked once → cached); and **brokers
+  introductions both directions** — warden sends each existing member a templated
+  descriptor of the joiner and sends the joiner the reciprocal roster. Agents spend
+  **zero tokens** on intros; they just receive a compact roster and can address
+  peers by id.
+- **leave** is **soft/social**: the agent stops being discoverable and accepts no
+  *new* inbound delegations, but in-flight replies still route by agent-id (leaving
+  never breaks a conversation). Warden notifies peers.
+- **terminate** (not leave) is the hard path that orphans work: terminating an
+  orchestrator that holds a group seat requires **explicit confirmation** (naming
+  the group(s) and any outstanding received delegations) and notifies requesters of
+  abandoned work. Prefer `leave` then a graceful teardown.
+- **Recovery:** on `recover_agents`, a recovered orchestrator **auto-rejoins** its
+  groups and re-announces (the group is durable; membership is live).
+
+**Cross-project delegation (v1)** is just a directed message to a known peer — no
+protocol. FE orchestrator → `send_message` to BE orchestrator ("I need `POST /x`");
+BE reads its inbox, spawns **its own** worker on **its own** worktree, opens a PR in
+the **BE** repo, and replies with the link. Worktree isolation holds — nobody edits
+a repo they don't own — and every cross-project change is an auditable PR in the
+target repo.
+
+Groups and the TUI **Open Project** panel are distinct but share the
+one-orchestrator-per-project invariant: opening a project auto-spawns its single
+orchestrator; `join` opts that orchestrator into cross-project *membership*.
+
 ## File-conflict detection (don't overwrite a peer)
 
 The daemon watches each active agent's worktree (real-time fsnotify + a `git diff`

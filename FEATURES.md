@@ -4,7 +4,7 @@ The authoritative inventory of **every** warden capability and where you can dri
 it. warden exposes its features across five surfaces:
 
 - **CLI** — the `warden` binary (aliased `wd`); always available.
-- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **81 tools**.
+- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **93 tools**.
 - **Skill** — the `/warden` Claude Code skill that prefers MCP, falls back to CLI.
 - **Web** — the browser mission-control GUI (`warden daemon` + the web app).
 - **TUI** — the terminal cockpit (`warden tui`).
@@ -105,6 +105,9 @@ default; each in its own tmux session, most in a git worktree).
 | Delete a pipeline record | `pipeline delete` | `delete_pipeline` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Validate a spec (no daemon) | `pipeline validate` | `validate_pipeline` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | List built-in templates | `pipeline list-templates` | `list_pipeline_templates` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Worker done-signal (status + summary, one shot) | `job done --summary` (+ `<<WARDEN_DONE>>` sentinel backstop) | automatic (lifecycle captures it) | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Delegated monitoring — owner link + push-wake (spec `notify_owner` / job `callback`; owner blocks on `wait_for_message`, no polling) | `pipeline create` (spec) | `create_pipeline` (records `owner_id`) | ✓ | ✓ (nested under owner) | nested under owner | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Stuck detection (pane classifier + wall-clock watchdog; done-but-idle ≠ needs-input) | automatic | automatic | ✓ | ✓ | status | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 
 ## 5. Coordination (shared context, messages, conflicts)
 
@@ -119,6 +122,7 @@ default; each in its own tmux session, most in a git worktree).
 | Wait for a message (park/wake) | `msg wait` | `wait_for_message` | ✓ | — | — | [shared-context-messages](https://srjn45.github.io/warden/multi-agent/shared-context-messages/) |
 | File-conflict detection | `collab conflicts` | `get_collaboration_status` | ✓ | ✓ | — | [shared-context-messages](https://srjn45.github.io/warden/multi-agent/shared-context-messages/) |
 | Who is editing a file | `collab who-is-editing` | `who_is_editing_file` | ✓ | ✓ | — | [shared-context-messages](https://srjn45.github.io/warden/multi-agent/shared-context-messages/) |
+| **Collaboration group** — join/leave (one orchestrator per project, warden-brokered intros, leave-soft vs terminate-hard, recover auto-rejoin) | `collaborate group <name> join\|leave` | `collaborate_group` (`{group, action}`) | ✓ | — | — | [collaboration-groups](https://srjn45.github.io/warden/multi-agent/collaboration-groups/) |
 | Project memory — show/edit `.warden/memory.md` | `memory` (`--raw`, `--path`, `--edit`) | **CLI-only** (local, no daemon round-trip) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 | Project memory — projected into every spawn (`memory.inject`) | config (`memory.inject`, default on) | automatic (all backends but aider) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 | Project memory — auto-curation from digests (`memory.curate`) | config (`memory.curate`, default **off**) | automatic on completion (proposes `unverified` entries to the working tree; never commits) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
@@ -199,8 +203,8 @@ default; each in its own tmux session, most in a git worktree).
 ## 12. Web mission control
 
 The browser GUI (served by the daemon) is a **URL-routed** shell (`/cockpit`
-home · `/tui` · `/pipelines` · `/terminals` · `/metrics` · `/archive` · `/others` ·
-`/agent/<id>` — deep-linkable, back/forward, shareable). It provides: the
+home · `/tui` · `/agents` · `/pipelines` · `/terminals` · `/metrics` · `/archive` ·
+`/others` · `/agent/<id>` — deep-linkable, back/forward, shareable). It provides: the
 **Cockpit** home (Fleet header + agent grid; terminals are excluded from the grid
 and fleet counts), a full-screen **TUI** launcher (top-bar ▢ TUI
 button) that streams the literal `warden tui` into the browser, a **Pipelines**
@@ -216,6 +220,7 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 |---|---|---|
 | URL routing (deep links, back/forward) | all routes | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Agent grid + Fleet header / busy-idle badges | Cockpit (`/cockpit`, home) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
+| **Agents tab** — master-detail (agent list left, focused agent right; mirrors Terminals) | Agents (`/agents`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Per-agent backend logo on cards + **group-by Agent** (claude/aider/…; empty ⇒ claude) | Cockpit (`/cockpit`) | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) |
 | Attention queue / approvals | Others (`/others`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
 | Pipelines tab + live DAG | Pipelines (`/pipelines`) | [web-mission-control](https://srjn45.github.io/warden/guides/web-mission-control/) |
@@ -233,27 +238,42 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 
 ## 13. TUI cockpit (`warden tui`)
 
-A terminal mission-control. The **control** pane (left) is a tree of four fixed
-sections — **Approvals · Pipelines · Agents · Terminals**; opening an agent
-attaches it in the **agent** pane (right), opening a terminal attaches it in the
-**terminal** pane (bottom-left). A default terminal opens in the launch directory
-at startup. Keys: `n` spawn · `enter` open/attach · `t` new/focus terminal in the
-opened agent's dir · `i` info/inspector · `a` approve · `x` terminate/close ·
-`D` delete · `d` digest · `r` refresh · `f` filter · `g`/`G` top/bottom ·
-`o`/`p` panes · `s` sort · `c` context · `tab` switch view · `?` help · `q` quit.
-Global **Alt** rotation: `Alt+t` cycles the terminal pane over terminals,
-`Alt+a` the agent pane over agents, `Alt+p` the agent pane over pipeline agents
-(add **Shift** to rotate in reverse); each grabs focus on the pane it drives.
-`Ctrl-b` then `t`/`a`/`p` (Shift for reverse) is a config-free fallback for
-terminals that don't send Alt/Option as Meta (**macOS** Terminal.app / iTerm2).
-A **◆** plus a bold name badge marks the agent/terminal currently shown in a pane
-(tracks both `Enter`-open and the Alt rotation). Includes a pipeline view and per-job info.
+A terminal mission-control, **projects-first**. The **control** pane (left) holds two
+bordered inner frames — **Projects** (agents grouped by their git **Project** key;
+worktrees of one repo collapse to one node; each agent's subagents and pipelines
+nest beneath it) and **Terminals** (a flat, non-project-scoped list). The top-level
+**Approvals and Pipelines sections are gone**: pending prompts surface via an agent
+node's **needs-input** status (`p` answers them), and every pipeline renders **inside
+Projects** — a delegated pipeline (owner link) under its owning orchestrator, a
+human/orchestrator-less one under its project node. Opening an agent attaches it in
+the **agent** pane (right); opening a terminal attaches it in the **terminal** pane
+(bottom-left). A default terminal opens in the launch directory at startup. Keys:
+`n` spawn · `enter` open/attach · `t` new/focus terminal in the opened agent's dir ·
+`o` **Open Project** panel · `i` details (agent / pipeline job) · `p` approvals ·
+`x` kill/cancel/close · `D` delete pipeline record · `d` digest · `b` backends ·
+`ctrl+a` autopilot · `r` retry job · `c` context · `?` help · `q` quit. Global
+**Alt** rotation: `Alt+t` cycles the terminal pane over terminals, `Alt+a` the agent
+pane over the Projects frame's agents (add **Shift** to reverse; `Alt+p` is retired —
+pipelines live inside Projects); each grabs focus on the pane it drives. `Ctrl-b`
+then `t`/`a` (Shift for reverse) is a config-free fallback for terminals that don't
+send Alt/Option as Meta (**macOS** Terminal.app / iTerm2). A **◆** plus a bold name
+badge marks the agent/terminal currently shown in a pane (tracks both `Enter`-open
+and the Alt rotation). Includes a pipeline view and per-job info.
+
+**Open Project (`o`)** takes over the whole control pane with a full-pane panel:
+a persisted **recent-projects** list, **open local** (`l`, dir navigator), and
+**open via git** (`g`, clone into `~/.warden/workspace/<project>`). Opening any
+project **auto-spawns its single orchestrator** (one-orchestrator-per-project — an
+existing one is focused, not duplicated); `Esc` returns to the Projects view.
 
 | Feature | Where | Docs |
 |---|---|---|
-| Agent list + live status (incl. per-agent **backend** token; empty ⇒ claude) | main pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| **Projects frame** — agents grouped by git Project key (worktrees of one repo → one node); pipelines nested inside (delegated → under owner, human → under project) | control pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| **Terminals frame** — flat, non-project-scoped shells (unchanged) | control pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| **Open Project panel (`o`)** — recent list · open-local (`l`) · open-via-git-clone (`g`, into `~/.warden/workspace/<project>`); auto-spawns the single orchestrator (`Esc` back) | control pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Agent list + live status (incl. per-agent **backend** token; empty ⇒ claude) | Projects frame | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Inspector (`i`) — agent & pipeline detail | inspector | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
-| Approvals cockpit (`a`) | cockpit | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Approvals via agent **needs-input** status (`p` to answer) — no top-level Approvals section | Projects frame | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Digest (`d`) | inspector | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Pipeline view | pipeline pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Agent sub-trees (spawned agents nest under parent; `h`/`l` collapse; tombstone on parent delete) | main pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
@@ -359,7 +379,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**81 tools**, including the
+Every fleet/data feature is reachable over MCP (**93 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §17 (plus interactive `attach`/`repl`, the local-config `preset` /
@@ -376,7 +396,7 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
 `create_schedule`, `get_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
 `set_autopilot`, `autopilot_status`, `land`, `list_backends`, `rescan_backends`,
-`set_backend_tier`, `set_default_backend`, `set_thinking_mode`.
+`set_backend_tier`, `set_default_backend`, `set_thinking_mode`, `collaborate_group`.
 
 > **Backend-registry parity note:** the 5 backend tools cover list / rescan /
 > tier / default / thinking-mode. **Enable/disable** a backend is intentionally

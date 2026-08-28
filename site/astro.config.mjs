@@ -73,6 +73,7 @@ export default defineConfig({
         ]},
         { label: 'Multi-agent', items: [
           { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },
+          { label: 'Collaboration groups', slug: 'multi-agent/collaboration-groups' },
           { label: 'Shared context & messages', slug: 'multi-agent/shared-context-messages' },
           { label: 'Orchestration: MCP & skill', slug: 'multi-agent/mcp-and-skill' },
           { label: 'Interactive REPL (local LLM)', slug: 'multi-agent/repl' },

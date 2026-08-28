@@ -86,6 +86,62 @@ in the prompt** — the daemon auto-appends the emit footer to every job and
 auto-injects each upstream job's output into its dependents' prompts. You only
 describe the work.
 
+## Delegated monitoring — the orchestrator sleeps, warden wakes it (push, not poll)
+
+A pipeline is warden's **lifecycle substrate** at three autonomy levels: **direct**
+(a human runs `create_pipeline` — no orchestrator, no tokens), **delegated** (a live
+orchestrator hands warden a plan and blocks), and **autopilot**. The delegated mode
+is the token unlock: **never poll a pipeline in a loop** — subscribe and block.
+
+When you call `create_pipeline` **as an orchestrator**, warden records you as the
+pipeline's **`owner_id`** (the pipeline-mode analogue of a spawned agent's
+`parent_id`). Two spec fields drive the push:
+
+- `notify_owner: true` (pipeline-level) — subscribe the owner. Warden push-wakes you
+  via a **directed message** (read it with `wait_for_message`) at each callback job
+  **and once** when the pipeline reaches a terminal state (done/stalled).
+- `callback: true` (per-job) — marks that job a **decision point**. A **pure DAG**
+  marks no callbacks and wakes you exactly once, at the end; an **adaptive** plan
+  ("if tests fail, try B") marks callbacks only where your judgment is genuinely
+  required. Everything mechanical between callbacks costs you nothing.
+
+```yaml
+name: refactor-auth
+repo: /abs/path/to/repo
+notify_owner: true               # wake me (the owner) — I block on wait_for_message
+jobs:
+  - id: implement
+    prompt: "Implement the refactor."
+    worktree: fresh
+  - id: review
+    prompt: "Review + run the suite; report pass/fail."
+    depends_on: [implement]
+    worktree: from:implement
+    callback: true               # wake me here to decide next steps
+```
+
+Pattern: `create_pipeline` (owner recorded) → `start_pipeline` → **block on
+`wait_for_message`** instead of polling `show_pipeline`. You spend tokens only when
+woken at a real decision point. (The TUI nests a delegated pipeline under its owning
+orchestrator; a direct/human pipeline renders under its project node.)
+
+## Worker completion signal — `wd job done` (declare, don't get interrogated)
+
+A pipeline worker declares its own completion so warden closes the job in **one
+shot**, with no follow-up interrogation turn:
+
+```sh
+wd job done --summary "refactored auth; all tests green" [--status success|failure|blocked]
+```
+
+Run from inside a job, `WARDEN_PIPELINE_ID` / `WARDEN_JOB_ID` are injected
+automatically (or pass `--pipeline`/`--job`). Run outside a pipeline it degrades
+gracefully — it prints a `<<WARDEN_DONE>>{json}` **sentinel line**, the backstop the
+lifecycle watches for backends that can't run a command mid-task. End every worker
+with `wd job done` (`--status failure`/`blocked` when it didn't finish cleanly) so
+warden captures status **and** summary deterministically rather than reading the
+pane.
+
 ## Templates
 
 Four bundled starters — `analyze-implement-review`, `parallel-tasks`,

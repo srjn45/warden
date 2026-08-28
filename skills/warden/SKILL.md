@@ -112,7 +112,11 @@ OS and avoiding compaction spikes.
 **Don't:** use a pipeline for a single task (use a plain agent); use plain agents +
 manual relay for a clear dependency chain (that's what a pipeline automates);
 hand-roll `ctx`/`msg` coordination a pipeline already gives you; run a big
-multi-phase task as one long-lived plain agent (decompose into stages).
+multi-phase task as one long-lived plain agent (decompose into stages); **poll a
+delegated pipeline in a loop** — set `notify_owner: true` (mark decision-point jobs
+`callback: true`) and **block on `wait_for_message`** so warden wakes you only at
+real decisions (see [references/pipelines.md](references/pipelines.md) → *Delegated
+monitoring*).
 
 ## Preconditions
 
@@ -121,14 +125,15 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   launchd/systemd) — do not guess at state. There may be a systemd unit
   (`warden.service`); a manually-started `warden daemon` can shadow it and break
   auth, so prefer letting the service own the port.
-- **MCP tools and the CLI wrap the same daemon REST API** (81 MCP tools), so prefer
+- **MCP tools and the CLI wrap the same daemon REST API** (93 MCP tools), so prefer
   MCP and fall back to CLI only when MCP is blocked (see above). **Every fleet/data
   feature is reachable from MCP *and* CLI** — pipelines (all verbs incl.
   pause/resume/retry/edit-job/emit/delete/validate/templates), schedules
   (create/list/delete), git/check lifecycle, snapshots, ctx/msg, approvals +
   auto-approve + permission-mode, branches/collab, insights, savings, metrics,
   search/history, audit log, worktree list/prune, plugins, export/import,
-  rotate/handoff, **fork** (`fork_agent`), **roles** (`set_role`/`list_roles`
+  **collaboration groups** (`collaborate_group`), rotate/handoff, **fork**
+  (`fork_agent`), **roles** (`set_role`/`list_roles`
   + `spawn_agent`'s `role` param), the **backend registry** (`list_backends`,
   `rescan_backends`, `set_backend_tier`, `set_default_backend`, `set_thinking_mode`),
   and **autopilot** (`set_autopilot`,
@@ -148,7 +153,7 @@ flags, fields, and rails.
 | spawn / triage / message / terminate agents; **handoff** work to another agent — new delegate, `--to` an existing one, or `--retire` yourself into a same-worktree successor (`rotate` is an alias); **fork** an agent's session into a new one (`fork_agent`, Codex-only); restore/adopt; model, permission-mode, **roles** (`--role`/`set_role`/`list_roles`), presets, prompt templates, tags, search, history | [references/agents.md](references/agents.md) |
 | build & run a **pipeline** — authoring the YAML, worktree modes, templates, `run_if`, pause/resume, retry, MCP vs CLI | [references/pipelines.md](references/pipelines.md) |
 | do an agent's **git** (commit/push/sync) and **checks**; **snapshot**/restore; understand the **boundary-enforcement hooks** (isolation/root/git/check guards) | [references/git-and-checks.md](references/git-and-checks.md) |
-| **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |
+| **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), **collaboration groups** (`collaborate_group` / `wd collaborate group … join\|leave` — make per-project orchestrators discoverable, one-orchestrator-per-project, warden-brokered intros, leave-soft vs terminate-hard), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |
 | **operate the fleet** — token-savings ledger, insights, audit log, scheduler, config, remote access & auth, notifications/token-guard, web GUI & cockpit TUI, export/import, local-LLM REPL, plugins, the **backend registry** (detected CLIs, tiers, default, thinking-mode) | [references/operations.md](references/operations.md) |
 | **autopilot** — enable/disable the autonomous run mode, check run state, land a worker branch | See below (§ Autopilot) |
 

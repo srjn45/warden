@@ -952,6 +952,25 @@ warden msg inbox --as agent-9c1d
 warden msg wait --as agent-9c1d --timeout 120
 ```
 
+### `warden collaborate group <name> join|leave`
+**Collaboration groups** — make this agent's per-project orchestrator discoverable to
+peer orchestrators so they can message and delegate across projects. `join` seats the
+agent (creating the group if absent), enforces **one orchestrator per project**
+(duplicate join → error naming the seated agent), flips the agent to the
+**orchestrator** role, and has warden broker introductions both directions. `leave`
+is soft — in-flight replies still deliver, only new inbound work stops. See §16.1.
+
+```sh
+warden collaborate group my-team join      # defaults to $WARDEN_SESSION_ID; or --as <id>
+warden collaborate group my-team leave
+```
+
+### `warden job done --summary "<text>" [--status success|failure|blocked]`
+**Worker completion signal** — run from inside a pipeline job to declare it complete
+with a status + one-line summary in one shot (no interrogation turn). `WARDEN_PIPELINE_ID`
+/ `WARDEN_JOB_ID` are injected automatically (or pass `--pipeline`/`--job`). Outside a
+pipeline it prints a `<<WARDEN_DONE>>{json}` sentinel line and exits. See §17.
+
 ### `warden pipeline validate|create|list-templates|start|show|list|cancel|retry|edit-job|delete`
 Define and run a **DAG of agent jobs** from a YAML spec or a built-in template. See
 §7.5 below for the full guide.
@@ -1166,54 +1185,76 @@ with three panes laid out like this:
 
 ```
 ┌─ Control ─────────┐┌─ agent-4f98 ──────────────┐
-│ ⏳ Approvals (1)   ││                           │
-│ ▸ Pipelines       ││  (live agent session)     │
-│ ▾ Agents          ││                           │
-│   ▸ agent-4f98 ●  ││ ...                       │
-│     agent-c860 ⠿  ││                           │
-│ ▾ Terminals       ││                           │
-│   1. warden (main)│└───────────────────────────┘
+│ ┌ Projects ─────┐ ││                           │
+│ │ warden (git)  │ ││  (live agent session)     │
+│ │  agent-4f98 ● │ ││                           │
+│ │   subagent    │ ││ ...                       │
+│ │   my-pipeline │ ││                           │
+│ │    job-1      │ ││                           │
+│ │  agent-c860 ⠿ │ ││                           │
+│ └───────────────┘ ││                           │
+│ ┌ Terminals ────┐ ││                           │
+│ │ 1. warden(main)│└───────────────────────────┘
 ├─ 1. warden (main) ─────────────────────────────┐
 │ $ wd ls_          (live terminal)              │
 └────────────────────────────────────────────────┘
 ```
 
-**Top-left — control pane.** A navigator tree with four fixed collapsible
-sections — **Approvals · Pipelines · Agents · Terminals**. Scroll with `↑`/`↓`
-or `j`/`k` — browsing does not disturb the viewports. Press `Enter` on an entity
-to open it: an **agent** attaches in the right **agent** pane; a **terminal**
-attaches in the bottom-left **terminal** pane (and focus moves there so you can
-type).
+**Top-left — control pane (projects-first).** Two bordered inner frames:
+**Projects** (agents grouped under their git **Project** node — worktrees of one
+repo collapse to a single node; each agent's subagents and pipelines nest beneath
+it) and **Terminals** (a flat, non-project-scoped list). The old top-level
+**Approvals and Pipelines sections are gone** — a blocked agent surfaces via its
+**needs-input** status (`p` answers it), and every pipeline renders inside Projects
+(a delegated pipeline under its owning orchestrator; a human/orchestrator-less one
+under its project node). Scroll with `↑`/`↓` or `j`/`k` — browsing does not disturb
+the viewports. Press `Enter` on an entity to open it: an **agent** attaches in the
+right **agent** pane; a **terminal** attaches in the bottom-left **terminal** pane
+(and focus moves there so you can type).
 
 | Key | Action |
 |---|---|
 | `↑`/`↓` or `j`/`k` | Move selection (the viewports are unaffected) |
-| `←`/`→` or `h`/`l` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
+| `←`/`→` or `h`/`l` | Collapse / expand a frame (Projects·Terminals), a pipeline, or an agent sub-tree under the cursor |
 | `Enter` | Open the selected entity — an agent (or running pipeline job) attaches in the right agent pane; a terminal attaches in the bottom-left terminal pane; a finished agent or tombstone shows its stored detail instead of attaching |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `t` | New/focus a terminal in the opened agent's directory (`~` if none open) — inline `(c)reate` a fresh one or `(f)ocus` an existing one in that dir |
-| `o` | Open a directory as a group (becomes the spawn target for `n`) |
+| `o` | **Open Project** — full-pane panel: recent list · `l` open local (dir navigator) · `g` open via git (clone into `~/.warden/workspace/<project>`). Opening a project auto-spawns (or focuses) its single orchestrator; `Esc` back |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — hands the whole client to the agent's/terminal's (or running job's) tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
 | `d` | Completion digest for the selected agent — scrollable overlay (`d`/`esc` to close) |
-| `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
+| `i` | Details for the selected agent or pipeline job — scrollable info pane (`i`/`esc` to close) |
+| `p` | Answer pending approvals (also `enter` on the **⏳** row) — `1`-`9` to answer, `tab` for next |
 | `c` | Shared-context + message-traffic inspector |
+| `b` | Agent-backend registry page (tier / default / enable · `r` rescan · `m` thinking-mode) |
 | `r` | Retry a failed / needs-attention pipeline job |
-| `x` | Context-sensitive — terminate the selected agent / cancel a pipeline / close a terminal / close an opened dir (confirm with `y`) |
+| `x` | Context-sensitive — kill the selected agent / cancel a pipeline / close a terminal / close an opened project (confirm with `y`) |
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
-| `Alt+t` / `Alt+a` / `Alt+p` | Rotate a viewport (global — works from any pane, even while typing): `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Each grabs focus on the pane it drives |
-| `Alt+Shift+t` / `Alt+Shift+a` / `Alt+Shift+p` | Same rotations in **reverse** |
-| `Ctrl-b` then `t`/`a`/`p` | Config-free rotation fallback (add Shift for reverse) — same as `Alt+t/a/p` but via the tmux prefix, for terminals that don't send Alt/Option as Meta (**macOS Terminal.app / iTerm2** default) |
+| `ctrl+a` | Toggle autopilot on/off (run `warden autopilot init` first if not configured) |
+| `Alt+t` / `Alt+a` | Rotate a viewport (global — works from any pane, even while typing): `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over the Projects frame's agents. Each grabs focus on the pane it drives (`Alt+p` is retired — pipelines live inside Projects) |
+| `Alt+Shift+t` / `Alt+Shift+a` | Same rotations in **reverse** |
+| `Ctrl-b` then `t`/`a` | Config-free rotation fallback (add Shift for reverse) — same as `Alt+t/a` but via the tmux prefix, for terminals that don't send Alt/Option as Meta (**macOS Terminal.app / iTerm2** default) |
 | `?` | Toggle help |
 | `q` | Quit and tear down the whole cockpit |
 
-Pipelines appear in the control pane under a **▸ Pipelines** section (one header row
-per pipeline, then an indented row per job with a status glyph). Collapse/expand a
-pipeline with `←`/`→` (or `h`/`l`). On a pipeline row, `x` cancels it and `D`
+Pipelines render **inside the Projects frame** — a **delegated** pipeline (with an
+owner link) nests under its owning orchestrator; a **human/orchestrator-less** one
+(direct `warden pipeline create`) nests under its **project node**. Each pipeline is
+a header row, then an indented row per job with a status glyph and `(deps: …)`.
+Collapse/expand with `←`/`→` (or `h`/`l`). On a pipeline row, `x` cancels it and `D`
 deletes a stopped pipeline's record; on a job row, `r` retries a
 failed/needs-attention job, and `enter`/`a` opens a running job's session.
 (Authoring pipelines is via `warden pipeline create -f` — see §7.5; editing job
 prompts and building pipelines in the TUI are not yet available.)
+
+**Open Project (`o`).** `o` takes over the whole control pane with a full-pane
+**Open Project** panel offering three ways in: a persisted **recent-projects** list
+(`↑`/`↓`, `Enter` to open); **open local** (`l`) via a directory navigator; and
+**open via git** (`g`) — warden clones the URL into `~/.warden/workspace/<project>`
+(name collisions disambiguated) and opens it. Opening any project **auto-spawns its
+single orchestrator**, enforcing **one-orchestrator-per-project** — if one already
+anchors that project it is *focused* rather than duplicated (the same invariant
+`warden collaborate group join` uses, §16.1). `Esc` returns to the Projects view.
 
 Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under
 their parent** as a collapsible sub-tree — a `▸ / ▾` header indented per depth,
@@ -1235,10 +1276,12 @@ opens its stored detail instead of attaching to a dead session.
 
 **Bottom-left — terminal pane.** Terminals are first-class `kind=terminal`
 sessions (not a backend) — a plain interactive shell (`$SHELL`) beside the fleet,
-managed with warden's normal worktree/git/tmux lifecycle. The cockpit opens a
-**default terminal** in the launch directory on startup, lists it under the
-**Terminals** section, and shows it here. Use it for `warden` CLI commands, git
-status, or any other terminal work while monitoring your agents.
+managed with warden's normal worktree/git/tmux lifecycle. Terminals stay a **flat,
+non-project-scoped** frame (a `cd` inside a terminal roams across projects, so a
+terminal has no fixed project). The cockpit opens a **default terminal** in the
+launch directory on startup, lists it under the **Terminals** frame, and shows it
+here. Use it for `warden` CLI commands, git status, or any other terminal work while
+monitoring your agents.
 
 Press **`t`** in the control pane to create/focus a terminal in the opened
 agent's directory, and **`Alt+t`** to rotate the terminal pane over all live
@@ -1252,22 +1295,21 @@ session opens here. You can type directly into the agent, read its output, and
 watch it respond in real time. Scrolling the control pane with `↑`/`↓` or `j`/`k`
 does not replace this pane, so an agent you're actively working with is never
 interrupted by casual browsing. Press `Enter` again on a different agent to
-switch, or **`Alt+a`** / **`Alt+p`** to rotate over all agents / pipeline agents
-— add **Shift** (`Alt+Shift+a`/`Alt+Shift+p`) to rotate in reverse. Unlike
-`Enter`-open (which keeps you in the control pane for browsing), a rotation grabs
-focus on the pane it drives, so cycling agents drops you straight into the
-session — the same way `Alt+t` focuses the terminal pane. On **macOS**,
-Terminal.app and iTerm2 don't send Option as Meta by default, so the `Option+…`
-rotation won't fire; use the config-free `Ctrl-b` prefix fallback (`Ctrl-b` then
-`t`/`a`/`p`, Shift for reverse) or enable "Use Option as Meta key" in your
-terminal.
+switch, or **`Alt+a`** to rotate over the Projects frame's agents — add **Shift**
+(`Alt+Shift+a`) to rotate in reverse. (`Alt+p` is retired — pipelines are reached
+inside the Projects tree, not as a separate rotation target.) Unlike `Enter`-open
+(which keeps you in the control pane for browsing), a rotation grabs focus on the
+pane it drives, so cycling agents drops you straight into the session — the same way
+`Alt+t` focuses the terminal pane. On **macOS**, Terminal.app and iTerm2 don't send
+Option as Meta by default, so the `Option+…` rotation won't fire; use the
+config-free `Ctrl-b` prefix fallback (`Ctrl-b` then `t`/`a`, Shift for reverse) or
+enable "Use Option as Meta key" in your terminal.
 
 Whatever is currently shown in a pane is marked with a **◆** in the control tree
-— the opened agent (in the Agents section or as a Pipelines job row) and the
+— the opened agent (in the Projects frame or as a nested pipeline job row) and the
 opened terminal — and its name carries a bold magenta badge so it's unmistakable.
-The marker tracks both `Enter`-open and the `Alt+t`/`Alt+a`/`Alt+p` rotation, so
-you can always see what's docked in each pane even after moving the cursor
-elsewhere.
+The marker tracks both `Enter`-open and the `Alt+t`/`Alt+a` rotation, so you can
+always see what's docked in each pane even after moving the cursor elsewhere.
 
 To move focus between panes without leaving the cockpit, use **Alt+←/→/↑/↓**
 (no tmux prefix needed).
@@ -1309,7 +1351,7 @@ own-session cockpit instead (e.g. for a screen recording), unset `$TMUX`:
 > The native window is intentionally leaner than the classic cockpit: it has
 > **no terminal pane** (your own tmux already gives you shells a keypress away
 > with `Ctrl-b c`), so the default terminal, `t`, Enter-on-terminal, and the
-> `Alt+t`/`Alt+a`/`Alt+p` rotation bindings degrade to a status hint there (it
+> `Alt+t`/`Alt+a` rotation bindings degrade to a status hint there (it
 > never touches your personal tmux config). Everything else — the control-pane
 > tree, new-agent form, approvals, digests, full-screen attach — works the same.
 
@@ -1578,8 +1620,15 @@ open http://localhost:8765
 
 It's a **URL-routed mission-control shell**: tabs are real URLs (back/forward,
 refresh, and shareable deep links all work). The routes are `/cockpit` (the
-home — `/` redirects here), `/pipelines`, `/metrics`, `/archive`, `/others`
-(the catch-all, which sits last), and `/agent/<id>` for each pinned agent.
+home — `/` redirects here), `/agents`, `/pipelines`, `/terminals`, `/metrics`,
+`/archive`, `/others` (the catch-all, which sits last), and `/agent/<id>` for each
+pinned agent.
+
+The **Agents** tab (`/agents`) mirrors the Terminals tab's master-detail layout —
+the live agents list on the left, the focused agent's interactive view on the right;
+selecting an agent opens it. The web app stays **flat/tab-based** this wave: the
+projects-first grouping and Open Project panel are TUI-only, and the standalone
+**Pipelines** tab is untouched.
 
 **Cockpit** (`/cockpit`) is the home view: a slim **Fleet** header (totals,
 busy/waiting/errored, pressure, per-dir counts) above the live SSE agent grid
@@ -2029,6 +2078,47 @@ a human operator or a lead agent answering on another's behalf). Also available 
 Request/reply pattern: A runs `msg send B "..."` then `msg wait --from B`; B reads
 its inbox, does the work, and replies with `msg send A "..."`, unblocking A.
 
+### 16.1 Collaboration groups (`warden collaborate group`)
+
+A **collaboration group** makes one developer's **per-project orchestrator agents**
+mutually discoverable so they can message and delegate across projects (BE↔FE, a
+project and a dependency it needs changed). The group is a **roster + introduction
+broker** — it adds no new channel; peers talk over the directed-message bus above.
+
+```sh
+warden collaborate group my-team join      # seat this agent as its project's orchestrator
+warden collaborate group my-team leave     # remove the seat (soft)
+```
+
+On **join**, warden:
+
+1. Creates the group if it does not exist.
+2. Enforces **one orchestrator per project** — a project is keyed by its canonical
+   git-remote URL (a `local:` fallback key for a remoteless repo), so two worktrees
+   of one repo are the same project. A duplicate join **fails and returns the
+   already-seated agent**, so you message the incumbent instead.
+3. Switches the joining agent to the **orchestrator** role.
+4. Resolves a one-line **project summary** (declared `## Summary` / first paragraph
+   of `CLAUDE.md`/`README.md` → else asks the agent once → cached on the record).
+5. **Brokers introductions both directions** — every existing member gets a compact
+   descriptor of the joiner, and the joiner gets the reciprocal roster. Agents spend
+   **zero tokens** on intros.
+
+**Leave is soft:** the agent stops being discoverable and accepts no *new* inbound
+delegations, but in-flight replies still route to its inbox by agent-id (leaving
+never breaks a conversation). Warden notifies peers. **Terminating** a grouped
+orchestrator is the hard path that orphans in-flight work, so it requires an explicit
+confirmation naming the group(s) and notifies requesters of abandoned delegations —
+prefer `leave` then a graceful teardown. On `warden recover`, a recovered
+orchestrator **auto-rejoins** its groups and re-announces (the group is durable;
+membership is live).
+
+**Cross-project delegation** is just a directed message to a known peer: FE
+orchestrator `msg send`s the BE orchestrator "I need `POST /x`"; BE reads its inbox,
+spawns **its own** worker on **its own** worktree, opens a PR in the **BE** repo, and
+replies with the link. Nobody edits a repo they don't own; every change is an
+auditable PR in the target repo. (MCP: `collaborate_group {group, action}`.)
+
 ---
 
 ## 17. Pipelines
@@ -2142,6 +2232,61 @@ silently stalling — the pipeline stays `running` and the job is shown flagged.
 Resolve it by `pipeline emit`-ing on the job's behalf (if the agent actually
 finished) or `pipeline retry`, which tears down the stale job session/worktree,
 resets the job, reopens any descendants that were skipped, and re-runs from there.
+
+**Worker done-signal (`warden job done`).** Besides `pipeline emit`, a job worker
+can declare completion directly with a **status + summary** in one shot — no
+follow-up interrogation turn:
+
+```sh
+warden job done --summary "refactored auth; all tests green"       # inside a job
+warden job done --status failure --summary "suite red on token TTL"
+```
+
+`WARDEN_PIPELINE_ID`/`WARDEN_JOB_ID` are injected automatically (or pass
+`--pipeline`/`--job`). Run **outside** a pipeline it degrades gracefully — it prints
+a `<<WARDEN_DONE>>{json}` **sentinel line**, the backstop warden's lifecycle watches
+for backends that can't run a command mid-task. Warden also classifies each worker's
+pane out-of-band (`working` / `idle-at-prompt` / `blocked-on-approval` / `exited`)
+and runs a wall-clock watchdog that flags a hung worker `possibly-stuck` — a worker
+that has *finished and sits at an idle prompt* reads as **idle/done**, never
+`needs-input`.
+
+### 17.1 Delegated monitoring — push, not poll
+
+A pipeline is warden's shared **lifecycle substrate** at three levels: **direct** (a
+human runs `create_pipeline` — no orchestrator, no tokens), **delegated** (below),
+and **autopilot** (§18). In the delegated mode an orchestrator hands warden a plan
+and **blocks instead of polling** — the token unlock.
+
+When an orchestrator calls `create_pipeline`, warden records it as the pipeline's
+**`owner_id`**. Two spec fields drive the wake-ups:
+
+```yaml
+name: refactor-auth
+repo: /Users/me/workspace/app
+notify_owner: true               # subscribe me (the owner) to push wake-ups
+jobs:
+  - id: implement
+    prompt: "Implement the refactor."
+    worktree: fresh
+  - id: review
+    prompt: "Review + run the suite; report pass/fail."
+    depends_on: [implement]
+    worktree: from:implement
+    callback: true               # a decision point — wake me here
+```
+
+- `notify_owner: true` subscribes the owner. Warden push-wakes it via a **directed
+  message** (read with `msg wait` / `wait_for_message`) at each callback job **and
+  once** on the terminal state (done/stalled).
+- `callback: true` marks a job a **decision point**. A **pure DAG** marks no
+  callbacks and wakes the owner exactly once, at the end; an **adaptive** plan marks
+  callbacks only where the agent's judgment is genuinely needed. Everything
+  mechanical between callbacks costs the orchestrator nothing.
+
+Pattern: `create_pipeline` → `start_pipeline` → **block on `wait_for_message`**
+instead of looping over `pipeline show`. The TUI nests a delegated pipeline under its
+owning orchestrator; a direct/human pipeline renders under its project node.
 
 ---
 

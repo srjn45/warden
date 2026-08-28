@@ -19,6 +19,7 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 | Route | Tab | What's there |
 |---|---|---|
 | `/cockpit` | ⊞ **Cockpit** | **The home view** (`/` redirects here). A slim **Fleet** header — totals · busy · waiting · errored, pressure, per-directory counts — above the full agent grid. |
+| `/agents` | ◆ **Agents** | Master-detail (like Terminals): the live agents list on the left, the focused agent's interactive view on the right — selecting an agent opens it. |
 | `/pipelines` | ⛓ **Pipelines** | Pipeline list + live DAG / per-job drawer. |
 | `/metrics` | 📊 **Metrics** | Per-agent and fleet-wide charts — [see below](#metrics-view). |
 | `/terminals` | ▷ **Terminals** | First-class terminal sessions (`kind=terminal`): a live PTY viewport plus a **New terminal** action. Terminals are **excluded** from the agent grid and all agent counts. |
@@ -41,6 +42,7 @@ Each agent card also shows the **brand logo of the backend** driving it in the t
 |---|---|
 | **URL routing** | Real History-API routes (above) — back/forward, refresh, middle-click-open-in-new-tab, and shareable deep links all work. |
 | **Cockpit home** | The default view: a **Fleet** summary header above the canonical agent grid. Terminals (`kind=terminal`) are **excluded** from the agent grid and all agent counts — they live in the **Terminals** tab. The old *Quick spawn* widget and duplicate *All agents* mini-grid were removed. |
+| **Agents tab** | An `/agents` tab mirroring Terminals' master-detail layout — the `kind`-filtered agents list on the left, the focused agent's interactive terminal on the right. Web stays flat/tab-based this wave; the projects-first grouping and Open Project panel are TUI-only, and the Pipelines tab is untouched. |
 | **Terminals tab** | A `/terminals` tab with a live PTY viewport and a **New terminal** action for first-class terminal sessions. |
 | **Live fleet over SSE** | No manual refresh; coloured busy/idle badges (Starting, Busy, Needs input, Idle, Done, Error, Orphaned) + each agent's subject. |
 | **Attention queue** | In the **Others** tab: surfaces agents in `waiting_for_input`/`errored`/`orphaned`, with one-click approval buttons. |
