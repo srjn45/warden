@@ -57,6 +57,8 @@ type SpawnRequest struct {
 	ParentID       string   `json:"parent_id"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	ForkFrom       string   `json:"fork_from"`       // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
 	Role           string   `json:"role"`            // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
+	Tier           string   `json:"tier"`            // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
+	Task           string   `json:"task"`            // task name (task registry) for tier routing via task.TierFor; empty = none
 }
 
 // AdoptParams are the resolved inputs the handler passes to Lifecycle.Adopt.

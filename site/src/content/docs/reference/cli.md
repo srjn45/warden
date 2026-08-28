@@ -3051,6 +3051,8 @@ Flags:
       --set stringArray                          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
       --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
+      --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
+      --tier string                              model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role. An explicit --backend/--model still wins over the resolver
       --type string                              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
       --worktree                                 create a scratch worktree for analysis/spike
 

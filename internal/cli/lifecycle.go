@@ -9,10 +9,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/preset"
 	"github.com/srjn45/warden/internal/prompttemplate"
 	"github.com/srjn45/warden/internal/role"
+	"github.com/srjn45/warden/internal/task"
 )
 
 // promptFromArgs returns the prompt for a free-form (no --type) spawn: the
@@ -92,6 +94,20 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				return fmt.Errorf("unknown role %q (valid: %s)", roleName, strings.Join(role.Names(), ", "))
 			}
 
+			// --tier / --task steer the quota-balanced resolver that picks the spawn's
+			// backend+model. Validate up front so a typo fails fast rather than being
+			// silently ignored (the resolver degrades to defaults on an unknown value).
+			tier, _ := cmd.Flags().GetString("tier")
+			if tier != "" && !backendstore.ModelTier(tier).Valid() {
+				return fmt.Errorf("invalid --tier %q (valid: tier-1, tier-2, tier-3)", tier)
+			}
+			taskName, _ := cmd.Flags().GetString("task")
+			if taskName != "" {
+				if _, ok := task.Get(taskName); !ok {
+					return fmt.Errorf("unknown --task %q (valid: %s)", taskName, strings.Join(task.Names(), ", "))
+				}
+			}
+
 			// A prompt template fills the (free-form) spawn prompt; it has no role
 			// in typed mode, where the daemon generates the prompt from the ticket.
 			if tplName, _ := cmd.Flags().GetString("prompt-template"); tplName != "" && typ != "" {
@@ -124,7 +140,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				backend, _ := cmd.Flags().GetString("backend")
 				kind, _ := cmd.Flags().GetString("kind")
 				tagsFlag, _ := cmd.Flags().GetString("tags")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -179,7 +195,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			backend, _ := cmd.Flags().GetString("backend")
 			tagsFlag, _ := cmd.Flags().GetString("tags")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName,
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName,
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -218,6 +234,8 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
 	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
 	cmd.Flags().String("role", "", "built-in agent role: general (default) | orchestrator | implementer | auto-merger | reviewer | worker. Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
+	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role. An explicit --backend/--model still wins over the resolver")
+	cmd.Flags().String("task", "", "task name (task registry) used to derive the model tier when --tier is empty. Empty = none")
 	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
 	return cmd
 }

@@ -361,6 +361,8 @@ type SpawnParams struct {
 	ParentID       string
 	ForkFrom       string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
 	Role           string // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
+	Tier           string // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
+	Task           string // task name (task registry) for tier routing via task.TierFor; empty = none
 }
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
@@ -371,7 +373,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
 		"model": p.Model, "backend": p.Backend, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
-		"fork_from": p.ForkFrom, "role": p.Role,
+		"fork_from": p.ForkFrom, "role": p.Role, "tier": p.Tier, "task": p.Task,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		var se *StatusError

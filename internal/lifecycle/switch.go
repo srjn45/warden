@@ -240,6 +240,53 @@ func (l *Lifecycle) routerResolve(ctx context.Context, req SwapRequest) (*router
 	return l.Resolver.Resolve(ctx, router.ResolveOptions{Role: req.Role, AllowFallback: true})
 }
 
+// resolveSpawnTarget decides the backend+model for a FIRST spawn, mirroring
+// resolveSuccessor but with one critical difference: a first spawn must ALWAYS
+// succeed. Precedence (top wins):
+//
+//   - an explicit pinned backend (with model, or the backend's default when the
+//     model is empty) — the caller chose it;
+//   - an explicit or role-default model (a role's Defaults.Model is folded into
+//     the request's model before this runs, so it lands here) on the default
+//     backend — a model pin the router must not override;
+//   - otherwise the quota-balanced router picks backend+model from
+//     ResolveOptions{Role, Task, Tier, AllowFallback:true}.
+//
+// Unlike a hot-swap (which refuses with ErrNoResolver when nothing is wired), a
+// first spawn DEGRADES gracefully: with no resolver, or when the resolver returns
+// no eligible candidate / errors, it falls back to the passed backend+model
+// (i.e. current behavior — the config default backend and an empty model). It
+// never fails the spawn because the resolver is absent or empty.
+func (l *Lifecycle) resolveSpawnTarget(ctx context.Context, roleName, taskName, tier, backend, model string) (resolvedBackend, resolvedModel string) {
+	// A pinned backend wins outright (keep the model, empty ⇒ backend default).
+	if backend != "" {
+		return backend, model
+	}
+	// A pinned or role-default model on the default backend wins over the router.
+	if model != "" {
+		return backend, model
+	}
+	// Nothing pinned: let the router pick. Degrade silently when it can't so the
+	// spawn still proceeds on the config default backend.
+	if l.Resolver == nil {
+		return backend, model
+	}
+	res, err := l.Resolver.Resolve(ctx, router.ResolveOptions{
+		Role:          roleName,
+		Task:          taskName,
+		Tier:          backendstore.ModelTier(tier),
+		AllowFallback: true,
+	})
+	if err != nil || res == nil || res.BackendID == "" {
+		if err != nil {
+			slog.Debug("spawn: resolver declined, using request defaults",
+				"role", roleName, "task", taskName, "tier", tier, "err", err)
+		}
+		return backend, model
+	}
+	return res.BackendID, res.ModelID
+}
+
 // launchSuccessor brings up the successor backend b in the retiring agent's existing
 // worktree, carrying the handoff forward. It mirrors spawnTyped's launch assembly
 // (new tmux session → inject context → build launch → send-keys) minus the worktree
