@@ -3,7 +3,10 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -287,6 +290,66 @@ func openDirCmd(a api, dir string) tea.Cmd {
 		defer cancel()
 		_, err := a.ListDirs(ctx, dir)
 		return openDirMsg{dir: dir, err: err}
+	}
+}
+
+// cloneDoneMsg is the result of cloning a remote repo into the daemon's
+// configured workspace directory (the "Remote" option of the open-project menu).
+type cloneDoneMsg struct {
+	dir string
+	err error
+}
+
+// newProjectMsg is the result of scaffolding a brand-new project directory.
+type newProjectMsg struct {
+	dir string
+	err error
+}
+
+// cloneCmd clones url via the daemon's /fs/clone (a `git clone` into the
+// configured workspace dir). Uses bgLong — cloning is a network round-trip
+// that can take a while for a large repo.
+func cloneCmd(a api, url string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bgLong()
+		defer cancel()
+		dir, err := a.CloneRepo(ctx, url)
+		return cloneDoneMsg{dir: dir, err: err}
+	}
+}
+
+// newProjectCmd backs the open-project menu's "New" option: it creates dir
+// (refusing to touch one that already exists), git-inits it, writes a README
+// titled name, and makes the first commit — mirroring the `git init && git
+// add . && git commit` sequence a user would run by hand. Runs local git
+// directly (as the TUI already does for repo/branch detection in this file)
+// rather than round-tripping through the daemon, since there is no daemon
+// project-creation API yet.
+func newProjectCmd(dir, name string) tea.Cmd {
+	return func() tea.Msg {
+		if _, err := os.Stat(dir); err == nil {
+			return newProjectMsg{dir: dir, err: fmt.Errorf("%s already exists", dir)}
+		} else if !os.IsNotExist(err) {
+			return newProjectMsg{dir: dir, err: err}
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return newProjectMsg{dir: dir, err: err}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# "+name+"\n"), 0o644); err != nil {
+			return newProjectMsg{dir: dir, err: err}
+		}
+		steps := [][]string{
+			{"init"},
+			{"add", "."},
+			{"commit", "-m", "chore: project initiated using warden"},
+		}
+		for _, args := range steps {
+			cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return newProjectMsg{dir: dir, err: fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))}
+			}
+		}
+		return newProjectMsg{dir: dir}
 	}
 }
 

@@ -737,6 +737,21 @@ func (c *Client) ListDirs(ctx context.Context, path string) (DirListing, error) 
 	return l, nil
 }
 
+// CloneRepo clones url into the daemon's configured workspace directory (the
+// `workspace_path` config setting) and returns the resulting local directory.
+// Backs the TUI's "Open remote project" flow. Uses longTimeout — clone is a
+// network round-trip that can take a while for a large repo.
+func (c *Client) CloneRepo(ctx context.Context, remoteURL string) (string, error) {
+	var resp struct {
+		Dir string `json:"dir"`
+	}
+	body := map[string]string{"url": remoteURL}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/fs/clone", body, &resp); err != nil {
+		return "", err
+	}
+	return resp.Dir, nil
+}
+
 func (c *Client) Output(ctx context.Context, id string, lines int) (string, error) {
 	var resp struct {
 		Output string `json:"output"`

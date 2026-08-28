@@ -477,6 +477,18 @@ type CheckRequest struct {
 // CheckResult defines model for CheckResult.
 type CheckResult = lifecycle.CheckResult
 
+// CloneRepoRequest defines model for CloneRepoRequest.
+type CloneRepoRequest struct {
+	// Url Git remote URL (https or ssh) to clone
+	Url string `json:"url"`
+}
+
+// CloneRepoResponse defines model for CloneRepoResponse.
+type CloneRepoResponse struct {
+	// Dir Absolute path the repo was cloned into
+	Dir string `json:"dir"`
+}
+
 // CommitResult defines model for CommitResult.
 type CommitResult = lifecycle.CommitResult
 
@@ -1202,6 +1214,9 @@ type CasContextJSONRequestBody CasContextJSONBody
 // IngestEventJSONRequestBody defines body for IngestEvent for application/json ContentType.
 type IngestEventJSONRequestBody = EventRequest
 
+// CloneRepoJSONRequestBody defines body for CloneRepo for application/json ContentType.
+type CloneRepoJSONRequestBody = CloneRepoRequest
+
 // GitCommitJSONRequestBody defines body for GitCommit for application/json ContentType.
 type GitCommitJSONRequestBody = GitCommitRequest
 
@@ -1363,6 +1378,9 @@ type ServerInterface interface {
 	// Ingest a Claude hook event
 	// (POST /api/v1/events)
 	IngestEvent(w http.ResponseWriter, r *http.Request)
+	// Clone a remote Git repository into the configured workspace directory
+	// (POST /api/v1/fs/clone)
+	CloneRepo(w http.ResponseWriter, r *http.Request)
 	// List immediate subdirectories
 	// (GET /api/v1/fs/dirs)
 	ListDirs(w http.ResponseWriter, r *http.Request, params ListDirsParams)
@@ -1705,6 +1723,12 @@ func (_ Unimplemented) CasContext(w http.ResponseWriter, r *http.Request, key Ct
 // Ingest a Claude hook event
 // (POST /api/v1/events)
 func (_ Unimplemented) IngestEvent(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Clone a remote Git repository into the configured workspace directory
+// (POST /api/v1/fs/clone)
+func (_ Unimplemented) CloneRepo(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2669,6 +2693,26 @@ func (siw *ServerInterfaceWrapper) IngestEvent(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.IngestEvent(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CloneRepo operation middleware
+func (siw *ServerInterfaceWrapper) CloneRepo(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CloneRepo(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4994,6 +5038,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/events", wrapper.IngestEvent)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/fs/clone", wrapper.CloneRepo)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/fs/dirs", wrapper.ListDirs)
 	})
 	r.Group(func(r chi.Router) {
@@ -5931,6 +5978,56 @@ type IngestEvent204Response struct {
 func (response IngestEvent204Response) VisitIngestEventResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
+}
+
+type CloneRepoRequestObject struct {
+	Body *CloneRepoJSONRequestBody
+}
+
+type CloneRepoResponseObject interface {
+	VisitCloneRepoResponse(w http.ResponseWriter) error
+}
+
+type CloneRepo200JSONResponse CloneRepoResponse
+
+func (response CloneRepo200JSONResponse) VisitCloneRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloneRepo400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CloneRepo400JSONResponse) VisitCloneRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloneRepo500JSONResponse Error
+
+func (response CloneRepo500JSONResponse) VisitCloneRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type ListDirsRequestObject struct {
@@ -8418,6 +8515,9 @@ type StrictServerInterface interface {
 	// Ingest a Claude hook event
 	// (POST /api/v1/events)
 	IngestEvent(ctx context.Context, request IngestEventRequestObject) (IngestEventResponseObject, error)
+	// Clone a remote Git repository into the configured workspace directory
+	// (POST /api/v1/fs/clone)
+	CloneRepo(ctx context.Context, request CloneRepoRequestObject) (CloneRepoResponseObject, error)
 	// List immediate subdirectories
 	// (GET /api/v1/fs/dirs)
 	ListDirs(ctx context.Context, request ListDirsRequestObject) (ListDirsResponseObject, error)
@@ -9311,6 +9411,37 @@ func (sh *strictHandler) IngestEvent(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(IngestEventResponseObject); ok {
 		if err := validResponse.VisitIngestEventResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CloneRepo operation middleware
+func (sh *strictHandler) CloneRepo(w http.ResponseWriter, r *http.Request) {
+	var request CloneRepoRequestObject
+
+	var body CloneRepoJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CloneRepo(ctx, request.(CloneRepoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CloneRepo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CloneRepoResponseObject); ok {
+		if err := validResponse.VisitCloneRepoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

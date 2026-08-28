@@ -35,6 +35,7 @@ func TestIsSlowPath(t *testing.T) {
 		"/api/v1/git/push":                     true,
 		"/api/v1/git/sync":                     true,
 		"/api/v1/git/commit":                   true,
+		"/api/v1/fs/clone":                     true,
 		"/api/v1/check":                        true,
 		"/api/v1/prune":                        true,
 		"/api/v1/sessions/abc/remove-worktree": true,

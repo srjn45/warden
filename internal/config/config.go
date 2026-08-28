@@ -223,9 +223,13 @@ type AutopilotGuardianConfig struct {
 // kept as deprecated aliases — they still work but emit a deprecation warning
 // once per daemon start.
 type Config struct {
-	Addr                  string          `yaml:"addr"`
-	DataDir               string          `yaml:"data_dir"`
-	ClaudeProjectsDir     string          `yaml:"claude_projects_dir"`
+	Addr              string `yaml:"addr"`
+	DataDir           string `yaml:"data_dir"`
+	ClaudeProjectsDir string `yaml:"claude_projects_dir"`
+	// WorkspacePath is the directory the "Open remote project" flow (TUI/daemon
+	// `POST /fs/clone`) clones a GitHub/GitLab URL into, as <workspace_path>/
+	// <repo-name>. Values: absolute path.
+	WorkspacePath         string          `yaml:"workspace_path"`
 	ApprovalsEnabled      bool            `yaml:"approvals"`
 	AutoApprove           approval.Policy `yaml:"auto_approve"`
 	DefaultPermissionMode string          `yaml:"default_permission_mode"`
@@ -296,6 +300,7 @@ var schema = []setting{
 	{"addr", "Daemon listen address. Values: host:port (a non-loopback bind always requires WARDEN_TOKEN for bearer-token auth)"},
 	{"data_dir", "Directory for warden state (sessions, inbox, pipelines, metrics). Values: absolute path"},
 	{"claude_projects_dir", "Claude Code transcript root. Values: absolute path"},
+	{"workspace_path", "Directory the \"Open remote project\" flow clones a GitHub/GitLab URL into, as <workspace_path>/<repo-name>. Values: absolute path"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
 	{"auto_approve", "Auto-approve policy. With NO rules configured this is the simple on/off toggle (enabled answers every recognized, non-destructive prompt). With rules, the daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, regex, paths} — tool/pattern are case-insensitive, regex is a Go regexp), max_repeats (circuit breaker: how many times the IDENTICAL prompt may be consecutively approved for one agent before auto-approve halts and escalates to a human; 0 = default 10, negative = off), agents (per-agent overrides keyed by agent name or id, each its own {enabled, allow_sticky, rules, max_repeats} block that replaces the default for that agent)."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
@@ -352,6 +357,7 @@ func defaults() Config {
 		Addr:              "127.0.0.1:8765",
 		DataDir:           defaultDataDir(),
 		ClaudeProjectsDir: defaultClaudeProjectsDir(),
+		WorkspacePath:     defaultWorkspaceDir(),
 		ApprovalsEnabled:  true,
 		AutoApprove: approval.Policy{
 			Enabled:     false,
@@ -501,6 +507,16 @@ func defaultDataDir() string {
 	return filepath.Join(home, ".warden")
 }
 
+// defaultWorkspaceDir returns ~/.warden/workspace, the default clone
+// destination root for the "Open remote project" flow.
+func defaultWorkspaceDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(".warden", "workspace")
+	}
+	return filepath.Join(home, ".warden", "workspace")
+}
+
 // DefaultPath returns the canonical config file location (~/.warden/config.yaml).
 // It is bootstrap state: resolved before, and independent of, the data_dir
 // setting the file itself contains. Falls back gracefully when home is unknown.
@@ -580,6 +596,9 @@ func validate(c *Config) {
 	}
 	if strings.TrimSpace(c.ClaudeProjectsDir) == "" {
 		c.ClaudeProjectsDir = d.ClaudeProjectsDir
+	}
+	if strings.TrimSpace(c.WorkspacePath) == "" {
+		c.WorkspacePath = d.WorkspacePath
 	}
 	if strings.TrimSpace(c.ModelDefault) == "" {
 		c.ModelDefault = d.ModelDefault

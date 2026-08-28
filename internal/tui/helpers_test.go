@@ -36,6 +36,9 @@ type fakeAPI struct {
 	forceCompactErr error  // error SetForceCompact returns
 	dirListing      client.DirListing
 	dirListErr      error
+	clonedURL       string // url of the last CloneRepo
+	clonedDir       string // dir CloneRepo returns
+	cloneErr        error  // error CloneRepo returns
 	approvals       []approval.View
 	approvalsOn     bool
 	approveErr      error
@@ -109,6 +112,10 @@ func (f *fakeAPI) SetForceCompact(_ context.Context, id, state string) error {
 }
 func (f *fakeAPI) ListDirs(_ context.Context, _ string) (client.DirListing, error) {
 	return f.dirListing, f.dirListErr
+}
+func (f *fakeAPI) CloneRepo(_ context.Context, url string) (string, error) {
+	f.clonedURL = url
+	return f.clonedDir, f.cloneErr
 }
 func (f *fakeAPI) Approvals(_ context.Context) (bool, []approval.View, error) {
 	return f.approvalsOn, f.approvals, nil
