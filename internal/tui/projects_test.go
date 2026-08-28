@@ -76,7 +76,7 @@ func TestRenderFramesNestedProjectsAndTerminals(t *testing.T) {
 
 	require.Contains(t, out, "Projects", "a titled Projects inner frame")
 	require.Contains(t, out, "Terminals", "a titled Terminals inner frame")
-	require.Contains(t, out, "Pipelines", "the Pipelines frame remains until C3 folds it into Projects")
+	require.NotContains(t, out, "Pipelines", "no top-level Pipelines frame (C3 folds it into Projects)")
 	require.NotContains(t, out, "Agents", "the Agents frame is renamed Projects")
 	// Bordered: rounded box corners frame each section.
 	require.Contains(t, out, "╭", "inner frames are bordered")

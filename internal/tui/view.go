@@ -43,7 +43,7 @@ func pressureChip(p client.PressureStatus) string {
 func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
-		"  ←/→ or h/l   fold / unfold: a frame (Pipelines·Projects·Terminals),\n" +
+		"  ←/→ or h/l   fold / unfold: a frame (Projects·Terminals),\n" +
 		"               a pipeline, or an agent sub-tree — whatever is under the cursor\n" +
 		"  enter        open the selected entity — an agent in the agent pane, a terminal in\n" +
 		"               the terminal pane (grabs focus) — or toggle a frame's fold\n" +

@@ -168,12 +168,13 @@ func flatSessions(sessions []*store.Session, pipelines []*pipeline.Pipeline) []*
 
 // The top-level sections of the control-pane navigator, in render order. Each is
 // a bordered/titled inner frame inside the control frame (renderFrames), which
-// the user can collapse to fold its whole sub-tree away. The Agents frame is now
-// a Projects frame: agents are grouped under their project node (project key from
-// the B2 normalizer), so worktrees of one repo collapse to a single node.
-// (Pipelines still renders as a top-level frame here; C3 folds it into Projects.)
+// the user can collapse to fold its whole sub-tree away. The Agents frame is a
+// Projects frame: agents are grouped under their project node (project key from
+// the B2 normalizer), so worktrees of one repo collapse to a single node. There
+// is no top-level Pipelines section (C3): every pipeline renders inside the
+// Projects frame — a delegated pipeline under its owning orchestrator, a
+// human/orchestrator-less one directly under its project node.
 const (
-	secPipelines = "Pipelines"
 	secProjects  = "Projects"
 	secTerminals = "Terminals"
 )
@@ -194,7 +195,7 @@ type item struct {
 	secCount int    // count badge shown on a section header
 
 	// opened marks the row whose session is currently shown in a cockpit pane:
-	// the openedAgent in the agent pane (an Agents-section agent or a Pipelines
+	// the openedAgent in the agent pane (a Projects-frame agent or a pipeline
 	// job row) or the openedTerminal in the terminal pane. It gets a distinct
 	// marker + tint (stOpened) so you can see what's docked even when the cursor
 	// has moved away — and it follows the §8 Alt+a/p/t rotation, which re-points
@@ -239,11 +240,12 @@ func itemKey(it item) string {
 }
 
 // noDirGroup reports whether a row must render bare, never under a project-node
-// header: the section headers, pipeline rows, and terminal rows all live outside
-// the Projects grouping. Only Projects-frame agent rows carry a project group.
+// header: the section headers and terminal rows live outside the Projects
+// grouping. Everything else in the Projects frame — agents, and the pipelines now
+// woven into it (C3) — carries a project group so it renders under its project
+// node's header.
 func (it item) noDirGroup() bool {
-	return it.section != "" || it.pipeline != nil || it.pjJob != nil ||
-		(it.session != nil && it.session.IsTerminal())
+	return it.section != "" || (it.session != nil && it.session.IsTerminal())
 }
 
 // liveStatus reports whether an agent status is non-terminal — still running or
@@ -271,8 +273,36 @@ func liveStatus(s store.Status) bool {
 // slice, leaves inputs untouched. Callers pass sessions already grouped by
 // groupSort; within-project root order is preserved.
 func buildItems(sessions []*store.Session, opened map[string]time.Time, collapsed map[string]bool, projKey func(dir string) string) []item {
+	return buildProjectTree(sessions, nil, opened, collapsed, projKey, nil)
+}
+
+// buildProjectTree is buildItems plus the C3 pipeline weaving: every pipeline
+// renders inside the Projects frame. A delegated pipeline (OwnerID set, the A3
+// owner link) nests under its owning orchestrator — a sibling of that agent's
+// subagents (depth+1) — and shares the agent's collapse; a human/orchestrator-less
+// pipeline (no owner, or an owner that isn't in the tree) renders directly under
+// its project node, keyed by projKey(pipeline.Repo), after that project's agents.
+// A pipeline whose project has no agents still gets a project node of its own so
+// it has a home. jobSess resolves a job's live session for the state badge/gauge
+// (nil ⇒ jobs render session-less). buildItems delegates here with no pipelines.
+func buildProjectTree(sessions []*store.Session, pipelines []*pipeline.Pipeline, opened map[string]time.Time, collapsed map[string]bool, projKey func(dir string) string, jobSess func(id string) *store.Session) []item {
 	// key returns a session's project key (worktrees collapse to one key).
 	key := func(s *store.Session) string { return projKey(sourceDir(s)) }
+	// Partition pipelines: delegated ones (owner present in this tree) nest under
+	// their owner; the rest render under their project node (keyed by repo).
+	present := make(map[string]bool, len(sessions))
+	for _, s := range sessions {
+		present[s.ID] = true
+	}
+	pipesByOwner := map[string][]*pipeline.Pipeline{}
+	pipesByProject := map[string][]*pipeline.Pipeline{}
+	for _, p := range pipelines {
+		if p.OwnerID != "" && present[p.OwnerID] {
+			pipesByOwner[p.OwnerID] = append(pipesByOwner[p.OwnerID], p)
+		} else {
+			pipesByProject[projKey(p.Repo)] = append(pipesByProject[projKey(p.Repo)], p)
+		}
+	}
 	// Index for parent lookup + child grouping. A child whose parent id is absent
 	// from the set is an orphan → promoted to a root so it never vanishes.
 	byID := make(map[string]*store.Session, len(sessions))
@@ -298,21 +328,34 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 	}
 
 	type grp struct {
-		first time.Time
-		seen  int
-		dir   string // representative directory (first root's / the opened dir)
+		first     time.Time
+		seen      int
+		dir       string // representative directory (first root's / the opened dir)
+		hasAnchor bool   // has an agent or opened dir (a real time anchor); false ⇒ pipeline-only
 	}
 	groups := map[string]*grp{}
 	var order []string
+	// note records an anchored project (an agent root or an opened dir): its time
+	// anchor orders it among the other anchored projects.
 	note := func(k, dir string, t time.Time) {
 		g := groups[k]
 		if g == nil {
-			groups[k] = &grp{first: t, seen: len(order), dir: dir}
+			groups[k] = &grp{first: t, seen: len(order), dir: dir, hasAnchor: true}
 			order = append(order, k)
 			return
 		}
+		g.hasAnchor = true
 		if t.Before(g.first) {
 			g.first = t
+		}
+	}
+	// noteProject records a project seen only through a pipeline (no agent, no
+	// opened dir). It creates a home node if none exists; an already-anchored
+	// project keeps its agent-derived dir and ordering.
+	noteProject := func(k, dir string) {
+		if groups[k] == nil {
+			groups[k] = &grp{seen: len(order), dir: dir}
+			order = append(order, k)
 		}
 	}
 	for _, s := range roots {
@@ -321,12 +364,20 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 	for dir, at := range opened {
 		note(projKey(dir), dir, at)
 	}
+	for _, p := range pipelines { // project-homed pipelines may open a new project node
+		if p.OwnerID == "" || !present[p.OwnerID] {
+			noteProject(projKey(p.Repo), p.Repo)
+		}
+	}
 	sort.SliceStable(order, func(a, b int) bool {
 		ga, gb := groups[order[a]], groups[order[b]]
-		if ga.first.Equal(gb.first) {
-			return ga.seen < gb.seen
+		if ga.hasAnchor != gb.hasAnchor {
+			return ga.hasAnchor // anchored projects (with agents/opened dirs) sort first
 		}
-		return ga.first.Before(gb.first)
+		if ga.hasAnchor && !ga.first.Equal(gb.first) {
+			return ga.first.Before(gb.first)
+		}
+		return ga.seen < gb.seen // pipeline-only projects (and time ties) keep insertion order
 	})
 	byKey := map[string][]*store.Session{}
 	for _, s := range roots {
@@ -337,12 +388,18 @@ func buildItems(sessions []*store.Session, opened map[string]time.Time, collapse
 	for _, k := range order {
 		dir := groups[k].dir // every row in the project renders under this one dir header
 		rs := byKey[k]
-		if len(rs) == 0 {
+		pjs := pipesByProject[k]
+		if len(rs) == 0 && len(pjs) == 0 {
 			items = append(items, item{dir: dir}) // empty opened project → placeholder
 			continue
 		}
 		for _, s := range rs {
-			items = appendSubtree(items, s, dir, 0, childrenByParent, crossParent, collapsed, seen)
+			items = appendSubtree(items, s, dir, 0, childrenByParent, crossParent, collapsed, seen, pipesByOwner, jobSess)
+		}
+		// Human/orchestrator-less pipelines of this project render after its agents,
+		// as siblings of the project's top-level agents (C3).
+		for _, p := range pjs {
+			items = appendPipeline(items, p, dir, 0, collapsed, jobSess)
 		}
 	}
 	return items
@@ -427,18 +484,21 @@ func terminalDisplayName(index int, cwd, repoRoot, branch string) string {
 }
 
 // appendSubtree emits s then, unless it is collapsed, its descendants in DFS
-// pre-order, assigning tree depth. A node with children renders as a collapsible
-// header (▸/▾); a terminal (non-live) parent is a tombstone — header-only, no
-// live badge/gauge — carrying the count of live descendants still under it. seen
-// guards against a malformed parent cycle.
-func appendSubtree(items []item, s *store.Session, dir string, depth int, childrenByParent map[string][]*store.Session, crossParent map[string]string, collapsed, seen map[string]bool) []item {
+// pre-order, assigning tree depth. A node with children — subagents or a delegated
+// pipeline it owns (C3) — renders as a collapsible header (▸/▾); a terminal
+// (non-live) parent is a tombstone — header-only, no live badge/gauge — carrying
+// the count of live descendants still under it. Delegated pipelines nest after the
+// agent's subagents, at the same depth (siblings). seen guards against a malformed
+// parent cycle.
+func appendSubtree(items []item, s *store.Session, dir string, depth int, childrenByParent map[string][]*store.Session, crossParent map[string]string, collapsed, seen map[string]bool, pipesByOwner map[string][]*pipeline.Pipeline, jobSess func(id string) *store.Session) []item {
 	if seen[s.ID] {
 		return items
 	}
 	seen[s.ID] = true
 
 	kids := childrenByParent[s.ID]
-	it := item{session: s, dir: dir, depth: depth, hasKids: len(kids) > 0, fromParent: crossParent[s.ID]}
+	ownedPipes := pipesByOwner[s.ID]
+	it := item{session: s, dir: dir, depth: depth, hasKids: len(kids) > 0 || len(ownedPipes) > 0, fromParent: crossParent[s.ID]}
 	if it.hasKids {
 		it.collapsed = collapsed[s.ID]
 		if !liveStatus(s.Status) {
@@ -449,8 +509,33 @@ func appendSubtree(items []item, s *store.Session, dir string, depth int, childr
 	items = append(items, it)
 	if it.hasKids && !it.collapsed {
 		for _, c := range kids {
-			items = appendSubtree(items, c, dir, depth+1, childrenByParent, crossParent, collapsed, seen)
+			items = appendSubtree(items, c, dir, depth+1, childrenByParent, crossParent, collapsed, seen, pipesByOwner, jobSess)
 		}
+		for _, p := range ownedPipes {
+			items = appendPipeline(items, p, dir, depth+1, collapsed, jobSess)
+		}
+	}
+	return items
+}
+
+// appendPipeline emits a pipeline's header row at the given depth, then — unless
+// the pipeline is collapsed — one row per job, each nested a level deeper and
+// linked to its live session via jobSess (nil ⇒ session-less). dir places the
+// rows under their project node in the Projects frame (C3). Callers own the
+// collapse-completed default (applyDefaultCollapse) via the shared `collapsed` map.
+func appendPipeline(items []item, p *pipeline.Pipeline, dir string, depth int, collapsed map[string]bool, jobSess func(id string) *store.Session) []item {
+	c := collapsed[p.ID]
+	items = append(items, item{pipeline: p, collapsed: c, dir: dir, depth: depth})
+	if c {
+		return items
+	}
+	for i := range p.Jobs {
+		j := p.Jobs[i] // fresh var each iteration → distinct pointer
+		var sess *store.Session
+		if jobSess != nil {
+			sess = jobSess(j.SessionID)
+		}
+		items = append(items, item{pjPipe: p.ID, pjJob: &j, pjSess: sess, dir: dir, depth: depth + 1})
 	}
 	return items
 }
@@ -473,26 +558,20 @@ func liveDescendants(id string, childrenByParent map[string][]*store.Session, se
 }
 
 // pipelineItems flattens pipelines into a header row per pipeline followed by an
-// indented row per job. Each job row holds a distinct *Job pointer plus, when the
-// job has spawned an agent, the matching live session (for the state badge, token
-// gauge, and worktree). A pipeline whose id is marked in `collapsed` emits only its
-// header row (jobs hidden).
+// indented row per job (the flat, project-less form). Each job row holds a distinct
+// *Job pointer plus, when the job has spawned an agent, the matching live session
+// (for the state badge, token gauge, and worktree). A pipeline whose id is marked in
+// `collapsed` emits only its header row (jobs hidden). Shares appendPipeline with the
+// C3 in-Projects weaving so the two render identically.
 func pipelineItems(ps []*pipeline.Pipeline, sessions []*store.Session, collapsed map[string]bool) []item {
 	byID := make(map[string]*store.Session, len(sessions))
 	for _, s := range sessions {
 		byID[s.ID] = s
 	}
+	jobSess := func(id string) *store.Session { return byID[id] }
 	var out []item
 	for _, p := range ps {
-		c := collapsed[p.ID]
-		out = append(out, item{pipeline: p, collapsed: c})
-		if c {
-			continue
-		}
-		for i := range p.Jobs {
-			j := p.Jobs[i] // fresh var each iteration → distinct pointer
-			out = append(out, item{pjPipe: p.ID, pjJob: &j, pjSess: byID[j.SessionID]})
-		}
+		out = appendPipeline(out, p, "", 0, collapsed, jobSess)
 	}
 	return out
 }
@@ -725,6 +804,15 @@ func contextLabel(tokens int, state string) (string, lipgloss.Style) {
 // header. It matches the header's own leading indent in buildRows.
 const dirChildIndent = "    "
 
+// nestIndent is the leading indent for a pipeline/job row at tree depth `depth`
+// under its project node: the base dir-child indent (one level under the project
+// header) plus two spaces per depth level — the same stepping treePrefix uses for
+// agents, so a depth-0 pipeline lines up with a root agent and a depth-1 delegated
+// pipeline lines up with a subagent (C3).
+func nestIndent(depth int) string {
+	return dirChildIndent + strings.Repeat("  ", depth)
+}
+
 // treePrefix renders the sub-tree indentation + collapse glyph for an agent row.
 // Every agent row starts with a base indent (dirChildIndent) so it sits one level
 // under its dir-group header — which itself sits one level under the section — so
@@ -774,7 +862,7 @@ func renderItemLine(it item, selected bool, width int) string {
 			exp = "▸" // collapsed
 		}
 		label, st, glyph := pipelineDisplayStatus(it.pipeline)
-		line = exp + " " + stPaneTitle.Render(it.pipeline.ID) + "  " + st.Render(glyph+" "+label)
+		line = nestIndent(it.depth) + exp + " " + stPaneTitle.Render(it.pipeline.ID) + "  " + st.Render(glyph+" "+label)
 	case it.pjJob != nil:
 		deps := ""
 		if len(it.pjJob.DependsOn) > 0 {
@@ -805,7 +893,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		if branchInfo != "" {
 			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
 		}
-		line = fmt.Sprintf("    %s %s %s %s %s%s",
+		line = nestIndent(it.depth) + fmt.Sprintf("%s %s %s %s %s%s",
 			st.Render(glyph), jobIDCol, st.Render(statusWord), agentCol, ctxCol, branchInfo) + deps
 	case it.session == nil:
 		line = dirChildIndent + stMuted.Render("(no agents — n to spawn here)")

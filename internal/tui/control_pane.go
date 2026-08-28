@@ -143,29 +143,32 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 }
 
 // items assembles the control-pane navigator as fixed, collapsible top-level
-// sections, in order: Pipelines · Projects · Terminals. renderFrames composes each
-// as a bordered inner frame. Each section header is always present; collapsing one
-// (its secKey in m.collapsed) folds away its whole sub-tree. Agents are grouped by
-// project key (worktrees of one repo collapse to one node); terminals are split
-// out of the Projects tree entirely (§3) and rendered with their §7 names.
-// (Pipelines stays a top-level section here; C3 folds it into the Projects frame.)
+// sections, in order: Projects · Terminals. renderFrames composes each as a
+// bordered inner frame. Each section header is always present; collapsing one (its
+// secKey in m.collapsed) folds away its whole sub-tree. Agents are grouped by
+// project key (worktrees of one repo collapse to one node); every pipeline renders
+// inside the Projects frame (C3) — a delegated pipeline under its owning
+// orchestrator, a human/orchestrator-less one under its project node. Terminals are
+// split out of the Projects tree entirely (§3) and rendered with their §7 names.
 func (m controlPaneModel) items() []item {
 	agents, terminals := splitByKind(flatSessions(m.sessions, m.pipelines))
+	// jobSess resolves a pipeline job's live session from the full session list
+	// (job sessions are excluded from `agents`, but the job rows still surface their
+	// state badge/token gauge).
+	byID := make(map[string]*store.Session, len(m.sessions))
+	for _, s := range m.sessions {
+		byID[s.ID] = s
+	}
+	jobSess := func(id string) *store.Session { return byID[id] }
 	var out []item
 
-	// ── Pipelines: pipeline-owned sessions live here, under their pipeline.
-	pipeCollapsed := m.collapsed[secKey(secPipelines)]
-	out = append(out, item{section: secPipelines, secCount: len(m.pipelines), collapsed: pipeCollapsed})
-	if !pipeCollapsed {
-		out = append(out, pipelineItems(m.pipelines, m.sessions, m.collapsed)...)
-	}
-
-	// ── Projects: agents grouped by project key (worktrees of one repo collapse
-	// to one node), subagents nested per the §4.1 render rule.
+	// ── Projects: agents grouped by project key (worktrees of one repo collapse to
+	// one node), subagents nested per the §4.1 render rule, and pipelines woven in
+	// (delegated under their owner, human/orphan under their project node — C3).
 	projCollapsed := m.collapsed[secKey(secProjects)]
 	out = append(out, item{section: secProjects, secCount: len(agents), collapsed: projCollapsed})
 	if !projCollapsed {
-		out = append(out, buildItems(agents, m.openedDirs, m.collapsed, m.projectKey)...)
+		out = append(out, buildProjectTree(agents, m.pipelines, m.openedDirs, m.collapsed, m.projectKey, jobSess)...)
 	}
 
 	// ── Terminals: plain shells, named per §7 (live cwd/branch from termInfo).
@@ -179,8 +182,8 @@ func (m controlPaneModel) items() []item {
 }
 
 // markOpened flags the rows currently shown in the cockpit panes so they render
-// with the stOpened marker: the openedAgent (an Agents-section agent row, or a
-// Pipelines job row whose live session is that agent) and the openedTerminal (a
+// with the stOpened marker: the openedAgent (a Projects-frame agent row, or a
+// pipeline job row whose live session is that agent) and the openedTerminal (a
 // Terminals-section row). Because it keys off m.openedAgent/m.openedTerminal —
 // which both Enter-open and §8 Alt+a/p/t rotation set — the highlight tracks the
 // panes without any extra plumbing. Empty ids match nothing.
@@ -336,9 +339,10 @@ func (m controlPaneModel) unresolvedProjectDirs() []string {
 
 // pipelineAgents returns the live agents that belong to a pipeline, ordered
 // pipeline-by-pipeline then job order. A job with no live session (pending/reaped)
-// is skipped. The M-p rotation that used to consume this is retired (C2); the
-// resolver stays because C3 renders pipelines inside the Projects frame off the
-// same live-session mapping.
+// is skipped. The M-p rotation that used to consume this is retired (C2); C3 now
+// renders pipelines inside the Projects frame via a per-job session lookup
+// (buildProjectTree's jobSess), so this stays only as a standalone live-session
+// resolver.
 func (m controlPaneModel) pipelineAgents() []*store.Session {
 	byID := make(map[string]*store.Session, len(m.sessions))
 	for _, s := range m.sessions {
@@ -1539,8 +1543,8 @@ func (m controlPaneModel) View() string {
 		return header + "\n" + body + "\n" + footer
 	}
 	// The control pane is composed of stacked bordered/titled inner frames — one
-	// per top-level section (Projects, Terminals, and, until C3, Pipelines) — inside
-	// the outer Control frame, each windowing/collapsing independently.
+	// per top-level section (Projects and Terminals) — inside the outer Control
+	// frame, each windowing/collapsing independently.
 	body := titleBox("Control", renderFrames(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so

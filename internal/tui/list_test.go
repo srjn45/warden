@@ -492,7 +492,7 @@ func TestCompleteDirAdvancesAndPreservesTyped(t *testing.T) {
 
 func TestBuildRowsSectionHeaderHasNoDirGroup(t *testing.T) {
 	items := []item{
-		{section: secPipelines, secCount: 2},
+		{section: secProjects, secCount: 2},
 		{session: &store.Session{ID: "a1"}, dir: "/repo"},
 	}
 	rows := buildRows(items)
@@ -542,7 +542,10 @@ func TestPipelineItems(t *testing.T) {
 	}
 }
 
-func TestItemsPrependsPipelinesAndFiltersOwnedSessions(t *testing.T) {
+// C3: items() weaves pipelines into the Projects frame (no top-level Pipelines
+// section) and still filters pipeline-owned sessions out of the flat agent rows —
+// they surface only as the pipeline's job rows.
+func TestItemsWeavesPipelinesAndFiltersOwnedSessions(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
 	m.sessions = []*store.Session{
 		{ID: "free", Status: store.StatusWorking},
@@ -552,13 +555,18 @@ func TestItemsPrependsPipelinesAndFiltersOwnedSessions(t *testing.T) {
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning, SessionID: "demo-a"}}}}
 	items := m.items()
 	// pipeline header + its 1 job + the free session; the pipeline-owned session is filtered out.
-	var sawPipe, sawJob, sawFree, sawOwned bool
+	var sawPipe, sawJob, sawFree, sawOwned, sawPipesSection bool
+	var jobSess *store.Session
 	for _, it := range items {
 		if it.pipeline != nil {
 			sawPipe = true
 		}
 		if it.pjJob != nil {
 			sawJob = true
+			jobSess = it.pjSess
+		}
+		if it.section == "Pipelines" {
+			sawPipesSection = true
 		}
 		if it.session != nil && it.session.ID == "free" {
 			sawFree = true
@@ -572,6 +580,12 @@ func TestItemsPrependsPipelinesAndFiltersOwnedSessions(t *testing.T) {
 	}
 	if sawOwned {
 		t.Fatalf("pipeline-owned session must not appear as a flat session row")
+	}
+	if sawPipesSection {
+		t.Fatalf("no top-level Pipelines section should be emitted (C3)")
+	}
+	if jobSess == nil || jobSess.ID != "demo-a" {
+		t.Fatalf("job row should link its live session demo-a, got %+v", jobSess)
 	}
 }
 
@@ -847,17 +861,23 @@ func TestJobDetailBody(t *testing.T) {
 	}
 }
 
-func TestBuildRowsNoHeaderForPipelineRows(t *testing.T) {
+// C3: pipeline rows now carry a project group (dir), so a pipeline and its agents
+// render under one shared project header — the pipeline no longer floats bare, and
+// no second header appears when a pipeline sits among that project's agent rows.
+func TestBuildRowsPipelineRowsShareProjectHeader(t *testing.T) {
 	items := []item{
-		{pipeline: &pipeline.Pipeline{ID: "demo", Status: pipeline.StatusRunning}},
-		{pjPipe: "demo", pjJob: &pipeline.Job{ID: "a", Status: pipeline.JobRunning}},
 		{session: &store.Session{ID: "free"}, dir: "/work"},
+		{pipeline: &pipeline.Pipeline{ID: "demo", Status: pipeline.StatusRunning}, dir: "/work"},
+		{pjPipe: "demo", pjJob: &pipeline.Job{ID: "a", Status: pipeline.JobRunning}, dir: "/work", depth: 1},
 	}
+	headers := 0
 	for _, r := range buildRows(items) {
-		if strings.Contains(r.header, "(0)") {
-			t.Fatalf("spurious empty group header above pipeline rows: %q", r.header)
+		if r.header != "" {
+			headers++
+			require.Contains(t, r.header, "(1)", "one project header counting the single agent, pipeline excluded")
 		}
 	}
+	require.Equal(t, 1, headers, "the agent and its project's pipeline share one project header")
 }
 
 func TestPipelineDisplayStatus(t *testing.T) {
@@ -1043,6 +1063,7 @@ func TestBuildItemsSameProjectChildStillNestsWithRepo(t *testing.T) {
 
 // items() always emits the fixed section headers, in order, even when empty. The
 // Agents section is now Projects (agents grouped by project); Terminals follows.
+// There is no top-level Pipelines section (C3): pipelines render inside Projects.
 func TestItemsFixedSectionsInOrder(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
 	var secs []string
@@ -1051,8 +1072,9 @@ func TestItemsFixedSectionsInOrder(t *testing.T) {
 			secs = append(secs, it.section)
 		}
 	}
-	require.Equal(t, []string{secPipelines, secProjects, secTerminals}, secs)
+	require.Equal(t, []string{secProjects, secTerminals}, secs)
 	require.NotContains(t, secs, "Agents", "the Agents frame is renamed Projects")
+	require.NotContains(t, secs, "Pipelines", "no top-level Pipelines section (C3 folds it into Projects)")
 }
 
 // A terminal-kind session renders under Terminals with its §7 name and never in
@@ -1102,8 +1124,8 @@ func TestSectionCollapseHidesChildren(t *testing.T) {
 // enter on a section header toggles its collapse.
 func TestEnterOnSectionToggles(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
-	m.cursor = cursorOn(m, func(it item) bool { return it.section == secPipelines })
+	m.cursor = cursorOn(m, func(it item) bool { return it.section == secProjects })
 	m2, _ := m.handleKey(key("enter"))
 	mc := m2.(controlPaneModel)
-	require.True(t, mc.collapsed[secKey(secPipelines)], "enter on a section header toggles its fold")
+	require.True(t, mc.collapsed[secKey(secProjects)], "enter on a section header toggles its fold")
 }
