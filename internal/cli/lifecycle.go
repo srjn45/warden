@@ -151,7 +151,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				backend, _ := cmd.Flags().GetString("backend")
 				kind, _ := cmd.Flags().GetString("kind")
 				tagsFlag, _ := cmd.Flags().GetString("tags")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName, ParentID: os.Getenv("WARDEN_SESSION_ID")})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -206,7 +206,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			backend, _ := cmd.Flags().GetString("backend")
 			tagsFlag, _ := cmd.Flags().GetString("tags")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName,
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName, ParentID: os.Getenv("WARDEN_SESSION_ID"),
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
