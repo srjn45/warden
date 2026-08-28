@@ -28,6 +28,7 @@ import (
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
@@ -197,6 +198,11 @@ type Server struct {
 	// the registry routes added in later stages guard on it. Set by the daemon via
 	// SetBackends after the startup reconcile.
 	backends *backendstore.Store
+	// projects is the first-class project store (docs/specs/
+	// 2026-08-28-project-centric-ui.md Phase 1): the parent entity agents and
+	// pipelines group under via ProjectID. nil ⇒ unconfigured (older wiring); the
+	// /api/v1/projects routes guard on it. Set by the daemon via SetProjects.
+	projects *projectstore.Store
 	// autoApprovePersist persists a replaced auto-approve policy to the config
 	// file (set by the daemon to config.WriteAutoApprove). nil ⇒ the PUT
 	// /auto-approve/policy endpoint changes the live policy but does not persist.
@@ -271,6 +277,11 @@ func (s *Server) SetScheduler(enabled bool, store *schedule.Store, interval time
 // (the routes added in later stages then report it unavailable). Call before
 // Start, after the startup detection reconcile.
 func (s *Server) SetBackends(store *backendstore.Store) { s.backends = store }
+
+// SetProjects wires the first-class project store (docs/specs/
+// 2026-08-28-project-centric-ui.md Phase 1). A nil store leaves the project routes
+// unconfigured (they report it unavailable). Call before Start.
+func (s *Server) SetProjects(store *projectstore.Store) { s.projects = store }
 
 // SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
 // at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.

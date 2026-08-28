@@ -27,6 +27,7 @@ import (
 	metrics "github.com/srjn45/warden/internal/metrics"
 	pipeline "github.com/srjn45/warden/internal/pipeline"
 	pressure "github.com/srjn45/warden/internal/pressure"
+	projectstore "github.com/srjn45/warden/internal/projectstore"
 	savings "github.com/srjn45/warden/internal/savings"
 	schedule "github.com/srjn45/warden/internal/schedule"
 	snapshot "github.com/srjn45/warden/internal/snapshot"
@@ -638,6 +639,18 @@ type MetricsSample = metrics.Sample
 // ModelEntry A model supported by an agent backend with its tier and status.
 type ModelEntry = backendstore.ModelEntry
 
+// OpenProjectRequest defines model for OpenProjectRequest.
+type OpenProjectRequest struct {
+	// Id canonical project key (main checkout path or remote URL)
+	Id string `json:"id"`
+
+	// Name display name; empty leaves an existing name unchanged
+	Name string `json:"name,omitempty"`
+
+	// Path local absolute path; empty leaves an existing path unchanged
+	Path string `json:"path,omitempty"`
+}
+
 // OutputResponse defines model for OutputResponse.
 type OutputResponse struct {
 	Output string `json:"output"`
@@ -679,6 +692,14 @@ type PressureStatus struct {
 	Level       int    `json:"level"`
 	LevelName   string `json:"level_name"`
 	MaxAgents   int    `json:"max_agents"`
+}
+
+// Project A first-class project (docs/specs/2026-08-28-project-centric-ui.md Phase 1): the parent that agents and pipelines group under via project_id. The id is the canonical, stable key (the main checkout's local path or the remote URL) — every agent/pipeline in any worktree of the repo shares it. A worktree is never a project of its own.
+type Project = projectstore.Project
+
+// ProjectList defines model for ProjectList.
+type ProjectList struct {
+	Projects []Project `json:"projects"`
 }
 
 // PruneRequest defines model for PruneRequest.
@@ -1247,6 +1268,9 @@ type EditPipelineJobJSONRequestBody EditPipelineJobJSONBody
 // EmitPipelineJobJSONRequestBody defines body for EmitPipelineJob for application/json ContentType.
 type EmitPipelineJobJSONRequestBody EmitPipelineJobJSONBody
 
+// OpenProjectJSONRequestBody defines body for OpenProject for application/json ContentType.
+type OpenProjectJSONRequestBody = OpenProjectRequest
+
 // PruneWorktreesJSONRequestBody defines body for PruneWorktrees for application/json ContentType.
 type PruneWorktreesJSONRequestBody = PruneRequest
 
@@ -1459,6 +1483,15 @@ type ServerInterface interface {
 	// Memory-pressure + spawn-gate status
 	// (GET /api/v1/pressure)
 	GetPressure(w http.ResponseWriter, r *http.Request)
+	// List first-class projects
+	// (GET /api/v1/projects)
+	ListProjects(w http.ResponseWriter, r *http.Request)
+	// Register a project and mark it open
+	// (POST /api/v1/projects/open)
+	OpenProject(w http.ResponseWriter, r *http.Request)
+	// Hibernate (close) a project
+	// (POST /api/v1/projects/{id}/close)
+	CloseProject(w http.ResponseWriter, r *http.Request, id string)
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(w http.ResponseWriter, r *http.Request)
@@ -1885,6 +1918,24 @@ func (_ Unimplemented) StartPipeline(w http.ResponseWriter, r *http.Request, pid
 // Memory-pressure + spawn-gate status
 // (GET /api/v1/pressure)
 func (_ Unimplemented) GetPressure(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List first-class projects
+// (GET /api/v1/projects)
+func (_ Unimplemented) ListProjects(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register a project and mark it open
+// (POST /api/v1/projects/open)
+func (_ Unimplemented) OpenProject(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Hibernate (close) a project
+// (POST /api/v1/projects/{id}/close)
+func (_ Unimplemented) CloseProject(w http.ResponseWriter, r *http.Request, id string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3577,6 +3628,78 @@ func (siw *ServerInterfaceWrapper) GetPressure(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListProjects operation middleware
+func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjects(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OpenProject operation middleware
+func (siw *ServerInterfaceWrapper) OpenProject(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenProject(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CloseProject operation middleware
+func (siw *ServerInterfaceWrapper) CloseProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CloseProject(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PruneWorktrees operation middleware
 func (siw *ServerInterfaceWrapper) PruneWorktrees(w http.ResponseWriter, r *http.Request) {
 
@@ -5117,6 +5240,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/pressure", wrapper.GetPressure)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/projects", wrapper.ListProjects)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/projects/open", wrapper.OpenProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/projects/{id}/close", wrapper.CloseProject)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/prune", wrapper.PruneWorktrees)
@@ -6893,6 +7025,99 @@ func (response GetPressure200JSONResponse) VisitGetPressureResponse(w http.Respo
 	return err
 }
 
+type ListProjectsRequestObject struct {
+}
+
+type ListProjectsResponseObject interface {
+	VisitListProjectsResponse(w http.ResponseWriter) error
+}
+
+type ListProjects200JSONResponse ProjectList
+
+func (response ListProjects200JSONResponse) VisitListProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenProjectRequestObject struct {
+	Body *OpenProjectJSONRequestBody
+}
+
+type OpenProjectResponseObject interface {
+	VisitOpenProjectResponse(w http.ResponseWriter) error
+}
+
+type OpenProject200JSONResponse Project
+
+func (response OpenProject200JSONResponse) VisitOpenProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenProject400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response OpenProject400JSONResponse) VisitOpenProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseProjectRequestObject struct {
+	Id string `json:"id"`
+}
+
+type CloseProjectResponseObject interface {
+	VisitCloseProjectResponse(w http.ResponseWriter) error
+}
+
+type CloseProject200JSONResponse Project
+
+func (response CloseProject200JSONResponse) VisitCloseProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseProject404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CloseProject404JSONResponse) VisitCloseProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PruneWorktreesRequestObject struct {
 	Body *PruneWorktreesJSONRequestBody
 }
@@ -8596,6 +8821,15 @@ type StrictServerInterface interface {
 	// Memory-pressure + spawn-gate status
 	// (GET /api/v1/pressure)
 	GetPressure(ctx context.Context, request GetPressureRequestObject) (GetPressureResponseObject, error)
+	// List first-class projects
+	// (GET /api/v1/projects)
+	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
+	// Register a project and mark it open
+	// (POST /api/v1/projects/open)
+	OpenProject(ctx context.Context, request OpenProjectRequestObject) (OpenProjectResponseObject, error)
+	// Hibernate (close) a project
+	// (POST /api/v1/projects/{id}/close)
+	CloseProject(ctx context.Context, request CloseProjectRequestObject) (CloseProjectResponseObject, error)
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(ctx context.Context, request PruneWorktreesRequestObject) (PruneWorktreesResponseObject, error)
@@ -10175,6 +10409,87 @@ func (sh *strictHandler) GetPressure(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPressureResponseObject); ok {
 		if err := validResponse.VisitGetPressureResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProjects operation middleware
+func (sh *strictHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
+	var request ListProjectsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProjects(ctx, request.(ListProjectsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProjects")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProjectsResponseObject); ok {
+		if err := validResponse.VisitListProjectsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OpenProject operation middleware
+func (sh *strictHandler) OpenProject(w http.ResponseWriter, r *http.Request) {
+	var request OpenProjectRequestObject
+
+	var body OpenProjectJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OpenProject(ctx, request.(OpenProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OpenProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OpenProjectResponseObject); ok {
+		if err := validResponse.VisitOpenProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CloseProject operation middleware
+func (sh *strictHandler) CloseProject(w http.ResponseWriter, r *http.Request, id string) {
+	var request CloseProjectRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CloseProject(ctx, request.(CloseProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CloseProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CloseProjectResponseObject); ok {
+		if err := validResponse.VisitCloseProjectResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

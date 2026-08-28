@@ -211,6 +211,12 @@ type Session struct {
 	ScheduleName    string      `json:"schedule_name,omitempty"`   // operator-facing name of that schedule (== ScheduleID today, carried for display)
 	ParentID        string      `json:"parent_id,omitempty"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	Model           string      `json:"model,omitempty"`           // claude model (opus/sonnet/haiku or full ID)
+	// ProjectID back-refs the first-class project (projectstore) this agent belongs
+	// to; empty = ungrouped. It is the PARENT project's canonical id: an agent
+	// running in a git worktree links to its repo's project here and keeps its own
+	// worktree path in Worktree — a worktree is never a project of its own. Optional
+	// (omitempty), so records that predate the field read as ungrouped.
+	ProjectID string `json:"project_id,omitempty"`
 
 	ContextTokens    int        `json:"context_tokens,omitempty"`     // latest context-window fill; 0 = unknown (no model turn yet)
 	ContextState     string     `json:"context_state,omitempty"`      // "" | ok | warning | critical
