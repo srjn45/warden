@@ -960,6 +960,79 @@ paths:
               schema: { $ref: "#/components/schemas/Project" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/projects/local:
+    post:
+      operationId: openLocalProject
+      tags: [Projects]
+      summary: Open an existing local directory as a project
+      description: >
+        Normalizes the given directory path to an absolute, symlink-resolved path,
+        registers it as a project (id = path = the resolved absolute path), and
+        marks it open (docs/specs/2026-08-28-project-centric-ui.md Phase 2, Local).
+        The directory must already exist. When name is empty the directory's base
+        name is used. Returns the resulting project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OpenLocalProjectRequest" }
+      responses:
+        "200":
+          description: The opened project
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/projects/remote:
+    post:
+      operationId: openRemoteProject
+      tags: [Projects]
+      summary: Clone a remote URL into the workspace and open it as a project
+      description: >
+        Clones a GitHub/GitLab URL via `git clone` into <workspace_path>/<repo-name>
+        (workspace_path from the live config), registers the clone as a project
+        (id = path = the clone destination), and marks it open
+        (docs/specs/2026-08-28-project-centric-ui.md Phase 2, Remote). When name is
+        empty the repository name derived from the URL is used. Fails if the
+        destination already exists. Returns the resulting project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OpenRemoteProjectRequest" }
+      responses:
+        "200":
+          description: The cloned and opened project
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/projects/new:
+    post:
+      operationId: createProject
+      tags: [Projects]
+      summary: Scaffold a new project in the workspace and open it
+      description: >
+        Creates <workspace_path>/<name>, runs `git init`, writes a template
+        README.md, then `git add . && git commit`, registers the directory as a
+        project (id = path = the new directory), and marks it open
+        (docs/specs/2026-08-28-project-centric-ui.md Phase 2, New). Fails if the
+        target directory already exists. Returns the resulting project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewProjectRequest" }
+      responses:
+        "200":
+          description: The created and opened project
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
   /api/v1/sessions/{id}/name:
     patch:
       operationId: setName
@@ -2613,6 +2686,26 @@ components:
         id: { type: string, description: "canonical project key (main checkout path or remote URL)" }
         name: { type: string, description: "display name; empty leaves an existing name unchanged" }
         path: { type: string, description: "local absolute path; empty leaves an existing path unchanged" }
+
+    OpenLocalProjectRequest:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string, description: "existing local directory to open; normalized to an absolute path" }
+        name: { type: string, description: "display name; defaults to the directory base name when empty" }
+
+    OpenRemoteProjectRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, description: "GitHub/GitLab clone URL" }
+        name: { type: string, description: "display name; defaults to the repo name derived from the URL when empty" }
+
+    NewProjectRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: "new project name; also the workspace directory name" }
 
     BackendsState:
       type: object

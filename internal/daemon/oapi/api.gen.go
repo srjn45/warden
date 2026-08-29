@@ -639,6 +639,21 @@ type MetricsSample = metrics.Sample
 // ModelEntry A model supported by an agent backend with its tier and status.
 type ModelEntry = backendstore.ModelEntry
 
+// NewProjectRequest defines model for NewProjectRequest.
+type NewProjectRequest struct {
+	// Name new project name; also the workspace directory name
+	Name string `json:"name"`
+}
+
+// OpenLocalProjectRequest defines model for OpenLocalProjectRequest.
+type OpenLocalProjectRequest struct {
+	// Name display name; defaults to the directory base name when empty
+	Name string `json:"name,omitempty"`
+
+	// Path existing local directory to open; normalized to an absolute path
+	Path string `json:"path"`
+}
+
 // OpenProjectRequest defines model for OpenProjectRequest.
 type OpenProjectRequest struct {
 	// Id canonical project key (main checkout path or remote URL)
@@ -649,6 +664,15 @@ type OpenProjectRequest struct {
 
 	// Path local absolute path; empty leaves an existing path unchanged
 	Path string `json:"path,omitempty"`
+}
+
+// OpenRemoteProjectRequest defines model for OpenRemoteProjectRequest.
+type OpenRemoteProjectRequest struct {
+	// Name display name; defaults to the repo name derived from the URL when empty
+	Name string `json:"name,omitempty"`
+
+	// Url GitHub/GitLab clone URL
+	Url string `json:"url"`
 }
 
 // OutputResponse defines model for OutputResponse.
@@ -1268,8 +1292,17 @@ type EditPipelineJobJSONRequestBody EditPipelineJobJSONBody
 // EmitPipelineJobJSONRequestBody defines body for EmitPipelineJob for application/json ContentType.
 type EmitPipelineJobJSONRequestBody EmitPipelineJobJSONBody
 
+// OpenLocalProjectJSONRequestBody defines body for OpenLocalProject for application/json ContentType.
+type OpenLocalProjectJSONRequestBody = OpenLocalProjectRequest
+
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody = NewProjectRequest
+
 // OpenProjectJSONRequestBody defines body for OpenProject for application/json ContentType.
 type OpenProjectJSONRequestBody = OpenProjectRequest
+
+// OpenRemoteProjectJSONRequestBody defines body for OpenRemoteProject for application/json ContentType.
+type OpenRemoteProjectJSONRequestBody = OpenRemoteProjectRequest
 
 // PruneWorktreesJSONRequestBody defines body for PruneWorktrees for application/json ContentType.
 type PruneWorktreesJSONRequestBody = PruneRequest
@@ -1486,9 +1519,18 @@ type ServerInterface interface {
 	// List first-class projects
 	// (GET /api/v1/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request)
+	// Open an existing local directory as a project
+	// (POST /api/v1/projects/local)
+	OpenLocalProject(w http.ResponseWriter, r *http.Request)
+	// Scaffold a new project in the workspace and open it
+	// (POST /api/v1/projects/new)
+	CreateProject(w http.ResponseWriter, r *http.Request)
 	// Register a project and mark it open
 	// (POST /api/v1/projects/open)
 	OpenProject(w http.ResponseWriter, r *http.Request)
+	// Clone a remote URL into the workspace and open it as a project
+	// (POST /api/v1/projects/remote)
+	OpenRemoteProject(w http.ResponseWriter, r *http.Request)
 	// Hibernate (close) a project
 	// (POST /api/v1/projects/{id}/close)
 	CloseProject(w http.ResponseWriter, r *http.Request, id string)
@@ -1927,9 +1969,27 @@ func (_ Unimplemented) ListProjects(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Open an existing local directory as a project
+// (POST /api/v1/projects/local)
+func (_ Unimplemented) OpenLocalProject(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Scaffold a new project in the workspace and open it
+// (POST /api/v1/projects/new)
+func (_ Unimplemented) CreateProject(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Register a project and mark it open
 // (POST /api/v1/projects/open)
 func (_ Unimplemented) OpenProject(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Clone a remote URL into the workspace and open it as a project
+// (POST /api/v1/projects/remote)
+func (_ Unimplemented) OpenRemoteProject(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3648,6 +3708,46 @@ func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// OpenLocalProject operation middleware
+func (siw *ServerInterfaceWrapper) OpenLocalProject(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenLocalProject(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateProject operation middleware
+func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProject(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // OpenProject operation middleware
 func (siw *ServerInterfaceWrapper) OpenProject(w http.ResponseWriter, r *http.Request) {
 
@@ -3659,6 +3759,26 @@ func (siw *ServerInterfaceWrapper) OpenProject(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.OpenProject(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OpenRemoteProject operation middleware
+func (siw *ServerInterfaceWrapper) OpenRemoteProject(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenRemoteProject(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5245,7 +5365,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/projects", wrapper.ListProjects)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/projects/local", wrapper.OpenLocalProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/projects/new", wrapper.CreateProject)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/projects/open", wrapper.OpenProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/projects/remote", wrapper.OpenRemoteProject)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/projects/{id}/close", wrapper.CloseProject)
@@ -7046,6 +7175,78 @@ func (response ListProjects200JSONResponse) VisitListProjectsResponse(w http.Res
 	return err
 }
 
+type OpenLocalProjectRequestObject struct {
+	Body *OpenLocalProjectJSONRequestBody
+}
+
+type OpenLocalProjectResponseObject interface {
+	VisitOpenLocalProjectResponse(w http.ResponseWriter) error
+}
+
+type OpenLocalProject200JSONResponse Project
+
+func (response OpenLocalProject200JSONResponse) VisitOpenLocalProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenLocalProject400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response OpenLocalProject400JSONResponse) VisitOpenLocalProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProjectRequestObject struct {
+	Body *CreateProjectJSONRequestBody
+}
+
+type CreateProjectResponseObject interface {
+	VisitCreateProjectResponse(w http.ResponseWriter) error
+}
+
+type CreateProject200JSONResponse Project
+
+func (response CreateProject200JSONResponse) VisitCreateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProject400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateProject400JSONResponse) VisitCreateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type OpenProjectRequestObject struct {
 	Body *OpenProjectJSONRequestBody
 }
@@ -7071,6 +7272,42 @@ func (response OpenProject200JSONResponse) VisitOpenProjectResponse(w http.Respo
 type OpenProject400JSONResponse struct{ BadRequestJSONResponse }
 
 func (response OpenProject400JSONResponse) VisitOpenProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenRemoteProjectRequestObject struct {
+	Body *OpenRemoteProjectJSONRequestBody
+}
+
+type OpenRemoteProjectResponseObject interface {
+	VisitOpenRemoteProjectResponse(w http.ResponseWriter) error
+}
+
+type OpenRemoteProject200JSONResponse Project
+
+func (response OpenRemoteProject200JSONResponse) VisitOpenRemoteProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenRemoteProject400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response OpenRemoteProject400JSONResponse) VisitOpenRemoteProjectResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -8824,9 +9061,18 @@ type StrictServerInterface interface {
 	// List first-class projects
 	// (GET /api/v1/projects)
 	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
+	// Open an existing local directory as a project
+	// (POST /api/v1/projects/local)
+	OpenLocalProject(ctx context.Context, request OpenLocalProjectRequestObject) (OpenLocalProjectResponseObject, error)
+	// Scaffold a new project in the workspace and open it
+	// (POST /api/v1/projects/new)
+	CreateProject(ctx context.Context, request CreateProjectRequestObject) (CreateProjectResponseObject, error)
 	// Register a project and mark it open
 	// (POST /api/v1/projects/open)
 	OpenProject(ctx context.Context, request OpenProjectRequestObject) (OpenProjectResponseObject, error)
+	// Clone a remote URL into the workspace and open it as a project
+	// (POST /api/v1/projects/remote)
+	OpenRemoteProject(ctx context.Context, request OpenRemoteProjectRequestObject) (OpenRemoteProjectResponseObject, error)
 	// Hibernate (close) a project
 	// (POST /api/v1/projects/{id}/close)
 	CloseProject(ctx context.Context, request CloseProjectRequestObject) (CloseProjectResponseObject, error)
@@ -10440,6 +10686,68 @@ func (sh *strictHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// OpenLocalProject operation middleware
+func (sh *strictHandler) OpenLocalProject(w http.ResponseWriter, r *http.Request) {
+	var request OpenLocalProjectRequestObject
+
+	var body OpenLocalProjectJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OpenLocalProject(ctx, request.(OpenLocalProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OpenLocalProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OpenLocalProjectResponseObject); ok {
+		if err := validResponse.VisitOpenLocalProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateProject operation middleware
+func (sh *strictHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
+	var request CreateProjectRequestObject
+
+	var body CreateProjectJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateProject(ctx, request.(CreateProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateProjectResponseObject); ok {
+		if err := validResponse.VisitCreateProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // OpenProject operation middleware
 func (sh *strictHandler) OpenProject(w http.ResponseWriter, r *http.Request) {
 	var request OpenProjectRequestObject
@@ -10464,6 +10772,37 @@ func (sh *strictHandler) OpenProject(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(OpenProjectResponseObject); ok {
 		if err := validResponse.VisitOpenProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OpenRemoteProject operation middleware
+func (sh *strictHandler) OpenRemoteProject(w http.ResponseWriter, r *http.Request) {
+	var request OpenRemoteProjectRequestObject
+
+	var body OpenRemoteProjectJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OpenRemoteProject(ctx, request.(OpenRemoteProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OpenRemoteProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OpenRemoteProjectResponseObject); ok {
+		if err := validResponse.VisitOpenRemoteProjectResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
