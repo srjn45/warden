@@ -45,7 +45,8 @@ agents**.
 | **Pipelines section** | Pipelines are the collapsible **Pipelines** section of the control tree; expand/collapse, open running jobs, retry failed jobs. |
 | **Terminals section** | First-class terminal sessions (`kind=terminal`) live under the **Terminals** section; a default terminal opens at startup. |
 | **Agent sub-trees** | Agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); `h`/`l` toggles. See [Agent sub-trees](#agent-sub-trees) below. |
-| **Directory groups** | Agents in the **Agents** section are grouped by project directory. Each group header reads **`<project> [<~path>]`** — the directory's name followed by its `~`-abbreviated path — and its agents are indented beneath it, so the tree nests **section → project → agents**. `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
+| **Project groups** | On the **Projects** tab, agents **and pipelines** nest under their project — a collapsible group header (`▸ / ▾`) reading the project **name** and, for a registered project, its `~`-abbreviated path plus an agent-count badge. Open projects always show (even empty, IDE-style); work in a directory that is not yet a registered project clusters under a loose dir group; anything with no location falls into an **Ungrouped** bucket. `←` / `→` collapse / expand the group under the cursor; `x` **closes** a project (see below); `Enter` is reserved for future project details. `o` opens a project (Local / Remote / New), which also becomes the spawn target for `n`. |
+| **Closing a project (hibernation)** | `x` on a project header **hibernates** it, IDE-style: the project is kept in the database but hidden from the active list, and its live agents are gracefully terminated — their process ends but their worktree and transcript are kept. Closing a project that has active agents asks for confirmation first (`y` / `N`). Reopening the project **restores** those agents right where they left off. |
 | **Agent info + editing** | `i` opens the **agent info** pane — every stored field for the selected agent, plus interactive controls to **toggle auto-approve**, **cycle force-compact** (inherit → on → off), and open the **event log** (`e`). See [Agent info pane](#agent-info-pane) below. |
 | **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` agent info, `e` event log, `p` approvals, `c` context/message inspector, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
 | **Terminal pane** | Bottom-left pane shows a live terminal session (`kind=terminal`) — a `$SHELL` in a managed worktree for direct CLI access to `warden` commands and other terminal work. A default terminal opens in the launch directory at startup. |
@@ -58,7 +59,7 @@ agents**.
 | Key | Action |
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move selection (agent pane is unaffected) |
-| `←` / `→` or `h` / `l` | Collapse / expand the control-pane section, pipeline, or agent sub-tree under the cursor |
+| `←` / `→` or `h` / `l` | Collapse / expand the project group, pipeline, agent sub-tree, or section under the cursor |
 | `Enter` | Open the selected agent (or running pipeline job) in the right agent pane — a finished agent or tombstone shows its stored detail instead of attaching; `Enter` on a terminal shows it in the terminal pane |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `t` | Open a terminal in the opened agent's directory (`~` if none open) — an inline choice to `(c)reate` a fresh terminal there or `(f)ocus` an existing one in that dir |
@@ -74,7 +75,7 @@ agents**.
 | `p` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
 | `c` | Shared-context + message-traffic inspector |
 | `r` | Retry a failed / needs-attention pipeline job |
-| `x` | Context-sensitive: terminate the selected agent / cancel a pipeline / close an opened dir (confirm with `y`) |
+| `x` | Context-sensitive: terminate the selected agent / cancel a pipeline / **close (hibernate) a project** — its agents are terminated and restored on reopen — / close an opened dir (confirm with `y` when it has active agents) |
 | `D` | Delete a stopped pipeline's record (confirm with `y`) |
 | `?` | Toggle help overlay |
 | `q` | Quit and tear down the cockpit |
