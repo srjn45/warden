@@ -1037,22 +1037,31 @@ func TestBuildItemsSameProjectChildStillNestsWithRepo(t *testing.T) {
 	require.Equal(t, "", items[1].fromParent, "nested child carries no backlink")
 }
 
-// items() always emits the fixed section headers, in order, even when empty.
+// items() emits each tab's own section headers (§3 Phase 3): the Projects tab
+// shows the Agents section (and Pipelines when non-empty); the Terminals tab
+// shows only the Terminals section.
 func TestItemsFixedSectionsInOrder(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
-	var secs []string
-	for _, it := range m.items() {
-		if it.section != "" {
-			secs = append(secs, it.section)
+	sectionsOf := func(m controlPaneModel) []string {
+		var secs []string
+		for _, it := range m.items() {
+			if it.section != "" {
+				secs = append(secs, it.section)
+			}
 		}
+		return secs
 	}
-	require.Equal(t, []string{secAgents, secTerminals}, secs)
+	require.Equal(t, []string{secAgents}, sectionsOf(m), "Projects tab shows the Agents section")
+
+	m.currentTab = tabTerminals
+	require.Equal(t, []string{secTerminals}, sectionsOf(m), "Terminals tab shows only the Terminals section")
 }
 
 // A terminal-kind session renders under Terminals with its §7 name and never in
 // the Agents tree.
 func TestItemsTerminalsSection(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
+	m.currentTab = tabTerminals // terminals live on their own tab now (§3 Phase 3)
 	m.sessions = groupSort([]*store.Session{
 		{ID: "a1", Repo: "/repoA", Status: store.StatusWorking},
 		{ID: "t1", Kind: store.KindTerminal, Repo: "/home/u/warden", Workdir: "/home/u/warden/site", Branch: "main", Status: store.StatusWorking},

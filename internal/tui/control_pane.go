@@ -78,8 +78,13 @@ type controlPaneModel struct {
 	autopilot      client.AutopilotStatus // last fetched autopilot status
 	backendsState  client.BackendsState   // agent-backend registry snapshot (modeBackends)
 	backendCursor  int                    // focused row in the Backends page
-	w, h           int
-	ready          bool
+	// currentTab selects which domain the navigator shows (§3 Phase 3): the
+	// Projects tab lists everything except plain terminal sessions (pipelines +
+	// agents); the Terminals tab lists only terminal sessions. Tab (modeNormal)
+	// cycles it. The zero value is tabProjects, so a fresh cockpit opens on Projects.
+	currentTab tab
+	w, h       int
+	ready      bool
 	// focused becomes true once the cursor has landed on a real row. Until then
 	// (a freshly-loaded cockpit) the cursor auto-snaps to the first entity rather
 	// than sitting on the always-present Approvals section header — so opening the
@@ -149,14 +154,61 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 	}
 }
 
-// items assembles the control-pane navigator as four fixed, collapsible
-// top-level sections (spec §4), in order: Approvals · Pipelines · Agents ·
-// Terminals. Each section header is always present; collapsing one (its secKey in
-// m.collapsed) folds away its whole sub-tree. Terminals are split out of the
-// Agents tree entirely (§3) and rendered with their §7 names.
+// tab identifies which domain the navigator is showing (§3 Phase 3). The two
+// tabs live on the pane's top border (see tabBarTitle); Tab cycles between them.
+type tab int
+
+const (
+	tabProjects  tab = iota // pipelines + agents (everything except plain terminals)
+	tabTerminals            // only Kind=terminal sessions
+	tabCount                // sentinel: number of tabs, for wrap-around cycling
+)
+
+// cockpitTabs is the ordered tab-label catalog, indexed by tab. Order matches the
+// tab constants above so tabBarTitle can index it directly.
+var cockpitTabs = []string{tabProjects: "Projects", tabTerminals: "Terminals"}
+
+// tabBarTitle renders the horizontal border tabs spliced into the pane's top
+// border (§3.1): the active tab is bracketed, the rest plain, joined by border
+// dashes — e.g. `Projects ─[ Terminals ]` becomes `╭─ Projects ─[ Terminals ]─╮`
+// once titleBox insets it. Brackets (not ANSI) mark the active tab because
+// spliceTitle overwrites the border rune-by-rune and colour escapes would
+// misalign it.
+func tabBarTitle(active tab) string {
+	parts := make([]string, len(cockpitTabs))
+	for i, name := range cockpitTabs {
+		if tab(i) == active {
+			parts[i] = "[ " + name + " ]"
+		} else {
+			parts[i] = " " + name + " "
+		}
+	}
+	// Trim the outer padding so titleBox's own single-space inset lands the first
+	// tab flush after `╭─ ` (and the last flush before the trailing border fill).
+	return strings.Trim(strings.Join(parts, "─"), " ")
+}
+
+// items assembles the control-pane navigator for the active tab (§3 Phase 3). The
+// Terminals tab shows only the Terminals section (plain shells, named per §7); the
+// Projects tab shows everything else — the Pipelines and Agents sections. Each
+// section header is always present within its tab; collapsing one (its secKey in
+// m.collapsed) folds away its whole sub-tree.
 func (m controlPaneModel) items() []item {
 	agents, terminals := splitByKind(flatSessions(m.sessions, m.pipelines))
 	var out []item
+
+	// ── Terminals tab: plain shells only, named per §7 (live cwd/branch from termInfo).
+	if m.currentTab == tabTerminals {
+		termCollapsed := m.collapsed[secKey(secTerminals)]
+		out = append(out, item{section: secTerminals, secCount: len(terminals), collapsed: termCollapsed})
+		if !termCollapsed {
+			out = append(out, terminalItems(terminals, m.termInfo)...)
+		}
+		markOpened(out, m.openedAgent, m.openedTerminal)
+		return out
+	}
+
+	// ── Projects tab: pipelines + agents (everything except plain terminals).
 
 	// ── Approvals: recognized menus only; unrecognized prompts must be attached to.
 	// Approvals section hidden per user request, but feature kept live.
@@ -184,13 +236,6 @@ func (m controlPaneModel) items() []item {
 	out = append(out, item{section: secAgents, secCount: len(agents), collapsed: agentCollapsed})
 	if !agentCollapsed {
 		out = append(out, buildItems(agents, m.openedDirs, m.collapsed)...)
-	}
-
-	// ── Terminals: plain shells, named per §7 (live cwd/branch from termInfo).
-	termCollapsed := m.collapsed[secKey(secTerminals)]
-	out = append(out, item{section: secTerminals, secCount: len(terminals), collapsed: termCollapsed})
-	if !termCollapsed {
-		out = append(out, terminalItems(terminals, m.termInfo)...)
 	}
 	markOpened(out, m.openedAgent, m.openedTerminal)
 	return out
@@ -1383,6 +1428,14 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+P":
 		// §8 reverse: Alt+Shift+p (tmux M-P) steps the pipeline-agent rotation backward.
 		return m.rotateAgent(m.pipelineAgents(), "no pipeline agents", -1)
+	case "tab":
+		// §3.3: cycle the navigator's active tab (Projects → Terminals → …). Reset
+		// focus so repin snaps the cursor to the first entity of the tab we land on
+		// rather than a stale index that may no longer exist there.
+		m.currentTab = (m.currentTab + 1) % tabCount
+		m.focused = false
+		m.repin("")
+		return m, nil
 	case "c":
 		// Open the read-only shared-context + message-traffic inspector and
 		// kick off an immediate fetch (the tick keeps it fresh while open).
@@ -1664,11 +1717,11 @@ func (m controlPaneModel) View() string {
 		}
 		return header + "\n" + body + "\n" + footer
 	}
-	body := titleBox("Control", renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
+	body := titleBox(tabBarTitle(m.currentTab), renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.
-	footer := stMuted.Render("enter open · n new · t term · o open project · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · tab switch · n new · o open project · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
