@@ -16,4 +16,3 @@ func TestTitleBoxDimsAndTitle(t *testing.T) {
 	require.True(t, strings.HasPrefix(lines[0], "╭"), "rounded top-left corner preserved")
 	require.Equal(t, 24, lipgloss.Width(out), "box is outerW wide")
 }
-

@@ -179,7 +179,7 @@ func tabBarTitle(active tab) string {
 	parts := make([]string, len(cockpitTabs))
 	for i, name := range cockpitTabs {
 		if tab(i) == active {
-			parts[i] = "[ " + name + " ]"
+			parts[i] = stCursor.Render("[ " + name + " ]")
 		} else {
 			parts[i] = " " + name + " "
 		}
