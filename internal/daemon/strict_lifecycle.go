@@ -76,9 +76,9 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	s.pressMu.RLock()
 	gateOn := s.spawnGate
 	s.pressMu.RUnlock()
-	
+
 	isTerminal := sr.Kind == string(store.KindTerminal)
-	
+
 	if gateOn && !sr.Force && !isTerminal {
 		v := s.spawnVerdict(ctx)
 		if v.Elevated {
