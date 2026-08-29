@@ -44,8 +44,12 @@ func TestItemsMarkOpenedAgentAndTerminal(t *testing.T) {
 	m.openedAgent = "a2"
 	m.openedTerminal = "t1"
 
+	// Agents live on the Projects tab; terminals on the Terminals tab (§3 Phase 3),
+	// so each opened marker is checked in the tab that renders its row.
 	require.True(t, itemFor(m, onAgentID("a2")).opened, "the opened agent row is flagged")
 	require.False(t, itemFor(m, onAgentID("a1")).opened, "a non-opened agent is not flagged")
+
+	m.currentTab = tabTerminals
 	require.True(t, itemFor(m, onSessionID("t1")).opened, "the opened terminal row is flagged")
 	require.False(t, itemFor(m, onSessionID("t2")).opened, "a non-opened terminal is not flagged")
 }

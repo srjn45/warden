@@ -36,6 +36,7 @@ func TestEnterOnTerminalOpensTerminalPane(t *testing.T) {
 	f := &fakeAPI{}
 	m := newListPane(f, "%9", "%1")
 	m.defaultTerminalReady = true // suppress the startup ensure so it doesn't spawn
+	m.currentTab = tabTerminals   // terminal rows live on the Terminals tab (§3 Phase 3)
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{liveTerminal("t1", "/w", time.Now())}})
 	m.cursor = cursorOn(m, onTerminal)
 	require.GreaterOrEqual(t, m.cursor, 0, "a terminal row must exist")
@@ -51,6 +52,7 @@ func TestEnterOnTerminalNoPaneShowsStatus(t *testing.T) {
 	f := &fakeAPI{}
 	m := newListPane(f, "%9", "") // no terminal pane
 	m.defaultTerminalReady = true
+	m.currentTab = tabTerminals // terminal rows live on the Terminals tab (§3 Phase 3)
 	m = lstep(m, sessionsMsg{sessions: []*store.Session{liveTerminal("t1", "/w", time.Now())}})
 	m.cursor = cursorOn(m, onTerminal)
 	nm, _ := m.Update(key("enter"))
