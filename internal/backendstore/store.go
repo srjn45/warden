@@ -806,11 +806,32 @@ func (s *Store) setHandoverSettings(settings HandoverSettings) error {
 	return err
 }
 
+// DeleteModel removes a model from the catalog.
+func (s *Store) DeleteModel(backendID, modelID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.modelsCol.DeleteByKey(modelKey(backendID, modelID))
+}
+
 // --- Seeding ----------------------------------------------------------------
 
 func (s *Store) seedDefaultsIfEmpty() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Prune built-in models that are no longer in the default seed list.
+	// This ensures deprecated upstream models are removed without wiping user-added custom models.
+	existingModels, _ := s.listModels("")
+	defaultKeys := make(map[string]bool)
+	for _, m := range DefaultModels() {
+		defaultKeys[modelKey(m.BackendID, m.ModelID)] = true
+	}
+
+	for _, m := range existingModels {
+		if !m.IsCustom && !defaultKeys[modelKey(m.BackendID, m.ModelID)] {
+			s.modelsCol.DeleteByKey(modelKey(m.BackendID, m.ModelID))
+		}
+	}
 
 	// Seed any missing default models
 	for _, m := range DefaultModels() {
