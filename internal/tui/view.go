@@ -44,10 +44,11 @@ func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
 		"  tab          switch tab: Projects (pipelines + agents) ⇄ Terminals\n" +
-		"  ←/→ or h/l   fold / unfold: a section header (Pipelines·Agents·Terminals),\n" +
-		"               a pipeline, or an agent sub-tree — whatever is under the cursor\n" +
+		"  ←/→ or h/l   fold / unfold: a project group, a pipeline, an agent sub-tree,\n" +
+		"               or the Terminals section — whatever is under the cursor\n" +
 		"  enter        open the selected entity — an agent in the agent pane, a terminal in\n" +
 		"               the terminal pane (grabs focus) — or toggle a section header's fold\n" +
+		"               (reserved on a project header for future project details)\n" +
 		"  n            new agent (prompt)\n" +
 		"  t            open a terminal in the focused agent's dir: (c)reate new or (f)ocus existing\n" +
 		"  o            open a project: Local / Remote / New (↑/↓ or j/k · enter · esc)\n" +
@@ -59,7 +60,8 @@ func helpText() string {
 		"  c            shared-context + message-traffic inspector\n" +
 		"  b            agent-backend registry page (tier / default / enable · r rescan · m thinking-mode)\n" +
 		"  r            retry a failed/needs-attention pipeline job\n" +
-		"  x            kill agent / cancel pipeline / close dir (context-sensitive)\n" +
+		"  x            kill agent / cancel pipeline / close project or dir (context-sensitive;\n" +
+		"               closing a project hibernates it — its agents are restored on reopen)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +
 		"  ctrl+a       toggle autopilot on/off (run `warden autopilot init` first if not configured)\n" +
 		"  ?            toggle this help\n" +

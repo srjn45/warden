@@ -13,6 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -196,6 +197,79 @@ func TestBuildItemsGroupsAgentsNoOpenedDirs(t *testing.T) {
 	require.Equal(t, "a2", items[1].session.ID)
 	require.Equal(t, "a1", items[2].session.ID)
 	require.Equal(t, "/b", items[0].dir)
+}
+
+// projHdrByID finds the project header row for a group key.
+func projHdrByID(items []item, id string) *projectHeader {
+	for i := range items {
+		if items[i].projHdr != nil && items[i].projHdr.id == id {
+			return items[i].projHdr
+		}
+	}
+	return nil
+}
+
+func TestProjectGroupedItemsNestsAgentsUnderOpenProject(t *testing.T) {
+	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
+	agents := []*store.Session{{ID: "a1", Repo: "/repos/alpha", Status: store.StatusWorking}}
+	items := projectGroupedItems(projs, agents, agents, nil, nil, nil)
+
+	h := projHdrByID(items, "/repos/alpha")
+	require.NotNil(t, h, "the open project gets a group header")
+	require.Equal(t, "Alpha", h.name)
+	require.True(t, h.isProject)
+	require.Equal(t, 1, h.agentCount)
+	require.Equal(t, 1, h.liveAgents)
+	// The agent renders after (nested under) the project header.
+	require.Contains(t, itemSessionIDs(items), "a1")
+}
+
+func TestProjectGroupedItemsMatchesByWorktreePath(t *testing.T) {
+	// An agent in a worktree checkout links to its repo-root project.
+	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
+	agents := []*store.Session{{ID: "w1", Repo: "/repos/alpha/.worktrees/feat", Status: store.StatusWorking}}
+	items := projectGroupedItems(projs, agents, agents, nil, nil, nil)
+	require.Equal(t, 1, projHdrByID(items, "/repos/alpha").agentCount, "a worktree agent counts under its repo project")
+}
+
+func TestProjectGroupedItemsUngroupedBucket(t *testing.T) {
+	agents := []*store.Session{{ID: "loose", Status: store.StatusWorking}} // no repo/workdir
+	items := projectGroupedItems(nil, agents, agents, nil, nil, nil)
+	h := projHdrByID(items, "")
+	require.NotNil(t, h, "an agent with no location falls into the Ungrouped bucket")
+	require.Equal(t, ungroupedLabel, h.name)
+	require.False(t, h.isProject)
+	require.Contains(t, itemSessionIDs(items), "loose")
+}
+
+func TestProjectGroupedItemsClosedProjectHidesAgentsToUngrouped(t *testing.T) {
+	projs := []projectstore.Project{{ID: "/repos/beta", Name: "Beta", Path: "/repos/beta", Status: projectstore.StatusClosed}}
+	// Agent explicitly linked to the closed project.
+	agents := []*store.Session{{ID: "b1", ProjectID: "/repos/beta", Repo: "/repos/beta", Status: store.StatusDone}}
+	items := projectGroupedItems(projs, agents, agents, nil, nil, nil)
+	require.Nil(t, projHdrByID(items, "/repos/beta"), "a closed project gets no group header")
+	require.NotNil(t, projHdrByID(items, ""), "its agent is parked in Ungrouped")
+	require.Contains(t, itemSessionIDs(items), "b1")
+}
+
+func TestProjectGroupedItemsEmptyOpenProjectShowsPlaceholder(t *testing.T) {
+	projs := []projectstore.Project{{ID: "/repos/empty", Name: "Empty", Path: "/repos/empty", Status: projectstore.StatusOpen}}
+	items := projectGroupedItems(projs, nil, nil, nil, nil, nil)
+	h := projHdrByID(items, "/repos/empty")
+	require.NotNil(t, h, "an open project shows even with no agents (IDE-style)")
+	require.Equal(t, 0, h.agentCount)
+	// A spawn-hint placeholder follows the header.
+	out := renderList(items, 0, 120, 6)
+	require.Contains(t, out, "no agents")
+}
+
+func TestProjectGroupedItemsCollapseHidesSubtree(t *testing.T) {
+	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
+	agents := []*store.Session{{ID: "a1", Repo: "/repos/alpha", Status: store.StatusWorking}}
+	collapsed := map[string]bool{projKey("/repos/alpha"): true}
+	items := projectGroupedItems(projs, agents, agents, nil, nil, collapsed)
+	require.NotNil(t, projHdrByID(items, "/repos/alpha"), "collapsed project header stays")
+	require.NotContains(t, itemSessionIDs(items), "a1", "collapsed project hides its agents")
 }
 
 // A spawned child nests directly under its parent, indented, and the parent
@@ -1040,8 +1114,9 @@ func TestBuildItemsSameProjectChildStillNestsWithRepo(t *testing.T) {
 // items() emits each tab's own section headers (§3 Phase 3): the Projects tab
 // shows the Agents section (and Pipelines when non-empty); the Terminals tab
 // shows only the Terminals section.
-func TestItemsFixedSectionsInOrder(t *testing.T) {
+func TestItemsProjectsTabGroupsByProjectNoSections(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
+	m.sessions = groupSort([]*store.Session{{ID: "a1", Repo: "/repoA", Status: store.StatusWorking}})
 	sectionsOf := func(m controlPaneModel) []string {
 		var secs []string
 		for _, it := range m.items() {
@@ -1051,10 +1126,19 @@ func TestItemsFixedSectionsInOrder(t *testing.T) {
 		}
 		return secs
 	}
-	require.Equal(t, []string{secAgents}, sectionsOf(m), "Projects tab shows the Agents section")
+	// §4: the Projects tab drops the fixed Pipelines/Agents sections in favour of
+	// per-project group headers — here a loose dir group for /repoA.
+	require.Empty(t, sectionsOf(m), "Projects tab shows no fixed sections")
+	var sawProject bool
+	for _, it := range m.items() {
+		if it.projHdr != nil && it.projHdr.name == "repoA" {
+			sawProject = true
+		}
+	}
+	require.True(t, sawProject, "Projects tab renders a project/dir group header")
 
 	m.currentTab = tabTerminals
-	require.Equal(t, []string{secTerminals}, sectionsOf(m), "Terminals tab shows only the Terminals section")
+	require.Equal(t, []string{secTerminals}, sectionsOf(m), "Terminals tab still shows only the Terminals section")
 }
 
 // A terminal-kind session renders under Terminals with its §7 name and never in
@@ -1084,35 +1168,47 @@ func TestItemsTerminalsSection(t *testing.T) {
 }
 
 // Collapsing a section (its secKey) folds away its whole sub-tree.
-func TestSectionCollapseHidesChildren(t *testing.T) {
+func TestProjectGroupCollapseHidesChildren(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
 	m.sessions = groupSort([]*store.Session{{ID: "a1", Repo: "/repoA", Status: store.StatusWorking}})
-	require.Contains(t, itemSessionIDs(m.items()), "a1", "agent visible when Agents section expanded")
+	require.Contains(t, itemSessionIDs(m.items()), "a1", "agent visible when its project group is expanded")
 
-	m.collapsed[secKey(secAgents)] = true
-	require.NotContains(t, itemSessionIDs(m.items()), "a1", "collapsed Agents section hides its agents")
-	// The header itself stays present.
+	// The loose dir group is keyed by the repo dir (§4); collapsing it hides the agent.
+	m.collapsed[projKey("/repoA")] = true
+	require.NotContains(t, itemSessionIDs(m.items()), "a1", "collapsed project group hides its agents")
+	// The group header itself stays present and reflects the collapsed state.
 	var sawHeader bool
 	for _, it := range m.items() {
-		if it.section == secAgents {
+		if it.projHdr != nil && it.projHdr.id == "/repoA" {
 			sawHeader = true
-			require.True(t, it.collapsed, "the section header reflects the collapsed state")
+			require.True(t, it.collapsed, "the project header reflects the collapsed state")
 		}
 	}
-	require.True(t, sawHeader, "the Agents section header stays present when collapsed")
+	require.True(t, sawHeader, "the project group header stays present when collapsed")
 }
 
 // enter on a section header toggles its collapse.
 func TestEnterOnSectionToggles(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
-	m.apprEnabled = true
-	m.approvals = []approval.View{
-		{ID: "agent-1", Recognized: true, Options: []string{"Yes", "No"}},
-		{ID: "agent-2", Recognized: true, Options: []string{"Yes", "No"}},
-	}
-	// Toggle the Agents section closed via enter.
-	m.cursor = cursorOn(m, func(it item) bool { return it.section == secAgents })
+	m.currentTab = tabTerminals // the Terminals section header still supports enter-toggle
+	m.sessions = []*store.Session{{ID: "t1", Kind: store.KindTerminal, Status: store.StatusWorking}}
+	// Toggle the Terminals section closed via enter.
+	m.cursor = cursorOn(m, func(it item) bool { return it.section == secTerminals })
+	require.GreaterOrEqual(t, m.cursor, 0, "the Terminals section header is present")
 	m2, _ := m.handleKey(key("enter"))
 	mc := m2.(controlPaneModel)
-	require.True(t, mc.collapsed[secKey(secAgents)], "enter on a section header toggles its fold")
+	require.True(t, mc.collapsed[secKey(secTerminals)], "enter on a section header toggles its fold")
+}
+
+func TestEnterOnProjectHeaderIsReserved(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.sessions = groupSort([]*store.Session{{ID: "a1", Repo: "/repoA", Status: store.StatusWorking}})
+	m.cursor = cursorOn(m, func(it item) bool { return it.projHdr != nil })
+	require.GreaterOrEqual(t, m.cursor, 0, "a project header is present")
+	m2, cmd := m.handleKey(key("enter"))
+	mc := m2.(controlPaneModel)
+	// §4.3: Enter is reserved for future project details — it neither opens a pane
+	// nor collapses the group (that is Left/Right).
+	require.Nil(t, cmd, "enter on a project header is a no-op for now")
+	require.False(t, mc.collapsed[projKey("/repoA")], "enter does not collapse the project group")
 }

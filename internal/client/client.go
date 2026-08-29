@@ -23,6 +23,7 @@ import (
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
@@ -750,6 +751,31 @@ func (c *Client) CloneRepo(ctx context.Context, remoteURL string) (string, error
 		return "", err
 	}
 	return resp.Dir, nil
+}
+
+// ListProjects returns every persisted project (open and closed), sorted by
+// display name. Read-only; backs the TUI's project-grouped navigator (Phase 4).
+func (c *Client) ListProjects(ctx context.Context) ([]projectstore.Project, error) {
+	var resp struct {
+		Projects []projectstore.Project `json:"projects"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/projects", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Projects, nil
+}
+
+// CloseProject hibernates a project (IDE-like): the record is kept, its status
+// flips to closed, and the daemon gracefully terminates its live agents (restored
+// on reopen). The id is a filesystem path / remote URL, so it is percent-encoded
+// into the path segment (the daemon decodes it). Returns the updated project.
+func (c *Client) CloseProject(ctx context.Context, id string) (projectstore.Project, error) {
+	var p projectstore.Project
+	path := "/projects/" + url.PathEscape(id) + "/close"
+	if err := c.do(ctx, http.MethodPost, path, nil, &p); err != nil {
+		return projectstore.Project{}, err
+	}
+	return p, nil
 }
 
 func (c *Client) Output(ctx context.Context, id string, lines int) (string, error) {

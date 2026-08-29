@@ -9,6 +9,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -76,6 +77,12 @@ type fakeAPI struct {
 	defaultErr   error
 	thinkingMode string // last mode passed to SetThinkingMode
 	thinkingErr  error
+
+	// projects (Phase 4 tree nesting)
+	projects        []projectstore.Project
+	projectsErr     error
+	closedProjectID string // id of the last CloseProject
+	closeProjectErr error
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -116,6 +123,13 @@ func (f *fakeAPI) ListDirs(_ context.Context, _ string) (client.DirListing, erro
 func (f *fakeAPI) CloneRepo(_ context.Context, url string) (string, error) {
 	f.clonedURL = url
 	return f.clonedDir, f.cloneErr
+}
+func (f *fakeAPI) ListProjects(context.Context) ([]projectstore.Project, error) {
+	return f.projects, f.projectsErr
+}
+func (f *fakeAPI) CloseProject(_ context.Context, id string) (projectstore.Project, error) {
+	f.closedProjectID = id
+	return projectstore.Project{ID: id, Status: projectstore.StatusClosed}, f.closeProjectErr
 }
 func (f *fakeAPI) Approvals(_ context.Context) (bool, []approval.View, error) {
 	return f.approvalsOn, f.approvals, nil

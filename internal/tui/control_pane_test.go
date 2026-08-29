@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -745,4 +746,92 @@ func batchHasInspectorFetches(msgs []tea.Msg) (ctx, msg bool) {
 		}
 	}
 	return ctx, msg
+}
+
+// onProject targets the project group header for a given project id.
+func onProject(id string) func(item) bool {
+	return func(it item) bool { return it.projHdr != nil && it.projHdr.id == id }
+}
+
+func TestCloseProjectHeaderNoLiveAgentsClosesImmediately(t *testing.T) {
+	f := &fakeAPI{projects: []projectstore.Project{
+		{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen},
+	}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, projectsMsg{projects: f.projects})
+	// Only a finished (non-live) agent in the project → no confirmation needed.
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "d1", Repo: "/repos/alpha", Status: store.StatusDone}}})
+	m.cursor = cursorOn(m, onProject("/repos/alpha"))
+	require.GreaterOrEqual(t, m.cursor, 0)
+
+	m2, cmd := m.handleKey(key("x"))
+	mc := m2.(controlPaneModel)
+	require.NotEqual(t, modeConfirmCloseProject, mc.mode, "no confirm when the project has no live agents")
+	require.NotNil(t, cmd, "x closes the project straight away")
+	cmd() // executes closeProjectCmd → calls the api
+	require.Equal(t, "/repos/alpha", f.closedProjectID, "CloseProject called with the project id")
+}
+
+func TestCloseProjectHeaderLiveAgentsConfirmsThenCloses(t *testing.T) {
+	f := &fakeAPI{projects: []projectstore.Project{
+		{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen},
+	}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, projectsMsg{projects: f.projects})
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Repo: "/repos/alpha", Status: store.StatusWorking}}})
+	m.cursor = cursorOn(m, onProject("/repos/alpha"))
+
+	m2, cmd := m.handleKey(key("x"))
+	mc := m2.(controlPaneModel)
+	require.Equal(t, modeConfirmCloseProject, mc.mode, "a project with live agents asks first")
+	require.Equal(t, "/repos/alpha", mc.pendingCloseID)
+	require.Equal(t, 1, mc.pendingCloseN, "the live-agent count is shown")
+	require.Nil(t, cmd)
+
+	// Confirm with y → closes and clears the pending state.
+	m3, cmd := mc.handleKey(key("y"))
+	mc = m3.(controlPaneModel)
+	require.Equal(t, modeNormal, mc.mode)
+	require.Empty(t, mc.pendingCloseID)
+	require.NotNil(t, cmd)
+	cmd()
+	require.Equal(t, "/repos/alpha", f.closedProjectID)
+}
+
+func TestCloseProjectHeaderConfirmCancel(t *testing.T) {
+	f := &fakeAPI{projects: []projectstore.Project{
+		{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen},
+	}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, projectsMsg{projects: f.projects})
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Repo: "/repos/alpha", Status: store.StatusWorking}}})
+	m.cursor = cursorOn(m, onProject("/repos/alpha"))
+	m2, _ := m.handleKey(key("x"))
+	mc := m2.(controlPaneModel)
+	require.Equal(t, modeConfirmCloseProject, mc.mode)
+	m3, _ := mc.handleKey(key("n"))
+	mc = m3.(controlPaneModel)
+	require.Equal(t, modeNormal, mc.mode)
+	require.Empty(t, mc.pendingCloseID)
+	require.Empty(t, f.closedProjectID, "cancelling does not close the project")
+}
+
+func TestLeftRightCollapseProjectHeader(t *testing.T) {
+	f := &fakeAPI{projects: []projectstore.Project{
+		{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen},
+	}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, projectsMsg{projects: f.projects})
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Repo: "/repos/alpha", Status: store.StatusWorking}}})
+	m.cursor = cursorOn(m, onProject("/repos/alpha"))
+
+	m = lstep(m, key("left"))
+	require.True(t, m.collapsed[projKey("/repos/alpha")], "left collapses the project group")
+	require.NotContains(t, itemSessionIDs(m.items()), "a1", "collapsed group hides its agents")
+	// The cursor re-pins to the header, never a hidden child.
+	require.NotNil(t, itemAt(m.items(), m.cursor).projHdr)
+
+	m = lstep(m, key("right"))
+	require.False(t, m.collapsed[projKey("/repos/alpha")], "right expands the project group")
+	require.Contains(t, itemSessionIDs(m.items()), "a1")
 }
