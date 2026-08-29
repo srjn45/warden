@@ -1611,8 +1611,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case it.session != nil:
 			m.mode = modeConfirmKill
 		case it.dir != "":
-			delete(m.openedDirs, it.dir)
-			m.status = "closed " + abbrevHome(it.dir)
+			// Only a row backed by a tracked opened dir can be "closed" this way —
+			// a project's empty-group placeholder carries a dir too, but it is closed
+			// via its project header (x above), not here.
+			if _, ok := m.openedDirs[it.dir]; ok {
+				delete(m.openedDirs, it.dir)
+				m.status = "closed " + abbrevHome(it.dir)
+			}
 		}
 	case "D":
 		it := itemAt(m.items(), m.cursor)
