@@ -39,7 +39,7 @@ func TestPipelineCreateThenList(t *testing.T) {
 	}
 	var p pipeline.Pipeline
 	json.NewDecoder(resp.Body).Decode(&p)
-	if p.ID != "demo" || len(p.Jobs) != 1 {
+	if p.ID != "demo" || len(p.Jobs) != 2 {
 		t.Fatalf("created pipeline wrong: %+v", p)
 	}
 
