@@ -76,7 +76,10 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	s.pressMu.RLock()
 	gateOn := s.spawnGate
 	s.pressMu.RUnlock()
-	if gateOn && !sr.Force {
+	
+	isTerminal := sr.Kind == string(store.KindTerminal)
+	
+	if gateOn && !sr.Force && !isTerminal {
 		v := s.spawnVerdict(ctx)
 		if v.Elevated {
 			return oapi.SpawnAgent428JSONResponse{ConfirmationRequired: true, Verdict: v}, nil
@@ -90,7 +93,7 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// Budget (cost) gate: a soft gate on measured Claude spend, sibling to the
 	// pressure gate above and sharing its 428 confirmation contract. A spawn that
 	// would push past a configured $ cap warns once; force re-submits past it.
-	if !sr.Force {
+	if !sr.Force && !isTerminal {
 		if v, over := s.budgetVerdict(); over {
 			return oapi.SpawnAgent428JSONResponse{ConfirmationRequired: true, Verdict: v}, nil
 		}
