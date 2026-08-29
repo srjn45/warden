@@ -211,9 +211,17 @@ func TestScheduleTickTagsPipelineJobSessions(t *testing.T) {
 
 	srv.scheduleTick(context.Background())
 
-	sessions, err := srv.store.List(context.Background())
-	require.NoError(t, err)
-	require.NotEmpty(t, sessions)
+	// The injected root-span-out job spawns the first real job on a follow-up
+	// async Reconcile, so poll until the job session surfaces.
+	var sessions []*store.Session
+	require.Eventually(t, func() bool {
+		got, lerr := srv.store.List(context.Background())
+		if lerr != nil || len(got) == 0 {
+			return false
+		}
+		sessions = got
+		return true
+	}, 2*time.Second, 5*time.Millisecond, "pipeline job session should be spawned")
 	for _, s := range sessions {
 		require.Equal(t, "np", s.ScheduleID, "job session %s should inherit the schedule id", s.ID)
 		require.Equal(t, "np", s.ScheduleName)

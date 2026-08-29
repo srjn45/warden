@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/auth"
@@ -188,8 +189,17 @@ func TestPipelineRouteInheritsAutopilotTags(t *testing.T) {
 	require.NoError(t, err)
 	resp2.Body.Close()
 	require.Equal(t, http.StatusOK, resp2.StatusCode)
-	job, err := fs.Get(context.Background(), "demo-a")
-	require.NoError(t, err)
+	// The injected root-span-out job spawns the first real job ("a") on a
+	// follow-up async Reconcile, so poll until the job session appears.
+	var job *store.Session
+	require.Eventually(t, func() bool {
+		s, gerr := fs.Get(context.Background(), "demo-a")
+		if gerr != nil {
+			return false
+		}
+		job = s
+		return true
+	}, 2*time.Second, 5*time.Millisecond, "job session demo-a should be spawned")
 	require.ElementsMatch(t, []string{"autopilot", "run:ap-9"}, job.Tags)
 }
 
