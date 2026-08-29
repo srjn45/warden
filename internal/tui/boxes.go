@@ -36,18 +36,18 @@ func spliceTitle(box, title string) string {
 	if topWidth < 5 {
 		return box
 	}
-	
+
 	// Ensure title fits without breaking layout (ignoring ANSI truncation complexity for now)
 	titleStr := " " + title + " "
 	titleVis := lipgloss.Width(titleStr)
-	
+
 	filler := topWidth - 3 - titleVis
 	if filler < 0 {
 		filler = 0
 	}
-	
+
 	newTop := "╭─" + titleStr + strings.Repeat("─", filler) + "╮"
-	
+
 	rest := ""
 	if len(parts) == 2 {
 		rest = "\n" + parts[1]
