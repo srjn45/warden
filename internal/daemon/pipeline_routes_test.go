@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -168,10 +169,12 @@ func TestPipelineRetryRoute(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("retry status %d", resp.StatusCode)
 	}
-	got, _ := ps.Get("demo")
-	if got.Job("a").Status != pipeline.JobRunning {
-		t.Fatalf("retried job should be running, got %s", got.Job("a").Status)
-	}
+	// The injected root-span-out job is processed first; the real job "a" is
+	// spawned on a follow-up async Reconcile, so poll until it goes running.
+	require.Eventually(t, func() bool {
+		got, _ := ps.Get("demo")
+		return got.Job("a").Status == pipeline.JobRunning
+	}, 2*time.Second, 5*time.Millisecond, "retried job should become running")
 }
 
 func TestPipelineRetryNotRetryable409(t *testing.T) {

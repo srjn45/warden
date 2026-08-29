@@ -217,6 +217,13 @@ type Session struct {
 	// worktree path in Worktree — a worktree is never a project of its own. Optional
 	// (omitempty), so records that predate the field read as ungrouped.
 	ProjectID string `json:"project_id,omitempty"`
+	// Hibernated marks an agent that was gracefully terminated because its project
+	// was closed (IDE-like hibernation, docs/specs/2026-08-28-project-centric-ui.md
+	// Phase 4). Its process is gone but its worktree + transcript are kept, so
+	// reopening the project restores it right where it left off. The daemon sets it
+	// on CloseProject and clears it on reopen after RestoreSession; a naturally
+	// finished agent never carries it, so reopen only revives the ones close killed.
+	Hibernated bool `json:"hibernated,omitempty"`
 
 	ContextTokens    int        `json:"context_tokens,omitempty"`     // latest context-window fill; 0 = unknown (no model turn yet)
 	ContextState     string     `json:"context_state,omitempty"`      // "" | ok | warning | critical

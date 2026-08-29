@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // projectServer builds a route server backed by a real ScrivaDB project store in a
@@ -113,6 +116,81 @@ func TestHandleCloseProjectNotFound(t *testing.T) {
 	resp := postJSON(t, srv.URL+"/api/v1/projects/nope/close", nil)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// TestCloseProjectHibernatesLiveAgents verifies §4 hibernation: closing a project
+// terminates its live agent (matched by on-disk location), marks it hibernated +
+// linked, and reopening the project restores it and clears the flag.
+func TestCloseProjectHibernatesLiveAgents(t *testing.T) {
+	fs := newFakeStore()
+	fl := &fakeLife{}
+	ps, err := projectstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { ps.Close() })
+	srv := &Server{store: fs, life: fl, projects: ps}
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+
+	_, err = ps.OpenProject("beta", "Beta", "/repos/beta")
+	require.NoError(t, err)
+	// A live agent located in the project (no explicit ProjectID — matched by path).
+	require.NoError(t, fs.Insert(context.Background(), &store.Session{
+		ID: "ag1", TmuxSession: "ag1", Repo: "/repos/beta", Status: store.StatusWorking,
+	}))
+	// An unrelated live agent in another repo must be left untouched.
+	require.NoError(t, fs.Insert(context.Background(), &store.Session{
+		ID: "other", TmuxSession: "other", Repo: "/repos/gamma", Status: store.StatusWorking,
+	}))
+
+	resp := postJSON(t, ts.URL+"/api/v1/projects/beta/close", nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	require.Equal(t, "ag1", fl.terminated, "the project's live agent is terminated")
+	got, err := fs.Get(context.Background(), "ag1")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusDone, got.Status, "hibernated agent is marked done")
+	require.True(t, got.Hibernated, "agent is flagged hibernated")
+	require.Equal(t, "beta", got.ProjectID, "agent is linked to the project it hibernated with")
+	other, err := fs.Get(context.Background(), "other")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusWorking, other.Status, "an agent in another repo is untouched")
+	require.False(t, other.Hibernated)
+
+	// Reopen: the hibernated agent is restored and its flag cleared.
+	rresp := postJSON(t, ts.URL+"/api/v1/projects/open", map[string]any{"id": "beta"})
+	require.Equal(t, http.StatusOK, rresp.StatusCode)
+	rresp.Body.Close()
+
+	require.Equal(t, "ag1", fl.restored, "reopening restores the hibernated agent")
+	got, err = fs.Get(context.Background(), "ag1")
+	require.NoError(t, err)
+	require.False(t, got.Hibernated, "the hibernated flag is cleared after restore")
+	require.Equal(t, store.StatusSpawning, got.Status)
+}
+
+// TestCloseProjectDecodesPathID locks in the PathUnescape fix: a project keyed by a
+// filesystem path (slashes and all) is closable via its percent-encoded id segment.
+func TestCloseProjectDecodesPathID(t *testing.T) {
+	fs := newFakeStore()
+	ps, err := projectstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { ps.Close() })
+	srv := &Server{store: fs, life: &fakeLife{}, projects: ps}
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+
+	id := "/home/user/repos/delta"
+	_, err = ps.OpenProject(id, "Delta", id)
+	require.NoError(t, err)
+
+	resp := postJSON(t, ts.URL+"/api/v1/projects/"+url.PathEscape(id)+"/close", nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var p projectstore.Project
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&p))
+	resp.Body.Close()
+	require.Equal(t, id, p.ID)
+	require.Equal(t, projectstore.StatusClosed, p.Status)
 }
 
 // projectGitServer wires a project store and a workspace path so the Phase 2 git

@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -397,6 +398,35 @@ func pipelinesCmd(a api) tea.Cmd {
 	return func() tea.Msg {
 		ps, err := a.PipelineList(context.Background())
 		return pipelinesMsg{pipelines: ps, err: err}
+	}
+}
+
+// projectsMsg carries the persisted project list for the §4 project-grouped
+// navigator. A transient error keeps the last good list (handled in Update).
+type projectsMsg struct {
+	projects []projectstore.Project
+	err      error
+}
+
+func projectsCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		ps, err := a.ListProjects(context.Background())
+		return projectsMsg{projects: ps, err: err}
+	}
+}
+
+// closeProjectMsg reports the result of hibernating a project (§4 close). The
+// daemon terminates the project's live agents and flips its status; the poller
+// then reflects both.
+type closeProjectMsg struct {
+	id  string
+	err error
+}
+
+func closeProjectCmd(a api, id string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := a.CloseProject(context.Background(), id)
+		return closeProjectMsg{id: id, err: err}
 	}
 }
 

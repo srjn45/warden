@@ -3,7 +3,9 @@ package daemon
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // ListProjects implements GET /api/v1/projects: every persisted project
@@ -35,7 +38,7 @@ func (s *Server) ListProjects(_ context.Context, _ oapi.ListProjectsRequestObjec
 // canonical id and mark it open (reopening a closed one flips it back). Phase 1
 // only persists the record — the git clone/init mechanics are Phase 2. An empty
 // name/path leaves the stored value unchanged.
-func (s *Server) OpenProject(_ context.Context, req oapi.OpenProjectRequestObject) (oapi.OpenProjectResponseObject, error) {
+func (s *Server) OpenProject(ctx context.Context, req oapi.OpenProjectRequestObject) (oapi.OpenProjectResponseObject, error) {
 	if s.projects == nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "project store not configured")
 	}
@@ -53,6 +56,7 @@ func (s *Server) OpenProject(_ context.Context, req oapi.OpenProjectRequestObjec
 		}
 		return nil, errStatus(http.StatusInternalServerError, "open project: "+err.Error())
 	}
+	s.restoreHibernatedAgents(ctx, p)
 	return oapi.OpenProject200JSONResponse(p), nil
 }
 
@@ -61,7 +65,7 @@ func (s *Server) OpenProject(_ context.Context, req oapi.OpenProjectRequestObjec
 // Local). The path is normalized to an absolute, symlink-resolved path used as
 // both the canonical id and the stored path; the directory must already exist.
 // When name is blank the directory's base name is used.
-func (s *Server) OpenLocalProject(_ context.Context, req oapi.OpenLocalProjectRequestObject) (oapi.OpenLocalProjectResponseObject, error) {
+func (s *Server) OpenLocalProject(ctx context.Context, req oapi.OpenLocalProjectRequestObject) (oapi.OpenLocalProjectResponseObject, error) {
 	if s.projects == nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "project store not configured")
 	}
@@ -84,6 +88,7 @@ func (s *Server) OpenLocalProject(_ context.Context, req oapi.OpenLocalProjectRe
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "open local project: "+err.Error())
 	}
+	s.restoreHibernatedAgents(ctx, p)
 	return oapi.OpenLocalProject200JSONResponse(p), nil
 }
 
@@ -221,13 +226,35 @@ func gitIdentityConfigured(ctx context.Context, dest string) bool {
 }
 
 // CloseProject implements POST /api/v1/projects/{id}/close: hibernate a project
-// (IDE-like) — the record is kept, only its status flips to closed. Returns 404
-// if the id is unknown.
-func (s *Server) CloseProject(_ context.Context, req oapi.CloseProjectRequestObject) (oapi.CloseProjectResponseObject, error) {
+// (IDE-like) — the record is kept, only its status flips to closed. Its live
+// agents are gracefully terminated (process gone, worktree + transcript kept) and
+// marked hibernated, so reopening the project restores them where they left off
+// (Phase 4). Returns 404 if the id is unknown.
+//
+// The id path segment is a filesystem path or remote URL (slashes and all), so
+// the client percent-encodes it; chi routes on the raw segment and hands it back
+// still-encoded, hence the PathUnescape here.
+func (s *Server) CloseProject(ctx context.Context, req oapi.CloseProjectRequestObject) (oapi.CloseProjectResponseObject, error) {
 	if s.projects == nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "project store not configured")
 	}
-	p, err := s.projects.CloseProject(strings.TrimSpace(req.Id))
+	id := strings.TrimSpace(req.Id)
+	if dec, derr := url.PathUnescape(id); derr == nil {
+		id = dec
+	}
+	// Look the project up first so we know its path (for matching agents) and can
+	// 404 before terminating anything.
+	proj, err := s.projects.Get(id)
+	if err != nil {
+		if errors.Is(err, projectstore.ErrNotFound) {
+			return oapi.CloseProject404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "close project: "+err.Error())
+	}
+	// Hibernate the project's live agents before flipping status, so the closed
+	// project is left with no running panes.
+	s.hibernateProjectAgents(ctx, proj)
+	p, err := s.projects.CloseProject(id)
 	if err != nil {
 		if errors.Is(err, projectstore.ErrNotFound) {
 			return oapi.CloseProject404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
@@ -235,4 +262,114 @@ func (s *Server) CloseProject(_ context.Context, req oapi.CloseProjectRequestObj
 		return nil, errStatus(http.StatusInternalServerError, "close project: "+err.Error())
 	}
 	return oapi.CloseProject200JSONResponse(p), nil
+}
+
+// projectSourceDir is the daemon-side mirror of the TUI's sourceDir: the repo
+// (else workdir) an agent belongs to, made absolute and normalized to the parent
+// project root so a worktree checkout maps to its repo, not a pseudo-project. It
+// is how agents that predate the ProjectID back-ref are still matched to a project
+// by their on-disk location.
+func projectSourceDir(sess *store.Session) string {
+	dir := sess.Repo
+	if dir == "" {
+		dir = sess.Workdir
+	}
+	if dir == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	if idx := strings.Index(dir, string(filepath.Separator)+".worktrees"); idx != -1 {
+		dir = dir[:idx]
+	}
+	return dir
+}
+
+// sessionInProject reports whether an agent belongs to project p, either by an
+// explicit ProjectID back-ref or by its on-disk location matching the project's
+// canonical id/path (bridging agents spawned before the back-ref was populated).
+func sessionInProject(sess *store.Session, p projectstore.Project) bool {
+	if sess.ProjectID != "" {
+		return sess.ProjectID == p.ID
+	}
+	dir := projectSourceDir(sess)
+	if dir == "" {
+		return false
+	}
+	return dir == p.ID || (p.Path != "" && dir == p.Path)
+}
+
+// hibernateProjectAgents terminates every live agent of project p (leaving its
+// worktree + transcript intact) and marks it hibernated + linked to the project,
+// so a later reopen restores exactly the set close killed. Best-effort per agent:
+// a single terminate/store failure is logged and skipped rather than failing the
+// whole close.
+func (s *Server) hibernateProjectAgents(ctx context.Context, p projectstore.Project) {
+	if s.store == nil {
+		return
+	}
+	all, err := s.store.List(ctx)
+	if err != nil {
+		slog.Warn("daemon: hibernate: list sessions failed", "project", p.ID, "err", err)
+		return
+	}
+	for _, sess := range all {
+		if sess.IsTerminal() || !sessionInProject(sess, p) || !liveStatus(sess.Status) {
+			continue
+		}
+		if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
+			slog.Warn("daemon: hibernate: terminate failed", "agent", sess.ID, "err", err)
+			continue
+		}
+		if err := s.store.Update(ctx, sess.ID, func(u *store.Session) error {
+			u.Status = store.StatusDone
+			u.Hibernated = true
+			u.ProjectID = p.ID
+			return nil
+		}); err != nil {
+			slog.Warn("daemon: hibernate: mark failed", "agent", sess.ID, "err", err)
+			continue
+		}
+		s.reconcileJobOnTerminal(sess, store.StatusDone)
+	}
+	s.notify()
+}
+
+// restoreHibernatedAgents revives the agents that CloseProject hibernated for
+// project p: restore each from its transcript and clear the hibernated flag so a
+// second reopen does not re-restore an agent the user has since finished. Only
+// agents still marked hibernated for THIS project are touched. Best-effort.
+func (s *Server) restoreHibernatedAgents(ctx context.Context, p projectstore.Project) {
+	if s.store == nil {
+		return
+	}
+	all, err := s.store.List(ctx)
+	if err != nil {
+		slog.Warn("daemon: restore: list sessions failed", "project", p.ID, "err", err)
+		return
+	}
+	restored := false
+	for _, sess := range all {
+		if !sess.Hibernated || sess.ProjectID != p.ID {
+			continue
+		}
+		if err := s.life.Restore(ctx, sess); err != nil {
+			// Leave the flag set so a later reopen can retry; log and move on.
+			slog.Warn("daemon: restore: restore failed", "agent", sess.ID, "err", err)
+			continue
+		}
+		if err := s.store.Update(ctx, sess.ID, func(u *store.Session) error {
+			u.Status = store.StatusSpawning
+			u.Hibernated = false
+			return nil
+		}); err != nil {
+			slog.Warn("daemon: restore: clear flag failed", "agent", sess.ID, "err", err)
+			continue
+		}
+		restored = true
+	}
+	if restored {
+		s.notify()
+	}
 }

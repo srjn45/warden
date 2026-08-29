@@ -21,6 +21,7 @@ import (
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 	"io"
@@ -55,8 +56,9 @@ type controlPaneModel struct {
 	connected      bool
 	pendingSelect  string
 	pipelines      []*pipeline.Pipeline
-	collapsed      map[string]bool // pipeline id → jobs hidden in the list
-	seen           map[string]bool // pipeline ids the default-collapse has been applied to
+	projects       []projectstore.Project // persisted projects for the §4 project-grouped navigator
+	collapsed      map[string]bool        // pipeline id → jobs hidden in the list
+	seen           map[string]bool        // pipeline ids the default-collapse has been applied to
 	pressure       client.PressureStatus
 	pendingPrompt  string
 	pendingName    string // name typed in the new-agent form, held across the pressure confirm
@@ -66,6 +68,8 @@ type controlPaneModel struct {
 	renameID       string                 // agent id being renamed (modeRename)
 	spawnVerdict   string                 // reason text for the confirm prompt; "" when not confirming
 	pendingDelete  string                 // pid awaiting delete confirmation; "" when not confirming
+	pendingCloseID string                 // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
+	pendingCloseN  int                    // live-agent count shown in the close-project confirm prompt
 	ctxEntries     []client.ContextEntry  // inspector: shared-context snapshot
 	messages       []client.Message       // inspector: recent message traffic
 	vp             viewport.Model         // scroll viewport (modeInspector / modeDigest)
@@ -208,35 +212,10 @@ func (m controlPaneModel) items() []item {
 		return out
 	}
 
-	// ── Projects tab: pipelines + agents (everything except plain terminals).
-
-	// ── Approvals: recognized menus only; unrecognized prompts must be attached to.
-	// Approvals section hidden per user request, but feature kept live.
-	// rec := recognizedApprovals(m.approvals)
-	// apprCollapsed := m.collapsed[secKey(secApprovals)]
-	// out = append(out, item{section: secApprovals, secCount: len(rec), collapsed: apprCollapsed})
-	// if m.apprEnabled && !apprCollapsed {
-	// 	for i := range rec {
-	// 		v := rec[i] // fresh var → distinct pointer per row
-	// 		out = append(out, item{apprView: &v, apprIdx: i})
-	// 	}
-	// }
-
-	// ── Pipelines: pipeline-owned sessions live here, under their pipeline.
-	if len(m.pipelines) > 0 {
-		pipeCollapsed := m.collapsed[secKey(secPipelines)]
-		out = append(out, item{section: secPipelines, secCount: len(m.pipelines), collapsed: pipeCollapsed})
-		if !pipeCollapsed {
-			out = append(out, pipelineItems(m.pipelines, m.sessions, m.collapsed)...)
-		}
-	}
-
-	// ── Agents: dir-grouped, subagents nested per the §4.1 render rule.
-	agentCollapsed := m.collapsed[secKey(secAgents)]
-	out = append(out, item{section: secAgents, secCount: len(agents), collapsed: agentCollapsed})
-	if !agentCollapsed {
-		out = append(out, buildItems(agents, m.openedDirs, m.collapsed)...)
-	}
+	// ── Projects tab (§4 tree nesting): agents and pipelines nested under their
+	// project (or a loose directory / the Ungrouped bucket), each group a navigable,
+	// collapsible header. Open projects always show (even empty, IDE-style).
+	out = append(out, projectGroupedItems(m.projects, agents, m.sessions, m.pipelines, m.openedDirs, m.collapsed)...)
 	markOpened(out, m.openedAgent, m.openedTerminal)
 	return out
 }
@@ -326,6 +305,30 @@ func (m controlPaneModel) fallbackDir() string {
 
 func (m controlPaneModel) activeDir() string {
 	return activeDir(m.items(), m.cursor, m.fallbackDir())
+}
+
+// closeProjectFromHeader handles x on a project group header (§4.4): a loose
+// opened directory just drops out of the navigator; a real project is hibernated —
+// straight away when it has no live agents, else behind a confirm prompt since
+// closing terminates them (they are restored on reopen).
+func (m controlPaneModel) closeProjectFromHeader(h *projectHeader) (tea.Model, tea.Cmd) {
+	if !h.isProject {
+		// A loose opened dir (or the Ungrouped bucket): closing just forgets the
+		// opened dir; there is no project record to hibernate.
+		if h.id != "" {
+			delete(m.openedDirs, h.id)
+			m.status = "closed " + abbrevHome(h.id)
+		}
+		return m, nil
+	}
+	if h.liveAgents > 0 {
+		m.mode = modeConfirmCloseProject
+		m.pendingCloseID = h.id
+		m.pendingCloseN = h.liveAgents
+		return m, nil
+	}
+	m.status = "closing project " + h.name
+	return m, closeProjectCmd(m.api, h.id)
 }
 
 // liveTerminals returns the live Kind=terminal sessions, ordered by CreatedAt so
@@ -520,7 +523,7 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 }
 
 func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
+	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -540,7 +543,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
+		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -655,6 +658,21 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.repin(prev)
 		}
 		return m, nil
+	case projectsMsg:
+		if msg.err == nil { // keep the last good list on a transient blip
+			prev := m.selectedKey()
+			m.projects = msg.projects
+			m.repin(prev) // a project appearing/disappearing shifts indices
+		}
+		return m, nil
+	case closeProjectMsg:
+		if msg.err != nil {
+			m.status = "close project failed: " + msg.err.Error()
+		} else {
+			m.status = "closed project " + filepath.Base(msg.id)
+		}
+		// Refresh both surfaces: the project flips to closed and its agents wind down.
+		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api))
 	case pipelineActionMsg:
 		if msg.err != nil {
 			m.status = "pipeline action failed: " + msg.err.Error()
@@ -824,12 +842,14 @@ func (m *controlPaneModel) repin(prevKey string) {
 	}
 }
 
-// firstEntityCursor returns the index of the first non-section row (an approval,
-// pipeline, agent, terminal, or dir placeholder), or -1 when the list holds only
-// section headers.
+// firstEntityCursor returns the index of the first row a freshly-loaded cockpit
+// should land the cursor on: the first actual entity — an approval, pipeline,
+// agent, terminal, or dir placeholder — skipping the always-present group scaffold
+// (section headers and project group headers), so opening the cockpit lands on the
+// first agent/pipeline rather than a header. -1 when the list holds only headers.
 func firstEntityCursor(items []item) int {
 	for i, it := range items {
-		if it.section == "" {
+		if it.section == "" && it.projHdr == nil {
 			return i
 		}
 	}
@@ -1157,6 +1177,24 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case modeConfirmCloseProject:
+		switch msg.String() {
+		case "esc", "n", "N":
+			m.mode = modeNormal
+			m.pendingCloseID = ""
+			m.pendingCloseN = 0
+			m.status = ""
+		case "y", "Y":
+			id := m.pendingCloseID
+			m.mode = modeNormal
+			m.pendingCloseID = ""
+			m.pendingCloseN = 0
+			if id != "" {
+				m.status = "closing project " + filepath.Base(id)
+				return m, closeProjectCmd(m.api, id)
+			}
+		}
+		return m, nil
 	case modeInspector:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -1453,6 +1491,11 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repin(key)
 			return m, nil
 		}
+		if it.projHdr != nil {
+			// Enter is reserved for project details/settings (§4.3, a future phase);
+			// collapse/expand is on Left/Right. No-op for now.
+			return m, nil
+		}
 		if it.apprView != nil {
 			if m.apprEnabled && len(recognizedApprovals(m.approvals)) > 0 {
 				m.mode = modeApprovals
@@ -1507,6 +1550,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case it.section != "":
 			m.collapsed[secKey(it.section)] = false
+		case it.projHdr != nil:
+			m.collapsed[projKey(it.projHdr.id)] = false
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = false
 		case it.session != nil && it.hasKids:
@@ -1520,6 +1565,11 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// lands on a now-hidden child.
 			m.collapsed[secKey(it.section)] = true
 			m.repin(secKey(it.section))
+		case it.projHdr != nil:
+			// Fold the project's whole sub-tree; re-pin to the header so the cursor
+			// stays on it rather than a now-hidden child (§4.3).
+			m.collapsed[projKey(it.projHdr.id)] = true
+			m.repin(projKey(it.projHdr.id))
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = true
 		case it.pjJob != nil:
@@ -1553,14 +1603,21 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		it := itemAt(m.items(), m.cursor)
 		switch {
+		case it.projHdr != nil:
+			return m.closeProjectFromHeader(it.projHdr)
 		case it.pipeline != nil:
 			m.status = "canceling " + it.pipeline.ID
 			return m, cancelPipelineCmd(m.api, it.pipeline.ID)
 		case it.session != nil:
 			m.mode = modeConfirmKill
 		case it.dir != "":
-			delete(m.openedDirs, it.dir)
-			m.status = "closed " + abbrevHome(it.dir)
+			// Only a row backed by a tracked opened dir can be "closed" this way —
+			// a project's empty-group placeholder carries a dir too, but it is closed
+			// via its project header (x above), not here.
+			if _, ok := m.openedDirs[it.dir]; ok {
+				delete(m.openedDirs, it.dir)
+				m.status = "closed " + abbrevHome(it.dir)
+			}
 		}
 	case "D":
 		it := itemAt(m.items(), m.cursor)
@@ -1756,6 +1813,9 @@ func (m controlPaneModel) View() string {
 		footer = stAttention.Render("⚠ memory pressure: " + m.spawnVerdict + "  [f] spawn anyway  [esc] cancel")
 	case modeConfirmDeletePipeline:
 		footer = stError.Render("Delete pipeline " + m.pendingDelete + "? y / N")
+	case modeConfirmCloseProject:
+		footer = stAttention.Render(fmt.Sprintf("Close project %s? its %d active agent(s) will be terminated (restored on reopen)  y / N",
+			filepath.Base(m.pendingCloseID), m.pendingCloseN))
 	case modeTerminalChoice:
 		footer = stPaneTitle.Render("Terminal in " + abbrevHome(m.termChoiceDir) + ":  (c)reate new  ·  (f)ocus existing  ·  esc cancel")
 	}

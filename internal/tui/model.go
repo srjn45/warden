@@ -7,6 +7,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -23,6 +24,8 @@ type api interface {
 	SetForceCompact(ctx context.Context, id, state string) error
 	ListDirs(ctx context.Context, path string) (client.DirListing, error)
 	CloneRepo(ctx context.Context, url string) (string, error)
+	ListProjects(ctx context.Context) ([]projectstore.Project, error)
+	CloseProject(ctx context.Context, id string) (projectstore.Project, error)
 	Approvals(ctx context.Context) (bool, []approval.View, error)
 	Approve(ctx context.Context, id string, option int, fingerprint string) error
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
@@ -65,6 +68,7 @@ const (
 	modeRename                // edit the selected agent's name (from the details view)
 	modeConfirmSpawn          // memory-pressure confirm before spawning
 	modeConfirmDeletePipeline // y/N confirm before deleting a stopped pipeline
+	modeConfirmCloseProject   // y/N confirm before hibernating a project with active agents (§4)
 	modeInspector             // read-only shared-context + message-traffic view
 	modeDigest                // scrollable completion digest for the selected agent
 	modeApprovals             // answer pending tool-permission prompts
