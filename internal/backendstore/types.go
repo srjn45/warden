@@ -24,6 +24,7 @@ type ModelEntry struct {
 	DisplayName string    `json:"display_name"`
 	Enabled     bool      `json:"enabled"`
 	AutoAssign  bool      `json:"auto_assign"`
+	IsCustom    bool      `json:"is_custom"`
 }
 
 // RoleTierMapping maps an agent role to its default model tier.

@@ -334,6 +334,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 		ModelID:     "custom-1",
 		Tier:        Tier1,
 		DisplayName: "Custom Model 1",
+		IsCustom:    true,
 		Enabled:     true,
 	}))
 	require.NoError(t, s.SetRoleTier("custom-role", Tier1))
