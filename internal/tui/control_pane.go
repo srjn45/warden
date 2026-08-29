@@ -18,14 +18,11 @@ import (
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
-	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
-	"io"
-	"log/slog"
 	"path/filepath"
 )
 
@@ -717,42 +714,19 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dirCandidates = cands
 		}
 		return m, nil
-	case openDirMsg:
+	case openProjectMsg:
 		if msg.err != nil {
-			m.status = "cannot open " + msg.dir + ": " + msg.err.Error()
+			m.status = "open project failed: " + msg.err.Error()
 			return m, nil
 		}
-		m.openedDirs[msg.dir] = time.Now()
-		m.pendingSelect = dirKey(msg.dir)
 		m.mode = modeNormal
 		m.tp.Blur()
-		m.dirCandidates = nil
-		m.repin("")
-		return m, nil
-	case cloneDoneMsg:
-		if msg.err != nil {
-			m.status = "clone failed: " + msg.err.Error()
-			return m, nil
-		}
-		m.openedDirs[msg.dir] = time.Now()
-		m.pendingSelect = dirKey(msg.dir)
-		m.mode = modeNormal
-		m.tp.Blur()
-		m.status = "cloned into " + abbrevHome(msg.dir)
-		m.repin("")
-		return m, nil
-	case newProjectMsg:
-		if msg.err != nil {
-			m.status = "cannot create project: " + msg.err.Error()
-			return m, nil
-		}
-		m.openedDirs[msg.dir] = time.Now()
-		m.pendingSelect = dirKey(msg.dir)
-		m.mode = modeNormal
 		m.tpn.Blur()
-		m.status = "created " + msg.dir
+		m.dirCandidates = nil
+		m.pendingSelect = projKey(msg.proj.ID)
+		m.status = "opened " + msg.proj.Name
 		m.repin("")
-		return m, nil
+		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api))
 	case spawnDoneMsg:
 		switch {
 		case msg.confirm != nil:
@@ -1053,7 +1027,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			listDir, _ := dirCompletionTarget(typed)
 			return m, listDirsCmd(m.api, typed, listDir)
 		case tea.KeyEnter:
-			return m, openDirCmd(m.api, expandPath(m.tp.Value(), homeDir()))
+			return m, openLocalProjectCmd(m.api, expandPath(m.tp.Value(), homeDir()))
 		}
 		var cmd tea.Cmd
 		m.tp, cmd = m.tp.Update(msg)
@@ -1070,7 +1044,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.status = "cloning " + url + "…"
-			return m, cloneCmd(m.api, url)
+			return m, openRemoteProjectCmd(m.api, url)
 		}
 		var cmd tea.Cmd
 		m.tp, cmd = m.tp.Update(msg)
@@ -1088,8 +1062,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.status = "creating " + name + "…"
-			dir := filepath.Join(expandPath(getWorkspacePath(), homeDir()), name)
-			return m, newProjectCmd(dir, name)
+			return m, createProjectCmd(m.api, name)
 		}
 		var cmd tea.Cmd
 		m.tpn, cmd = m.tpn.Update(msg)
@@ -2144,13 +2117,4 @@ func RunControlPane(a api, agentPane, terminalPane string, killWindow bool) erro
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
-}
-
-// getWorkspacePath loads the config silently to avoid slog warnings from
-// bleeding into the active TUI display during mid-run config loads.
-func getWorkspacePath() string {
-	oldHandler := slog.Default().Handler()
-	defer slog.SetDefault(slog.New(oldHandler))
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return config.Load(config.DefaultPath()).WorkspacePath
 }

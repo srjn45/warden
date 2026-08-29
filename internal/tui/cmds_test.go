@@ -1,12 +1,9 @@
 package tui
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,55 +21,54 @@ func TestSpawnCmdUsesGivenCwd(t *testing.T) {
 	require.Equal(t, "aider", f.spawned.Backend)
 }
 
-// TestNewProjectCmdScaffoldsAndCommits proves newProjectCmd creates the dir,
-// writes a README titled after the project, and leaves a git repo with one
-// commit — the "New" option's backing operation for modeOpenProjectNew.
-func TestNewProjectCmdScaffoldsAndCommits(t *testing.T) {
-	requireGit(t)
-	dir := filepath.Join(t.TempDir(), "my-project")
-
-	msg := newProjectCmd(dir, "my-project")()
-	done, ok := msg.(newProjectMsg)
+// TestCreateProjectCmd proves createProjectCmd calls the API's CreateProject
+// method with the given name and returns an openProjectMsg with the result.
+func TestCreateProjectCmd(t *testing.T) {
+	f := &fakeAPI{
+		createdProj: projectstore.Project{
+			ID: "/work/my-project", Name: "my-project",
+			Path: "/work/my-project", Status: projectstore.StatusOpen,
+		},
+	}
+	msg := createProjectCmd(f, "my-project")()
+	done, ok := msg.(openProjectMsg)
 	require.True(t, ok)
 	require.NoError(t, done.err)
-	require.Equal(t, dir, done.dir)
-
-	readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
-	require.NoError(t, err)
-	require.Equal(t, "# my-project\n", string(readme))
-
-	require.DirExists(t, filepath.Join(dir, ".git"))
-	out, err := exec.Command("git", "-C", dir, "log", "--oneline").Output()
-	require.NoError(t, err)
-	require.Equal(t, 1, strings.Count(string(out), "\n"), "exactly one commit")
-	require.Contains(t, string(out), "chore: project initiated using warden")
+	require.Equal(t, "my-project", f.createdName)
+	require.Equal(t, "/work/my-project", done.proj.ID)
+	require.Equal(t, "my-project", done.proj.Name)
+	require.Equal(t, projectstore.StatusOpen, done.proj.Status)
 }
 
-// TestNewProjectCmdRefusesExistingDir proves it never clobbers a directory
-// the caller didn't just create.
-func TestNewProjectCmdRefusesExistingDir(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "already-here")
-	require.NoError(t, os.Mkdir(dir, 0o755))
-
-	msg := newProjectCmd(dir, "already-here")()
-	done, ok := msg.(newProjectMsg)
-	require.True(t, ok)
-	require.Error(t, done.err)
-	require.Contains(t, done.err.Error(), "already exists")
-}
-
-func requireGit(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
+// TestOpenLocalProjectCmd proves openLocalProjectCmd calls OpenLocalProject.
+func TestOpenLocalProjectCmd(t *testing.T) {
+	f := &fakeAPI{
+		openedLocalProj: projectstore.Project{
+			ID: "/repos/alpha", Name: "alpha",
+			Path: "/repos/alpha", Status: projectstore.StatusOpen,
+		},
 	}
-	// newProjectCmd shells out to plain `git commit`, which needs an identity;
-	// isolate this test from the environment's global/system git config so it
-	// doesn't depend on the machine having user.name/user.email set.
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
-	t.Setenv("GIT_AUTHOR_NAME", "warden-test")
-	t.Setenv("GIT_AUTHOR_EMAIL", "warden-test@example.com")
-	t.Setenv("GIT_COMMITTER_NAME", "warden-test")
-	t.Setenv("GIT_COMMITTER_EMAIL", "warden-test@example.com")
+	msg := openLocalProjectCmd(f, "/repos/alpha")()
+	done, ok := msg.(openProjectMsg)
+	require.True(t, ok)
+	require.NoError(t, done.err)
+	require.Equal(t, "/repos/alpha", f.openedLocalPath)
+	require.Equal(t, "", f.openedLocalName, "name is always empty — daemon defaults to dir basename")
+	require.Equal(t, "/repos/alpha", done.proj.ID)
+}
+
+// TestOpenRemoteProjectCmd proves openRemoteProjectCmd calls OpenRemoteProject.
+func TestOpenRemoteProjectCmd(t *testing.T) {
+	f := &fakeAPI{
+		openedRemoteProj: projectstore.Project{
+			ID: "/work/widgets", Name: "widgets",
+			Path: "/work/widgets", Status: projectstore.StatusOpen,
+		},
+	}
+	msg := openRemoteProjectCmd(f, "https://github.com/acme/widgets")()
+	done, ok := msg.(openProjectMsg)
+	require.True(t, ok)
+	require.NoError(t, done.err)
+	require.Equal(t, "https://github.com/acme/widgets", f.openedRemoteURL)
+	require.Equal(t, "/work/widgets", done.proj.ID)
 }

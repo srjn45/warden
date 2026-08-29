@@ -29,39 +29,47 @@ type fakeAPI struct {
 	renamedName string // name of the last SetName
 	renameErr   error  // error SetName returns
 
-	autoApproveID   string // id of the last SetAutoApprove
-	autoApproveVal  bool   // enabled value of the last SetAutoApprove
-	autoApproveErr  error  // error SetAutoApprove returns
-	forceCompactID  string // id of the last SetForceCompact
-	forceCompactSt  string // state of the last SetForceCompact
-	forceCompactErr error  // error SetForceCompact returns
-	dirListing      client.DirListing
-	dirListErr      error
-	clonedURL       string // url of the last CloneRepo
-	clonedDir       string // dir CloneRepo returns
-	cloneErr        error  // error CloneRepo returns
-	approvals       []approval.View
-	approvalsOn     bool
-	approveErr      error
-	approvedID      string
-	approvedOpt     int
-	approvedFP      string
-	pipelines       []*pipeline.Pipeline
-	retried         string // "<pid>/<job>" of the last PipelineRetry
-	paused          string // pid of the last PipelinePause
-	resumed         string // pid of the last PipelineResume
-	canceled        string // pid of the last PipelineCancel
-	deletedPipe     string // pid of the last PipelineDelete
-	deletePErr      error  // error PipelineDelete returns (e.g. simulating a 409)
-	digest          *digest.Digest
-	digestErr       error
-	pressure        client.PressureStatus
-	pressureErr     error
-	ctxEntries      []client.ContextEntry
-	ctxListErr      error
-	messages        []client.Message
-	msgErr          error
-	msgLimit        int // last limit passed to MsgRecent
+	autoApproveID    string // id of the last SetAutoApprove
+	autoApproveVal   bool   // enabled value of the last SetAutoApprove
+	autoApproveErr   error  // error SetAutoApprove returns
+	forceCompactID   string // id of the last SetForceCompact
+	forceCompactSt   string // state of the last SetForceCompact
+	forceCompactErr  error  // error SetForceCompact returns
+	dirListing       client.DirListing
+	dirListErr       error
+	openedLocalPath  string               // path of the last OpenLocalProject
+	openedLocalName  string               // name of the last OpenLocalProject
+	openedLocalProj  projectstore.Project // project OpenLocalProject returns
+	openLocalErr     error                // error OpenLocalProject returns
+	openedRemoteURL  string               // url of the last OpenRemoteProject
+	openedRemoteName string               // name of the last OpenRemoteProject
+	openedRemoteProj projectstore.Project // project OpenRemoteProject returns
+	openRemoteErr    error                // error OpenRemoteProject returns
+	createdName      string               // name of the last CreateProject
+	createdProj      projectstore.Project // project CreateProject returns
+	createErr        error                // error CreateProject returns
+	approvals        []approval.View
+	approvalsOn      bool
+	approveErr       error
+	approvedID       string
+	approvedOpt      int
+	approvedFP       string
+	pipelines        []*pipeline.Pipeline
+	retried          string // "<pid>/<job>" of the last PipelineRetry
+	paused           string // pid of the last PipelinePause
+	resumed          string // pid of the last PipelineResume
+	canceled         string // pid of the last PipelineCancel
+	deletedPipe      string // pid of the last PipelineDelete
+	deletePErr       error  // error PipelineDelete returns (e.g. simulating a 409)
+	digest           *digest.Digest
+	digestErr        error
+	pressure         client.PressureStatus
+	pressureErr      error
+	ctxEntries       []client.ContextEntry
+	ctxListErr       error
+	messages         []client.Message
+	msgErr           error
+	msgLimit         int // last limit passed to MsgRecent
 
 	// backend registry (Backends page)
 	backends     client.BackendsState
@@ -120,9 +128,17 @@ func (f *fakeAPI) SetForceCompact(_ context.Context, id, state string) error {
 func (f *fakeAPI) ListDirs(_ context.Context, _ string) (client.DirListing, error) {
 	return f.dirListing, f.dirListErr
 }
-func (f *fakeAPI) CloneRepo(_ context.Context, url string) (string, error) {
-	f.clonedURL = url
-	return f.clonedDir, f.cloneErr
+func (f *fakeAPI) OpenLocalProject(_ context.Context, path, name string) (projectstore.Project, error) {
+	f.openedLocalPath, f.openedLocalName = path, name
+	return f.openedLocalProj, f.openLocalErr
+}
+func (f *fakeAPI) OpenRemoteProject(_ context.Context, url, name string) (projectstore.Project, error) {
+	f.openedRemoteURL, f.openedRemoteName = url, name
+	return f.openedRemoteProj, f.openRemoteErr
+}
+func (f *fakeAPI) CreateProject(_ context.Context, name string) (projectstore.Project, error) {
+	f.createdName = name
+	return f.createdProj, f.createErr
 }
 func (f *fakeAPI) ListProjects(context.Context) ([]projectstore.Project, error) {
 	return f.projects, f.projectsErr

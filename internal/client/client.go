@@ -753,6 +753,42 @@ func (c *Client) CloneRepo(ctx context.Context, remoteURL string) (string, error
 	return resp.Dir, nil
 }
 
+// OpenLocalProject registers an existing local directory as a project via
+// POST /projects/local. The daemon normalizes the path, verifies it exists, and
+// persists + opens the project (restoring hibernated agents). Returns the project.
+func (c *Client) OpenLocalProject(ctx context.Context, path, name string) (projectstore.Project, error) {
+	var p projectstore.Project
+	body := map[string]string{"path": path, "name": name}
+	if err := c.do(ctx, http.MethodPost, "/projects/local", body, &p); err != nil {
+		return projectstore.Project{}, err
+	}
+	return p, nil
+}
+
+// OpenRemoteProject clones a remote URL into the daemon's workspace and registers
+// the result as a project via POST /projects/remote. Uses longTimeout — clone is a
+// network round-trip that can take a while for a large repo.
+func (c *Client) OpenRemoteProject(ctx context.Context, remoteURL, name string) (projectstore.Project, error) {
+	var p projectstore.Project
+	body := map[string]string{"url": remoteURL, "name": name}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/projects/remote", body, &p); err != nil {
+		return projectstore.Project{}, err
+	}
+	return p, nil
+}
+
+// CreateProject scaffolds a brand-new project (git init + README + initial commit)
+// in the daemon's workspace and registers it via POST /projects/new. Uses
+// longTimeout — git init + commit can be slow on some filesystems.
+func (c *Client) CreateProject(ctx context.Context, name string) (projectstore.Project, error) {
+	var p projectstore.Project
+	body := map[string]string{"name": name}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/projects/new", body, &p); err != nil {
+		return projectstore.Project{}, err
+	}
+	return p, nil
+}
+
 // ListProjects returns every persisted project (open and closed), sorted by
 // display name. Read-only; backs the TUI's project-grouped navigator (Phase 4).
 func (c *Client) ListProjects(ctx context.Context) ([]projectstore.Project, error) {
