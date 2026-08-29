@@ -197,6 +197,9 @@ func isSlowPath(r *http.Request) bool {
 		strings.HasSuffix(p, "/git/sync"),
 		// clone shells `git clone` over the network, same class as the git/* routes.
 		strings.HasSuffix(p, "/fs/clone"),
+		// the remote/new project flows shell git clone / init+commit, same class.
+		strings.HasSuffix(p, "/projects/remote"),
+		strings.HasSuffix(p, "/projects/new"),
 		strings.HasSuffix(p, "/remove-worktree"),
 		strings.HasSuffix(p, "/create-pr"),
 		strings.HasSuffix(p, "/digest"),
