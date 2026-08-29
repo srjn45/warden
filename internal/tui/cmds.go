@@ -3,10 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -268,12 +265,6 @@ type dirListMsg struct {
 	err     error
 }
 
-// openDirMsg is the result of validating a dir the user asked to open.
-type openDirMsg struct {
-	dir string
-	err error
-}
-
 // listDirsCmd fetches listDir's subdirectories for completing `typed`.
 func listDirsCmd(a api, typed, listDir string) tea.Cmd {
 	return func() tea.Msg {
@@ -284,73 +275,45 @@ func listDirsCmd(a api, typed, listDir string) tea.Cmd {
 	}
 }
 
-// openDirCmd validates that dir is a readable directory (via /fs/dirs).
-func openDirCmd(a api, dir string) tea.Cmd {
+// openProjectMsg is the unified result of opening/cloning/creating a project
+// through the daemon's Phase 2 project APIs. The project is registered in the
+// project store and survives daemon restart.
+type openProjectMsg struct {
+	proj projectstore.Project
+	err  error
+}
+
+// openLocalProjectCmd opens an existing local directory as a project via the
+// daemon's POST /projects/local. The daemon validates, normalizes, and persists.
+func openLocalProjectCmd(a api, path string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
 		defer cancel()
-		_, err := a.ListDirs(ctx, dir)
-		return openDirMsg{dir: dir, err: err}
+		p, err := a.OpenLocalProject(ctx, path, "")
+		return openProjectMsg{proj: p, err: err}
 	}
 }
 
-// cloneDoneMsg is the result of cloning a remote repo into the daemon's
-// configured workspace directory (the "Remote" option of the open-project menu).
-type cloneDoneMsg struct {
-	dir string
-	err error
-}
-
-// newProjectMsg is the result of scaffolding a brand-new project directory.
-type newProjectMsg struct {
-	dir string
-	err error
-}
-
-// cloneCmd clones url via the daemon's /fs/clone (a `git clone` into the
-// configured workspace dir). Uses bgLong — cloning is a network round-trip
-// that can take a while for a large repo.
-func cloneCmd(a api, url string) tea.Cmd {
+// openRemoteProjectCmd clones a remote URL via POST /projects/remote and
+// registers it as a project. Uses bgLong — clone is a network round-trip.
+func openRemoteProjectCmd(a api, url string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		dir, err := a.CloneRepo(ctx, url)
-		return cloneDoneMsg{dir: dir, err: err}
+		p, err := a.OpenRemoteProject(ctx, url, "")
+		return openProjectMsg{proj: p, err: err}
 	}
 }
 
-// newProjectCmd backs the open-project menu's "New" option: it creates dir
-// (refusing to touch one that already exists), git-inits it, writes a README
-// titled name, and makes the first commit — mirroring the `git init && git
-// add . && git commit` sequence a user would run by hand. Runs local git
-// directly (as the TUI already does for repo/branch detection in this file)
-// rather than round-tripping through the daemon, since there is no daemon
-// project-creation API yet.
-func newProjectCmd(dir, name string) tea.Cmd {
+// createProjectCmd scaffolds a new project via POST /projects/new (git init +
+// README + commit in the daemon's workspace) and registers it. Uses bgLong —
+// git init + commit can be slow on some filesystems.
+func createProjectCmd(a api, name string) tea.Cmd {
 	return func() tea.Msg {
-		if _, err := os.Stat(dir); err == nil {
-			return newProjectMsg{dir: dir, err: fmt.Errorf("%s already exists", dir)}
-		} else if !os.IsNotExist(err) {
-			return newProjectMsg{dir: dir, err: err}
-		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return newProjectMsg{dir: dir, err: err}
-		}
-		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# "+name+"\n"), 0o644); err != nil {
-			return newProjectMsg{dir: dir, err: err}
-		}
-		steps := [][]string{
-			{"init"},
-			{"add", "."},
-			{"commit", "-m", "chore: project initiated using warden"},
-		}
-		for _, args := range steps {
-			cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return newProjectMsg{dir: dir, err: fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))}
-			}
-		}
-		return newProjectMsg{dir: dir}
+		ctx, cancel := bgLong()
+		defer cancel()
+		p, err := a.CreateProject(ctx, name)
+		return openProjectMsg{proj: p, err: err}
 	}
 }
 

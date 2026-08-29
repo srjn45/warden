@@ -23,7 +23,9 @@ type api interface {
 	SetAutoApprove(ctx context.Context, id string, enabled bool) error
 	SetForceCompact(ctx context.Context, id, state string) error
 	ListDirs(ctx context.Context, path string) (client.DirListing, error)
-	CloneRepo(ctx context.Context, url string) (string, error)
+	OpenLocalProject(ctx context.Context, path, name string) (projectstore.Project, error)
+	OpenRemoteProject(ctx context.Context, url, name string) (projectstore.Project, error)
+	CreateProject(ctx context.Context, name string) (projectstore.Project, error)
 	ListProjects(ctx context.Context) ([]projectstore.Project, error)
 	CloseProject(ctx context.Context, id string) (projectstore.Project, error)
 	Approvals(ctx context.Context) (bool, []approval.View, error)
