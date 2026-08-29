@@ -205,7 +205,6 @@ func (m controlPaneModel) items() []item {
 		if !termCollapsed {
 			out = append(out, terminalItems(terminals, m.termInfo)...)
 		}
-		markOpened(out, m.openedAgent, m.openedTerminal)
 		return out
 	}
 
@@ -213,7 +212,6 @@ func (m controlPaneModel) items() []item {
 	// project (or a loose directory / the Ungrouped bucket), each group a navigable,
 	// collapsible header. Open projects always show (even empty, IDE-style).
 	out = append(out, projectGroupedItems(m.projects, agents, m.sessions, m.pipelines, m.openedDirs, m.collapsed)...)
-	markOpened(out, m.openedAgent, m.openedTerminal)
 	return out
 }
 
@@ -425,6 +423,15 @@ func (m controlPaneModel) rotateTerminal(step int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.openedTerminal = next.ID
+	m.currentTab = tabTerminals
+	delete(m.collapsed, secKey(secTerminals))
+	items := m.items()
+	for i, it := range items {
+		if it.session != nil && it.session.ID == next.ID {
+			m.cursor = i
+			break
+		}
+	}
 	m.status = ""
 	return m, openInTerminalCmd(m.terminalPane, next.TmuxSession, true)
 }
@@ -444,6 +451,22 @@ func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string, ste
 	}
 	m.openedAgent = next.ID
 	m.openedAgentDir = sourceDir(next)
+	m.currentTab = tabProjects
+	if next.ProjectID != "" {
+		delete(m.collapsed, projKey(next.ProjectID))
+	}
+	delete(m.collapsed, projKey(sourceDir(next)))
+	delete(m.collapsed, projKey("")) // Ungrouped
+	if next.ParentID != "" {
+		delete(m.collapsed, next.ParentID)
+	}
+	items := m.items()
+	for i, it := range items {
+		if (it.session != nil && it.session.ID == next.ID) || (it.pjJob != nil && it.session != nil && it.session.ID == next.ID) {
+			m.cursor = i
+			break
+		}
+	}
 	m.status = ""
 	// Grab focus on the agent pane so the rotation drops you into the session, the
 	// same way rotateTerminal focuses the terminal pane (§8).
