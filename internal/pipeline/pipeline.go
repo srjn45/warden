@@ -55,6 +55,8 @@ type Job struct {
 	Status    JobStatus      `json:"status,omitempty" yaml:"-"`
 	Output    string         `json:"output,omitempty" yaml:"-"`
 	Branch    string         `json:"branch,omitempty" yaml:"-"`
+	Workdir   string         `json:"workdir,omitempty" yaml:"-"`
+	System    bool           `json:"system,omitempty" yaml:"-"`
 	Digest    *digest.Digest `json:"digest,omitempty" yaml:"-"` // completion snapshot (nil until reaped)
 }
 
@@ -149,11 +151,11 @@ func Validate(p *Pipeline) error {
 			return fmt.Errorf("duplicate job id %q", j.ID)
 		}
 		ids[j.ID] = true
-		if strings.TrimSpace(j.Prompt) == "" {
+		if strings.TrimSpace(j.Prompt) == "" && !j.System {
 			return fmt.Errorf("job %q: prompt is required", j.ID)
 		}
 		switch mode, _ := ParseWorktree(j.Worktree); mode {
-		case "none", "fresh", "from":
+		case "none", "fresh", "from", "pipeline":
 		default:
 			return fmt.Errorf("job %q: invalid worktree %q (want none|fresh|from:<job>)", j.ID, j.Worktree)
 		}

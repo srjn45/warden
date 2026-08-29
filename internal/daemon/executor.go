@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -130,7 +133,156 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 	var ok []spawned
 	for _, jobID := range d.Spawn {
 		job := p.Job(jobID)
+
+		if job.Type == "span-out" {
+			var children []string
+			for _, j := range p.Jobs {
+				for _, d := range j.DependsOn {
+					if d == job.ID {
+						children = append(children, j.ID)
+					}
+				}
+			}
+
+			if job.ID == "root-span-out" {
+				parentBranch := p.ID
+				parentWorkdir := filepath.Join(p.Repo, ".worktrees", parentBranch)
+				if _, err := os.Stat(parentWorkdir); os.IsNotExist(err) {
+					cmd := exec.CommandContext(ctx, "git", "worktree", "add", parentWorkdir, "-b", parentBranch)
+					cmd.Dir = p.Repo
+					_ = cmd.Run()
+				}
+
+				if len(children) == 1 {
+					e.markJob(pid, children[0], func(j *pipeline.Job) {
+						j.Workdir = parentWorkdir
+						j.Branch = parentBranch
+					})
+				} else {
+					for _, childID := range children {
+						childBranch := p.ID + "-" + childID
+						childWorkdir := filepath.Join(p.Repo, ".worktrees", childBranch)
+						cmd := exec.CommandContext(ctx, "git", "worktree", "add", childWorkdir, "-b", childBranch, parentBranch)
+						cmd.Dir = p.Repo
+						_ = cmd.Run()
+
+						e.markJob(pid, childID, func(j *pipeline.Job) {
+							j.Workdir = childWorkdir
+							j.Branch = childBranch
+						})
+					}
+					// root parent worktree is just a template, we can remove it
+					cmd := exec.CommandContext(ctx, "git", "worktree", "remove", parentWorkdir, "--force")
+					cmd.Dir = p.Repo
+					_ = cmd.Run()
+				}
+			} else {
+				parentJob := p.Job(job.DependsOn[0])
+				for _, childID := range children {
+					childBranch := p.ID + "-" + childID
+					childWorkdir := filepath.Join(p.Repo, ".worktrees", childBranch)
+					cmd := exec.CommandContext(ctx, "git", "worktree", "add", childWorkdir, "-b", childBranch, parentJob.Branch)
+					cmd.Dir = p.Repo
+					_ = cmd.Run()
+
+					e.markJob(pid, childID, func(j *pipeline.Job) {
+						j.Workdir = childWorkdir
+						j.Branch = childBranch
+					})
+				}
+
+				if parentJob.Workdir != "" && parentJob.Workdir != p.Repo {
+					cmd := exec.CommandContext(ctx, "git", "worktree", "remove", parentJob.Workdir, "--force")
+					cmd.Dir = p.Repo
+					_ = cmd.Run()
+				}
+			}
+
+			e.markJob(pid, job.ID, func(j *pipeline.Job) { j.Status = pipeline.JobDone })
+			go e.Reconcile(context.Background(), pid)
+			continue
+		}
+
+		if job.Type == "span-in" {
+			mergedBranch := p.ID + "-" + job.ID
+			mergedWorkdir := filepath.Join(p.Repo, ".worktrees", mergedBranch)
+
+			var mergeFailed bool
+			for i, parentID := range job.DependsOn {
+				parentJob := p.Job(parentID)
+
+				if i == 0 {
+					cmd := exec.CommandContext(ctx, "git", "worktree", "add", mergedWorkdir, "-b", mergedBranch, parentJob.Branch)
+					cmd.Dir = p.Repo
+					_ = cmd.Run()
+				} else {
+					cmd := exec.CommandContext(ctx, "git", "merge", parentJob.Branch)
+					cmd.Dir = mergedWorkdir
+					if err := cmd.Run(); err != nil {
+						mergeFailed = true
+						break
+					}
+				}
+				if parentJob.Workdir != "" && parentJob.Workdir != p.Repo {
+					cmd := exec.CommandContext(ctx, "git", "worktree", "remove", parentJob.Workdir, "--force")
+					cmd.Dir = p.Repo
+					_ = cmd.Run()
+				}
+			}
+
+			if mergeFailed {
+				// Inject conflict resolution job
+				conflictJobID := "resolve-conflict-" + job.ID
+				e.pstore.Update(pid, func(up *pipeline.Pipeline) {
+					conflictJob := pipeline.Job{
+						ID:        conflictJobID,
+						Type:      "development",
+						Prompt:    "There was a merge conflict combining parallel workstreams. Please resolve the git conflicts and commit the result.",
+						DependsOn: []string{job.ID},
+						Status:    pipeline.JobPending,
+						Worktree:  "pipeline",
+						Workdir:   mergedWorkdir,
+						Branch:    mergedBranch,
+					}
+					up.Jobs = append(up.Jobs, conflictJob)
+					// Rewire children
+					for i := range up.Jobs {
+						for j, dep := range up.Jobs[i].DependsOn {
+							if dep == job.ID && up.Jobs[i].ID != conflictJobID {
+								up.Jobs[i].DependsOn[j] = conflictJobID
+								// Also pass workdir to children
+								up.Jobs[i].Workdir = mergedWorkdir
+								up.Jobs[i].Branch = mergedBranch
+							}
+						}
+					}
+				})
+			} else {
+				var children []string
+				for _, j := range p.Jobs {
+					for _, d := range j.DependsOn {
+						if d == job.ID {
+							children = append(children, j.ID)
+						}
+					}
+				}
+				for _, childID := range children {
+					e.markJob(pid, childID, func(j *pipeline.Job) {
+						j.Workdir = mergedWorkdir
+						j.Branch = mergedBranch
+					})
+				}
+			}
+
+			e.markJob(pid, job.ID, func(j *pipeline.Job) { j.Status = pipeline.JobDone; j.Workdir = mergedWorkdir; j.Branch = mergedBranch })
+			go e.Reconcile(context.Background(), pid)
+			continue
+		}
+
 		worktree, base := e.resolveWorktree(p, job)
+		if job.Workdir != "" {
+			worktree = false
+		}
 		// Convert job.Supervised (bool) to permission mode (string)
 		permissionMode := ""
 		if job.Supervised {
@@ -142,6 +294,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			BaseBranch: base, Type: store.NormalizeType(job.Type), PermissionMode: permissionMode,
 			Role: job.Role, Tier: job.Tier, Backend: job.Backend, Model: job.Model,
 			Tags: p.Tags, ScheduleID: p.ScheduleID, ScheduleName: p.ScheduleName,
+			Workdir: job.Workdir, Branch: job.Branch,
 		}
 		if lvl, _ := e.life.MemoryPressure(ctx); lvl >= pressure.Warn {
 			slog.Warn("pipeline: spawning job under memory pressure", "pipeline", req.PipelineID, "job", jobID, "pressure", lvl.String())

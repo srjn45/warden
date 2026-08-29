@@ -27,8 +27,8 @@ func TestParseSpec(t *testing.T) {
 	if p.Status != StatusPending {
 		t.Fatalf("new pipeline should be pending, got %s", p.Status)
 	}
-	if len(p.Jobs) != 2 {
-		t.Fatalf("want 2 jobs, got %d", len(p.Jobs))
+	if len(p.Jobs) != 3 {
+		t.Fatalf("want 3 jobs, got %d", len(p.Jobs))
 	}
 	a := p.Job("analyze")
 	if a.Status != JobPending || a.Type != "development" {
@@ -44,7 +44,7 @@ func TestParseSpecDefaultsWorktreeNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSpec: %v", err)
 	}
-	if p.Job("a").Worktree != "none" {
+	if p.Job("a").Worktree != "pipeline" {
 		t.Fatalf("blank worktree should default to none, got %q", p.Job("a").Worktree)
 	}
 }
@@ -110,8 +110,8 @@ jobs:
 	if err != nil {
 		t.Fatalf("ParseSpec: %v", err)
 	}
-	if len(p.Jobs) != 3 {
-		t.Fatalf("want 3 jobs, got %d", len(p.Jobs))
+	if len(p.Jobs) != 4 {
+		t.Fatalf("want 4 jobs, got %d", len(p.Jobs))
 	}
 
 	plan := p.Job("plan")

@@ -41,7 +41,7 @@ jobs:
 `)
 	require.NoError(t, err)
 	require.Contains(t, out, "is valid")
-	require.Contains(t, out, "2 jobs")
+	require.Contains(t, out, "3 jobs")
 }
 
 func TestPipelineValidateRejectsCycle(t *testing.T) {

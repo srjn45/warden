@@ -2240,7 +2240,9 @@ type JobSpawnRequest struct {
 	Repo           string
 	Prompt         string // already composed (upstream context + footer)
 	Worktree       bool   // create a git worktree? false = run in repo root
-	BaseBranch     string // worktree base ref ("" = off HEAD); ignored when Worktree is false
+	BaseBranch     string // worktree base ref
+	Workdir        string
+	Branch         string
 	Type           store.Type
 	PermissionMode string   // explicit mode override; empty = use global default
 	Role           string   // built-in role (persona + default flags); empty = "general" (no persona)
@@ -2464,7 +2466,12 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 
 	workdir := req.Repo
 	worktreeCreated := false
-	if req.Worktree {
+	if req.Workdir != "" {
+		workdir = req.Workdir
+		sess.Worktree = strings.TrimPrefix(workdir, req.Repo+"/")
+		sess.Branch = req.Branch
+		// No need to create, it was pre-created
+	} else if req.Worktree {
 		if err := safeGitRef(req.BaseBranch); err != nil {
 			return nil, err
 		}
