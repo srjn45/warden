@@ -1449,6 +1449,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		Model:          req.Model,
 		Backend:        req.Backend,
 		Role:           req.Role,
+		Task:           req.Task,
 	}
 	// A kind=terminal session is a plain shell, not an AI agent: tag it so every
 	// AI-centric surface (metrics, approvals, the poller, insights, …) excludes it

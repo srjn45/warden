@@ -2522,6 +2522,7 @@ components:
         permission_mode: { type: string }
         auto_approve: { type: boolean }
         role: { type: string, description: "built-in role name; empty = general (no persona)" }
+        task: { type: string, description: "assigned task dimension from the registry" }
         pipeline_id: { type: string }
         job_id: { type: string }
         schedule_id:

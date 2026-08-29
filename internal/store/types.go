@@ -203,6 +203,7 @@ type Session struct {
 	LastRestartAt   *time.Time  `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
 	PermissionMode  string      `json:"permission_mode,omitempty"` // explicit mode override; empty = use global default
 	Role            string      `json:"role,omitempty"`            // built-in role (persona + default flags); empty = "general" (no persona)
+	Task            string      `json:"task,omitempty"`            // assigned task dimension from the registry
 	AutoApprove     bool        `json:"auto_approve,omitempty"`    // opt-in: auto-approve yes/no prompts (always option 1)
 	ForceCompact    *bool       `json:"force_compact,omitempty"`   // per-agent force-compact override; nil = inherit global token_force_compact
 	PipelineID      string      `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
