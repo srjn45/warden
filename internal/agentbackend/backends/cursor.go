@@ -117,14 +117,25 @@ func (Cursor) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 	return cmd, true
 }
 
-// LaunchPromptArg seeds the initial task prompt as Cursor's trailing positional
-// argument (read back from promptFile via "$(cat …)" so a multi-line prompt types as
-// one physical line). cursor-agent accepts an optional `[prompt...]` positional and
-// then stays interactive — a persistent agent loop, like Claude's/Codex's trailing
-// positional prompt rather than Aider's run-once-and-exit --message.
-func (Cursor) LaunchPromptArg(promptFile string) string {
-	return ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
-}
+// LaunchPromptArg returns "" — Cursor is seeded after launch (PromptSeeder), not on
+// the launch line. cursor-agent accepts an optional `[prompt...]` positional and
+// stays interactive, but passing the prompt that way only *populates* the composer:
+// cursor-agent does not auto-submit it, so a managed agent would sit forever with the
+// task typed but never sent. To make Cursor actually start on its task, warden
+// launches the bare interactive TUI and types the prompt in once the composer is
+// ready, pressing Enter to submit it (PromptText/ReadyMarker, the same seam as
+// Aider/Goose). The headless one-shot path (HeadlessCmd) still passes the prompt as a
+// positional to `-p`.
+func (Cursor) LaunchPromptArg(string) string { return "" }
+
+// PromptText / ReadyMarker implement agentbackend.PromptSeeder: warden types the task
+// into cursor-agent's interactive composer once its UI is ready and presses Enter to
+// submit it (the launch-line positional populates the composer but never auto-submits,
+// leaving the agent stuck). ReadyMarker keys on cursor-agent's fresh-launch composer
+// placeholder, drawn right when the composer becomes interactive; if it never appears
+// the lifecycle falls back to a settle delay.
+func (Cursor) PromptText(prompt string) (string, bool) { return prompt, prompt != "" }
+func (Cursor) ReadyMarker() string                     { return cursorIdlePlaceholders[0] }
 
 // HeadlessCmd returns the argv for a headless one-shot used by warden's own
 // classify/summarize offload when Cursor is the default backend. It runs a single
