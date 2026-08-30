@@ -97,9 +97,29 @@ func TestCursorResumeCmd(t *testing.T) {
 	require.Equal(t, "cursor-agent --continue", cmd, "empty model omits --model")
 }
 
-func TestCursorLaunchPromptArg(t *testing.T) {
-	got := Cursor{}.LaunchPromptArg("/state/prompts/job-1")
-	require.Equal(t, ` "$(cat '/state/prompts/job-1')"`, got)
+// TestCursorLaunchPromptArgEmpty pins that Cursor puts nothing on the launch line:
+// the trailing positional only populates cursor-agent's composer without submitting
+// it, so the prompt is typed in and submitted after launch via PromptSeeder instead.
+func TestCursorLaunchPromptArgEmpty(t *testing.T) {
+	require.Equal(t, "", Cursor{}.LaunchPromptArg("/state/prompts/job-1"))
+}
+
+// TestCursorPromptSeeder locks the PromptSeeder seam: warden types the task into
+// cursor-agent's composer once ready and presses Enter (so cursor-agent auto-submits
+// it, which the launch-line positional does not). An empty prompt disables seeding,
+// and ReadyMarker keys on cursor's fresh-launch composer placeholder.
+func TestCursorPromptSeeder(t *testing.T) {
+	var ps agentbackend.PromptSeeder = Cursor{}
+	text, ok := ps.PromptText("do the thing")
+	require.True(t, ok)
+	require.Equal(t, "do the thing", text)
+
+	_, ok = ps.PromptText("")
+	require.False(t, ok, "an empty prompt disables post-launch seeding")
+
+	require.Equal(t, "Plan, search, build anything", ps.ReadyMarker())
+	require.Contains(t, cursorIdlePlaceholders, ps.ReadyMarker(),
+		"the ready marker is one of cursor's live composer placeholders")
 }
 
 func TestCursorHeadlessCmd(t *testing.T) {
