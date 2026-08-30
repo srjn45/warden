@@ -151,3 +151,28 @@ func TestParseSpecTierValidation(t *testing.T) {
 		}
 	}
 }
+
+// TestParseSpecRoleValidation proves the create_pipeline path (ParseSpec →
+// Validate) accepts the delegation roles an orchestrator uses and rejects a
+// bad role, so a typo can't slip through to a silently-degraded spawn.
+func TestParseSpecRoleValidation(t *testing.T) {
+	validRoles := []string{"planner", "worker", "orchestrator", "general"}
+	for _, r := range validRoles {
+		spec := "name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n    role: " + r + "\n"
+		p, err := ParseSpec([]byte(spec))
+		if err != nil {
+			t.Fatalf("valid role %q rejected: %v", r, err)
+		}
+		if p.Job("a").Role != r {
+			t.Fatalf("role %q not set, got %q", r, p.Job("a").Role)
+		}
+	}
+
+	invalidRoles := []string{"wroker", "plannr", "Worker", "coordinator", "boss"}
+	for _, r := range invalidRoles {
+		spec := "name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n    role: " + r + "\n"
+		if _, err := ParseSpec([]byte(spec)); err == nil {
+			t.Fatalf("expected error for invalid role %q", r)
+		}
+	}
+}
