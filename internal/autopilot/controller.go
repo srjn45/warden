@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/srjn45/warden/internal/router"
 )
 
 // ControllerConfig is the S1 slice of the `autopilot` config block the Controller
@@ -41,26 +43,16 @@ type ControllerConfig struct {
 	// (<data_dir>/autopilot/enabled/). Empty ⇒ an in-memory store (nothing
 	// persisted), so a Controller built without a data dir (unit tests) still works.
 	DataDir string
-	// LadderSource is the live cost-tier ladder source: the backend registry store
-	// (docs/specs/2026-08-06-backend-registry.md §8), which is the source of truth
-	// after the ladder migration. The daemon injects a store-backed implementation
-	// so selection reads a user's live tier / gate edits without a restart. When nil
-	// (pre-registry daemons / unit tests) the Controller falls back to the static
-	// Backends / AllowPayPerUse ladder below.
-	LadderSource TierLadderSource
-	// Backends is the cost-tier backend ladder snapshot. The daemon now derives it
-	// from the registry store (formerly config autopilot.brain.backends, deprecated).
-	// It is the fallback ladder when LadderSource is nil and the union the preflight
-	// trust check validates.
-	Backends BackendLadder
-	// AllowPayPerUse permits the fallback selection loop to fall through to
-	// pay_per_use backends (store Settings.AllowPaidAutopilot; formerly config
-	// autopilot.brain.allow_pay_per_use, deprecated). Only consulted when
-	// LadderSource is nil — otherwise the source carries the live gate.
-	AllowPayPerUse bool
+	// Resolver is the unified router resolver for selecting backends.
+	Resolver Resolver
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
 	// autopilot.guardian). Zero-valued fields fall back to sane defaults.
 	Guardian GuardianParams
+}
+
+// Resolver is the interface for selecting backends and models via the unified router.
+type Resolver interface {
+	Resolve(ctx context.Context, opts router.ResolveOptions) (*router.Resolution, error)
 }
 
 // GuardianParams is the resolved guardian configuration the Controller drives
@@ -87,9 +79,7 @@ type Controller struct {
 	strategy          string
 	deleteBranch      bool
 	baseDir           string
-	ladderSource      TierLadderSource // live registry ladder; nil ⇒ use backends/allowPayPerUse
-	backends          BackendLadder
-	allowPayPerUse    bool
+	resolver          Resolver
 	guardian          GuardianParams
 
 	// now is the clock the guardian + tierstate read (injectable for tests via
@@ -173,9 +163,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		strategy:          strategy,
 		deleteBranch:      cfg.DeleteBranch,
 		baseDir:           cfg.BaseDir,
-		ladderSource:      cfg.LadderSource,
-		backends:          cfg.Backends,
-		allowPayPerUse:    cfg.AllowPayPerUse,
+		resolver:          cfg.Resolver,
 		guardian:          withGuardianDefaults(cfg.Guardian),
 		now:               now,
 		tierstate:         newTierState(now),
@@ -505,9 +493,7 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	c.gate = gate
 	c.strategy = strategy
 	c.deleteBranch = cfg.DeleteBranch
-	c.ladderSource = cfg.LadderSource
-	c.backends = cfg.Backends
-	c.allowPayPerUse = cfg.AllowPayPerUse
+	c.resolver = cfg.Resolver
 	c.guardian = withGuardianDefaults(cfg.Guardian)
 	// BaseDir is the daemon cwd (stable for a daemon's life); guard against an
 	// empty override clobbering the anchor for relative plan paths.
@@ -705,22 +691,28 @@ func isLandableState(s RunState) bool {
 	}
 }
 
-// selectBrain walks the cost-tier ladder for this run's next backend, skipping any
-// in exclude (nil ⇒ none). It is the single selection entry point for the brain
-// and the backend the brain hands its workers (autopilot.md §7).
+// selectBrain calls the unified Resolver to pick the backend for this run's next
+// brain (autopilot.md §7). The exclude map lets the guardian rotate DOWN — any
+// backend the heal cycle already tried is skipped by returning no selection so the
+// caller advances to backoff, rather than re-picking a backend that just failed.
+// If the resolver returns a backend that is in exclude, we treat it as exhausted
+// (no selection). A nil resolver falls back to the daemon default (""): this
+// preserves the inert-core / unit-test behaviour where no resolver is injected.
 func (c *Controller) selectBrain(exclude map[string]bool) selection {
-	return selectBackend(c.tierSource(), c.tierstate, exclude)
-}
-
-// tierSource returns the live cost-tier ladder source: the injected registry-store
-// source (source of truth after the §8 ladder migration) when present, else the
-// config-derived snapshot wrapped as a static source (pre-registry daemons / unit
-// tests). Callers hold c.mu (selectBrain does).
-func (c *Controller) tierSource() TierLadderSource {
-	if c.ladderSource != nil {
-		return c.ladderSource
+	if c.resolver == nil {
+		if exclude[""] {
+			return selection{}
+		}
+		return selection{Backend: "", Tier: tierFree, OK: true}
 	}
-	return staticLadder{ladder: c.backends, allowPaid: c.allowPayPerUse}
+	res, err := c.resolver.Resolve(context.Background(), router.ResolveOptions{Role: "autopilot"})
+	if err != nil {
+		return selection{}
+	}
+	if exclude[res.BackendID] {
+		return selection{}
+	}
+	return selection{Backend: res.BackendID, Tier: string(res.Tier), OK: true}
 }
 
 // SelectWorkerBackend resolves the backend a worker for runID should launch on,
@@ -738,11 +730,14 @@ func (c *Controller) SelectWorkerBackend(runID string) (string, bool) {
 	if !c.enableStore.IsEnabled(r.repo) {
 		return "", false
 	}
-	sel := c.selectBrain(nil)
-	if !sel.OK {
+	if c.resolver == nil {
 		return "", false
 	}
-	return sel.Backend, true
+	res, err := c.resolver.Resolve(context.Background(), router.ResolveOptions{Role: "worker"})
+	if err != nil {
+		return "", false
+	}
+	return res.BackendID, true
 }
 
 // MarkBackendLimited records that backend is rate-limited until `until` so the

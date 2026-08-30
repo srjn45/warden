@@ -60,7 +60,7 @@ func newLandServer(t *testing.T, host *stubLandHost) (*httptest.Server, *Server,
 		Gate:              "ci",
 		Strategy:          "squash",
 		DeleteBranch:      true,
-		Backends:          autopilot.BackendLadder{Free: []string{"claude"}},
+		Resolver:          autopilotTestResolver{},
 	}, &apFakeEnv{repo: dir}))
 
 	var st autopilot.Status

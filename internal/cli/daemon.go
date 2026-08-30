@@ -395,7 +395,7 @@ func newDaemonCmd() *cobra.Command {
 			// every surface but no brain spawns yet. baseDir anchors relative plan
 			// paths to the daemon's working directory.
 			apBaseDir, _ := os.Getwd()
-			apCtrl := autopilot.NewController(buildAutopilotControllerConfig(cfg, apBaseDir, backendStore), nil)
+			apCtrl := autopilot.NewController(buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver), nil)
 			srv.SetAutopilotController(apCtrl)
 			// Boot re-enable: the on/off bit is persisted per-repo, so bring every
 			// previously-enabled repo back up across a daemon restart. Enable is
@@ -572,7 +572,7 @@ func newDaemonCmd() *cobra.Command {
 			srv.AddReloadHook(func(c config.Config) {
 				// autopilot plan/manager/merge template + per-repo reconcile (the
 				// persisted enable set is preserved — config only carries the template).
-				apCtrl.Reconfigure(ctx, buildAutopilotControllerConfig(c, apBaseDir, backendStore))
+				apCtrl.Reconfigure(ctx, buildAutopilotControllerConfig(c, apBaseDir, lc.Resolver))
 			})
 			srv.AddReloadHook(func(c config.Config) {
 				// notify.* + webhook: rebuild the delivery chain and swap it in.
@@ -610,37 +610,13 @@ func newDaemonCmd() *cobra.Command {
 	return cmd
 }
 
-// storeLadderSource adapts the backend registry store to
-// autopilot.TierLadderSource: it derives the cost-tier ladder from the store's
-// per-backend Tier (the source of truth after the §8 ladder migration) and the
-// paid-autopilot gate from Settings. Read live on each selection so a user's tier /
-// gate edit governs the next pick without a daemon restart.
-type storeLadderSource struct{ store *backendstore.Store }
-
-func (s storeLadderSource) TierLadder() (autopilot.BackendLadder, bool, error) {
-	free, sub, ppu, allowPaid, err := s.store.AutopilotLadder()
-	if err != nil {
-		return autopilot.BackendLadder{}, false, err
-	}
-	return autopilot.BackendLadder{Free: free, Subscription: sub, PayPerUse: ppu}, allowPaid, nil
-}
-
 // buildAutopilotControllerConfig derives the autopilot ControllerConfig from the
 // live config. It is used at boot AND by the config hot-reload hook (feature 3):
 // on reload the daemon rebuilds this from the new config and calls
 // Controller.Reconfigure to swap the plan/manager/merge template and re-run the
 // per-repo enable reconcile. baseDir anchors relative plan paths to the daemon cwd.
-func buildAutopilotControllerConfig(cfg config.Config, baseDir string, store *backendstore.Store) autopilot.ControllerConfig {
-	// The registry store is the source of truth for the cost-tier ladder + paid gate
-	// (docs/specs/2026-08-06-backend-registry.md §8) — no longer autopilot.brain.*
-	// config (deprecated). LadderSource reads it live so tier/gate edits take effect
-	// on the next selection; the snapshot below seeds the preflight trust-check union
-	// and the nil-source fallback.
-	src := storeLadderSource{store: store}
-	snapshot, allowPaid, err := src.TierLadder()
-	if err != nil {
-		slog.Warn("autopilot: backend ladder unavailable from registry; preflight union empty this cycle", "err", err)
-	}
+// res is the daemon's shared router.Resolver (wrapping the backend registry store).
+func buildAutopilotControllerConfig(cfg config.Config, baseDir string, res autopilot.Resolver) autopilot.ControllerConfig {
 	return autopilot.ControllerConfig{
 		Plans:             cfg.AutopilotPlanFiles(),
 		IntegrationBranch: cfg.AutopilotIntegrationBranch(),
@@ -649,9 +625,7 @@ func buildAutopilotControllerConfig(cfg config.Config, baseDir string, store *ba
 		DeleteBranch:      cfg.AutopilotDeleteBranch(),
 		BaseDir:           baseDir,
 		DataDir:           cfg.DataDir,
-		LadderSource:      src,
-		Backends:          snapshot,
-		AllowPayPerUse:    allowPaid,
+		Resolver:          res,
 		Guardian: autopilot.GuardianParams{
 			Interval:         cfg.AutopilotGuardianInterval(),
 			HeartbeatTimeout: cfg.AutopilotGuardianHeartbeatTimeout(),
