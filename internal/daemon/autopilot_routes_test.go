@@ -11,10 +11,18 @@ import (
 	"testing"
 
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
+	"github.com/srjn45/warden/internal/router"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
+
+type autopilotTestResolver struct{}
+
+func (autopilotTestResolver) Resolve(context.Context, router.ResolveOptions) (*router.Resolution, error) {
+	return &router.Resolution{BackendID: "claude", Tier: backendstore.Tier1}, nil
+}
 
 // apFakeEnv is a minimal autopilot.Env for route tests: any dir resolves to a
 // fixed repo, gh is OK, and the integration branch is auto-created.
@@ -50,7 +58,7 @@ func newAutopilotServer(t *testing.T, env autopilot.Env, plans []string) *httpte
 		Plans:             plans,
 		IntegrationBranch: "autopilot/integration",
 		Gate:              "auto",
-		Backends:          autopilot.BackendLadder{Free: []string{"claude"}},
+		Resolver:          autopilotTestResolver{},
 	}, env))
 	return httptest.NewServer(srv.router())
 }
@@ -134,7 +142,7 @@ func TestCompleteAutopilotHandler(t *testing.T) {
 		Plans:             []string{plan},
 		IntegrationBranch: "autopilot/integration",
 		Gate:              "auto",
-		Backends:          autopilot.BackendLadder{Free: []string{"claude"}},
+		Resolver:          autopilotTestResolver{},
 	}, &apFakeEnv{repo: dir}))
 
 	st, err := srv.autopilot.Enable(context.Background(), "")

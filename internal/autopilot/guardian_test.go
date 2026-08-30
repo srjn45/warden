@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/router"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,18 +91,17 @@ func (f *guardianFake) NotifyEscalation(_ string, title, _ string) {
 	f.escalations = append(f.escalations, title)
 }
 
-// enabledGuardianController spins up an enabled controller on ladder with the
-// guardian params, wired to fake at clock, and returns it plus the single run id.
-func enabledGuardianController(t *testing.T, fake *guardianFake, clock *fakeClock, ladder BackendLadder, allowPPU bool, g GuardianParams) (*Controller, string) {
+// enabledGuardianController spins up an enabled controller with the given resolver
+// and guardian params, wired to fake at clock, and returns it plus the single run id.
+func enabledGuardianController(t *testing.T, fake *guardianFake, clock *fakeClock, res Resolver, g GuardianParams) (*Controller, string) {
 	t.Helper()
 	dir := t.TempDir()
 	plan := writePlan(t, dir, "plan.yaml", "ship it")
 	c := NewController(ControllerConfig{
-		Plans:          []string{plan},
-		BaseDir:        dir,
-		Backends:       ladder,
-		AllowPayPerUse: allowPPU,
-		Guardian:       g,
+		Plans:    []string{plan},
+		BaseDir:  dir,
+		Resolver: res,
+		Guardian: g,
 	}, &fakeEnv{})
 	c.setClock(clock.now)
 	c.SetRuntime(fake)
@@ -127,8 +128,12 @@ func TestGuardianWedgeWalksLadder(t *testing.T) {
 	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	clock := &fakeClock{t: t0}
 	fake := newGuardianFake()
-	ladder := BackendLadder{Free: []string{"a"}, Subscription: []string{"b"}}
-	c, _ := enabledGuardianController(t, fake, clock, ladder, false, testGuardian())
+	// The resolver cycles a→b so the heal ladder walks free→subscription.
+	res := &roundRobinResolver{
+		backends: []string{"a", "b"},
+		tiers:    []backendstore.ModelTier{"free", "subscription"},
+	}
+	c, _ := enabledGuardianController(t, fake, clock, res, testGuardian())
 
 	require.Len(t, fake.spawned, 1)
 	require.Equal(t, "a", fake.spawned[0].Backend)
@@ -181,7 +186,7 @@ func TestGuardianRecoversOnHeartbeat(t *testing.T) {
 	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	clock := &fakeClock{t: t0}
 	fake := newGuardianFake()
-	c, runID := enabledGuardianController(t, fake, clock, BackendLadder{Free: []string{"a"}}, false, testGuardian())
+	c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
 	ctx := context.Background()
 
 	// Wedge → nudge.
@@ -208,7 +213,7 @@ func TestGuardianBackoffCapAndNeverParks(t *testing.T) {
 	g := testGuardian()
 	g.BackoffMin = time.Minute
 	g.BackoffMax = 8 * time.Minute
-	c := NewController(ControllerConfig{Backends: BackendLadder{Free: []string{"a"}}, Guardian: g}, &fakeEnv{})
+	c := NewController(ControllerConfig{Resolver: cyclicResolver("a", "free"), Guardian: g}, &fakeEnv{})
 	c.setClock(clock.now)
 	c.SetRuntime(fake)
 
@@ -233,7 +238,7 @@ func TestGuardianBackoffWakesAtEarliestReset(t *testing.T) {
 	g := testGuardian()
 	g.BackoffMin = time.Hour // a long backoff...
 	g.BackoffMax = 6 * time.Hour
-	c := NewController(ControllerConfig{Backends: BackendLadder{Free: []string{"a"}}, Guardian: g}, &fakeEnv{})
+	c := NewController(ControllerConfig{Resolver: cyclicResolver("a", "free"), Guardian: g}, &fakeEnv{})
 	c.setClock(clock.now)
 	c.SetRuntime(fake)
 
@@ -243,26 +248,27 @@ func TestGuardianBackoffWakesAtEarliestReset(t *testing.T) {
 	require.Equal(t, t0.Add(20*time.Minute), r.backoffNextRetry, "wake at the earliest reset, not the full backoff")
 }
 
-// TestGuardianGateOnlyNotification proves that when the only thing left is a
-// gated pay-per-use backend, backoff carries the distinct gate signal (§7).
-func TestGuardianGateOnlyNotification(t *testing.T) {
+// TestGuardianResolverExhaustedEntersBackoff proves that when the resolver returns
+// an error (no eligible backends), the guardian enters backoff with an appropriate
+// stall message. The GateOnly concept no longer applies — the resolver owns tier
+// eligibility and handles pay_per_use gating internally via its own AllowPaid flag.
+func TestGuardianResolverExhaustedEntersBackoff(t *testing.T) {
 	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	clock := &fakeClock{t: t0}
 	fake := newGuardianFake()
-	// Free tier limited, pay_per_use present but gate off ⇒ selection is gateOnly.
-	ladder := BackendLadder{Free: []string{"a"}, PayPerUse: []string{"gpt"}}
-	c, runID := enabledGuardianController(t, fake, clock, ladder, false, testGuardian())
+	// Resolver that errors — simulates all backends exhausted.
+	errRes := &fakeResolver{err: router.ErrAllExhausted}
+	c, runID := enabledGuardianController(t, fake, clock, errRes, testGuardian())
 	ctx := context.Background()
-	c.MarkBackendLimited("a", t0.Add(2*time.Hour))
 
-	// Drive it straight to backoff: nudge, restart, then exhausted → gateOnly.
-	c.runs[runID].tried["a"] = true // pretend the free backend was already tried this cycle
+	// Drive straight to backoff: bypass nudge/restart stages.
 	c.runs[runID].healStage = stageRotated
 	c.runs[runID].healNextAt = time.Time{}
 	clock.t = t0.Add(11 * time.Minute)
 	c.guardianTick(ctx)
 
-	require.Contains(t, c.Status().Runs[0].Backoff.LastError, "allow_pay_per_use", "the gate is the distinct signal")
+	require.NotNil(t, c.Status().Runs[0].Backoff, "exhausted resolver ⇒ backoff")
+	require.NotEmpty(t, c.Status().Runs[0].Backoff.LastError, "backoff carries an error message")
 }
 
 // TestGuardianPlannedRotationOnContext proves a healthy brain whose context reaches
@@ -271,7 +277,7 @@ func TestGuardianPlannedRotationOnContext(t *testing.T) {
 	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	clock := &fakeClock{t: t0}
 	fake := newGuardianFake()
-	c, runID := enabledGuardianController(t, fake, clock, BackendLadder{Free: []string{"a"}}, false, testGuardian())
+	c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
 	ctx := context.Background()
 
 	// The brain is healthy (fresh heartbeat) but its context is critical.
@@ -302,7 +308,7 @@ func TestGuardianHonorsKillSwitch(t *testing.T) {
 	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	clock := &fakeClock{t: t0}
 	fake := newGuardianFake()
-	c, _ := enabledGuardianController(t, fake, clock, BackendLadder{Free: []string{"a"}}, false, testGuardian())
+	c, _ := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
 	ctx := context.Background()
 
 	c.Disable(ctx, "")
@@ -314,7 +320,7 @@ func TestGuardianHonorsKillSwitch(t *testing.T) {
 	dir := t.TempDir()
 	plan := writePlan(t, dir, "plan.yaml", "ship it")
 	plainRT := newFakeRuntime()
-	c2 := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir, Backends: BackendLadder{Free: []string{"a"}}, Guardian: testGuardian()}, &fakeEnv{})
+	c2 := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir, Resolver: cyclicResolver("a", "free"), Guardian: testGuardian()}, &fakeEnv{})
 	c2.setClock(clock.now)
 	c2.SetRuntime(plainRT)
 	_, err := c2.Enable(ctx, "")
