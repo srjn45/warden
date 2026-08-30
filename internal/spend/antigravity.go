@@ -20,7 +20,7 @@ type AntigravityParser struct{}
 func (p *AntigravityParser) ParseUsage(r io.Reader) (u Usage, ok bool) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	
+
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {
@@ -30,7 +30,7 @@ func (p *AntigravityParser) ParseUsage(r io.Reader) (u Usage, ok bool) {
 		if err := json.Unmarshal(line, &rec); err != nil {
 			continue
 		}
-		
+
 		if rec.Type == "USER_INPUT" {
 			u.InputTokens += len(rec.Content) / 4
 			ok = true
@@ -39,6 +39,6 @@ func (p *AntigravityParser) ParseUsage(r io.Reader) (u Usage, ok bool) {
 			ok = true
 		}
 	}
-	
+
 	return u, ok
 }

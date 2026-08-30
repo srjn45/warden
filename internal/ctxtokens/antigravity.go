@@ -23,7 +23,7 @@ type AntigravityParser struct{}
 func (p *AntigravityParser) LatestContextTokens(r io.Reader) (tokens int, ok bool) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	
+
 	totalBytes := 0
 	foundModelTurn := false
 
@@ -36,17 +36,17 @@ func (p *AntigravityParser) LatestContextTokens(r io.Reader) (tokens int, ok boo
 		if err := json.Unmarshal(line, &rec); err != nil {
 			continue
 		}
-		
+
 		if rec.Type == "USER_INPUT" || rec.Type == "PLANNER_RESPONSE" {
 			totalBytes += len(rec.Content) + len(rec.Thinking)
 			foundModelTurn = true
 		}
 	}
-	
+
 	// Safe heuristic: 1 token ≈ 4 bytes
 	if foundModelTurn {
 		return totalBytes / 4, true
 	}
-	
+
 	return 0, false
 }
