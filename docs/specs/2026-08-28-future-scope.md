@@ -27,7 +27,7 @@ This document does two things:
 | 1 | Roles → **behaviors & tasks** | 🟡 In progress **on main** (Stages 1–3) | Wire the new `internal/task` registry into tier resolution; retire the role-keyed tier map |
 | 2 | **Model tiers** across backends → start agent | 🟢 Built (Stages 1–4) | Run **first-spawn** through the resolver (today only hot-swap does) |
 | 3 | **Pre-assign tiers** to roles (default + override) | 🟢 Mostly built | Same first-spawn wiring as #2; re-key defaults off *tasks* (see #1) |
-| 4 | **Auto-handover** near session limit | ✅ **Done end-to-end** | Nothing blocking — optional polish only |
+| 4 | **Auto-handover** near session limit | ✅ **Done + polished** | Hard-limit path reconciled to hot-swap + proactive quota tracking landed |
 | 5 | **Collaboration groups** | 🟠 Specced + decomposed, **non-linear half-start** | Abandon the orphan branches; build the **foundation B1→B4 first** |
 | 6 | **Remote access via warden-hub** | 🟠 Wire protocol only | Build the daemon `internal/relay` connector + the hub server MVP |
 | 7 | **Warden cluster** (multi-machine) | 🔴 Not started | Blocked on #6 |
@@ -218,14 +218,32 @@ them as a single 3–4 job pipeline rather than three separate efforts.
   continuation prompt + `AGENTS.md` injection.
 - Wiring: `internal/cli/daemon.go` feeds live tokens + headroom into `DecideHotSwap`
   and calls `HotSwap` on the poller edge. Fully live.
-- A *separate* older path (`internal/daemon/ratelimit.go`) handles hard rate-limit
-  banners (parse reset time → schedule resume → un-pause pane).
+- ~~A *separate* older path (`internal/daemon/ratelimit.go`) handles hard rate-limit
+  banners (parse reset time → schedule resume → un-pause pane).~~ **Now reconciled
+  (see polish below):** a hard limit hot-swaps when handover is enabled instead of
+  only parking the agent.
 
-**Resume here:** nothing blocking. **Optional polish only:**
-- Reconcile the two paths (headroom `DecideHotSwap` vs. banner `RateLimitScheduler`)
-  so they don't double-fire.
+**Polish delivered:**
+- ✅ **Reconciled the two paths.** `RateLimitScheduler.OnHardLimit` (wired in
+  `internal/cli/daemon.go`) fires on the transition INTO `StatusRateLimited`, BEFORE
+  the resume schedule: when handover is enabled it marks the exhausted backend
+  limited in the registry (so the router excludes it), hot-swaps to a fresh backend
+  in the same worktree, clears the pending resume timer/limit, and emits a
+  `rate-limit-hotswap` event. A false return (handover off, or no eligible
+  successor) falls through to the classic pause-and-resume, so the two paths never
+  double-fire.
+- ✅ **Proactive quota tracking.** `internal/daemon/quota_recorder.go` samples each
+  live agent's cumulative billed tokens (parsed from the transcript warden already
+  reads for spend/context — no headless `/usage` spawn) and records the per-agent
+  delta into `backendstore.RecordQuotaUsage` on a 60s tick, seeding a baseline on
+  first sight so a restart never back-fills a spike. This keeps `GetHeadroom` current
+  so the *soft* `DecideHotSwap` quota arm can retire an agent BEFORE a hard limit.
+
+**Still optional:**
 - Surface handover events more visibly in TUI/web (they happen somewhat silently).
 - Consider a "handover budget" so a thrashing backend doesn't ping-pong.
+- Align per-backend quota units (cursor's request-denominated budget vs. the
+  token-denominated windows the recorder feeds).
 
 ---
 
@@ -470,8 +488,9 @@ Ordered by **dependency + confusion-reduction + leverage**:
 5. **Then #7 cluster and #9 teams** — both ride the hub transport. #9 teams is a
    **hub-hosted, feature-rich deep-dive** (live-agent context/knowledge sharing,
    §8.4), not a thin memory generalization — spec it properly after #6.
-6. **#4 handover** — already done; schedule only optional polish (reconcile the two
-   trigger paths, surface events).
+6. **#4 handover** — ✅ done + polished: the two trigger paths are reconciled
+   (hard-limit → hot-swap) and proactive quota tracking feeds `GetHeadroom`. Only
+   event-surfacing / handover-budget remain optional.
 7. **External CLI (spaiSH / `spai-cli`, #10)** — proceeds **outside this repo** on
    Srajan's separate track (§8.5); warden does nothing until that CLI needs an
    integration seam, and it compounds best once #6 exists.

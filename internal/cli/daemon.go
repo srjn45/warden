@@ -493,6 +493,52 @@ func newDaemonCmd() *cobra.Command {
 			rateLimitSched.OnLimit = func(sess *store.Session, until time.Time) {
 				apCtrl.MarkBackendLimited(sess.Backend, until)
 			}
+			// Auto-handover on a hard rate limit (Feature #4): when handover is
+			// enabled, hot-swap the limited agent to a fresh backend in the same
+			// worktree instead of parking it until the limit clears. The exhausted
+			// backend is marked limited in the registry FIRST so the router excludes it
+			// from successor resolution; when no other backend is eligible the swap
+			// fails and we return false to fall through to the normal pause/resume path.
+			rateLimitSched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+				settings, herr := backendStore.GetHandoverSettings()
+				if herr != nil {
+					settings = backendstore.DefaultHandoverSettings()
+				}
+				if !settings.Enabled {
+					return false
+				}
+				// Exclude the exhausted backend from successor resolution.
+				_ = backendStore.SetBackendLimited(sess.Backend, until)
+				res, swapErr := lc.HotSwap(context.Background(), sess, lifecycle.SwapRequest{
+					Role:   sess.Role,
+					Reason: lifecycle.SwapReasonQuota,
+				})
+				if swapErr != nil {
+					slog.Warn("rate-limit hot-swap skipped; falling back to pause/resume", "agent", sess.ID, "err", swapErr)
+					return false
+				}
+				_ = st.Update(context.Background(), sess.ID, func(s *store.Session) error {
+					s.Backend = sess.Backend
+					s.Model = sess.Model
+					s.ClaudeSessionID = sess.ClaudeSessionID
+					s.UpdatedAt = sess.UpdatedAt
+					return nil
+				})
+				// A different backend now drives the session: leave the rate-limited
+				// state, clear the persisted limit + any pending resume timer, and let
+				// the poller re-classify the fresh agent.
+				_, _ = st.UpdateStatusIf(context.Background(), sess.ID, store.StatusRateLimited, store.StatusSpawning)
+				_ = st.ClearRateLimit(context.Background(), sess.ID)
+				rateLimitSched.CancelTimer(sess.ID)
+				_ = st.AppendEvent(context.Background(), sess.ID, store.Event{
+					TS:     time.Now().UTC(),
+					Type:   "rate-limit-hotswap",
+					Detail: "hard limit on " + res.FromBackend + "; hot-swapped to " + res.ToBackend,
+				})
+				srv.Notify()
+				slog.Info("rate-limit hot-swap completed", "agent", sess.ID, "from_backend", res.FromBackend, "to_backend", res.ToBackend, "to_model", res.ToModel, "handoff", res.HandoffPath)
+				return true
+			}
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
