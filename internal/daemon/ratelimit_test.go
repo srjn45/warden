@@ -232,6 +232,78 @@ func TestRateLimitScheduler_OnTransition_SpendCapUsesLongInterval(t *testing.T) 
 		"spend cap should schedule ~6h out")
 }
 
+func TestRateLimitScheduler_OnTransition_HardLimitSwapSkipsResume(t *testing.T) {
+	life := &fakeRateLimitLife{}
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	// auto_resume ON, but a successful hard-limit hot-swap must pre-empt the resume:
+	// a different backend now drives the session, so no resume is scheduled.
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+
+	var swapCalls int
+	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+		swapCalls++
+		require.False(t, until.IsZero(), "handover receives the computed clear time")
+		return true // a swap happened
+	}
+
+	sess := &store.Session{ID: "swap-1", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
+	st.sessions["swap-1"] = sess
+	sched.OnTransition(sess, store.StatusWorking, store.StatusRateLimited)
+
+	require.Equal(t, 1, swapCalls, "the hard-limit hook must fire on a limit hit")
+	require.Equal(t, 0, st.setRateLimitCalls, "a successful swap must not schedule a resume")
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, exists := sched.timers["swap-1"]
+	require.False(t, exists, "a successful swap must not arm a resume timer")
+}
+
+func TestRateLimitScheduler_OnTransition_HardLimitNoSwapFallsThrough(t *testing.T) {
+	life := &fakeRateLimitLife{}
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+
+	var swapCalls int
+	// Handover off / no eligible successor ⇒ returns false: normal resume applies.
+	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+		swapCalls++
+		return false
+	}
+
+	sess := &store.Session{ID: "swap-2", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
+	st.sessions["swap-2"] = sess
+	sched.OnTransition(sess, store.StatusWorking, store.StatusRateLimited)
+
+	require.Equal(t, 1, swapCalls, "the hard-limit hook still fires")
+	require.Equal(t, 1, st.setRateLimitCalls, "no swap ⇒ fall through to the resume schedule")
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, exists := sched.timers["swap-2"]
+	require.True(t, exists, "no swap ⇒ a resume timer is armed")
+}
+
+func TestRateLimitScheduler_OnTransition_HardLimitFiresWhenAutoResumeOff(t *testing.T) {
+	life := &fakeRateLimitLife{}
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	// auto_resume OFF: handover is an independent policy, so the hard-limit swap
+	// must still be attempted (and its success still pre-empts the — disabled —
+	// resume path without scheduling anything).
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
+
+	var swapCalls int
+	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+		swapCalls++
+		return true
+	}
+
+	sess := &store.Session{ID: "swap-3", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
+	st.sessions["swap-3"] = sess
+	sched.OnTransition(sess, store.StatusWorking, store.StatusRateLimited)
+
+	require.Equal(t, 1, swapCalls, "handover fires regardless of auto_resume")
+	require.Equal(t, 0, st.setRateLimitCalls, "auto_resume off never schedules a resume")
+}
+
 func TestRateLimitScheduler_OnTransition_IgnoresOtherStatuses(t *testing.T) {
 	life := &fakeRateLimitLife{}
 	st := &rateLimitStore{

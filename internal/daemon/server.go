@@ -144,6 +144,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		}
 	}
 	go s.runMetricsRecorder(runCtx)
+	// Proactive quota tracking (auto-handover Feature #4): sample live agents'
+	// token usage into the backend registry's rolling quota windows so the soft
+	// hot-swap trigger can retire an agent before it hits a hard provider limit.
+	// A no-op when the registry is unconfigured (older wiring).
+	go s.runQuotaRecorder(runCtx)
 	if s.collab != nil && s.collabInterval > 0 {
 		go s.collab.Run(runCtx, s.collabInterval)
 	}

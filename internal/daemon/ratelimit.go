@@ -55,6 +55,20 @@ type RateLimitScheduler struct {
 	// feed. Set by the daemon after construction.
 	OnLimit func(sess *store.Session, until time.Time)
 
+	// OnHardLimit, when set, is called on a hard rate-limit hit (transition INTO
+	// StatusRateLimited) BEFORE any resume is scheduled, with the session and the
+	// instant its limit is expected to clear. The daemon wires it to trigger a
+	// mid-session hot-swap to a fresh backend when auto-handover is enabled, so the
+	// agent keeps working on another provider instead of parking until the limit
+	// clears (auto-handover Feature #4). It returns true when a swap was performed:
+	// the session is now driven by a different backend, so the retired backend's
+	// resume schedule is moot and OnTransition skips it. Fires regardless of
+	// auto_resume (handover is an independent policy). A false return (handover off,
+	// or no eligible successor) falls through to the normal pause-and-resume path.
+	// nil ⇒ no hard-limit swap (today's pause-and-wait). Set by the daemon after
+	// construction.
+	OnHardLimit func(sess *store.Session, until time.Time) bool
+
 	mu     sync.Mutex
 	timers map[string]*time.Timer
 }
@@ -114,6 +128,15 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 	scheduleAt := r.limitClearsAt(sess)
 	if r.OnLimit != nil {
 		r.OnLimit(sess, scheduleAt)
+	}
+
+	// Auto-handover (Feature #4): when handover is enabled, hot-swap the limited
+	// agent to a fresh backend in the SAME worktree instead of parking it until the
+	// limit clears. A successful swap re-drives the session on another provider, so
+	// the retired backend's resume schedule is moot — skip it. Runs before the
+	// auto_resume gate: handover fires even when auto_resume is off.
+	if r.OnHardLimit != nil && r.OnHardLimit(sess, scheduleAt) {
+		return
 	}
 
 	if !r.enabled {
