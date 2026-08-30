@@ -1033,6 +1033,103 @@ paths:
               schema: { $ref: "#/components/schemas/Project" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
+  /api/v1/project-groups:
+    get:
+      operationId: listProjectGroups
+      tags: [Projects]
+      summary: List project groups
+      description: >
+        Returns every project group (Project Groups feature, Phase 1), sorted by
+        display name. A group is a named collection of projects; a project may
+        belong to zero or one group. The TUI shows a project's group beside its
+        name. Read-only.
+      responses:
+        "200":
+          description: The project group list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectGroupList" }
+    post:
+      operationId: createProjectGroup
+      tags: [Projects]
+      summary: Create a project group
+      description: >
+        Creates a new named group holding an optional initial set of project ids.
+        The name is required; the id is minted by the store when omitted. Member
+        ids are de-duplicated and need not resolve to existing projects. Returns the
+        created group (including its minted id).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateProjectGroupRequest" }
+      responses:
+        "200":
+          description: The created group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectGroup" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/project-groups/{id}:
+    get:
+      operationId: getProjectGroup
+      tags: [Projects]
+      summary: Get one project group
+      description: Returns the group with the given id, or 404 if it is unknown.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectGroup" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: updateProjectGroup
+      tags: [Projects]
+      summary: Update a project group
+      description: >
+        Overwrites the group's name and membership in place. The name is required
+        and member ids are de-duplicated. Returns the updated group, 404 if the id
+        is unknown, or 400 on a blank name.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProjectGroupRequest" }
+      responses:
+        "200":
+          description: The updated group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectGroup" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteProjectGroup
+      tags: [Projects]
+      summary: Delete a project group
+      description: >
+        Removes the group. The member projects themselves are untouched. Idempotent:
+        deleting an unknown id still returns 200.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+
   /api/v1/sessions/{id}/name:
     patch:
       operationId: setName
@@ -2707,6 +2804,56 @@ components:
       required: [name]
       properties:
         name: { type: string, description: "new project name; also the workspace directory name" }
+
+    ProjectGroup:
+      x-go-type: projectstore.ProjectGroup
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/projectstore
+        name: projectstore
+      type: object
+      description: >
+        A named collection of projects (Project Groups feature, Phase 1). A project
+        may belong to zero or one group; the TUI shows the group beside the project
+        name. Member ids are an ordered, de-duplicated set and need not resolve to
+        existing projects.
+      required: [id, name, project_ids, created_at, updated_at]
+      properties:
+        id: { type: string, description: "stable group key (minted by the store)" }
+        name: { type: string, description: "human-friendly display name" }
+        project_ids:
+          type: array
+          items: { type: string }
+          description: "ordered, de-duplicated member project ids"
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ProjectGroupList:
+      type: object
+      required: [groups]
+      properties:
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectGroup" }
+
+    CreateProjectGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: "group display name (required)" }
+        project_ids:
+          type: array
+          items: { type: string }
+          description: "optional initial member project ids (de-duplicated)"
+
+    UpdateProjectGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: "group display name (required)" }
+        project_ids:
+          type: array
+          items: { type: string }
+          description: "the full member set after the update (de-duplicated); omit or empty clears membership"
 
     BackendsState:
       type: object

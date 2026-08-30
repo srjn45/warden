@@ -52,3 +52,23 @@ type Project struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// ProjectGroup is a named collection of projects (Project Groups feature, Phase 1),
+// keyed by its own stable ID in a separate ScrivaDB "project_groups" collection. It
+// is a light organizational layer above projects: a project may belong to zero or
+// one group (the TUI shows the group next to the project name), and a group holds an
+// ordered, de-duplicated set of project IDs. Deleting a group never touches the
+// projects it referenced — the membership is a back-ref carried only on the group.
+type ProjectGroup struct {
+	// ID is the stable group key. Unlike a Project (whose id is its canonical path),
+	// a group has no natural key, so the store mints a random one when it is empty.
+	ID string `json:"id"`
+	// Name is the human-friendly display name shown beside member projects.
+	Name string `json:"name"`
+	// ProjectIDs is the ordered, de-duplicated set of member project ids. A member id
+	// need not resolve to an existing project (dangling refs are tolerated, not
+	// pruned) so group membership survives a project being closed or re-registered.
+	ProjectIDs []string  `json:"project_ids"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}

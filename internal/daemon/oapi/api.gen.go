@@ -511,6 +511,15 @@ type ConflictAgent struct {
 // ContextEntry defines model for ContextEntry.
 type ContextEntry = ctxstore.Entry
 
+// CreateProjectGroupRequest defines model for CreateProjectGroupRequest.
+type CreateProjectGroupRequest struct {
+	// Name group display name (required)
+	Name string `json:"name"`
+
+	// ProjectIds optional initial member project ids (de-duplicated)
+	ProjectIds []string `json:"project_ids,omitempty"`
+}
+
 // DeleteRequest defines model for DeleteRequest.
 type DeleteRequest struct {
 	Hard bool `json:"hard,omitempty"`
@@ -721,6 +730,14 @@ type PressureStatus struct {
 // Project A first-class project (docs/specs/2026-08-28-project-centric-ui.md Phase 1): the parent that agents and pipelines group under via project_id. The id is the canonical, stable key (the main checkout's local path or the remote URL) — every agent/pipeline in any worktree of the repo shares it. A worktree is never a project of its own.
 type Project = projectstore.Project
 
+// ProjectGroup A named collection of projects (Project Groups feature, Phase 1). A project may belong to zero or one group; the TUI shows the group beside the project name. Member ids are an ordered, de-duplicated set and need not resolve to existing projects.
+type ProjectGroup = projectstore.ProjectGroup
+
+// ProjectGroupList defines model for ProjectGroupList.
+type ProjectGroupList struct {
+	Groups []ProjectGroup `json:"groups"`
+}
+
 // ProjectList defines model for ProjectList.
 type ProjectList struct {
 	Projects []Project `json:"projects"`
@@ -916,6 +933,15 @@ type SyncResult = lifecycle.SyncResult
 
 // TaskType Normalized task type
 type TaskType string
+
+// UpdateProjectGroupRequest defines model for UpdateProjectGroupRequest.
+type UpdateProjectGroupRequest struct {
+	// Name group display name (required)
+	Name string `json:"name"`
+
+	// ProjectIds the full member set after the update (de-duplicated); omit or empty clears membership
+	ProjectIds []string `json:"project_ids,omitempty"`
+}
 
 // Verdict defines model for Verdict.
 type Verdict = pressure.Verdict
@@ -1292,6 +1318,12 @@ type EditPipelineJobJSONRequestBody EditPipelineJobJSONBody
 // EmitPipelineJobJSONRequestBody defines body for EmitPipelineJob for application/json ContentType.
 type EmitPipelineJobJSONRequestBody EmitPipelineJobJSONBody
 
+// CreateProjectGroupJSONRequestBody defines body for CreateProjectGroup for application/json ContentType.
+type CreateProjectGroupJSONRequestBody = CreateProjectGroupRequest
+
+// UpdateProjectGroupJSONRequestBody defines body for UpdateProjectGroup for application/json ContentType.
+type UpdateProjectGroupJSONRequestBody = UpdateProjectGroupRequest
+
 // OpenLocalProjectJSONRequestBody defines body for OpenLocalProject for application/json ContentType.
 type OpenLocalProjectJSONRequestBody = OpenLocalProjectRequest
 
@@ -1516,6 +1548,21 @@ type ServerInterface interface {
 	// Memory-pressure + spawn-gate status
 	// (GET /api/v1/pressure)
 	GetPressure(w http.ResponseWriter, r *http.Request)
+	// List project groups
+	// (GET /api/v1/project-groups)
+	ListProjectGroups(w http.ResponseWriter, r *http.Request)
+	// Create a project group
+	// (POST /api/v1/project-groups)
+	CreateProjectGroup(w http.ResponseWriter, r *http.Request)
+	// Delete a project group
+	// (DELETE /api/v1/project-groups/{id})
+	DeleteProjectGroup(w http.ResponseWriter, r *http.Request, id string)
+	// Get one project group
+	// (GET /api/v1/project-groups/{id})
+	GetProjectGroup(w http.ResponseWriter, r *http.Request, id string)
+	// Update a project group
+	// (PUT /api/v1/project-groups/{id})
+	UpdateProjectGroup(w http.ResponseWriter, r *http.Request, id string)
 	// List first-class projects
 	// (GET /api/v1/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request)
@@ -1960,6 +2007,36 @@ func (_ Unimplemented) StartPipeline(w http.ResponseWriter, r *http.Request, pid
 // Memory-pressure + spawn-gate status
 // (GET /api/v1/pressure)
 func (_ Unimplemented) GetPressure(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List project groups
+// (GET /api/v1/project-groups)
+func (_ Unimplemented) ListProjectGroups(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a project group
+// (POST /api/v1/project-groups)
+func (_ Unimplemented) CreateProjectGroup(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete a project group
+// (DELETE /api/v1/project-groups/{id})
+func (_ Unimplemented) DeleteProjectGroup(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get one project group
+// (GET /api/v1/project-groups/{id})
+func (_ Unimplemented) GetProjectGroup(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update a project group
+// (PUT /api/v1/project-groups/{id})
+func (_ Unimplemented) UpdateProjectGroup(w http.ResponseWriter, r *http.Request, id string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3688,6 +3765,142 @@ func (siw *ServerInterfaceWrapper) GetPressure(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListProjectGroups operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectGroups(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectGroups(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateProjectGroup operation middleware
+func (siw *ServerInterfaceWrapper) CreateProjectGroup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProjectGroup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteProjectGroup operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProjectGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteProjectGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProjectGroup operation middleware
+func (siw *ServerInterfaceWrapper) GetProjectGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProjectGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateProjectGroup operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProjectGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProjectGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProjects operation middleware
 func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.Request) {
 
@@ -5360,6 +5573,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/pressure", wrapper.GetPressure)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/project-groups", wrapper.ListProjectGroups)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/project-groups", wrapper.CreateProjectGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/project-groups/{id}", wrapper.DeleteProjectGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/project-groups/{id}", wrapper.GetProjectGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/project-groups/{id}", wrapper.UpdateProjectGroup)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/projects", wrapper.ListProjects)
@@ -7150,6 +7378,172 @@ func (response GetPressure200JSONResponse) VisitGetPressureResponse(w http.Respo
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectGroupsRequestObject struct {
+}
+
+type ListProjectGroupsResponseObject interface {
+	VisitListProjectGroupsResponse(w http.ResponseWriter) error
+}
+
+type ListProjectGroups200JSONResponse ProjectGroupList
+
+func (response ListProjectGroups200JSONResponse) VisitListProjectGroupsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProjectGroupRequestObject struct {
+	Body *CreateProjectGroupJSONRequestBody
+}
+
+type CreateProjectGroupResponseObject interface {
+	VisitCreateProjectGroupResponse(w http.ResponseWriter) error
+}
+
+type CreateProjectGroup200JSONResponse ProjectGroup
+
+func (response CreateProjectGroup200JSONResponse) VisitCreateProjectGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProjectGroup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateProjectGroup400JSONResponse) VisitCreateProjectGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteProjectGroupRequestObject struct {
+	Id string `json:"id"`
+}
+
+type DeleteProjectGroupResponseObject interface {
+	VisitDeleteProjectGroupResponse(w http.ResponseWriter) error
+}
+
+type DeleteProjectGroup200JSONResponse struct{ OKJSONResponse }
+
+func (response DeleteProjectGroup200JSONResponse) VisitDeleteProjectGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProjectGroupRequestObject struct {
+	Id string `json:"id"`
+}
+
+type GetProjectGroupResponseObject interface {
+	VisitGetProjectGroupResponse(w http.ResponseWriter) error
+}
+
+type GetProjectGroup200JSONResponse ProjectGroup
+
+func (response GetProjectGroup200JSONResponse) VisitGetProjectGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProjectGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetProjectGroup404JSONResponse) VisitGetProjectGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectGroupRequestObject struct {
+	Id   string `json:"id"`
+	Body *UpdateProjectGroupJSONRequestBody
+}
+
+type UpdateProjectGroupResponseObject interface {
+	VisitUpdateProjectGroupResponse(w http.ResponseWriter) error
+}
+
+type UpdateProjectGroup200JSONResponse ProjectGroup
+
+func (response UpdateProjectGroup200JSONResponse) VisitUpdateProjectGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectGroup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateProjectGroup400JSONResponse) VisitUpdateProjectGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateProjectGroup404JSONResponse) VisitUpdateProjectGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -9058,6 +9452,21 @@ type StrictServerInterface interface {
 	// Memory-pressure + spawn-gate status
 	// (GET /api/v1/pressure)
 	GetPressure(ctx context.Context, request GetPressureRequestObject) (GetPressureResponseObject, error)
+	// List project groups
+	// (GET /api/v1/project-groups)
+	ListProjectGroups(ctx context.Context, request ListProjectGroupsRequestObject) (ListProjectGroupsResponseObject, error)
+	// Create a project group
+	// (POST /api/v1/project-groups)
+	CreateProjectGroup(ctx context.Context, request CreateProjectGroupRequestObject) (CreateProjectGroupResponseObject, error)
+	// Delete a project group
+	// (DELETE /api/v1/project-groups/{id})
+	DeleteProjectGroup(ctx context.Context, request DeleteProjectGroupRequestObject) (DeleteProjectGroupResponseObject, error)
+	// Get one project group
+	// (GET /api/v1/project-groups/{id})
+	GetProjectGroup(ctx context.Context, request GetProjectGroupRequestObject) (GetProjectGroupResponseObject, error)
+	// Update a project group
+	// (PUT /api/v1/project-groups/{id})
+	UpdateProjectGroup(ctx context.Context, request UpdateProjectGroupRequestObject) (UpdateProjectGroupResponseObject, error)
 	// List first-class projects
 	// (GET /api/v1/projects)
 	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
@@ -10655,6 +11064,146 @@ func (sh *strictHandler) GetPressure(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPressureResponseObject); ok {
 		if err := validResponse.VisitGetPressureResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProjectGroups operation middleware
+func (sh *strictHandler) ListProjectGroups(w http.ResponseWriter, r *http.Request) {
+	var request ListProjectGroupsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProjectGroups(ctx, request.(ListProjectGroupsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProjectGroups")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProjectGroupsResponseObject); ok {
+		if err := validResponse.VisitListProjectGroupsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateProjectGroup operation middleware
+func (sh *strictHandler) CreateProjectGroup(w http.ResponseWriter, r *http.Request) {
+	var request CreateProjectGroupRequestObject
+
+	var body CreateProjectGroupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateProjectGroup(ctx, request.(CreateProjectGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateProjectGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateProjectGroupResponseObject); ok {
+		if err := validResponse.VisitCreateProjectGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteProjectGroup operation middleware
+func (sh *strictHandler) DeleteProjectGroup(w http.ResponseWriter, r *http.Request, id string) {
+	var request DeleteProjectGroupRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteProjectGroup(ctx, request.(DeleteProjectGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteProjectGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteProjectGroupResponseObject); ok {
+		if err := validResponse.VisitDeleteProjectGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetProjectGroup operation middleware
+func (sh *strictHandler) GetProjectGroup(w http.ResponseWriter, r *http.Request, id string) {
+	var request GetProjectGroupRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetProjectGroup(ctx, request.(GetProjectGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetProjectGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetProjectGroupResponseObject); ok {
+		if err := validResponse.VisitGetProjectGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateProjectGroup operation middleware
+func (sh *strictHandler) UpdateProjectGroup(w http.ResponseWriter, r *http.Request, id string) {
+	var request UpdateProjectGroupRequestObject
+
+	request.Id = id
+
+	var body UpdateProjectGroupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateProjectGroup(ctx, request.(UpdateProjectGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateProjectGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateProjectGroupResponseObject); ok {
+		if err := validResponse.VisitUpdateProjectGroupResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

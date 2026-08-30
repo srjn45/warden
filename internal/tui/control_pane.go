@@ -53,9 +53,10 @@ type controlPaneModel struct {
 	connected      bool
 	pendingSelect  string
 	pipelines      []*pipeline.Pipeline
-	projects       []projectstore.Project // persisted projects for the §4 project-grouped navigator
-	collapsed      map[string]bool        // pipeline id → jobs hidden in the list
-	seen           map[string]bool        // pipeline ids the default-collapse has been applied to
+	projects       []projectstore.Project      // persisted projects for the §4 project-grouped navigator
+	projectGroups  []projectstore.ProjectGroup // groups for the per-project group label (Phase 1)
+	collapsed      map[string]bool             // pipeline id → jobs hidden in the list
+	seen           map[string]bool             // pipeline ids the default-collapse has been applied to
 	pressure       client.PressureStatus
 	pendingPrompt  string
 	pendingName    string // name typed in the new-agent form, held across the pressure confirm
@@ -211,7 +212,22 @@ func (m controlPaneModel) items() []item {
 	// ── Projects tab (§4 tree nesting): agents and pipelines nested under their
 	// project (or a loose directory / the Ungrouped bucket), each group a navigable,
 	// collapsible header. Open projects always show (even empty, IDE-style).
-	out = append(out, projectGroupedItems(m.projects, agents, m.sessions, m.pipelines, m.openedDirs, m.collapsed)...)
+	out = append(out, projectGroupedItems(m.projects, groupLabels(m.projectGroups), agents, m.sessions, m.pipelines, m.openedDirs, m.collapsed)...)
+	return out
+}
+
+// groupLabels maps each member project id to the name of the group it belongs to
+// (Phase 1 per-project group label). If a project is (mis)configured into more than
+// one group the first by the store's sorted order wins, so the label is stable.
+func groupLabels(groups []projectstore.ProjectGroup) map[string]string {
+	out := map[string]string{}
+	for _, g := range groups {
+		for _, pid := range g.ProjectIDs {
+			if _, taken := out[pid]; !taken {
+				out[pid] = g.Name
+			}
+		}
+	}
 	return out
 }
 
@@ -543,7 +559,7 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 }
 
 func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
+	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -563,7 +579,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
+		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -683,6 +699,11 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prev := m.selectedKey()
 			m.projects = msg.projects
 			m.repin(prev) // a project appearing/disappearing shifts indices
+		}
+		return m, nil
+	case projectGroupsMsg:
+		if msg.err == nil { // keep the last good list on a transient blip
+			m.projectGroups = msg.groups
 		}
 		return m, nil
 	case closeProjectMsg:
