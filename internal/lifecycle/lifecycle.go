@@ -285,6 +285,20 @@ func (l *Lifecycle) memoryGuidance(ctx context.Context, dir string) string {
 	return memory.Parse(string(raw)).RenderDefault()
 }
 
+// peerGuidance returns the dynamic peer-awareness addendum for sess via the injected
+// PeerContextFn (Project Groups Phase 3), or "" when no provider is wired or the
+// session has no peer context. It is ONE MORE guidance string threaded through the
+// SAME injectContext / systemPromptHints assembly the persona and memory projection
+// already ride, so a grouped orchestrator learns its Project Group and sibling
+// orchestrators at every fresh (re)launch while an ungrouped agent projects nothing.
+// Additive and fail-open, exactly like memory: any absent provider degrades to "".
+func (l *Lifecycle) peerGuidance(ctx context.Context, sess *store.Session) string {
+	if l.PeerContextFn == nil || sess == nil {
+		return ""
+	}
+	return l.PeerContextFn(ctx, sess)
+}
+
 // resolveRole applies the requested built-in role to req: it validates the role
 // name and fills each unset spawn field from the role's defaults, with precedence
 // explicit request value > role default > global default. type/model/
@@ -612,6 +626,16 @@ type Lifecycle struct {
 	// to stay hermetic. Projection is read-only — it never auto-creates the file (that
 	// is the `wd memory` verb's job), so a repo with no memory.md projects nothing.
 	MemStore *memory.Store
+	// PeerContextFn, when set, returns the dynamic peer-awareness system-prompt
+	// addendum for a session at (re)launch: the Project Group it belongs to and the
+	// names of the sibling orchestrators it can coordinate with via send_message
+	// (Project Groups Phase 3). The daemon wires it with a closure over the project
+	// and session stores, so lifecycle stays store-free. nil (unit tests, `wd switch`,
+	// or a daemon built before Phase 3) disables the injection. It MUST return "" for
+	// any session with no peer context (not a grouped orchestrator) and MUST never
+	// block or fail a spawn — the result is an additive hint, exactly like the memory
+	// projection, recomputed from live state at every fresh (re)launch.
+	PeerContextFn func(ctx context.Context, sess *store.Session) string
 	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
 	// each agent's shell records claude's exit status, keyed by agent id. Empty
 	// (tests) disables exit capture — agents then fall back to orphaned-only
@@ -1555,11 +1579,13 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	// first; it is always injected when non-empty (general = "" = nothing).
 	persona := personaGuidance(sess.Role)
 	mem := l.memoryGuidance(ctx, sess.Workdir)
+	peers := l.peerGuidance(ctx, sess)
 	if err := l.injectContext(b, sess.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
+		peers,
 	); err != nil {
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
@@ -1567,7 +1593,8 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
-		hintSpec{l.config().GetMemoryInject(), mem})
+		hintSpec{l.config().GetMemoryInject(), mem},
+		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
@@ -1653,12 +1680,14 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	// reads first; it is always injected when non-empty (general = "" = nothing).
 	persona := personaGuidance(sess.Role)
 	mem := l.memoryGuidance(ctx, sess.Workdir)
+	peers := l.peerGuidance(ctx, sess)
 	if err := l.injectContext(b, sess.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		hintGuidance(l.config().GetGitConventions(), gitConventionsGuidance),
 		mem,
+		peers,
 	); err != nil {
 		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
@@ -1672,7 +1701,8 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
-		hintSpec{l.config().GetMemoryInject(), mem})
+		hintSpec{l.config().GetMemoryInject(), mem},
+		hintSpec{peers != "", peers})
 	launch := base + hints + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(sess, true, worktreeCreated)
@@ -1905,12 +1935,14 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
 	// ahead of the config-gated hints (mirrors spawnTyped's injectContext call).
 	persona := personaGuidance(sess.Role)
 	mem := l.memoryGuidance(ctx, sess.Workdir)
+	peers := l.peerGuidance(ctx, sess)
 	if err := l.injectContext(b, sess.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		hintGuidance(l.config().GetGitConventions(), gitConventionsGuidance),
 		mem,
+		peers,
 	); err != nil {
 		slog.Warn("switch-role: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
 	}
@@ -1923,7 +1955,8 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
-		hintSpec{l.config().GetMemoryInject(), mem})
+		hintSpec{l.config().GetMemoryInject(), mem},
+		hintSpec{peers != "", peers})
 	return l.resumeInTmuxWithHints(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode, hints)
 }
 
@@ -2519,17 +2552,20 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	// it is always injected when non-empty (general = "" = nothing).
 	persona := personaGuidance(sess.Role)
 	mem := l.memoryGuidance(ctx, sess.Workdir)
+	peers := l.peerGuidance(ctx, sess)
 	if err := l.injectContext(b, sess.Workdir,
 		persona,
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
+		peers,
 	); err != nil {
 		slog.Warn("spawn job: context injection failed", "agent", id, "backend", b.ID(), "err", err)
 	}
 	hints := l.systemPromptHints(ctx, b, id,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
-		hintSpec{l.config().GetMemoryInject(), mem})
+		hintSpec{l.config().GetMemoryInject(), mem},
+		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: sess.ClaudeSessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
