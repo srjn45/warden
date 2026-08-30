@@ -34,6 +34,8 @@ This document does two things:
 | 8 | **Open project** (local / clone GH·GL) | 🟠 Specced, not started | Blocked on group foundation (#5 B2/B3) |
 | 9 | **Warden-teams** (shared knowledge) | 🔴 Not started, no spec | Blocked on #6; builds on shipped project-memory |
 | 10 | **Generic agent TUI CLI** (spaiSH/`spai-cli`) | 🔴 Built **outside warden** | External track; warden only provides the client seam |
+| 11 | **Backend hardening** (Tier-C → Tier-A) | 🟡 Partial | Finish transcript, usage, review, and prompt-seeding adapters |
+| 12 | **Recover / resume on another backend** | 🟡 Engine shipped, product workflow incomplete | Promote `warden switch` into a resilient top-level recovery capability |
 
 **Legend:** ✅ done · 🟢 built, one wire missing · 🟡 in progress on `main` ·
 🟠 partial / spec-only · 🔴 not started.
@@ -63,6 +65,7 @@ what produced the current mess. The dependency spine:
                        │
   Layer 0  ── foundation (mostly SHIPPED) ──────────────────────────────
      backend registry · tiered model routing · handover/hot-swap · #4
+     explicit cross-backend recovery / resume · #12
      ctx_* blackboard · directed messaging · pipeline engine
 
   Cross-cutting:  #10 generic agent TUI CLI (spaiSH) — reskins the client
@@ -436,6 +439,169 @@ memory. Do not scope it until the hub exists.
 
 ---
 
+### 5.3 Feature #11 — Backend Hardening (Tier-C → Tier-A)
+
+**What you asked for:** Now that multiple agents are supported, build out the backend-specific adapters so that paid/advanced agents (Cursor, Aider, OpenCode) are as flawlessly integrated as Claude.
+
+**Current state — 🟡 Partial.** The interface (`agentbackend.Backend`) exists, but many adapters mock out the harder semantic methods.
+
+**Design direction:**
+- **Transcripts:** Reverse-engineer Cursor's SQLite `store.db` and OpenCode's JSON logs to implement `ParseTranscript`, bringing them into the TUI.
+- **Costs:** Wire up native real-time token tracking for all tools so `/usage` isn't blindly guessing.
+- **Interactivity:** Ensure `PromptSeeder` and `Reviewer` interfaces are implemented fully where applicable so the orchestration layer can manipulate them programmatically without user intervention.
+
+---
+
+### 5.4 Feature #12 — top-level cross-backend recovery / resume
+
+**What you asked for:** when an agent exhausts its Claude, Antigravity, Codex, or
+other provider quota, recover everything useful from that agent and continue the
+same task on another backend without losing its branch, worktree, decisions, or
+next step. This should be an obvious top-level warden operation, not an expert-only
+combination of lifecycle internals.
+
+**Current state — 🟡 the engine and CLI exist; the recovery product is incomplete.**
+`internal/lifecycle/switch.go` already implements the central primitive and the CLI
+already exposes it as `warden switch`. It retires the active backend process,
+extracts a structured handoff, writes it to
+`.warden/handoff-<agent-id>.md`, and starts the successor in the **same agent
+record, worktree, branch, permission mode, role, and tmux session identity**.
+The successor can be pinned explicitly (`--backend` / `--model`) or chosen through
+the quota-aware router (`--tier` / `--role`). Automatic soft/hard-limit handover in
+#4 calls the same lifecycle machinery.
+
+The manual recovery performed on 2026-08-30 was:
+
+```sh
+# Inspect the stopped agent and its last output first.
+warden status development-acfe8712 --json
+warden tail development-acfe8712 --lines 220
+
+# Atomically replace Antigravity with Codex in the same worktree.
+warden switch development-acfe8712 \
+  --backend codex \
+  --reason quota \
+  --prompt 'Verify the recovered worktree and diff, finish validation, self-review, commit, push, and open the requested PR.' \
+  --json
+```
+
+The switch launched `codex` in `.worktrees/development-acfe8712` with the generated
+handoff as its first instruction. The agent ID and branch did not change. Pinning
+`--backend codex` was important: a normal `handoff --retire`/`rotate` inherits the
+source launch configuration and would therefore have relaunched the exhausted
+Antigravity backend. This is the semantic distinction the product should make
+clear:
+
+| Operation | Conversation/task context | Worktree | Source agent | Backend |
+|---|---|---|---|---|
+| `restore` | native backend session | same | revived | unchanged |
+| `handoff --retire` / `rotate` | structured task handoff | same | retired | normally inherited |
+| `fork` | native conversation fork | new sibling | kept | inherited; Codex-only |
+| `switch` / proposed `recover` | structured recovery handoff | same | backend process replaced | explicitly selected or routed |
+
+#### Recovery contract
+
+A first-class recovery operation should be transactional and make these guarantees:
+
+1. **Inspect before mutation.** Resolve the exact agent; capture status, recent
+   terminal output, structured transcript/digest, original prompt, role, parent,
+   tags, permission mode, branch, worktree, dirty state, and pending approval or
+   rate-limit reason.
+2. **Preserve ownership.** Never create a second writer for the same worktree. Stop
+   or quiesce the source process, but keep the agent record, worktree, branch, dirty
+   files, and parent/child topology.
+3. **Create a self-contained handoff.** Record Goal, Decisions, Modified Files,
+   Git Diff summary (or full bounded patch reference), checks already run and their
+   results, failures, immediate next step, original prompt, recent transcript tail,
+   and why the switch occurred. Backend-native transcript extraction is preferred;
+   deterministic fallbacks must fill gaps.
+4. **Select a viable successor.** An explicit backend/model pin wins. Otherwise use
+   the unified resolver, excluding the source backend and every backend currently
+   disabled, quota-limited, above threshold, or already tried during this recovery.
+5. **Spawn before final retirement.** Write the handoff durably, launch the
+   successor in the same worktree, verify that its process reaches a live state and
+   consumes the continuation prompt, then finalize the old process retirement. A
+   failed launch must leave the task recoverable and safe to retry.
+6. **Verify postconditions.** Report old/new backend and model, handoff path, agent
+   ID, worktree, branch, dirty-file count, successor state, and an audit event. The
+   result should clearly say whether the successor is merely spawned or has
+   acknowledged the handoff.
+7. **Remain idempotent.** Repeating the request after a timeout must detect an
+   already-running successor and return its state rather than spawn another writer.
+
+#### Gaps exposed by the real recovery
+
+- **Sparse handoff from Antigravity.** The generated handoff had empty Goal,
+  Decisions, Modified Files, Next Step, and Git Diff fields even though `warden
+  tail` contained a rich trajectory. The operator had to reconstruct and inject a
+  summary manually. `switch` needs a deterministic fallback chain:
+  structured adapter transcript → stored original prompt + recent normalized turns
+  → terminal tail → git/worktree inspection. Empty fields should be treated as a
+  degraded extraction, not a successful complete handoff.
+- **Edits were in the wrong worktree.** The source transcript showed absolute paths
+  under the shared repository, while its registered worktree was
+  `.worktrees/development-acfe8712`; its own branch was clean. Recovery therefore
+  had to identify the eight task-scoped diffs in the shared root, exclude unrelated
+  user files, check collaboration ownership, and copy only those diffs into the
+  correct worktree. Add a pre-switch **worktree consistency audit** comparing
+  transcript paths, process cwd, registered worktree, and dirty files. Never move
+  shared-root changes automatically unless provenance is unambiguous; present a
+  recoverable patch plan or require confirmation.
+- **Session-store failure after switching.** `warden status`, `tail`, `send`, and
+  `wd check` began failing because an active ScrivaDB segment contained a malformed
+  record (`invalid character 'p' looking for beginning of value`). The Codex process
+  was nevertheless alive in tmux. Recovery/status must degrade to the process and
+  transcript surfaces when one session record cannot decode, quarantine/report the
+  corrupt entry, and keep unrelated records readable. A single bad record must not
+  block checks, messaging, or inspection for the recovered agent.
+- **No acknowledgement phase.** `switch --json` reported the new backend immediately
+  while the successor was still starting. Add `--wait` / `--wait-timeout` and a
+  structured `acknowledged` state after the successor reads the handoff or emits its
+  first turn.
+- **Discoverability.** `switch` is top-level but absent from the everyday lifecycle
+  quick reference and easy to confuse with `restore`, `rotate`, and `fork`. Surface
+  it in `warden --help`, the MCP catalog, skill quick-reference, TUI agent actions,
+  web agent menu, and rate-limit notifications.
+
+#### Proposed top-level UX
+
+Keep `warden switch` as the precise low-level verb and add a task-oriented alias:
+
+```sh
+# Explicit recovery target.
+warden recover-agent development-acfe8712 --backend codex --reason quota --wait
+
+# Let the resolver select the best non-exhausted tier-2 candidate.
+warden recover-agent development-acfe8712 --tier tier-2 --reason quota --wait
+
+# Preview evidence, handoff completeness, worktree consistency, and successor.
+warden recover-agent development-acfe8712 --backend codex --dry-run
+```
+
+MCP/REST should expose one typed operation (for example
+`recover_agent_backend`) returning `{agent, from_backend, to_backend, from_model,
+to_model, reason, handoff_path, handoff_completeness, worktree_audit,
+acknowledged, degraded_reasons}`. The TUI/web action should be **Resume on another
+backend…**, preselect the router recommendation, show quota/cooldown state, preview
+the recovered context, and require confirmation only for ambiguous shared-worktree
+recovery—not for the normal same-worktree hot-swap.
+
+**Acceptance criteria:** a fixture agent for every resumable backend can be forced
+into a quota-exhausted state and recovered onto every compatible successor; dirty
+tracked and untracked files remain byte-identical; no duplicate writer exists;
+the successor receives non-empty goal/next-step context; retry is idempotent;
+backend/model selection and exclusion are tested; sparse transcript and corrupt
+single-record scenarios degrade visibly but do not strand the task; and an
+end-to-end test proves Antigravity → Codex continuation through check, commit, push,
+and PR creation.
+
+**Relationship to #4 and #11:** #4 remains the automatic policy/trigger; #12 is
+the explicit operator recovery product and its transactional guarantees; #11
+improves backend adapters so #12 receives richer transcripts. They should share
+one `Lifecycle.HotSwap` implementation and one handoff schema rather than drift.
+
+---
+
 ## 6. Cross-cutting — feature #10: generic agent TUI CLI (spaiSH-backed)
 
 **What you asked for:** build a warden CLI that is a **generic agent TUI** (possibly
@@ -491,7 +657,12 @@ Ordered by **dependency + confusion-reduction + leverage**:
 6. **#4 handover** — ✅ done + polished: the two trigger paths are reconciled
    (hard-limit → hot-swap) and proactive quota tracking feeds `GetHeadroom`. Only
    event-surfacing / handover-budget remain optional.
-7. **External CLI (spaiSH / `spai-cli`, #10)** — proceeds **outside this repo** on
+7. **Feature #11: Backend Hardening (Tier-C → Tier-A)** — Expand the `agentbackend.Backend` adapters to perfectly integrate newer agents (Codex, OpenCode, Cursor, Aider). This includes parsing their native JSON/SQLite transcripts into Warden's neutral `Turn` format, wiring up their specific token/cost tracking, and implementing full `Reviewer` and `PromptSeeder` capabilities where applicable.
+8. **Feature #12: cross-backend recovery / resume** — promote `warden switch` into
+   a discoverable, transactional recovery workflow with complete context fallback,
+   worktree-consistency checks, backend exclusion, acknowledgement, idempotency,
+   and degraded session-store handling (§5.4).
+9. **External CLI (spaiSH / `spai-cli`, #10)** — proceeds **outside this repo** on
    Srajan's separate track (§8.5); warden does nothing until that CLI needs an
    integration seam, and it compounds best once #6 exists.
 

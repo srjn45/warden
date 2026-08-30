@@ -1,75 +1,31 @@
 version: 1
 goal: >-
-  Implement the collaboration-groups, pipeline-as-substrate/monitoring, and cockpit-UI work described in docs/specs/2026-08-26-collaboration-groups-impl.md. One task = one bounded PR, gated on CI. Do not cut or push any release.
-# Rules every worker must follow (the brain injects these into each spawn).
+  Implement the Project Groups & Orchestrator Collaboration architecture (Feature #5)  described in docs/specs/2026-08-30-project-groups-architecture.md.  This introduces peer-to-peer Project Orchestrators.
 constraints:
-  - Read ONLY your own stage brief in docs/specs/2026-08-26-collaboration-groups-impl.md plus the design doc docs/specs/2026-08-26-collaboration-groups.md. Do not load the whole plan.
+  - Read ONLY docs/specs/2026-08-30-project-groups-architecture.md.
   - Work in an isolated git worktree branched off the latest origin/main; one worker per task.
-  - Keep the tree green — run `make verify-fast` before every commit/push. The rail has no bypass.
+  - Keep the tree green — run `make verify-fast` before every commit/push.
   - API is spec-first — edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit generated code.
-  - Never hand-edit reference/cli.md — run `make gendocs` after any cobra command/flag change.
-  - Stay within your stage's listed file surface and honor its out-of-scope.
-  - The four decisions in impl §6 are final; do not re-open them.
-  - Do NOT push any v* tag or cut a release — that is a human touchpoint.
   - End each task with `wd job done --summary '<what shipped>'` once the PR is up and CI is green.
 tasks:
-  # ── Track B — Collaboration groups (pipeline U-B) ──
-  - id: B1
-    prompt: "Stage B1 (impl §3): new internal/groupstore ScrivaDB store + lean roster model."
-  - id: B2
-    prompt: "Stage B2 (impl §3): git-remote → project-key normalizer, with a local: fallback key for remoteless repos."
-  - id: B3
-    prompt: "Stage B3 (impl §3): join/leave daemon API (openapi-first); enforce one orchestrator per project (dup→409); switch caller to orchestrator role."
-    after: [B1, B2]
-  - id: B4
-    prompt: "Stage B4 (impl §3): warden-brokered introductions on join (both directions), reusing send_message. Zero agent tokens."
-    after: [B3]
-  - id: B5
-    prompt: "Stage B5 (impl §3): project summary resolution — declared blurb → agent-generated-once → cached."
-    after: [B4]
-  - id: B6
-    prompt: "Stage B6 (impl §3): leave-soft vs terminate-hard semantics; confirmation/friction gate on terminating a grouped orchestrator + abandonment notices."
-    after: [B3]
-  - id: B7
-    prompt: "Stage B7 (impl §3): recover auto-rejoin — recovered orchestrators re-join their groups and re-announce."
-    after: [B3]
-  - id: B8
-    prompt: "Stage B8 (impl §3): `wd collaborate group <name> join|leave` CLI + `collaborate_group` MCP tool (parity) + `make gendocs`."
-    after: [B4, B5, B6]
-  # ── Track A — Pipeline-as-substrate & monitoring (pipeline U-A) ──
-  - id: A1
-    prompt: "Stage A1 (impl §4): worker done-signal — BOTH `wd job done --summary` (primary) and a <<WARDEN_DONE>>{json} sentinel (backstop). Warden captures status+summary with no extra turn."
-  - id: A2
-    prompt: "Stage A2 (impl §4): stuck detection — reuse the pane-state classifier (working/idle/blocked/exited) + a wall-clock watchdog that notifies on a hang. Correctness fix: a done-but-idle agent must classify idle/done, never needs-input (this drives the TUI badge once C1 removes the Approvals section)."
-  - id: A3
-    prompt: "Stage A3 (impl §4): pipeline → owning-orchestrator link on the pipeline record (openapi-first; extend create_pipeline). Unblocks C3 and A4."
-  - id: A4
-    prompt: "Stage A4 (impl §4): delegated monitoring — EXTEND create_pipeline with optional callback points + owner subscription; warden wakes the owner at callbacks/completion, owner blocks on wait_for_message (no polling)."
-    after: [A3]
-  - id: A5
-    prompt: "Stage A5 (impl §4): ambiguous-idle fallback — on the transition to idle-at-prompt, ask once for {status,details,summary}; never on a loop."
-    after: [A2]
-  # ── Track C — Projects-first cockpit UI ──
-  - id: C1
-    prompt: "Stage C1 (impl §2): TUI — remove the top-level Approvals section entirely. Pending approvals surface only via an agent's needs-input status (the classifier fix is A2, not here)."
-  - id: C2
-    prompt: "Stage C2 (impl §2): TUI — replace the Agents frame with a Projects frame grouping agents by project-key (B2 normalizer; worktrees of one repo collapse to one node), top-level agents listed directly with subagents/pipelines nested; keep Terminals a flat non-project-scoped frame; rename dir→Project across TUI titles/hints/help; M-a cycles Projects, M-p retired."
-    after: [B2]
-  - id: C3
-    prompt: "Stage C3 (impl §2): TUI — remove the top-level Pipelines section; render every pipeline inside the Projects frame (delegated → nested under its owning orchestrator via the A3 owner link; human/orchestrator-less → under its project node), with job children and (deps: …) annotations, collapse-completed + cancel preserved."
-    after: [C2, A3]
-  - id: C5
-    prompt: "Stage C5 (impl §2): TUI — repurpose `o` into a full-pane Open Project panel (persisted recent-projects list, open-local via a dir navigator, open-via-git cloning into ~/.warden/workspace/<project>); opening a project auto-spawns its single orchestrator (one-per-project via B3, existing⇒focus)."
-    after: [C2, B2, B3]
-  - id: C4
-    prompt: "Stage C4 (impl §2): web — add an Agents fixed tab mirroring the Terminals tab (list left / AgentTab right). Web stays flat/tab-based this wave; leave the web Pipelines tab untouched."
-# Acceptance the brain verifies before declaring the run complete.
+  - id: Phase1
+    prompt: "Phase 1 (Database & Registry): Update internal/projectstore to support a ProjectGroup schema (id, name, array of project IDs). Add HTTP endpoints in internal/daemon/apidocs/openapi.yaml (e.g., /api/v1/project-groups) and implement them to create/list/manage groups. Update the Cockpit TUI to display the group next to the project."
+  - id: Phase2
+    prompt: "Phase 2 (Orchestrator Daemon Loop): Add a hook in the daemon so when a project is activated/opened in Cockpit, it guarantees an agent named `orch-<project-name>` (role: orchestrator) is alive. Implement auto-wakeup if it receives a message in the mailbox."
+    after: [Phase1]
+  - id: Phase3
+    prompt: "Phase 3 (Peer Awareness Context Injection): Modify internal/lifecycle/poller.go to dynamically inject peer context into the Orchestrator's system prompt at runtime based on its ProjectGroup (e.g., 'Your peers are orch-backend, orch-docs')."
+    after: [Phase2]
+  - id: Phase4
+    prompt: "Phase 4 (Subagent & Pipeline Ergonomics): Verify and polish the `invoke_subagent` and `create_pipeline` MCP tools so the Orchestrator has flawless APIs to spin up `planner` and `worker` agents locally. Ensure `wait_for_message` behaves reliably."
+  - id: Phase5
+    prompt: "Phase 5 (Cleanup): Delete the local and remote git branches `stage-b5`, `stage-b6`, `stage-b7`, and `stage-c2`. Delete the old specs `docs/specs/2026-08-26-collaboration-groups*.md` to clear technical debt."
+    after: [Phase1, Phase2, Phase3, Phase4]
 done_when:
-  - "wd check passes on the integration branch (tests, vet, verify-fast all green)."
-  - "Groups: join/leave works, one-orchestrator-per-project enforced (dup→409), brokered intros delivered, leave-soft vs terminate-hard gated, recover re-joins."
-  - "Monitoring: create_pipeline carries owner + callback points; both wd job done and the sentinel close a job with a summary and no interrogation turn; the stuck watchdog notifies."
-  - "TUI: Approvals + Pipelines top-level sections removed; Projects frame groups agents by project (Terminals unchanged); pipelines render inside Projects (delegated under owner, human under project node); Open Project (`o`) panel opens + auto-spawns the project orchestrator; dir renamed Project."
-  - "Web: Agents tab present mirroring Terminals; the Pipelines tab is unchanged."
-  - "Docs + skill updated per impl §5 DoD; make gendocs-check green. No v* tag has been pushed."
+  - "wd check passes on the integration branch."
+  - "Project Groups can be created and stored in projectstore."
+  - "Orchestrators are auto-spawned when projects are opened."
+  - "Peer context is properly injected into orchestrator system prompts."
+  - "Old stage branches and collaboration specs are deleted."
 status: complete
-completed_at: "2026-08-28T07:33:38Z"
+completed_at: "2026-08-30T16:10:20Z"
