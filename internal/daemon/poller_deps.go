@@ -81,7 +81,7 @@ func (d *pollerDeps) ContextTokens(_ context.Context, s *store.Session) (int, bo
 		return 0, false
 	}
 	defer f.Close()
-	return ctxtokens.LatestContextTokens(f)
+	return ctxtokens.GetParser(s.Backend).LatestContextTokens(f)
 }
 
 // TranscriptUsage reads the agent's cumulative billed token usage (input+output
@@ -98,7 +98,7 @@ func (d *pollerDeps) TranscriptUsage(_ context.Context, s *store.Session) (int, 
 		return 0, 0, false
 	}
 	defer f.Close()
-	u, ok := spend.ParseUsage(f)
+	u, ok := spend.GetParser(s.Backend).ParseUsage(f)
 	return u.InputTokens, u.OutputTokens, ok
 }
 

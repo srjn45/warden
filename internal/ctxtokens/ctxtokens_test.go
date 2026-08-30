@@ -10,7 +10,7 @@ func TestLatestContextTokensSumsLatestUsage(t *testing.T) {
 	jsonl := `{"type":"user","message":{"role":"user","content":"hi"}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":10,"cache_read_input_tokens":100,"cache_creation_input_tokens":5,"output_tokens":3}}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"b"}],"usage":{"input_tokens":20,"cache_read_input_tokens":300,"cache_creation_input_tokens":7,"output_tokens":4}}}`
-	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	got, ok := GetParser("claude").LatestContextTokens(strings.NewReader(jsonl))
 	if !ok {
 		t.Fatal("ok=false, want true")
 	}
@@ -23,7 +23,7 @@ func TestLatestContextTokensNoUsageReturnsFalse(t *testing.T) {
 	// Freshly spawned: a user line but no assistant turn with usage yet.
 	jsonl := `{"type":"user","message":{"role":"user","content":"hi"}}
 {"type":"summary","summary":"x"}`
-	if _, ok := LatestContextTokens(strings.NewReader(jsonl)); ok {
+	if _, ok := GetParser("claude").LatestContextTokens(strings.NewReader(jsonl)); ok {
 		t.Fatal("ok=true, want false (no usage)")
 	}
 }
@@ -32,7 +32,7 @@ func TestLatestContextTokensSkipsMalformedLines(t *testing.T) {
 	jsonl := `not json at all
 {"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 { broken`
-	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	got, ok := GetParser("claude").LatestContextTokens(strings.NewReader(jsonl))
 	if !ok || got != 50 {
 		t.Fatalf("got=%d ok=%v, want 50 true", got, ok)
 	}
@@ -45,7 +45,7 @@ func TestLatestContextTokensCompactBoundaryResetsGauge(t *testing.T) {
 	jsonl := `{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":20,"cache_read_input_tokens":181000,"cache_creation_input_tokens":705}}}
 {"type":"system","subtype":"compact_boundary","content":"Conversation compacted","compactMetadata":{"trigger":"manual","preTokens":181725,"postTokens":12062}}
 {"type":"user","message":{"role":"user","content":"This session is being continued..."},"isCompactSummary":true}`
-	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	got, ok := GetParser("claude").LatestContextTokens(strings.NewReader(jsonl))
 	if !ok || got != 12062 {
 		t.Fatalf("got=%d ok=%v, want 12062 true", got, ok)
 	}
@@ -57,7 +57,7 @@ func TestLatestContextTokensAssistantAfterBoundaryWins(t *testing.T) {
 	jsonl := `{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":10,"cache_read_input_tokens":180000,"cache_creation_input_tokens":0}}}
 {"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"auto","preTokens":180010,"postTokens":9000}}
 {"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":15,"cache_read_input_tokens":40000,"cache_creation_input_tokens":100}}}`
-	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	got, ok := GetParser("claude").LatestContextTokens(strings.NewReader(jsonl))
 	if !ok || got != 15+40000+100 {
 		t.Fatalf("got=%d ok=%v, want %d true", got, ok, 15+40000+100)
 	}
@@ -68,7 +68,7 @@ func TestLatestContextTokensBoundaryWithoutMetadata(t *testing.T) {
 	// one reads as 0, which beats reporting the stale critical level.
 	jsonl := `{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":10,"cache_read_input_tokens":180000,"cache_creation_input_tokens":0}}}
 {"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}`
-	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	got, ok := GetParser("claude").LatestContextTokens(strings.NewReader(jsonl))
 	if !ok || got != 0 {
 		t.Fatalf("got=%d ok=%v, want 0 true", got, ok)
 	}
@@ -78,7 +78,7 @@ func TestLatestContextTokensOtherSystemLinesIgnored(t *testing.T) {
 	// Non-boundary system lines must not disturb the gauge.
 	jsonl := `{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 {"type":"system","subtype":"local_command","content":"..."}`
-	got, ok := LatestContextTokens(strings.NewReader(jsonl))
+	got, ok := GetParser("claude").LatestContextTokens(strings.NewReader(jsonl))
 	if !ok || got != 50 {
 		t.Fatalf("got=%d ok=%v, want 50 true", got, ok)
 	}
