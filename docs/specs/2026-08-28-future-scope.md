@@ -537,3 +537,16 @@ Ordered by **dependency + confusion-reduction + leverage**:
   `internal/mailbox`, `internal/pipeline`.
 - Shipped foundations this builds on: FEATURES.md (§ backends, § project memory,
   § collaboration MVP).
+
+---
+
+## 7. Cross-cutting — feature #11: Backend-Specific Deep QA & Paid Tier Verification
+
+**What you asked for:** Because Warden was initially developed purely with Claude, many implicit assumptions (like token compaction syntax or usage metric formatting) were baked in. Recently we fixed these "smaller things" for the paid version of Antigravity. In the future, we need to do this 1-by-1 for every supported backend, specifically verifying against their paid/premium versions to ensure Warden works flawlessly across the board.
+
+**Current state — 🟡 ongoing discovery.** We have abstracted the parsers for `ctxtokens` and `spend` dynamically based on `Backend` (shipped for Antigravity). 
+
+**Design direction / Next steps:**
+- **Audit 1-by-1:** Systematically audit each backend implementation (OpenAI, Gemini, etc.) using their paid/premium tiers.
+- **Backend interface expansion:** Continue isolating backend-specific quirks behind interfaces (like `TokenParser` and `SpendParser`).
+- **Paid Feature Parity:** Verify long-context capabilities, exact token tracking, tool calling semantics, and rate-limit recovery for each premium backend.
