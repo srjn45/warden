@@ -17,8 +17,7 @@ import (
 func overwatchSetup(t *testing.T, clock *fakeClock) (*Controller, *guardianFake, string, string) {
 	t.Helper()
 	fake := newGuardianFake()
-	ladder := BackendLadder{Free: []string{"a"}}
-	c, runID := enabledGuardianController(t, fake, clock, ladder, false, testGuardian())
+	c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
 	managerID := c.runs[runID].brain.AgentID // "brain-1"
 	return c, fake, runID, managerID
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBackendLadderSelection(t *testing.T) {
+func TestBackendLadderHelpers(t *testing.T) {
 	ladder := BackendLadder{
 		Free:         []string{"", "antigravity", "codex"},
 		Subscription: []string{"claude"},
@@ -19,17 +19,6 @@ func TestBackendLadderSelection(t *testing.T) {
 	}
 	require.Equal(t, "antigravity", ladder.firstFree(), "first non-blank free backend")
 	require.Equal(t, []string{"antigravity", "codex", "claude", "gpt"}, ladder.all(), "union in tier order, blanks skipped")
-
-	// selectBackend walks the free tier first, skipping blanks.
-	sel := selectBackend(staticLadder{ladder: ladder}, nil, nil)
-	require.True(t, sel.OK)
-	require.Equal(t, "antigravity", sel.Backend)
-	require.Equal(t, tierFree, sel.Tier)
-
-	// An entirely unconfigured ladder ⇒ the daemon default ("").
-	def := selectBackend(staticLadder{ladder: BackendLadder{}}, nil, nil)
-	require.True(t, def.OK)
-	require.Equal(t, "", def.Backend, "no backend configured ⇒ daemon default")
 }
 
 func TestReloadPlanIfChanged(t *testing.T) {
@@ -119,7 +108,7 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 		Plans:             []string{plan},
 		IntegrationBranch: "autopilot/integration",
 		BaseDir:           dir,
-		Backends:          BackendLadder{Free: []string{"antigravity"}},
+		Resolver:          &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, &fakeEnv{})
 	c.SetRuntime(rt)
 
@@ -167,7 +156,7 @@ func TestControllerInstallsDefaultPolicyOnEnable(t *testing.T) {
 	c := NewController(ControllerConfig{
 		Plans:    []string{plan},
 		BaseDir:  dir,
-		Backends: BackendLadder{Free: []string{"antigravity"}},
+		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, &fakeEnv{})
 	c.SetRuntime(rt)
 
@@ -187,7 +176,7 @@ func TestActiveBrainForRun(t *testing.T) {
 	c := NewController(ControllerConfig{
 		Plans:    []string{plan},
 		BaseDir:  dir,
-		Backends: BackendLadder{Free: []string{"antigravity"}},
+		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, &fakeEnv{})
 	c.SetRuntime(rt)
 
@@ -224,19 +213,4 @@ func TestControllerBrainSpawnFailureDegrades(t *testing.T) {
 	require.Nil(t, st.Runs[0].Brain)
 
 	c.Disable(context.Background(), "")
-}
-
-func TestPreflightRejectsUnknownBackend(t *testing.T) {
-	dir := t.TempDir()
-	plan := writePlan(t, dir, "plan.yaml", "g")
-	c := NewController(ControllerConfig{
-		Plans:    []string{plan},
-		BaseDir:  dir,
-		Backends: BackendLadder{Free: []string{"antigravity"}, Subscription: []string{"typo-backend"}},
-	}, &fakeEnv{unknownBE: map[string]bool{"typo-backend": true}})
-
-	_, err := c.Enable(context.Background(), "")
-	var pfe *PreflightError
-	require.ErrorAs(t, err, &pfe)
-	require.Contains(t, pfe.Error(), "typo-backend")
 }

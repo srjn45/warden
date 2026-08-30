@@ -105,18 +105,6 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 		}
 	}
 
-	// Backend-trust check (§5.1): every backend the ladder could ever select must
-	// be one warden can launch, so a typo'd or uninstalled backend surfaces at
-	// enable rather than mid-rotation at 3am. S3 checks the mechanical half
-	// (known/launchable); deeper per-repo trust/auth detection lands with the tier
-	// failover work (S5). An empty ladder is not a failure here — brain selection
-	// falls back to the daemon default.
-	for _, backend := range c.backends.all() {
-		if err := c.env.BackendKnown(backend); err != nil {
-			fails = append(fails, err.Error())
-		}
-	}
-
 	// Gate-mode resolution (§6.1): resolve `auto` to the concrete mode that will
 	// gate landings and record it, so the daemon reports it in AutopilotStatus and
 	// the land handler gates on it. `ci`/`local` pass through untouched; only
