@@ -378,6 +378,20 @@ func projectsCmd(a api) tea.Cmd {
 	}
 }
 
+// projectGroupsMsg carries the project groups for the §4 navigator's per-project
+// group label. A transient error keeps the last good list (handled in Update).
+type projectGroupsMsg struct {
+	groups []projectstore.ProjectGroup
+	err    error
+}
+
+func projectGroupsCmd(a api) tea.Cmd {
+	return func() tea.Msg {
+		gs, err := a.ListProjectGroups(context.Background())
+		return projectGroupsMsg{groups: gs, err: err}
+	}
+}
+
 // closeProjectMsg reports the result of hibernating a project (§4 close). The
 // daemon terminates the project's live agents and flips its status; the poller
 // then reflects both.

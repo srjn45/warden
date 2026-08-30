@@ -87,10 +87,12 @@ type fakeAPI struct {
 	thinkingErr  error
 
 	// projects (Phase 4 tree nesting)
-	projects        []projectstore.Project
-	projectsErr     error
-	closedProjectID string // id of the last CloseProject
-	closeProjectErr error
+	projects         []projectstore.Project
+	projectsErr      error
+	projectGroups    []projectstore.ProjectGroup
+	projectGroupsErr error
+	closedProjectID  string // id of the last CloseProject
+	closeProjectErr  error
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -142,6 +144,9 @@ func (f *fakeAPI) CreateProject(_ context.Context, name string) (projectstore.Pr
 }
 func (f *fakeAPI) ListProjects(context.Context) ([]projectstore.Project, error) {
 	return f.projects, f.projectsErr
+}
+func (f *fakeAPI) ListProjectGroups(context.Context) ([]projectstore.ProjectGroup, error) {
+	return f.projectGroups, f.projectGroupsErr
 }
 func (f *fakeAPI) CloseProject(_ context.Context, id string) (projectstore.Project, error) {
 	f.closedProjectID = id
