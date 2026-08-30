@@ -81,6 +81,11 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 	// Snapshot the hot-reloadable guard knobs once for this tick (a live config
 	// reload may swap them concurrently via SetContextGuard).
 	g := p.ctxGuard()
+	// Antigravity uses a large context window and does not require manual compaction.
+	if s.Backend == "antigravity" {
+		g.AutoCompact = false
+		g.ForceCompact = false
+	}
 	cur := ctxtokens.Classify(tokens, g.Warn, g.Crit)
 	prev := ctxtokens.State(s.ContextState)
 	if err := p.deps.UpdateContext(ctx, s.ID, tokens, string(cur)); err == nil {
@@ -212,7 +217,12 @@ func (p *Poller) sendCompact(ctx context.Context, s *store.Session, tokens, outU
 // The compact itself is gated by the cooldown so a failed/slow landing can't
 // storm /compact. Tick goroutine only.
 func (p *Poller) stepForceCompact(ctx context.Context, s *store.Session, cur ctxtokens.State, tokens, outUsage int, usageOK bool, sinceCompact time.Duration, now time.Time) bool {
-	g := p.ctxGuard() // hot-reloadable: force-compact default + resume prompt
+	g := p.ctxGuard()
+	// Antigravity uses a large context window and does not require manual compaction.
+	if s.Backend == "antigravity" {
+		g.AutoCompact = false
+		g.ForceCompact = false
+	} // hot-reloadable: force-compact default + resume prompt
 	st, active := p.forceCompact[s.ID]
 
 	// Resume / cleanup: a force-compaction we were awaiting has resolved.
