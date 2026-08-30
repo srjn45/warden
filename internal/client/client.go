@@ -801,6 +801,18 @@ func (c *Client) ListProjects(ctx context.Context) ([]projectstore.Project, erro
 	return resp.Projects, nil
 }
 
+// ListProjectGroups returns every project group (Project Groups feature, Phase 1),
+// sorted by display name. Read-only; backs the TUI's per-project group label.
+func (c *Client) ListProjectGroups(ctx context.Context) ([]projectstore.ProjectGroup, error) {
+	var resp struct {
+		Groups []projectstore.ProjectGroup `json:"groups"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/project-groups", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Groups, nil
+}
+
 // CloseProject hibernates a project (IDE-like): the record is kept, its status
 // flips to closed, and the daemon gracefully terminates its live agents (restored
 // on reopen). The id is a filesystem path / remote URL, so it is percent-encoded

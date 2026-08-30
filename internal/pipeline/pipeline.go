@@ -10,6 +10,7 @@ import (
 
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -166,6 +167,15 @@ func Validate(p *Pipeline) error {
 		}
 		if j.Tier != "" && !backendstore.ModelTier(j.Tier).Valid() {
 			return fmt.Errorf("job %q: invalid tier %q (want tier-1|tier-2|tier-3)", j.ID, j.Tier)
+		}
+		// Validate role at creation so a typo (e.g. role: wroker) fails fast here
+		// instead of silently degrading to a personaless general agent when the job
+		// spawns — SpawnJob ignores an unresolvable role. Empty role ⇒ general (ok);
+		// legacy aliases (implementer/auto-merger/reviewer) resolve to worker.
+		if j.Role != "" {
+			if _, ok := role.Get(j.Role); !ok {
+				return fmt.Errorf("job %q: invalid role %q (want one of: %s)", j.ID, j.Role, strings.Join(role.Names(), ", "))
+			}
 		}
 	}
 	for i := range p.Jobs {

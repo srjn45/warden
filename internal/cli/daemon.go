@@ -316,6 +316,12 @@ func newDaemonCmd() *cobra.Command {
 			}
 			defer projectStore.Close()
 			srv.SetProjects(projectStore)
+			// Project Groups Phase 3 (peer awareness): wire the daemon-side peer-context
+			// provider into lifecycle so a grouped per-project orchestrator learns its
+			// Project Group and sibling orchestrators (recomputed from live store state)
+			// at every fresh (re)launch. The closure holds the project + session stores,
+			// keeping lifecycle store-free; it degrades to "" for any non-grouped agent.
+			lc.PeerContextFn = srv.PeerContext
 			if handoverSettings, err := backendStore.GetHandoverSettings(); err == nil {
 				pl.HandoverEnabled = handoverSettings.Enabled
 			}

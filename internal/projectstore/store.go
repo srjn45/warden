@@ -46,10 +46,11 @@ var (
 // critical sections. Read-only methods take it too for a behaviour-identical
 // mutex model.
 type Store struct {
-	mu  sync.Mutex
-	db  *scriva.DB
-	col *engine.Collection
-	now func() time.Time // injectable clock for tests; defaults to time.Now
+	mu     sync.Mutex
+	db     *scriva.DB
+	col    *engine.Collection // "projects": one record per project
+	groups *engine.Collection // "project_groups": one record per group (Phase 1)
+	now    func() time.Time   // injectable clock for tests; defaults to time.Now
 }
 
 // NewStore opens (creating if needed) the ScrivaDB-backed project store at dir
@@ -67,7 +68,12 @@ func NewStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, col: col, now: time.Now}, nil
+	groups, err := db.Collection("project_groups")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, col: col, groups: groups, now: time.Now}, nil
 }
 
 // toRecord decomposes v into a ScrivaDB record body via a JSON round-trip, so its
@@ -85,16 +91,23 @@ func toRecord(v any) (map[string]any, error) {
 	return m, nil
 }
 
+// jsonRoundTrip decodes a ScrivaDB record body map into out via a JSON marshal/
+// unmarshal pass. The reserved key field the engine stamped into the map is
+// harmlessly dropped when out has no matching field.
+func jsonRoundTrip(d map[string]any, out any) error {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}
+
 // projectFromRecord reconstructs a Project from a record body. The reserved key
 // field the engine stamped into the map is harmlessly dropped on unmarshal
 // (Project has no matching json tag beyond "id", which round-trips identically).
 func projectFromRecord(d map[string]any) (Project, error) {
-	b, err := json.Marshal(d)
-	if err != nil {
-		return Project{}, err
-	}
 	var out Project
-	if err := json.Unmarshal(b, &out); err != nil {
+	if err := jsonRoundTrip(d, &out); err != nil {
 		return Project{}, err
 	}
 	return out, nil

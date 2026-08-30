@@ -212,7 +212,7 @@ func projHdrByID(items []item, id string) *projectHeader {
 func TestProjectGroupedItemsNestsAgentsUnderOpenProject(t *testing.T) {
 	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
 	agents := []*store.Session{{ID: "a1", Repo: "/repos/alpha", Status: store.StatusWorking}}
-	items := projectGroupedItems(projs, agents, agents, nil, nil, nil)
+	items := projectGroupedItems(projs, nil, agents, agents, nil, nil, nil)
 
 	h := projHdrByID(items, "/repos/alpha")
 	require.NotNil(t, h, "the open project gets a group header")
@@ -224,17 +224,48 @@ func TestProjectGroupedItemsNestsAgentsUnderOpenProject(t *testing.T) {
 	require.Contains(t, itemSessionIDs(items), "a1")
 }
 
+func TestProjectGroupedItemsShowsGroupLabel(t *testing.T) {
+	projs := []projectstore.Project{
+		{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen},
+		{ID: "/repos/beta", Name: "Beta", Path: "/repos/beta", Status: projectstore.StatusOpen},
+	}
+	// Alpha belongs to the "Backend" group; Beta belongs to none.
+	groupByProject := map[string]string{"/repos/alpha": "Backend"}
+	items := projectGroupedItems(projs, groupByProject, nil, nil, nil, nil, nil)
+
+	alpha := projHdrByID(items, "/repos/alpha")
+	require.NotNil(t, alpha)
+	require.Equal(t, "Backend", alpha.group, "a project carries its group name")
+	require.Contains(t, renderProjectHeader(item{projHdr: alpha}), "Backend", "the group is rendered beside the name")
+
+	beta := projHdrByID(items, "/repos/beta")
+	require.NotNil(t, beta)
+	require.Empty(t, beta.group, "an ungrouped project has no group label")
+}
+
+func TestGroupLabelsFirstGroupWins(t *testing.T) {
+	// A project mistakenly listed in two groups resolves stably to the first by
+	// the store's sorted (name) order.
+	groups := []projectstore.ProjectGroup{
+		{ID: "g1", Name: "Apps", ProjectIDs: []string{"/repos/x"}},
+		{ID: "g2", Name: "Backend", ProjectIDs: []string{"/repos/x", "/repos/y"}},
+	}
+	m := groupLabels(groups)
+	require.Equal(t, "Apps", m["/repos/x"])
+	require.Equal(t, "Backend", m["/repos/y"])
+}
+
 func TestProjectGroupedItemsMatchesByWorktreePath(t *testing.T) {
 	// An agent in a worktree checkout links to its repo-root project.
 	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
 	agents := []*store.Session{{ID: "w1", Repo: "/repos/alpha/.worktrees/feat", Status: store.StatusWorking}}
-	items := projectGroupedItems(projs, agents, agents, nil, nil, nil)
+	items := projectGroupedItems(projs, nil, agents, agents, nil, nil, nil)
 	require.Equal(t, 1, projHdrByID(items, "/repos/alpha").agentCount, "a worktree agent counts under its repo project")
 }
 
 func TestProjectGroupedItemsUngroupedBucket(t *testing.T) {
 	agents := []*store.Session{{ID: "loose", Status: store.StatusWorking}} // no repo/workdir
-	items := projectGroupedItems(nil, agents, agents, nil, nil, nil)
+	items := projectGroupedItems(nil, nil, agents, agents, nil, nil, nil)
 	h := projHdrByID(items, "")
 	require.NotNil(t, h, "an agent with no location falls into the Ungrouped bucket")
 	require.Equal(t, ungroupedLabel, h.name)
@@ -246,7 +277,7 @@ func TestProjectGroupedItemsClosedProjectHidesAgentsToUngrouped(t *testing.T) {
 	projs := []projectstore.Project{{ID: "/repos/beta", Name: "Beta", Path: "/repos/beta", Status: projectstore.StatusClosed}}
 	// Agent explicitly linked to the closed project.
 	agents := []*store.Session{{ID: "b1", ProjectID: "/repos/beta", Repo: "/repos/beta", Status: store.StatusDone}}
-	items := projectGroupedItems(projs, agents, agents, nil, nil, nil)
+	items := projectGroupedItems(projs, nil, agents, agents, nil, nil, nil)
 	require.Nil(t, projHdrByID(items, "/repos/beta"), "a closed project gets no group header")
 	require.NotNil(t, projHdrByID(items, ""), "its agent is parked in Ungrouped")
 	require.Contains(t, itemSessionIDs(items), "b1")
@@ -254,7 +285,7 @@ func TestProjectGroupedItemsClosedProjectHidesAgentsToUngrouped(t *testing.T) {
 
 func TestProjectGroupedItemsEmptyOpenProjectShowsPlaceholder(t *testing.T) {
 	projs := []projectstore.Project{{ID: "/repos/empty", Name: "Empty", Path: "/repos/empty", Status: projectstore.StatusOpen}}
-	items := projectGroupedItems(projs, nil, nil, nil, nil, nil)
+	items := projectGroupedItems(projs, nil, nil, nil, nil, nil, nil)
 	h := projHdrByID(items, "/repos/empty")
 	require.NotNil(t, h, "an open project shows even with no agents (IDE-style)")
 	require.Equal(t, 0, h.agentCount)
@@ -267,7 +298,7 @@ func TestProjectGroupedItemsCollapseHidesSubtree(t *testing.T) {
 	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
 	agents := []*store.Session{{ID: "a1", Repo: "/repos/alpha", Status: store.StatusWorking}}
 	collapsed := map[string]bool{projKey("/repos/alpha"): true}
-	items := projectGroupedItems(projs, agents, agents, nil, nil, collapsed)
+	items := projectGroupedItems(projs, nil, agents, agents, nil, nil, collapsed)
 	require.NotNil(t, projHdrByID(items, "/repos/alpha"), "collapsed project header stays")
 	require.NotContains(t, itemSessionIDs(items), "a1", "collapsed project hides its agents")
 }

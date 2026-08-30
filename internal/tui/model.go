@@ -27,6 +27,7 @@ type api interface {
 	OpenRemoteProject(ctx context.Context, url, name string) (projectstore.Project, error)
 	CreateProject(ctx context.Context, name string) (projectstore.Project, error)
 	ListProjects(ctx context.Context) ([]projectstore.Project, error)
+	ListProjectGroups(ctx context.Context) ([]projectstore.ProjectGroup, error)
 	CloseProject(ctx context.Context, id string) (projectstore.Project, error)
 	Approvals(ctx context.Context) (bool, []approval.View, error)
 	Approve(ctx context.Context, id string, option int, fingerprint string) error

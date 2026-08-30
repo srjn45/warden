@@ -27,7 +27,8 @@ the agent (its current turn is discarded) so the new persona takes effect. Set t
 role to "general" (or "") to clear the persona and behave like a plain agent.
 
 Valid roles (see ` + "`warden role list`" + ` for descriptions):
-  general | orchestrator | implementer | auto-merger | reviewer
+  general | orchestrator | planner | worker
+  (legacy aliases implementer/auto-merger/reviewer resolve to worker)
 
 Examples:
   warden set-role abc123 reviewer      # give the agent the reviewer persona

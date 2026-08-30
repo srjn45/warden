@@ -57,6 +57,7 @@ func (s *Server) OpenProject(ctx context.Context, req oapi.OpenProjectRequestObj
 		return nil, errStatus(http.StatusInternalServerError, "open project: "+err.Error())
 	}
 	s.restoreHibernatedAgents(ctx, p)
+	s.guaranteeOrchestrator(ctx, p)
 	return oapi.OpenProject200JSONResponse(p), nil
 }
 
@@ -89,6 +90,7 @@ func (s *Server) OpenLocalProject(ctx context.Context, req oapi.OpenLocalProject
 		return nil, errStatus(http.StatusInternalServerError, "open local project: "+err.Error())
 	}
 	s.restoreHibernatedAgents(ctx, p)
+	s.guaranteeOrchestrator(ctx, p)
 	return oapi.OpenLocalProject200JSONResponse(p), nil
 }
 
@@ -131,6 +133,7 @@ func (s *Server) OpenRemoteProject(ctx context.Context, req oapi.OpenRemoteProje
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "open remote project: "+err.Error())
 	}
+	s.guaranteeOrchestrator(ctx, p)
 	return oapi.OpenRemoteProject200JSONResponse(p), nil
 }
 
@@ -171,6 +174,7 @@ func (s *Server) CreateProject(ctx context.Context, req oapi.CreateProjectReques
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "create project: "+err.Error())
 	}
+	s.guaranteeOrchestrator(ctx, p)
 	return oapi.CreateProject200JSONResponse(p), nil
 }
 

@@ -530,6 +530,7 @@ type projectHeader struct {
 	name       string // display label
 	path       string // dir a new agent (n) spawns in; "" for Ungrouped
 	isProject  bool   // a registered projectstore project (closable) vs a loose dir / Ungrouped
+	group      string // name of the ProjectGroup this project belongs to (Phase 1), "" if none
 	agentCount int    // agents in the group (count badge)
 	liveAgents int    // live agents in the group (drives the close-confirm prompt)
 }
@@ -580,7 +581,9 @@ func resolveGroupKey(projectID, dir string, openByKey, closedByKey map[string]st
 // allSessions is the full session list (including pipeline-owned ones) used only
 // to link a pipeline job row to its live session; agents is the flat, non-pipeline
 // set that forms the project-nested sub-trees.
-func projectGroupedItems(projects []projectstore.Project, agents, allSessions []*store.Session, pipelines []*pipeline.Pipeline, opened map[string]time.Time, collapsed map[string]bool) []item {
+// groupByProject maps a project id to the name of the ProjectGroup it belongs to
+// (Phase 1); a real-project header shows this label beside its name.
+func projectGroupedItems(projects []projectstore.Project, groupByProject map[string]string, agents, allSessions []*store.Session, pipelines []*pipeline.Pipeline, opened map[string]time.Time, collapsed map[string]bool) []item {
 	// Index open/closed projects by both id and path so a match on either resolves.
 	openByKey := map[string]string{}   // id|path → group key (the project id)
 	closedByKey := map[string]string{} // id|path → "" (presence marks hibernated)
@@ -662,7 +665,7 @@ func projectGroupedItems(projects []projectstore.Project, agents, allSessions []
 	seen := map[string]bool{} // cycle guard shared across the whole forest
 	var items []item
 	for _, key := range order {
-		hdr := groupHeaderFor(key, openMeta, agentCount[key], liveCount[key])
+		hdr := groupHeaderFor(key, openMeta, groupByProject, agentCount[key], liveCount[key])
 		items = append(items, item{projHdr: hdr, dir: hdr.path, collapsed: collapsed[projKey(key)]})
 		if collapsed[projKey(key)] {
 			continue
@@ -691,7 +694,7 @@ func projectGroupedItems(projects []projectstore.Project, agents, allSessions []
 // groupHeaderFor builds the projectHeader for a group key: a registered open
 // project (named, closable) when key is in openMeta, the Ungrouped bucket when key
 // is "", else a loose directory labelled by its basename.
-func groupHeaderFor(key string, openMeta map[string]projectstore.Project, agents, live int) *projectHeader {
+func groupHeaderFor(key string, openMeta map[string]projectstore.Project, groupByProject map[string]string, agents, live int) *projectHeader {
 	switch {
 	case key == "":
 		return &projectHeader{id: "", name: ungroupedLabel, agentCount: agents, liveAgents: live}
@@ -701,7 +704,7 @@ func groupHeaderFor(key string, openMeta map[string]projectstore.Project, agents
 			if name == "" {
 				name = filepath.Base(p.ID)
 			}
-			return &projectHeader{id: p.ID, name: name, path: p.Path, isProject: true, agentCount: agents, liveAgents: live}
+			return &projectHeader{id: p.ID, name: name, path: p.Path, isProject: true, group: groupByProject[p.ID], agentCount: agents, liveAgents: live}
 		}
 		return &projectHeader{id: key, name: filepath.Base(key), path: key, agentCount: agents, liveAgents: live}
 	}
@@ -1155,6 +1158,10 @@ func renderProjectHeader(it item) string {
 		glyph = "▸"
 	}
 	line := stHeader.Render(glyph + " " + h.name)
+	if h.group != "" {
+		// The group a project belongs to (Phase 1), shown right after the name.
+		line += " " + stMuted.Render("• "+h.group)
+	}
 	if h.isProject && h.path != "" {
 		line += " " + stMuted.Render("["+abbrevHome(h.path)+"]")
 	}
