@@ -124,7 +124,7 @@ func (s *Server) transcriptTotalTokens(sess *store.Session) (int, bool) {
 		return 0, false
 	}
 	defer f.Close()
-	u, ok := spend.ParseUsage(f)
+	u, ok := spend.GetParser(sess.Backend).ParseUsage(f)
 	if !ok {
 		return 0, false
 	}
