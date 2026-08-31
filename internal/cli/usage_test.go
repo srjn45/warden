@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPrintUsageMultipleWindowsAndUnknowns(t *testing.T) {
+func TestPrintUsageMultipleLimitsAndUnknowns(t *testing.T) {
 	reset := time.Date(2026, 9, 7, 10, 48, 0, 0, time.UTC)
 	duration := 10080
 	used := 62.0
@@ -18,10 +18,11 @@ func TestPrintUsageMultipleWindowsAndUnknowns(t *testing.T) {
 	cmd := &cobra.Command{}
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	err := printUsage(cmd, backendusage.Snapshot{Backends: []backendusage.BackendResult{{ID: "claude", Status: backendusage.StatusUnsupported, Windows: []backendusage.Window{}, Error: &backendusage.ProviderError{Message: "no structured usage"}}, {ID: "codex", Status: backendusage.StatusOK, Account: &backendusage.Account{Plan: "plus", Label: "secret@example.invalid"}, Windows: []backendusage.Window{{ID: "codex:secondary", UsedPercent: &used, RemainingPercent: &remaining, DurationMinutes: &duration, ResetsAt: &reset}}}}})
+	err := printUsage(cmd, backendusage.Snapshot{Backends: []backendusage.BackendResult{{ID: "claude", Status: backendusage.StatusUnsupported, Usage: []backendusage.Limit{}, Error: &backendusage.ProviderError{Message: "no structured usage"}}, {ID: "codex", Status: backendusage.StatusOK, Account: &backendusage.Account{Plan: "plus", Label: "secret@example.invalid"}, Usage: []backendusage.Limit{{ID: "codex:secondary", Scope: "codex", Label: "weekly", ModelFamilies: []string{"gpt"}, UsedPercent: &used, RemainingPercent: &remaining, DurationMinutes: &duration, ResetsAt: &reset}}}}})
 	require.NoError(t, err)
 	require.Contains(t, out.String(), "codex")
-	require.Contains(t, out.String(), "1w")
+	require.Contains(t, out.String(), "weekly")
+	require.Contains(t, out.String(), "gpt")
 	require.Contains(t, out.String(), "62%")
 	require.Contains(t, out.String(), "claude: no structured usage")
 	require.NotContains(t, out.String(), "secret@example.invalid")

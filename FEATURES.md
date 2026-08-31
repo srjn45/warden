@@ -322,7 +322,7 @@ backends warden's own internal thinking may call (**never** a paid one).
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
 | List the registry (installed, tier, default, enabled, limited) + thinking-mode | `backends list` (alias `ls`) | `list_backends` | ✓ | ✓ (🧩 backends panel) | `b` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
-| Read provider-owned limits for all subscription-tier backends | `usage [--json] [--refresh]` | — | ✓ (`GET /api/v1/usage`) | — | — | [backend-registry](https://srjn45.github.io/warden/reference/backend-registry/) |
+| Read distinct, scoped provider-owned limits for all subscription-tier backends | `usage [--json] [--refresh]` | — | ✓ (`GET /api/v1/usage`) | — | — | [backend-registry](https://srjn45.github.io/warden/reference/backend-registry/) |
 | Rescan installed CLIs (reconcile detection, preserve prefs) | `backends rescan` | `rescan_backends` | ✓ | ✓ (⟳ Rescan) | `r` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Set a backend's billing tier (free\|subscription\|pay_per_use\|unclassified) | `backends tier <id> <tier>` | `set_backend_tier` | ✓ | ✓ (Tier dropdown) | `t` (cycle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Set the single default backend (rejects local) | `backends default <id>` | `set_default_backend` | ✓ | ✓ (Default radio) | `d`/`enter` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |

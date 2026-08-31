@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -67,7 +68,7 @@ func printUsage(cmd *cobra.Command, s backendusage.Snapshot) error {
 		return err
 	}
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "BACKEND\tPLAN\tWINDOW\tUSED\tREMAINING\tRESETS\tSTATUS")
+	fmt.Fprintln(w, "BACKEND\tPLAN\tSCOPE\tLIMIT\tMODELS\tUSED\tREMAINING\tRESETS\tSTATUS")
 	for _, b := range s.Backends {
 		plan := "-"
 		if b.Account != nil && b.Account.Plan != "" {
@@ -79,12 +80,12 @@ func printUsage(cmd *cobra.Command, s backendusage.Snapshot) error {
 		} else if b.Cached {
 			status += " (cached)"
 		}
-		if len(b.Windows) == 0 {
-			fmt.Fprintf(w, "%s\t%s\t-\t-\t-\t-\t%s\n", b.ID, plan, status)
+		if len(b.Usage) == 0 {
+			fmt.Fprintf(w, "%s\t%s\t-\t-\t-\t-\t-\t-\t%s\n", b.ID, plan, status)
 			continue
 		}
-		for _, win := range b.Windows {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", b.ID, plan, windowCell(win), percentCell(win.UsedPercent), percentCell(win.RemainingPercent), resetCell(win.ResetsAt), status)
+		for _, limit := range b.Usage {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", b.ID, plan, limit.Scope, limitLabel(limit), usageModelCell(limit), percentCell(limit.UsedPercent), percentCell(limit.RemainingPercent), resetCell(limit.ResetsAt), status)
 		}
 	}
 	if err := w.Flush(); err != nil {
@@ -110,14 +111,23 @@ func resetCell(v *time.Time) string {
 	}
 	return v.In(time.Local).Format("2006-01-02 15:04 MST")
 }
-func windowCell(w backendusage.Window) string {
-	if w.DurationMinutes != nil {
-		return durationCell(*w.DurationMinutes)
+func limitLabel(limit backendusage.Limit) string {
+	if limit.Label != "" {
+		return limit.Label
 	}
-	if w.Name != nil && *w.Name != "" {
-		return *w.Name
+	if limit.DurationMinutes != nil {
+		return durationCell(*limit.DurationMinutes)
 	}
-	return "-"
+	return limit.ID
+}
+
+func usageModelCell(limit backendusage.Limit) string {
+	selectors := append([]string(nil), limit.ModelFamilies...)
+	selectors = append(selectors, limit.Models...)
+	if len(selectors) == 0 {
+		return "-"
+	}
+	return strings.Join(selectors, ",")
 }
 func durationCell(minutes int) string {
 	if minutes%(7*24*60) == 0 {

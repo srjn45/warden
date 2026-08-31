@@ -26,13 +26,19 @@ type Account struct {
 	Label       string `json:"-"`
 }
 
-type Window struct {
+// Limit is one distinct provider-owned allowance/reset window. ID is unique
+// within its backend; Scope identifies what the limit applies to. Unknown
+// measurements and selectors are explicit JSON nulls rather than invented data.
+type Limit struct {
 	ID               string     `json:"id"`
-	Name             *string    `json:"name,omitempty"`
-	UsedPercent      *float64   `json:"used_percent,omitempty"`
+	Scope            string     `json:"scope"`
+	Label            string     `json:"label"`
+	ModelFamilies    []string   `json:"model_families"`
+	Models           []string   `json:"models"`
+	UsedPercent      *float64   `json:"used_percent"`
 	RemainingPercent *float64   `json:"remaining_percent,omitempty"`
 	DurationMinutes  *int       `json:"duration_minutes,omitempty"`
-	ResetsAt         *time.Time `json:"resets_at,omitempty"`
+	ResetsAt         *time.Time `json:"resets_at"`
 	LimitState       *string    `json:"limit_state,omitempty"`
 }
 
@@ -45,7 +51,7 @@ type Result struct {
 	BackendID  string         `json:"-"`
 	Status     Status         `json:"status"`
 	Account    *Account       `json:"account,omitempty"`
-	Windows    []Window       `json:"windows"`
+	Usage      []Limit        `json:"usage"`
 	Error      *ProviderError `json:"error,omitempty"`
 	ObservedAt time.Time      `json:"observed_at"`
 }
@@ -57,7 +63,7 @@ type BackendResult struct {
 	Enabled    bool           `json:"enabled"`
 	Status     Status         `json:"status"`
 	Account    *Account       `json:"account,omitempty"`
-	Windows    []Window       `json:"windows"`
+	Usage      []Limit        `json:"usage"`
 	ObservedAt time.Time      `json:"observed_at"`
 	Cached     bool           `json:"cached"`
 	Stale      bool           `json:"stale"`
@@ -76,6 +82,6 @@ type Adapter interface {
 }
 
 func unsupported(id, message string, now time.Time) Result {
-	return Result{BackendID: id, Status: StatusUnsupported, Windows: []Window{}, ObservedAt: now,
+	return Result{BackendID: id, Status: StatusUnsupported, Usage: []Limit{}, ObservedAt: now,
 		Error: &ProviderError{Code: "usage_unsupported", Message: message}}
 }

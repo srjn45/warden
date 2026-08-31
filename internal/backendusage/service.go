@@ -96,9 +96,15 @@ func (s *Service) collect(ctx context.Context, b backendstore.Backend, refresh b
 	if r.ObservedAt.IsZero() {
 		r.ObservedAt = now
 	}
-	if r.Windows == nil {
-		r.Windows = []Window{}
+	if r.Usage == nil {
+		r.Usage = []Limit{}
 	}
+	if !normalizeLimits(r.Usage) {
+		r.Status = StatusError
+		r.Usage = []Limit{}
+		r.Error = &ProviderError{Code: "invalid_response", Message: "backend returned invalid usage-limit metadata"}
+	}
+	sort.SliceStable(r.Usage, func(i, j int) bool { return r.Usage[i].ID < r.Usage[j].ID })
 	if r.Status == StatusOK || r.Status == StatusUnsupported {
 		s.put(b.ID, r, now)
 		return project(b, r, false, false, nil)
@@ -113,6 +119,34 @@ func (s *Service) collect(ctx context.Context, b backendstore.Backend, refresh b
 
 func transient(s Status) bool {
 	return s == StatusUnavailable || s == StatusTimeout || s == StatusError
+}
+
+func normalizeLimits(limits []Limit) bool {
+	seen := make(map[string]struct{}, len(limits))
+	for i := range limits {
+		limit := &limits[i]
+		if limit.ID == "" || limit.Scope == "" || limit.Label == "" {
+			return false
+		}
+		if _, exists := seen[limit.ID]; exists {
+			return false
+		}
+		seen[limit.ID] = struct{}{}
+		if limit.UsedPercent != nil && (*limit.UsedPercent < 0 || *limit.UsedPercent > 100) {
+			limit.UsedPercent = nil
+			limit.RemainingPercent = nil
+		}
+		if limit.RemainingPercent != nil && (*limit.RemainingPercent < 0 || *limit.RemainingPercent > 100) {
+			limit.RemainingPercent = nil
+		}
+		if limit.ModelFamilies != nil {
+			sort.Strings(limit.ModelFamilies)
+		}
+		if limit.Models != nil {
+			sort.Strings(limit.Models)
+		}
+	}
+	return true
 }
 func (s *Service) cached(id string) (cacheEntry, bool) {
 	s.mu.Lock()
@@ -130,7 +164,11 @@ func (s *Service) put(id string, r Result, now time.Time) {
 	s.mu.Unlock()
 }
 func cloneResult(r Result) Result {
-	r.Windows = append([]Window(nil), r.Windows...)
+	r.Usage = append([]Limit(nil), r.Usage...)
+	for i := range r.Usage {
+		r.Usage[i].ModelFamilies = append([]string(nil), r.Usage[i].ModelFamilies...)
+		r.Usage[i].Models = append([]string(nil), r.Usage[i].Models...)
+	}
 	if r.Account != nil {
 		v := *r.Account
 		r.Account = &v
@@ -149,5 +187,5 @@ func project(b backendstore.Backend, r Result, cached, stale bool, warning *Prov
 	if warning != nil {
 		r.Error = &ProviderError{Code: warning.Code, Message: warning.Message}
 	}
-	return BackendResult{ID: b.ID, Tier: b.Tier, Installed: b.Installed, Enabled: b.Enabled, Status: r.Status, Account: r.Account, Windows: r.Windows, ObservedAt: r.ObservedAt, Cached: cached, Stale: stale, Error: r.Error}
+	return BackendResult{ID: b.ID, Tier: b.Tier, Installed: b.Installed, Enabled: b.Enabled, Status: r.Status, Account: r.Account, Usage: r.Usage, ObservedAt: r.ObservedAt, Cached: cached, Stale: stale, Error: r.Error}
 }

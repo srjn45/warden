@@ -137,18 +137,18 @@ func clock(fn func() time.Time) time.Time {
 	return time.Now().UTC()
 }
 func notInstalled(id string, now time.Time) Result {
-	return Result{BackendID: id, Status: StatusNotInstalled, Windows: []Window{}, ObservedAt: now, Error: &ProviderError{Code: "not_installed", Message: "backend CLI is not installed"}}
+	return Result{BackendID: id, Status: StatusNotInstalled, Usage: []Limit{}, ObservedAt: now, Error: &ProviderError{Code: "not_installed", Message: "backend CLI is not installed"}}
 }
 func unauthenticated(id string, now time.Time) Result {
-	return Result{BackendID: id, Status: StatusUnauthenticated, Windows: []Window{}, ObservedAt: now, Error: &ProviderError{Code: "unauthenticated", Message: "backend CLI is not authenticated"}}
+	return Result{BackendID: id, Status: StatusUnauthenticated, Usage: []Limit{}, ObservedAt: now, Error: &ProviderError{Code: "unauthenticated", Message: "backend CLI is not authenticated"}}
 }
 func malformed(id string, now time.Time) Result {
-	return Result{BackendID: id, Status: StatusError, Windows: []Window{}, ObservedAt: now, Error: &ProviderError{Code: "invalid_response", Message: "backend returned an invalid structured response"}}
+	return Result{BackendID: id, Status: StatusError, Usage: []Limit{}, ObservedAt: now, Error: &ProviderError{Code: "invalid_response", Message: "backend returned an invalid structured response"}}
 }
 func commandFailure(id string, ctx context.Context, now time.Time) Result {
 	st, code, msg := StatusUnavailable, "unavailable", "backend usage probe is unavailable"
 	if ctx.Err() != nil {
 		st, code, msg = StatusTimeout, "timeout", "backend usage probe timed out"
 	}
-	return Result{BackendID: id, Status: st, Windows: []Window{}, ObservedAt: now, Error: &ProviderError{Code: code, Message: msg}}
+	return Result{BackendID: id, Status: st, Usage: []Limit{}, ObservedAt: now, Error: &ProviderError{Code: code, Message: msg}}
 }

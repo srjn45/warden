@@ -94,7 +94,7 @@ func (a CodexAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result 
 	if err := call(3, "account/rateLimits/read", map[string]any{}, &rates); err != nil {
 		return commandFailureOrMalformed(b.ID, ctx, now, err)
 	}
-	res := Result{BackendID: b.ID, Status: StatusOK, Windows: []Window{}, ObservedAt: now}
+	res := Result{BackendID: b.ID, Status: StatusOK, Usage: []Limit{}, ObservedAt: now}
 	if accountResp.Account != nil {
 		res.Account = &Account{Plan: accountResp.Account.PlanType, LoginMethod: accountResp.Account.Type}
 	}
@@ -131,7 +131,7 @@ func (a CodexAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result 
 				v := time.Unix(*pair.w.ResetsAt, 0).UTC()
 				reset = &v
 			}
-			res.Windows = append(res.Windows, Window{ID: wid, UsedPercent: used, RemainingPercent: remaining, DurationMinutes: pair.w.WindowDurationMins, ResetsAt: reset, LimitState: s.limitState()})
+			res.Usage = append(res.Usage, Limit{ID: wid, Scope: id, Label: id + " " + pair.name, UsedPercent: used, RemainingPercent: remaining, DurationMinutes: pair.w.WindowDurationMins, ResetsAt: reset, LimitState: s.limitState()})
 		}
 		if s.reached() {
 			res.Status = StatusRateLimited

@@ -1153,7 +1153,9 @@ type UsageBackend struct {
 	Stale      bool               `json:"stale"`
 	Status     UsageBackendStatus `json:"status"`
 	Tier       UsageBackendTier   `json:"tier"`
-	Windows    []UsageWindow      `json:"windows"`
+
+	// Usage Distinct provider-owned usage-limit windows, sorted by stable id; never flattened.
+	Usage []UsageLimit `json:"usage"`
 }
 
 // UsageBackendStatus defines model for UsageBackend.Status.
@@ -1168,19 +1170,11 @@ type UsageError struct {
 	Message string `json:"message"`
 }
 
+// UsageLimit One independently resetting provider limit. Unknown measurements, restore times, and model selectors are null; consumers must not infer them.
+type UsageLimit = backendusage.Limit
+
 // UsageSnapshot defines model for UsageSnapshot.
 type UsageSnapshot = backendusage.Snapshot
-
-// UsageWindow defines model for UsageWindow.
-type UsageWindow struct {
-	DurationMinutes  int       `json:"duration_minutes,omitempty"`
-	Id               string    `json:"id"`
-	LimitState       string    `json:"limit_state,omitempty"`
-	Name             string    `json:"name,omitempty"`
-	RemainingPercent float32   `json:"remaining_percent,omitempty"`
-	ResetsAt         time.Time `json:"resets_at,omitempty"`
-	UsedPercent      float32   `json:"used_percent,omitempty"`
-}
 
 // Verdict defines model for Verdict.
 type Verdict = pressure.Verdict

@@ -40,7 +40,7 @@ func TestServiceSelectsExactSubscriptionRowsAndSorts(t *testing.T) {
 			mu.Lock()
 			called[b.ID] = true
 			mu.Unlock()
-			return Result{BackendID: b.ID, Status: StatusOK, Windows: []Window{}, ObservedAt: now}
+			return Result{BackendID: b.ID, Status: StatusOK, Usage: []Limit{}, ObservedAt: now}
 		}}
 	}
 	s := NewService(reg, adapter("zeta"), adapter("alpha"))
@@ -57,7 +57,7 @@ func TestServiceFreshCacheRefreshAndRedaction(t *testing.T) {
 	calls := 0
 	a := fakeAdapter{id: "codex", fetch: func(context.Context, backendstore.Backend) Result {
 		calls++
-		return Result{Status: StatusOK, Account: &Account{Plan: "plus", Label: "person@example.invalid"}, Windows: []Window{}, ObservedAt: now}
+		return Result{Status: StatusOK, Account: &Account{Plan: "plus", Label: "person@example.invalid"}, Usage: []Limit{}, ObservedAt: now}
 	}}
 	s := NewService(fakeRegistry{rows: []backendstore.Backend{{ID: "codex", Tier: backendstore.TierSubscription, Installed: true}}}, a)
 	s.now = func() time.Time { return now }
@@ -77,16 +77,53 @@ func TestServiceFreshCacheRefreshAndRedaction(t *testing.T) {
 func TestServicePreservesPartialResults(t *testing.T) {
 	now := time.Now().UTC()
 	ok := fakeAdapter{id: "a", fetch: func(context.Context, backendstore.Backend) Result {
-		return Result{Status: StatusOK, Windows: []Window{}, ObservedAt: now}
+		return Result{Status: StatusOK, Usage: []Limit{}, ObservedAt: now}
 	}}
 	bad := fakeAdapter{id: "b", fetch: func(context.Context, backendstore.Backend) Result {
-		return Result{Status: StatusUnavailable, Windows: []Window{}, ObservedAt: now, Error: &ProviderError{Code: "unavailable", Message: "probe unavailable"}}
+		return Result{Status: StatusUnavailable, Usage: []Limit{}, ObservedAt: now, Error: &ProviderError{Code: "unavailable", Message: "probe unavailable"}}
 	}}
 	s := NewService(fakeRegistry{rows: []backendstore.Backend{{ID: "a", Tier: backendstore.TierSubscription}, {ID: "b", Tier: backendstore.TierSubscription}}}, ok, bad)
 	got, err := s.Snapshot(context.Background(), false)
 	require.NoError(t, err)
 	require.Equal(t, StatusOK, got.Backends[0].Status)
 	require.Equal(t, StatusUnavailable, got.Backends[1].Status)
+}
+
+func TestServiceSortsDistinctUsageLimitsWithoutFlattening(t *testing.T) {
+	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	usedGemini, usedOther := 50.0, 20.0
+	resetGemini := now.Add(2 * time.Hour)
+	a := fakeAdapter{id: "antigravity", fetch: func(context.Context, backendstore.Backend) Result {
+		return Result{Status: StatusOK, ObservedAt: now, Usage: []Limit{
+			{ID: "antigravity:non-gemini", Scope: "non-gemini", Label: "Non-Gemini models", ModelFamilies: []string{"claude"}, UsedPercent: &usedOther},
+			{ID: "antigravity:gemini", Scope: "gemini", Label: "Gemini models", ModelFamilies: []string{"gemini"}, UsedPercent: &usedGemini, ResetsAt: &resetGemini},
+		}}
+	}}
+	s := NewService(fakeRegistry{rows: []backendstore.Backend{{ID: "antigravity", Tier: backendstore.TierSubscription, Installed: true}}}, a)
+	got, err := s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"antigravity:gemini", "antigravity:non-gemini"}, []string{got.Backends[0].Usage[0].ID, got.Backends[0].Usage[1].ID})
+	require.Equal(t, "gemini", got.Backends[0].Usage[0].Scope)
+	require.Nil(t, got.Backends[0].Usage[1].ResetsAt, "unknown reset must remain unknown")
+}
+
+func TestServiceRejectsDuplicateLimitIDsAndNullsInvalidPercent(t *testing.T) {
+	invalid := 101.0
+	adapter := func(limits []Limit) Adapter {
+		return fakeAdapter{id: "codex", fetch: func(context.Context, backendstore.Backend) Result {
+			return Result{Status: StatusOK, Usage: limits, ObservedAt: time.Now()}
+		}}
+	}
+	reg := fakeRegistry{rows: []backendstore.Backend{{ID: "codex", Tier: backendstore.TierSubscription, Installed: true}}}
+	s := NewService(reg, adapter([]Limit{{ID: "x", Scope: "all", Label: "All", UsedPercent: &invalid}}))
+	got, err := s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	require.Nil(t, got.Backends[0].Usage[0].UsedPercent)
+	s = NewService(reg, adapter([]Limit{{ID: "x", Scope: "a", Label: "A"}, {ID: "x", Scope: "b", Label: "B"}}))
+	got, err = s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	require.Equal(t, StatusError, got.Backends[0].Status)
+	require.Empty(t, got.Backends[0].Usage)
 }
 
 func TestServiceRegistryFailureProducesNoDocument(t *testing.T) {

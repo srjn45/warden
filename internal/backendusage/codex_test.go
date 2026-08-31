@@ -31,11 +31,14 @@ func TestCodexAdapterPreservesAllLimitBuckets(t *testing.T) {
 	}}
 	got := a.Fetch(context.Background(), backendstore.Backend{ID: "codex", Installed: true, BinaryPath: "/synthetic/codex"})
 	require.Equal(t, StatusRateLimited, got.Status)
-	require.Len(t, got.Windows, 3)
-	require.Equal(t, "codex:primary", got.Windows[0].ID)
-	require.Equal(t, float64(75), *got.Windows[0].RemainingPercent)
-	require.Equal(t, "review:primary", got.Windows[2].ID)
-	require.Equal(t, "reached", *got.Windows[2].LimitState)
+	require.Len(t, got.Usage, 3)
+	require.Equal(t, "codex:primary", got.Usage[0].ID)
+	require.Equal(t, "codex", got.Usage[0].Scope)
+	require.Equal(t, "codex primary", got.Usage[0].Label)
+	require.Equal(t, float64(75), *got.Usage[0].RemainingPercent)
+	require.Equal(t, "review:primary", got.Usage[2].ID)
+	require.Equal(t, "review", got.Usage[2].Scope)
+	require.Equal(t, "reached", *got.Usage[2].LimitState)
 }
 
 func TestCodexAdapterUnauthenticated(t *testing.T) {

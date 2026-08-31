@@ -20,7 +20,7 @@ type usageAdapter struct{}
 
 func (usageAdapter) BackendID() string { return "codex" }
 func (usageAdapter) Fetch(context.Context, backendstore.Backend) backendusage.Result {
-	return backendusage.Result{BackendID: "codex", Status: backendusage.StatusOK, Windows: []backendusage.Window{}, ObservedAt: time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)}
+	return backendusage.Result{BackendID: "codex", Status: backendusage.StatusOK, Usage: []backendusage.Limit{}, ObservedAt: time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)}
 }
 
 func TestUsageRouteReturnsTypedSnapshot(t *testing.T) {

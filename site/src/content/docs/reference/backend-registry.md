@@ -88,7 +88,15 @@ the result; the read never rescans the registry or changes routing, cooldowns, o
 the default backend. Use `--json` for the stable v1 document and `--refresh` to
 bypass the daemon's 60-second fresh cache.
 
-Codex supplies structured percentage windows and reset times through its app-server
+Each backend has a `usage` array containing zero or more distinct limits, sorted by
+stable `id`. Every limit includes `id`, applicability `scope`, a human `label`,
+nullable `used_percent` and `resets_at`, plus nullable `model_families` and `models`
+selectors. Multiple provider pools are never flattened: Codex primary/secondary
+windows remain separate, and an adapter that can safely identify Gemini and
+non-Gemini pools returns separate scoped entries. Unknown measurements, restore
+times, or model selectors remain JSON `null`; warden never guesses them.
+
+Codex supplies structured percentage limits and reset times through its app-server
 protocol. Claude and Cursor currently supply safe plan/login metadata but report
 usage as `unsupported`; Antigravity reports `unsupported`. Warden deliberately does
 not substitute its local synthetic quota estimates or scrape interactive `/usage`
@@ -98,6 +106,21 @@ are excluded.
 The command exits 0 when every row is `ok` or truthfully `unsupported`, 2 after
 rendering a partial result with an operational provider failure, and 1 when no
 consolidated document can be produced.
+
+```json
+{
+  "id": "antigravity",
+  "status": "ok",
+  "usage": [
+    {"id": "antigravity:gemini", "scope": "gemini", "label": "Gemini models", "model_families": ["gemini"], "models": null, "used_percent": 50, "resets_at": "2026-09-01T12:00:00Z"},
+    {"id": "antigravity:non-gemini", "scope": "non-gemini", "label": "Non-Gemini models", "model_families": null, "models": null, "used_percent": null, "resets_at": null}
+  ]
+}
+```
+
+The example illustrates the contract for a future structured Antigravity adapter;
+the current installed CLI has no supported structured usage source and therefore
+returns `status: "unsupported"` with an empty `usage` array.
 
 ## MCP tools
 
