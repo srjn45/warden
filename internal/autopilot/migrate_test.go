@@ -47,6 +47,20 @@ func TestMigrateLegacyPlansDoesNotOverwriteDifferentDestination(t *testing.T) {
 	require.ErrorContains(t, err, "different contents")
 }
 
+func TestMigrateLegacyPlansDoesNotRegisterCompletedPlan(t *testing.T) {
+	repo := t.TempDir()
+	legacy := filepath.Join(repo, "autopilot.plan.yaml")
+	require.NoError(t, os.WriteFile(legacy, []byte("version: 1\ngoal: already done\nstatus: complete\n"), 0o644))
+	env := &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }}
+	c := NewController(ControllerConfig{DataDir: t.TempDir(), BaseDir: repo}, env)
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+	plans, err := MigrateLegacyPlans(context.Background(), env, c, nil, repo, &bytes.Buffer{})
+	require.NoError(t, err)
+	require.Equal(t, []string{filepath.Join(repo, "plans", "default.yaml")}, plans)
+	require.Empty(t, c.Status().Runs)
+}
+
 func TestMigrateLegacyPlansRelocatesStoredLegacyRun(t *testing.T) {
 	repo, dataDir := t.TempDir(), t.TempDir()
 	legacy := filepath.Join(repo, "autopilot.plan.yaml")

@@ -416,6 +416,7 @@ Available Commands:
   start       start one autopilot run
   status      Show autopilot status (which repos are enabled, and each run)
   stop        stop one autopilot run
+  unregister  unregister one autopilot run
 
 Flags:
   -h, --help   help for autopilot
@@ -595,6 +596,22 @@ Usage:
 
 Flags:
   -h, --help   help for stop
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot unregister
+
+```text
+unregister one autopilot run
+
+Usage:
+  warden autopilot unregister <run-id-or-name> [flags]
+
+Flags:
+  -h, --help   help for unregister
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

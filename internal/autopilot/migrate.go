@@ -55,6 +55,19 @@ func MigrateLegacyPlans(ctx context.Context, env Env, c *Controller, configured 
 			effective = append(effective, src)
 			continue
 		}
+		plan, err := LoadPlan(planPath)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: load migrated plan: %v", configuredPath, err))
+			effective = append(effective, planPath)
+			continue
+		}
+		// A completed legacy plan is historical state, not a runnable registration.
+		// Leaving it out of the durable run store prevents an explicit unregister
+		// from being undone by the next daemon restart.
+		if plan.IsComplete() {
+			effective = append(effective, planPath)
+			continue
+		}
 		if _, err := c.Register(ctx, RegisterRequest{Name: defaultRunName(planPath), Repo: repo, PlanFile: planPath}); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: register: %v", configuredPath, err))
 			effective = append(effective, src)

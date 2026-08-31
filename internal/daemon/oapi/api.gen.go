@@ -1673,7 +1673,7 @@ type ServerInterface interface {
 	// Register a named plan
 	// (POST /api/v1/autopilot/runs)
 	RegisterAutopilotRun(w http.ResponseWriter, r *http.Request)
-	// Start, pause, resume, or stop one run
+	// Start, pause, resume, stop, or unregister one run
 	// (POST /api/v1/autopilot/runs/{run_id}/{action})
 	ControlAutopilotRun(w http.ResponseWriter, r *http.Request, runId string, action string)
 	// Atomically update one plan task's durable status
@@ -2030,7 +2030,7 @@ func (_ Unimplemented) RegisterAutopilotRun(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Start, pause, resume, or stop one run
+// Start, pause, resume, stop, or unregister one run
 // (POST /api/v1/autopilot/runs/{run_id}/{action})
 func (_ Unimplemented) ControlAutopilotRun(w http.ResponseWriter, r *http.Request, runId string, action string) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -10121,7 +10121,7 @@ type StrictServerInterface interface {
 	// Register a named plan
 	// (POST /api/v1/autopilot/runs)
 	RegisterAutopilotRun(ctx context.Context, request RegisterAutopilotRunRequestObject) (RegisterAutopilotRunResponseObject, error)
-	// Start, pause, resume, or stop one run
+	// Start, pause, resume, stop, or unregister one run
 	// (POST /api/v1/autopilot/runs/{run_id}/{action})
 	ControlAutopilotRun(ctx context.Context, request ControlAutopilotRunRequestObject) (ControlAutopilotRunResponseObject, error)
 	// Atomically update one plan task's durable status

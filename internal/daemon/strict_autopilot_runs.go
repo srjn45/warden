@@ -50,8 +50,10 @@ func (s *Server) ControlAutopilotRun(ctx context.Context, req oapi.ControlAutopi
 		r, err = s.autopilot.ResumeRun(ctx, req.RunId)
 	case "stop":
 		r, err = s.autopilot.StopRun(ctx, req.RunId)
+	case "unregister":
+		r, err = s.autopilot.UnregisterRun(ctx, req.RunId)
 	default:
-		return oapi.ControlAutopilotRun400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "action must be start, pause, resume, or stop"}}, nil
+		return oapi.ControlAutopilotRun400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "action must be start, pause, resume, stop, or unregister"}}, nil
 	}
 	if errors.Is(err, autopilot.ErrRunNotFound) {
 		return oapi.ControlAutopilotRun404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "autopilot run not found"}}, nil

@@ -34,7 +34,7 @@ func newAutopilotCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd(), newAutopilotInitCmd(),
 		newAutopilotRegisterCmd(), newAutopilotListCmd(), newAutopilotRunActionCmd("start"), newAutopilotRunActionCmd("pause"),
-		newAutopilotRunActionCmd("resume"), newAutopilotRunActionCmd("stop"))
+		newAutopilotRunActionCmd("resume"), newAutopilotRunActionCmd("stop"), newAutopilotRunActionCmd("unregister"))
 	return cmd
 }
 
