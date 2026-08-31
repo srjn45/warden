@@ -272,11 +272,22 @@ func (s *Server) ListHistory(ctx context.Context, req oapi.ListHistoryRequestObj
 	if req.Params.Limit > 0 {
 		limit = req.Params.Limit
 	}
-	closed, err := s.store.ListClosed(ctx)
+	closed, skipped, err := listClosedWithDegradation(ctx, s.store)
 	if err != nil {
 		return nil, err
 	}
-	return oapi.ListHistory200JSONResponse{Sessions: derefSessions(filterClosed(closed, req.Params.Since, typ, limit))}, nil
+	return oapi.ListHistory200JSONResponse{
+		Sessions: derefSessions(filterClosed(closed, req.Params.Since, typ, limit)),
+		Degraded: skipped > 0, SkippedRecords: skipped,
+	}, nil
+}
+
+func listClosedWithDegradation(ctx context.Context, st store.Store) ([]*store.Session, int, error) {
+	if reader, ok := st.(store.ArchiveDegradationReader); ok {
+		return reader.ListClosedDegraded(ctx)
+	}
+	closed, err := st.ListClosed(ctx)
+	return closed, 0, err
 }
 
 // Search implements GET /api/v1/search: an in-memory full-text search across

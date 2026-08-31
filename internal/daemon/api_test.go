@@ -16,11 +16,14 @@ import (
 
 // fakeStore is an in-memory store.Store for handler tests.
 type fakeStore struct {
-	mu         sync.Mutex
-	data       map[string]*store.Session
-	closed     map[string]*store.Session
-	insertErr  error // when set, Insert fails with it (no doc stored)
-	archiveErr error // when set, Archive fails with it (doc left in place)
+	mu            sync.Mutex
+	data          map[string]*store.Session
+	closed        map[string]*store.Session
+	insertErr     error // when set, Insert fails with it (no doc stored)
+	archiveErr    error // when set, Archive fails with it (doc left in place)
+	listErr       error // when set, List fails with it (degraded-scan simulation)
+	updateErr     error // when set, Update fails without mutating the record
+	closedSkipped int
 }
 
 func newFakeStore() *fakeStore {
@@ -67,11 +70,19 @@ func (f *fakeStore) GetByNameOrID(_ context.Context, nameOrID string) (*store.Se
 func (f *fakeStore) List(_ context.Context) ([]*store.Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	out := make([]*store.Session, 0, len(f.data))
 	for _, s := range f.data {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func (f *fakeStore) ListClosedDegraded(ctx context.Context) ([]*store.Session, int, error) {
+	closed, err := f.ListClosed(ctx)
+	return closed, f.closedSkipped, err
 }
 func (f *fakeStore) UpdateStatus(_ context.Context, id string, st store.Status) error {
 	f.mu.Lock()
@@ -109,6 +120,9 @@ func (f *fakeStore) FinalizeExit(_ context.Context, id string, expected, next st
 func (f *fakeStore) Update(_ context.Context, id string, fn func(*store.Session) error) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.updateErr != nil {
+		return f.updateErr
+	}
 	s, ok := f.data[id]
 	if !ok {
 		return store.ErrNotFound

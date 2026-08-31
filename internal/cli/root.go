@@ -69,6 +69,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newReplCmd())
 	root.AddCommand(newLLMCmd())
 	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newRepairCmd())
 	root.AddCommand(newSetupCmd())
 	root.AddCommand(newTutorialCmd())
 	root.AddCommand(newCompletionCmd())

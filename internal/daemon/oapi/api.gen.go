@@ -189,6 +189,24 @@ func (e Status) Valid() bool {
 	}
 }
 
+// Defines values for StoreScanFailureClass.
+const (
+	Decode StoreScanFailureClass = "decode"
+	Read   StoreScanFailureClass = "read"
+)
+
+// Valid indicates whether the value is a known member of the StoreScanFailureClass enum.
+func (e StoreScanFailureClass) Valid() bool {
+	switch e {
+	case Decode:
+		return true
+	case Read:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskType.
 const (
 	Analysis    TaskType = "analysis"
@@ -450,7 +468,7 @@ type CIStatusState string
 
 // CapabilitiesResponse The optional capability flags this daemon supports (feature detection).
 type CapabilitiesResponse struct {
-	// Capabilities Stable capability-flag strings. Known flags: "terminal-sessions" (session `kind` support — see GET /api/v1/capabilities).
+	// Capabilities Stable capability-flag strings. Known flags: "terminal-sessions" (session `kind` support — see GET /api/v1/capabilities), "store-health" (the GET /api/v1/store/health endpoint + complete-or-error active reads / 503 on degradation).
 	Capabilities []string `json:"capabilities"`
 }
 
@@ -851,7 +869,12 @@ type Session = store.Session
 
 // SessionList defines model for SessionList.
 type SessionList struct {
+	// Degraded True when unreadable archive records were skipped and this list is incomplete.
+	Degraded bool      `json:"degraded,omitempty"`
 	Sessions []Session `json:"sessions"`
+
+	// SkippedRecords Number of unreadable archive records omitted from this response.
+	SkippedRecords int `json:"skipped_records,omitempty"`
 }
 
 // Snapshot defines model for Snapshot.
@@ -924,6 +947,42 @@ type SpendReport = spend.Report
 
 // Status Agent lifecycle status
 type Status string
+
+// StoreHealth Health verdict for the active session store. `healthy` is the top-line boolean; `degraded` is its inverse, provided for readability. When degraded, `failures` carries structured per-record diagnostics.
+type StoreHealth struct {
+	// CheckedAt When this health check ran (server time, UTC).
+	CheckedAt time.Time `json:"checked_at"`
+
+	// Degraded True when one or more active records cannot be read (inverse of healthy).
+	Degraded bool `json:"degraded"`
+
+	// FailureCount Number of unreadable records (or 1 for a whole-scan failure).
+	FailureCount int `json:"failure_count"`
+
+	// Failures Per-failure diagnostics; empty when healthy.
+	Failures []StoreScanFailure `json:"failures"`
+
+	// Healthy True when the active fleet can be read completely.
+	Healthy bool `json:"healthy"`
+}
+
+// StoreScanFailure One record (or whole-scan) failure encountered reading the store.
+type StoreScanFailure struct {
+	// Class Failure class: "decode" = the record's stored payload would not decode into a session (shape-invalid); "read" = the underlying segment scan itself failed (framing, checksum, or index read).
+	Class StoreScanFailureClass `json:"class"`
+
+	// Collection The store collection the failure is in (e.g. "active").
+	Collection string `json:"collection"`
+
+	// Detail Human-readable failure detail.
+	Detail string `json:"detail"`
+
+	// Key The session id of the unreadable record, when the engine surfaced it; empty for a whole-scan (segment/checksum) failure that aborted before any record could be examined.
+	Key string `json:"key,omitempty"`
+}
+
+// StoreScanFailureClass Failure class: "decode" = the record's stored payload would not decode into a session (shape-invalid); "read" = the underlying segment scan itself failed (framing, checksum, or index read).
+type StoreScanFailureClass string
 
 // SwapResult Outcome of a completed hot-swap.
 type SwapResult = lifecycle.SwapResult
@@ -1695,6 +1754,9 @@ type ServerInterface interface {
 	// Per-agent / per-repo / per-day cost rollup
 	// (GET /api/v1/spend)
 	GetSpend(w http.ResponseWriter, r *http.Request)
+	// Session-store health
+	// (GET /api/v1/store/health)
+	GetStoreHealth(w http.ResponseWriter, r *http.Request)
 	// List a repo's worktrees
 	// (GET /api/v1/worktrees)
 	ListWorktrees(w http.ResponseWriter, r *http.Request, params ListWorktreesParams)
@@ -2301,6 +2363,12 @@ func (_ Unimplemented) SpawnAgent(w http.ResponseWriter, r *http.Request) {
 // Per-agent / per-repo / per-day cost rollup
 // (GET /api/v1/spend)
 func (_ Unimplemented) GetSpend(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Session-store health
+// (GET /api/v1/store/health)
+func (_ Unimplemented) GetStoreHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5269,6 +5337,26 @@ func (siw *ServerInterfaceWrapper) GetSpend(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// GetStoreHealth operation middleware
+func (siw *ServerInterfaceWrapper) GetStoreHealth(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStoreHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListWorktrees operation middleware
 func (siw *ServerInterfaceWrapper) ListWorktrees(w http.ResponseWriter, r *http.Request) {
 
@@ -5720,6 +5808,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/spend", wrapper.GetSpend)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/store/health", wrapper.GetStoreHealth)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/worktrees", wrapper.ListWorktrees)
@@ -9273,6 +9364,27 @@ func (response GetSpend403JSONResponse) VisitGetSpendResponse(w http.ResponseWri
 	return err
 }
 
+type GetStoreHealthRequestObject struct {
+}
+
+type GetStoreHealthResponseObject interface {
+	VisitGetStoreHealthResponse(w http.ResponseWriter) error
+}
+
+type GetStoreHealth200JSONResponse StoreHealth
+
+func (response GetStoreHealth200JSONResponse) VisitGetStoreHealthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListWorktreesRequestObject struct {
 	Params ListWorktreesParams
 }
@@ -9599,6 +9711,9 @@ type StrictServerInterface interface {
 	// Per-agent / per-repo / per-day cost rollup
 	// (GET /api/v1/spend)
 	GetSpend(ctx context.Context, request GetSpendRequestObject) (GetSpendResponseObject, error)
+	// Session-store health
+	// (GET /api/v1/store/health)
+	GetStoreHealth(ctx context.Context, request GetStoreHealthRequestObject) (GetStoreHealthResponseObject, error)
 	// List a repo's worktrees
 	// (GET /api/v1/worktrees)
 	ListWorktrees(ctx context.Context, request ListWorktreesRequestObject) (ListWorktreesResponseObject, error)
@@ -12499,6 +12614,30 @@ func (sh *strictHandler) GetSpend(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetSpendResponseObject); ok {
 		if err := validResponse.VisitGetSpendResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetStoreHealth operation middleware
+func (sh *strictHandler) GetStoreHealth(w http.ResponseWriter, r *http.Request) {
+	var request GetStoreHealthRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStoreHealth(ctx, request.(GetStoreHealthRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStoreHealth")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStoreHealthResponseObject); ok {
+		if err := validResponse.VisitGetStoreHealthResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

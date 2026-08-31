@@ -50,7 +50,14 @@ type controlPaneModel struct {
 	backendIdx     int             // selected backend in the new-agent form (0 ⇒ claude default)
 	mode           mode
 	status         string
-	connected      bool
+	// fleet is the health of the last fleet poll; it drives the last-known-good
+	// banner. The zero value is fleetLive. On a failed poll the pane keeps the prior
+	// snapshot (rows/selection/layout) and only updates this + the banner.
+	fleet fleetStatus
+	// lastCompleteAt is the wall-clock of the last complete, authoritative fleet
+	// snapshot. It stamps the "showing last complete fleet from …" banner so the
+	// operator knows retained rows may be stale. Zero until the first success.
+	lastCompleteAt time.Time
 	pendingSelect  string
 	pipelines      []*pipeline.Pipeline
 	projects       []projectstore.Project      // persisted projects for the §4 project-grouped navigator
@@ -150,7 +157,7 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 		// straight from the in-process registry — same synchronous, no-round-trip
 		// pattern as roles.
 		backends:   backendCatalog(),
-		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{}, connected: true,
+		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{},
 		termInfo: map[string]terminalLiveInfo{},
 		vp:       viewport.New(0, 0),
 	}
@@ -646,10 +653,19 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case sessionsMsg:
 		if msg.err != nil {
-			m.connected = false
+			// Last-known-good: a failed poll never clears rows or moves the cursor. We
+			// only classify why it failed (dead daemon / timed-out request / degraded
+			// store) so the banner can explain that the retained fleet may be stale.
+			// Rows are dropped only when a later *complete* snapshot omits them.
+			m.fleet = classifyFleetErr(msg.err)
 			return m, nil
 		}
-		m.connected = true
+		// A successful list is complete and authoritative — the daemon is
+		// complete-or-error, so it never returns a silent partial fleet. It is safe
+		// to replace wholesale and clear the stale/degraded banner. Stamp the time so
+		// the banner can cite it during the next degraded period.
+		m.fleet = fleetLive
+		m.lastCompleteAt = time.Now()
 		prev := m.selectedKey()
 		m.sessions = groupSort(msg.sessions)
 		m.repin(prev)
@@ -1733,19 +1749,19 @@ func (m controlPaneModel) View() string {
 	if !m.ready {
 		return "loading…"
 	}
-	conn := stStatus.Render("live ●")
-	if !m.connected {
-		conn = stError.Render("reconnecting…")
-	}
-	header := stHeader.Render("warden") + "  " + conn
+	header := stHeader.Render("warden") + "  " + fleetIndicator(m.fleet)
 	if chip := pressureChip(m.pressure); chip != "" {
 		header += "  " + chip
 	}
 	if badge := autopilotBadge(m.autopilot); badge != "" {
 		header += "  " + badge
 	}
-	if !m.connected {
-		header += "  " + stError.Render("daemon not running — start it with `warden daemon`")
+	// Persistent, non-blocking last-known-good banner: on a disconnected/timed-out/
+	// degraded poll it explains that the displayed fleet is retained and may be
+	// stale, and cites the last complete snapshot's time. Cleared automatically once
+	// a complete authoritative refresh flips m.fleet back to fleetLive.
+	if banner := fleetBannerStyled(m.fleet, m.lastCompleteAt); banner != "" {
+		header += "  " + banner
 	}
 	bodyH := m.h - 2
 	if bodyH < 3 {

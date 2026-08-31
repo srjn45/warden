@@ -116,6 +116,12 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	s.recordAuditCtx(ctx, audit.ActionSpawn, sess.ID, spawnAuditDetail(sess, sr))
 	// post-spawn hook (#47): advisory, fail-open.
 	s.plugins.Dispatch(ctx, plugin.EventPostSpawn, plugin.MetaFromSession(sess), nil)
+	// Snapshot the response before background enrichment starts. Some Store
+	// implementations (including lightweight adapters/tests) may retain the
+	// inserted pointer, so dereferencing sess after launching Update goroutines
+	// races with their Type/Name writes even though FileStore itself decodes a
+	// fresh value. The client should receive the synchronous spawn state anyway.
+	response := oapi.SpawnAgent201JSONResponse(*sess)
 	// Background, best-effort enrichment (detached contexts): a missing
 	// type/name never blocks or fails the spawn.
 	if freeMode && sr.Prompt != "" {
@@ -124,7 +130,7 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	if sr.Name == "" && sr.Prompt != "" {
 		go s.nameAndUpdate(sess.ID, sr.Prompt)
 	}
-	return oapi.SpawnAgent201JSONResponse(*sess), nil
+	return response, nil
 }
 
 // AdoptSession implements POST /api/v1/adopt: register a resume- or live-mode

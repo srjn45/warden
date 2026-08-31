@@ -29,7 +29,15 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 	send := func() bool {
 		sessions, err := s.store.List(r.Context())
 		if err != nil {
-			return true // transient; try again on next signal
+			// Complete-or-error: a degraded active scan must NOT publish a partial
+			// snapshot. Keep the last complete payload (do not touch `last`) and wait
+			// for a later clean scan — the SSE consumer keeps showing last-known-good.
+			// On a degraded INITIAL scan, `last` is still empty, so nothing is emitted
+			// until the first complete read, which is exactly the desired behavior.
+			if d, ok := store.IsDegraded(err); ok {
+				logStoreDegraded(d)
+			}
+			return true // keep the stream open; retry on the next signal
 		}
 		if sessions == nil {
 			sessions = []*store.Session{}
