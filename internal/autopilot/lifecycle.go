@@ -295,6 +295,33 @@ func (c *Controller) StopRun(ctx context.Context, id string) (RunStatus, error) 
 	return c.runStatusLocked(r), nil
 }
 
+// UnregisterRun removes a durable run registration. Live or paused runs must be
+// stopped first so deregistration can never strand a brain, guardian, or watcher.
+func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.storeErr != nil {
+		return RunStatus{}, c.storeErr
+	}
+	r, ok := c.runs[id]
+	if !ok {
+		return RunStatus{}, ErrRunNotFound
+	}
+	switch r.state {
+	case StateRegistered, StateStopped, StateComplete, StateDisabled:
+	default:
+		return RunStatus{}, fmt.Errorf("%w: stop run in state %s before unregistering", ErrRunConflict, r.state)
+	}
+	removed := c.runStatusLocked(r)
+	if c.store != nil {
+		if err := c.store.Delete(id); err != nil {
+			return RunStatus{}, err
+		}
+	}
+	delete(c.runs, id)
+	return removed, nil
+}
+
 func (c *Controller) runStatusLocked(r *run) RunStatus {
 	return RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo,
 		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{},

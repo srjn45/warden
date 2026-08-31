@@ -114,6 +114,43 @@ func TestMultiRunLifecyclePersists(t *testing.T) {
 	require.Equal(t, RunID(dir, p1), r1.RunID, fmt.Sprint(states))
 }
 
+func TestUnregisterRunRemovesDurableRegistrationAndRejectsLiveRun(t *testing.T) {
+	dir := t.TempDir()
+	p1 := writePlan(t, dir, "one.yaml", "one")
+	p2 := writePlan(t, dir, "two.yaml", "two")
+	s, err := NewRunStore(dir)
+	require.NoError(t, err)
+	c := NewController(ControllerConfig{BaseDir: dir, RunStore: s}, &fakeEnv{})
+	r1, err := c.Register(context.Background(), RegisterRequest{Name: "one", PlanFile: p1})
+	require.NoError(t, err)
+	r2, err := c.Register(context.Background(), RegisterRequest{Name: "two", PlanFile: p2})
+	require.NoError(t, err)
+	_, err = c.StartRun(context.Background(), r2.RunID)
+	require.NoError(t, err)
+
+	removed, err := c.UnregisterRun(context.Background(), r1.RunID)
+	require.NoError(t, err)
+	require.Equal(t, r1.RunID, removed.RunID)
+	_, err = c.UnregisterRun(context.Background(), r2.RunID)
+	require.ErrorIs(t, err, ErrRunConflict)
+	require.NoError(t, c.Close())
+
+	s2, err := NewRunStore(dir)
+	require.NoError(t, err)
+	c2 := NewController(ControllerConfig{BaseDir: dir, RunStore: s2}, &fakeEnv{})
+	defer c2.Close()
+	require.NotContains(t, mapRunStates(c2.Status().Runs), "one")
+	require.Contains(t, mapRunStates(c2.Status().Runs), "two")
+}
+
+func mapRunStates(runs []RunStatus) map[string]RunState {
+	out := make(map[string]RunState, len(runs))
+	for _, r := range runs {
+		out[r.Name] = r.State
+	}
+	return out
+}
+
 func TestEnableAllowsTwoPlansInSameRepo(t *testing.T) {
 	dir := t.TempDir()
 	p1 := writePlan(t, dir, "a.yaml", "a")

@@ -2297,11 +2297,11 @@ paths:
       - in: path
         name: action
         required: true
-        schema: { type: string, enum: [start, pause, resume, stop] }
+        schema: { type: string, enum: [start, pause, resume, stop, unregister] }
     post:
       operationId: controlAutopilotRun
       tags: [Autopilot]
-      summary: Start, pause, resume, or stop one run
+      summary: Start, pause, resume, stop, or unregister one run
       responses:
         "200":
           description: Updated run

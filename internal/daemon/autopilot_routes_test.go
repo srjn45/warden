@@ -207,6 +207,11 @@ func TestAutopilotRunRegistryLifecycleRoutes(t *testing.T) {
 	apGetJSON(t, ts.URL+"/api/v1/autopilot/runs", &runs)
 	require.Len(t, runs, 1)
 	require.Equal(t, autopilot.StateStopped, runs[0].State)
+
+	code = apPostJSON(t, ts.URL+"/api/v1/autopilot/runs/"+run.RunID+"/unregister", `{}`, &run)
+	require.Equal(t, http.StatusOK, code)
+	apGetJSON(t, ts.URL+"/api/v1/autopilot/runs", &runs)
+	require.Empty(t, runs)
 }
 
 func TestAutopilotUnconfigured(t *testing.T) {
