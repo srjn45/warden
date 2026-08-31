@@ -60,7 +60,7 @@ type fsEnableStore struct {
 func newFSEnableStore(dir string) *fsEnableStore { return &fsEnableStore{dir: dir} }
 
 func (s *fsEnableStore) Enable(repo string) error {
-	repo = strings.TrimSpace(repo)
+	repo = canonicalPath(repo)
 	if repo == "" {
 		return nil
 	}
@@ -73,7 +73,7 @@ func (s *fsEnableStore) Enable(repo string) error {
 }
 
 func (s *fsEnableStore) Disable(repo string) error {
-	repo = strings.TrimSpace(repo)
+	repo = canonicalPath(repo)
 	if repo == "" {
 		return nil
 	}
@@ -82,18 +82,34 @@ func (s *fsEnableStore) Disable(repo string) error {
 	if err := os.Remove(filepath.Join(s.dir, enableMarker(repo))); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	entries, _ := os.ReadDir(s.dir)
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(s.dir, e.Name()))
+		if err == nil && canonicalPath(string(data)) == repo {
+			_ = os.Remove(filepath.Join(s.dir, e.Name()))
+		}
+	}
 	return nil
 }
 
 func (s *fsEnableStore) IsEnabled(repo string) bool {
-	repo = strings.TrimSpace(repo)
+	repo = canonicalPath(repo)
 	if repo == "" {
 		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := os.Stat(filepath.Join(s.dir, enableMarker(repo)))
-	return err == nil
+	if _, err := os.Stat(filepath.Join(s.dir, enableMarker(repo))); err == nil {
+		return true
+	}
+	entries, _ := os.ReadDir(s.dir)
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(s.dir, e.Name()))
+		if err == nil && canonicalPath(string(data)) == repo {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *fsEnableStore) List() []string {
@@ -103,6 +119,7 @@ func (s *fsEnableStore) List() []string {
 	if err != nil {
 		return nil // no dir yet (nothing ever enabled) ⇒ empty set
 	}
+	seen := make(map[string]bool)
 	var repos []string
 	for _, e := range entries {
 		if e.IsDir() {
@@ -112,7 +129,8 @@ func (s *fsEnableStore) List() []string {
 		if err != nil {
 			continue
 		}
-		if repo := strings.TrimSpace(string(data)); repo != "" {
+		if repo := canonicalPath(string(data)); repo != "" && !seen[repo] {
+			seen[repo] = true
 			repos = append(repos, repo)
 		}
 	}
@@ -130,7 +148,7 @@ type memEnableStore struct {
 func newMemEnableStore() *memEnableStore { return &memEnableStore{repos: map[string]bool{}} }
 
 func (s *memEnableStore) Enable(repo string) error {
-	repo = strings.TrimSpace(repo)
+	repo = canonicalPath(repo)
 	if repo == "" {
 		return nil
 	}
@@ -143,14 +161,14 @@ func (s *memEnableStore) Enable(repo string) error {
 func (s *memEnableStore) Disable(repo string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.repos, strings.TrimSpace(repo))
+	delete(s.repos, canonicalPath(repo))
 	return nil
 }
 
 func (s *memEnableStore) IsEnabled(repo string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.repos[strings.TrimSpace(repo)]
+	return s.repos[canonicalPath(repo)]
 }
 
 func (s *memEnableStore) List() []string {

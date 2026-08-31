@@ -45,10 +45,7 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(c.baseDir, file)
 	}
-	abs = filepath.Clean(abs)
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = real
-	}
+	abs = canonicalPath(abs)
 	r.absFile = abs
 
 	// Plan file must exist and strict-decode (§3). This is the most common
@@ -67,10 +64,7 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 		fails = append(fails, fmt.Sprintf("plan file %s is not inside a git repository: %v", file, err))
 		return r, fails
 	}
-	r.repo = repo
-	if real, err := filepath.EvalSymlinks(repo); err == nil {
-		r.repo = real
-	}
+	r.repo = canonicalPath(repo)
 	r.runID = RunID(r.repo, abs)
 
 	// A completed plan (§2.1) is done: preflight neither fails it nor registers it

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -96,6 +95,7 @@ type Controller struct {
 	// it stays consistent with c.runs.
 	enableStore EnableStore
 	store       *RunStore
+	storeErr    error // configured persistence unavailable: lifecycle writes must fail closed
 
 	mu      sync.Mutex
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
@@ -180,6 +180,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 	if c.store == nil && strings.TrimSpace(cfg.DataDir) != "" {
 		if st, err := NewRunStore(cfg.DataDir); err != nil {
 			slog.Error("autopilot: persistent run store unavailable", "err", err)
+			c.storeErr = fmt.Errorf("autopilot persistent run store unavailable: %w", err)
 		} else {
 			c.store = st
 		}
@@ -291,12 +292,8 @@ func (c *Controller) SetRuntime(rt Runtime) {
 // absolute plan-file path (autopilot.md §1). Stable across daemon restarts so a
 // re-enable re-adopts the same run rather than forking a duplicate.
 func RunID(repo, planPath string) string {
-	if root, err := filepath.Abs(repo); err == nil {
-		repo = filepath.Clean(root)
-	}
-	if path, err := filepath.Abs(planPath); err == nil {
-		planPath = filepath.Clean(path)
-	}
+	repo = canonicalPath(repo)
+	planPath = canonicalPath(planPath)
 	sum := sha256.Sum256([]byte(repo + "\x00" + planPath))
 	return "ap-" + hex.EncodeToString(sum[:])[:12]
 }
@@ -326,6 +323,9 @@ func (e *PreflightError) Error() string {
 func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.storeErr != nil {
+		return c.statusLocked(), c.storeErr
+	}
 
 	target := c.resolveRepo(ctx, repo)
 
@@ -507,12 +507,9 @@ func (c *Controller) resolveRepo(ctx context.Context, repo string) string {
 		target = c.baseDir
 	}
 	if root, err := c.env.GitToplevel(ctx, target); err == nil && strings.TrimSpace(root) != "" {
-		if real, err := filepath.EvalSymlinks(root); err == nil {
-			return real
-		}
-		return root
+		return canonicalPath(root)
 	}
-	return filepath.Clean(target)
+	return canonicalPath(target)
 }
 
 // PersistedEnabled returns every repo the EnableStore has recorded as switched on.

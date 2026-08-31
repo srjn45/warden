@@ -32,6 +32,17 @@ func (c *Controller) restoreStoredRuns() {
 		return
 	}
 	for _, rec := range records {
+		legacyID := rec.RunID
+		rec.Repo = canonicalPath(rec.Repo)
+		rec.PlanFile = canonicalPath(rec.PlanFile)
+		rec.RunID = RunID(rec.Repo, rec.PlanFile)
+		// Transparently re-key records written before canonical path identity was
+		// enforced. Creating first makes an interrupted migration retry-safe.
+		if rec.RunID != legacyID {
+			if err := c.store.Create(rec); err == nil || errors.Is(err, ErrRunExists) {
+				_ = c.store.Delete(legacyID)
+			}
+		}
 		r := &run{runID: rec.RunID, name: rec.Name, repo: rec.Repo, planFile: rec.PlanFile,
 			absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
 			guardianID: rec.GuardianID, tried: map[string]bool{}}
@@ -82,14 +93,14 @@ func (c *Controller) persistRunLockedErr(r *run) error {
 func (c *Controller) Register(ctx context.Context, req RegisterRequest) (RunStatus, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.storeErr != nil {
+		return RunStatus{}, c.storeErr
+	}
 	abs, err := filepath.Abs(strings.TrimSpace(req.PlanFile))
 	if err != nil {
 		return RunStatus{}, err
 	}
-	abs = filepath.Clean(abs)
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = real
-	}
+	abs = canonicalPath(abs)
 	plan, err := LoadPlan(abs)
 	if err != nil {
 		return RunStatus{}, err
@@ -98,15 +109,13 @@ func (c *Controller) Register(ctx context.Context, req RegisterRequest) (RunStat
 	if err != nil {
 		return RunStatus{}, err
 	}
+	planRepo = canonicalPath(planRepo)
 	repo := planRepo
 	if req.Repo != "" {
 		repo = c.resolveRepo(ctx, req.Repo)
 		if repo != planRepo {
 			return RunStatus{}, fmt.Errorf("plan file belongs to %s, not %s", planRepo, repo)
 		}
-	}
-	if real, err := filepath.EvalSymlinks(repo); err == nil {
-		repo = real
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -165,6 +174,9 @@ func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) e
 func (c *Controller) StartRun(ctx context.Context, id string) (RunStatus, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.storeErr != nil {
+		return RunStatus{}, c.storeErr
+	}
 	r, ok := c.runs[id]
 	if !ok {
 		return RunStatus{}, ErrRunNotFound
@@ -181,10 +193,10 @@ func (c *Controller) StartRun(ctx context.Context, id string) (RunStatus, error)
 	if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
 		return c.runStatusLocked(r), err
 	}
-	r.state = StateStarting
 	if err := c.enableStore.Enable(r.repo); err != nil {
 		return RunStatus{}, fmt.Errorf("persist enabled repo: %w", err)
 	}
+	r.state = StateStarting
 	if err := c.persistRunLockedErr(r); err != nil {
 		return RunStatus{}, err
 	} // persist intent before spawn
