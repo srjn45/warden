@@ -60,6 +60,7 @@ type TaskCounts struct {
 	Pending    int `json:"pending"`
 	InProgress int `json:"in_progress"`
 	Landed     int `json:"landed"`
+	Failed     int `json:"failed"`
 }
 
 // Backoff describes the guardian's capped-exponential backoff (autopilot.md

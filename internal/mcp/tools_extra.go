@@ -158,6 +158,12 @@ type controlAutopilotRunArgs struct {
 	RunID  string `json:"run_id"`
 	Action string `json:"action" jsonschema:"start, pause, resume, or stop"`
 }
+type updateTaskStatusArgs struct {
+	RunID    string `json:"run_id"`
+	TaskID   string `json:"task_id"`
+	Status   string `json:"status" jsonschema:"pending, active, done, or failed"`
+	LandedPR int    `json:"landed_pr,omitempty" jsonschema:"required for done; must already be recorded by land"`
+}
 type landArgs struct {
 	AgentOrBranch string `json:"agent_or_branch" jsonschema:"the autopilot worker agent (id or name) or the branch to land into the integration branch"`
 }
@@ -486,6 +492,13 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(res)
+	})
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "update_task_status", Description: "Atomically persist one task's pending, active, done, or failed status in its plan. done requires landed_pr evidence recorded by the daemon land operation. Autopilot brain-only."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a updateTaskStatusArgs) (*mcpsdk.CallToolResult, any, error) {
+		task, err := s.cl.UpdateAutopilotTaskStatus(ctx, a.RunID, a.TaskID, a.Status, a.LandedPR)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(task)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

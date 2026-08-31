@@ -102,10 +102,18 @@ func writePlanTasks(b *strings.Builder, tasks []PlanTask) {
 	}
 	b.WriteString("## Plan tasks\n")
 	for _, t := range tasks {
+		state := t.Status
+		if state == "" {
+			state = TaskStatusPending
+		}
+		evidence := ""
+		if t.LandedPR > 0 {
+			evidence = fmt.Sprintf(", landed PR #%d", t.LandedPR)
+		}
 		if len(t.After) > 0 {
-			fmt.Fprintf(b, "- %s (after: %s): %s\n", t.ID, strings.Join(t.After, ", "), t.Prompt)
+			fmt.Fprintf(b, "- [%s%s] %s (after: %s): %s\n", state, evidence, t.ID, strings.Join(t.After, ", "), t.Prompt)
 		} else {
-			fmt.Fprintf(b, "- %s: %s\n", t.ID, t.Prompt)
+			fmt.Fprintf(b, "- [%s%s] %s: %s\n", state, evidence, t.ID, t.Prompt)
 		}
 	}
 	b.WriteString("\n")

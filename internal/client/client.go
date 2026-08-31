@@ -1253,6 +1253,24 @@ func (c *Client) ControlAutopilotRun(ctx context.Context, runID, action string) 
 	return out, err
 }
 
+type AutopilotPlanTask struct {
+	ID       string   `json:"id"`
+	Prompt   string   `json:"prompt"`
+	After    []string `json:"after"`
+	Status   string   `json:"status"`
+	LandedPR int      `json:"landed_pr,omitempty"`
+}
+
+func (c *Client) UpdateAutopilotTaskStatus(ctx context.Context, runID, taskID, status string, landedPR int) (AutopilotPlanTask, error) {
+	var out AutopilotPlanTask
+	body := map[string]any{"run_id": runID, "task_id": taskID, "status": status}
+	if landedPR > 0 {
+		body["landed_pr"] = landedPR
+	}
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/tasks/status", body, &out)
+	return out, err
+}
+
 // AutopilotBrain describes the run's brain agent (nil in the S1 inert core).
 type AutopilotBrain struct {
 	AgentID       string `json:"agent_id"`
@@ -1267,6 +1285,7 @@ type AutopilotTaskCounts struct {
 	Pending    int `json:"pending"`
 	InProgress int `json:"in_progress"`
 	Landed     int `json:"landed"`
+	Failed     int `json:"failed"`
 }
 
 // AutopilotBackoff describes the guardian's capped backoff (nil unless degraded).

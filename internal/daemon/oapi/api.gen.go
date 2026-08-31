@@ -72,6 +72,54 @@ func (e AutopilotLandErrorKind) Valid() bool {
 	}
 }
 
+// Defines values for AutopilotPlanTaskStatus.
+const (
+	AutopilotPlanTaskStatusActive  AutopilotPlanTaskStatus = "active"
+	AutopilotPlanTaskStatusDone    AutopilotPlanTaskStatus = "done"
+	AutopilotPlanTaskStatusFailed  AutopilotPlanTaskStatus = "failed"
+	AutopilotPlanTaskStatusPending AutopilotPlanTaskStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the AutopilotPlanTaskStatus enum.
+func (e AutopilotPlanTaskStatus) Valid() bool {
+	switch e {
+	case AutopilotPlanTaskStatusActive:
+		return true
+	case AutopilotPlanTaskStatusDone:
+		return true
+	case AutopilotPlanTaskStatusFailed:
+		return true
+	case AutopilotPlanTaskStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutopilotTaskStatusRequestStatus.
+const (
+	AutopilotTaskStatusRequestStatusActive  AutopilotTaskStatusRequestStatus = "active"
+	AutopilotTaskStatusRequestStatusDone    AutopilotTaskStatusRequestStatus = "done"
+	AutopilotTaskStatusRequestStatusFailed  AutopilotTaskStatusRequestStatus = "failed"
+	AutopilotTaskStatusRequestStatusPending AutopilotTaskStatusRequestStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the AutopilotTaskStatusRequestStatus enum.
+func (e AutopilotTaskStatusRequestStatus) Valid() bool {
+	switch e {
+	case AutopilotTaskStatusRequestStatusActive:
+		return true
+	case AutopilotTaskStatusRequestStatusDone:
+		return true
+	case AutopilotTaskStatusRequestStatusFailed:
+		return true
+	case AutopilotTaskStatusRequestStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CIStatusState.
 const (
 	CIStatusStateFailure CIStatusState = "failure"
@@ -421,6 +469,18 @@ type AutopilotLandResult struct {
 	Sha string `json:"sha"`
 }
 
+// AutopilotPlanTask defines model for AutopilotPlanTask.
+type AutopilotPlanTask struct {
+	After    []string                `json:"after"`
+	Id       string                  `json:"id"`
+	LandedPr int                     `json:"landed_pr,omitempty"`
+	Prompt   string                  `json:"prompt"`
+	Status   AutopilotPlanTaskStatus `json:"status"`
+}
+
+// AutopilotPlanTaskStatus defines model for AutopilotPlanTask.Status.
+type AutopilotPlanTaskStatus string
+
 // AutopilotPreflightFailure 409 body when enable-time preflight fails — the full list of actionable failures so the owner fixes everything in one pass (autopilot.md §5.1).
 type AutopilotPreflightFailure struct {
 	Error    string   `json:"error"`
@@ -439,6 +499,17 @@ type AutopilotRun = autopilot.RunStatus
 
 // AutopilotStatus The autopilot master switch plus one entry per active run (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the properties below document the wire contract.
 type AutopilotStatus = autopilot.Status
+
+// AutopilotTaskStatusRequest defines model for AutopilotTaskStatusRequest.
+type AutopilotTaskStatusRequest struct {
+	LandedPr int                              `json:"landed_pr,omitempty"`
+	RunId    string                           `json:"run_id"`
+	Status   AutopilotTaskStatusRequestStatus `json:"status"`
+	TaskId   string                           `json:"task_id"`
+}
+
+// AutopilotTaskStatusRequestStatus defines model for AutopilotTaskStatusRequest.Status.
+type AutopilotTaskStatusRequestStatus string
 
 // AutopilotToggleRequest Body for POST /autopilot — the per-repo switch. `repo` scopes the toggle to one repository; omitted, it defaults to the daemon's working directory.
 type AutopilotToggleRequest struct {
@@ -1333,6 +1404,9 @@ type LandAutopilotJSONRequestBody = AutopilotLandRequest
 // RegisterAutopilotRunJSONRequestBody defines body for RegisterAutopilotRun for application/json ContentType.
 type RegisterAutopilotRunJSONRequestBody = AutopilotRegisterRequest
 
+// UpdateAutopilotTaskStatusJSONRequestBody defines body for UpdateAutopilotTaskStatus for application/json ContentType.
+type UpdateAutopilotTaskStatusJSONRequestBody = AutopilotTaskStatusRequest
+
 // SetDefaultBackendJSONRequestBody defines body for SetDefaultBackend for application/json ContentType.
 type SetDefaultBackendJSONRequestBody SetDefaultBackendJSONBody
 
@@ -1500,6 +1574,9 @@ type ServerInterface interface {
 	// Start, pause, resume, or stop one run
 	// (POST /api/v1/autopilot/runs/{run_id}/{action})
 	ControlAutopilotRun(w http.ResponseWriter, r *http.Request, runId string, action string)
+	// Atomically update one plan task's durable status
+	// (POST /api/v1/autopilot/tasks/status)
+	UpdateAutopilotTaskStatus(w http.ResponseWriter, r *http.Request)
 	// Get the agent-backend registry with settings
 	// (GET /api/v1/backends)
 	ListBackends(w http.ResponseWriter, r *http.Request)
@@ -1851,6 +1928,12 @@ func (_ Unimplemented) RegisterAutopilotRun(w http.ResponseWriter, r *http.Reque
 // Start, pause, resume, or stop one run
 // (POST /api/v1/autopilot/runs/{run_id}/{action})
 func (_ Unimplemented) ControlAutopilotRun(w http.ResponseWriter, r *http.Request, runId string, action string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Atomically update one plan task's durable status
+// (POST /api/v1/autopilot/tasks/status)
+func (_ Unimplemented) UpdateAutopilotTaskStatus(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2659,6 +2742,26 @@ func (siw *ServerInterfaceWrapper) ControlAutopilotRun(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ControlAutopilotRun(w, r, runId, action)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAutopilotTaskStatus operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAutopilotTaskStatus(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAutopilotTaskStatus(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5664,6 +5767,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/autopilot/runs/{run_id}/{action}", wrapper.ControlAutopilotRun)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/autopilot/tasks/status", wrapper.UpdateAutopilotTaskStatus)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/backends", wrapper.ListBackends)
 	})
 	r.Group(func(r chi.Router) {
@@ -6380,6 +6486,70 @@ func (response ControlAutopilotRun404JSONResponse) VisitControlAutopilotRunRespo
 type ControlAutopilotRun409JSONResponse Error
 
 func (response ControlAutopilotRun409JSONResponse) VisitControlAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAutopilotTaskStatusRequestObject struct {
+	Body *UpdateAutopilotTaskStatusJSONRequestBody
+}
+
+type UpdateAutopilotTaskStatusResponseObject interface {
+	VisitUpdateAutopilotTaskStatusResponse(w http.ResponseWriter) error
+}
+
+type UpdateAutopilotTaskStatus200JSONResponse AutopilotPlanTask
+
+func (response UpdateAutopilotTaskStatus200JSONResponse) VisitUpdateAutopilotTaskStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAutopilotTaskStatus400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateAutopilotTaskStatus400JSONResponse) VisitUpdateAutopilotTaskStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAutopilotTaskStatus403JSONResponse Error
+
+func (response UpdateAutopilotTaskStatus403JSONResponse) VisitUpdateAutopilotTaskStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAutopilotTaskStatus409JSONResponse Error
+
+func (response UpdateAutopilotTaskStatus409JSONResponse) VisitUpdateAutopilotTaskStatusResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -9738,6 +9908,9 @@ type StrictServerInterface interface {
 	// Start, pause, resume, or stop one run
 	// (POST /api/v1/autopilot/runs/{run_id}/{action})
 	ControlAutopilotRun(ctx context.Context, request ControlAutopilotRunRequestObject) (ControlAutopilotRunResponseObject, error)
+	// Atomically update one plan task's durable status
+	// (POST /api/v1/autopilot/tasks/status)
+	UpdateAutopilotTaskStatus(ctx context.Context, request UpdateAutopilotTaskStatusRequestObject) (UpdateAutopilotTaskStatusResponseObject, error)
 	// Get the agent-backend registry with settings
 	// (GET /api/v1/backends)
 	ListBackends(ctx context.Context, request ListBackendsRequestObject) (ListBackendsResponseObject, error)
@@ -10346,6 +10519,37 @@ func (sh *strictHandler) ControlAutopilotRun(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ControlAutopilotRunResponseObject); ok {
 		if err := validResponse.VisitControlAutopilotRunResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateAutopilotTaskStatus operation middleware
+func (sh *strictHandler) UpdateAutopilotTaskStatus(w http.ResponseWriter, r *http.Request) {
+	var request UpdateAutopilotTaskStatusRequestObject
+
+	var body UpdateAutopilotTaskStatusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateAutopilotTaskStatus(ctx, request.(UpdateAutopilotTaskStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateAutopilotTaskStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateAutopilotTaskStatusResponseObject); ok {
+		if err := validResponse.VisitUpdateAutopilotTaskStatusResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -2353,6 +2353,34 @@ paths:
           description: The caller is not an autopilot brain with a run to complete
           content:
             application/json:
+                schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/autopilot/tasks/status:
+    post:
+      operationId: updateAutopilotTaskStatus
+      tags: [Autopilot]
+      summary: Atomically update one plan task's durable status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopilotTaskStatusRequest" }
+      responses:
+        "200":
+          description: The persisted task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotPlanTask" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Caller is not the owning autopilot brain
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Invalid transition or unverified landed PR
+          content:
+            application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/schedules:
@@ -3803,6 +3831,7 @@ components:
                   pending: { type: integer }
                   in_progress: { type: integer }
                   landed: { type: integer }
+                  failed: { type: integer }
               backoff:
                 nullable: true
                 type: object
@@ -3833,6 +3862,25 @@ components:
           type: string
           description: an autopilot worker agent (id or name) or a branch name
       required: [agent_or_branch]
+
+    AutopilotTaskStatusRequest:
+      type: object
+      properties:
+        run_id: { type: string }
+        task_id: { type: string }
+        status: { type: string, enum: [pending, active, done, failed] }
+        landed_pr: { type: integer, minimum: 1 }
+      required: [run_id, task_id, status]
+
+    AutopilotPlanTask:
+      type: object
+      properties:
+        id: { type: string }
+        prompt: { type: string }
+        after: { type: array, items: { type: string } }
+        status: { type: string, enum: [pending, active, done, failed] }
+        landed_pr: { type: integer }
+      required: [id, prompt, after, status]
 
     AutopilotLandResult:
       type: object
