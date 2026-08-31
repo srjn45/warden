@@ -2,6 +2,11 @@
 
 Date: 2026-08-30
 
+> **Status: 🟡 Beginning now — not complete.** This plan has been approved and
+> merged as the next stability effort, but its implementation phases and recovery
+> procedure have not shipped. Do not infer completion from the plan being present
+> on `main`.
+
 ## Context
 
 The Cockpit TUI project pane intermittently loses agents and later shows them again. The agents and their tmux sessions remain alive; the visible fleet changes because the active session store can return incomplete snapshots after its append-only segment is corrupted.

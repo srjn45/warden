@@ -1,7 +1,7 @@
 # Warden Future Enhancements & Feature Roadmap
 
-**Last Updated:** 2026-07-03
-**Current Version:** v5.20.0
+**Last Updated:** 2026-08-31
+**Audited Against:** `main` through PR #375
 
 This document tracks **pending** improvements and new features for warden, organized
 by category and priority. Each item includes effort estimates and implementation
@@ -72,7 +72,7 @@ parallel independent-job execution in the pipeline executor, load testing with
 
 ## 🚀 Advanced Features
 
-#### 44. Intelligent inter-agent collaboration ⭐ NEXT-GEN — *MVP + BranchTracker shipped; rest dropped*
+#### 44. Intelligent inter-agent collaboration ⭐ NEXT-GEN — *core collaboration shipped; speculative extras dropped*
 **Design:** `docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md`
 
 The file-conflict-detection MVP (shared context, mailbox, detection engine, web
@@ -85,8 +85,12 @@ warden's ≤10-agent scale:
 - **OverlapDetector** — its only signal was an agent's plan file, which no longer
   exists under current naming; the idea overlaps the shipped file-conflict
   detector. Dead as designed; would need a fresh signal to be worth anything.
-- **Collaboration groups** — redundant with the pipeline subsystem (dependencies,
-  handoffs, shared context already express grouped work).
+- ~~**Collaboration groups** — redundant with the pipeline subsystem.~~ This
+  conclusion was superseded by the project-centric design. **Project Groups are
+  now shipped**: persisted multi-project groups, group labels in the TUI,
+  automatic per-project orchestrators, peer discovery/context injection, and
+  orchestrator delegation ergonomics landed in PRs #363–#368. See
+  [`specs/2026-08-30-project-groups-architecture.md`](specs/2026-08-30-project-groups-architecture.md).
 - **SSE replay + multi-cache layer** — an optimization for a load (100+ agents)
   warden doesn't carry; straight serial recomputation is correct at this scale.
 
@@ -351,22 +355,21 @@ for a single user.
 > **Tiers 1–3 are cleared** — the REPL (#50, `wd repl`) shipped (see
 > [FEATURES.md §17](FEATURES.md#17-interactive-mode--repl-wd-repl)), along with the
 > onboarding / extensibility batch (#42, #43, #46, #47, #48). #52 and #53 have
-> since shipped too (see below); only #51 remains open here, alongside the
-> parked enterprise set.
+> since shipped too (see below), as has #51. Only the partial/deferred work and
+> parked enterprise set remain.
 
 ### 🔮 Tier 4 — Future / large bets (usage-gated)
-- **Self-healing web cockpit session (#51)** — small (0.5–1 day) robustness item:
-  make `EnsureWebCockpit` validate/rebuild a wedged cockpit instead of reusing it
-  blindly. Low-moderate necessity; no day-to-day impact now that `q` exits cleanly.
-  The only item still open in this tier.
+- **Self-healing web cockpit session (#51)** — *shipped*: `EnsureWebCockpit`
+  validates and rebuilds a wedged cockpit, with an explicit CLI rebuild affordance.
+  See §51.
 - **Pluggable agent backends (#52)** — *shipped*: 8 backends (Claude + 7
   non-Claude, experimental tier) via the `Backend` interface. See §52.
 - **Backend-neutral project memory from fleet digests (#53)** — *shipped*:
   warden-owned `.warden/memory.md`, projected into every backend via the #52
   injection seam, with gated auto-curation and local REPL grounding. See §53.
-- Inter-agent collaboration (#44) is closed: the file-conflict MVP +
-  BranchTracker shipped and the rest was audited and dropped (see §44 above). A
-  fresh demand signal would be needed to reopen any of it.
+- Inter-agent collaboration (#44) is closed: file-conflict detection,
+  BranchTracker, and the later Project Groups/orchestrator collaboration work all
+  shipped. Only the unrelated speculative extras audited in §44 were dropped.
 
 ### 🧊 Tier 5 — Parked (necessity too low for a solo tool; don't build speculatively)
 Keep on the list for completeness, but these need a concrete demand signal before
@@ -388,10 +391,9 @@ they're worth the effort:
 ## 🎬 Recommended Implementation Order
 
 **The near-term queue is clear.** Everything Tier-1-through-Tier-3 has shipped,
-and inter-agent collaboration (#44) is closed (MVP + BranchTracker shipped, the
-rest dropped — see §44). #52 and #53 have also shipped. What remains open is
-#51 (small, low-moderate necessity) and Tier 5 (parked): build only on a
-concrete demand signal, not speculatively.
+including #44, #51, #52, and #53. The remaining entries in this file are partial,
+deferred, or parked; build them only on a concrete demand signal rather than
+treating this historical priority order as an active implementation queue.
 
 ---
 

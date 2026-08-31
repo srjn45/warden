@@ -1,5 +1,11 @@
 # Implementation Plan: Project-Centric Cockpit & TUI
 
+> **Status: ✅ Complete on `main` (2026-08-31).** All five phases shipped: the
+> persisted project store, local/remote/new project operations, tabbed TUI frame,
+> project tree plus hibernation/restore, and the Open Project menus. This file is
+> retained as the historical implementation plan; it is not a list of remaining
+> work.
+
 This plan outlines the end-to-end implementation of the Project-first architecture, elevating projects to first-class database entities and redesigning the TUI to reflect this hierarchy.
 
 ## Phase 1: Foundation (`projectstore`)
