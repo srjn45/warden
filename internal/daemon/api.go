@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/config"
@@ -198,6 +199,9 @@ type Server struct {
 	// the registry routes added in later stages guard on it. Set by the daemon via
 	// SetBackends after the startup reconcile.
 	backends *backendstore.Store
+	// usage queries provider-owned subscription limits without touching routing
+	// or the synthetic quota recorder. Its cache is process-local and sanitized.
+	usage *backendusage.Service
 	// projects is the first-class project store (docs/specs/
 	// 2026-08-28-project-centric-ui.md Phase 1): the parent entity agents and
 	// pipelines group under via ProjectID. nil ⇒ unconfigured (older wiring); the
@@ -276,7 +280,17 @@ func (s *Server) SetScheduler(enabled bool, store *schedule.Store, interval time
 // 2026-08-06-backend-registry.md). A nil store leaves the registry unconfigured
 // (the routes added in later stages then report it unavailable). Call before
 // Start, after the startup detection reconcile.
-func (s *Server) SetBackends(store *backendstore.Store) { s.backends = store }
+func (s *Server) SetBackends(store *backendstore.Store) {
+	s.backends = store
+	if store == nil {
+		s.usage = nil
+	} else {
+		s.usage = backendusage.NewService(store)
+	}
+}
+
+// SetUsageService allows deterministic daemon tests to inject provider adapters.
+func (s *Server) SetUsageService(service *backendusage.Service) { s.usage = service }
 
 // SetProjects wires the first-class project store (docs/specs/
 // 2026-08-28-project-centric-ui.md Phase 1). A nil store leaves the project routes

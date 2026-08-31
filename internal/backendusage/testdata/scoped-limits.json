@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-01T10:00:00Z",
+  "backends": [
+    {
+      "id": "antigravity",
+      "tier": "subscription",
+      "installed": true,
+      "enabled": true,
+      "status": "ok",
+      "account": {"plan": "synthetic"},
+      "usage": [
+        {
+          "id": "antigravity:gemini",
+          "scope": "gemini",
+          "label": "Gemini models",
+          "model_families": ["gemini"],
+          "models": null,
+          "used_percent": 50,
+          "resets_at": "2026-09-01T12:00:00Z"
+        },
+        {
+          "id": "antigravity:non-gemini",
+          "scope": "non-gemini",
+          "label": "Non-Gemini models",
+          "model_families": null,
+          "models": null,
+          "used_percent": null,
+          "resets_at": null
+        }
+      ],
+      "observed_at": "2026-09-01T10:00:00Z",
+      "cached": false,
+      "stale": false
+    }
+  ]
+}

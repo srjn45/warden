@@ -18,6 +18,7 @@ import (
 	approval "github.com/srjn45/warden/internal/approval"
 	autopilot "github.com/srjn45/warden/internal/autopilot"
 	backendstore "github.com/srjn45/warden/internal/backendstore"
+	backendusage "github.com/srjn45/warden/internal/backendusage"
 	branchtrack "github.com/srjn45/warden/internal/branchtrack"
 	collab "github.com/srjn45/warden/internal/collab"
 	ctxstore "github.com/srjn45/warden/internal/ctxstore"
@@ -203,34 +204,34 @@ func (e SpawnRequestKind) Valid() bool {
 
 // Defines values for Status.
 const (
-	Done            Status = "done"
-	Errored         Status = "errored"
-	Idle            Status = "idle"
-	Orphaned        Status = "orphaned"
-	RateLimited     Status = "rate_limited"
-	Spawning        Status = "spawning"
-	WaitingForInput Status = "waiting_for_input"
-	Working         Status = "working"
+	StatusDone            Status = "done"
+	StatusErrored         Status = "errored"
+	StatusIdle            Status = "idle"
+	StatusOrphaned        Status = "orphaned"
+	StatusRateLimited     Status = "rate_limited"
+	StatusSpawning        Status = "spawning"
+	StatusWaitingForInput Status = "waiting_for_input"
+	StatusWorking         Status = "working"
 )
 
 // Valid indicates whether the value is a known member of the Status enum.
 func (e Status) Valid() bool {
 	switch e {
-	case Done:
+	case StatusDone:
 		return true
-	case Errored:
+	case StatusErrored:
 		return true
-	case Idle:
+	case StatusIdle:
 		return true
-	case Orphaned:
+	case StatusOrphaned:
 		return true
-	case RateLimited:
+	case StatusRateLimited:
 		return true
-	case Spawning:
+	case StatusSpawning:
 		return true
-	case WaitingForInput:
+	case StatusWaitingForInput:
 		return true
-	case Working:
+	case StatusWorking:
 		return true
 	default:
 		return false
@@ -291,6 +292,57 @@ func (e TaskType) Valid() bool {
 	case Tests:
 		return true
 	case Website:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UsageBackendStatus.
+const (
+	UsageBackendStatusError           UsageBackendStatus = "error"
+	UsageBackendStatusNotInstalled    UsageBackendStatus = "not_installed"
+	UsageBackendStatusOk              UsageBackendStatus = "ok"
+	UsageBackendStatusRateLimited     UsageBackendStatus = "rate_limited"
+	UsageBackendStatusTimeout         UsageBackendStatus = "timeout"
+	UsageBackendStatusUnauthenticated UsageBackendStatus = "unauthenticated"
+	UsageBackendStatusUnavailable     UsageBackendStatus = "unavailable"
+	UsageBackendStatusUnsupported     UsageBackendStatus = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the UsageBackendStatus enum.
+func (e UsageBackendStatus) Valid() bool {
+	switch e {
+	case UsageBackendStatusError:
+		return true
+	case UsageBackendStatusNotInstalled:
+		return true
+	case UsageBackendStatusOk:
+		return true
+	case UsageBackendStatusRateLimited:
+		return true
+	case UsageBackendStatusTimeout:
+		return true
+	case UsageBackendStatusUnauthenticated:
+		return true
+	case UsageBackendStatusUnavailable:
+		return true
+	case UsageBackendStatusUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UsageBackendTier.
+const (
+	Subscription UsageBackendTier = "subscription"
+)
+
+// Valid indicates whether the value is a known member of the UsageBackendTier enum.
+func (e UsageBackendTier) Valid() bool {
+	switch e {
+	case Subscription:
 		return true
 	default:
 		return false
@@ -1083,6 +1135,47 @@ type UpdateProjectGroupRequest struct {
 	ProjectIds []string `json:"project_ids,omitempty"`
 }
 
+// UsageAccount defines model for UsageAccount.
+type UsageAccount struct {
+	LoginMethod string `json:"login_method,omitempty"`
+	Plan        string `json:"plan,omitempty"`
+}
+
+// UsageBackend defines model for UsageBackend.
+type UsageBackend struct {
+	Account    UsageAccount       `json:"account,omitempty"`
+	Cached     bool               `json:"cached"`
+	Enabled    bool               `json:"enabled"`
+	Error      UsageError         `json:"error,omitempty"`
+	Id         string             `json:"id"`
+	Installed  bool               `json:"installed"`
+	ObservedAt time.Time          `json:"observed_at"`
+	Stale      bool               `json:"stale"`
+	Status     UsageBackendStatus `json:"status"`
+	Tier       UsageBackendTier   `json:"tier"`
+
+	// Usage Distinct provider-owned usage-limit windows, sorted by stable id; never flattened.
+	Usage []UsageLimit `json:"usage"`
+}
+
+// UsageBackendStatus defines model for UsageBackend.Status.
+type UsageBackendStatus string
+
+// UsageBackendTier defines model for UsageBackend.Tier.
+type UsageBackendTier string
+
+// UsageError defines model for UsageError.
+type UsageError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// UsageLimit One independently resetting provider limit. Unknown measurements, restore times, and model selectors are null; consumers must not infer them.
+type UsageLimit = backendusage.Limit
+
+// UsageSnapshot defines model for UsageSnapshot.
+type UsageSnapshot = backendusage.Snapshot
+
 // Verdict defines model for Verdict.
 type Verdict = pressure.Verdict
 
@@ -1385,6 +1478,12 @@ type ListSnapshotsParams struct {
 // RestoreSnapshotJSONBody defines parameters for RestoreSnapshot.
 type RestoreSnapshotJSONBody struct {
 	Force bool `json:"force,omitempty"`
+}
+
+// GetUsageParams defines parameters for GetUsage.
+type GetUsageParams struct {
+	// Refresh Bypass the 60-second fresh cache (stale fallback remains available).
+	Refresh bool `form:"refresh,omitempty" json:"refresh,omitempty"`
 }
 
 // ListWorktreesParams defines parameters for ListWorktrees.
@@ -1859,6 +1958,9 @@ type ServerInterface interface {
 	// Session-store health
 	// (GET /api/v1/store/health)
 	GetStoreHealth(w http.ResponseWriter, r *http.Request)
+	// Get subscription-backend provider usage
+	// (GET /api/v1/usage)
+	GetUsage(w http.ResponseWriter, r *http.Request, params GetUsageParams)
 	// List a repo's worktrees
 	// (GET /api/v1/worktrees)
 	ListWorktrees(w http.ResponseWriter, r *http.Request, params ListWorktreesParams)
@@ -2495,6 +2597,12 @@ func (_ Unimplemented) GetSpend(w http.ResponseWriter, r *http.Request) {
 // Session-store health
 // (GET /api/v1/store/health)
 func (_ Unimplemented) GetStoreHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get subscription-backend provider usage
+// (GET /api/v1/usage)
+func (_ Unimplemented) GetUsage(w http.ResponseWriter, r *http.Request, params GetUsageParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5597,6 +5705,45 @@ func (siw *ServerInterfaceWrapper) GetStoreHealth(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// GetUsage operation middleware
+func (siw *ServerInterfaceWrapper) GetUsage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetUsageParams
+
+	// ------------- Optional query parameter "refresh" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "refresh", r.URL.Query(), &params.Refresh, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "refresh"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "refresh", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUsage(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListWorktrees operation middleware
 func (siw *ServerInterfaceWrapper) ListWorktrees(w http.ResponseWriter, r *http.Request) {
 
@@ -6063,6 +6210,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/store/health", wrapper.GetStoreHealth)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/usage", wrapper.GetUsage)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/worktrees", wrapper.ListWorktrees)
@@ -9865,6 +10015,56 @@ func (response GetStoreHealth200JSONResponse) VisitGetStoreHealthResponse(w http
 	return err
 }
 
+type GetUsageRequestObject struct {
+	Params GetUsageParams
+}
+
+type GetUsageResponseObject interface {
+	VisitGetUsageResponse(w http.ResponseWriter) error
+}
+
+type GetUsage200JSONResponse UsageSnapshot
+
+func (response GetUsage200JSONResponse) VisitGetUsageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUsage400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetUsage400JSONResponse) VisitGetUsageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUsage503JSONResponse Error
+
+func (response GetUsage503JSONResponse) VisitGetUsageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListWorktreesRequestObject struct {
 	Params ListWorktreesParams
 }
@@ -10206,6 +10406,9 @@ type StrictServerInterface interface {
 	// Session-store health
 	// (GET /api/v1/store/health)
 	GetStoreHealth(ctx context.Context, request GetStoreHealthRequestObject) (GetStoreHealthResponseObject, error)
+	// Get subscription-backend provider usage
+	// (GET /api/v1/usage)
+	GetUsage(ctx context.Context, request GetUsageRequestObject) (GetUsageResponseObject, error)
 	// List a repo's worktrees
 	// (GET /api/v1/worktrees)
 	ListWorktrees(ctx context.Context, request ListWorktreesRequestObject) (ListWorktreesResponseObject, error)
@@ -13243,6 +13446,32 @@ func (sh *strictHandler) GetStoreHealth(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetStoreHealthResponseObject); ok {
 		if err := validResponse.VisitGetStoreHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUsage operation middleware
+func (sh *strictHandler) GetUsage(w http.ResponseWriter, r *http.Request, params GetUsageParams) {
+	var request GetUsageRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUsage(ctx, request.(GetUsageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUsage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUsageResponseObject); ok {
+		if err := validResponse.VisitGetUsageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -80,6 +80,48 @@ to a paid backend.
 
 The generated [CLI reference](/warden/reference/cli/) has the full flag/help detail.
 
+## Subscription usage — `warden usage`
+
+`warden usage` asks the daemon for provider-owned usage data from every persisted
+row whose tier is exactly `subscription`. Disabled and uninstalled rows remain in
+the result; the read never rescans the registry or changes routing, cooldowns, or
+the default backend. Use `--json` for the stable v1 document and `--refresh` to
+bypass the daemon's 60-second fresh cache.
+
+Each backend has a `usage` array containing zero or more distinct limits, sorted by
+stable `id`. Every limit includes `id`, applicability `scope`, a human `label`,
+nullable `used_percent` and `resets_at`, plus nullable `model_families` and `models`
+selectors. Multiple provider pools are never flattened: Codex primary/secondary
+windows remain separate, and an adapter that can safely identify Gemini and
+non-Gemini pools returns separate scoped entries. Unknown measurements, restore
+times, or model selectors remain JSON `null`; warden never guesses them.
+
+Codex supplies structured percentage limits and reset times through its app-server
+protocol. Claude and Cursor currently supply safe plan/login metadata but report
+usage as `unsupported`; Antigravity reports `unsupported`. Warden deliberately does
+not substitute its local synthetic quota estimates or scrape interactive `/usage`
+screens. Account labels, credentials, raw provider output, paths, and request IDs
+are excluded.
+
+The command exits 0 when every row is `ok` or truthfully `unsupported`, 2 after
+rendering a partial result with an operational provider failure, and 1 when no
+consolidated document can be produced.
+
+```json
+{
+  "id": "antigravity",
+  "status": "ok",
+  "usage": [
+    {"id": "antigravity:gemini", "scope": "gemini", "label": "Gemini models", "model_families": ["gemini"], "models": null, "used_percent": 50, "resets_at": "2026-09-01T12:00:00Z"},
+    {"id": "antigravity:non-gemini", "scope": "non-gemini", "label": "Non-Gemini models", "model_families": null, "models": null, "used_percent": null, "resets_at": null}
+  ]
+}
+```
+
+The example illustrates the contract for a future structured Antigravity adapter;
+the current installed CLI has no supported structured usage source and therefore
+returns `status: "unsupported"` with an empty `usage` array.
+
 ## MCP tools
 
 | Tool | Args | Returns |
@@ -98,6 +140,7 @@ The generated [CLI reference](/warden/reference/cli/) has the full flag/help det
 | Method + path | Purpose |
 |---|---|
 | `GET /api/v1/backends` | The registry + settings (read-only) |
+| `GET /api/v1/usage?refresh=true` | Provider usage for exact subscription-tier rows (read-only) |
 | `POST /api/v1/backends/rescan` | Re-detect and reconcile; returns the registry + settings |
 | `PUT /api/v1/backends/default` | `{id}` → set the default; returns the registry + settings |
 | `PUT /api/v1/backends/thinking-mode` | `{mode}` → set the thinking mode; returns settings |

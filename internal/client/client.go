@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/metrics"
@@ -1617,6 +1618,23 @@ func (c *Client) ListBackends(ctx context.Context) (BackendsState, error) {
 	var out BackendsState
 	if err := c.do(ctx, http.MethodGet, "/backends", nil, &out); err != nil {
 		return BackendsState{}, err
+	}
+	return out, nil
+}
+
+// Usage returns the daemon's consolidated provider-owned usage snapshot for
+// every registry row tiered exactly as subscription.
+func (c *Client) Usage(ctx context.Context, refresh bool) (backendusage.Snapshot, error) {
+	path := "/usage"
+	if refresh {
+		path += "?refresh=true"
+	}
+	var out backendusage.Snapshot
+	if err := c.doT(ctx, 6*time.Second, http.MethodGet, path, nil, &out); err != nil {
+		return backendusage.Snapshot{}, err
+	}
+	if out.SchemaVersion != 1 {
+		return backendusage.Snapshot{}, fmt.Errorf("unsupported usage schema version %d", out.SchemaVersion)
 	}
 	return out, nil
 }

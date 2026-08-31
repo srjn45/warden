@@ -1227,6 +1227,17 @@ once at loop start — changing it needs a restart.
 
 ## 35. Agent-backend registry & internal-thinking router
 
+`warden usage [--json] [--refresh]` reads provider-owned limit windows for every
+exact `subscription` registry row without rescanning or changing routing state.
+Results are concurrent, cached briefly in sanitized daemon memory, and retain
+successful rows when another provider fails (exit 2). Codex has structured usage;
+Claude, Cursor, and Antigravity truthfully report unsupported where their CLIs lack
+a stable structured usage surface. Every result carries a deterministically sorted
+`usage` array of distinct limits with stable id/scope/label, nullable percentage
+and reset time, and nullable safe model selectors; provider pools and Codex
+primary/secondary windows are never flattened. Synthetic local quota estimates are
+excluded.
+
 warden keeps a **persistent registry** of the coding-agent CLIs it can drive, so
 "which backends exist, how they're billed, and which is the default" is a durable,
 inspectable fact rather than something re-derived on every spawn. The registry is

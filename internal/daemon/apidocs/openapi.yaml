@@ -807,6 +807,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BackendsState" }
 
+  /api/v1/usage:
+    get:
+      operationId: getUsage
+      tags: [Observability]
+      summary: Get subscription-backend provider usage
+      description: >
+        Concurrently queries every persisted backend whose tier is exactly
+        subscription. This read does not rescan or mutate registry, routing,
+        cooldown, or quota state. Provider errors are sanitized and successful
+        rows are retained when another provider fails.
+      parameters:
+        - name: refresh
+          in: query
+          description: Bypass the 60-second fresh cache (stale fallback remains available).
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Consolidated provider usage snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UsageSnapshot" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Backend registry or usage service unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/backends/rescan:
     post:
       operationId: rescanBackends
@@ -2935,6 +2963,82 @@ components:
         id: { type: string }
         internal_thinking_mode: { type: string, description: "local_only | free_plus_local" }
         allow_paid_autopilot: { type: boolean }
+
+    UsageSnapshot:
+      x-go-type: backendusage.Snapshot
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendusage
+        name: backendusage
+      type: object
+      required: [schema_version, generated_at, backends]
+      properties:
+        schema_version: { type: integer, enum: [1] }
+        generated_at: { type: string, format: date-time }
+        backends:
+          type: array
+          items: { $ref: "#/components/schemas/UsageBackend" }
+
+    UsageBackend:
+      type: object
+      required: [id, tier, installed, enabled, status, usage, observed_at, cached, stale]
+      properties:
+        id: { type: string }
+        tier: { type: string, enum: [subscription] }
+        installed: { type: boolean }
+        enabled: { type: boolean }
+        status: { type: string, enum: [ok, unsupported, unauthenticated, rate_limited, unavailable, timeout, error, not_installed] }
+        account: { $ref: "#/components/schemas/UsageAccount" }
+        usage:
+          type: array
+          description: Distinct provider-owned usage-limit windows, sorted by stable id; never flattened.
+          items: { $ref: "#/components/schemas/UsageLimit" }
+        observed_at: { type: string, format: date-time }
+        cached: { type: boolean }
+        stale: { type: boolean }
+        error: { $ref: "#/components/schemas/UsageError" }
+
+    UsageAccount:
+      type: object
+      properties:
+        plan: { type: string }
+        login_method: { type: string }
+
+    UsageLimit:
+      x-go-type: backendusage.Limit
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendusage
+        name: backendusage
+      type: object
+      description: >
+        One independently resetting provider limit. Unknown measurements,
+        restore times, and model selectors are null; consumers must not infer them.
+      required: [id, scope, label, model_families, models, used_percent, resets_at]
+      properties:
+        id: { type: string, description: Stable unique id within this backend. }
+        scope: { type: string, description: Stable applicability scope such as codex, gemini, or non-gemini. }
+        label: { type: string, description: Human-readable provider limit label. }
+        model_families:
+          type: array
+          nullable: true
+          description: Safe model-family selectors when known; null means unknown.
+          items: { type: string }
+        models:
+          type: array
+          nullable: true
+          description: Safe exact model selectors when known; null means unknown.
+          items: { type: string }
+        used_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        remaining_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        duration_minutes: { type: integer, minimum: 1, nullable: true }
+        resets_at: { type: string, format: date-time, nullable: true, description: Provider restore/reset timestamp; null when unknown. }
+        limit_state: { type: string, nullable: true }
+
+    UsageError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
 
     Project:
       x-go-type: projectstore.Project
