@@ -7,22 +7,22 @@ import (
 
 func TestCodexLatestContextTokensUsesLastSnapshot(t *testing.T) {
 	jsonl := `not json
-{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":5,"output_tokens":2,"reasoning_output_tokens":1,"total_tokens":18}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":18},"last_token_usage":{"input_tokens":7,"cached_input_tokens":5,"total_tokens":12}}}}
 {"type":"event_msg","payload":{"type":"agent_message"}}
-{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":30,"cached_input_tokens":10,"output_tokens":4,"reasoning_output_tokens":2,"total_tokens":46}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":46},"last_token_usage":{"input_tokens":20,"cached_input_tokens":10,"output_tokens":4,"reasoning_output_tokens":2,"total_tokens":36}}}}
 { broken`
 
 	got, ok := GetParser("codex").LatestContextTokens(strings.NewReader(jsonl))
-	if !ok || got != 46 {
-		t.Fatalf("got=%d ok=%v, want 46 true", got, ok)
+	if !ok || got != 36 {
+		t.Fatalf("got=%d ok=%v, want 36 true", got, ok)
 	}
 }
 
-func TestCodexLatestContextTokensFallsBackToComponents(t *testing.T) {
+func TestCodexLatestContextTokensFallsBackToLegacyTotalComponents(t *testing.T) {
 	jsonl := `{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":30,"cached_input_tokens":10,"output_tokens":4,"reasoning_output_tokens":2}}}}`
 	got, ok := GetParser("codex").LatestContextTokens(strings.NewReader(jsonl))
-	if !ok || got != 46 {
-		t.Fatalf("got=%d ok=%v, want 46 true", got, ok)
+	if !ok || got != 34 {
+		t.Fatalf("got=%d ok=%v, want 34 true", got, ok)
 	}
 }
 

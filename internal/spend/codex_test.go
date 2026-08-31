@@ -13,8 +13,8 @@ func TestCodexParseUsageUsesLastCumulativeSnapshot(t *testing.T) {
 { broken`
 
 	u, ok := GetParser("codex").ParseUsage(strings.NewReader(jsonl))
-	if !ok || u.InputTokens != 40 || u.OutputTokens != 6 || u.Total() != 46 {
-		t.Fatalf("got=%+v ok=%v, want input=40 output=6 total=46 true", u, ok)
+	if !ok || u.InputTokens != 30 || u.OutputTokens != 4 || u.Total() != 34 {
+		t.Fatalf("got=%+v ok=%v, want input=30 output=4 total=34 true", u, ok)
 	}
 }
 
@@ -28,8 +28,8 @@ func TestCodexParseUsageNoUsage(t *testing.T) {
 
 func TestSpendParserSelectionPreservesClaudeFallback(t *testing.T) {
 	codex := `{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":8,"cached_input_tokens":2,"output_tokens":3,"reasoning_output_tokens":1}}}}`
-	if u, ok := GetParser("codex").ParseUsage(strings.NewReader(codex)); !ok || u.InputTokens != 10 || u.OutputTokens != 4 {
-		t.Fatalf("codex parser got=%+v ok=%v, want input=10 output=4 true", u, ok)
+	if u, ok := GetParser("codex").ParseUsage(strings.NewReader(codex)); !ok || u.InputTokens != 8 || u.OutputTokens != 3 {
+		t.Fatalf("codex parser got=%+v ok=%v, want input=8 output=3 true", u, ok)
 	}
 
 	claude := `{"type":"assistant","message":{"usage":{"input_tokens":7,"output_tokens":3}}}`

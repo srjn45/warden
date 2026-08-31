@@ -28,8 +28,8 @@ type codexTokenUsage struct {
 type CodexParser struct{}
 
 // ParseUsage returns the last token_count snapshot rather than summing events:
-// Codex token_count records are cumulative. Cached input and reasoning output
-// are included so the token denominator reflects all reported Codex usage.
+// Codex token_count records are cumulative. input_tokens and output_tokens
+// already include their cached-input and reasoning-output detail subsets.
 func (p *CodexParser) ParseUsage(r io.Reader) (u Usage, ok bool) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -44,8 +44,8 @@ func (p *CodexParser) ParseUsage(r io.Reader) (u Usage, ok bool) {
 		}
 
 		tokens := rec.Payload.Info.TotalTokenUsage
-		u.InputTokens = tokens.InputTokens + tokens.CachedInputTokens
-		u.OutputTokens = tokens.OutputTokens + tokens.ReasoningOutputTokens
+		u.InputTokens = tokens.InputTokens
+		u.OutputTokens = tokens.OutputTokens
 		ok = true
 	}
 	return u, ok
