@@ -96,6 +96,7 @@ Available Commands:
   token               Manage the daemon's remote-access bearer token
   tui                 Live terminal cockpit for agents
   tutorial            Run the first-run guided walkthrough of warden's core loop
+  usage               Show provider usage for subscription backends
   version             Print warden version and build information
   worktree            Inspect and reclaim warden's git worktrees: list and prune, in one place
 
@@ -3529,6 +3530,24 @@ Flags:
   -h, --help    help for tutorial
       --reset   delete the completion marker so the tutorial (and first-run hint) run fresh
       --skip    mark the tutorial complete without running it (silences the first-run hint)
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden usage
+
+```text
+Show provider usage for subscription backends
+
+Usage:
+  warden usage [flags]
+
+Flags:
+  -h, --help      help for usage
+      --json      print the stable JSON document
+      --refresh   bypass the daemon's fresh usage cache
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

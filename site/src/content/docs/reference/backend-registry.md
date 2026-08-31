@@ -80,6 +80,25 @@ to a paid backend.
 
 The generated [CLI reference](/warden/reference/cli/) has the full flag/help detail.
 
+## Subscription usage — `warden usage`
+
+`warden usage` asks the daemon for provider-owned usage data from every persisted
+row whose tier is exactly `subscription`. Disabled and uninstalled rows remain in
+the result; the read never rescans the registry or changes routing, cooldowns, or
+the default backend. Use `--json` for the stable v1 document and `--refresh` to
+bypass the daemon's 60-second fresh cache.
+
+Codex supplies structured percentage windows and reset times through its app-server
+protocol. Claude and Cursor currently supply safe plan/login metadata but report
+usage as `unsupported`; Antigravity reports `unsupported`. Warden deliberately does
+not substitute its local synthetic quota estimates or scrape interactive `/usage`
+screens. Account labels, credentials, raw provider output, paths, and request IDs
+are excluded.
+
+The command exits 0 when every row is `ok` or truthfully `unsupported`, 2 after
+rendering a partial result with an operational provider failure, and 1 when no
+consolidated document can be produced.
+
 ## MCP tools
 
 | Tool | Args | Returns |
@@ -98,6 +117,7 @@ The generated [CLI reference](/warden/reference/cli/) has the full flag/help det
 | Method + path | Purpose |
 |---|---|
 | `GET /api/v1/backends` | The registry + settings (read-only) |
+| `GET /api/v1/usage?refresh=true` | Provider usage for exact subscription-tier rows (read-only) |
 | `POST /api/v1/backends/rescan` | Re-detect and reconcile; returns the registry + settings |
 | `PUT /api/v1/backends/default` | `{id}` → set the default; returns the registry + settings |
 | `PUT /api/v1/backends/thinking-mode` | `{mode}` → set the thinking mode; returns settings |

@@ -807,6 +807,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BackendsState" }
 
+  /api/v1/usage:
+    get:
+      operationId: getUsage
+      tags: [Observability]
+      summary: Get subscription-backend provider usage
+      description: >
+        Concurrently queries every persisted backend whose tier is exactly
+        subscription. This read does not rescan or mutate registry, routing,
+        cooldown, or quota state. Provider errors are sanitized and successful
+        rows are retained when another provider fails.
+      parameters:
+        - name: refresh
+          in: query
+          description: Bypass the 60-second fresh cache (stale fallback remains available).
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Consolidated provider usage snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UsageSnapshot" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Backend registry or usage service unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/backends/rescan:
     post:
       operationId: rescanBackends
@@ -2935,6 +2963,61 @@ components:
         id: { type: string }
         internal_thinking_mode: { type: string, description: "local_only | free_plus_local" }
         allow_paid_autopilot: { type: boolean }
+
+    UsageSnapshot:
+      x-go-type: backendusage.Snapshot
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendusage
+        name: backendusage
+      type: object
+      required: [schema_version, generated_at, backends]
+      properties:
+        schema_version: { type: integer, enum: [1] }
+        generated_at: { type: string, format: date-time }
+        backends:
+          type: array
+          items: { $ref: "#/components/schemas/UsageBackend" }
+
+    UsageBackend:
+      type: object
+      required: [id, tier, installed, enabled, status, windows, observed_at, cached, stale]
+      properties:
+        id: { type: string }
+        tier: { type: string, enum: [subscription] }
+        installed: { type: boolean }
+        enabled: { type: boolean }
+        status: { type: string, enum: [ok, unsupported, unauthenticated, rate_limited, unavailable, timeout, error, not_installed] }
+        account: { $ref: "#/components/schemas/UsageAccount" }
+        windows: { type: array, items: { $ref: "#/components/schemas/UsageWindow" } }
+        observed_at: { type: string, format: date-time }
+        cached: { type: boolean }
+        stale: { type: boolean }
+        error: { $ref: "#/components/schemas/UsageError" }
+
+    UsageAccount:
+      type: object
+      properties:
+        plan: { type: string }
+        login_method: { type: string }
+
+    UsageWindow:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        name: { type: string, nullable: true }
+        used_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        remaining_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        duration_minutes: { type: integer, minimum: 1, nullable: true }
+        resets_at: { type: string, format: date-time, nullable: true }
+        limit_state: { type: string, nullable: true }
+
+    UsageError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
 
     Project:
       x-go-type: projectstore.Project
