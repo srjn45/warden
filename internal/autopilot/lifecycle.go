@@ -33,7 +33,7 @@ func (c *Controller) restoreStoredRuns() {
 	for _, rec := range records {
 		r := &run{runID: rec.RunID, name: rec.Name, repo: rec.Repo, planFile: rec.PlanFile,
 			absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
-			tried: map[string]bool{}}
+			guardianID: rec.GuardianID, tried: map[string]bool{}}
 		// Agent ids are process/session observations, not proof of a live manager.
 		// Boot reconciliation re-spawns only runs whose durable intent is live.
 		if plan, err := LoadPlan(rec.PlanFile); err == nil {
@@ -51,6 +51,7 @@ func (c *Controller) recordLocked(r *run) RunRecord {
 	if r.brain != nil {
 		rec.BrainID = r.brain.AgentID
 	}
+	rec.GuardianID = r.guardianID
 	return rec
 }
 

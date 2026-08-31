@@ -168,13 +168,31 @@ func isConnRefused(err error) bool {
 }
 
 func (c *Client) List(ctx context.Context) ([]*store.Session, error) {
+	return c.list(ctx, false)
+}
+
+// ListAll includes daemon-owned system sessions hidden from the ordinary fleet.
+func (c *Client) ListAll(ctx context.Context) ([]*store.Session, error) {
+	return c.list(ctx, true)
+}
+
+func (c *Client) list(ctx context.Context, all bool) ([]*store.Session, error) {
 	var resp struct {
 		Sessions []*store.Session `json:"sessions"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/sessions", nil, &resp); err != nil {
+	path := "/sessions"
+	if all {
+		path += "?all=true"
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Sessions, nil
+}
+
+// WatchAll is Watch with system sessions included.
+func (c *Client) WatchAll(ctx context.Context, onSnapshot func([]*store.Session) error) error {
+	return c.watch(ctx, true, onSnapshot)
 }
 
 // SearchParams mirrors the daemon's GET /search query.
@@ -257,8 +275,16 @@ func (c *Client) Import(ctx context.Context, env *store.Export, merge bool) (*st
 // ctx.Err(); callers that cancel deliberately (e.g. on Ctrl+C) should treat
 // context.Canceled as a clean stop.
 func (c *Client) Watch(ctx context.Context, onSnapshot func([]*store.Session) error) error {
+	return c.watch(ctx, false, onSnapshot)
+}
+
+func (c *Client) watch(ctx context.Context, all bool, onSnapshot func([]*store.Session) error) error {
 	// No per-call deadline: this is a long-lived stream, not a request/response.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+apiPrefix+"/events/stream", nil)
+	path := "/events/stream"
+	if all {
+		path += "?all=true"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+apiPrefix+path, nil)
 	if err != nil {
 		return err
 	}

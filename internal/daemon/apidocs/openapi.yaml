@@ -181,6 +181,11 @@ paths:
             filter by session kind: "agent" returns only AI agents (sessions with
             kind empty or "agent"), "terminal" returns only plain shells. Omitted =
             every session, agents and terminals alike (unchanged default).
+        - name: all
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Include system sessions. Omitted or false hides sessions tagged system:true.
       responses:
         "200":
           description: All live sessions

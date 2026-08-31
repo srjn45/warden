@@ -15,19 +15,20 @@ import (
 
 // fakeAPI is a test double for the tui api interface.
 type fakeAPI struct {
-	sessions    []*store.Session
-	listErr     error
-	output      string
-	spawned     *client.SpawnParams
-	terminated  string
-	termErr     error
-	deleted     string
-	deleteErr   error
-	sentTo      string
-	sentText    string
-	renamedID   string // id of the last SetName
-	renamedName string // name of the last SetName
-	renameErr   error  // error SetName returns
+	sessions       []*store.Session
+	systemSessions []*store.Session
+	listErr        error
+	output         string
+	spawned        *client.SpawnParams
+	terminated     string
+	termErr        error
+	deleted        string
+	deleteErr      error
+	sentTo         string
+	sentText       string
+	renamedID      string // id of the last SetName
+	renamedName    string // name of the last SetName
+	renameErr      error  // error SetName returns
 
 	autoApproveID    string // id of the last SetAutoApprove
 	autoApproveVal   bool   // enabled value of the last SetAutoApprove
@@ -96,6 +97,12 @@ type fakeAPI struct {
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
+func (f *fakeAPI) ListAll(context.Context) ([]*store.Session, error) {
+	if f.systemSessions != nil {
+		return f.systemSessions, f.listErr
+	}
+	return f.sessions, f.listErr
+}
 func (f *fakeAPI) Output(_ context.Context, _ string, _ int) (string, error) {
 	return f.output, nil
 }

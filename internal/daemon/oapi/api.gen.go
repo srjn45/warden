@@ -1199,6 +1199,9 @@ type SearchParams struct {
 type ListSessionsParams struct {
 	// Kind filter by session kind: "agent" returns only AI agents (sessions with kind empty or "agent"), "terminal" returns only plain shells. Omitted = every session, agents and terminals alike (unchanged default).
 	Kind ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// All Include system sessions. Omitted or false hides sessions tagged system:true.
+	All bool `form:"all,omitempty" json:"all,omitempty"`
 }
 
 // ListSessionsParamsKind defines parameters for ListSessions.
@@ -4643,6 +4646,19 @@ func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "all" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "all", r.URL.Query(), &params.All, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "all"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "all", Err: err})
 		}
 		return
 	}

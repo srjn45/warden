@@ -103,6 +103,7 @@ type controlPaneModel struct {
 	// once: on the first session list we either adopt an existing live terminal
 	// into the terminal pane or spawn a default one in the launch cwd (§5).
 	defaultTerminalReady bool
+	showSystemAgents     bool // toggled with S; fetches the daemon's expanded fleet
 	// openedAgent is the id of the agent currently shown in the agent pane; it
 	// anchors §8 M-a/M-p rotation (advance from here) and is set on every agent
 	// open/rotate. Empty until the first agent is opened.
@@ -566,7 +567,7 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 }
 
 func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
+	return tea.Batch(listCmd(m.api, m.showSystemAgents), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -586,7 +587,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
+		cmds := []tea.Cmd{listCmd(m.api, m.showSystemAgents), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -692,7 +693,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The spawned terminal's tmux session is its id (lifecycle sets
 		// TmuxSession=id). Refresh the list so it appears under Terminals and open
 		// it in the terminal pane (focusing it only on an explicit create/`t`).
-		cmds := []tea.Cmd{listCmd(m.api)}
+		cmds := []tea.Cmd{listCmd(m.api, m.showSystemAgents)}
 		if m.terminalPane != "" {
 			cmds = append(cmds, openInTerminalCmd(m.terminalPane, msg.id, msg.focus))
 		}
@@ -729,7 +730,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "closed project " + filepath.Base(msg.id)
 		}
 		// Refresh both surfaces: the project flips to closed and its agents wind down.
-		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api))
+		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api, m.showSystemAgents))
 	case pipelineActionMsg:
 		if msg.err != nil {
 			m.status = "pipeline action failed: " + msg.err.Error()
@@ -786,7 +787,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pendingSelect = projKey(msg.proj.ID)
 		m.status = "opened " + msg.proj.Name
 		m.repin("")
-		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api))
+		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api, m.showSystemAgents))
 	case spawnDoneMsg:
 		switch {
 		case msg.confirm != nil:
@@ -812,14 +813,14 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "renamed " + msg.id
 		}
-		return m, listCmd(m.api) // refresh so the new name shows immediately
+		return m, listCmd(m.api, m.showSystemAgents) // refresh so the new name shows immediately
 	case overrideDoneMsg:
 		if msg.err != nil {
 			m.status = "override failed: " + msg.err.Error()
 		} else {
 			m.status = msg.note
 		}
-		return m, listCmd(m.api) // refresh so the new override value shows immediately
+		return m, listCmd(m.api, m.showSystemAgents) // refresh so the new override value shows immediately
 	case cleanupDoneMsg:
 		m.mode = modeNormal
 		m.status = "removed " + msg.id
@@ -1480,6 +1481,14 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+a":
 		// Toggle autopilot on/off. The result message updates m.autopilot.
 		return m, autopilotToggleCmd(m.api, !m.autopilot.Enabled)
+	case "S":
+		m.showSystemAgents = !m.showSystemAgents
+		if m.showSystemAgents {
+			m.status = "system agents visible"
+		} else {
+			m.status = "system agents hidden"
+		}
+		return m, listCmd(m.api, m.showSystemAgents)
 	case "alt+t":
 		// §8 global rotation: advance the terminal pane to the next live terminal
 		// (delivered here by the tmux M-t root binding, from any pane).
@@ -1811,7 +1820,7 @@ func (m controlPaneModel) View() string {
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.
-	footer := stMuted.Render("enter open · tab switch · n new · o open project · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · tab switch · S system · n new · o open project · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}

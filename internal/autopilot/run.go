@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -126,6 +127,17 @@ type GuardianRuntime interface {
 	NotifyEscalation(runID, title, body string)
 }
 
+// GuardianAgentRuntime promotes the daemon guardian loop to an inspectable,
+// lightweight system session. It is optional so embedders and older Runtime
+// fakes retain the daemon-loop-only behavior.
+type GuardianAgentRuntime interface {
+	SpawnGuardian(ctx context.Context, runID, repo string) (agentID string, err error)
+	TerminateGuardian(ctx context.Context, agentID string) error
+	// ReconcileGuardians removes guardian sessions not present in valid, keyed by
+	// run id. It runs once when the daemon runtime is attached at boot.
+	ReconcileGuardians(ctx context.Context, valid map[string]string) (missingRunIDs []string, err error)
+}
+
 // rotateBrain is the guardian's rotation hook (autopilot.md §7): terminate the
 // current brain and spawn a fresh one on backend, cold-starting from the ledger
 // via a freshly composed digest. S3 provides the signature and the mechanical
@@ -181,6 +193,16 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 		return fmt.Errorf("spawn brain: %w", err)
 	}
 	r.brain = &handle
+	if gr, ok := c.runtime.(GuardianAgentRuntime); ok && r.guardianID == "" {
+		id, gerr := gr.SpawnGuardian(ctx, r.runID, r.repo)
+		if gerr != nil {
+			_ = c.runtime.TerminateBrain(ctx, handle.AgentID)
+			r.brain = nil
+			r.state = StateDegraded
+			return fmt.Errorf("spawn guardian: %w", gerr)
+		}
+		r.guardianID = id
+	}
 	r.brainSpawnedAt = c.now() // fresh spawn counts as a heartbeat until the brain acts
 	r.state = StateActive
 	return nil
@@ -190,12 +212,19 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 // §2.1). In-flight workers are deliberately left running. Best-effort: a
 // terminate error is returned for logging but the run is dropped regardless.
 func (c *Controller) teardownBrain(ctx context.Context, r *run) error {
-	if c.runtime == nil || r.brain == nil || r.brain.AgentID == "" {
+	if c.runtime == nil {
 		return nil
 	}
-	err := c.runtime.TerminateBrain(ctx, r.brain.AgentID)
-	r.brain = nil
-	return err
+	var errs []error
+	if r.brain != nil && r.brain.AgentID != "" {
+		errs = append(errs, c.runtime.TerminateBrain(ctx, r.brain.AgentID))
+		r.brain = nil
+	}
+	if gr, ok := c.runtime.(GuardianAgentRuntime); ok && r.guardianID != "" {
+		errs = append(errs, gr.TerminateGuardian(ctx, r.guardianID))
+		r.guardianID = ""
+	}
+	return errors.Join(errs...)
 }
 
 // reloadPlanIfChanged re-reads the plan file when its mtime has advanced since

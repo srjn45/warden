@@ -1731,6 +1731,7 @@ Usage:
   warden ls [flags]
 
 Flags:
+  -a, --all           include system agents
   -h, --help          help for ls
       --json          output as JSON
       --tag strings   only show agents carrying every given tag (repeatable or comma-separated, e.g. --tag backend --tag urgent)

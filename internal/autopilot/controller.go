@@ -117,8 +117,9 @@ type run struct {
 	resolvedGate  string // gate mode resolved at preflight (§6.1): ci | local
 	defaultBranch string // repo default branch — the land guard's protected name
 
-	brain  *BrainHandle       // nil until the brain spawns; nil again after teardown
-	cancel context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
+	brain      *BrainHandle       // nil until the brain spawns; nil again after teardown
+	guardianID string             // daemon-owned system session representing the guardian loop
+	cancel     context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
 	// the guardian tick or the (re)spawn helpers.
@@ -232,6 +233,25 @@ func (c *Controller) SetRuntime(rt Runtime) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.runtime = rt
+	if gr, ok := rt.(GuardianAgentRuntime); ok {
+		valid := make(map[string]string)
+		for _, r := range c.runs {
+			if r.guardianID != "" && r.state != StateStopped && r.state != StateComplete {
+				valid[r.runID] = r.guardianID
+			}
+		}
+		missing, err := gr.ReconcileGuardians(context.Background(), valid)
+		if err != nil {
+			slog.Warn("autopilot: guardian boot reconciliation failed", "err", err)
+		} else {
+			for _, runID := range missing {
+				if r := c.runs[runID]; r != nil {
+					r.guardianID = ""
+					c.persistRunLocked(r)
+				}
+			}
+		}
+	}
 }
 
 // RunID is the stable identifier for a run: a short hash of the repo root and the

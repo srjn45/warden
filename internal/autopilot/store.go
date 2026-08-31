@@ -32,6 +32,7 @@ type RunRecord struct {
 	Strategy          string    `json:"strategy,omitempty"`
 	DeleteBranch      bool      `json:"delete_branch,omitempty"`
 	BrainID           string    `json:"brain_id,omitempty"`
+	GuardianID        string    `json:"guardian_id,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }

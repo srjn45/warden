@@ -13,6 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/mailbox"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // autopilotRuntime adapts the daemon Server to autopilot.Runtime (docs/specs/
@@ -26,10 +27,16 @@ type autopilotRuntime struct{ s *Server }
 // any surface (guardian liveness §2.3, overwatch fleet-tending §2.4, the digest
 // sources) is a build error, not a silent no-op.
 var (
-	_ autopilot.Runtime          = autopilotRuntime{}
-	_ autopilot.GuardianRuntime  = autopilotRuntime{}
-	_ autopilot.OverwatchRuntime = autopilotRuntime{}
-	_ autopilot.DigestSources    = autopilotRuntime{}
+	_ autopilot.Runtime              = autopilotRuntime{}
+	_ autopilot.GuardianRuntime      = autopilotRuntime{}
+	_ autopilot.GuardianAgentRuntime = autopilotRuntime{}
+	_ autopilot.OverwatchRuntime     = autopilotRuntime{}
+	_ autopilot.DigestSources        = autopilotRuntime{}
+)
+
+const (
+	guardianSystemTag = "system:true"
+	guardianRunPrefix = "autopilot-run:"
 )
 
 // autopilotBrainRole is the built-in role the brain spawns under: it carries the
@@ -83,6 +90,92 @@ func (rt autopilotRuntime) TerminateBrain(ctx context.Context, agentID string) e
 	}
 	rt.s.notify()
 	return nil
+}
+
+// SpawnGuardian creates a cheap terminal-backed system session representing the
+// daemon's guardian loop. The loop itself remains daemon-owned; the session makes
+// its lifecycle inspectable without consuming an LLM backend.
+func (rt autopilotRuntime) SpawnGuardian(ctx context.Context, runID, repo string) (string, error) {
+	id := "guardian-" + strings.TrimPrefix(runID, "ap-")
+	now := time.Now().UTC()
+	if _, err := rt.s.store.Get(ctx, id); err == nil {
+		if err := rt.s.store.Update(ctx, id, func(sess *store.Session) error {
+			sess.Status, sess.Tags, sess.Repo, sess.Workdir = store.StatusIdle,
+				[]string{guardianSystemTag, guardianRunPrefix + runID}, repo, repo
+			return nil
+		}); err != nil {
+			return "", err
+		}
+		rt.s.notify()
+		return id, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	sess := &store.Session{ID: id, Name: id, Repo: repo, Workdir: repo,
+		Status: store.StatusIdle, Tags: []string{guardianSystemTag, guardianRunPrefix + runID},
+		CreatedAt: now, UpdatedAt: now}
+	if err := rt.s.store.Insert(ctx, sess); err != nil {
+		return "", err
+	}
+	rt.s.notify()
+	return id, nil
+}
+
+func (rt autopilotRuntime) TerminateGuardian(ctx context.Context, agentID string) error {
+	sess, err := rt.s.store.Get(ctx, agentID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := rt.s.life.Terminate(ctx, sess.TmuxSession); err != nil {
+		return err
+	}
+	if err := rt.s.store.UpdateStatus(ctx, sess.ID, store.StatusDone); err != nil {
+		return err
+	}
+	rt.s.notify()
+	return nil
+}
+
+// ReconcileGuardians terminates leaked system guardians whose run disappeared,
+// became terminal, or now points at a different guardian id.
+func (rt autopilotRuntime) ReconcileGuardians(ctx context.Context, valid map[string]string) ([]string, error) {
+	sessions, err := rt.s.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var errs []error
+	seen := make(map[string]bool)
+	for _, sess := range sessions {
+		if !containsTag(sess.Tags, guardianSystemTag) {
+			continue
+		}
+		runID := ""
+		for _, tag := range sess.Tags {
+			if strings.HasPrefix(tag, guardianRunPrefix) {
+				runID = strings.TrimPrefix(tag, guardianRunPrefix)
+				break
+			}
+		}
+		if runID == "" {
+			continue // system visibility is not, by itself, guardian ownership
+		}
+		if valid[runID] != sess.ID {
+			errs = append(errs, rt.TerminateGuardian(ctx, sess.ID))
+		} else {
+			seen[runID] = true
+		}
+	}
+	missing := make([]string, 0)
+	for runID := range valid {
+		if !seen[runID] {
+			missing = append(missing, runID)
+		}
+	}
+	sort.Strings(missing)
+	return missing, errors.Join(errs...)
 }
 
 // NewLedger returns a run-scoped ledger over the shared-context blackboard, or nil

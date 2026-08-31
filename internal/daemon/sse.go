@@ -42,6 +42,15 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		if sessions == nil {
 			sessions = []*store.Session{}
 		}
+		if r.URL.Query().Get("all") != "true" {
+			visible := make([]*store.Session, 0, len(sessions))
+			for _, sess := range sessions {
+				if !sess.HasTag("system:true") {
+					visible = append(visible, sess)
+				}
+			}
+			sessions = visible
+		}
 		payload, err := json.Marshal(sessionsResponse{Sessions: sessions})
 		if err != nil {
 			return true

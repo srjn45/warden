@@ -45,11 +45,17 @@ func bgLong() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 5*time.Minute)
 }
 
-func listCmd(a api) tea.Cmd {
+func listCmd(a api, includeSystem bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
 		defer cancel()
-		ss, err := a.List(ctx)
+		var ss []*store.Session
+		var err error
+		if includeSystem {
+			ss, err = a.ListAll(ctx)
+		} else {
+			ss, err = a.List(ctx)
+		}
 		return sessionsMsg{sessions: ss, err: err}
 	}
 }

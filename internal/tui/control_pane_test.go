@@ -18,6 +18,17 @@ func lstep(m controlPaneModel, msg tea.Msg) controlPaneModel {
 	return nm.(controlPaneModel)
 }
 
+func TestSystemAgentToggleUsesExpandedList(t *testing.T) {
+	a := &fakeAPI{sessions: []*store.Session{{ID: "ordinary"}}, systemSessions: []*store.Session{{ID: "ordinary"}, {ID: "guardian", Tags: []string{"system:true"}}}}
+	m := newListPane(a, "%9", "")
+	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	m = nm.(controlPaneModel)
+	require.True(t, m.showSystemAgents)
+	require.NotNil(t, cmd)
+	msg := cmd().(sessionsMsg)
+	require.Len(t, msg.sessions, 2)
+}
+
 func TestListPaneGroupsBySourceDir(t *testing.T) {
 	now := time.Now()
 	m := newListPane(&fakeAPI{}, "%9", "")

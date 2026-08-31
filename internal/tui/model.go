@@ -14,6 +14,7 @@ import (
 // api is the subset of *client.Client the TUI needs (fakeable in tests).
 type api interface {
 	List(ctx context.Context) ([]*store.Session, error)
+	ListAll(ctx context.Context) ([]*store.Session, error)
 	Output(ctx context.Context, id string, lines int) (string, error)
 	Spawn(ctx context.Context, p client.SpawnParams) (*store.Session, error)
 	Terminate(ctx context.Context, id string) error
