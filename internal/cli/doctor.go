@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/llm"
+	"github.com/srjn45/warden/internal/store"
 )
 
 // doctorVersion is the reported warden version. There is no build-stamped
@@ -127,12 +128,26 @@ func formatReport(version string, results []checkResult) string {
 }
 
 func newDoctorCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Run preflight checks (required binaries, daemon, data dir, configured local model)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.Load(configPathFor(cmd))
+			sessions, _ := cmd.Flags().GetBool("sessions")
+			if sessions {
+				var report *store.RecoveryReport
+				err := store.WithOfflineSessionStore(cfg.DataDir, func() error {
+					var err error
+					report, err = store.DiagnoseSessions(cmd.Context(), cfg.DataDir)
+					return err
+				})
+				if err != nil {
+					return fmt.Errorf("session store must be offline: %w", err)
+				}
+				enrichSessionReconciliation(report)
+				return printRecoveryReport(cmd.OutOrStdout(), report, false, true)
+			}
 			if a, _ := cmd.Flags().GetString("addr"); a != "" {
 				cfg.Addr = a
 			}
@@ -167,4 +182,6 @@ func newDoctorCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("sessions", false, "diagnose the session store offline without modifying it")
+	return cmd
 }
