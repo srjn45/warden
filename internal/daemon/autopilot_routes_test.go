@@ -107,6 +107,7 @@ func TestGuardianBootReconcileTerminatesOrphans(t *testing.T) {
 	st := newFakeStore()
 	for _, sess := range []*store.Session{
 		{ID: "guardian-live", Status: store.StatusWorking, Tags: []string{"system:true", "autopilot-run:ap-live"}},
+		{ID: "guardian-dead", Status: store.StatusDone, Tags: []string{"system:true", "autopilot-run:ap-dead"}},
 		{ID: "guardian-orphan", Status: store.StatusWorking, Tags: []string{"system:true", "autopilot-run:ap-gone"}},
 		{ID: "system-other", Status: store.StatusWorking, Tags: []string{"system:true"}},
 		{ID: "ordinary", Status: store.StatusWorking},
@@ -114,9 +115,9 @@ func TestGuardianBootReconcileTerminatesOrphans(t *testing.T) {
 		require.NoError(t, st.Insert(context.Background(), sess))
 	}
 	rt := autopilotRuntime{s: &Server{store: st, life: &fakeLife{}, hub: newHub()}}
-	missing, err := rt.ReconcileGuardians(context.Background(), map[string]string{"ap-live": "guardian-live", "ap-missing": "guardian-missing"})
+	missing, err := rt.ReconcileGuardians(context.Background(), map[string]string{"ap-live": "guardian-live", "ap-dead": "guardian-dead", "ap-missing": "guardian-missing"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"ap-missing"}, missing)
+	require.Equal(t, []string{"ap-dead", "ap-missing"}, missing)
 	live, _ := st.Get(context.Background(), "guardian-live")
 	orphan, _ := st.Get(context.Background(), "guardian-orphan")
 	ordinary, _ := st.Get(context.Background(), "ordinary")
@@ -253,11 +254,18 @@ func TestCompleteAutopilotHandler(t *testing.T) {
 	require.True(t, forbidden, "a non-brain caller gets 403")
 	require.Equal(t, autopilot.StateActive, srv.autopilot.Status().Runs[0].State)
 
-	// The run's own brain (role autopilot + its run tag) completes the run.
+	// A stale brain with the right role/tag cannot complete the run.
 	brain := &store.Session{ID: "brain-caller", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
 	require.NoError(t, srv.store.Insert(context.Background(), brain))
-
 	resp, err = srv.CompleteAutopilot(ctxWithActor("brain-caller"), oapi.CompleteAutopilotRequestObject{})
+	require.NoError(t, err)
+	_, forbidden = resp.(oapi.CompleteAutopilot403JSONResponse)
+	require.True(t, forbidden, "a stale brain cannot complete the run")
+
+	// The current brain completes the run.
+	activeBrainID := st.Runs[0].Brain.AgentID
+
+	resp, err = srv.CompleteAutopilot(ctxWithActor(activeBrainID), oapi.CompleteAutopilotRequestObject{})
 	require.NoError(t, err)
 	ok200, isOK := resp.(oapi.CompleteAutopilot200JSONResponse)
 	require.True(t, isOK, "the brain completes its run (200)")

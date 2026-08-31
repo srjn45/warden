@@ -252,6 +252,39 @@ func (c *Controller) SetRuntime(rt Runtime) {
 			}
 		}
 	}
+	// Durable run records, not the deprecated config plan list, are the V2
+	// restart authority. Recreate every run whose persisted intent is live even
+	// when it was registered directly and therefore is absent from c.plans.
+	for _, r := range c.runs {
+		// The per-repo kill switch wins if shutdown happened between clearing the
+		// enabled set and persisting each run's stopped state.
+		if !c.enableStore.IsEnabled(r.repo) {
+			continue
+		}
+		switch r.state {
+		case StateActive, StateStarting, StateHealing, StateDegraded:
+		default:
+			continue
+		}
+		if err := c.preflightRegisteredRunLocked(context.Background(), r); err != nil {
+			r.state = StateDegraded
+			c.persistRunLocked(r)
+			slog.Warn("autopilot: stored run recovery skipped", "run", r.runID, "err", err)
+			continue
+		}
+		r.state = StateStarting
+		sel := c.selectBrain(nil)
+		r.tier = sel.Tier
+		if err := c.spawnBrain(context.Background(), r, sel.Backend); err != nil {
+			slog.Warn("autopilot: stored run recovery failed", "run", r.runID, "err", err)
+		}
+		if r.brain != nil && r.cancel == nil {
+			wctx, cancel := context.WithCancel(context.Background())
+			r.cancel = cancel
+			go c.watchPlan(wctx, r, planWatchInterval)
+		}
+		c.persistRunLocked(r)
+	}
 }
 
 // RunID is the stable identifier for a run: a short hash of the repo root and the
@@ -733,6 +766,22 @@ func (c *Controller) ActiveBrainForRun(runID string) (string, bool) {
 		return "", false // the run's repo has been switched off
 	}
 	return r.brain.AgentID, true
+}
+
+// CanBrainComplete authorizes the state-changing completion edge to the current
+// brain. Once complete, retries are harmless no-ops and remain idempotent for a
+// correctly tagged brain whose first response may have been lost.
+func (c *Controller) CanBrainComplete(runID, brainID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok {
+		return false
+	}
+	if r.state == StateComplete {
+		return true
+	}
+	return r.brain != nil && r.brain.AgentID == brainID && c.enableStore.IsEnabled(r.repo)
 }
 
 // Status returns the current AutopilotStatus (§5).

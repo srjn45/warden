@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -133,6 +134,34 @@ func (c *Controller) Register(ctx context.Context, req RegisterRequest) (RunStat
 	return c.runStatusLocked(r), nil
 }
 
+// preflightRegisteredRunLocked applies the same safety checks as legacy Enable
+// to one durable V2 record before a start or resume. Caller holds c.mu.
+func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) error {
+	resolved, failures := c.preflightPlan(ctx, r.absPlanFile)
+	if len(failures) == 0 && !resolved.skipComplete {
+		failures = append(failures, c.validatePersistedDoneClaims(resolved.runID, resolved.plan)...)
+	}
+	if resolved.skipComplete {
+		failures = append(failures, "plan is already marked complete")
+	}
+	if resolved.repo != "" && (resolved.repo != r.repo || resolved.runID != r.runID) {
+		failures = append(failures, "registered plan identity no longer matches its repository")
+	}
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		return &PreflightError{Failures: dedupe(failures)}
+	}
+	r.plan = resolved.plan
+	r.planFile = resolved.file
+	r.absPlanFile = resolved.absFile
+	r.resolvedGate = resolved.resolvedGate
+	r.defaultBranch = resolved.defaultBranch
+	if info, err := os.Stat(resolved.absFile); err == nil {
+		r.planModTime = info.ModTime()
+	}
+	return nil
+}
+
 func (c *Controller) StartRun(ctx context.Context, id string) (RunStatus, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -148,6 +177,9 @@ func (c *Controller) StartRun(ctx context.Context, id string) (RunStatus, error)
 	case StateRegistered, StateStopped, StateDisabled:
 	default:
 		return RunStatus{}, fmt.Errorf("%w: cannot start run in state %s", ErrRunConflict, r.state)
+	}
+	if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
+		return c.runStatusLocked(r), err
 	}
 	r.state = StateStarting
 	if err := c.enableStore.Enable(r.repo); err != nil {
@@ -208,12 +240,25 @@ func (c *Controller) ResumeRun(ctx context.Context, id string) (RunStatus, error
 	if r.state != StatePaused {
 		return RunStatus{}, fmt.Errorf("%w: cannot resume run in state %s", ErrRunConflict, r.state)
 	}
-	if plan, err := LoadPlan(r.absPlanFile); err != nil {
-		return RunStatus{}, err
-	} else {
-		r.plan = plan
+	if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
+		return c.runStatusLocked(r), err
 	}
-	r.state = StateActive
+	if r.brain == nil {
+		r.state = StateStarting
+		sel := c.selectBrain(nil)
+		r.tier = sel.Tier
+		if err := c.spawnBrain(ctx, r, sel.Backend); err != nil {
+			c.persistRunLocked(r)
+			return c.runStatusLocked(r), err
+		}
+		if c.runtime != nil && r.cancel == nil {
+			wctx, cancel := context.WithCancel(context.Background())
+			r.cancel = cancel
+			go c.watchPlan(wctx, r, planWatchInterval)
+		}
+	} else {
+		r.state = StateActive
+	}
 	if err := c.persistRunLockedErr(r); err != nil {
 		return RunStatus{}, err
 	}
@@ -249,6 +294,12 @@ func (c *Controller) runStatusLocked(r *run) RunStatus {
 func (c *Controller) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for _, r := range c.runs {
+		if r.cancel != nil {
+			r.cancel()
+			r.cancel = nil
+		}
+	}
 	if c.store == nil {
 		return nil
 	}

@@ -162,7 +162,7 @@ func (rt autopilotRuntime) ReconcileGuardians(ctx context.Context, valid map[str
 		if runID == "" {
 			continue // system visibility is not, by itself, guardian ownership
 		}
-		if valid[runID] != sess.ID {
+		if valid[runID] != sess.ID || !guardianSessionLive(sess.Status) {
 			errs = append(errs, rt.TerminateGuardian(ctx, sess.ID))
 		} else {
 			seen[runID] = true
@@ -176,6 +176,15 @@ func (rt autopilotRuntime) ReconcileGuardians(ctx context.Context, valid map[str
 	}
 	sort.Strings(missing)
 	return missing, errors.Join(errs...)
+}
+
+func guardianSessionLive(status store.Status) bool {
+	switch status {
+	case store.StatusSpawning, store.StatusWorking, store.StatusWaitingForInput, store.StatusIdle, store.StatusRateLimited:
+		return true
+	default:
+		return false
+	}
 }
 
 // NewLedger returns a run-scoped ledger over the shared-context blackboard, or nil

@@ -54,6 +54,10 @@ func TestMultiRunLifecyclePersists(t *testing.T) {
 	require.NotEqual(t, r1.RunID, r2.RunID)
 	_, err = c.StartRun(context.Background(), r1.RunID)
 	require.NoError(t, err)
+	land, ok := c.LandParams(r1.RunID)
+	require.True(t, ok)
+	require.Equal(t, "main", land.DefaultBranch, "registered start must run merge-safety preflight")
+	require.Equal(t, "local", land.Gate)
 	_, err = c.StartRun(context.Background(), r2.RunID)
 	require.NoError(t, err)
 	_, err = c.PauseRun(context.Background(), r1.RunID)
@@ -103,4 +107,54 @@ func TestRegisteredRunSurvivesConfigReloadWithoutLegacyPlans(t *testing.T) {
 	require.Len(t, got.Runs, 1)
 	require.Equal(t, r.RunID, got.Runs[0].RunID)
 	require.Equal(t, StateRegistered, got.Runs[0].State)
+}
+
+func TestRegisteredActiveRunRecoversWithoutLegacyConfig(t *testing.T) {
+	repo := t.TempDir()
+	plan := writePlan(t, repo, "named.yaml", "durable")
+	data := t.TempDir()
+	env := &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }}
+
+	c1 := NewController(ControllerConfig{DataDir: data, BaseDir: repo}, env)
+	r, err := c1.Register(context.Background(), RegisterRequest{Name: "named", PlanFile: plan})
+	require.NoError(t, err)
+	rt1 := newFakeRuntime()
+	c1.SetRuntime(rt1)
+	_, err = c1.StartRun(context.Background(), r.RunID)
+	require.NoError(t, err)
+	require.NoError(t, c1.Close())
+
+	c2 := NewController(ControllerConfig{DataDir: data, BaseDir: repo}, env)
+	t.Cleanup(func() { require.NoError(t, c2.Close()) })
+	rt2 := newFakeRuntime()
+	c2.SetRuntime(rt2)
+	require.Len(t, rt2.spawned, 1, "durable active intent must recover without autopilot.plans")
+	require.Equal(t, r.RunID, rt2.spawned[0].RunID)
+	require.Equal(t, StateActive, c2.Status().Runs[0].State)
+}
+
+func TestPausedRunResumeAfterRestartSpawnsBrain(t *testing.T) {
+	repo := t.TempDir()
+	plan := writePlan(t, repo, "paused.yaml", "durable")
+	data := t.TempDir()
+	env := &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }}
+	c1 := NewController(ControllerConfig{DataDir: data, BaseDir: repo}, env)
+	r, err := c1.Register(context.Background(), RegisterRequest{Name: "paused", PlanFile: plan})
+	require.NoError(t, err)
+	c1.SetRuntime(newFakeRuntime())
+	_, err = c1.StartRun(context.Background(), r.RunID)
+	require.NoError(t, err)
+	_, err = c1.PauseRun(context.Background(), r.RunID)
+	require.NoError(t, err)
+	require.NoError(t, c1.Close())
+
+	c2 := NewController(ControllerConfig{DataDir: data, BaseDir: repo}, env)
+	t.Cleanup(func() { require.NoError(t, c2.Close()) })
+	rt2 := newFakeRuntime()
+	c2.SetRuntime(rt2)
+	require.Empty(t, rt2.spawned, "paused intent must not start work at boot")
+	got, err := c2.ResumeRun(context.Background(), r.RunID)
+	require.NoError(t, err)
+	require.Len(t, rt2.spawned, 1)
+	require.Equal(t, StateActive, got.State)
 }

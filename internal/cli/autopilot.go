@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -32,15 +33,38 @@ func newAutopilotCmd() *cobra.Command {
 			"block in the config file (or scaffold it with `warden autopilot init`).",
 	}
 	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd(), newAutopilotInitCmd(),
-		newAutopilotRegisterCmd(), newAutopilotRunActionCmd("start"), newAutopilotRunActionCmd("pause"),
+		newAutopilotRegisterCmd(), newAutopilotListCmd(), newAutopilotRunActionCmd("start"), newAutopilotRunActionCmd("pause"),
 		newAutopilotRunActionCmd("resume"), newAutopilotRunActionCmd("stop"))
 	return cmd
+}
+
+func newAutopilotListCmd() *cobra.Command {
+	return &cobra.Command{Use: "list", Short: "List all registered autopilot runs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		runs, err := clientFor(cmd).ListAutopilotRuns(cmd.Context())
+		if err != nil {
+			return err
+		}
+		for _, r := range runs {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\n", r.RunID, r.Name, r.State, r.PlanFile, r.Repo)
+		}
+		return nil
+	}}
 }
 
 func newAutopilotRegisterCmd() *cobra.Command {
 	var name, repo string
 	cmd := &cobra.Command{Use: "register <plan-file>", Short: "Register a named autopilot plan", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		r, err := clientFor(cmd).RegisterAutopilotRun(cmd.Context(), name, repo, args[0])
+		planFile, err := filepath.Abs(args[0])
+		if err != nil {
+			return fmt.Errorf("resolve plan file: %w", err)
+		}
+		if repo != "" {
+			repo, err = filepath.Abs(repo)
+			if err != nil {
+				return fmt.Errorf("resolve repository: %w", err)
+			}
+		}
+		r, err := clientFor(cmd).RegisterAutopilotRun(cmd.Context(), name, repo, planFile)
 		if err != nil {
 			return err
 		}
