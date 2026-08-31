@@ -45,7 +45,7 @@ func newUsageCmd() *cobra.Command {
 				return err
 			}
 			for _, b := range snapshot.Backends {
-				if operationalFailure(b.Status) {
+				if usageIsPartial(b) {
 					return partialResultError{}
 				}
 			}
@@ -55,6 +55,10 @@ func newUsageCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print the stable JSON document")
 	cmd.Flags().BoolVar(&refresh, "refresh", false, "bypass the daemon's fresh usage cache")
 	return cmd
+}
+
+func usageIsPartial(b backendusage.BackendResult) bool {
+	return b.Stale || operationalFailure(b.Status)
 }
 
 func operationalFailure(s backendusage.Status) bool {

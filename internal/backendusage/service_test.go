@@ -16,6 +16,12 @@ type fakeRegistry struct {
 	err  error
 }
 
+type mutableRegistry struct{ rows []backendstore.Backend }
+
+func (r *mutableRegistry) List() ([]backendstore.Backend, error) {
+	return append([]backendstore.Backend(nil), r.rows...), nil
+}
+
 func (f fakeRegistry) List() ([]backendstore.Backend, error) {
 	return append([]backendstore.Backend(nil), f.rows...), f.err
 }
@@ -72,6 +78,71 @@ func TestServiceFreshCacheRefreshAndRedaction(t *testing.T) {
 	_, err = s.Snapshot(context.Background(), true)
 	require.NoError(t, err)
 	require.Equal(t, 2, calls)
+}
+
+func TestServiceCachedSnapshotDoesNotAliasPriorResult(t *testing.T) {
+	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	used, remaining, duration := 25.0, 75.0, 300
+	reset := now.Add(5 * time.Hour)
+	state := "available"
+	a := fakeAdapter{id: "codex", fetch: func(context.Context, backendstore.Backend) Result {
+		return Result{Status: StatusOK, ObservedAt: now, Usage: []Limit{{
+			ID: "codex:primary", Scope: "codex", Label: "codex primary",
+			ModelFamilies: []string{"gpt"}, Models: []string{"gpt-5"}, UsedPercent: &used,
+			RemainingPercent: &remaining, DurationMinutes: &duration, ResetsAt: &reset, LimitState: &state,
+		}}}
+	}}
+	s := NewService(fakeRegistry{rows: []backendstore.Backend{{ID: "codex", Tier: backendstore.TierSubscription, Installed: true}}}, a)
+	s.now = func() time.Time { return now }
+	first, err := s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	limit := &first.Backends[0].Usage[0]
+	limit.ModelFamilies[0] = "mutated"
+	limit.Models[0] = "mutated"
+	*limit.UsedPercent = 99
+	*limit.RemainingPercent = 1
+	*limit.DurationMinutes = 1
+	*limit.ResetsAt = time.Time{}
+	*limit.LimitState = "mutated"
+
+	second, err := s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	got := second.Backends[0].Usage[0]
+	require.Equal(t, []string{"gpt"}, got.ModelFamilies)
+	require.Equal(t, []string{"gpt-5"}, got.Models)
+	require.Equal(t, 25.0, *got.UsedPercent)
+	require.Equal(t, 75.0, *got.RemainingPercent)
+	require.Equal(t, 300, *got.DurationMinutes)
+	require.Equal(t, reset, *got.ResetsAt)
+	require.Equal(t, "available", *got.LimitState)
+}
+
+func TestServiceInvalidatesCacheWhenProbeIdentityChanges(t *testing.T) {
+	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	reg := &mutableRegistry{rows: []backendstore.Backend{{ID: "codex", Tier: backendstore.TierSubscription, Installed: true, BinaryPath: "/old/codex"}}}
+	calls := 0
+	a := fakeAdapter{id: "codex", fetch: func(_ context.Context, b backendstore.Backend) Result {
+		calls++
+		if !b.Installed {
+			return notInstalled(b.ID, now)
+		}
+		return Result{Status: StatusOK, Usage: []Limit{}, ObservedAt: now}
+	}}
+	s := NewService(reg, a)
+	s.now = func() time.Time { return now }
+	_, err := s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	reg.rows[0].Installed = false
+	second, err := s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	require.Equal(t, StatusNotInstalled, second.Backends[0].Status)
+	require.Equal(t, 2, calls)
+
+	reg.rows[0].Installed = true
+	reg.rows[0].BinaryPath = "/new/codex"
+	_, err = s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	require.Equal(t, 3, calls)
 }
 
 func TestServicePreservesPartialResults(t *testing.T) {

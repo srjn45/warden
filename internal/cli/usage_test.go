@@ -33,6 +33,11 @@ func TestUsageExitCode(t *testing.T) {
 	require.Equal(t, 1, ExitCode(assertionError{}))
 }
 
+func TestStaleUsageIsPartialResult(t *testing.T) {
+	require.True(t, usageIsPartial(backendusage.BackendResult{Status: backendusage.StatusOK, Stale: true}))
+	require.False(t, usageIsPartial(backendusage.BackendResult{Status: backendusage.StatusUnsupported}))
+}
+
 type assertionError struct{}
 
 func (assertionError) Error() string { return "ordinary" }

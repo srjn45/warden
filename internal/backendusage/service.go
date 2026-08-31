@@ -21,8 +21,10 @@ type Registry interface {
 	List() ([]backendstore.Backend, error)
 }
 type cacheEntry struct {
-	result   Result
-	storedAt time.Time
+	result     Result
+	storedAt   time.Time
+	installed  bool
+	binaryPath string
 }
 
 type Service struct {
@@ -81,7 +83,7 @@ func (s *Service) Snapshot(ctx context.Context, refresh bool) (Snapshot, error) 
 
 func (s *Service) collect(ctx context.Context, b backendstore.Backend, refresh bool, now time.Time) BackendResult {
 	if !refresh {
-		if ce, ok := s.cached(b.ID); ok && now.Sub(ce.storedAt) < FreshTTL {
+		if ce, ok := s.cached(b); ok && now.Sub(ce.storedAt) < FreshTTL {
 			return project(b, ce.result, true, false, nil)
 		}
 	}
@@ -106,11 +108,11 @@ func (s *Service) collect(ctx context.Context, b backendstore.Backend, refresh b
 	}
 	sort.SliceStable(r.Usage, func(i, j int) bool { return r.Usage[i].ID < r.Usage[j].ID })
 	if r.Status == StatusOK || r.Status == StatusUnsupported {
-		s.put(b.ID, r, now)
+		s.put(b, r, now)
 		return project(b, r, false, false, nil)
 	}
 	if transient(r.Status) {
-		if ce, ok := s.cached(b.ID); ok && now.Sub(ce.storedAt) <= StaleTTL {
+		if ce, ok := s.cached(b); ok && now.Sub(ce.storedAt) <= StaleTTL {
 			return project(b, ce.result, true, true, r.Error)
 		}
 	}
@@ -148,26 +150,36 @@ func normalizeLimits(limits []Limit) bool {
 	}
 	return true
 }
-func (s *Service) cached(id string) (cacheEntry, bool) {
+func (s *Service) cached(b backendstore.Backend) (cacheEntry, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	v, ok := s.cache[id]
+	v, ok := s.cache[b.ID]
+	if ok && (v.installed != b.Installed || v.binaryPath != b.BinaryPath) {
+		delete(s.cache, b.ID)
+		return cacheEntry{}, false
+	}
 	return v, ok
 }
-func (s *Service) put(id string, r Result, now time.Time) {
+func (s *Service) put(b backendstore.Backend, r Result, now time.Time) {
 	r = cloneResult(r)
 	if r.Account != nil {
 		r.Account.Label = ""
 	}
 	s.mu.Lock()
-	s.cache[id] = cacheEntry{result: r, storedAt: now}
+	s.cache[b.ID] = cacheEntry{result: r, storedAt: now, installed: b.Installed, binaryPath: b.BinaryPath}
 	s.mu.Unlock()
 }
 func cloneResult(r Result) Result {
 	r.Usage = append([]Limit(nil), r.Usage...)
 	for i := range r.Usage {
-		r.Usage[i].ModelFamilies = append([]string(nil), r.Usage[i].ModelFamilies...)
-		r.Usage[i].Models = append([]string(nil), r.Usage[i].Models...)
+		limit := &r.Usage[i]
+		limit.ModelFamilies = append([]string(nil), limit.ModelFamilies...)
+		limit.Models = append([]string(nil), limit.Models...)
+		limit.UsedPercent = clonePtr(limit.UsedPercent)
+		limit.RemainingPercent = clonePtr(limit.RemainingPercent)
+		limit.DurationMinutes = clonePtr(limit.DurationMinutes)
+		limit.ResetsAt = clonePtr(limit.ResetsAt)
+		limit.LimitState = clonePtr(limit.LimitState)
 	}
 	if r.Account != nil {
 		v := *r.Account
@@ -178,6 +190,14 @@ func cloneResult(r Result) Result {
 		r.Error = &v
 	}
 	return r
+}
+
+func clonePtr[T any](v *T) *T {
+	if v == nil {
+		return nil
+	}
+	clone := *v
+	return &clone
 }
 func project(b backendstore.Backend, r Result, cached, stale bool, warning *ProviderError) BackendResult {
 	r = cloneResult(r)
