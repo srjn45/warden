@@ -56,3 +56,22 @@ func TestRepairSessionsExposesDocumentedDryRunFlag(t *testing.T) {
 	flag := newRepairSessionsCmd().Flag("dry-run")
 	require.NotNil(t, flag)
 }
+
+func TestCopyTreePreservesPermissionsAndSymlinks(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "source")
+	dst := filepath.Join(root, "backup")
+	require.NoError(t, os.Mkdir(src, 0o750))
+	file := filepath.Join(src, "record")
+	require.NoError(t, os.WriteFile(file, []byte("metadata"), 0o640))
+	require.NoError(t, os.Chmod(file, 0o640))
+	require.NoError(t, os.Symlink("record", filepath.Join(src, "record-link")))
+
+	require.NoError(t, copyTree(src, dst))
+	info, err := os.Stat(filepath.Join(dst, "record"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	link, err := os.Readlink(filepath.Join(dst, "record-link"))
+	require.NoError(t, err)
+	require.Equal(t, "record", link)
+}

@@ -3,15 +3,24 @@ package store
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	scrivastore "github.com/srjn45/scriva/store"
 )
+
+const repairStateName = ".sessions-repair-state.json"
+
+type repairState struct {
+	Original    string `json:"original,omitempty"`
+	HadOriginal bool   `json:"had_original"`
+}
 
 // RecoveryReport describes records that can be reconstructed without mutating
 // the source store. It is intentionally safe to JSON-encode for operator tools.
@@ -72,7 +81,10 @@ func DiagnoseSessions(ctx context.Context, dataDir string) (*RecoveryReport, err
 	for _, s := range report.Active {
 		if closed := closedByID[s.ID]; closed != nil {
 			report.Reconciled = append(report.Reconciled, s.ID)
-			if !s.UpdatedAt.Before(closed.UpdatedAt) {
+			// Archive writes the closed copy before deleting active without changing
+			// UpdatedAt. Equal timestamps therefore mean an interrupted archive and
+			// the closed record wins; only a strictly newer active update reopens it.
+			if s.UpdatedAt.After(closed.UpdatedAt) {
 				delete(closedByID, s.ID)
 				active = append(active, s)
 			}
@@ -196,4 +208,109 @@ func WithOfflineSessionStore(dataDir string, fn func() error) error {
 	}
 	defer lock.release()
 	return fn()
+}
+
+// InstallRebuiltSessions installs a validated, adjacent sessions-db using a
+// recovery journal. Directory replacement needs two renames; the journal makes
+// the gap crash-recoverable. NewFileStore replays it before opening Scriva, so a
+// crash after moving the old DB cannot silently create an empty store.
+// The caller must hold the offline store lock.
+func InstallRebuiltSessions(dataDir, rebuiltDB string) error {
+	sourceDB := filepath.Join(dataDir, "sessions-db")
+	original := filepath.Join(dataDir, fmt.Sprintf("sessions-db.pre-repair-%d", time.Now().UnixNano()))
+	statePath := filepath.Join(dataDir, repairStateName)
+	_, statErr := os.Stat(sourceDB)
+	hadOriginal := statErr == nil
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	stateBytes, err := json.Marshal(repairState{Original: original, HadOriginal: hadOriginal})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(statePath, append(stateBytes, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := syncDir(dataDir); err != nil {
+		return err
+	}
+	if hadOriginal {
+		if err := os.Rename(sourceDB, original); err != nil {
+			_ = os.Remove(statePath)
+			return err
+		}
+		if err := syncDir(dataDir); err != nil {
+			_ = os.Rename(original, sourceDB)
+			_ = os.Remove(statePath)
+			return err
+		}
+	}
+	if err := os.Rename(rebuiltDB, sourceDB); err != nil {
+		if hadOriginal {
+			_ = os.Rename(original, sourceDB)
+		}
+		_ = os.Remove(statePath)
+		return err
+	}
+	if err := syncDir(dataDir); err != nil {
+		return err // journal retained; startup will finish cleanup
+	}
+	if hadOriginal {
+		if err := os.RemoveAll(original); err != nil {
+			return fmt.Errorf("repair installed but old store cleanup failed: %w", err)
+		}
+	}
+	if err := os.Remove(statePath); err != nil {
+		return err
+	}
+	return syncDir(dataDir)
+}
+
+// recoverInterruptedSessionRepair runs with the ownership lock held. It either
+// restores the original DB or completes cleanup of an installed replacement.
+func recoverInterruptedSessionRepair(dataDir string) error {
+	statePath := filepath.Join(dataDir, repairStateName)
+	b, err := os.ReadFile(statePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read interrupted session repair journal: %w", err)
+	}
+	var state repairState
+	if err := json.Unmarshal(b, &state); err != nil {
+		return fmt.Errorf("decode interrupted session repair journal: %w", err)
+	}
+	sourceDB := filepath.Join(dataDir, "sessions-db")
+	_, sourceErr := os.Stat(sourceDB)
+	sourceExists := sourceErr == nil
+	if sourceErr != nil && !errors.Is(sourceErr, os.ErrNotExist) {
+		return sourceErr
+	}
+	if state.HadOriginal && (state.Original == "" || filepath.Dir(state.Original) != filepath.Clean(dataDir) ||
+		!strings.HasPrefix(filepath.Base(state.Original), "sessions-db.pre-repair-")) {
+		return errors.New("invalid interrupted session repair journal")
+	}
+	if !sourceExists && state.HadOriginal {
+		if err := os.Rename(state.Original, sourceDB); err != nil {
+			return fmt.Errorf("restore interrupted session repair: %w", err)
+		}
+	} else if sourceExists && state.HadOriginal && state.Original != "" {
+		if err := os.RemoveAll(state.Original); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(statePath); err != nil {
+		return err
+	}
+	return syncDir(dataDir)
+}
+
+func syncDir(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
 }

@@ -2735,6 +2735,12 @@ components:
         sessions:
           type: array
           items: { $ref: "#/components/schemas/Session" }
+        degraded:
+          type: boolean
+          description: True when unreadable archive records were skipped and this list is incomplete.
+        skipped_records:
+          type: integer
+          description: Number of unreadable archive records omitted from this response.
 
     SpawnRequest:
       type: object

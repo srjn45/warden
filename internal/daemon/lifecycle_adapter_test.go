@@ -204,3 +204,20 @@ func TestAdapterHotSwap(t *testing.T) {
 	require.Equal(t, "codex", stored.Backend)
 	require.Equal(t, "gpt-5-codex", stored.Model)
 }
+
+func TestAdapterHotSwapReportsPersistenceFailure(t *testing.T) {
+	workdir := t.TempDir()
+	sess := &store.Session{ID: "swap-agent", TmuxSession: "swap-agent", Backend: "claude", Repo: workdir, Workdir: workdir}
+	st := newFakeStore()
+	require.NoError(t, st.Insert(context.Background(), sess))
+	st.updateErr = errors.New("disk full")
+	lc := lifecycle.New(&lifecycle.FakeRunner{}, &lifecycle.FakeConfig{})
+	lc.ProjectsDir = t.TempDir()
+	lc.PromptsDir = filepath.Join(t.TempDir(), "prompts")
+
+	_, err := NewLifecycleAdapter(lc, st).HotSwap(context.Background(), sess, lifecycle.SwapRequest{
+		Backend: "codex", Model: "gpt-5-codex", Reason: lifecycle.SwapReasonManual,
+	})
+	require.ErrorContains(t, err, "persist hot-swap session")
+	require.ErrorContains(t, err, "disk full")
+}

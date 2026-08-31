@@ -147,3 +147,25 @@ func TestStoreHealthCapabilityAdvertised(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	require.Contains(t, out.Capabilities, "store-health")
 }
+
+func TestHistorySurfacesArchiveDegradation(t *testing.T) {
+	fs := newFakeStore()
+	fs.closed["closed-1"] = &store.Session{ID: "closed-1"}
+	fs.closedSkipped = 2
+	ts := testServer(t, fs)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/history")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body struct {
+		Sessions       []store.Session `json:"sessions"`
+		Degraded       bool            `json:"degraded"`
+		SkippedRecords int             `json:"skipped_records"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.True(t, body.Degraded)
+	require.Equal(t, 2, body.SkippedRecords)
+	require.Len(t, body.Sessions, 1)
+}

@@ -85,25 +85,8 @@ func applySessionRepair(cmd *cobra.Command, dataDir, backup string, report *stor
 		if err != nil || len(verify.Skipped) != 0 || len(verify.Active) != len(report.Active) || len(verify.Closed) != len(report.Closed) {
 			return fmt.Errorf("rebuilt store validation failed: err=%v skipped=%d", err, len(verify.Skipped))
 		}
-		original := filepath.Join(dataDir, fmt.Sprintf("sessions-db.pre-repair-%d", time.Now().UnixNano()))
-		sourceDB := filepath.Join(dataDir, "sessions-db")
-		hadOriginal := true
-		if err := os.Rename(sourceDB, original); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-			hadOriginal = false
-		}
-		if err := os.Rename(filepath.Join(stage, "sessions-db"), sourceDB); err != nil {
-			if hadOriginal {
-				_ = os.Rename(original, sourceDB)
-			}
+		if err := store.InstallRebuiltSessions(dataDir, filepath.Join(stage, "sessions-db")); err != nil {
 			return err
-		}
-		if hadOriginal {
-			if err := os.RemoveAll(original); err != nil {
-				return fmt.Errorf("repair installed but old store cleanup failed: %w", err)
-			}
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "backup: %s\nrollback: stop the daemon, then restore this backup over %s\n", backup, dataDir)
 		return nil
@@ -125,7 +108,12 @@ func copyTree(src, dst string) error {
 	if _, err := os.Stat(dst); !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("backup destination already exists")
 	}
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	type dirTime struct {
+		path string
+		when time.Time
+	}
+	var dirTimes []dirTime
+	err = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -134,29 +122,73 @@ func copyTree(src, dst string) error {
 			return err
 		}
 		target := filepath.Join(dst, rel)
-		info, err := d.Info()
+		info, err := os.Lstat(path)
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			return os.Mkdir(target, info.Mode().Perm())
+			if err := os.Mkdir(target, info.Mode().Perm()); err != nil {
+				return err
+			}
+			if err := os.Chmod(target, info.Mode().Perm()); err != nil {
+				return err
+			}
+			dirTimes = append(dirTimes, dirTime{target, info.ModTime()})
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, target)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("unsupported backup file type at %s (%s)", path, info.Mode().Type())
 		}
 		in, err := os.Open(path)
 		if err != nil {
 			return err
 		}
-		defer in.Close()
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
 		if err != nil {
+			_ = in.Close()
 			return err
 		}
 		_, cpErr := io.Copy(out, in)
-		closeErr := out.Close()
+		inCloseErr := in.Close()
+		syncErr := out.Sync()
+		outCloseErr := out.Close()
 		if cpErr != nil {
 			return cpErr
 		}
-		return closeErr
+		if inCloseErr != nil {
+			return inCloseErr
+		}
+		if syncErr != nil {
+			return syncErr
+		}
+		if outCloseErr != nil {
+			return outCloseErr
+		}
+		if err := os.Chmod(target, info.Mode().Perm()); err != nil {
+			return err
+		}
+		return os.Chtimes(target, info.ModTime(), info.ModTime())
 	})
+	if err != nil {
+		_ = os.RemoveAll(dst) // never leave a partial tree looking like a valid backup
+		return err
+	}
+	// Creating children changes directory mtimes, so restore them bottom-up only
+	// after the complete tree exists.
+	for i := len(dirTimes) - 1; i >= 0; i-- {
+		if err := os.Chtimes(dirTimes[i].path, dirTimes[i].when, dirTimes[i].when); err != nil {
+			_ = os.RemoveAll(dst)
+			return err
+		}
+	}
+	return nil
 }
 
 func printRecoveryReport(w io.Writer, r *store.RecoveryReport, jsonOut, dry bool) error {

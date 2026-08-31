@@ -210,13 +210,15 @@ func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *store.Session, req
 		return nil, err
 	}
 	if a.store != nil && sess != nil {
-		_ = a.store.Update(ctx, sess.ID, func(s *store.Session) error {
+		if err := a.store.Update(ctx, sess.ID, func(s *store.Session) error {
 			s.Backend = sess.Backend
 			s.Model = sess.Model
 			s.ClaudeSessionID = sess.ClaudeSessionID
 			s.UpdatedAt = sess.UpdatedAt
 			return nil
-		})
+		}); err != nil {
+			return nil, fmt.Errorf("persist hot-swap session: %w", err)
+		}
 	}
 	return res, nil
 }

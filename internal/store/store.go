@@ -161,3 +161,11 @@ type Store interface {
 	Ping(ctx context.Context) error
 	Close(ctx context.Context) error
 }
+
+// ArchiveDegradationReader is implemented by stores that can report tolerant
+// archive decode skips. Callers presenting history/export data use it to avoid
+// describing an incomplete archive as complete without expanding Store for
+// lightweight test and plugin implementations.
+type ArchiveDegradationReader interface {
+	ListClosedDegraded(ctx context.Context) ([]*Session, int, error)
+}

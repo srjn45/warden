@@ -869,7 +869,12 @@ type Session = store.Session
 
 // SessionList defines model for SessionList.
 type SessionList struct {
+	// Degraded True when unreadable archive records were skipped and this list is incomplete.
+	Degraded bool      `json:"degraded,omitempty"`
 	Sessions []Session `json:"sessions"`
+
+	// SkippedRecords Number of unreadable archive records omitted from this response.
+	SkippedRecords int `json:"skipped_records,omitempty"`
 }
 
 // Snapshot defines model for Snapshot.

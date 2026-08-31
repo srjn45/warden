@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,6 +49,32 @@ func TestDiagnoseAndRebuildSessionsSkipsCorruption(t *testing.T) {
 	require.Equal(t, []string{"closed-1"}, []string{rebuilt.Closed[0].ID})
 }
 
+func TestNewFileStoreRestoresInterruptedRepairGap(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	require.NoError(t, err)
+	s := sample()
+	s.ID = "survives-crash"
+	require.NoError(t, fs.Insert(ctx, s))
+	require.NoError(t, fs.Close(ctx))
+
+	original := filepath.Join(dir, "sessions-db.pre-repair-test")
+	require.NoError(t, os.Rename(filepath.Join(dir, "sessions-db"), original))
+	b, err := json.Marshal(repairState{Original: original, HadOriginal: true})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, repairStateName), b, 0o600))
+
+	fs, err = NewFileStore(dir)
+	require.NoError(t, err)
+	defer fs.Close(ctx)
+	got, err := fs.Get(ctx, s.ID)
+	require.NoError(t, err)
+	require.Equal(t, s.ID, got.ID)
+	_, err = os.Stat(filepath.Join(dir, repairStateName))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 func TestDiagnoseSessionsDoesNotMutateSource(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -84,7 +111,7 @@ func TestDiagnoseSessionsReconcilesInterruptedArchive(t *testing.T) {
 	require.NoError(t, os.WriteFile(closed[0], b, 0o600))
 	report, err := DiagnoseSessions(ctx, dir)
 	require.NoError(t, err)
-	require.Len(t, report.Active, 1)
-	require.Empty(t, report.Closed)
+	require.Empty(t, report.Active)
+	require.Len(t, report.Closed, 1)
 	require.Equal(t, []string{"both-1"}, report.Reconciled)
 }

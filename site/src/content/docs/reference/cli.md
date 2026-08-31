@@ -70,6 +70,7 @@ Available Commands:
   push                Push the current branch to origin (warden rails + bookkeeping)
   recover             Revive archived agent records whose tmux session is still alive (dry run unless --apply)
   remove-worktree     Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
+  repair              Offline, backup-first repair tools
   repl                Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
   restore             Recreate and resume a lost/orphaned agent (claude --resume)
   review              Run the agent backend's native diff review on the worktree
@@ -1237,7 +1238,8 @@ Usage:
   warden doctor [flags]
 
 Flags:
-  -h, --help   help for doctor
+  -h, --help       help for doctor
+      --sessions   diagnose the session store offline without modifying it
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2377,6 +2379,47 @@ Flags:
       --force                   override the alive/uncommitted/unpushed guards
   -h, --help                    help for remove-worktree
       --yes                     skip the confirmation prompt
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden repair
+
+```text
+Offline, backup-first repair tools
+
+Usage:
+  warden repair [command]
+
+Available Commands:
+  sessions    Diagnose or reconstruct the offline session store
+
+Flags:
+  -h, --help   help for repair
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Use "warden repair [command] --help" for more information about a command.
+```
+
+## warden repair sessions
+
+```text
+Diagnose or reconstruct the offline session store
+
+Usage:
+  warden repair sessions [flags]
+
+Flags:
+      --apply           apply the reconstruction (default is dry-run)
+      --backup string   backup destination (required with --apply; must not exist)
+      --dry-run         diagnose and report without changing session data
+  -h, --help            help for sessions
+      --json            print the machine-readable recovery report
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

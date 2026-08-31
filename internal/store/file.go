@@ -109,6 +109,10 @@ func NewFileStore(dir string) (*FileStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := recoverInterruptedSessionRepair(dir); err != nil {
+		_ = lock.release()
+		return nil, err
+	}
 
 	imported, err := fileExists(sentinel)
 	if err != nil {

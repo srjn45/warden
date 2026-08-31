@@ -248,3 +248,50 @@ Run race-enabled and repeated stress tests around spawn, poller updates, hot-swa
 - Operators receive clear last-known-good and store-health information.
 - The damaged installation can be repaired with a supported, backup-first workflow.
 - All unit, integration, race, and stress checks pass.
+
+## Implementation status (2026-08-31)
+
+### Implemented and covered
+
+- The daemon-held cross-process ownership lock rejects a second writable store;
+  `warden switch` now uses the daemon API and has no live-store fallback.
+- Active scans are complete-or-error, REST maps degradation to a non-success,
+  SSE suppresses incomplete snapshots, and store health exposes structured
+  failures with rate-limited warnings.
+- The Cockpit TUI retains the last complete fleet across degraded, timed-out,
+  and disconnected polls, preserves selection/layout state, and shows a
+  persistent last-known-good banner. CLI SSE watch reconnects with bounded
+  backoff without clearing its last rendered snapshot.
+- Offline `doctor --sessions` and `repair sessions` diagnose raw segments and
+  reconcile active/closed duplicates. Apply requires an explicit external
+  backup path, re-diagnoses under the ownership lock, validates a fresh rebuild,
+  and installs it with a recovery journal so a crash between directory renames
+  restores the original on the next store open. Backups retain regular-file
+  permissions/timestamps and symlinks; partial backups are removed on failure.
+- Archive history responses explicitly report `degraded` and
+  `skipped_records`; hot-swap persistence failures are no longer discarded.
+- The OpenAPI server and generated CLI reference have been regenerated from
+  their source specifications.
+
+### Verified without operator-data access
+
+- Unit/integration coverage uses temporary directories and synthetic corrupt
+  entries. It covers ownership refusal, strict scans, SSE suppression, TUI
+  retention/recovery, dry-run non-mutation, backup/rebuild/idempotence,
+  interrupted-archive reconciliation, and interrupted-repair startup recovery.
+- Repository build, formatting, vet, tests, generated-file checks, and selected
+  race/stress checks are the release gate for this branch. No repair or diagnosis
+  command was run against `~/.warden`.
+
+### Intentionally not executed / remaining operational work
+
+- Phase 6 (repairing the current installation) is intentionally not performed
+  by this implementation/review branch. It requires an operator-approved outage,
+  an independently inspected dry-run report, and retention of the external
+  backup until live fleet/history/TUI/autopilot verification completes.
+- The replacement is crash-recoverable rather than a single syscall on every
+  supported filesystem: portable directory replacement requires two renames.
+  The fsynced journal closes that gap by restoring the old DB when installation
+  did not finish and completing cleanup when it did.
+- Non-Unix builds compile with a documented best-effort lock stub; warden's
+  supported Linux/macOS targets use kernel-backed `flock` exclusion.
