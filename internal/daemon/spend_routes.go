@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/spend"
@@ -33,7 +34,21 @@ func (s *Server) spendReport() spend.Report {
 	if err != nil {
 		return spend.Report{}
 	}
-	return spend.BuildReport(sessions, time.Now())
+	return spend.BuildReportWithCost(sessions, time.Now(), func(session spend.SessionSpend) float64 {
+		backendID := session.Backend
+		if backendID == "" {
+			backendID = agentbackend.DefaultID // legacy entries predate backend stamping
+		}
+		backend, err := agentbackend.Get(backendID)
+		if err != nil {
+			return 0
+		}
+		pricing, ok := backend.Pricing()
+		if !ok {
+			return 0
+		}
+		return pricing.Cost(session.Model, session.Input, session.Output)
+	})
 }
 
 // budgetVerdict evaluates the cost gate against the current daily/weekly spend.

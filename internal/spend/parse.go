@@ -12,10 +12,10 @@
 // ok=false), never an error that could break the action being measured.
 package spend
 
-// Usage is the cumulative billed token usage parsed from a transcript: the sum
-// over every turn of its per-turn input and output tokens. Input is
-// the new (uncached) prompt tokens and Output the generated tokens — the two
-// fields that bill at full rate.
+// Usage is the cumulative billed token usage parsed from a transcript. The
+// precise accounting is backend-specific: Claude sums per-turn uncached input
+// and output, while Codex reports cumulative snapshots including cached input
+// and reasoning output.
 type Usage struct {
 	InputTokens  int
 	OutputTokens int

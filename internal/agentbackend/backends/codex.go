@@ -838,9 +838,8 @@ func (Codex) InjectContext(workdir, text string) error {
 // Pricing reports no pricing table. The $0-local rig runs Ollama (free) and Codex
 // otherwise spans paid OpenAI models, so warden cannot enumerate per-model dollar
 // rates here; Codex's rollout exposes token counts (token_count events) but not a
-// dollar figure warden reads today. Per design §5 spend shows tokens (not dollars)
-// and savings omits the agent. Wiring warden to Codex's native usage is deferred
-// (docs/agent-backends/codex.md).
+// dollar figure warden reads today. Warden tracks those tokens as measured spend,
+// but savings omits the agent without a dollar pricing table (docs/agent-backends/codex.md).
 func (Codex) Pricing() (agentbackend.PricingTable, bool) {
 	return agentbackend.PricingTable{}, false
 }

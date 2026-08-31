@@ -14,6 +14,8 @@ func GetParser(backend string) TokenParser {
 	switch backend {
 	case "antigravity":
 		return &AntigravityParser{}
+	case "codex":
+		return &CodexParser{}
 	default:
 		return &ClaudeParser{}
 	}

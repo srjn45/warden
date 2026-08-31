@@ -25,7 +25,7 @@ top of* Codex; it never strips Codex's features down to a lowest common denomina
 | `ParseTranscript`    | parses rollout JSONL `response_item` records                                 | message + function_call → neutral Turns. |
 | `SystemPromptFlag`   | — (unsupported)                                                              | Codex has no `--append-system-prompt` flag. |
 | `InjectContext`      | writes `<workdir>/AGENTS.md`                                                  | warden's collab/git/pipeline addendum is delivered via the AGENTS.md rules file Codex reads on startup (the no-flag fallback). |
-| `Pricing`            | — (unsupported)                                                              | OSS/BYO; tokens exposed, dollars not wired. |
+| `Pricing`            | — (unsupported)                                                              | OSS/BYO; rollout token usage is tracked, but no dollar pricing table is available. |
 | `DetectState` / `ParseApproval` | live (pane markers)                                              | `esc to interrupt` ⇒ working; the numbered "Would you like to …?" prompt ⇒ needs-input + parsed approval. |
 
 ### $0-local launch (Ollama)
@@ -105,7 +105,7 @@ and `exec`, and after the process exits.
 | `PermissionModes`      | ✅    | `read-only`, `workspace-write`, `danger-full-access` (Codex's native sandbox). |
 | `SessionIDControl`     | ❌ (mitigated) | Codex mints its own UUID and exposes no flag to assign one *at launch* — so `SessionIDControl` stays `false`. But warden now **discovers** that minted id post-launch (`DiscoverSessionID`, the `agentbackend.SessionIDDiscoverer` seam) and pins it, so resume/transcript resolve by exact id, not just dir-scope. |
 | `SystemPromptInject`   | ❌    | no `--append-system-prompt` equivalent on the launch command — but the addendum still reaches Codex out-of-band via `InjectContext` (AGENTS.md). The Caps flag tracks the *launch flag* specifically, not whether the addendum is delivered. |
-| `Pricing`              | ❌    | OSS/BYO; tokens are in the rollout, dollars not wired into warden spend. |
+| `Pricing`              | ❌    | OSS/BYO; rollout tokens feed measured spend, but no dollar pricing table is available. |
 
 ---
 
@@ -146,9 +146,9 @@ and `exec`, and after the process exits.
 
 **Gaps (degraded, documented — not mis-handled)**
 
-- **No warden-side dollar pricing.** The rollout carries token counts
-  (`token_count` events, `turn.completed.usage`), but warden's spend table is
-  Claude-specific; spend shows tokens, savings omits the agent (design §5).
+- **No warden-side dollar pricing.** The rollout's `token_count` events feed
+  warden's measured token spend, but Codex exposes no stable dollar table, so
+  savings still omits the agent (design §5).
 - ~~**No system-prompt injection.**~~ **Resolved** — warden now delivers its
   pipeline/collab/git hints to Codex via `AGENTS.md` (`InjectContext`); see
   "Context injection" below. `SystemPromptInject` stays `false` because that Caps
