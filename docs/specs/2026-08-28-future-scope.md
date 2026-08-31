@@ -1,22 +1,29 @@
 # Warden Future Scope & In-Flight Audit
 
 **Date:** 2026-08-28
-**Status:** Planning / brainstorm (planner mode — no code changes)
+**Status:** Historical planning audit; reconciled with `main` through PR #375
 **Author:** Srajan (with Claude planner)
 
-This document does two things:
+> **Completion/supersession notice (2026-08-31).** The tier trio (#1–#3), Project
+> Groups (#5), and Open Project/project-centric cockpit (#8) described below have
+> shipped. Their old “resume here” passages are preserved as historical design
+> context but are explicitly marked superseded. The session-store/TUI stability
+> plan is separate and is **beginning now, not complete**; see
+> [`../2026-08-30-session-store-tui-flakiness-fix-plan.md`](../2026-08-30-session-store-tui-flakiness-fix-plan.md).
 
-1. **Audits the current state** of ten proposed features — because several were
+This document originally did two things:
+
+1. **Audited the then-current state** of ten proposed features — because several were
    started and left mid-way (session limits), and it was unclear which are
    half-baked. For each, it records the exact **"resume here"** point.
 2. **Lays out the future scope** as a layered architecture with a sequenced
    roadmap, dependencies, and the open decisions that still need a call.
 
-> **Scope note.** This is a forward-looking planning doc. Shipped behaviour is
+> **Scope note.** This is now a historical planning doc. Shipped behaviour is
 > catalogued in [`FEATURES.md`](../FEATURES.md); the older running to-do list is
-> [`FUTURE_ENHANCEMENTS.md`](../FUTURE_ENHANCEMENTS.md) (now partly stale — its
-> priority matrix parks distributed/multi-user, which this doc un-parks). When an
-> item here ships, move it to FEATURES.md and delete it from the roadmap.
+> [`FUTURE_ENHANCEMENTS.md`](../FUTURE_ENHANCEMENTS.md), which was reconciled in
+> the same 2026-08-31 audit. New shipped behavior belongs in FEATURES.md rather
+> than the forward-looking roadmap.
 
 ---
 
@@ -24,25 +31,25 @@ This document does two things:
 
 | # | Feature | Status | One-line "resume here" |
 |---|---------|--------|------------------------|
-| 1 | Roles → **behaviors & tasks** | 🟡 In progress **on main** (Stages 1–3) | Wire the new `internal/task` registry into tier resolution; retire the role-keyed tier map |
-| 2 | **Model tiers** across backends → start agent | 🟢 Built (Stages 1–4) | Run **first-spawn** through the resolver (today only hot-swap does) |
-| 3 | **Pre-assign tiers** to roles (default + override) | 🟢 Mostly built | Same first-spawn wiring as #2; re-key defaults off *tasks* (see #1) |
+| 1 | Roles → **behaviors & tasks** | ✅ **Done** | Shipped: task is persisted separately and is the canonical task→tier source |
+| 2 | **Model tiers** across backends → start agent | ✅ **Done** | Shipped: initial direct and pipeline spawn route through the resolver |
+| 3 | **Pre-assign tiers** to roles (default + override) | ✅ **Done** | Shipped: explicit tier/task and role defaults use the unified resolver |
 | 4 | **Auto-handover** near session limit | ✅ **Done + polished** | Hard-limit path reconciled to hot-swap + proactive quota tracking landed |
-| 5 | **Collaboration groups** | 🟠 Specced + decomposed, **non-linear half-start** | Abandon the orphan branches; build the **foundation B1→B4 first** |
+| 5 | **Project Groups** | ✅ **Done** | Shipped in PRs #363–#370; old collaboration specs removed |
 | 6 | **Remote access via warden-hub** | 🟠 Wire protocol only | Build the daemon `internal/relay` connector + the hub server MVP |
 | 7 | **Warden cluster** (multi-machine) | 🔴 Not started | Blocked on #6 |
-| 8 | **Open project** (local / clone GH·GL) | 🟠 Specced, not started | Blocked on group foundation (#5 B2/B3) |
+| 8 | **Open project** (local / clone GH·GL / new) | ✅ **Done** | Shipped with persisted projects and the project-centric TUI (Phases 1–5) |
 | 9 | **Warden-teams** (shared knowledge) | 🔴 Not started, no spec | Blocked on #6; builds on shipped project-memory |
-| 10 | **Generic agent TUI CLI** (spaiSH/`spai-cli`) | 🔴 Built **outside warden** | External track; warden only provides the client seam |
+| 10 | **Generic agent TUI CLI** (spaiSH/`spai-cli`) | 🔴 External / not tracked here | No warden-side implementation; add only a client seam when required |
 | 11 | **Backend hardening** (Tier-C → Tier-A) | 🟡 Partial | Finish transcript, usage, review, and prompt-seeding adapters |
 | 12 | **Recover / resume on another backend** | 🟡 Engine shipped, product workflow incomplete | Promote `warden switch` into a resilient top-level recovery capability |
 
 **Legend:** ✅ done · 🟢 built, one wire missing · 🟡 in progress on `main` ·
 🟠 partial / spec-only · 🔴 not started.
 
-**The headline:** only **#5 and #6** are genuinely "confusing half-baked." #2/#3/#4
-are essentially finished, #1 is cleanly mid-refactor on `main`, and #7/#9/#10 are
-not-yet-started (so nothing to untangle — just design).
+**Current headline:** #1–#5 and #8 are shipped. #6 remains the main unfinished
+foundation for #7/#9; #10 remains external; #11/#12 retain the incomplete status
+described below.
 
 ---
 
@@ -60,8 +67,8 @@ what produced the current mess. The dependency spine:
      #6 warden-hub  (remote access, native mTLS E2E, relay)
                        │
   Layer 1  ── single dev, single machine, many projects ────────────────
-     #1 behaviors/tasks   #5 collaboration groups   #8 open project
-     #2 tier-at-spawn     #3 role→tier defaults
+     #1 behaviors/tasks ✅  #5 project groups ✅  #8 open project ✅
+     #2 tier-at-spawn ✅    #3 role→tier defaults ✅
                        │
   Layer 0  ── foundation (mostly SHIPPED) ──────────────────────────────
      backend registry · tiered model routing · handover/hot-swap · #4
@@ -72,8 +79,7 @@ what produced the current mess. The dependency spine:
                   surface across all layers; can start anytime after a design.
 ```
 
-**Reading of the map:** Layer 0 is done. Layer 1 is where you are actively
-working (some done, some tangled). Layer 2 (the hub) is the single biggest lever —
+**Reading of the map:** Layers 0 and 1 are done. Layer 2 (the hub) is the single biggest lever —
 **#7 and #9 cannot exist without it**, so it gates the entire top of the stack.
 #10 is orthogonal and can proceed on its own track.
 
@@ -118,7 +124,10 @@ here; listed so the dependencies are explicit.
 **What you asked for:** stop overloading "role" to mean both *persona* and *unit of
 work*. Split into **behaviors** (how an agent acts) and **tasks** (what it's doing).
 
-**Current state — 🟡 in progress, on `main` (Stages 1–3, PRs #307/#308/#309):**
+**Current state — ✅ done on `main`.** Stages 1–4 shipped; the task registry is
+the canonical task→tier source and assigned tasks persist in session state.
+
+**Historical state before completion (Stages 1–3, PRs #307/#308/#309):**
 - A **behavior** already exists in all but name: `internal/role` holds embedded-YAML
   personas (`general`, `orchestrator`, `planner`, `worker`, `autopilot`, `brain`)
   = a system-prompt persona + default spawn flags. Stage 2 removed the old
@@ -131,14 +140,14 @@ work*. Split into **behaviors** (how an agent acts) and **tasks** (what it's doi
 - Stage 3 made the **worktree policy role-driven** (`wantWorktree`): worker/planner/
   autopilot isolate; orchestrator/brain never do.
 
-**Resume here (the exact gap):** `internal/task` **is not wired into anything** —
+**Superseded resume guidance (gap now closed):** `internal/task` **was not wired into anything** —
 only its own test imports it. Tier selection still keys off the *old* hand-kept
 role→tier map in `backendstore/seed.go` (`DefaultRoleTiers`, keyed by
 `analysis`/`implementation`/`code-review`…), whose keys are **task names masquerading
 as role names**. The refactor's finish line:
 1. Make `router.DetermineTargetTier` / `DefaultRoleTiers` consume `internal/task.Tier`
    as the source of a task's default tier, instead of the string map.
-2. Give spawn a first-class **task** dimension (today only `Type` carries it) and
+2. Give spawn a first-class **task** dimension (at the time only `Type` carried it) and
    let **behavior (role) + task** be set independently.
 3. Update `docs/specs/agent-roles.md` — it still says "exactly five roles" and
    predates the whole split.
@@ -168,13 +177,15 @@ cheap natural extension — defer until there's demand.
 **What you asked for:** across all backends, classify models into 3 tiers; start an
 agent by asking for a tier (warden picks the concrete backend+model).
 
-**Current state — 🟢 built (tiered-model-routing.plan.md Stages 1–4, PRs
-#300/#303/#304/#305):** the 3-tier catalog, quota headroom tracking, and the
+**Current state — ✅ done.** Initial direct and pipeline spawns now route through
+the quota-balanced resolver; explicit backend/model pins retain precedence.
+
+**Historical state before completion (Stages 1–4, PRs #300/#303/#304/#305):** the 3-tier catalog, quota headroom tracking, and the
 weighted-headroom `Resolver` (`ResolveOptions{Role, Tier, …} → Resolution`) all
 exist and are surfaced via CLI (`warden models …`), MCP (`list_models`,
 `set_model_tier`), and REST.
 
-**Resume here (the one missing wire):** the resolver is wired **only into
+**Superseded resume guidance (wire now shipped):** the resolver was wired **only into
 mid-session hot-swap**, not into first-spawn.
 - `SpawnRequest` (`lifecycle.go`) has `Backend`/`Model`/`Role` but **no `Tier`
   field**.
@@ -193,11 +204,14 @@ for direct spawns *and* pipeline jobs.
 
 ### 3.3 Feature #3 — pre-assign tiers to behaviors/tasks (default, user-overridable)
 
-**Current state — 🟢 mostly built.** `RoleTierMapping` + `DefaultRoleTiers` seed
+**Current state — ✅ done.** Task defaults, role overrides, and explicit tier
+selection feed the unified initial-spawn resolver.
+
+**Historical state before completion:** `RoleTierMapping` + `DefaultRoleTiers` seed
 defaults; `DetermineTargetTier` implements the precedence **explicit tier > role/
 task default > global default (tier-2)**; `set_role_tier` lets the user override.
 
-**Resume here:** two things, both already named above —
+**Superseded resume guidance (both items shipped):**
 1. Same **first-spawn wiring** as #2 (defaults are computed but not applied at
    spawn).
 2. **Re-key the defaults off tasks, not roles** (folds into #1). Today the default
@@ -255,10 +269,13 @@ them as a single 3–4 job pipeline rather than three separate efforts.
 **What you asked for:** the per-project orchestrator from each project can join/leave
 named **groups** where orchestrators discover and collaborate with each other.
 
-**Current state — 🟠 fully specced, decomposed, but half-started NON-LINEARLY.
-This is the tangle to fix first.**
+**Current state — ✅ done on `main`.** The project-group store/API/TUI labels,
+orchestrator auto-spawn and wakeup, peer context, and delegation ergonomics shipped
+in PRs #363–#368; obsolete specs were removed in PR #370.
 
-Specs are thorough and good:
+**Historical pre-implementation audit (superseded):**
+
+The original specs (removed by PR #370 after the replacement shipped) were:
 - `docs/specs/2026-08-26-collaboration-groups.md` (design)
 - `docs/specs/2026-08-26-collaboration-groups-impl.md` (8-job pipeline U-B +
   monitoring U-A + TUI U-C)
@@ -287,12 +304,13 @@ hang off B3. Your branches are:
 | B7 recover auto-rejoin | depends on B3 | ✅ `feat/stage-c2-…`/`b7-recover-rejoin` |
 | C2 Projects frame | depends on B2 | ✅ `feat/stage-c2-projects-frame(-v2)` |
 
-**You built the roof (B5/B6/B7/C2) on a foundation that was never poured (B1–B4).**
-Nothing group-related is on `main`. The downstream branches almost certainly don't
-compile/function against `main` because the store, project-key, and join/leave core
-they import don't exist.
+**At the time, the roof (B5/B6/B7/C2) had been built on a foundation that was
+never poured (B1–B4).** Nothing group-related was then on `main`, and the
+downstream branches could not function against that snapshot. The replacement
+Project Groups architecture subsequently shipped and made this diagnosis
+historical.
 
-**Resume here (recommended):**
+**Superseded resume guidance (completed via the replacement architecture):**
 1. **Salvage-audit the four orphan branches** — keep any self-contained code (e.g.
    the project-summary *resolution logic* in B5, the Projects-frame *TUI* in C2 may
    be partly independent), discard the rest. Don't try to merge them as-is.
@@ -311,14 +329,19 @@ they import don't exist.
 **What you asked for:** warden should offer to **open a git project locally** or
 **clone it from GitHub/GitLab**, then be ready to work on it.
 
-**Current state — 🟠 specced, not started.** It's the collaboration-groups design
+**Current state — ✅ done on `main`.** Persisted projects, local/remote/new project
+operations, tabs, tree nesting/hibernation, and Open Project menus shipped across
+the five phases in [`2026-08-28-project-centric-ui.md`](2026-08-28-project-centric-ui.md).
+
+**Historical pre-implementation state:** It was the collaboration-groups design
 §6 (the `o` = **Open Project** panel: recent / open-local / open-via-git-clone into
 `~/.warden/workspace/<project>`, which auto-spawns the project orchestrator) and impl
 job **C5** (`internal/tui/open_project.go`, `internal/projectstore`). **No branch
 exists for C5**, and it depends on B2 (project-key) + B3 (join/leave) — both part of
 the un-poured foundation above.
 
-**Resume here:** this rides on #5's foundation. Sequence it **after B1–B3 land**.
+**Superseded resume guidance:** this was sequenced after the project foundation and
+has now shipped.
 The clone mechanics themselves are easy (`git clone` / `go-git PlainClone` already
 appear in rotate/backend code) — the real content is the project-key normalization
 (B2) and the auto-orchestrator spawn (B3), which is why it's gated on the group work.
@@ -608,7 +631,9 @@ one `Lifecycle.HotSwap` implementation and one handoff schema rather than drift.
 built on **spaiSH**, your other project), backed by **headless agents** (running in
 hidden tmux sessions inside the warden TUI) created via the different AI backends.
 
-**Current state — 🔴 not started, no spec.** This is net-new and the most open-ended.
+**Current state — 🔴 external / not tracked in this repository.** There is no
+warden-side implementation or integration spec; add a client seam only when the
+external CLI requires one.
 
 **Decided (2026-08-28) — the CLI itself is a separate effort.** spaiSH was built
 with a different purpose in mind. Srajan will, **separately from warden**, try to
@@ -640,14 +665,12 @@ integration spec only once that CLI is ready.
 
 Ordered by **dependency + confusion-reduction + leverage**:
 
-1. **Finish the tier trio (#1 + #2 + #3) as one pipeline.** Small, coherent, on
-   `main` already. Deliverable: introduce the `task` dimension as the tier source
-   (name `role` stays, §8.1); spawn resolves tier via the router. Clears the 🟡
-   in-flight state cleanly.
-2. **Untangle #5 collaboration groups.** **Discard** the four orphan branches
-   (§8.2 — salvage only self-contained fragments), then re-run the impl pipeline
-   **from B1 in dependency order**. Highest confusion-reduction value.
-3. **Land #8 open-project** on top of #5's foundation (small once B2/B3 exist).
+1. ✅ **Tier trio (#1 + #2 + #3) — shipped.** It introduced the persisted task
+   dimension and initial-spawn resolver wiring.
+2. ✅ **Project Groups (#5) — shipped.** The replacement architecture completed
+   all five phases and removed the obsolete specs.
+3. ✅ **Open Project (#8) — shipped.** Local, remote, and new-project flows now
+   use persisted projects in the project-centric cockpit.
 4. **Build #6 warden-hub** — daemon connector + hub server MVP. **Confirmed higher
    priority than the external CLI (§8.6).** The gate for everything multi-machine;
    do it deliberately, native-mTLS from day one. Private-hosted (§8.3).

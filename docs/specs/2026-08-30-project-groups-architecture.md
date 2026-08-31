@@ -1,5 +1,12 @@
 # Feature #5: Project Groups & Orchestrator Collaboration
 
+> **Status: ✅ Complete on `main` (2026-08-31).** Phases 1–4 shipped via PRs
+> #363–#368: persisted groups and APIs, TUI group labels, per-project
+> orchestrator auto-spawn/wakeup, peer-context injection, and delegation/waiting
+> ergonomics. Phase 5 also completed: the obsolete collaboration-group specs were
+> removed in PR #370. This document remains as the historical architecture and
+> delivery breakdown, not a current “resume here” plan.
+
 ## 1. Architectural Vision
 Moving away from arbitrary agent swarms, "Collaboration Groups" are now defined as **Project Groups**. 
 - A Project Group binds multiple repositories (projects) together.
