@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -197,12 +198,12 @@ func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
 }
 
 func newAutopilotInitCmd() *cobra.Command {
-	return &cobra.Command{
+	var name string
+	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Scaffold autopilot adoption in the current repo",
-		Long: "Creates a template autopilot.plan.yaml in the current git repository (if absent),\n" +
-			"updates the autopilot block in the warden config with the plan file and detected\n" +
-			"backends (assign them to cost tiers before enabling), creates the integration branch\n" +
+		Long: "Creates a named template under plans/ in the current git repository (if absent),\n" +
+			"registers it with the daemon, creates the integration branch\n" +
 			"off the default branch if absent, and prints a CI-coverage hint when no workflow\n" +
 			"covers integration pull requests. After init, edit the plan file and run\n" +
 			"`warden autopilot on` to enable.",
@@ -217,16 +218,19 @@ func newAutopilotInitCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("not inside a git repository: %w", err)
 			}
-			cfgPath := configPathFor(cmd)
-			cfg := config.Load(cfgPath)
+			cfg := config.Load(configPathFor(cmd))
 			return autopilot.Init(cmd.Context(), env, repo, autopilot.InitConfig{
-				ConfigPath:        cfgPath,
-				PlanFile:          "autopilot.plan.yaml",
+				Name:              name,
 				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
-				Backends:          detectInstalledBackends(),
+				Register: func(ctx context.Context, req autopilot.RegisterRequest) error {
+					_, err := clientFor(cmd).RegisterAutopilotRun(ctx, req.Name, req.Repo, req.PlanFile)
+					return err
+				},
 			}, cmd.OutOrStdout())
 		},
 	}
+	cmd.Flags().StringVar(&name, "name", "default", "plan name (creates plans/<name>.yaml)")
+	return cmd
 }
 
 // newLandCmd is the top-level `warden land` command: the guarded, idempotent

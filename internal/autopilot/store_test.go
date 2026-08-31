@@ -3,6 +3,8 @@ package autopilot
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -83,4 +85,22 @@ func TestEnableAllowsTwoPlansInSameRepo(t *testing.T) {
 	st, err := c.Enable(context.Background(), dir)
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 2)
+}
+
+func TestRegisteredRunSurvivesConfigReloadWithoutLegacyPlans(t *testing.T) {
+	repo := t.TempDir()
+	plan := filepath.Join(repo, "plans", "named.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(plan), 0o755))
+	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: durable\n"), 0o644))
+	env := &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }}
+	c := NewController(ControllerConfig{DataDir: t.TempDir(), BaseDir: repo}, env)
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+	r, err := c.Register(context.Background(), RegisterRequest{Name: "named", PlanFile: plan})
+	require.NoError(t, err)
+
+	c.Reconfigure(context.Background(), ControllerConfig{Plans: nil, BaseDir: repo})
+	got := c.Status()
+	require.Len(t, got.Runs, 1)
+	require.Equal(t, r.RunID, got.Runs[0].RunID)
+	require.Equal(t, StateRegistered, got.Runs[0].State)
 }

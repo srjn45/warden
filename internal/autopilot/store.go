@@ -151,6 +151,16 @@ func (s *RunStore) Update(id string, fn func(*RunRecord) error) (RunRecord, erro
 	return r, nil
 }
 
+func (s *RunStore) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.col.DeleteByKey(id)
+	if errors.Is(err, engine.ErrKeyNotFound) {
+		return nil
+	}
+	return err
+}
+
 func (s *RunStore) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

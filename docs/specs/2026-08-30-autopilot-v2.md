@@ -144,6 +144,10 @@ active ──all tasks done──▶ complete
 
 ### Phase 6 — Config & CLI Cleanup
 
+**Status: complete (2026-08-31).** Legacy plans are copied and registered
+idempotently, named init/register is the primary flow, redundant config warns
+with remediation, and brain tier keys are removed only after registry import.
+
 **Goal:** Remove now-redundant global autopilot config.
 
 **Tasks:**

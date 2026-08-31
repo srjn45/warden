@@ -232,8 +232,8 @@ enabled set is persisted so repos come back up across a daemon restart. Do not
 call `autopilot_complete` yourself when driving the fleet — it is the autopilot
 manager's own completion signal.
 
-**CLI-only** (local file authoring): `warden autopilot init` — scaffold
-`autopilot.plan.yaml` and the config block.
+**CLI-only** (local file authoring): `warden autopilot init [--name <name>]` —
+scaffold `plans/<name>.yaml` and register it with the daemon.
 
 ### Key ledger context keys
 

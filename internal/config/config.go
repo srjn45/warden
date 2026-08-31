@@ -330,7 +330,7 @@ var schema = []setting{
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
 	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
-	{"autopilot", "Autopilot mode (docs/specs/autopilot.md): a long-lived headless brain agent per plan that decomposes a goal, spawns workers, and lands green work into an integration branch unattended — with the guardian keeping it alive. OFF by default; enable per surface (warden autopilot on / MCP set_autopilot / TUI / web), which runs a preflight and, unless overridden, OR-bundles auto_approve, rate_limit.auto_resume, and auto_restart on for autopilot-owned agents. Sub-keys: enabled (master switch), plans (list of {file} — one brain per plan, at most one active plan per repo), brain (backends.{free,subscription,pay_per_use} cost-tier ladder, allow_pay_per_use (explicit permission gate for paid calls), role, headless, max_parallel_workers), merge (target_branch — the ONLY branch autopilot merges into; strategy — squash|merge|rebase; gate — auto|ci|local, never merge red; delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation)."},
+	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden autopilot init --name <name>` or register existing plans with `warden autopilot register <file>`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation)."},
 }
 
 // fileHeader is the comment written at the very top of a generated config file.
@@ -961,6 +961,13 @@ func migrateGroup(mapping *yaml.Node, blockKey string, aliases []keyAlias) bool 
 // the one-time import can still read the values on the first post-upgrade boot.
 // Callers may then delete the keys to silence the warning.
 func warnDeprecatedAutopilotBackends(mapping *yaml.Node) {
+	autopilotNode := nestedMapping(mapping, "autopilot")
+	if autopilotNode != nil {
+		if v := findValue(autopilotNode, "plans"); v != nil && v.Kind == yaml.SequenceNode && len(v.Content) > 0 {
+			slog.Warn("config: deprecated key autopilot.plans — plans are migrated into each repository's plans/ directory and registered in the daemon store; run `warden autopilot register <plan>` for new plans, then remove this key",
+				"key", "autopilot.plans")
+		}
+	}
 	brain := nestedMapping(mapping, "autopilot", "brain")
 	if brain == nil {
 		return
@@ -973,6 +980,48 @@ func warnDeprecatedAutopilotBackends(mapping *yaml.Node) {
 		slog.Warn("config: deprecated key autopilot.brain.allow_pay_per_use — the paid-autopilot gate now lives in the registry store; this key is imported once then ignored",
 			"key", "autopilot.brain.allow_pay_per_use")
 	}
+}
+
+// RemoveDeprecatedAutopilotBrainKeys removes the legacy backend ladder and paid
+// gate after the daemon has successfully imported them into the registry store.
+// Calling it before that import would lose compatibility data, so the daemon is
+// intentionally the only production caller. The rewrite is idempotent.
+func RemoveDeprecatedAutopilotBrainKeys(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	brain := nestedMapping(doc.Content[0], "autopilot", "brain")
+	if brain == nil {
+		return nil
+	}
+	changed := findValue(brain, "backends") != nil || findValue(brain, "allow_pay_per_use") != nil
+	if !changed {
+		return nil
+	}
+	removeKey(brain, "backends")
+	removeKey(brain, "allow_pay_per_use")
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return err
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), info.Mode().Perm())
 }
 
 // nestedMapping walks path from mapping, following each key to its mapping-node

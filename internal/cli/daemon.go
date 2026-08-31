@@ -382,8 +382,13 @@ func newDaemonCmd() *cobra.Command {
 				cfg.AutopilotAllowPayPerUse(),
 			); merr != nil {
 				slog.Warn("autopilot: backend-ladder migration failed (will retry next boot)", "err", merr)
-			} else if ran {
-				slog.Info("autopilot: imported cost-tier ladder from config into the backend registry (store is now authoritative)")
+			} else {
+				if ran {
+					slog.Info("autopilot: imported cost-tier ladder from config into the backend registry (store is now authoritative)")
+				}
+				if err := config.RemoveDeprecatedAutopilotBrainKeys(cfgPath); err != nil {
+					slog.Warn("autopilot: could not remove imported deprecated brain config", "err", err)
+				}
 			}
 			// Internal-thinking router (docs/specs/2026-08-06-backend-registry.md
 			// §7): warden's own thinking — classify / summarize / name (lifecycle),
@@ -403,6 +408,13 @@ func newDaemonCmd() *cobra.Command {
 			apBaseDir, _ := os.Getwd()
 			apCtrl := autopilot.NewController(buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver), nil)
 			defer apCtrl.Close()
+			migratedPlans, err := autopilot.MigrateLegacyPlans(ctx, autopilot.NewExecEnv(), apCtrl, cfg.AutopilotPlanFiles(), apBaseDir, os.Stderr)
+			if err != nil {
+				slog.Warn("autopilot: legacy plan migration incomplete (will retry next boot)", "err", err)
+			}
+			apCfg := buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver)
+			apCfg.Plans = migratedPlans
+			apCtrl.Reconfigure(ctx, apCfg)
 			srv.SetAutopilotController(apCtrl)
 			// Boot re-enable: the on/off bit is persisted per-repo, so bring every
 			// previously-enabled repo back up across a daemon restart. Enable is
@@ -579,7 +591,13 @@ func newDaemonCmd() *cobra.Command {
 			srv.AddReloadHook(func(c config.Config) {
 				// autopilot plan/manager/merge template + per-repo reconcile (the
 				// persisted enable set is preserved — config only carries the template).
-				apCtrl.Reconfigure(ctx, buildAutopilotControllerConfig(c, apBaseDir, lc.Resolver))
+				apCfg := buildAutopilotControllerConfig(c, apBaseDir, lc.Resolver)
+				if plans, err := autopilot.MigrateLegacyPlans(ctx, autopilot.NewExecEnv(), apCtrl, apCfg.Plans, apBaseDir, os.Stderr); err != nil {
+					slog.Warn("autopilot: legacy plan migration incomplete after config reload", "err", err)
+				} else {
+					apCfg.Plans = plans
+				}
+				apCtrl.Reconfigure(ctx, apCfg)
 			})
 			srv.AddReloadHook(func(c config.Config) {
 				// notify.* + webhook: rebuild the delivery chain and swap it in.

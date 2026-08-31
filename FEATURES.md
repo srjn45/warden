@@ -290,7 +290,8 @@ and lands them into an integration branch, without waiting on a human.
 | Enable autopilot **per-repo** (preflight + manager spawn) | `autopilot on [--repo <root>]` | `set_autopilot` (`enabled: true`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Disable autopilot **per-repo** — kill switch (stops spawns/landings, terminates manager) | `autopilot off [--repo <root>]` | `set_autopilot` (`enabled: false`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Status (enabled repos, run state, manager id, task counts, tier, backoff) | `autopilot status` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Scaffold plan file + config (`autopilot init`) | `autopilot init` | **CLI-only** (local file authoring) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Scaffold + register a named plan | `autopilot init [--name <name>]` | **CLI-only** (local file authoring) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Register/control independent runs | `autopilot register\|start\|pause\|resume\|stop` | run API | ✓ | AutopilotPanel | run nodes (`r`/`x`) | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Land a worker branch into the integration branch (idempotent, guarded) | `land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Mark the run complete (in-place `status: complete` plan marker; preflight skips it) | automatic (manager) | `autopilot_complete` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Persisted per-repo enable set (repos come back up across daemon restart) | automatic (`<data_dir>/autopilot/enabled/`) | automatic | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
@@ -331,7 +332,7 @@ backends warden's own internal thinking may call (**never** a paid one).
 
 > The registry supersedes the deprecated `autopilot.brain.backends` ladder and
 > `autopilot.brain.allow_pay_per_use` gate — those config keys are imported **once**
-> on the first boot after upgrade, then ignored (edit tiers via the backends surfaces
+> on the first boot after upgrade, then removed from config (edit tiers via the backends surfaces
 > above). See §34 of [`docs/FEATURES.md`](docs/FEATURES.md).
 
 ## 17. Admin / host (CLI-only by design)

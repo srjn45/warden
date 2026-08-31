@@ -552,6 +552,10 @@ func (c *Controller) Disable(ctx context.Context, repo string) Status {
 // them under c.mu.
 func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	c.mu.Lock()
+	oldPlanSet := make(map[string]struct{}, len(c.plans))
+	for _, p := range c.plans {
+		oldPlanSet[p] = struct{}{}
+	}
 	branch := strings.TrimSpace(cfg.IntegrationBranch)
 	if branch == "" {
 		branch = "autopilot/integration"
@@ -597,6 +601,9 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	// actually stops it — without ever killing a run whose plan is still listed.
 	c.mu.Lock()
 	for id, r := range c.runs {
+		if _, legacyManaged := oldPlanSet[r.planFile]; !legacyManaged {
+			continue // durable register-created runs are independent of global config
+		}
 		if _, still := planSet[r.planFile]; still {
 			continue
 		}
