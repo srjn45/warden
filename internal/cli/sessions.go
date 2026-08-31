@@ -139,12 +139,106 @@ func watchSessions(cmd *cobra.Command, out io.Writer, jsonOut bool) error {
 		return err
 	}
 
-	err := clientFor(cmd).Watch(ctx, render)
+	// Non-blocking reconnect notice, printed WITHOUT clearing the screen so a
+	// dropped stream keeps the last complete fleet visible (last-known-good). Only
+	// in the redrawing TTY mode — in json/piped mode a notice would corrupt the
+	// stream, so onDrop stays silent there and we just reconnect.
+	onDrop := func(_ error, next time.Duration) {
+		if !clearable {
+			return
+		}
+		fmt.Fprintf(out, "\nstream dropped — showing last complete fleet · reconnecting in %s (Ctrl+C to exit)\n",
+			next.Round(100*time.Millisecond))
+	}
+
+	err := watchLoop(ctx, clientFor(cmd).Watch, render, onDrop, sleepCtx)
 	// A user-initiated Ctrl+C is a clean exit, not an error.
 	if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 		return nil
 	}
 	return err
+}
+
+// snapshotWatcher opens a session-snapshot stream, invoking onSnapshot for the
+// initial snapshot and every push, and blocking until the stream drops, ctx is
+// cancelled, or onSnapshot errors (matches client.Client.Watch).
+type snapshotWatcher func(ctx context.Context, onSnapshot func([]*store.Session) error) error
+
+// watchLoop drives an SSE session watch with last-known-good retention and
+// bounded reconnect backoff (Phase 4). It keeps the caller's last-rendered fleet
+// on screen across a dropped stream and reconnects with exponential backoff
+// (watchBackoffBase → watchBackoffCap), resetting the backoff whenever a stream
+// delivers a snapshot. A stream that was established at least once and then drops
+// is never surfaced as a fatal error — it reconnects — so a transient daemon
+// blip or store-degradation gap never tears the watch down or clears the fleet.
+// A stream that never connects at all (daemon down, auth failure) IS returned, so
+// `warden ls --watch` against a stopped daemon still fails fast instead of
+// spinning. A stream that ends gracefully (a nil return — the server closed the
+// body, e.g. a one-shot snapshot) is a clean exit, not a drop. A render/output
+// error is fatal (broken pipe).
+func watchLoop(
+	ctx context.Context,
+	watch snapshotWatcher,
+	render func([]*store.Session) error,
+	onDrop func(err error, next time.Duration),
+	sleep func(context.Context, time.Duration) bool,
+) error {
+	everConnected := false
+	backoff := watchBackoffBase
+	for {
+		delivered := false
+		var renderErr error
+		err := watch(ctx, func(ss []*store.Session) error {
+			delivered, everConnected = true, true
+			if e := render(ss); e != nil {
+				renderErr = e
+				return e
+			}
+			backoff = watchBackoffBase // a healthy stream resets the backoff
+			return nil
+		})
+		if renderErr != nil {
+			return renderErr // an output failure is fatal, not a reconnect case
+		}
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return nil // clean stop (Ctrl+C)
+		}
+		if err == nil {
+			return nil // server closed the stream gracefully (EOF): a clean end, not a drop
+		}
+		if !everConnected {
+			return err // never established: surface daemon-down / auth error, don't spin
+		}
+		// Established stream dropped: retain the last complete fleet and reconnect.
+		if !delivered {
+			backoff = min(backoff*2, watchBackoffCap)
+		}
+		if onDrop != nil {
+			onDrop(err, backoff)
+		}
+		if !sleep(ctx, backoff) {
+			return nil // ctx cancelled during the backoff wait
+		}
+	}
+}
+
+// watchBackoffBase/Cap bound the reconnect backoff for a dropped session stream.
+var (
+	watchBackoffBase = 500 * time.Millisecond
+	watchBackoffCap  = 5 * time.Second
+)
+
+// sleepCtx waits d or until ctx is cancelled, reporting true if the full wait
+// elapsed and false if ctx was cancelled first.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 func newStatusCmd() *cobra.Command {
