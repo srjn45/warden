@@ -271,7 +271,9 @@ func (c *Controller) watchPlan(ctx context.Context, r *run, interval time.Durati
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			c.mu.Lock()
 			_, notify := r.reloadPlanIfChanged()
+			c.mu.Unlock()
 			if notify != nil && c.runtime != nil {
 				c.runtime.NotifyOwner(r.runID, "autopilot: plan edit ignored (kept last-good): "+notify.Error())
 			}

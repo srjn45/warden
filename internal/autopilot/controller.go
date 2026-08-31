@@ -308,6 +308,9 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 
 	for _, file := range c.plans {
 		r, planFails := c.preflightPlan(ctx, file)
+		if len(planFails) == 0 && !r.skipComplete {
+			planFails = append(planFails, c.validatePersistedDoneClaims(r.runID, r.plan)...)
+		}
 		switch {
 		case r.repo == "":
 			// Repo unresolved (not a git repo, etc.): the plan is fundamentally
@@ -433,6 +436,30 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 		c.runtime.InstallDefaultAutoApprovePolicy()
 	}
 	return c.statusLocked(), nil
+}
+
+// validatePersistedDoneClaims makes restart reconstruction apply the same
+// daemon-authoritative evidence rule as live write-back. The nil-runtime path is
+// retained for the deliberately inert controller used by early-stage callers.
+func (c *Controller) validatePersistedDoneClaims(runID string, plan Plan) []string {
+	if c.runtime == nil || c.runtime.NewLedger(runID) == nil {
+		return nil
+	}
+	landings, err := c.runtime.NewLedger(runID).Landings()
+	if err != nil {
+		return []string{fmt.Sprintf("plan %s: verify landed task evidence: %v", runID, err)}
+	}
+	landed := make(map[int]bool, len(landings))
+	for _, landing := range landings {
+		landed[landing.PR] = true
+	}
+	var failures []string
+	for _, task := range plan.Tasks {
+		if task.Status == TaskStatusDone && !landed[task.LandedPR] {
+			failures = append(failures, fmt.Sprintf("plan %s: task %q claims done with PR #%d, but that PR is not recorded as landed", runID, task.ID, task.LandedPR))
+		}
+	}
+	return failures
 }
 
 // resolveRepo canonicalizes an Enable/Disable repo argument to the git toplevel
@@ -624,6 +651,64 @@ func (c *Controller) CompleteRun(ctx context.Context, runID string) (Status, err
 	return c.statusLocked(), nil
 }
 
+// UpdateTaskStatus is the sole task-ledger write-back path. The controller lock
+// serializes concurrent updates, while the file helper provides crash-safe
+// replacement. A done claim must cite a PR recorded by the daemon land handler.
+func (c *Controller) UpdateTaskStatus(runID, taskID, status string, landedPR int) (PlanTask, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok {
+		return PlanTask{}, fmt.Errorf("autopilot: unknown run %q", runID)
+	}
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status != TaskStatusPending && status != TaskStatusActive && status != TaskStatusDone && status != TaskStatusFailed {
+		return PlanTask{}, fmt.Errorf("autopilot: invalid task status %q", status)
+	}
+	idx := -1
+	for i := range r.plan.Tasks {
+		if r.plan.Tasks[i].ID == taskID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return PlanTask{}, fmt.Errorf("autopilot: unknown task %q", taskID)
+	}
+	if status == TaskStatusDone {
+		if landedPR <= 0 {
+			return PlanTask{}, fmt.Errorf("autopilot: status done requires landed_pr")
+		}
+		if c.runtime == nil || c.runtime.NewLedger(runID) == nil {
+			return PlanTask{}, fmt.Errorf("autopilot: cannot verify landed_pr without ledger")
+		}
+		landings, err := c.runtime.NewLedger(runID).Landings()
+		if err != nil {
+			return PlanTask{}, fmt.Errorf("autopilot: verify landed_pr: %w", err)
+		}
+		verified := false
+		for _, landing := range landings {
+			if landing.PR == landedPR {
+				verified = true
+				break
+			}
+		}
+		if !verified {
+			return PlanTask{}, fmt.Errorf("autopilot: PR #%d is not recorded as landed for run %s", landedPR, runID)
+		}
+	} else if landedPR != 0 {
+		return PlanTask{}, fmt.Errorf("autopilot: landed_pr is only valid with status done")
+	}
+	if err := writeTaskStatusAtomic(r.absPlanFile, taskID, status, landedPR); err != nil {
+		return PlanTask{}, err
+	}
+	r.plan.Tasks[idx].Status, r.plan.Tasks[idx].LandedPR = status, landedPR
+	if info, err := os.Stat(r.absPlanFile); err == nil {
+		r.planModTime = info.ModTime()
+	}
+	return r.plan.Tasks[idx], nil
+}
+
 // ActiveBrainForRun returns the agent id of the brain serving run runID while the
 // switch is on and that run has a live brain; ok=false otherwise (unknown run,
 // autopilot disabled, or a degraded run with no brain). The approval router uses
@@ -660,6 +745,19 @@ func (c *Controller) statusLocked() Status {
 	}
 	st := Status{Enabled: len(enabledRepos) > 0, EnabledRepos: enabledRepos, Runs: []RunStatus{}}
 	for _, r := range c.runs {
+		counts := TaskCounts{}
+		for _, task := range r.plan.Tasks {
+			switch task.Status {
+			case TaskStatusActive:
+				counts.InProgress++
+			case TaskStatusDone:
+				counts.Landed++
+			case TaskStatusFailed:
+				counts.Failed++
+			default:
+				counts.Pending++
+			}
+		}
 		var brain *BrainStatus
 		if r.brain != nil {
 			brain = &BrainStatus{
@@ -679,7 +777,7 @@ func (c *Controller) statusLocked() Status {
 			Gate:            c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:           brain,
 			WorkersInFlight: r.workersInFlight, // last roster count from the overwatch tick
-			Tasks:           TaskCounts{},
+			Tasks:           counts,
 			Backoff:         r.backoffStatus(),
 		})
 	}

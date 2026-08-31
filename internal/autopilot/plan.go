@@ -7,8 +7,10 @@ package autopilot
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -58,10 +60,19 @@ func (p Plan) IsComplete() bool {
 // PlanTask is one coarse task in a plan. Dependency edges (After) reference other
 // task ids within the same plan.
 type PlanTask struct {
-	ID     string   `yaml:"id"`
-	Prompt string   `yaml:"prompt"`
-	After  []string `yaml:"after"`
+	ID       string   `yaml:"id"`
+	Prompt   string   `yaml:"prompt"`
+	After    []string `yaml:"after"`
+	Status   string   `yaml:"status,omitempty"`
+	LandedPR int      `yaml:"landed_pr,omitempty"`
 }
+
+const (
+	TaskStatusPending = "pending"
+	TaskStatusActive  = "active"
+	TaskStatusDone    = "done"
+	TaskStatusFailed  = "failed"
+)
 
 // DecodePlan strict-decodes a v1 plan document (autopilot.md §3). Unknown fields
 // are an error (typos surface now). It then validates the semantic shape: a
@@ -119,6 +130,23 @@ func (p *Plan) validate() error {
 			return fmt.Errorf("plan: duplicate task id %q", id)
 		}
 		ids[id] = true
+		status := strings.ToLower(strings.TrimSpace(t.Status))
+		if status == "" {
+			p.Tasks[i].Status = TaskStatusPending
+			status = TaskStatusPending
+		}
+		switch status {
+		case TaskStatusPending, TaskStatusActive, TaskStatusDone, TaskStatusFailed:
+			p.Tasks[i].Status = status
+		default:
+			return fmt.Errorf("plan: task %q has invalid status %q", id, t.Status)
+		}
+		if status == TaskStatusDone && t.LandedPR <= 0 {
+			return fmt.Errorf("plan: task %q status done requires landed_pr", id)
+		}
+		if status != TaskStatusDone && t.LandedPR != 0 {
+			return fmt.Errorf("plan: task %q landed_pr is only valid with status done", id)
+		}
 	}
 	// Edges are checked in a second pass so forward references (a task depending
 	// on one declared later in the list) are legal.
@@ -135,6 +163,131 @@ func (p *Plan) validate() error {
 		return fmt.Errorf("plan: task dependency references unknown id(s): %s", strings.Join(unknown, ", "))
 	}
 	return nil
+}
+
+// writeTaskStatusAtomic updates one task node while preserving the owner's YAML
+// comments and ordering, then atomically replaces the plan file.
+func writeTaskStatusAtomic(path, taskID, status string, landedPR int) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("plan: read %s: %w", path, err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("plan: decode %s: %w", path, err)
+	}
+	root := &doc
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		root = doc.Content[0]
+	}
+	var tasks *yaml.Node
+	for i := 0; root.Kind == yaml.MappingNode && i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "tasks" {
+			tasks = root.Content[i+1]
+			break
+		}
+	}
+	if tasks == nil || tasks.Kind != yaml.SequenceNode {
+		return fmt.Errorf("plan: task %q not found", taskID)
+	}
+	found := false
+	for _, task := range tasks.Content {
+		if task.Kind != yaml.MappingNode {
+			continue
+		}
+		id := ""
+		for i := 0; i+1 < len(task.Content); i += 2 {
+			if task.Content[i].Value == "id" {
+				id = task.Content[i+1].Value
+			}
+		}
+		if id != taskID {
+			continue
+		}
+		found = true
+		upsertMapScalar(task, "status", status)
+		if landedPR > 0 {
+			upsertMapScalar(task, "landed_pr", fmt.Sprint(landedPR))
+			taskValue(task, "landed_pr").Tag = "!!int"
+		} else {
+			removeMapKey(task, "landed_pr")
+		}
+		break
+	}
+	if !found {
+		return fmt.Errorf("plan: task %q not found", taskID)
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return fmt.Errorf("plan: encode %s: %w", path, err)
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	mode := os.FileMode(0o644)
+	if info, e := os.Stat(path); e == nil {
+		mode = info.Mode().Perm()
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".warden-plan-*")
+	if err != nil {
+		return fmt.Errorf("plan: create temporary file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err = tmp.Chmod(mode); err == nil {
+		_, err = tmp.Write(buf.Bytes())
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("plan: write temporary file: %w", err)
+	}
+	// Refuse to overwrite owner steering that raced this read/modify/write.
+	current, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("plan: re-read %s before replace: %w", path, err)
+	}
+	if sha256.Sum256(current) != sha256.Sum256(data) {
+		return fmt.Errorf("plan: concurrent edit detected; retry task status update")
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("plan: replace %s: %w", path, err)
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("plan: open parent directory: %w", err)
+	}
+	if err = dir.Sync(); err != nil {
+		_ = dir.Close()
+		return fmt.Errorf("plan: sync parent directory: %w", err)
+	}
+	if err = dir.Close(); err != nil {
+		return fmt.Errorf("plan: close parent directory: %w", err)
+	}
+	return nil
+}
+
+func taskValue(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+func removeMapKey(m *yaml.Node, key string) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content = append(m.Content[:i], m.Content[i+2:]...)
+			return
+		}
+	}
 }
 
 // markPlanCompleteInPlace rewrites the plan file at path, adding (or updating)
