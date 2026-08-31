@@ -12,16 +12,17 @@ import (
 )
 
 // Entry is one session's running spend gauge: its cumulative billed input and
-// output tokens, plus the model it ran (for pricing) and the repo + first-seen
+// output tokens, plus the backend/model it ran (for pricing) and repo + first-seen
 // day (for the per-repo / per-day rollups). Input/Output are stored separately —
 // not pre-summed — because output bills at a different rate than input, so the
 // dollar figure can only be computed from the two axes kept apart.
 type Entry struct {
-	Input  int    `json:"input"`
-	Output int    `json:"output"`
-	Model  string `json:"model,omitempty"`
-	Repo   string `json:"repo,omitempty"`
-	Day    string `json:"day,omitempty"` // YYYY-MM-DD the session was first recorded (local)
+	Input   int    `json:"input"`
+	Output  int    `json:"output"`
+	Backend string `json:"backend,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Repo    string `json:"repo,omitempty"`
+	Day     string `json:"day,omitempty"` // YYYY-MM-DD the session was first recorded (local)
 }
 
 // SessionSpend is one session's spend with its id attached — what Sessions()
@@ -58,10 +59,10 @@ func NewStore(dir string) (*Store, error) {
 // of input/output is monotone (max with the stored value), so a transcript that
 // was rotated or partially read on a given tick — yielding a momentarily smaller
 // cumulative figure — is treated as a transient under-count, not a correction
-// downward. The model + repo are stamped (and refreshed if they were unknown), and
-// the first-seen day is recorded once so per-day rollups have a stable bucket. A
-// session with no tokens on either axis is a no-op.
-func (s *Store) Record(sessionID, model, repo string, inputTokens, outputTokens int) error {
+// downward. The backend + model + repo are stamped (and refreshed if they were
+// unknown), and the first-seen day is recorded once so per-day rollups have a
+// stable bucket. A session with no tokens on either axis is a no-op.
+func (s *Store) Record(sessionID, backend, model, repo string, inputTokens, outputTokens int) error {
 	if sessionID == "" || (inputTokens <= 0 && outputTokens <= 0) {
 		return nil
 	}
@@ -73,6 +74,10 @@ func (s *Store) Record(sessionID, model, repo string, inputTokens, outputTokens 
 	}
 	e := m[sessionID]
 	changed := false
+	if backend != "" && e.Backend != backend {
+		e.Backend = backend
+		changed = true
+	}
 	if inputTokens > e.Input {
 		e.Input = inputTokens
 		changed = true

@@ -89,7 +89,7 @@ func (s *Server) RecordSpend(sess *store.Session, inputTokens, outputTokens int)
 	if !s.savingsOn || s.spend == nil || sess == nil {
 		return
 	}
-	if err := s.spend.Record(sess.ID, sess.Model, sess.Repo, inputTokens, outputTokens); err != nil {
+	if err := s.spend.Record(sess.ID, sess.Backend, sess.Model, sess.Repo, inputTokens, outputTokens); err != nil {
 		slog.Warn("savings: failed to record spend", "agent", sess.ID, "err", err)
 	}
 }

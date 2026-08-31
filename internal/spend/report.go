@@ -49,6 +49,14 @@ func (r Report) AgentUSD() map[string]float64 {
 // shows. By-agent and by-repo are sorted biggest-$-first (the rows a cost report
 // leads with); by-day is chronological.
 func BuildReport(sessions []SessionSpend, now time.Time) Report {
+	return BuildReportWithCost(sessions, now, func(s SessionSpend) float64 {
+		return Cost(s.Model, s.Input, s.Output)
+	})
+}
+
+// BuildReportWithCost is BuildReport with backend-aware pricing supplied by the
+// caller. Token totals are always aggregated even when cost returns zero.
+func BuildReportWithCost(sessions []SessionSpend, now time.Time, cost func(SessionSpend) float64) Report {
 	var r Report
 	today := now.Format("2006-01-02")
 	weekAgo := now.AddDate(0, 0, -6).Format("2006-01-02") // trailing 7 days incl. today
@@ -69,7 +77,7 @@ func BuildReport(sessions []SessionSpend, now time.Time) Report {
 	}
 
 	for _, s := range sessions {
-		usd := Cost(s.Model, s.Input, s.Output)
+		usd := cost(s)
 		r.TotalUSD += usd
 		r.InputTokens += s.Input
 		r.OutputTokens += s.Output

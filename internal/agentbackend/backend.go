@@ -16,6 +16,8 @@ package agentbackend
 
 import (
 	"io"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -89,6 +91,30 @@ type Price struct {
 type PricingTable struct {
 	Models  map[string]Price // model id / family -> rates
 	Default Price            // fallback for an unrecognized model
+}
+
+// Cost returns the dollar cost for a token pair, resolving full model IDs by
+// family substring before falling back to the backend's conservative default.
+func (t PricingTable) Cost(model string, inputTokens, outputTokens int) float64 {
+	m := strings.ToLower(strings.TrimSpace(model))
+	price := t.Default
+	if exact, ok := t.Models[m]; ok {
+		price = exact
+	} else {
+		families := make([]string, 0, len(t.Models))
+		for family := range t.Models {
+			families = append(families, family)
+		}
+		sort.Strings(families)
+		for _, family := range families {
+			if strings.Contains(m, strings.ToLower(family)) {
+				price = t.Models[family]
+				break
+			}
+		}
+	}
+	return float64(inputTokens)*price.InputPerMTok/1_000_000 +
+		float64(outputTokens)*price.OutputPerMTok/1_000_000
 }
 
 // Caps declares which warden features a backend can support. Core gates features
