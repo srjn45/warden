@@ -28,7 +28,7 @@ func TestEnableStoresTreatAliasesAsOneRepo(t *testing.T) {
 	for _, store := range []EnableStore{newMemEnableStore(), newFSEnableStore(filepath.Join(t.TempDir(), "enabled"))} {
 		require.NoError(t, store.Enable(alias))
 		require.True(t, store.IsEnabled(real))
-		require.Equal(t, []string{canonicalPath(real)}, store.List())
+		require.Equal(t, []string{alias}, store.List(), "the first caller-facing spelling is preserved")
 		require.NoError(t, store.Disable(real))
 		require.False(t, store.IsEnabled(alias))
 	}
@@ -43,7 +43,7 @@ func TestFSEnableStoreReadsAndRemovesLegacyAliasMarker(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(store.dir, enableMarker(alias)), []byte(alias), 0o644))
 
 	require.True(t, store.IsEnabled(real), "pre-canonicalization markers remain readable")
-	require.Equal(t, []string{canonicalPath(real)}, store.List())
+	require.Equal(t, []string{alias}, store.List(), "legacy persisted spelling remains stable")
 	require.NoError(t, store.Disable(real))
 	require.False(t, store.IsEnabled(alias))
 }

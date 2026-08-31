@@ -30,19 +30,19 @@ func MigrateLegacyPlans(ctx context.Context, env Env, c *Controller, configured 
 		if !filepath.IsAbs(src) {
 			src = filepath.Join(baseDir, src)
 		}
-		src = canonicalPath(src)
+		src = filepath.Clean(src)
 		repo, err := env.GitToplevel(ctx, filepath.Dir(src))
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: resolve repository: %v", configuredPath, err))
 			effective = append(effective, src)
 			continue
 		}
-		repo = canonicalPath(repo)
+		repo = filepath.Clean(repo)
 		planPath := src
 		plansDir := filepath.Join(repo, "plans")
 		if rel, err := filepath.Rel(plansDir, src); err != nil || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
 			name := legacyPlanName(src)
-			planPath = canonicalPath(filepath.Join(plansDir, name+".yaml"))
+			planPath = filepath.Clean(filepath.Join(plansDir, name+".yaml"))
 			if err := copyPlanIdempotent(src, planPath); err != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", configuredPath, err))
 				effective = append(effective, src)

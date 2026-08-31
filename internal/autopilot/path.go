@@ -35,3 +35,5 @@ func canonicalPath(path string) string {
 		cur = parent
 	}
 }
+
+func samePath(a, b string) bool { return canonicalPath(a) == canonicalPath(b) }

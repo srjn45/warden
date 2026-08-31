@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -507,9 +508,9 @@ func (c *Controller) resolveRepo(ctx context.Context, repo string) string {
 		target = c.baseDir
 	}
 	if root, err := c.env.GitToplevel(ctx, target); err == nil && strings.TrimSpace(root) != "" {
-		return canonicalPath(root)
+		return filepath.Clean(root)
 	}
-	return canonicalPath(target)
+	return filepath.Clean(target)
 }
 
 // PersistedEnabled returns every repo the EnableStore has recorded as switched on.

@@ -33,8 +33,6 @@ func (c *Controller) restoreStoredRuns() {
 	}
 	for _, rec := range records {
 		legacyID := rec.RunID
-		rec.Repo = canonicalPath(rec.Repo)
-		rec.PlanFile = canonicalPath(rec.PlanFile)
 		rec.RunID = RunID(rec.Repo, rec.PlanFile)
 		// Transparently re-key records written before canonical path identity was
 		// enforced. Creating first makes an interrupted migration retry-safe.
@@ -100,7 +98,7 @@ func (c *Controller) Register(ctx context.Context, req RegisterRequest) (RunStat
 	if err != nil {
 		return RunStatus{}, err
 	}
-	abs = canonicalPath(abs)
+	abs = filepath.Clean(abs)
 	plan, err := LoadPlan(abs)
 	if err != nil {
 		return RunStatus{}, err
@@ -109,11 +107,11 @@ func (c *Controller) Register(ctx context.Context, req RegisterRequest) (RunStat
 	if err != nil {
 		return RunStatus{}, err
 	}
-	planRepo = canonicalPath(planRepo)
+	planRepo = filepath.Clean(planRepo)
 	repo := planRepo
 	if req.Repo != "" {
 		repo = c.resolveRepo(ctx, req.Repo)
-		if repo != planRepo {
+		if !samePath(repo, planRepo) {
 			return RunStatus{}, fmt.Errorf("plan file belongs to %s, not %s", planRepo, repo)
 		}
 	}
@@ -153,7 +151,7 @@ func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) e
 	if resolved.skipComplete {
 		failures = append(failures, "plan is already marked complete")
 	}
-	if resolved.repo != "" && (resolved.repo != r.repo || resolved.runID != r.runID) {
+	if resolved.repo != "" && (!samePath(resolved.repo, r.repo) || resolved.runID != r.runID) {
 		failures = append(failures, "registered plan identity no longer matches its repository")
 	}
 	if len(failures) > 0 {

@@ -60,7 +60,7 @@ type fsEnableStore struct {
 func newFSEnableStore(dir string) *fsEnableStore { return &fsEnableStore{dir: dir} }
 
 func (s *fsEnableStore) Enable(repo string) error {
-	repo = canonicalPath(repo)
+	repo = strings.TrimSpace(repo)
 	if repo == "" {
 		return nil
 	}
@@ -69,23 +69,24 @@ func (s *fsEnableStore) Enable(repo string) error {
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(s.dir, enableMarker(repo)), []byte(repo), 0o644)
+	return os.WriteFile(filepath.Join(s.dir, enableMarker(canonicalPath(repo))), []byte(repo), 0o644)
 }
 
 func (s *fsEnableStore) Disable(repo string) error {
-	repo = canonicalPath(repo)
+	repo = strings.TrimSpace(repo)
 	if repo == "" {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(filepath.Join(s.dir, enableMarker(repo))); err != nil && !os.IsNotExist(err) {
+	key := canonicalPath(repo)
+	if err := os.Remove(filepath.Join(s.dir, enableMarker(key))); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	entries, _ := os.ReadDir(s.dir)
 	for _, e := range entries {
 		data, err := os.ReadFile(filepath.Join(s.dir, e.Name()))
-		if err == nil && canonicalPath(string(data)) == repo {
+		if err == nil && canonicalPath(string(data)) == key {
 			_ = os.Remove(filepath.Join(s.dir, e.Name()))
 		}
 	}
@@ -93,19 +94,20 @@ func (s *fsEnableStore) Disable(repo string) error {
 }
 
 func (s *fsEnableStore) IsEnabled(repo string) bool {
-	repo = canonicalPath(repo)
+	repo = strings.TrimSpace(repo)
 	if repo == "" {
 		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := os.Stat(filepath.Join(s.dir, enableMarker(repo))); err == nil {
+	key := canonicalPath(repo)
+	if _, err := os.Stat(filepath.Join(s.dir, enableMarker(key))); err == nil {
 		return true
 	}
 	entries, _ := os.ReadDir(s.dir)
 	for _, e := range entries {
 		data, err := os.ReadFile(filepath.Join(s.dir, e.Name()))
-		if err == nil && canonicalPath(string(data)) == repo {
+		if err == nil && canonicalPath(string(data)) == key {
 			return true
 		}
 	}
@@ -129,8 +131,8 @@ func (s *fsEnableStore) List() []string {
 		if err != nil {
 			continue
 		}
-		if repo := canonicalPath(string(data)); repo != "" && !seen[repo] {
-			seen[repo] = true
+		if repo := strings.TrimSpace(string(data)); repo != "" && !seen[canonicalPath(repo)] {
+			seen[canonicalPath(repo)] = true
 			repos = append(repos, repo)
 		}
 	}
@@ -142,19 +144,22 @@ func (s *fsEnableStore) List() []string {
 // fallback (nothing is persisted to disk). Safe for concurrent use.
 type memEnableStore struct {
 	mu    sync.Mutex
-	repos map[string]bool
+	repos map[string]string // canonical identity -> first caller-facing spelling
 }
 
-func newMemEnableStore() *memEnableStore { return &memEnableStore{repos: map[string]bool{}} }
+func newMemEnableStore() *memEnableStore { return &memEnableStore{repos: map[string]string{}} }
 
 func (s *memEnableStore) Enable(repo string) error {
-	repo = canonicalPath(repo)
+	repo = strings.TrimSpace(repo)
 	if repo == "" {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.repos[repo] = true
+	key := canonicalPath(repo)
+	if _, exists := s.repos[key]; !exists {
+		s.repos[key] = repo
+	}
 	return nil
 }
 
@@ -168,14 +173,15 @@ func (s *memEnableStore) Disable(repo string) error {
 func (s *memEnableStore) IsEnabled(repo string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.repos[canonicalPath(repo)]
+	_, ok := s.repos[canonicalPath(repo)]
+	return ok
 }
 
 func (s *memEnableStore) List() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]string, 0, len(s.repos))
-	for r := range s.repos {
+	for _, r := range s.repos {
 		out = append(out, r)
 	}
 	sort.Strings(out)
