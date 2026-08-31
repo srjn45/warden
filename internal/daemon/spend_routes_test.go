@@ -20,7 +20,7 @@ func newSpendServer(t *testing.T, model, repo string, in, out int) *Server {
 	st, err := spend.NewStore(t.TempDir())
 	require.NoError(t, err)
 	if in > 0 || out > 0 {
-		require.NoError(t, st.Record("seed", model, repo, in, out))
+		require.NoError(t, st.Record("seed", "claude", model, repo, in, out))
 	}
 	return &Server{savingsOn: true, spend: st}
 }
@@ -35,6 +35,39 @@ func TestGetSpendReport(t *testing.T) {
 	require.InDelta(t, 5.0, report.TotalUSD, 1e-9)
 	require.Len(t, report.ByAgent, 1)
 	require.Equal(t, "seed", report.ByAgent[0].Key)
+}
+
+func TestGetSpendCodexTracksTokensWithoutDollars(t *testing.T) {
+	st, err := spend.NewStore(t.TempDir())
+	require.NoError(t, err)
+	// An Opus-looking model must not make a tokens-only backend inherit Claude's
+	// conservative fallback price.
+	require.NoError(t, st.Record("codex-agent", "codex", "gpt-opus-review", "/x", 1_000_000, 200_000))
+	s := &Server{savingsOn: true, spend: st}
+
+	rep := s.spendReport()
+	require.Equal(t, 1_000_000, rep.InputTokens)
+	require.Equal(t, 200_000, rep.OutputTokens)
+	require.Zero(t, rep.TotalUSD)
+	require.Zero(t, rep.DailyUSD)
+	require.Zero(t, rep.WeeklyUSD)
+	require.Len(t, rep.ByAgent, 1)
+	require.Equal(t, 1_000_000, rep.ByAgent[0].Input)
+	require.Equal(t, 200_000, rep.ByAgent[0].Output)
+	require.Zero(t, rep.ByAgent[0].USD)
+}
+
+func TestBudgetGateIgnoresTokensOnlyBackend(t *testing.T) {
+	fs := newFakeStore()
+	st, err := spend.NewStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, st.Record("codex-agent", "codex", "opus", "/x", 9_000_000, 1_000_000))
+	s := &Server{store: fs, life: &fakeLife{}, savingsOn: true, spend: st,
+		budgetGate: true, budgetDailyUSD: 1}
+
+	resp := postSpawn(t, s, SpawnRequest{Prompt: "do x", Cwd: t.TempDir()})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
 }
 
 func TestGetSpendDisabled403(t *testing.T) {
@@ -53,7 +86,7 @@ func TestBudgetGateWarns(t *testing.T) {
 	st, err := spend.NewStore(t.TempDir())
 	require.NoError(t, err)
 	// 2M Opus input = $10, over a $1 daily cap.
-	require.NoError(t, st.Record("seed", "opus", "/x", 2_000_000, 0))
+	require.NoError(t, st.Record("seed", "claude", "opus", "/x", 2_000_000, 0))
 	s := &Server{store: fs, life: &fakeLife{}, savingsOn: true, spend: st,
 		budgetGate: true, budgetDailyUSD: 1}
 
@@ -76,7 +109,7 @@ func TestBudgetGateWarns(t *testing.T) {
 func TestBudgetGateForceBypasses(t *testing.T) {
 	fs := newFakeStore()
 	st, _ := spend.NewStore(t.TempDir())
-	_ = st.Record("seed", "opus", "/x", 2_000_000, 0)
+	_ = st.Record("seed", "claude", "opus", "/x", 2_000_000, 0)
 	s := &Server{store: fs, life: &fakeLife{}, savingsOn: true, spend: st,
 		budgetGate: true, budgetDailyUSD: 1}
 
@@ -88,7 +121,7 @@ func TestBudgetGateForceBypasses(t *testing.T) {
 func TestBudgetGateUnderCapProceeds(t *testing.T) {
 	fs := newFakeStore()
 	st, _ := spend.NewStore(t.TempDir())
-	_ = st.Record("seed", "opus", "/x", 1_000, 0) // pennies, under any cap
+	_ = st.Record("seed", "claude", "opus", "/x", 1_000, 0) // pennies, under any cap
 	s := &Server{store: fs, life: &fakeLife{}, savingsOn: true, spend: st,
 		budgetGate: true, budgetDailyUSD: 25}
 
@@ -100,7 +133,7 @@ func TestBudgetGateUnderCapProceeds(t *testing.T) {
 func TestBudgetGateOffProceeds(t *testing.T) {
 	fs := newFakeStore()
 	st, _ := spend.NewStore(t.TempDir())
-	_ = st.Record("seed", "opus", "/x", 9_000_000, 0)
+	_ = st.Record("seed", "claude", "opus", "/x", 9_000_000, 0)
 	s := &Server{store: fs, life: &fakeLife{}, savingsOn: true, spend: st,
 		budgetGate: false, budgetDailyUSD: 1}
 
