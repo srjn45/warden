@@ -1257,6 +1257,8 @@ type AutopilotRunStatus struct {
 	Tasks           AutopilotTaskCounts `json:"tasks"`
 	Backoff         *AutopilotBackoff   `json:"backoff"`
 	LandedTotal     int                 `json:"landed_total"`
+	PlanTasks       []AutopilotPlanTask `json:"plan_tasks"`
+	GuardianID      string              `json:"guardian_id,omitempty"`
 }
 
 // RegisterAutopilotRun adds a named plan to the durable registry without

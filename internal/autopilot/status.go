@@ -44,6 +44,8 @@ type RunStatus struct {
 	Tasks           TaskCounts   `json:"tasks"`
 	Backoff         *Backoff     `json:"backoff"`
 	LandedTotal     int          `json:"landed_total"`
+	PlanTasks       []PlanTask   `json:"plan_tasks"`
+	GuardianID      string       `json:"guardian_id,omitempty"`
 }
 
 // BrainStatus describes the run's brain agent (autopilot.md §5). Nil in S1.

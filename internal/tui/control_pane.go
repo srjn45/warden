@@ -220,7 +220,21 @@ func (m controlPaneModel) items() []item {
 	// ── Projects tab (§4 tree nesting): agents and pipelines nested under their
 	// project (or a loose directory / the Ungrouped bucket), each group a navigable,
 	// collapsible header. Open projects always show (even empty, IDE-style).
-	out = append(out, projectGroupedItems(m.projects, groupLabels(m.projectGroups), agents, m.sessions, m.pipelines, m.openedDirs, m.collapsed)...)
+	runIDs := map[string]bool{}
+	for _, r := range m.autopilot.Runs {
+		runIDs[r.RunID] = true
+	}
+	visible := agents[:0]
+	for _, s := range agents {
+		if s.HasTag("system:true") && !m.showSystemAgents {
+			continue
+		}
+		if runIDs[sessionRunID(s)] {
+			continue
+		} // rendered inside its run node
+		visible = append(visible, s)
+	}
+	out = append(out, projectGroupedItems(m.projects, groupLabels(m.projectGroups), visible, m.sessions, m.pipelines, m.openedDirs, m.collapsed, m.autopilot.Runs)...)
 	return out
 }
 
@@ -619,6 +633,13 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "autopilot: " + msg.err.Error()
 		}
 		return m, nil
+	case autopilotRunActionMsg:
+		if msg.err != nil {
+			m.status = "autopilot " + msg.action + ": " + msg.err.Error()
+		} else {
+			m.status = msg.action + "d " + msg.runID
+		}
+		return m, autopilotCmd(m.api)
 	case backendsMsg:
 		if msg.err != nil {
 			// Surface an action's failure (a rejected default, a bad tier); on a
@@ -1594,6 +1615,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[secKey(it.section)] = false
 		case it.projHdr != nil:
 			m.collapsed[projKey(it.projHdr.id)] = false
+		case it.apRun != nil:
+			m.collapsed["aprun\x00"+it.apRun.RunID] = false
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = false
 		case it.session != nil && it.hasKids:
@@ -1612,6 +1635,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// stays on it rather than a now-hidden child (§4.3).
 			m.collapsed[projKey(it.projHdr.id)] = true
 			m.repin(projKey(it.projHdr.id))
+		case it.apRun != nil:
+			key := "aprun\x00" + it.apRun.RunID
+			m.collapsed[key] = true
+			m.repin(key)
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = true
 		case it.pjJob != nil:
@@ -1645,6 +1672,9 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		it := itemAt(m.items(), m.cursor)
 		switch {
+		case it.apRun != nil:
+			m.status = "stopping " + it.apRun.Name
+			return m, autopilotRunActionCmd(m.api, it.apRun.RunID, "stop")
 		case it.projHdr != nil:
 			return m.closeProjectFromHeader(it.projHdr)
 		case it.pipeline != nil:
@@ -1673,6 +1703,14 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		it := itemAt(m.items(), m.cursor)
+		if it.apRun != nil {
+			action := "resume"
+			if it.apRun.State != "paused" {
+				action = "pause"
+			}
+			m.status = action + " " + it.apRun.Name
+			return m, autopilotRunActionCmd(m.api, it.apRun.RunID, action)
+		}
 		if it.pjJob != nil && (it.pjJob.Status == pipeline.JobFailed || it.pjJob.Status == pipeline.JobNeedsAttention) {
 			m.status = "retrying " + it.pjPipe + "/" + it.pjJob.ID
 			return m, retryJobCmd(m.api, it.pjPipe, it.pjJob.ID)

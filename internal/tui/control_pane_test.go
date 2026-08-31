@@ -868,3 +868,27 @@ func TestLeftRightCollapseProjectHeader(t *testing.T) {
 	require.False(t, m.collapsed[projKey("/repos/alpha")], "right expands the project group")
 	require.Contains(t, itemSessionIDs(m.items()), "a1")
 }
+
+func TestAutopilotRunScopedKeyboardActions(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m.autopilot = client.AutopilotStatus{Runs: []client.AutopilotRunStatus{{RunID: "ap-1", Name: "release", Repo: "/repo", State: "active"}}}
+	m.cursor = cursorOn(m, func(it item) bool { return it.apRun != nil })
+	next, cmd := m.handleKey(key("r"))
+	require.NotNil(t, cmd)
+	_ = next
+	msg := cmd()
+	require.IsType(t, autopilotRunActionMsg{}, msg)
+	require.Equal(t, "ap-1", f.autopilotRunID)
+	require.Equal(t, "pause", f.autopilotAction)
+
+	m.autopilot.Runs[0].State = "paused"
+	m.cursor = cursorOn(m, func(it item) bool { return it.apRun != nil })
+	_, cmd = m.handleKey(key("r"))
+	_ = cmd()
+	require.Equal(t, "resume", f.autopilotAction)
+
+	_, cmd = m.handleKey(key("x"))
+	_ = cmd()
+	require.Equal(t, "stop", f.autopilotAction)
+}

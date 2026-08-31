@@ -201,7 +201,10 @@ type item struct {
 	section  string // non-empty ⇒ a top-level section header row (secApprovals…)
 	secCount int    // count badge shown on a section header
 
-	projHdr *projectHeader // non-nil ⇒ a project group-header row (§4 tree nesting)
+	projHdr   *projectHeader // non-nil ⇒ a project group-header row (§4 tree nesting)
+	apRun     *client.AutopilotRunStatus
+	apTask    *client.AutopilotPlanTask
+	apTaskRun string
 
 	// opened marks the row whose session is currently shown in a cockpit pane:
 	// the openedAgent in the agent pane (an Agents-section agent or a Pipelines
@@ -247,6 +250,12 @@ func itemKey(it item) string {
 	if it.projHdr != nil {
 		return projKey(it.projHdr.id)
 	}
+	if it.apRun != nil {
+		return "aprun\x00" + it.apRun.RunID
+	}
+	if it.apTask != nil {
+		return "aptask\x00" + it.apTaskRun + "\x00" + it.apTask.ID
+	}
 	if it.apprView != nil {
 		return "appr\x00" + it.apprView.ID
 	}
@@ -267,7 +276,7 @@ func itemKey(it item) string {
 // all live outside the Agents dir grouping. Only Agents-section agent rows carry
 // a dir group.
 func (it item) noDirGroup() bool {
-	return it.section != "" || it.projHdr != nil || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
+	return it.section != "" || it.projHdr != nil || it.apRun != nil || it.apTask != nil || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
 		(it.session != nil && it.session.IsTerminal())
 }
 
@@ -583,7 +592,11 @@ func resolveGroupKey(projectID, dir string, openByKey, closedByKey map[string]st
 // set that forms the project-nested sub-trees.
 // groupByProject maps a project id to the name of the ProjectGroup it belongs to
 // (Phase 1); a real-project header shows this label beside its name.
-func projectGroupedItems(projects []projectstore.Project, groupByProject map[string]string, agents, allSessions []*store.Session, pipelines []*pipeline.Pipeline, opened map[string]time.Time, collapsed map[string]bool) []item {
+func projectGroupedItems(projects []projectstore.Project, groupByProject map[string]string, agents, allSessions []*store.Session, pipelines []*pipeline.Pipeline, opened map[string]time.Time, collapsed map[string]bool, runSets ...[]client.AutopilotRunStatus) []item {
+	var runs []client.AutopilotRunStatus
+	if len(runSets) > 0 {
+		runs = runSets[0]
+	}
 	// Index open/closed projects by both id and path so a match on either resolves.
 	openByKey := map[string]string{}   // id|path → group key (the project id)
 	closedByKey := map[string]string{} // id|path → "" (presence marks hibernated)
@@ -609,6 +622,7 @@ func projectGroupedItems(projects []projectstore.Project, groupByProject map[str
 	// first appearance for the loose (non-project) groups.
 	rootsByGroup := map[string][]*store.Session{}
 	pipesByGroup := map[string][]*pipeline.Pipeline{}
+	runsByGroup := map[string][]client.AutopilotRunStatus{}
 	var looseOrder []string
 	looseSeen := map[string]bool{}
 	noteLoose := func(key string) {
@@ -628,6 +642,11 @@ func projectGroupedItems(projects []projectstore.Project, groupByProject map[str
 	for _, p := range pipelines {
 		key := resolveGroupKey(p.ProjectID, normalizePipelineDir(p), openByKey, closedByKey)
 		pipesByGroup[key] = append(pipesByGroup[key], p)
+		noteLoose(key)
+	}
+	for i := range runs {
+		key := resolveGroupKey("", normalizeAutopilotDir(runs[i].Repo), openByKey, closedByKey)
+		runsByGroup[key] = append(runsByGroup[key], runs[i])
 		noteLoose(key)
 	}
 	// Explicitly-opened dirs (o → Local/Remote/New) that are not themselves projects
@@ -658,7 +677,7 @@ func projectGroupedItems(projects []projectstore.Project, groupByProject map[str
 		}
 	}
 	order = append(order, looseOrder...)
-	if len(rootsByGroup[""]) > 0 || len(pipesByGroup[""]) > 0 {
+	if len(rootsByGroup[""]) > 0 || len(pipesByGroup[""]) > 0 || len(runsByGroup[""]) > 0 {
 		order = append(order, "")
 	}
 
@@ -671,11 +690,27 @@ func projectGroupedItems(projects []projectstore.Project, groupByProject map[str
 			continue
 		}
 		pipes := pipesByGroup[key]
+		apRuns := runsByGroup[key]
 		rs := rootsByGroup[key]
-		if len(pipes) == 0 && len(rs) == 0 {
+		if len(pipes) == 0 && len(rs) == 0 && len(apRuns) == 0 {
 			// An empty group (open project or freshly opened dir) shows a spawn hint.
 			items = append(items, item{dir: hdr.path, underProject: true})
 			continue
+		}
+		for i := range apRuns {
+			r := &apRuns[i]
+			items = append(items, item{apRun: r, collapsed: collapsed["aprun\x00"+r.RunID], underProject: true})
+			if collapsed["aprun\x00"+r.RunID] {
+				continue
+			}
+			for j := range r.PlanTasks {
+				items = append(items, item{apTask: &r.PlanTasks[j], apTaskRun: r.RunID, underProject: true})
+			}
+			for _, s := range allSessions {
+				if sessionRunID(s) == r.RunID || s.ID == r.GuardianID {
+					items = append(items, item{session: s, dir: sourceDir(s), depth: 1, underProject: true})
+				}
+			}
 		}
 		items = append(items, pipelineItems(pipes, allSessions, collapsed)...)
 		start := len(items)
@@ -689,6 +724,23 @@ func projectGroupedItems(projects []projectstore.Project, groupByProject map[str
 		}
 	}
 	return items
+}
+
+func normalizeAutopilotDir(dir string) string {
+	p := &pipeline.Pipeline{Repo: dir}
+	return normalizePipelineDir(p)
+}
+
+func sessionRunID(s *store.Session) string {
+	for _, tag := range s.Tags {
+		if strings.HasPrefix(tag, "run:") {
+			return strings.TrimPrefix(tag, "run:")
+		}
+		if strings.HasPrefix(tag, "autopilot-run:") {
+			return strings.TrimPrefix(tag, "autopilot-run:")
+		}
+	}
+	return ""
 }
 
 // groupHeaderFor builds the projectHeader for a group key: a registered open
@@ -986,6 +1038,26 @@ func renderItemLine(it item, selected bool, width int) string {
 		line = renderSectionHeader(it)
 	case it.projHdr != nil:
 		line = renderProjectHeader(it)
+	case it.apRun != nil:
+		glyph := "▾"
+		if it.collapsed {
+			glyph = "▸"
+		}
+		r := it.apRun
+		line = "  " + glyph + " " + stPaneTitle.Render(r.Name) + "  " + stStatus.Render(r.State) + stMuted.Render(fmt.Sprintf("  %d/%d tasks · %d workers", r.Tasks.Landed, len(r.PlanTasks), r.WorkersInFlight))
+	case it.apTask != nil:
+		t := it.apTask
+		glyph := "○"
+		sty := stMuted
+		switch t.Status {
+		case "active":
+			glyph, sty = "◐", stRunning
+		case "done":
+			glyph, sty = "✓", stBusy
+		case "failed":
+			glyph, sty = "✗", stError
+		}
+		line = "      " + sty.Render(glyph+" "+t.ID) + "  " + stMuted.Render(trunc(t.Prompt, 48))
 	case it.apprView != nil:
 		v := it.apprView
 		q := v.Question

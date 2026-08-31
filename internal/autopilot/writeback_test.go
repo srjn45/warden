@@ -50,4 +50,7 @@ func TestUpdateTaskStatusValidationConcurrencyAndRestart(t *testing.T) {
 	require.Equal(t, TaskStatusDone, got[0].Status)
 	require.Equal(t, 7, got[0].LandedPR)
 	require.Equal(t, TaskStatusActive, got[1].Status)
+	ui := restarted.Status().Runs[0]
+	require.Equal(t, got, ui.PlanTasks, "status carries the live checklist used by cockpit clients")
+	require.Equal(t, TaskCounts{InProgress: 1, Landed: 1}, ui.Tasks)
 }

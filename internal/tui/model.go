@@ -45,6 +45,7 @@ type api interface {
 	MsgRecent(ctx context.Context, limit int) ([]client.Message, error)
 	GetAutopilot(ctx context.Context) (client.AutopilotStatus, error)
 	SetAutopilot(ctx context.Context, enabled bool, repo string) (client.AutopilotStatus, error)
+	ControlAutopilotRun(ctx context.Context, runID, action string) (client.AutopilotRunStatus, error)
 	ListBackends(ctx context.Context) (client.BackendsState, error)
 	RescanBackends(ctx context.Context) (client.BackendsState, error)
 	SetBackendTier(ctx context.Context, id, tier string) (client.Backend, error)

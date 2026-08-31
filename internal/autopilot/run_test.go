@@ -136,6 +136,7 @@ func TestGuardianAgentPersistsAndStopsWithRun(t *testing.T) {
 	st, err := c.Enable(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, rt.guardians, 1)
+	require.Equal(t, rt.guardians[0], st.Runs[0].GuardianID, "status exposes the inspectable guardian for UI nesting")
 	rec, err := runStore.Get(st.Runs[0].RunID)
 	require.NoError(t, err)
 	require.Equal(t, rt.guardians[0], rec.GuardianID)

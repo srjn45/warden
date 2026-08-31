@@ -242,7 +242,8 @@ func (c *Controller) StopRun(ctx context.Context, id string) (RunStatus, error) 
 
 func (c *Controller) runStatusLocked(r *run) RunStatus {
 	return RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo,
-		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{}}
+		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{},
+		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: r.guardianID}
 }
 
 func (c *Controller) Close() error {

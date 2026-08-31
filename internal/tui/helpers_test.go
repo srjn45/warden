@@ -71,6 +71,9 @@ type fakeAPI struct {
 	messages         []client.Message
 	msgErr           error
 	msgLimit         int // last limit passed to MsgRecent
+	autopilot        client.AutopilotStatus
+	autopilotRunID   string
+	autopilotAction  string
 
 	// backend registry (Backends page)
 	backends     client.BackendsState
@@ -214,10 +217,14 @@ func (f *fakeAPI) MsgRecent(_ context.Context, limit int) ([]client.Message, err
 	return f.messages, f.msgErr
 }
 func (f *fakeAPI) GetAutopilot(context.Context) (client.AutopilotStatus, error) {
-	return client.AutopilotStatus{}, nil
+	return f.autopilot, nil
 }
 func (f *fakeAPI) SetAutopilot(_ context.Context, _ bool, _ string) (client.AutopilotStatus, error) {
 	return client.AutopilotStatus{}, nil
+}
+func (f *fakeAPI) ControlAutopilotRun(_ context.Context, runID, action string) (client.AutopilotRunStatus, error) {
+	f.autopilotRunID, f.autopilotAction = runID, action
+	return client.AutopilotRunStatus{RunID: runID, State: action}, nil
 }
 func (f *fakeAPI) ListBackends(context.Context) (client.BackendsState, error) {
 	return f.backends, f.backendsErr

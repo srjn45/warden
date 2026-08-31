@@ -51,7 +51,17 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 			}
 			sessions = visible
 		}
-		payload, err := json.Marshal(sessionsResponse{Sessions: sessions})
+		// Autopilot rides the fleet stream so cockpit run trees update on the same
+		// notification as their brain/worker/guardian sessions.  The field is
+		// additive: older clients continue decoding only `sessions`.
+		frame := struct {
+			Sessions  []*store.Session `json:"sessions"`
+			Autopilot any              `json:"autopilot,omitempty"`
+		}{Sessions: sessions}
+		if s.autopilot != nil {
+			frame.Autopilot = s.autopilot.Status()
+		}
+		payload, err := json.Marshal(frame)
 		if err != nil {
 			return true
 		}

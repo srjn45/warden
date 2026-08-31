@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts } from './api';
+import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts, controlAutopilotRun, subscribeSessions } from './api';
 import { setToken, clearToken, onAuthRequired } from './token';
 
 function authHeader(call: unknown[]): string | null {
@@ -139,6 +139,24 @@ describe('api', () => {
     const body = JSON.parse((f.mock.calls[0][1] as any).body);
     expect(body.supervised).toBe(true);
   });
+
+	it('controls one autopilot run without toggling the repo', async () => {
+		const f = vi.fn().mockResolvedValue(jsonResponse({ run_id: 'ap-1', state: 'paused' }));
+		vi.stubGlobal('fetch', f);
+		await controlAutopilotRun('ap-1', 'pause');
+		expect(f.mock.calls[0][0]).toBe('/api/v1/autopilot/runs/ap-1/pause');
+		expect(f.mock.calls[0][1].method).toBe('POST');
+	});
+
+	it('delivers additive autopilot snapshots from the fleet SSE stream', () => {
+		let source: any;
+		class FakeEventSource { onopen?: () => void; onmessage?: (e: MessageEvent) => void; onerror?: () => void; constructor(_url: string) { source = this; } close() {} }
+		vi.stubGlobal('EventSource', FakeEventSource);
+		const onRuns = vi.fn();
+		subscribeSessions(vi.fn(), vi.fn(), vi.fn(), onRuns);
+		source.onmessage({ data: JSON.stringify({ sessions: [], autopilot: { enabled: true, runs: [{ run_id: 'ap-1' }] } }) });
+		expect(onRuns).toHaveBeenCalledWith(expect.objectContaining({ enabled: true, runs: [expect.objectContaining({ run_id: 'ap-1' })] }));
+	});
 });
 
 describe('auth', () => {

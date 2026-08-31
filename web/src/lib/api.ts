@@ -329,7 +329,10 @@ export interface AutopilotTaskCounts {
   pending: number;
   in_progress: number;
   landed: number;
+	failed: number;
 }
+
+export interface AutopilotPlanTask { id: string; prompt: string; after: string[]; status: string; landed_pr?: number; }
 
 // AutopilotBackoff describes the guardian's capped backoff (null unless degraded).
 export interface AutopilotBackoff {
@@ -341,6 +344,7 @@ export interface AutopilotBackoff {
 // AutopilotRun is one run's slice of the overall status.
 export interface AutopilotRun {
   run_id: string;
+	name: string;
   plan_file: string;
   repo: string;
   state: string;
@@ -350,6 +354,8 @@ export interface AutopilotRun {
   tasks: AutopilotTaskCounts;
   backoff: AutopilotBackoff | null;
   landed_total: number;
+	plan_tasks: AutopilotPlanTask[];
+	guardian_id?: string;
 }
 
 // AutopilotStatus is the full response shape for GET/POST /autopilot.
@@ -391,6 +397,10 @@ export async function setAutopilot(enabled: boolean): Promise<AutopilotStatus> {
     throw new AutopilotPreflightError(failures);
   }
   return parse<AutopilotStatus>(res);
+}
+
+export async function controlAutopilotRun(runID: string, action: 'start'|'pause'|'resume'|'stop'): Promise<AutopilotRun> {
+	return parse<AutopilotRun>(await apiFetch(`/autopilot/runs/${encodeURIComponent(runID)}/${action}`, { method: 'POST' }));
 }
 
 // --- Backend registry (docs/specs/2026-08-06-backend-registry.md) -----------
@@ -488,13 +498,15 @@ export function subscribeSessions(
   onData: (sessions: Session[]) => void,
   onError: () => void,
   onOpen: () => void,
+	onAutopilot?: (status: AutopilotStatus) => void,
 ): () => void {
   const es = new EventSource(withToken(API_PREFIX + '/events/stream'));
   es.onopen = () => onOpen();
   es.onmessage = (e) => {
     try {
-      const d = JSON.parse(e.data) as { sessions: Session[] | null };
-      onData(d.sessions ?? []);
+		const d = JSON.parse(e.data) as { sessions: Session[] | null; autopilot?: AutopilotStatus };
+		onData(d.sessions ?? []);
+		if (d.autopilot) onAutopilot?.({ ...d.autopilot, runs: d.autopilot.runs ?? [] });
     } catch { /* ignore malformed frame */ }
   };
   es.onerror = () => onError();

@@ -779,6 +779,8 @@ func (c *Controller) statusLocked() Status {
 			WorkersInFlight: r.workersInFlight, // last roster count from the overwatch tick
 			Tasks:           counts,
 			Backoff:         r.backoffStatus(),
+			PlanTasks:       append([]PlanTask(nil), r.plan.Tasks...),
+			GuardianID:      r.guardianID,
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })

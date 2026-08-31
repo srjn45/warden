@@ -303,6 +303,26 @@ func TestProjectGroupedItemsCollapseHidesSubtree(t *testing.T) {
 	require.NotContains(t, itemSessionIDs(items), "a1", "collapsed project hides its agents")
 }
 
+func TestProjectGroupedItemsAutopilotRunChecklistAndAgents(t *testing.T) {
+	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
+	runs := []client.AutopilotRunStatus{{RunID: "ap-1", Name: "release", Repo: "/repos/alpha", State: "active", GuardianID: "guardian-1", PlanTasks: []client.AutopilotPlanTask{{ID: "ship", Prompt: "Ship it", Status: "active"}}}}
+	sessions := []*store.Session{{ID: "brain-1", Repo: "/repos/alpha", Role: "autopilot", Tags: []string{"autopilot", "run:ap-1"}}, {ID: "worker-1", Repo: "/repos/alpha", Tags: []string{"autopilot", "run:ap-1"}}, {ID: "guardian-1", Repo: "/repos/alpha", Tags: []string{"system:true", "autopilot-run:ap-1"}}}
+	items := projectGroupedItems(projs, nil, nil, sessions, nil, nil, nil, runs)
+	require.NotNil(t, items[1].apRun)
+	require.Equal(t, "ship", items[2].apTask.ID)
+	require.Equal(t, []string{"brain-1", "worker-1", "guardian-1"}, itemSessionIDs(items))
+	out := renderList(items, 1, 120, 10)
+	require.Contains(t, out, "release")
+	require.Contains(t, out, "Ship it")
+}
+
+func TestProjectGroupedItemsCollapsedAutopilotRunHidesChildren(t *testing.T) {
+	runs := []client.AutopilotRunStatus{{RunID: "ap-1", Repo: "/repo", PlanTasks: []client.AutopilotPlanTask{{ID: "one"}}}}
+	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{"aprun\x00ap-1": true}, runs)
+	require.Len(t, items, 2) // loose project header + run header
+	require.NotNil(t, items[1].apRun)
+}
+
 // A spawned child nests directly under its parent, indented, and the parent
 // becomes a collapsible header.
 func TestBuildItemsNestsChildUnderParent(t *testing.T) {
