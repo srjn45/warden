@@ -51,7 +51,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",
 		"validate_pipeline", "list_pipeline_templates", "library_list",
 		"create_schedule", "delete_schedule",
-		"set_autopilot", "autopilot_status", "land", "autopilot_complete",
+		"set_autopilot", "autopilot_status", "list_autopilot_runs", "register_autopilot_run", "control_autopilot_run", "land", "autopilot_complete",
 		"list_models", "set_model_tier", "list_role_tiers", "set_role_tier",
 		"switch_agent", "get_handover_settings", "set_handover_settings",
 	}

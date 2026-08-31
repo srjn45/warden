@@ -3,6 +3,8 @@ package config
 import (
 	"bytes"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -41,6 +43,21 @@ func TestDeprecatedAutopilotBackendsStillParse(t *testing.T) {
 	out := buf.String()
 	require.Contains(t, out, "autopilot.brain.backends")
 	require.Contains(t, out, "autopilot.brain.allow_pay_per_use")
+}
+
+func TestRemoveDeprecatedAutopilotBrainKeysIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "autopilot:\n  plans:\n    - file: old.yaml\n  brain:\n    backends:\n      free: [antigravity]\n    allow_pay_per_use: true\n    role: autopilot\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	require.NoError(t, RemoveDeprecatedAutopilotBrainKeys(path))
+	require.NoError(t, RemoveDeprecatedAutopilotBrainKeys(path))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	s := string(data)
+	require.NotContains(t, s, "backends:")
+	require.NotContains(t, s, "allow_pay_per_use:")
+	require.Contains(t, s, "role: autopilot")
+	require.Contains(t, s, "plans:")
 }
 
 // TestWarnDeprecatedAutopilotBackendsSilentWhenAbsent proves the warning does not

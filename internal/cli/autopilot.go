@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentbackend"
@@ -29,8 +32,79 @@ func newAutopilotCmd() *cobra.Command {
 			"one pass. `off` is the kill switch. Configure the feature under the `autopilot`\n" +
 			"block in the config file (or scaffold it with `warden autopilot init`).",
 	}
-	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd(), newAutopilotInitCmd())
+	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd(), newAutopilotInitCmd(),
+		newAutopilotRegisterCmd(), newAutopilotListCmd(), newAutopilotRunActionCmd("start"), newAutopilotRunActionCmd("pause"),
+		newAutopilotRunActionCmd("resume"), newAutopilotRunActionCmd("stop"))
 	return cmd
+}
+
+func newAutopilotListCmd() *cobra.Command {
+	return &cobra.Command{Use: "list", Short: "List all registered autopilot runs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		runs, err := clientFor(cmd).ListAutopilotRuns(cmd.Context())
+		if err != nil {
+			return err
+		}
+		for _, r := range runs {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\n", r.RunID, r.Name, r.State, r.PlanFile, r.Repo)
+		}
+		return nil
+	}}
+}
+
+func newAutopilotRegisterCmd() *cobra.Command {
+	var name, repo string
+	cmd := &cobra.Command{Use: "register <plan-file>", Short: "Register a named autopilot plan", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		planFile, err := filepath.Abs(args[0])
+		if err != nil {
+			return fmt.Errorf("resolve plan file: %w", err)
+		}
+		if repo != "" {
+			repo, err = filepath.Abs(repo)
+			if err != nil {
+				return fmt.Errorf("resolve repository: %w", err)
+			}
+		}
+		r, err := clientFor(cmd).RegisterAutopilotRun(cmd.Context(), name, repo, planFile)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "registered %s (%s)\n", r.Name, r.RunID)
+		return nil
+	}}
+	cmd.Flags().StringVar(&name, "name", "", "unique run name within the repository")
+	cmd.Flags().StringVar(&repo, "repo", "", "repository root (inferred from plan when omitted)")
+	return cmd
+}
+
+func newAutopilotRunActionCmd(action string) *cobra.Command {
+	return &cobra.Command{Use: action + " <run-id-or-name>", Short: action + " one autopilot run", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		id := args[0]
+		if !strings.HasPrefix(id, "ap-") {
+			runs, err := clientFor(cmd).ListAutopilotRuns(cmd.Context())
+			if err != nil {
+				return err
+			}
+			var matches []string
+			for _, r := range runs {
+				if r.Name == id {
+					matches = append(matches, r.RunID)
+				}
+			}
+			if len(matches) == 0 {
+				return fmt.Errorf("autopilot run %q not found", id)
+			}
+			if len(matches) > 1 {
+				return fmt.Errorf("autopilot run name %q is ambiguous across repositories; use a run id", id)
+			}
+			id = matches[0]
+		}
+		r, err := clientFor(cmd).ControlAutopilotRun(cmd.Context(), id, action)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", r.RunID, r.Name, r.State)
+		return nil
+	}}
 }
 
 func newAutopilotOnCmd() *cobra.Command {
@@ -148,12 +222,12 @@ func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
 }
 
 func newAutopilotInitCmd() *cobra.Command {
-	return &cobra.Command{
+	var name string
+	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Scaffold autopilot adoption in the current repo",
-		Long: "Creates a template autopilot.plan.yaml in the current git repository (if absent),\n" +
-			"updates the autopilot block in the warden config with the plan file and detected\n" +
-			"backends (assign them to cost tiers before enabling), creates the integration branch\n" +
+		Long: "Creates a named template under plans/ in the current git repository (if absent),\n" +
+			"registers it with the daemon, creates the integration branch\n" +
 			"off the default branch if absent, and prints a CI-coverage hint when no workflow\n" +
 			"covers integration pull requests. After init, edit the plan file and run\n" +
 			"`warden autopilot on` to enable.",
@@ -168,16 +242,19 @@ func newAutopilotInitCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("not inside a git repository: %w", err)
 			}
-			cfgPath := configPathFor(cmd)
-			cfg := config.Load(cfgPath)
+			cfg := config.Load(configPathFor(cmd))
 			return autopilot.Init(cmd.Context(), env, repo, autopilot.InitConfig{
-				ConfigPath:        cfgPath,
-				PlanFile:          "autopilot.plan.yaml",
+				Name:              name,
 				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
-				Backends:          detectInstalledBackends(),
+				Register: func(ctx context.Context, req autopilot.RegisterRequest) error {
+					_, err := clientFor(cmd).RegisterAutopilotRun(ctx, req.Name, req.Repo, req.PlanFile)
+					return err
+				},
 			}, cmd.OutOrStdout())
 		},
 	}
+	cmd.Flags().StringVar(&name, "name", "default", "plan name (creates plans/<name>.yaml)")
+	return cmd
 }
 
 // newLandCmd is the top-level `warden land` command: the guarded, idempotent

@@ -103,6 +103,7 @@ type controlPaneModel struct {
 	// once: on the first session list we either adopt an existing live terminal
 	// into the terminal pane or spawn a default one in the launch cwd (§5).
 	defaultTerminalReady bool
+	showSystemAgents     bool // toggled with S; reveals system agents in the flat fleet
 	// openedAgent is the id of the agent currently shown in the agent pane; it
 	// anchors §8 M-a/M-p rotation (advance from here) and is set on every agent
 	// open/rotate. Empty until the first agent is opened.
@@ -219,7 +220,21 @@ func (m controlPaneModel) items() []item {
 	// ── Projects tab (§4 tree nesting): agents and pipelines nested under their
 	// project (or a loose directory / the Ungrouped bucket), each group a navigable,
 	// collapsible header. Open projects always show (even empty, IDE-style).
-	out = append(out, projectGroupedItems(m.projects, groupLabels(m.projectGroups), agents, m.sessions, m.pipelines, m.openedDirs, m.collapsed)...)
+	runIDs := map[string]bool{}
+	for _, r := range m.autopilot.Runs {
+		runIDs[r.RunID] = true
+	}
+	visible := agents[:0]
+	for _, s := range agents {
+		if s.HasTag("system:true") && !m.showSystemAgents {
+			continue
+		}
+		if runIDs[sessionRunID(s)] {
+			continue
+		} // rendered inside its run node
+		visible = append(visible, s)
+	}
+	out = append(out, projectGroupedItems(m.projects, groupLabels(m.projectGroups), visible, m.sessions, m.pipelines, m.openedDirs, m.collapsed, m.autopilot.Runs)...)
 	return out
 }
 
@@ -566,7 +581,7 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 }
 
 func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
+	return tea.Batch(listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -586,7 +601,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
+		cmds := []tea.Cmd{listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -618,6 +633,13 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "autopilot: " + msg.err.Error()
 		}
 		return m, nil
+	case autopilotRunActionMsg:
+		if msg.err != nil {
+			m.status = "autopilot " + msg.action + ": " + msg.err.Error()
+		} else {
+			m.status = msg.action + "d " + msg.runID
+		}
+		return m, autopilotCmd(m.api)
 	case backendsMsg:
 		if msg.err != nil {
 			// Surface an action's failure (a rejected default, a bad tier); on a
@@ -692,7 +714,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The spawned terminal's tmux session is its id (lifecycle sets
 		// TmuxSession=id). Refresh the list so it appears under Terminals and open
 		// it in the terminal pane (focusing it only on an explicit create/`t`).
-		cmds := []tea.Cmd{listCmd(m.api)}
+		cmds := []tea.Cmd{listCmd(m.api, true)}
 		if m.terminalPane != "" {
 			cmds = append(cmds, openInTerminalCmd(m.terminalPane, msg.id, msg.focus))
 		}
@@ -729,7 +751,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "closed project " + filepath.Base(msg.id)
 		}
 		// Refresh both surfaces: the project flips to closed and its agents wind down.
-		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api))
+		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api, true))
 	case pipelineActionMsg:
 		if msg.err != nil {
 			m.status = "pipeline action failed: " + msg.err.Error()
@@ -786,7 +808,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pendingSelect = projKey(msg.proj.ID)
 		m.status = "opened " + msg.proj.Name
 		m.repin("")
-		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api))
+		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api, true))
 	case spawnDoneMsg:
 		switch {
 		case msg.confirm != nil:
@@ -812,14 +834,14 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "renamed " + msg.id
 		}
-		return m, listCmd(m.api) // refresh so the new name shows immediately
+		return m, listCmd(m.api, true) // refresh so the new name shows immediately
 	case overrideDoneMsg:
 		if msg.err != nil {
 			m.status = "override failed: " + msg.err.Error()
 		} else {
 			m.status = msg.note
 		}
-		return m, listCmd(m.api) // refresh so the new override value shows immediately
+		return m, listCmd(m.api, true) // refresh so the new override value shows immediately
 	case cleanupDoneMsg:
 		m.mode = modeNormal
 		m.status = "removed " + msg.id
@@ -1480,6 +1502,14 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+a":
 		// Toggle autopilot on/off. The result message updates m.autopilot.
 		return m, autopilotToggleCmd(m.api, !m.autopilot.Enabled)
+	case "S":
+		m.showSystemAgents = !m.showSystemAgents
+		if m.showSystemAgents {
+			m.status = "system agents visible"
+		} else {
+			m.status = "system agents hidden"
+		}
+		return m, listCmd(m.api, true)
 	case "alt+t":
 		// §8 global rotation: advance the terminal pane to the next live terminal
 		// (delivered here by the tmux M-t root binding, from any pane).
@@ -1585,6 +1615,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[secKey(it.section)] = false
 		case it.projHdr != nil:
 			m.collapsed[projKey(it.projHdr.id)] = false
+		case it.apRun != nil:
+			m.collapsed["aprun\x00"+it.apRun.RunID] = false
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = false
 		case it.session != nil && it.hasKids:
@@ -1603,6 +1635,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// stays on it rather than a now-hidden child (§4.3).
 			m.collapsed[projKey(it.projHdr.id)] = true
 			m.repin(projKey(it.projHdr.id))
+		case it.apRun != nil:
+			key := "aprun\x00" + it.apRun.RunID
+			m.collapsed[key] = true
+			m.repin(key)
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = true
 		case it.pjJob != nil:
@@ -1636,6 +1672,9 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		it := itemAt(m.items(), m.cursor)
 		switch {
+		case it.apRun != nil:
+			m.status = "stopping " + it.apRun.Name
+			return m, autopilotRunActionCmd(m.api, it.apRun.RunID, "stop")
 		case it.projHdr != nil:
 			return m.closeProjectFromHeader(it.projHdr)
 		case it.pipeline != nil:
@@ -1664,6 +1703,14 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		it := itemAt(m.items(), m.cursor)
+		if it.apRun != nil {
+			action := "resume"
+			if it.apRun.State != "paused" {
+				action = "pause"
+			}
+			m.status = action + " " + it.apRun.Name
+			return m, autopilotRunActionCmd(m.api, it.apRun.RunID, action)
+		}
 		if it.pjJob != nil && (it.pjJob.Status == pipeline.JobFailed || it.pjJob.Status == pipeline.JobNeedsAttention) {
 			m.status = "retrying " + it.pjPipe + "/" + it.pjJob.ID
 			return m, retryJobCmd(m.api, it.pjPipe, it.pjJob.ID)
@@ -1811,7 +1858,7 @@ func (m controlPaneModel) View() string {
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.
-	footer := stMuted.Render("enter open · tab switch · n new · o open project · s send · a attach · x kill · ? help · q quit")
+	footer := stMuted.Render("enter open · tab switch · S system · n new · o open project · s send · a attach · x kill · ? help · q quit")
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}

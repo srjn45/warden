@@ -14,6 +14,7 @@ import (
 // api is the subset of *client.Client the TUI needs (fakeable in tests).
 type api interface {
 	List(ctx context.Context) ([]*store.Session, error)
+	ListAll(ctx context.Context) ([]*store.Session, error)
 	Output(ctx context.Context, id string, lines int) (string, error)
 	Spawn(ctx context.Context, p client.SpawnParams) (*store.Session, error)
 	Terminate(ctx context.Context, id string) error
@@ -44,6 +45,7 @@ type api interface {
 	MsgRecent(ctx context.Context, limit int) ([]client.Message, error)
 	GetAutopilot(ctx context.Context) (client.AutopilotStatus, error)
 	SetAutopilot(ctx context.Context, enabled bool, repo string) (client.AutopilotStatus, error)
+	ControlAutopilotRun(ctx context.Context, runID, action string) (client.AutopilotRunStatus, error)
 	ListBackends(ctx context.Context) (client.BackendsState, error)
 	RescanBackends(ctx context.Context) (client.BackendsState, error)
 	SetBackendTier(ctx context.Context, id, tier string) (client.Backend, error)

@@ -149,6 +149,21 @@ type setAutopilotArgs struct {
 	Enabled bool   `json:"enabled" jsonschema:"true enables autopilot (runs the enable-time preflight), false is the kill switch"`
 	Repo    string `json:"repo,omitempty" jsonschema:"repo root to toggle (optional; defaults to the daemon's working directory) — the switch is per-repo"`
 }
+type registerAutopilotRunArgs struct {
+	Name     string `json:"name"`
+	Repo     string `json:"repo"`
+	PlanFile string `json:"plan_file"`
+}
+type controlAutopilotRunArgs struct {
+	RunID  string `json:"run_id"`
+	Action string `json:"action" jsonschema:"start, pause, resume, or stop"`
+}
+type updateTaskStatusArgs struct {
+	RunID    string `json:"run_id"`
+	TaskID   string `json:"task_id"`
+	Status   string `json:"status" jsonschema:"pending, active, done, or failed"`
+	LandedPR int    `json:"landed_pr,omitempty" jsonschema:"required for done; must already be recorded by land"`
+}
 type landArgs struct {
 	AgentOrBranch string `json:"agent_or_branch" jsonschema:"the autopilot worker agent (id or name) or the branch to land into the integration branch"`
 }
@@ -442,6 +457,28 @@ func (s *Server) registerExtraTools() {
 		return jsonResultAny(st)
 	})
 
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "list_autopilot_runs", Description: "List every durable autopilot run, including registered, paused, stopped, and complete records."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		runs, err := s.cl.ListAutopilotRuns(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(runs)
+	})
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "register_autopilot_run", Description: "Register a named autopilot plan without starting it."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a registerAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.RegisterAutopilotRun(ctx, a.Name, a.Repo, a.PlanFile)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
+	})
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "control_autopilot_run", Description: "Start, pause, resume, or stop one autopilot run by stable run id."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a controlAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.ControlAutopilotRun(ctx, a.RunID, a.Action)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
+	})
+
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "land",
 		Description: "Land (merge) one autopilot worker branch into the integration branch — the brain's ONLY merge path. Runs every precondition (owning run active, branch autopilot-owned, a PR based on the integration branch, the resolved gate GREEN for the PR head, and the PR mergeable), merges with the configured strategy, deletes the worker branch if configured, and records the landing. Idempotent: re-issuing after a merge returns already_landed with no second merge. On a precondition failure returns the typed kind (gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base) for you to reason over — never a human prompt. Autopilot-only. Mirrors `warden land`.",
@@ -455,6 +492,13 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(res)
+	})
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "update_task_status", Description: "Atomically persist one task's pending, active, done, or failed status in its plan. done requires landed_pr evidence recorded by the daemon land operation. Autopilot brain-only."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a updateTaskStatusArgs) (*mcpsdk.CallToolResult, any, error) {
+		task, err := s.cl.UpdateAutopilotTaskStatus(ctx, a.RunID, a.TaskID, a.Status, a.LandedPR)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(task)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

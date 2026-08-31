@@ -125,6 +125,33 @@ func TestDecodePlan(t *testing.T) {
 	}
 }
 
+func TestPlanTaskStatusValidationAndDefaults(t *testing.T) {
+	p, err := DecodePlan([]byte("goal: g\ntasks:\n  - id: a\n    prompt: x\n"))
+	require.NoError(t, err)
+	require.Equal(t, TaskStatusPending, p.Tasks[0].Status)
+	_, err = DecodePlan([]byte("goal: g\ntasks:\n  - id: a\n    prompt: x\n    status: done\n"))
+	require.ErrorContains(t, err, "requires landed_pr")
+	_, err = DecodePlan([]byte("goal: g\ntasks:\n  - id: a\n    prompt: x\n    status: active\n    landed_pr: 4\n"))
+	require.ErrorContains(t, err, "only valid")
+}
+
+func TestWriteTaskStatusAtomicPreservesPlanAndReloadsLedger(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plan.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("# owner\ngoal: g\ntasks:\n  - id: a # keep\n    prompt: x\n"), 0o640))
+	require.NoError(t, writeTaskStatusAtomic(path, "a", TaskStatusDone, 42))
+	p, err := LoadPlan(path)
+	require.NoError(t, err)
+	require.Equal(t, TaskStatusDone, p.Tasks[0].Status)
+	require.Equal(t, 42, p.Tasks[0].LandedPR)
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(b), "# owner")
+	require.Contains(t, string(b), "# keep")
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+}
+
 func TestLoadPlan(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "plan.yaml")

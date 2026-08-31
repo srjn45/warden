@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   getAutopilot, setAutopilot,
+	controlAutopilotRun,
   AutopilotPreflightError,
   type AutopilotStatus, type AutopilotRun,
 } from '../lib/api';
+import type { Session } from '../lib/types';
 
 // AutopilotPanel is a modal panel for the autopilot toggle and status view.
 // Opens from the "⚙ autopilot" button in the AttentionBar.
-export default function AutopilotPanel({ onClose }: { onClose: () => void }) {
+export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }: { onClose: () => void; liveStatus?: AutopilotStatus | null; sessions?: Session[]; stale?: boolean }) {
   const [status, setStatus] = useState<AutopilotStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +26,8 @@ export default function AutopilotPanel({ onClose }: { onClose: () => void }) {
     const h = setInterval(refresh, 5000);
     return () => clearInterval(h);
   }, [refresh]);
+
+	useEffect(() => { if (liveStatus) setStatus(liveStatus); }, [liveStatus]);
 
   async function toggle() {
     if (!status) return;
@@ -52,6 +56,7 @@ export default function AutopilotPanel({ onClose }: { onClose: () => void }) {
       <div className="modal autopilot-panel" onClick={(e) => e.stopPropagation()}>
         <header className="autopilot-panel-head">
           <h2>Autopilot</h2>
+		  {stale && status && <span className="warn">stale · showing last update</span>}
           <button className="context-drawer-close" title="Close" onClick={onClose}>✕</button>
         </header>
 
@@ -96,20 +101,32 @@ export default function AutopilotPanel({ onClose }: { onClose: () => void }) {
             Disabled. Run <code>warden autopilot init</code> in your repo, then enable here or with <code>warden autopilot on</code>.
           </p>
         )}
-        {runs.map((r) => <RunCard key={r.run_id} run={r} />)}
+		{runs.map((r) => <RunCard key={r.run_id} run={r} sessions={sessions ?? []} onChanged={refresh} onError={setError} />)}
       </div>
     </div>
   );
 }
 
-function RunCard({ run }: { run: AutopilotRun }) {
+function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; sessions: Session[]; onChanged: () => void; onError: (message: string | null) => void }) {
+	const [busy, setBusy] = useState(false);
+	const agents = sessions.filter((s) => s.tags?.includes(`run:${run.run_id}`));
+	async function act(action: 'pause'|'resume'|'stop') {
+		onError(null); setBusy(true);
+		try { await controlAutopilotRun(run.run_id, action); onChanged(); }
+		catch (e) { onError(e instanceof Error ? e.message : String(e)); }
+		finally { setBusy(false); }
+	}
   return (
     <section className="autopilot-run-card">
       <div className="autopilot-run-head">
         <span className={`autopilot-run-state state-${run.state}`}>{run.state}</span>
-        <span className="muted" title={run.repo}>{run.plan_file}</span>
+		<span className="muted" title={run.repo}>{run.name || run.plan_file}</span>
         <span className="muted">gate: {run.gate}</span>
       </div>
+	  <div className="autopilot-run-controls">
+		<button disabled={busy || !['active','paused','degraded','healing'].includes(run.state)} onClick={() => act(run.state === 'paused' ? 'resume' : 'pause')}>{run.state === 'paused' ? 'Resume' : 'Pause'}</button>
+		<button className="danger" disabled={busy || ['stopped','complete'].includes(run.state)} onClick={() => act('stop')}>Stop</button>
+	  </div>
 
       {run.brain && (
         <div className="autopilot-run-brain">
@@ -130,6 +147,13 @@ function RunCard({ run }: { run: AutopilotRun }) {
         <span>tasks — pending: {run.tasks.pending} · active: {run.tasks.in_progress} · landed: {run.tasks.landed}</span>
         {run.landed_total > 0 && <span>total landed: {run.landed_total}</span>}
       </div>
+	  <div className="autopilot-task-list">
+		{(run.plan_tasks ?? []).map((t) => <div key={t.id} className={`autopilot-task task-${t.status}`}><span>{t.status === 'done' ? '✓' : t.status === 'active' ? '◐' : t.status === 'failed' ? '✗' : '○'}</span><strong>{t.id}</strong><span className="muted">{t.prompt}</span></div>)}
+	  </div>
+	  {(agents.length > 0 || run.guardian_id) && <div className="autopilot-agent-list">
+		{run.guardian_id && <div key={run.guardian_id}><span className="muted">guardian</span> <strong>{run.guardian_id}</strong> <span>{['stopped','complete'].includes(run.state) ? 'done' : 'idle'}</span></div>}
+		{agents.map((a) => <div key={a.id}><span className="muted">{a.id === run.brain?.agent_id ? 'brain' : 'worker'}</span> <strong>{a.name || a.id}</strong> <span>{a.status}</span></div>)}
+	  </div>}
 
       {run.backoff && (
         <div className="autopilot-run-backoff warn">

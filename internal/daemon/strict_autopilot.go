@@ -79,6 +79,9 @@ func (s *Server) CompleteAutopilot(ctx context.Context, _ oapi.CompleteAutopilot
 	if runID == "" {
 		return oapi.CompleteAutopilot403JSONResponse{Error: "calling brain carries no run tag — nothing to complete"}, nil
 	}
+	if !s.autopilot.CanBrainComplete(runID, caller.ID) {
+		return oapi.CompleteAutopilot403JSONResponse{Error: "only the run's active brain may complete it"}, nil
+	}
 	st, err := s.autopilot.CompleteRun(ctx, runID)
 	if err != nil {
 		return nil, err

@@ -27,11 +27,19 @@ func newLsCmd() *cobra.Command {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			watch, _ := cmd.Flags().GetBool("watch")
 			tags, _ := cmd.Flags().GetStringSlice("tag")
+			all, _ := cmd.Flags().GetBool("all")
 			out := cmd.OutOrStdout()
 			if watch {
-				return watchSessions(cmd, out, jsonOut)
+				return watchSessions(cmd, out, jsonOut, all)
 			}
-			sessions, err := clientFor(cmd).List(cmd.Context())
+			cl := clientFor(cmd)
+			var sessions []*store.Session
+			var err error
+			if all {
+				sessions, err = cl.ListAll(cmd.Context())
+			} else {
+				sessions, err = cl.List(cmd.Context())
+			}
 			if err != nil {
 				return err
 			}
@@ -49,6 +57,7 @@ func newLsCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
 	cmd.Flags().BoolP("watch", "w", false, "live-update the list on every agent state change (Ctrl+C to exit)")
+	cmd.Flags().BoolP("all", "a", false, "include system agents")
 	cmd.Flags().StringSlice("tag", nil, "only show agents carrying every given tag (repeatable or comma-separated, e.g. --tag backend --tag urgent)")
 	return cmd
 }
@@ -109,7 +118,7 @@ func costCell(cost map[string]float64, id string) string {
 
 // watchSessions streams live snapshots from the daemon's SSE endpoint, redrawing
 // the table (or emitting JSON) on every state change until the user hits Ctrl+C.
-func watchSessions(cmd *cobra.Command, out io.Writer, jsonOut bool) error {
+func watchSessions(cmd *cobra.Command, out io.Writer, jsonOut, all bool) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -151,7 +160,12 @@ func watchSessions(cmd *cobra.Command, out io.Writer, jsonOut bool) error {
 			next.Round(100*time.Millisecond))
 	}
 
-	err := watchLoop(ctx, clientFor(cmd).Watch, render, onDrop, sleepCtx)
+	cl := clientFor(cmd)
+	watch := cl.Watch
+	if all {
+		watch = cl.WatchAll
+	}
+	err := watchLoop(ctx, watch, render, onDrop, sleepCtx)
 	// A user-initiated Ctrl+C is a clean exit, not an error.
 	if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 		return nil

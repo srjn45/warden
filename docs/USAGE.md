@@ -2238,15 +2238,15 @@ guardian, cost-tier ladder — see
 ### Quickstart
 
 ```sh
-# 1. Scaffold the plan file and config block
+# 1. Scaffold and register a named plan
 cd /path/to/your-repo
-warden autopilot init
+warden autopilot init --name notifications
 
-# 2. Edit autopilot.plan.yaml — set your goal, add constraints
+# 2. Edit plans/notifications.yaml — set your goal, add constraints
 #    Commit it to the repo so the manager can read it from its worktree
 
-# 3. Enable
-warden autopilot on
+# 3. Start this run
+warden autopilot start notifications
 
 # 4. Watch
 warden autopilot status      # run state, manager id, task counts
@@ -2259,10 +2259,13 @@ warden autopilot off
 
 ### `warden autopilot init`
 
-Creates `autopilot.plan.yaml` in the current git repository (if absent), and
-updates the `autopilot` block in `~/.warden/config.yaml` with the plan file
-path and detected integration branch. Does not overwrite existing files.
-Follow up with `warden autopilot on` to enable.
+Creates `plans/<name>.yaml` in the current git repository (if absent) and
+registers it in the daemon's durable run store. It does not overwrite existing
+files. Follow up with `warden autopilot start <name>`.
+
+Existing files can be registered with
+`warden autopilot register plans/<name>.yaml --name <name>`. Independent named
+runs in the same repository can then be started, paused, resumed, and stopped.
 
 ### The switch is per-repo
 
@@ -2331,7 +2334,7 @@ fresh plan file).
 
 ### The plan file
 
-`autopilot.plan.yaml` — author this in your repo and commit it so the manager can
+`plans/<name>.yaml` — author this in your repo and commit it so the manager can
 read it from its worktree:
 
 ```yaml

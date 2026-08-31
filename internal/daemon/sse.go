@@ -42,7 +42,26 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		if sessions == nil {
 			sessions = []*store.Session{}
 		}
-		payload, err := json.Marshal(sessionsResponse{Sessions: sessions})
+		if r.URL.Query().Get("all") != "true" {
+			visible := make([]*store.Session, 0, len(sessions))
+			for _, sess := range sessions {
+				if !sess.HasTag("system:true") {
+					visible = append(visible, sess)
+				}
+			}
+			sessions = visible
+		}
+		// Autopilot rides the fleet stream so cockpit run trees update on the same
+		// notification as their brain/worker/guardian sessions.  The field is
+		// additive: older clients continue decoding only `sessions`.
+		frame := struct {
+			Sessions  []*store.Session `json:"sessions"`
+			Autopilot any              `json:"autopilot,omitempty"`
+		}{Sessions: sessions}
+		if s.autopilot != nil {
+			frame.Autopilot = s.autopilot.Status()
+		}
+		payload, err := json.Marshal(frame)
 		if err != nil {
 			return true
 		}

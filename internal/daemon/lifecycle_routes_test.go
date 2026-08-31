@@ -95,7 +95,9 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 	freeMode := req.Type == ""
 	id := req.Ticket
 	if id == "" {
-		if freeMode {
+		if req.Kind == string(store.KindTerminal) {
+			id = "guardian-test"
+		} else if freeMode {
 			id = "agent-test"
 		} else {
 			id = req.Type + "-auto"
@@ -108,7 +110,7 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 	f.spawned = &store.Session{
 		ID: id, Name: req.Name, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning, Role: req.Role, Workdir: req.Cwd,
-		PermissionMode: req.PermissionMode, Tags: req.Tags,
+		PermissionMode: req.PermissionMode, Tags: req.Tags, Kind: store.SessionKind(req.Kind),
 	}
 	return f.spawned, nil
 }

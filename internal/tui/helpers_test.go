@@ -15,19 +15,20 @@ import (
 
 // fakeAPI is a test double for the tui api interface.
 type fakeAPI struct {
-	sessions    []*store.Session
-	listErr     error
-	output      string
-	spawned     *client.SpawnParams
-	terminated  string
-	termErr     error
-	deleted     string
-	deleteErr   error
-	sentTo      string
-	sentText    string
-	renamedID   string // id of the last SetName
-	renamedName string // name of the last SetName
-	renameErr   error  // error SetName returns
+	sessions       []*store.Session
+	systemSessions []*store.Session
+	listErr        error
+	output         string
+	spawned        *client.SpawnParams
+	terminated     string
+	termErr        error
+	deleted        string
+	deleteErr      error
+	sentTo         string
+	sentText       string
+	renamedID      string // id of the last SetName
+	renamedName    string // name of the last SetName
+	renameErr      error  // error SetName returns
 
 	autoApproveID    string // id of the last SetAutoApprove
 	autoApproveVal   bool   // enabled value of the last SetAutoApprove
@@ -70,6 +71,9 @@ type fakeAPI struct {
 	messages         []client.Message
 	msgErr           error
 	msgLimit         int // last limit passed to MsgRecent
+	autopilot        client.AutopilotStatus
+	autopilotRunID   string
+	autopilotAction  string
 
 	// backend registry (Backends page)
 	backends     client.BackendsState
@@ -96,6 +100,12 @@ type fakeAPI struct {
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
+func (f *fakeAPI) ListAll(context.Context) ([]*store.Session, error) {
+	if f.systemSessions != nil {
+		return f.systemSessions, f.listErr
+	}
+	return f.sessions, f.listErr
+}
 func (f *fakeAPI) Output(_ context.Context, _ string, _ int) (string, error) {
 	return f.output, nil
 }
@@ -207,10 +217,14 @@ func (f *fakeAPI) MsgRecent(_ context.Context, limit int) ([]client.Message, err
 	return f.messages, f.msgErr
 }
 func (f *fakeAPI) GetAutopilot(context.Context) (client.AutopilotStatus, error) {
-	return client.AutopilotStatus{}, nil
+	return f.autopilot, nil
 }
 func (f *fakeAPI) SetAutopilot(_ context.Context, _ bool, _ string) (client.AutopilotStatus, error) {
 	return client.AutopilotStatus{}, nil
+}
+func (f *fakeAPI) ControlAutopilotRun(_ context.Context, runID, action string) (client.AutopilotRunStatus, error) {
+	f.autopilotRunID, f.autopilotAction = runID, action
+	return client.AutopilotRunStatus{RunID: runID, State: action}, nil
 }
 func (f *fakeAPI) ListBackends(context.Context) (client.BackendsState, error) {
 	return f.backends, f.backendsErr

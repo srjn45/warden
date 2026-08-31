@@ -19,11 +19,15 @@ type InitConfig struct {
 	ConfigPath string
 	// PlanFile is the plan file path relative to repo (default "autopilot.plan.yaml").
 	PlanFile string
+	// Name is the registered plan name (default "default").
+	Name string
+	// Register persists the newly scaffolded plan in the daemon run store.
+	// It is optional for embedders and tests that only need filesystem setup.
+	Register func(context.Context, RegisterRequest) error
 	// IntegrationBranch is the merge target (default "autopilot/integration").
 	IntegrationBranch string
-	// Backends is the list of installed backend ids detected on this machine
-	// (e.g. ["claude", "antigravity"]). Used to pre-fill brain.backends in the
-	// config; the owner assigns cost tiers after init.
+	// Backends is retained for source compatibility. Backend tiers now live in
+	// the backend registry and are not written to config.
 	Backends []string
 }
 
@@ -45,7 +49,16 @@ constraints: []
 //   - prints a CI-coverage hint when workflows do not cover integration PRs
 func Init(ctx context.Context, env Env, repo string, cfg InitConfig, out io.Writer) error {
 	if cfg.PlanFile == "" {
-		cfg.PlanFile = "autopilot.plan.yaml"
+		if cfg.Name == "" {
+			cfg.Name = "default"
+		}
+		if !validPlanName(cfg.Name) {
+			return fmt.Errorf("invalid plan name %q (use letters, numbers, '.', '_' or '-')", cfg.Name)
+		}
+		cfg.PlanFile = filepath.Join("plans", cfg.Name+".yaml")
+	}
+	if cfg.Name == "" {
+		cfg.Name = defaultRunName(cfg.PlanFile)
 	}
 	if cfg.IntegrationBranch == "" {
 		cfg.IntegrationBranch = "autopilot/integration"
@@ -55,10 +68,11 @@ func Init(ctx context.Context, env Env, repo string, cfg InitConfig, out io.Writ
 		return err
 	}
 
-	if cfg.ConfigPath != "" {
-		if err := updateAutopilotConfig(cfg.ConfigPath, cfg.PlanFile, cfg.Backends, out); err != nil {
-			fmt.Fprintf(out, "  warning: could not update %s: %v\n", cfg.ConfigPath, err)
+	if cfg.Register != nil {
+		if err := cfg.Register(ctx, RegisterRequest{Name: cfg.Name, Repo: repo, PlanFile: filepath.Join(repo, cfg.PlanFile)}); err != nil {
+			return fmt.Errorf("register autopilot plan: %w", err)
 		}
+		fmt.Fprintf(out, "✓ registered autopilot plan %s\n", cfg.Name)
 	}
 
 	if err := ensureIntegrationBranch(ctx, env, repo, cfg.IntegrationBranch, out); err != nil {
@@ -67,8 +81,21 @@ func Init(ctx context.Context, env Env, repo string, cfg InitConfig, out io.Writ
 
 	printCIHint(repo, cfg.IntegrationBranch, out)
 
-	fmt.Fprintf(out, "\nnext: edit %s, then run `warden autopilot on`\n", cfg.PlanFile)
+	fmt.Fprintf(out, "\nnext: edit %s, then run `warden autopilot start %s`\n", cfg.PlanFile, cfg.Name)
 	return nil
+}
+
+func validPlanName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // writePlanIfAbsent writes the template plan file when it does not already exist.
@@ -76,6 +103,9 @@ func writePlanIfAbsent(path string, out io.Writer) error {
 	if _, err := os.Stat(path); err == nil {
 		fmt.Fprintf(out, "  %s already exists — skipped\n", filepath.Base(path))
 		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create plan directory: %w", err)
 	}
 	if err := os.WriteFile(path, []byte(planTemplate), 0o644); err != nil {
 		return fmt.Errorf("write plan template %s: %w", path, err)

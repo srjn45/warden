@@ -64,8 +64,8 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 		fails = append(fails, fmt.Sprintf("plan file %s is not inside a git repository: %v", file, err))
 		return r, fails
 	}
-	r.repo = repo
-	r.runID = RunID(repo, abs)
+	r.repo = filepath.Clean(repo)
+	r.runID = RunID(r.repo, abs)
 
 	// A completed plan (§2.1) is done: preflight neither fails it nor registers it
 	// as a run. Signal the skip now — with repo/run_id resolved so Enable can log a

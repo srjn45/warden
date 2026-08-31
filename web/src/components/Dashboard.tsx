@@ -28,6 +28,7 @@ import TerminalsTab from './TerminalsTab';
 import ContextOverlay from './ContextOverlay';
 import ArchiveTab from './ArchiveTab';
 import AutopilotPanel from './AutopilotPanel';
+import type { AutopilotStatus } from '../lib/api';
 import BackendsPanel from './BackendsPanel';
 
 export default function Dashboard() {
@@ -43,6 +44,7 @@ export default function Dashboard() {
   const [showHelp, setShowHelp] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const [showAutopilot, setShowAutopilot] = useState(false);
+	const [autopilot, setAutopilotLive] = useState<AutopilotStatus | null>(null);
   const [showBackends, setShowBackends] = useState(false);
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [pinned, setPinned] = useState<string[]>(loadPinned);
@@ -176,7 +178,7 @@ export default function Dashboard() {
   // so the stream and the initial load reconnect with the new credential.
   useEffect(() => {
     listSessions().then(setSessions).catch(() => { /* SSE will populate */ });
-    const unsub = subscribeSessions(setSessions, () => setConnected(false), () => setConnected(true));
+		const unsub = subscribeSessions(setSessions, () => setConnected(false), () => setConnected(true), setAutopilotLive);
     return unsub;
   }, [authNonce]);
 
@@ -288,7 +290,7 @@ export default function Dashboard() {
         />
       )}
       {showContext && <ContextOverlay onClose={() => setShowContext(false)} />}
-      {showAutopilot && <AutopilotPanel onClose={() => setShowAutopilot(false)} />}
+		{showAutopilot && <AutopilotPanel onClose={() => setShowAutopilot(false)} liveStatus={autopilot} sessions={sessions} stale={!connected} />}
       {showBackends && <BackendsPanel onClose={() => setShowBackends(false)} />}
       {showHelp && <ShortcutsHelp onClose={() => setShowHelp(false)} />}
       {authRequired && <TokenModal onSaved={onTokenSaved} />}

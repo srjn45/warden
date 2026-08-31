@@ -88,6 +88,9 @@ func (s *Server) ListSessions(ctx context.Context, req oapi.ListSessionsRequestO
 	}
 	out := make([]oapi.Session, 0, len(sessions))
 	for _, ss := range sessions {
+		if !req.Params.All && ss.HasTag("system:true") {
+			continue
+		}
 		if !kindMatches(req.Params.Kind, ss.IsTerminal()) {
 			continue
 		}

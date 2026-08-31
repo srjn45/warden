@@ -100,6 +100,90 @@ func (r *fakeRuntime) DigestSources() DigestSources     { return r.sources }
 func (r *fakeRuntime) NotifyOwner(_ string, msg string) { r.notified = append(r.notified, msg) }
 func (r *fakeRuntime) InstallDefaultAutoApprovePolicy() { r.installs++ }
 
+type guardianAgentFake struct {
+	*fakeRuntime
+	guardians      []string
+	guardianKilled []string
+	reconciled     map[string]string
+	missing        []string
+}
+
+func (r *guardianAgentFake) SpawnGuardian(_ context.Context, runID, _ string) (string, error) {
+	id := "guardian-" + runID
+	r.guardians = append(r.guardians, id)
+	return id, nil
+}
+func (r *guardianAgentFake) TerminateGuardian(_ context.Context, id string) error {
+	r.guardianKilled = append(r.guardianKilled, id)
+	return nil
+}
+func (r *guardianAgentFake) ReconcileGuardians(_ context.Context, valid map[string]string) ([]string, error) {
+	r.reconciled = valid
+	return r.missing, nil
+}
+
+func TestGuardianAgentPersistsAndStopsWithRun(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "guardian.yaml", "ship it")
+	runStore, err := NewRunStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = runStore.Close() })
+	rt := &guardianAgentFake{fakeRuntime: newFakeRuntime()}
+	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir,
+		IntegrationBranch: "autopilot/integration", Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
+		RunStore: runStore}, &fakeEnv{})
+	c.SetRuntime(rt)
+	st, err := c.Enable(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, rt.guardians, 1)
+	require.Equal(t, rt.guardians[0], st.Runs[0].GuardianID, "status exposes the inspectable guardian for UI nesting")
+	rec, err := runStore.Get(st.Runs[0].RunID)
+	require.NoError(t, err)
+	require.Equal(t, rt.guardians[0], rec.GuardianID)
+
+	_, err = c.StopRun(context.Background(), st.Runs[0].RunID)
+	require.NoError(t, err)
+	require.Equal(t, rt.guardians, rt.guardianKilled)
+	rec, err = runStore.Get(st.Runs[0].RunID)
+	require.NoError(t, err)
+	require.Empty(t, rec.GuardianID)
+}
+
+func TestGuardianAgentStopsOnCompletion(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "complete.yaml", "ship it")
+	rt := &guardianAgentFake{fakeRuntime: newFakeRuntime()}
+	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir,
+		IntegrationBranch: "autopilot/integration", Resolver: &fakeResolver{backendID: "antigravity", tier: "free"}}, &fakeEnv{})
+	c.SetRuntime(rt)
+	st, err := c.Enable(context.Background(), "")
+	require.NoError(t, err)
+	_, err = c.CompleteRun(context.Background(), st.Runs[0].RunID)
+	require.NoError(t, err)
+	require.Equal(t, rt.guardians, rt.guardianKilled)
+}
+
+func TestMissingGuardianIsRecreatedAfterRestart(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "restart.yaml", "ship it")
+	runStore, err := NewRunStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = runStore.Close() })
+	runID := RunID(dir, plan)
+	require.NoError(t, runStore.Create(RunRecord{RunID: runID, Name: "restart", Repo: dir, PlanFile: plan,
+		State: StateActive, GuardianID: "guardian-stale", CreatedAt: time.Now(), UpdatedAt: time.Now()}))
+	rt := &guardianAgentFake{fakeRuntime: newFakeRuntime(), missing: []string{runID}}
+	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir,
+		IntegrationBranch: "autopilot/integration", Resolver: &fakeResolver{backendID: "antigravity", tier: "free"}, RunStore: runStore}, &fakeEnv{})
+	c.SetRuntime(rt)
+	st, err := c.Enable(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, rt.guardians, 1)
+	rec, err := runStore.Get(st.Runs[0].RunID)
+	require.NoError(t, err)
+	require.Equal(t, rt.guardians[0], rec.GuardianID)
+}
+
 func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	dir := t.TempDir()
 	plan := writePlan(t, dir, "plan.yaml", "ship it")
@@ -141,7 +225,8 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	// Disable is the kill switch: the brain is terminated.
 	dst := c.Disable(context.Background(), "")
 	require.False(t, dst.Enabled)
-	require.Empty(t, dst.Runs)
+	require.Len(t, dst.Runs, 1)
+	require.Equal(t, StateStopped, dst.Runs[0].State)
 	require.Equal(t, []string{"brain-1"}, rt.killed)
 }
 

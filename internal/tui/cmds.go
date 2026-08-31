@@ -45,11 +45,17 @@ func bgLong() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 5*time.Minute)
 }
 
-func listCmd(a api) tea.Cmd {
+func listCmd(a api, includeSystem bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
 		defer cancel()
-		ss, err := a.List(ctx)
+		var ss []*store.Session
+		var err error
+		// Always retain the complete snapshot: guardian sessions are hidden from the
+		// ordinary fleet but must be available beneath Autopilot Run nodes. The
+		// compositor applies includeSystem to ordinary project rows.
+		_ = includeSystem
+		ss, err = a.ListAll(ctx)
 		return sessionsMsg{sessions: ss, err: err}
 	}
 }
@@ -493,6 +499,20 @@ type autopilotMsg struct {
 type autopilotToggleDoneMsg struct {
 	status client.AutopilotStatus
 	err    error
+}
+
+type autopilotRunActionMsg struct {
+	runID, action string
+	err           error
+}
+
+func autopilotRunActionCmd(a api, runID, action string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bgLong()
+		defer cancel()
+		_, err := a.ControlAutopilotRun(ctx, runID, action)
+		return autopilotRunActionMsg{runID: runID, action: action, err: err}
+	}
 }
 
 // autopilotCmd fetches the current autopilot status from the daemon.

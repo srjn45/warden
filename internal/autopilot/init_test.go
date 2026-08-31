@@ -68,9 +68,27 @@ func TestInit_DefaultsApplied(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, Init(context.Background(), env, dir, InitConfig{}, &out))
 	// default plan file
-	require.FileExists(t, filepath.Join(dir, "autopilot.plan.yaml"))
+	require.FileExists(t, filepath.Join(dir, "plans", "default.yaml"))
 	// default integration branch created
 	require.Contains(t, env.created, dir+"|autopilot/integration|main")
+}
+
+func TestInitRegistersNamedPlan(t *testing.T) {
+	env := &fakeEnv{}
+	dir := t.TempDir()
+	var got RegisterRequest
+	err := Init(context.Background(), env, dir, InitConfig{Name: "release", Register: func(_ context.Context, req RegisterRequest) error {
+		got = req
+		return nil
+	}}, &bytes.Buffer{})
+	require.NoError(t, err)
+	require.Equal(t, "release", got.Name)
+	require.Equal(t, filepath.Join(dir, "plans", "release.yaml"), got.PlanFile)
+}
+
+func TestInitRejectsUnsafeName(t *testing.T) {
+	err := Init(context.Background(), &fakeEnv{}, t.TempDir(), InitConfig{Name: "../escape"}, &bytes.Buffer{})
+	require.ErrorContains(t, err, "invalid plan name")
 }
 
 func TestInit_ProtectedBranchSkipped(t *testing.T) {

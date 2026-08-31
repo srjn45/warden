@@ -6,12 +6,15 @@ package autopilot
 type RunState string
 
 const (
-	StateDisabled RunState = "disabled"
-	StateStarting RunState = "starting"
-	StateActive   RunState = "active"
-	StateDegraded RunState = "degraded"
-	StateHealing  RunState = "healing"
-	StateComplete RunState = "complete"
+	StateDisabled   RunState = "disabled"
+	StateRegistered RunState = "registered"
+	StateStarting   RunState = "starting"
+	StateActive     RunState = "active"
+	StatePaused     RunState = "paused"
+	StateStopped    RunState = "stopped"
+	StateDegraded   RunState = "degraded"
+	StateHealing    RunState = "healing"
+	StateComplete   RunState = "complete"
 )
 
 // Status is the AutopilotStatus wire shape (autopilot.md §5). It is mapped into
@@ -31,6 +34,7 @@ type Status struct {
 // those go live in S3/S4/S5.
 type RunStatus struct {
 	RunID           string       `json:"run_id"`
+	Name            string       `json:"name"`
 	PlanFile        string       `json:"plan_file"`
 	Repo            string       `json:"repo"`
 	State           RunState     `json:"state"`
@@ -40,6 +44,8 @@ type RunStatus struct {
 	Tasks           TaskCounts   `json:"tasks"`
 	Backoff         *Backoff     `json:"backoff"`
 	LandedTotal     int          `json:"landed_total"`
+	PlanTasks       []PlanTask   `json:"plan_tasks"`
+	GuardianID      string       `json:"guardian_id,omitempty"`
 }
 
 // BrainStatus describes the run's brain agent (autopilot.md §5). Nil in S1.
@@ -56,6 +62,7 @@ type TaskCounts struct {
 	Pending    int `json:"pending"`
 	InProgress int `json:"in_progress"`
 	Landed     int `json:"landed"`
+	Failed     int `json:"failed"`
 }
 
 // Backoff describes the guardian's capped-exponential backoff (autopilot.md

@@ -11,8 +11,7 @@ import (
 )
 
 // fakeEnv is a scriptable Env for preflight tests. By default GitToplevel returns
-// the plan file's own directory as the repo (so two plans in the same dir share a
-// repo — exercising the one-run-per-repo guard), gh auth is OK, and the
+// the plan file's own directory as the repo, gh auth is OK, and the
 // integration branch is absent so preflight auto-creates it.
 type fakeEnv struct {
 	repoOf        func(dir string) (string, error) // nil ⇒ repo == dir
@@ -244,16 +243,6 @@ func TestEnablePreflightFailures(t *testing.T) {
 			},
 			wantSub: "no plans configured",
 		},
-		{
-			name: "two plans on the same repo",
-			setup: func(t *testing.T, dir string) (ControllerConfig, Env) {
-				p1 := writePlan(t, dir, "a.yaml", "a")
-				p2 := writePlan(t, dir, "b.yaml", "b")
-				// both live in the same dir ⇒ same repo (default fakeEnv behavior)
-				return ControllerConfig{Plans: []string{p1, p2}, BaseDir: dir}, &fakeEnv{}
-			},
-			wantSub: "at most one active run per repository",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -300,7 +289,8 @@ func TestDisableKillSwitch(t *testing.T) {
 
 	st := c.Disable(context.Background(), "")
 	require.False(t, st.Enabled)
-	require.Empty(t, st.Runs)
+	require.Len(t, st.Runs, 1)
+	require.Equal(t, StateStopped, st.Runs[0].State)
 }
 
 // TestEnableIsPerRepo proves the switch is per-repo: enabling one repo registers
@@ -334,8 +324,15 @@ func TestEnableIsPerRepo(t *testing.T) {
 	// Disabling A is scoped: B keeps running.
 	st = c.Disable(context.Background(), dirA)
 	require.Equal(t, []string{dirB}, st.EnabledRepos)
-	require.Len(t, st.Runs, 1)
-	require.Equal(t, dirB, st.Runs[0].Repo)
+	require.Len(t, st.Runs, 2)
+	for _, r := range st.Runs {
+		if r.Repo == dirA {
+			require.Equal(t, StateStopped, r.State)
+		}
+		if r.Repo == dirB {
+			require.Equal(t, StateActive, r.State)
+		}
+	}
 	require.False(t, c.enableStore.IsEnabled(dirA))
 	require.True(t, c.enableStore.IsEnabled(dirB))
 }
@@ -363,7 +360,7 @@ func TestReconfigureSwapsTemplateInPlace(t *testing.T) {
 }
 
 // TestReconfigureRemovedPlanStopsRun proves deleting an autopilot.plans[] entry on
-// reload tears down its run while leaving other enabled repos' runs untouched.
+// reload tears down its run while retaining the stopped durable record.
 func TestReconfigureRemovedPlanStopsRun(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
@@ -377,12 +374,18 @@ func TestReconfigureRemovedPlanStopsRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, c.Status().Runs, 2)
 
-	// Reload with plan B removed from config: B's run is swept, A survives.
+	// Reload with plan B removed from config: B stops, A survives.
 	c.Reconfigure(context.Background(), ControllerConfig{Plans: []string{planA}, BaseDir: dirA})
 	st := c.Status()
-	require.Len(t, st.Runs, 1)
-	require.Equal(t, dirA, st.Runs[0].Repo)
-	require.Equal(t, planA, st.Runs[0].PlanFile)
+	require.Len(t, st.Runs, 2)
+	for _, r := range st.Runs {
+		if r.Repo == dirA {
+			require.Equal(t, StateActive, r.State)
+		}
+		if r.Repo == dirB {
+			require.Equal(t, StateStopped, r.State)
+		}
+	}
 	// The enable set is not forgotten — re-adding plan B and reloading brings it back.
 	c.Reconfigure(context.Background(), ControllerConfig{Plans: []string{planA, planB}, BaseDir: dirA})
 	require.Len(t, c.Status().Runs, 2, "re-adding the plan re-registers the still-enabled repo's run")
@@ -470,11 +473,12 @@ func TestCompleteRunMarksPlanAndSkipsOnReenable(t *testing.T) {
 	_, err = c.CompleteRun(context.Background(), runID)
 	require.NoError(t, err)
 
-	// Re-enabling skips the completed plan: no error, no active run registered.
+	// Re-enabling skips execution while retaining the terminal durable record.
 	st3, err := c.Enable(context.Background(), "")
 	require.NoError(t, err)
 	require.True(t, st3.Enabled)
-	require.Empty(t, st3.Runs, "a completed plan is skipped, not re-registered")
+	require.Len(t, st3.Runs, 1)
+	require.Equal(t, StateComplete, st3.Runs[0].State)
 }
 
 func TestCompleteRunUnknownRun(t *testing.T) {

@@ -1057,7 +1057,9 @@ ladder).
 
 ### 34.1 Plan file
 
-Authored by the operator in `autopilot.plan.yaml` (path configurable). Contains a
+Authored by the operator as a named file under `plans/` (for example,
+`plans/release.yaml`). `warden autopilot init --name release` scaffolds and
+registers it; `warden autopilot register <file>` registers an existing plan. Contains a
 `goal`, optional `constraints` (injected into every manager and worker spawn), and
 an optional coarse `tasks` list. The manager decomposes the goal into tasks if the
 list is empty. The file is owner-editable mid-flight; the manager re-reads it on
@@ -1075,7 +1077,7 @@ fleet with separated jobs:
   Controller spawns on the cheapest available backend. It orchestrates the run via
   warden's own MCP tools (`spawn_agent`, `land`, `ctx_*`, etc.), reads the ledger
   to know what's landed, and restarts cleanly after context rotation or a guardian
-  heal. At most one active run per repository. *(Historically "the brain"; the
+  heal. Multiple named runs may be active in one repository. *(Historically "the brain"; the
   ledger key `autopilot.brain` keeps that name for back-compat.)*
 - **Worker** (role `worker`) — spawned one per task by default; owns the task
   end-to-end (implement → self-review → open a PR on the integration branch →
@@ -1120,7 +1122,7 @@ gate is the store's `allow_paid_autopilot` setting. The deprecated
 `autopilot.brain.allow_pay_per_use` config keys are **imported once** into the
 store on the first boot after upgrade (a one-time, sentinel-guarded migration) and
 then **ignored** — later edits live in the registry, and the daemon logs a
-deprecation warning if the config still carries them. Only **installed, enabled,
+deprecation warning, then removes the imported keys when compatibility permits. Only **installed, enabled,
 non-`local`** backends are eligible for the ladder.
 
 ### 34.5 Ownership guard
@@ -1136,6 +1138,13 @@ While autopilot is active, approval prompts from worker agents are routed to the
 manager's mailbox. The manager answers routine tool-permission prompts using its
 auto-approve policy, keeping workers unblocked without stalling on human input.
 The operator's approval queue is not affected.
+
+Legacy `autopilot.plans[]` entries remain readable during the compatibility
+window. At daemon boot they are copied without overwrite into the repository's
+`plans/` directory and durably registered; root `autopilot.plan.yaml` becomes
+`plans/default.yaml`. Sources are retained as rollback backups, migration is
+idempotent, and an actionable warning tells the operator when the config entry
+can be removed.
 
 ### 34.7 Land (idempotent merge)
 

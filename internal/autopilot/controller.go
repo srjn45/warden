@@ -43,6 +43,9 @@ type ControllerConfig struct {
 	// (<data_dir>/autopilot/enabled/). Empty ⇒ an in-memory store (nothing
 	// persisted), so a Controller built without a data dir (unit tests) still works.
 	DataDir string
+	// RunStore overrides the durable run registry (primarily for tests). When nil
+	// and DataDir is set, NewController opens <data>/autopilot/runs-db.
+	RunStore *RunStore
 	// Resolver is the unified router resolver for selecting backends.
 	Resolver Resolver
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
@@ -92,6 +95,8 @@ type Controller struct {
 	// written by Enable/Disable. Concurrency-safe on its own; mutated under c.mu so
 	// it stays consistent with c.runs.
 	enableStore EnableStore
+	store       *RunStore
+	storeErr    error // configured persistence unavailable: lifecycle writes must fail closed
 
 	mu      sync.Mutex
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
@@ -103,6 +108,7 @@ type Controller struct {
 // (autopilot.md §3), and the plan-watch cancel.
 type run struct {
 	runID         string
+	name          string
 	planFile      string // configured path (as written in config)
 	absPlanFile   string // resolved absolute path (plan-file watch anchor)
 	repo          string
@@ -112,8 +118,9 @@ type run struct {
 	resolvedGate  string // gate mode resolved at preflight (§6.1): ci | local
 	defaultBranch string // repo default branch — the land guard's protected name
 
-	brain  *BrainHandle       // nil until the brain spawns; nil again after teardown
-	cancel context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
+	brain      *BrainHandle       // nil until the brain spawns; nil again after teardown
+	guardianID string             // daemon-owned system session representing the guardian loop
+	cancel     context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
 	// the guardian tick or the (re)spawn helpers.
@@ -168,8 +175,18 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		now:               now,
 		tierstate:         newTierState(now),
 		enableStore:       newEnableStore(cfg.DataDir),
+		store:             cfg.RunStore,
 		runs:              map[string]*run{},
 	}
+	if c.store == nil && strings.TrimSpace(cfg.DataDir) != "" {
+		if st, err := NewRunStore(cfg.DataDir); err != nil {
+			slog.Error("autopilot: persistent run store unavailable", "err", err)
+			c.storeErr = fmt.Errorf("autopilot persistent run store unavailable: %w", err)
+		} else {
+			c.store = st
+		}
+	}
+	c.restoreStoredRuns()
 	return c
 }
 
@@ -218,12 +235,66 @@ func (c *Controller) SetRuntime(rt Runtime) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.runtime = rt
+	if gr, ok := rt.(GuardianAgentRuntime); ok {
+		valid := make(map[string]string)
+		for _, r := range c.runs {
+			if r.guardianID != "" && r.state != StateStopped && r.state != StateComplete {
+				valid[r.runID] = r.guardianID
+			}
+		}
+		missing, err := gr.ReconcileGuardians(context.Background(), valid)
+		if err != nil {
+			slog.Warn("autopilot: guardian boot reconciliation failed", "err", err)
+		} else {
+			for _, runID := range missing {
+				if r := c.runs[runID]; r != nil {
+					r.guardianID = ""
+					c.persistRunLocked(r)
+				}
+			}
+		}
+	}
+	// Durable run records, not the deprecated config plan list, are the V2
+	// restart authority. Recreate every run whose persisted intent is live even
+	// when it was registered directly and therefore is absent from c.plans.
+	for _, r := range c.runs {
+		// The per-repo kill switch wins if shutdown happened between clearing the
+		// enabled set and persisting each run's stopped state.
+		if !c.enableStore.IsEnabled(r.repo) {
+			continue
+		}
+		switch r.state {
+		case StateActive, StateStarting, StateHealing, StateDegraded:
+		default:
+			continue
+		}
+		if err := c.preflightRegisteredRunLocked(context.Background(), r); err != nil {
+			r.state = StateDegraded
+			c.persistRunLocked(r)
+			slog.Warn("autopilot: stored run recovery skipped", "run", r.runID, "err", err)
+			continue
+		}
+		r.state = StateStarting
+		sel := c.selectBrain(nil)
+		r.tier = sel.Tier
+		if err := c.spawnBrain(context.Background(), r, sel.Backend); err != nil {
+			slog.Warn("autopilot: stored run recovery failed", "run", r.runID, "err", err)
+		}
+		if r.brain != nil && r.cancel == nil {
+			wctx, cancel := context.WithCancel(context.Background())
+			r.cancel = cancel
+			go c.watchPlan(wctx, r, planWatchInterval)
+		}
+		c.persistRunLocked(r)
+	}
 }
 
 // RunID is the stable identifier for a run: a short hash of the repo root and the
 // absolute plan-file path (autopilot.md §1). Stable across daemon restarts so a
 // re-enable re-adopts the same run rather than forking a duplicate.
 func RunID(repo, planPath string) string {
+	repo = canonicalPath(repo)
+	planPath = canonicalPath(planPath)
 	sum := sha256.Sum256([]byte(repo + "\x00" + planPath))
 	return "ap-" + hex.EncodeToString(sum[:])[:12]
 }
@@ -253,6 +324,9 @@ func (e *PreflightError) Error() string {
 func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.storeErr != nil {
+		return c.statusLocked(), c.storeErr
+	}
 
 	target := c.resolveRepo(ctx, repo)
 
@@ -264,13 +338,13 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 
 	var fails []string
 	resolvedByID := map[string]resolved{}
-	// repoOwner maps a repo root to the run_id that already claimed it in THIS
-	// batch — the mechanical "at most one active run per repository" guard (§1).
-	repoOwner := map[string]string{}
 	matched := 0 // plans that resolve to the target repo
 
 	for _, file := range c.plans {
 		r, planFails := c.preflightPlan(ctx, file)
+		if len(planFails) == 0 && !r.skipComplete {
+			planFails = append(planFails, c.validatePersistedDoneClaims(r.runID, r.plan)...)
+		}
 		switch {
 		case r.repo == "":
 			// Repo unresolved (not a git repo, etc.): the plan is fundamentally
@@ -294,13 +368,6 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 		default:
 			matched++
 			fails = append(fails, planFails...)
-			if owner, taken := repoOwner[r.repo]; taken && owner != r.runID {
-				fails = append(fails, fmt.Sprintf(
-					"repo %s already has an active run in this plan set — at most one active run per repository (conflicting plan: %s)",
-					r.repo, file))
-				continue
-			}
-			repoOwner[r.repo] = r.runID
 			resolvedByID[r.runID] = r
 		}
 	}
@@ -331,7 +398,7 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 	// healthy" is immediate, so a run collapses straight to active with no brain.
 	newRuns := map[string]*run{}
 	for id, r := range c.runs {
-		if r.repo != target {
+		if r.repo != target || r.state == StateComplete || r.state == StateStopped {
 			newRuns[id] = r // another enabled repo — leave it exactly as it is
 		}
 	}
@@ -341,11 +408,23 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			existing.absPlanFile = res.absFile
 			existing.resolvedGate = res.resolvedGate
 			existing.defaultBranch = res.defaultBranch
+			existing.plan = res.plan
+			if existing.brain == nil && (existing.state == StateActive || existing.state == StateStarting || existing.state == StateHealing || existing.state == StateDegraded) {
+				existing.state = StateStarting
+				c.persistRunLocked(existing)
+				sel := c.selectBrain(nil)
+				existing.tier = sel.Tier
+				if err := c.spawnBrain(ctx, existing, sel.Backend); err != nil {
+					slog.Warn("autopilot: boot run reconciliation failed", "run", id, "err", err)
+				}
+				c.persistRunLocked(existing)
+			}
 			newRuns[id] = existing
 			continue
 		}
 		r := &run{
 			runID:         id,
+			name:          defaultRunName(res.absFile),
 			planFile:      res.file,
 			absPlanFile:   res.absFile,
 			repo:          res.repo,
@@ -371,6 +450,7 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			go c.watchPlan(wctx, r, planWatchInterval)
 		}
 		newRuns[id] = r
+		c.persistRunLocked(r)
 	}
 	for id, old := range c.runs {
 		if old.repo != target {
@@ -392,6 +472,30 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 	return c.statusLocked(), nil
 }
 
+// validatePersistedDoneClaims makes restart reconstruction apply the same
+// daemon-authoritative evidence rule as live write-back. The nil-runtime path is
+// retained for the deliberately inert controller used by early-stage callers.
+func (c *Controller) validatePersistedDoneClaims(runID string, plan Plan) []string {
+	if c.runtime == nil || c.runtime.NewLedger(runID) == nil {
+		return nil
+	}
+	landings, err := c.runtime.NewLedger(runID).Landings()
+	if err != nil {
+		return []string{fmt.Sprintf("plan %s: verify landed task evidence: %v", runID, err)}
+	}
+	landed := make(map[int]bool, len(landings))
+	for _, landing := range landings {
+		landed[landing.PR] = true
+	}
+	var failures []string
+	for _, task := range plan.Tasks {
+		if task.Status == TaskStatusDone && !landed[task.LandedPR] {
+			failures = append(failures, fmt.Sprintf("plan %s: task %q claims done with PR #%d, but that PR is not recorded as landed", runID, task.ID, task.LandedPR))
+		}
+	}
+	return failures
+}
+
 // resolveRepo canonicalizes an Enable/Disable repo argument to the git toplevel
 // used as a run's repo key, so a per-repo toggle matches the repo preflight
 // resolves from a plan file. An empty arg defaults to the controller BaseDir (the
@@ -404,7 +508,7 @@ func (c *Controller) resolveRepo(ctx context.Context, repo string) string {
 		target = c.baseDir
 	}
 	if root, err := c.env.GitToplevel(ctx, target); err == nil && strings.TrimSpace(root) != "" {
-		return root
+		return filepath.Clean(root)
 	}
 	return filepath.Clean(target)
 }
@@ -444,6 +548,9 @@ func (c *Controller) Disable(ctx context.Context, repo string) Status {
 	for id, r := range c.runs {
 		if r.repo == target {
 			c.stopRunLocked(ctx, r)
+			r.state = StateStopped
+			c.persistRunLocked(r)
+			remaining[id] = r
 			continue
 		}
 		remaining[id] = r
@@ -476,6 +583,10 @@ func (c *Controller) Disable(ctx context.Context, repo string) Status {
 // them under c.mu.
 func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	c.mu.Lock()
+	oldPlanSet := make(map[string]struct{}, len(c.plans))
+	for _, p := range c.plans {
+		oldPlanSet[p] = struct{}{}
+	}
 	branch := strings.TrimSpace(cfg.IntegrationBranch)
 	if branch == "" {
 		branch = "autopilot/integration"
@@ -521,12 +632,16 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	// actually stops it — without ever killing a run whose plan is still listed.
 	c.mu.Lock()
 	for id, r := range c.runs {
+		if _, legacyManaged := oldPlanSet[r.planFile]; !legacyManaged {
+			continue // durable register-created runs are independent of global config
+		}
 		if _, still := planSet[r.planFile]; still {
 			continue
 		}
 		slog.Info("autopilot: plan removed from config — stopping run", "run", id, "plan", r.planFile)
 		c.stopRunLocked(ctx, r)
-		delete(c.runs, id)
+		r.state = StateStopped
+		c.persistRunLocked(r)
 	}
 	c.mu.Unlock()
 }
@@ -570,7 +685,66 @@ func (c *Controller) CompleteRun(ctx context.Context, runID string) (Status, err
 	// attempt on this run now returns run_disabled.
 	c.stopRunLocked(ctx, r)
 	r.state = StateComplete
+	c.persistRunLocked(r)
 	return c.statusLocked(), nil
+}
+
+// UpdateTaskStatus is the sole task-ledger write-back path. The controller lock
+// serializes concurrent updates, while the file helper provides crash-safe
+// replacement. A done claim must cite a PR recorded by the daemon land handler.
+func (c *Controller) UpdateTaskStatus(runID, taskID, status string, landedPR int) (PlanTask, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok {
+		return PlanTask{}, fmt.Errorf("autopilot: unknown run %q", runID)
+	}
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status != TaskStatusPending && status != TaskStatusActive && status != TaskStatusDone && status != TaskStatusFailed {
+		return PlanTask{}, fmt.Errorf("autopilot: invalid task status %q", status)
+	}
+	idx := -1
+	for i := range r.plan.Tasks {
+		if r.plan.Tasks[i].ID == taskID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return PlanTask{}, fmt.Errorf("autopilot: unknown task %q", taskID)
+	}
+	if status == TaskStatusDone {
+		if landedPR <= 0 {
+			return PlanTask{}, fmt.Errorf("autopilot: status done requires landed_pr")
+		}
+		if c.runtime == nil || c.runtime.NewLedger(runID) == nil {
+			return PlanTask{}, fmt.Errorf("autopilot: cannot verify landed_pr without ledger")
+		}
+		landings, err := c.runtime.NewLedger(runID).Landings()
+		if err != nil {
+			return PlanTask{}, fmt.Errorf("autopilot: verify landed_pr: %w", err)
+		}
+		verified := false
+		for _, landing := range landings {
+			if landing.PR == landedPR {
+				verified = true
+				break
+			}
+		}
+		if !verified {
+			return PlanTask{}, fmt.Errorf("autopilot: PR #%d is not recorded as landed for run %s", landedPR, runID)
+		}
+	} else if landedPR != 0 {
+		return PlanTask{}, fmt.Errorf("autopilot: landed_pr is only valid with status done")
+	}
+	if err := writeTaskStatusAtomic(r.absPlanFile, taskID, status, landedPR); err != nil {
+		return PlanTask{}, err
+	}
+	r.plan.Tasks[idx].Status, r.plan.Tasks[idx].LandedPR = status, landedPR
+	if info, err := os.Stat(r.absPlanFile); err == nil {
+		r.planModTime = info.ModTime()
+	}
+	return r.plan.Tasks[idx], nil
 }
 
 // ActiveBrainForRun returns the agent id of the brain serving run runID while the
@@ -592,6 +766,22 @@ func (c *Controller) ActiveBrainForRun(runID string) (string, bool) {
 	return r.brain.AgentID, true
 }
 
+// CanBrainComplete authorizes the state-changing completion edge to the current
+// brain. Once complete, retries are harmless no-ops and remain idempotent for a
+// correctly tagged brain whose first response may have been lost.
+func (c *Controller) CanBrainComplete(runID, brainID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok {
+		return false
+	}
+	if r.state == StateComplete {
+		return true
+	}
+	return r.brain != nil && r.brain.AgentID == brainID && c.enableStore.IsEnabled(r.repo)
+}
+
 // Status returns the current AutopilotStatus (§5).
 func (c *Controller) Status() Status {
 	c.mu.Lock()
@@ -609,6 +799,19 @@ func (c *Controller) statusLocked() Status {
 	}
 	st := Status{Enabled: len(enabledRepos) > 0, EnabledRepos: enabledRepos, Runs: []RunStatus{}}
 	for _, r := range c.runs {
+		counts := TaskCounts{}
+		for _, task := range r.plan.Tasks {
+			switch task.Status {
+			case TaskStatusActive:
+				counts.InProgress++
+			case TaskStatusDone:
+				counts.Landed++
+			case TaskStatusFailed:
+				counts.Failed++
+			default:
+				counts.Pending++
+			}
+		}
 		var brain *BrainStatus
 		if r.brain != nil {
 			brain = &BrainStatus{
@@ -621,14 +824,17 @@ func (c *Controller) statusLocked() Status {
 		}
 		st.Runs = append(st.Runs, RunStatus{
 			RunID:           r.runID,
+			Name:            r.name,
 			PlanFile:        r.planFile,
 			Repo:            r.repo,
 			State:           r.state,
 			Gate:            c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:           brain,
 			WorkersInFlight: r.workersInFlight, // last roster count from the overwatch tick
-			Tasks:           TaskCounts{},
+			Tasks:           counts,
 			Backoff:         r.backoffStatus(),
+			PlanTasks:       append([]PlanTask(nil), r.plan.Tasks...),
+			GuardianID:      r.guardianID,
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
@@ -684,7 +890,7 @@ func (c *Controller) LandParams(runID string) (LandParams, bool) {
 // (or is being) kept alive. A complete or disabled run lands nothing.
 func isLandableState(s RunState) bool {
 	switch s {
-	case StateActive, StateHealing, StateDegraded, StateStarting:
+	case StateActive, StateHealing, StateDegraded, StateStarting, StatePaused:
 		return true
 	default:
 		return false
@@ -725,6 +931,9 @@ func (c *Controller) SelectWorkerBackend(runID string) (string, bool) {
 	defer c.mu.Unlock()
 	r, ok := c.runs[runID]
 	if !ok {
+		return "", false
+	}
+	if r.state == StatePaused || r.state == StateStopped || r.state == StateComplete {
 		return "", false
 	}
 	if !c.enableStore.IsEnabled(r.repo) {
