@@ -279,6 +279,38 @@ func TestCompleteAutopilotHandler(t *testing.T) {
 	require.True(t, isOK)
 }
 
+func TestUpdateTaskStatusRejectsStaleBrain(t *testing.T) {
+	dir := t.TempDir()
+	plan := filepath.Join(dir, "plan.yaml")
+	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\ntasks:\n  - id: build\n    prompt: build it\n"), 0o644))
+
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
+	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
+		Plans: []string{plan}, IntegrationBranch: "autopilot/integration", Resolver: autopilotTestResolver{},
+	}, &apFakeEnv{repo: dir}))
+	st, err := srv.autopilot.Enable(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, st.Runs, 1)
+	require.NotNil(t, st.Runs[0].Brain)
+	runID, activeBrainID := st.Runs[0].RunID, st.Runs[0].Brain.AgentID
+
+	stale := &store.Session{ID: "stale-brain", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
+	require.NoError(t, srv.store.Insert(context.Background(), stale))
+	req := oapi.UpdateAutopilotTaskStatusRequestObject{Body: &oapi.AutopilotTaskStatusRequest{
+		RunId: runID, TaskId: "build", Status: oapi.AutopilotTaskStatusRequestStatusActive,
+	}}
+
+	resp, err := srv.UpdateAutopilotTaskStatus(ctxWithActor("stale-brain"), req)
+	require.NoError(t, err)
+	_, forbidden := resp.(oapi.UpdateAutopilotTaskStatus403JSONResponse)
+	require.True(t, forbidden, "a superseded brain must not rewrite the task ledger")
+
+	resp, err = srv.UpdateAutopilotTaskStatus(ctxWithActor(activeBrainID), req)
+	require.NoError(t, err)
+	_, ok := resp.(oapi.UpdateAutopilotTaskStatus200JSONResponse)
+	require.True(t, ok, "the current active brain may update its task")
+}
+
 // --- small JSON helpers ---
 
 func apGetJSON(t *testing.T, url string, out any) {

@@ -21,6 +21,10 @@ func (s *Server) UpdateAutopilotTaskStatus(ctx context.Context, req oapi.UpdateA
 	if runIDFromTags(caller.Tags) != req.Body.RunId {
 		return oapi.UpdateAutopilotTaskStatus403JSONResponse{Error: "brain may only update its own run"}, nil
 	}
+	activeBrainID, ok := s.autopilot.ActiveBrainForRun(req.Body.RunId)
+	if !ok || activeBrainID != caller.ID {
+		return oapi.UpdateAutopilotTaskStatus403JSONResponse{Error: "only the run's active brain may update task status"}, nil
+	}
 	pr := req.Body.LandedPr
 	task, err := s.autopilot.UpdateTaskStatus(req.Body.RunId, req.Body.TaskId, string(req.Body.Status), pr)
 	if err != nil {
