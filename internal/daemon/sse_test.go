@@ -61,6 +61,45 @@ func TestSSEInitialSnapshotThenPush(t *testing.T) {
 	require.Contains(t, second, `"B-2"`)
 }
 
+// TestSSERetainsLastKnownGoodOnDegraded verifies the complete-or-error contract
+// on the stream: while the active scan is degraded, no partial (or empty) snapshot
+// is published — the consumer keeps its last-known-good — and a later clean scan
+// resumes normally.
+func TestSSERetainsLastKnownGoodOnDegraded(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	srv := sseServer(t, fs)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/events/stream", nil)
+	rec := newStreamRecorder()
+	go srv.handleEventsStream(rec, req)
+
+	r := bufio.NewReader(rec.reader())
+	require.Contains(t, readEvent(t, r), `"A-1"`)
+
+	// The store goes degraded and (hypothetically) gains B-2, which must NOT leak.
+	fs.mu.Lock()
+	fs.listErr = degradedErr()
+	fs.data["B-2"] = &store.Session{ID: "B-2", Status: store.StatusIdle}
+	fs.mu.Unlock()
+	srv.hub.publish() // degraded → send() must emit nothing
+
+	// The store recovers; the next publish is the first the consumer should see.
+	fs.mu.Lock()
+	fs.listErr = nil
+	fs.data["C-3"] = &store.Session{ID: "C-3", Status: store.StatusIdle}
+	fs.mu.Unlock()
+	srv.hub.publish()
+
+	// If the degraded publish had leaked a partial, this read would return it
+	// first; instead the next event is the recovered, complete snapshot.
+	next := readEvent(t, r)
+	require.Contains(t, next, `"B-2"`)
+	require.Contains(t, next, `"C-3"`)
+}
+
 func TestSSEReleasedOnServerShutdown(t *testing.T) {
 	fs := newFakeStore()
 	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}

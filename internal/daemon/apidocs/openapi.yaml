@@ -109,6 +109,29 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/CapabilitiesResponse" }
 
+  /api/v1/store/health:
+    get:
+      operationId: getStoreHealth
+      tags: [Health]
+      summary: Session-store health
+      description: >
+        Reports whether the active session store can be read completely. warden
+        keeps the active fleet complete-or-error: if any active record cannot be
+        decoded (or the underlying segment scan fails), a fleet read returns an
+        explicit degradation instead of a silently-short list. This endpoint
+        surfaces that state for operator diagnostics and for the TUI's
+        last-known-good banner: `healthy=false` with per-failure diagnostics
+        (collection, key, failure class, detail) when the active scan is degraded,
+        `healthy=true` with an empty failure list otherwise. It always returns 200
+        — the health verdict is in the body, not the status code — so a monitoring
+        client can distinguish "store is degraded" from "daemon is unreachable".
+      responses:
+        "200":
+          description: Store health verdict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreHealth" }
+
   /api/docs:
     get:
       operationId: getApiDocs
@@ -2541,7 +2564,60 @@ components:
           items: { type: string }
           description: >
             Stable capability-flag strings. Known flags: "terminal-sessions"
-            (session `kind` support — see GET /api/v1/capabilities).
+            (session `kind` support — see GET /api/v1/capabilities), "store-health"
+            (the GET /api/v1/store/health endpoint + complete-or-error active
+            reads / 503 on degradation).
+
+    StoreScanFailure:
+      type: object
+      required: [collection, class, detail]
+      description: One record (or whole-scan) failure encountered reading the store.
+      properties:
+        collection:
+          type: string
+          description: 'The store collection the failure is in (e.g. "active").'
+        key:
+          type: string
+          description: >
+            The session id of the unreadable record, when the engine surfaced it;
+            empty for a whole-scan (segment/checksum) failure that aborted before
+            any record could be examined.
+        class:
+          type: string
+          enum: [decode, read]
+          description: >
+            Failure class: "decode" = the record's stored payload would not decode
+            into a session (shape-invalid); "read" = the underlying segment scan
+            itself failed (framing, checksum, or index read).
+        detail:
+          type: string
+          description: Human-readable failure detail.
+
+    StoreHealth:
+      type: object
+      required: [healthy, degraded, failure_count, failures, checked_at]
+      description: >
+        Health verdict for the active session store. `healthy` is the top-line
+        boolean; `degraded` is its inverse, provided for readability. When
+        degraded, `failures` carries structured per-record diagnostics.
+      properties:
+        healthy:
+          type: boolean
+          description: True when the active fleet can be read completely.
+        degraded:
+          type: boolean
+          description: True when one or more active records cannot be read (inverse of healthy).
+        failure_count:
+          type: integer
+          description: Number of unreadable records (or 1 for a whole-scan failure).
+        failures:
+          type: array
+          items: { $ref: "#/components/schemas/StoreScanFailure" }
+          description: Per-failure diagnostics; empty when healthy.
+        checked_at:
+          type: string
+          format: date-time
+          description: When this health check ran (server time, UTC).
 
     Status:
       type: string

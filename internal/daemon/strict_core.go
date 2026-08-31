@@ -30,7 +30,11 @@ import (
 // POST /schedules/{id}/enable|disable exist.
 // Append new flags here as capabilities land; never rename or drop a shipped flag
 // (clients feature-detect on the exact string).
-var serverCapabilities = []string{"terminal-sessions", "scheduled-agents"}
+// "store-health" means the daemon keeps active fleet reads complete-or-error
+// (a degraded active scan returns 503 from GET /api/v1/sessions and is never a
+// silent partial) and exposes GET /api/v1/store/health for operator/TUI
+// diagnostics.
+var serverCapabilities = []string{"terminal-sessions", "scheduled-agents", "store-health"}
 
 // GetCapabilities implements GET /api/v1/capabilities.
 func (s *Server) GetCapabilities(_ context.Context, _ oapi.GetCapabilitiesRequestObject) (oapi.GetCapabilitiesResponseObject, error) {
@@ -74,6 +78,12 @@ func approvalView(b agentbackend.Backend, id, pane string) approval.View {
 func (s *Server) ListSessions(ctx context.Context, req oapi.ListSessionsRequestObject) (oapi.ListSessionsResponseObject, error) {
 	sessions, err := s.store.List(ctx)
 	if err != nil {
+		if d, ok := store.IsDegraded(err); ok {
+			// Complete-or-error: a degraded active scan is 503, never a silent
+			// partial fleet. The client/TUI keeps its last-known-good snapshot.
+			logStoreDegraded(d)
+			return nil, errStatus(http.StatusServiceUnavailable, d.Error())
+		}
 		return nil, err
 	}
 	out := make([]oapi.Session, 0, len(sessions))
@@ -243,6 +253,12 @@ func (s *Server) ListApprovals(ctx context.Context, _ oapi.ListApprovalsRequestO
 	}
 	sessions, err := s.store.List(ctx)
 	if err != nil {
+		if d, ok := store.IsDegraded(err); ok {
+			// Same complete-or-error contract as ListSessions: a degraded active scan
+			// is a 503, never an approval queue built from a partial fleet.
+			logStoreDegraded(d)
+			return nil, errStatus(http.StatusServiceUnavailable, d.Error())
+		}
 		return nil, err
 	}
 	views := []oapi.ApprovalView{}

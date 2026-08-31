@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,73 @@ var ErrNameExists = errors.New("agent name already exists")
 
 // ErrInvalidName is returned when a session name is invalid.
 var ErrInvalidName = errors.New("invalid agent name: must be 1-32 alphanumeric chars, hyphens, or underscores")
+
+// ErrStoreOwned is returned by NewFileStore when the data directory's writable
+// session store is already held by another live process (normally the daemon).
+// A single process — the daemon — is the only legitimate writer; a second
+// writable opener (a stray CLI hot-swap, an offline repair run while the daemon
+// is up) must fail deterministically here rather than corrupt the shared
+// append-only segments. The exclusion is enforced by an advisory lock the OS
+// releases automatically on process death, so a crashed owner never leaves a
+// permanently stuck store.
+var ErrStoreOwned = errors.New("session store already owned by another process (is the daemon running?)")
+
+// DegradationClass classifies why an active-collection scan could not return the
+// complete fleet. It is stable, machine-readable diagnostic data for operator
+// tooling and the store-health endpoint.
+type DegradationClass string
+
+const (
+	// DegradeDecode: a record's stored payload would not decode into a Session
+	// (shape-invalid / schema drift). The engine returned the record but its body
+	// is unusable.
+	DegradeDecode DegradationClass = "decode"
+	// DegradeRead: the underlying engine scan itself failed (segment framing,
+	// checksum, or index read error) before any record could be examined.
+	DegradeRead DegradationClass = "read"
+)
+
+// ScanFailure is one record (or one whole-scan) failure recorded during an
+// active-collection scan. Key is the session id when the engine surfaced the
+// record; it is empty for a DegradeRead failure that aborted the scan wholesale.
+type ScanFailure struct {
+	Collection string           `json:"collection"`
+	Key        string           `json:"key,omitempty"`
+	Class      DegradationClass `json:"class"`
+	Detail     string           `json:"detail"`
+}
+
+// DegradedScanError is returned by an active-collection read (List,
+// GetByNameOrID's name scan, Insert's uniqueness scan) when one or more records
+// could not be read. It signals the caller that the fleet snapshot is
+// UNAVAILABLE — never a silently short list — so REST/SSE consumers can degrade
+// explicitly instead of publishing a partial fleet. It carries structured
+// per-failure diagnostics for the store-health endpoint and offline repair.
+type DegradedScanError struct {
+	Failures []ScanFailure
+}
+
+func (e *DegradedScanError) Error() string {
+	if e == nil || len(e.Failures) == 0 {
+		return "session store degraded"
+	}
+	parts := make([]string, 0, len(e.Failures))
+	for _, f := range e.Failures {
+		if f.Key != "" {
+			parts = append(parts, fmt.Sprintf("%s/%s: %s (%s)", f.Collection, f.Key, f.Detail, f.Class))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s: %s (%s)", f.Collection, f.Detail, f.Class))
+		}
+	}
+	return fmt.Sprintf("session store degraded: %d unreadable record(s): %s", len(e.Failures), strings.Join(parts, "; "))
+}
+
+// IsDegraded reports whether err is (or wraps) a DegradedScanError, and returns
+// the typed value for its diagnostics. Callers use it to map a degraded active
+// read to an explicit non-success response.
+func IsDegraded(err error) (*DegradedScanError, bool) {
+	return errors.AsType[*DegradedScanError](err)
+}
 
 // Store is the persistence boundary. Only the daemon holds a Store.
 type Store interface {

@@ -68,7 +68,14 @@ type FileStore struct {
 	db     *scriva.DB
 	active *engine.Collection
 	closed *engine.Collection
+	lock   *storeLock // exclusive-writer ownership lock; released on Close
 }
+
+// storeLockName is the advisory ownership lock file in the data directory. It
+// sits alongside sessions-db (NOT inside it, which the import path wipes) so the
+// lock survives an import-wipe. Its presence alone means nothing — the OS-held
+// flock on it is the authority (see storeLock).
+const storeLockName = ".sessions-store.lock"
 
 // importedMarker names the sentinel written (last) once the one-time legacy-JSON
 // import into the ScrivaDB collections has completed. Its presence means the
@@ -88,8 +95,24 @@ func NewFileStore(dir string) (*FileStore, error) {
 	dbDir := filepath.Join(dir, "sessions-db")
 	sentinel := filepath.Join(dir, importedMarker)
 
+	// Take the exclusive writer lock FIRST — before the import-wipe below can
+	// RemoveAll the derived sessions-db — so exactly one process ever mutates the
+	// live store. A second writable opener (a stray CLI, an offline repair run
+	// while the daemon is up) is rejected here with ErrStoreOwned rather than
+	// racing writes into the shared append-only segments. The data dir must exist
+	// to hold the lock file; create it before locking (never the db dir, which the
+	// import path may wipe).
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	lock, err := acquireStoreLock(filepath.Join(dir, storeLockName))
+	if err != nil {
+		return nil, err
+	}
+
 	imported, err := fileExists(sentinel)
 	if err != nil {
+		_ = lock.release()
 		return nil, err
 	}
 	if !imported {
@@ -98,37 +121,44 @@ func NewFileStore(dir string) (*FileStore, error) {
 		// Safe: sessions-db holds nothing not reproducible from the legacy JSON
 		// until the sentinel says the import finished.
 		if err := os.RemoveAll(dbDir); err != nil {
+			_ = lock.release()
 			return nil, err
 		}
 	}
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		_ = lock.release()
 		return nil, err
 	}
 
 	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeNone))
 	if err != nil {
+		_ = lock.release()
 		return nil, err
 	}
 	active, err := db.Collection("active")
 	if err != nil {
 		db.Close()
+		_ = lock.release()
 		return nil, err
 	}
 	closed, err := db.Collection("closed")
 	if err != nil {
 		db.Close()
+		_ = lock.release()
 		return nil, err
 	}
-	fs := &FileStore{db: db, active: active, closed: closed}
+	fs := &FileStore{db: db, active: active, closed: closed, lock: lock}
 
 	if !imported {
 		if err := importLegacy(dir, active, closed); err != nil {
 			db.Close()
+			_ = lock.release()
 			return nil, err
 		}
 		// Sentinel LAST: only now is the ScrivaDB authoritative.
 		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
 			db.Close()
+			_ = lock.release()
 			return nil, err
 		}
 	}
@@ -355,23 +385,71 @@ func getFrom(col *engine.Collection, id string) (*Session, error) {
 	return fromRecord(r.Data)
 }
 
-// scanAll returns every session in col, newest-updated first. An undecodable
-// record is skipped with a warning rather than failing the whole scan (matching
-// the old listDir's corrupt-file tolerance).
-func scanAll(col *engine.Collection) ([]*Session, error) {
+// scanTolerant returns every decodable session in col, newest-updated first,
+// TOLERANTLY: an undecodable record is skipped with a warning rather than
+// failing the whole scan (matching the old listDir's corrupt-file tolerance).
+// This is the ARCHIVE (closed-collection) policy — a single unreadable
+// historical record must not make the whole history unlistable. It returns the
+// count of records that had to be skipped so a caller can flag a history export
+// as degraded (never presenting a short export as a complete backup). Any
+// engine-level scan error (segment/checksum/index) is returned as-is. The active
+// collection uses scanActiveStrict instead.
+func scanTolerant(col *engine.Collection, colName string) ([]*Session, int, error) {
 	results, err := col.Scan(query.MatchAll)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := make([]*Session, 0, len(results))
+	skipped := 0
 	for _, r := range results {
 		s, err := fromRecord(r.Data)
 		if err != nil {
 			key, _ := r.Data[engine.KeyField].(string)
-			slog.Warn("filestore: skipping undecodable session record", "key", key, "err", err)
+			slog.Warn("filestore: skipping undecodable session record", "collection", colName, "key", key, "err", err)
+			skipped++
 			continue
 		}
 		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, skipped, nil
+}
+
+// scanActiveStrict returns every session in the ACTIVE collection newest-updated
+// first, or a typed error — never a silent subset. The active fleet is the
+// authoritative live view (TUI/REST/SSE poll it every second), so an incomplete
+// scan must surface as an explicit degradation, not a shorter list:
+//
+//   - an engine-level scan failure (segment framing, checksum, index read) is
+//     wrapped as a DegradedScanError with class "read";
+//   - any record that decodes at the engine layer but not into a Session is
+//     collected as a class "decode" failure, and if ANY such failure occurs the
+//     whole scan returns a DegradedScanError carrying every failure's diagnostics.
+//
+// This is the Phase-3 complete-or-error invariant: no nil-error partial list
+// crosses the Store boundary for the active collection.
+func scanActiveStrict(col *engine.Collection) ([]*Session, error) {
+	results, err := col.Scan(query.MatchAll)
+	if err != nil {
+		return nil, &DegradedScanError{Failures: []ScanFailure{{
+			Collection: "active", Class: DegradeRead, Detail: err.Error(),
+		}}}
+	}
+	out := make([]*Session, 0, len(results))
+	var failures []ScanFailure
+	for _, r := range results {
+		s, derr := fromRecord(r.Data)
+		if derr != nil {
+			key, _ := r.Data[engine.KeyField].(string)
+			failures = append(failures, ScanFailure{
+				Collection: "active", Key: key, Class: DegradeDecode, Detail: derr.Error(),
+			})
+			continue
+		}
+		out = append(out, s)
+	}
+	if len(failures) > 0 {
+		return nil, &DegradedScanError{Failures: failures}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
@@ -409,7 +487,7 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 	// O(n) active scan (as the old listLocked loop); a name unique-index is a
 	// documented future optimization.
 	if s.Name != "" {
-		sessions, err := scanAll(fs.active)
+		sessions, err := scanActiveStrict(fs.active)
 		if err != nil {
 			return err
 		}
@@ -466,7 +544,7 @@ func (fs *FileStore) GetByNameOrID(ctx context.Context, nameOrID string) (*Sessi
 	defer fs.mu.Unlock()
 
 	// First pass: scan for exact name match
-	sessions, err := scanAll(fs.active)
+	sessions, err := scanActiveStrict(fs.active)
 	if err != nil {
 		return nil, err
 	}
@@ -480,17 +558,32 @@ func (fs *FileStore) GetByNameOrID(ctx context.Context, nameOrID string) (*Sessi
 	return getFrom(fs.active, nameOrID)
 }
 
+// List returns the active fleet complete-or-error: a degraded active scan yields
+// a *DegradedScanError (never a silent subset), so REST/SSE can degrade
+// explicitly. See scanActiveStrict.
 func (fs *FileStore) List(ctx context.Context) ([]*Session, error) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	return scanAll(fs.active)
+	return scanActiveStrict(fs.active)
 }
 
-// ListClosed returns all archived (closed) sessions, newest-updated first.
+// ListClosed returns all archived (closed) sessions, newest-updated first,
+// tolerantly: a single unreadable historical record is skipped (and logged)
+// rather than making the whole history unlistable. Use ListClosedDegraded when
+// the skipped-record count matters (e.g. flagging a history export as degraded).
 func (fs *FileStore) ListClosed(ctx context.Context) ([]*Session, error) {
+	sessions, _, err := fs.ListClosedDegraded(ctx)
+	return sessions, err
+}
+
+// ListClosedDegraded is ListClosed plus the count of archive records that had to
+// be skipped because they would not decode. A non-zero count means the returned
+// history is incomplete — callers exporting a backup must surface that rather
+// than present a short export as complete.
+func (fs *FileStore) ListClosedDegraded(ctx context.Context) ([]*Session, int, error) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	return scanAll(fs.closed)
+	return scanTolerant(fs.closed, "closed")
 }
 
 // Update is the general transactional read-modify-write primitive (see the Store
@@ -809,6 +902,15 @@ func (fs *FileStore) Ping(ctx context.Context) error {
 	return err
 }
 
-// Close flushes the ScrivaDB index and stops its background compaction goroutine.
-// The daemon defers it on shutdown. (The old FileStore.Close was a no-op.)
-func (fs *FileStore) Close(ctx context.Context) error { return fs.db.Close() }
+// Close flushes the ScrivaDB index, stops its background compaction goroutine,
+// and releases the exclusive-writer ownership lock LAST — so the lock is held
+// for the full lifetime of the open store and only drops once the db is safely
+// closed, letting offline maintenance take over cleanly. The daemon defers it on
+// shutdown. (The old FileStore.Close was a no-op.)
+func (fs *FileStore) Close(ctx context.Context) error {
+	err := fs.db.Close()
+	if lerr := fs.lock.release(); err == nil {
+		err = lerr
+	}
+	return err
+}

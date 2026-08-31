@@ -3162,6 +3162,9 @@ Modified Files Diff, Immediate Next Step) so the new agent continues without sta
 The successor can be chosen by explicit --backend and/or --model, or by --tier
 (resolved via quota-balanced weighted headroom routing across eligible backends).
 
+The swap is performed by the warden daemon (the sole owner of the session store),
+so the daemon must be running.
+
 Examples:
   warden switch --backend antigravity --model gemini-3.1-pro
   warden switch --tier tier-1

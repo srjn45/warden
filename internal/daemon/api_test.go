@@ -21,6 +21,7 @@ type fakeStore struct {
 	closed     map[string]*store.Session
 	insertErr  error // when set, Insert fails with it (no doc stored)
 	archiveErr error // when set, Archive fails with it (doc left in place)
+	listErr    error // when set, List fails with it (degraded-scan simulation)
 }
 
 func newFakeStore() *fakeStore {
@@ -67,6 +68,9 @@ func (f *fakeStore) GetByNameOrID(_ context.Context, nameOrID string) (*store.Se
 func (f *fakeStore) List(_ context.Context) ([]*store.Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	out := make([]*store.Session, 0, len(f.data))
 	for _, s := range f.data {
 		out = append(out, s)
