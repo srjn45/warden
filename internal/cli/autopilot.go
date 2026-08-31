@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentbackend"
@@ -29,8 +30,56 @@ func newAutopilotCmd() *cobra.Command {
 			"one pass. `off` is the kill switch. Configure the feature under the `autopilot`\n" +
 			"block in the config file (or scaffold it with `warden autopilot init`).",
 	}
-	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd(), newAutopilotInitCmd())
+	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd(), newAutopilotInitCmd(),
+		newAutopilotRegisterCmd(), newAutopilotRunActionCmd("start"), newAutopilotRunActionCmd("pause"),
+		newAutopilotRunActionCmd("resume"), newAutopilotRunActionCmd("stop"))
 	return cmd
+}
+
+func newAutopilotRegisterCmd() *cobra.Command {
+	var name, repo string
+	cmd := &cobra.Command{Use: "register <plan-file>", Short: "Register a named autopilot plan", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		r, err := clientFor(cmd).RegisterAutopilotRun(cmd.Context(), name, repo, args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "registered %s (%s)\n", r.Name, r.RunID)
+		return nil
+	}}
+	cmd.Flags().StringVar(&name, "name", "", "unique run name within the repository")
+	cmd.Flags().StringVar(&repo, "repo", "", "repository root (inferred from plan when omitted)")
+	return cmd
+}
+
+func newAutopilotRunActionCmd(action string) *cobra.Command {
+	return &cobra.Command{Use: action + " <run-id-or-name>", Short: action + " one autopilot run", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		id := args[0]
+		if !strings.HasPrefix(id, "ap-") {
+			runs, err := clientFor(cmd).ListAutopilotRuns(cmd.Context())
+			if err != nil {
+				return err
+			}
+			var matches []string
+			for _, r := range runs {
+				if r.Name == id {
+					matches = append(matches, r.RunID)
+				}
+			}
+			if len(matches) == 0 {
+				return fmt.Errorf("autopilot run %q not found", id)
+			}
+			if len(matches) > 1 {
+				return fmt.Errorf("autopilot run name %q is ambiguous across repositories; use a run id", id)
+			}
+			id = matches[0]
+		}
+		r, err := clientFor(cmd).ControlAutopilotRun(cmd.Context(), id, action)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", r.RunID, r.Name, r.State)
+		return nil
+	}}
 }
 
 func newAutopilotOnCmd() *cobra.Command {

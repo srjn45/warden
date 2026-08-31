@@ -2215,6 +2215,79 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AutopilotPreflightFailure" }
 
+  /api/v1/autopilot/runs:
+    get:
+      operationId: listAutopilotRuns
+      tags: [Autopilot]
+      summary: List registered autopilot runs
+      responses:
+        "200":
+          description: Durable run registry, including stopped and complete runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AutopilotRun" }
+    post:
+      operationId: registerAutopilotRun
+      tags: [Autopilot]
+      summary: Register a named plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopilotRegisterRequest" }
+      responses:
+        "201":
+          description: Registered run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Autopilot is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Run identity or name conflict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/autopilot/runs/{run_id}/{action}:
+    parameters:
+      - in: path
+        name: run_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: action
+        required: true
+        schema: { type: string, enum: [start, pause, resume, stop] }
+    post:
+      operationId: controlAutopilotRun
+      tags: [Autopilot]
+      summary: Start, pause, resume, or stop one run
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Autopilot is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Illegal lifecycle transition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/autopilot/land:
     post:
       operationId: landAutopilot
@@ -3664,6 +3737,29 @@ components:
         repo: { type: string, description: "repo root to toggle (optional; defaults to the daemon's working directory)" }
       required: [enabled]
 
+    AutopilotRegisterRequest:
+      type: object
+      properties:
+        name: { type: string }
+        repo: { type: string }
+        plan_file: { type: string }
+      required: [name, repo, plan_file]
+
+    AutopilotRun:
+      x-go-type: autopilot.RunStatus
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/autopilot
+        name: autopilot
+      type: object
+      properties:
+        run_id: { type: string }
+        name: { type: string }
+        plan_file: { type: string }
+        repo: { type: string }
+        state: { type: string, enum: [registered, starting, active, paused, stopped, degraded, healing, complete] }
+        gate: { type: string }
+      required: [run_id, name, plan_file, repo, state]
+
     AutopilotStatus:
       x-go-type: autopilot.Status
       x-go-type-import:
@@ -3688,7 +3784,8 @@ components:
               run_id: { type: string }
               plan_file: { type: string }
               repo: { type: string }
-              state: { type: string, enum: [disabled, starting, active, degraded, healing, complete] }
+              state: { type: string, enum: [disabled, registered, starting, active, paused, stopped, degraded, healing, complete] }
+              name: { type: string }
               gate: { type: string, description: "resolved gate mode (ci|local) or the configured mode in the S1 inert core" }
               brain:
                 nullable: true

@@ -82,7 +82,7 @@ func (c *Controller) overwatchTick(ctx context.Context) {
 	for _, r := range c.runs {
 		// Per-repo kill switch — mirrors guardianTick: a disabled repo's runs are
 		// supervised by nothing.
-		if !c.enableStore.IsEnabled(r.repo) {
+		if !c.enableStore.IsEnabled(r.repo) || r.state == StatePaused || r.state == StateStopped || r.state == StateComplete || r.state == StateRegistered {
 			continue
 		}
 		c.overwatchRun(ctx, ow, r, now)

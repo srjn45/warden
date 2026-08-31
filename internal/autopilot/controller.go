@@ -43,6 +43,9 @@ type ControllerConfig struct {
 	// (<data_dir>/autopilot/enabled/). Empty ⇒ an in-memory store (nothing
 	// persisted), so a Controller built without a data dir (unit tests) still works.
 	DataDir string
+	// RunStore overrides the durable run registry (primarily for tests). When nil
+	// and DataDir is set, NewController opens <data>/autopilot/runs-db.
+	RunStore *RunStore
 	// Resolver is the unified router resolver for selecting backends.
 	Resolver Resolver
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
@@ -92,6 +95,7 @@ type Controller struct {
 	// written by Enable/Disable. Concurrency-safe on its own; mutated under c.mu so
 	// it stays consistent with c.runs.
 	enableStore EnableStore
+	store       *RunStore
 
 	mu      sync.Mutex
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
@@ -103,6 +107,7 @@ type Controller struct {
 // (autopilot.md §3), and the plan-watch cancel.
 type run struct {
 	runID         string
+	name          string
 	planFile      string // configured path (as written in config)
 	absPlanFile   string // resolved absolute path (plan-file watch anchor)
 	repo          string
@@ -168,8 +173,17 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		now:               now,
 		tierstate:         newTierState(now),
 		enableStore:       newEnableStore(cfg.DataDir),
+		store:             cfg.RunStore,
 		runs:              map[string]*run{},
 	}
+	if c.store == nil && strings.TrimSpace(cfg.DataDir) != "" {
+		if st, err := NewRunStore(cfg.DataDir); err != nil {
+			slog.Error("autopilot: persistent run store unavailable", "err", err)
+		} else {
+			c.store = st
+		}
+	}
+	c.restoreStoredRuns()
 	return c
 }
 
@@ -224,6 +238,12 @@ func (c *Controller) SetRuntime(rt Runtime) {
 // absolute plan-file path (autopilot.md §1). Stable across daemon restarts so a
 // re-enable re-adopts the same run rather than forking a duplicate.
 func RunID(repo, planPath string) string {
+	if root, err := filepath.Abs(repo); err == nil {
+		repo = filepath.Clean(root)
+	}
+	if path, err := filepath.Abs(planPath); err == nil {
+		planPath = filepath.Clean(path)
+	}
 	sum := sha256.Sum256([]byte(repo + "\x00" + planPath))
 	return "ap-" + hex.EncodeToString(sum[:])[:12]
 }
@@ -264,9 +284,6 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 
 	var fails []string
 	resolvedByID := map[string]resolved{}
-	// repoOwner maps a repo root to the run_id that already claimed it in THIS
-	// batch — the mechanical "at most one active run per repository" guard (§1).
-	repoOwner := map[string]string{}
 	matched := 0 // plans that resolve to the target repo
 
 	for _, file := range c.plans {
@@ -294,13 +311,6 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 		default:
 			matched++
 			fails = append(fails, planFails...)
-			if owner, taken := repoOwner[r.repo]; taken && owner != r.runID {
-				fails = append(fails, fmt.Sprintf(
-					"repo %s already has an active run in this plan set — at most one active run per repository (conflicting plan: %s)",
-					r.repo, file))
-				continue
-			}
-			repoOwner[r.repo] = r.runID
 			resolvedByID[r.runID] = r
 		}
 	}
@@ -331,7 +341,7 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 	// healthy" is immediate, so a run collapses straight to active with no brain.
 	newRuns := map[string]*run{}
 	for id, r := range c.runs {
-		if r.repo != target {
+		if r.repo != target || r.state == StateComplete || r.state == StateStopped {
 			newRuns[id] = r // another enabled repo — leave it exactly as it is
 		}
 	}
@@ -341,11 +351,23 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			existing.absPlanFile = res.absFile
 			existing.resolvedGate = res.resolvedGate
 			existing.defaultBranch = res.defaultBranch
+			existing.plan = res.plan
+			if existing.brain == nil && (existing.state == StateActive || existing.state == StateStarting || existing.state == StateHealing || existing.state == StateDegraded) {
+				existing.state = StateStarting
+				c.persistRunLocked(existing)
+				sel := c.selectBrain(nil)
+				existing.tier = sel.Tier
+				if err := c.spawnBrain(ctx, existing, sel.Backend); err != nil {
+					slog.Warn("autopilot: boot run reconciliation failed", "run", id, "err", err)
+				}
+				c.persistRunLocked(existing)
+			}
 			newRuns[id] = existing
 			continue
 		}
 		r := &run{
 			runID:         id,
+			name:          defaultRunName(res.absFile),
 			planFile:      res.file,
 			absPlanFile:   res.absFile,
 			repo:          res.repo,
@@ -371,6 +393,7 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			go c.watchPlan(wctx, r, planWatchInterval)
 		}
 		newRuns[id] = r
+		c.persistRunLocked(r)
 	}
 	for id, old := range c.runs {
 		if old.repo != target {
@@ -404,6 +427,9 @@ func (c *Controller) resolveRepo(ctx context.Context, repo string) string {
 		target = c.baseDir
 	}
 	if root, err := c.env.GitToplevel(ctx, target); err == nil && strings.TrimSpace(root) != "" {
+		if real, err := filepath.EvalSymlinks(root); err == nil {
+			return real
+		}
 		return root
 	}
 	return filepath.Clean(target)
@@ -444,6 +470,9 @@ func (c *Controller) Disable(ctx context.Context, repo string) Status {
 	for id, r := range c.runs {
 		if r.repo == target {
 			c.stopRunLocked(ctx, r)
+			r.state = StateStopped
+			c.persistRunLocked(r)
+			remaining[id] = r
 			continue
 		}
 		remaining[id] = r
@@ -526,7 +555,8 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 		}
 		slog.Info("autopilot: plan removed from config — stopping run", "run", id, "plan", r.planFile)
 		c.stopRunLocked(ctx, r)
-		delete(c.runs, id)
+		r.state = StateStopped
+		c.persistRunLocked(r)
 	}
 	c.mu.Unlock()
 }
@@ -570,6 +600,7 @@ func (c *Controller) CompleteRun(ctx context.Context, runID string) (Status, err
 	// attempt on this run now returns run_disabled.
 	c.stopRunLocked(ctx, r)
 	r.state = StateComplete
+	c.persistRunLocked(r)
 	return c.statusLocked(), nil
 }
 
@@ -621,6 +652,7 @@ func (c *Controller) statusLocked() Status {
 		}
 		st.Runs = append(st.Runs, RunStatus{
 			RunID:           r.runID,
+			Name:            r.name,
 			PlanFile:        r.planFile,
 			Repo:            r.repo,
 			State:           r.state,
@@ -684,7 +716,7 @@ func (c *Controller) LandParams(runID string) (LandParams, bool) {
 // (or is being) kept alive. A complete or disabled run lands nothing.
 func isLandableState(s RunState) bool {
 	switch s {
-	case StateActive, StateHealing, StateDegraded, StateStarting:
+	case StateActive, StateHealing, StateDegraded, StateStarting, StatePaused:
 		return true
 	default:
 		return false
@@ -725,6 +757,9 @@ func (c *Controller) SelectWorkerBackend(runID string) (string, bool) {
 	defer c.mu.Unlock()
 	r, ok := c.runs[runID]
 	if !ok {
+		return "", false
+	}
+	if r.state == StatePaused || r.state == StateStopped || r.state == StateComplete {
 		return "", false
 	}
 	if !c.enableStore.IsEnabled(r.repo) {

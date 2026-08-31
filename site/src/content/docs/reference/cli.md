@@ -408,7 +408,12 @@ Available Commands:
   init        Scaffold autopilot adoption in the current repo
   off         Disable autopilot for this repo (kill switch — stops spawning/landing)
   on          Enable autopilot for this repo (runs the enable-time preflight)
+  pause       pause one autopilot run
+  register    Register a named autopilot plan
+  resume      resume one autopilot run
+  start       start one autopilot run
   status      Show autopilot status (which repos are enabled, and each run)
+  stop        stop one autopilot run
 
 Flags:
   -h, --help   help for autopilot
@@ -480,6 +485,72 @@ Global Flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden autopilot pause
+
+```text
+pause one autopilot run
+
+Usage:
+  warden autopilot pause <run-id-or-name> [flags]
+
+Flags:
+  -h, --help   help for pause
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot register
+
+```text
+Register a named autopilot plan
+
+Usage:
+  warden autopilot register <plan-file> [flags]
+
+Flags:
+  -h, --help          help for register
+      --name string   unique run name within the repository
+      --repo string   repository root (inferred from plan when omitted)
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot resume
+
+```text
+resume one autopilot run
+
+Usage:
+  warden autopilot resume <run-id-or-name> [flags]
+
+Flags:
+  -h, --help   help for resume
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot start
+
+```text
+start one autopilot run
+
+Usage:
+  warden autopilot start <run-id-or-name> [flags]
+
+Flags:
+  -h, --help   help for start
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden autopilot status
 
 ```text
@@ -490,6 +561,22 @@ Usage:
 
 Flags:
   -h, --help   help for status
+
+Global Flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot stop
+
+```text
+stop one autopilot run
+
+Usage:
+  warden autopilot stop <run-id-or-name> [flags]
+
+Flags:
+  -h, --help   help for stop
 
 Global Flags:
       --addr string     daemon address (overrides the addr config setting)

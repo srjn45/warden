@@ -90,7 +90,8 @@ func TestAutopilotEnableStatusDisable(t *testing.T) {
 	code = apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":false}`, &st)
 	require.Equal(t, http.StatusOK, code)
 	require.False(t, st.Enabled)
-	require.Empty(t, st.Runs)
+	require.Len(t, st.Runs, 1)
+	require.Equal(t, autopilot.StateStopped, st.Runs[0].State)
 }
 
 func TestAutopilotEnable409ListsFailures(t *testing.T) {
@@ -110,6 +111,37 @@ func TestAutopilotEnable409ListsFailures(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	require.NotEmpty(t, body.Failures)
 	require.Contains(t, strings.Join(body.Failures, " "), "plan file not found")
+}
+
+func TestAutopilotRunRegistryLifecycleRoutes(t *testing.T) {
+	dir := t.TempDir()
+	plan := filepath.Join(dir, "named.yaml")
+	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
+	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, nil)
+	defer ts.Close()
+
+	var run autopilot.RunStatus
+	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs", `{"name":"release","repo":"`+dir+`","plan_file":"`+plan+`"}`, &run)
+	require.Equal(t, http.StatusCreated, code)
+	require.Equal(t, "release", run.Name)
+	require.Equal(t, autopilot.StateRegistered, run.State)
+
+	for _, step := range []struct {
+		action string
+		state  autopilot.RunState
+	}{
+		{"start", autopilot.StateActive}, {"pause", autopilot.StatePaused},
+		{"resume", autopilot.StateActive}, {"stop", autopilot.StateStopped},
+	} {
+		code = apPostJSON(t, ts.URL+"/api/v1/autopilot/runs/"+run.RunID+"/"+step.action, `{}`, &run)
+		require.Equal(t, http.StatusOK, code, step.action)
+		require.Equal(t, step.state, run.State, step.action)
+	}
+
+	var runs []autopilot.RunStatus
+	apGetJSON(t, ts.URL+"/api/v1/autopilot/runs", &runs)
+	require.Len(t, runs, 1)
+	require.Equal(t, autopilot.StateStopped, runs[0].State)
 }
 
 func TestAutopilotUnconfigured(t *testing.T) {

@@ -1221,6 +1221,7 @@ type AutopilotStatus struct {
 // AutopilotRunStatus is one run's slice of AutopilotStatus.
 type AutopilotRunStatus struct {
 	RunID           string              `json:"run_id"`
+	Name            string              `json:"name"`
 	PlanFile        string              `json:"plan_file"`
 	Repo            string              `json:"repo"`
 	State           string              `json:"state"`
@@ -1230,6 +1231,26 @@ type AutopilotRunStatus struct {
 	Tasks           AutopilotTaskCounts `json:"tasks"`
 	Backoff         *AutopilotBackoff   `json:"backoff"`
 	LandedTotal     int                 `json:"landed_total"`
+}
+
+// RegisterAutopilotRun adds a named plan to the durable registry without
+// starting it.
+func (c *Client) RegisterAutopilotRun(ctx context.Context, name, repo, planFile string) (AutopilotRunStatus, error) {
+	var out AutopilotRunStatus
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs", map[string]string{"name": name, "repo": repo, "plan_file": planFile}, &out)
+	return out, err
+}
+
+func (c *Client) ListAutopilotRuns(ctx context.Context) ([]AutopilotRunStatus, error) {
+	var out []AutopilotRunStatus
+	err := c.do(ctx, http.MethodGet, "/autopilot/runs", nil, &out)
+	return out, err
+}
+
+func (c *Client) ControlAutopilotRun(ctx context.Context, runID, action string) (AutopilotRunStatus, error) {
+	var out AutopilotRunStatus
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/"+url.PathEscape(action), nil, &out)
+	return out, err
 }
 
 // AutopilotBrain describes the run's brain agent (nil in the S1 inert core).

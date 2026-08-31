@@ -46,6 +46,9 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 		abs = filepath.Join(c.baseDir, file)
 	}
 	abs = filepath.Clean(abs)
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = real
+	}
 	r.absFile = abs
 
 	// Plan file must exist and strict-decode (§3). This is the most common
@@ -65,7 +68,10 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 		return r, fails
 	}
 	r.repo = repo
-	r.runID = RunID(repo, abs)
+	if real, err := filepath.EvalSymlinks(repo); err == nil {
+		r.repo = real
+	}
+	r.runID = RunID(r.repo, abs)
 
 	// A completed plan (§2.1) is done: preflight neither fails it nor registers it
 	// as a run. Signal the skip now — with repo/run_id resolved so Enable can log a

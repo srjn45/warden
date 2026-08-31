@@ -402,6 +402,7 @@ func newDaemonCmd() *cobra.Command {
 			// paths to the daemon's working directory.
 			apBaseDir, _ := os.Getwd()
 			apCtrl := autopilot.NewController(buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver), nil)
+			defer apCtrl.Close()
 			srv.SetAutopilotController(apCtrl)
 			// Boot re-enable: the on/off bit is persisted per-repo, so bring every
 			// previously-enabled repo back up across a daemon restart. Enable is

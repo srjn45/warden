@@ -68,10 +68,11 @@ func (c *Controller) guardianTick(ctx context.Context) {
 		// Per-repo kill switch: a run whose repo has been switched off is supervised
 		// by nothing (disabled repos already have their runs torn down, so this is
 		// belt-and-suspenders).
-		if !c.enableStore.IsEnabled(r.repo) {
+		if !c.enableStore.IsEnabled(r.repo) || r.state == StatePaused || r.state == StateStopped || r.state == StateComplete || r.state == StateRegistered {
 			continue
 		}
 		c.superviseRun(ctx, gr, r, now)
+		c.persistRunLocked(r)
 	}
 }
 

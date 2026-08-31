@@ -141,7 +141,8 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	// Disable is the kill switch: the brain is terminated.
 	dst := c.Disable(context.Background(), "")
 	require.False(t, dst.Enabled)
-	require.Empty(t, dst.Runs)
+	require.Len(t, dst.Runs, 1)
+	require.Equal(t, StateStopped, dst.Runs[0].State)
 	require.Equal(t, []string{"brain-1"}, rt.killed)
 }
 

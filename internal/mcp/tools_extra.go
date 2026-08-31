@@ -149,6 +149,15 @@ type setAutopilotArgs struct {
 	Enabled bool   `json:"enabled" jsonschema:"true enables autopilot (runs the enable-time preflight), false is the kill switch"`
 	Repo    string `json:"repo,omitempty" jsonschema:"repo root to toggle (optional; defaults to the daemon's working directory) — the switch is per-repo"`
 }
+type registerAutopilotRunArgs struct {
+	Name     string `json:"name"`
+	Repo     string `json:"repo"`
+	PlanFile string `json:"plan_file"`
+}
+type controlAutopilotRunArgs struct {
+	RunID  string `json:"run_id"`
+	Action string `json:"action" jsonschema:"start, pause, resume, or stop"`
+}
 type landArgs struct {
 	AgentOrBranch string `json:"agent_or_branch" jsonschema:"the autopilot worker agent (id or name) or the branch to land into the integration branch"`
 }
@@ -440,6 +449,28 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(st)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "list_autopilot_runs", Description: "List every durable autopilot run, including registered, paused, stopped, and complete records."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		runs, err := s.cl.ListAutopilotRuns(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(runs)
+	})
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "register_autopilot_run", Description: "Register a named autopilot plan without starting it."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a registerAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.RegisterAutopilotRun(ctx, a.Name, a.Repo, a.PlanFile)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
+	})
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "control_autopilot_run", Description: "Start, pause, resume, or stop one autopilot run by stable run id."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a controlAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.ControlAutopilotRun(ctx, a.RunID, a.Action)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
