@@ -1031,6 +1031,7 @@
   {
     "path": "branches",
     "use": "branches",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "json"
@@ -1097,6 +1098,7 @@
   {
     "path": "collab",
     "use": "collab",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -1105,6 +1107,7 @@
   {
     "path": "collab conflicts",
     "use": "conflicts",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1114,6 +1117,7 @@
   {
     "path": "collab who-is-editing",
     "use": "who-is-editing \u003cfile\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1904,6 +1908,7 @@
     "aliases": [
       "lib"
     ],
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -1912,6 +1917,7 @@
   {
     "path": "library list",
     "use": "list",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1921,6 +1927,7 @@
   {
     "path": "library save-preset",
     "use": "save-preset \u003cname\u003e [spawn flags]",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "auto-restart",
@@ -1939,6 +1946,7 @@
   {
     "path": "library save-prompt",
     "use": "save-prompt \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "prompt"
@@ -2003,6 +2011,7 @@
   {
     "path": "memory",
     "use": "memory",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "edit",
@@ -2305,6 +2314,7 @@
   {
     "path": "plugin",
     "use": "plugin",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -2313,6 +2323,7 @@
   {
     "path": "plugin list",
     "use": "list",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2322,6 +2333,7 @@
   {
     "path": "preset",
     "use": "preset",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -2330,6 +2342,7 @@
   {
     "path": "preset list",
     "use": "list",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2338,6 +2351,130 @@
   },
   {
     "path": "preset save",
+    "use": "save \u003cname\u003e [spawn flags]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "auto-restart",
+      "in-repo",
+      "model",
+      "permission-mode",
+      "supervised",
+      "type",
+      "worktree"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project",
+    "use": "project",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project library",
+    "use": "library",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project library list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project library save-preset",
+    "use": "save-preset \u003cname\u003e [spawn flags]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "auto-restart",
+      "in-repo",
+      "model",
+      "permission-mode",
+      "supervised",
+      "type",
+      "worktree"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project library save-prompt",
+    "use": "save-prompt \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project memory",
+    "use": "memory",
+    "runnable": true,
+    "local_flags": [
+      "edit",
+      "path",
+      "raw"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project plugin",
+    "use": "plugin",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project plugin list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project preset",
+    "use": "preset",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project preset list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project preset save",
     "use": "save \u003cname\u003e [spawn flags]",
     "runnable": true,
     "local_flags": [
@@ -2355,12 +2492,42 @@
     ]
   },
   {
+    "path": "project prompt-template",
+    "use": "prompt-template",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project prompt-template list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project prompt-template save",
+    "use": "save \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "runnable": true,
+    "local_flags": [
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "prompt-template",
     "use": "prompt-template",
     "aliases": [
       "prompt-templates",
       "pt"
     ],
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -2369,6 +2536,7 @@
   {
     "path": "prompt-template list",
     "use": "list",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2378,6 +2546,7 @@
   {
     "path": "prompt-template save",
     "use": "save \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "prompt"
@@ -2390,6 +2559,7 @@
   {
     "path": "prune",
     "use": "prune",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "dry-run",
@@ -2741,6 +2911,7 @@
   {
     "path": "snapshot",
     "use": "snapshot",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -2749,6 +2920,7 @@
   {
     "path": "snapshot create",
     "use": "create [name]",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "json",
@@ -2763,6 +2935,7 @@
   {
     "path": "snapshot list",
     "use": "list [name]",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "all",
@@ -2777,6 +2950,7 @@
   {
     "path": "snapshot restore",
     "use": "restore \u003csnapshot-id\u003e",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "force",
@@ -3098,8 +3272,136 @@
     "json": true
   },
   {
+    "path": "workspace",
+    "use": "workspace",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace branches",
+    "use": "branches",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace conflicts",
+    "use": "conflicts",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "workspace list",
+    "use": "list",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace prune",
+    "use": "prune",
+    "runnable": true,
+    "local_flags": [
+      "dry-run",
+      "force",
+      "include-archived",
+      "json",
+      "repo",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace snapshot",
+    "use": "snapshot",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "workspace snapshot create",
+    "use": "create [name]",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "message"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace snapshot list",
+    "use": "list [name]",
+    "runnable": true,
+    "local_flags": [
+      "all",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace snapshot restore",
+    "use": "restore \u003csnapshot-id\u003e",
+    "runnable": true,
+    "local_flags": [
+      "force",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace who-is-editing",
+    "use": "who-is-editing \u003cfile\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "worktree",
     "use": "worktree",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "json",
@@ -3117,6 +3419,7 @@
     "aliases": [
       "ls"
     ],
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "json",
@@ -3131,6 +3434,7 @@
   {
     "path": "worktree prune",
     "use": "prune",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "dry-run",

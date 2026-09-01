@@ -55,6 +55,7 @@ var rootHelpPlacement = map[string]struct {
 	"start": {"shortcut", 10}, "ls": {"shortcut", 20}, "status": {"shortcut", 30}, "send": {"shortcut", 40},
 	"commit": {"shortcut", 50}, "push": {"shortcut", 60}, "sync": {"shortcut", 70}, "check": {"shortcut", 80},
 	"pipeline": {"run", 20}, "autopilot": {"run", 30}, "schedule": {"run", 40},
+	"project": {"project", 5}, "workspace": {"project", 8},
 	"adopt": {"run", 100}, "attach": {"run", 110}, "delete": {"run", 120}, "digest": {"run", 130},
 	"done": {"run", 140}, "force-compact": {"run", 150}, "fork": {"run", 160}, "handoff": {"run", 170},
 	"land": {"run", 180}, "recover": {"run", 190}, "remove-worktree": {"run", 200}, "restore": {"run", 210},

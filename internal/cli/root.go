@@ -36,15 +36,13 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().String("addr", "", "daemon address (overrides the addr config setting)")
 	root.PersistentFlags().String("config", "", "config file path (default ~/.warden/config.yaml)")
 	root.AddCommand(newAgentCmd())
+	root.AddCommand(newProjectCmd(), newWorkspaceCmd())
 	root.AddCommand(newBackendCmd())
 	root.AddCommand(newUsageNamespaceCmd())
 	root.AddCommand(newInspectCmd())
 	root.AddCommand(newScheduleCmd())
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newDaemonCmd())
-	root.AddCommand(newPresetCmd())
-	root.AddCommand(newPromptTemplateCmd())
-	root.AddCommand(newLibraryCmd())
 	costCmd := newCostCmd()
 	markCompatibilityCommand(costCmd, "warden cost")
 	for _, child := range costCmd.Commands() {
@@ -109,7 +107,25 @@ func newRootCmd() *cobra.Command {
 		markCompatibilityCommand(legacy.cmd, legacy.canonical)
 		root.AddCommand(legacy.cmd)
 	}
-	root.AddCommand(newWorktreeCmd(), newPruneCmd())
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+		mark      func(*cobra.Command, string)
+	}{
+		{newMemoryCmd(), "warden project memory", markCompatibilityCommand},
+		{newPresetCmd(), "warden project preset", markCompatibilityCommand},
+		{newPromptTemplateCmd(), "warden project prompt-template", markCompatibilityCommand},
+		{newLibraryCmd(), "warden project library", func(cmd *cobra.Command, _ string) { markProjectLibraryCompatibility(cmd) }},
+		{newPluginCmd(), "warden project plugin", markCompatibilityCommand},
+		{newWorktreeCmd(), "warden workspace", markCompatibilityCommand},
+		{newPruneCmd(), "warden workspace prune", markCompatibilityCommand},
+		{newSnapshotCmd(), "warden workspace snapshot", markCompatibilityCommand},
+		{newBranchesCmd(), "warden workspace branches", markCompatibilityCommand},
+		{newCollabCmd(), "warden workspace", func(cmd *cobra.Command, _ string) { markWorkspaceCollabCompatibility(cmd) }},
+	} {
+		legacy.mark(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
 	sendCmd := newSendCmd()
 	markPermanentAgentShortcut(sendCmd, "warden agent send")
 	tailCmd := newTailCmd()
@@ -129,9 +145,6 @@ func newRootCmd() *cobra.Command {
 	backendsCmd := newBackendsCmd()
 	markCompatibilityCommand(backendsCmd, "warden backend")
 	root.AddCommand(modelsCmd, backendsCmd)
-	root.AddCommand(newMemoryCmd())
-	root.AddCommand(newSnapshotCmd())
-	root.AddCommand(newPluginCmd())
 	root.AddCommand(newContextCmd(), newMessageCmd(), newApprovalCmd())
 	ctxCmd := newCtxCmd()
 	markCtxCompatibility(ctxCmd)
@@ -163,8 +176,6 @@ func newRootCmd() *cobra.Command {
 	markCompatibilityCommand(tokenAlias, "warden daemon token")
 	root.AddCommand(tokenAlias)
 	root.AddCommand(newHookCmd())
-	root.AddCommand(newCollabCmd())
-	root.AddCommand(newBranchesCmd())
 	root.AddCommand(newPipelineCmd())
 	root.AddCommand(newAutopilotCmd())
 	root.AddCommand(newLandCmd())
