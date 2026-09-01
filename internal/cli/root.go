@@ -35,26 +35,64 @@ func newRootCmd() *cobra.Command {
 	root.SetVersionTemplate(currentBuildInfo().String() + "\n")
 	root.PersistentFlags().String("addr", "", "daemon address (overrides the addr config setting)")
 	root.PersistentFlags().String("config", "", "config file path (default ~/.warden/config.yaml)")
+	root.AddCommand(newAgentCmd())
 	root.AddCommand(newDaemonCmd())
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newPresetCmd())
 	root.AddCommand(newPromptTemplateCmd())
 	root.AddCommand(newLibraryCmd())
 	root.AddCommand(newCostCmd())
-	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd(), newStatsCmd(), newInsightsCmd(), newSavingsCmd(), newSpendCmd())
+	lsCmd, statusCmd := newLsCmd(), newStatusCmd()
+	markPermanentAgentShortcut(lsCmd, "warden agent list")
+	markPermanentAgentShortcut(statusCmd, "warden agent status")
+	digestCmd := newDigestCmd()
+	markCompatibilityCommand(digestCmd, "warden agent digest")
+	root.AddCommand(lsCmd, statusCmd, digestCmd, newStatsCmd(), newInsightsCmd(), newSavingsCmd(), newSpendCmd())
 	root.AddCommand(newSearchCmd(), newHistoryCmd())
 	root.AddCommand(newAuditCmd())
 	root.AddCommand(newExportCmd(), newImportCmd())
-	root.AddCommand(newStartCmd(), newForkCmd(), newStopCmd(), newTerminateCmd(), newDeleteCmd(), newRemoveWorktreeCmd(), newDoneCmd(), newRestoreCmd(), newAttachCmd(), newAdoptCmd(), newRecoverCmd())
+	startCmd := newStartCmd()
+	markPermanentAgentShortcut(startCmd, "warden agent start")
+	root.AddCommand(startCmd)
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+	}{
+		{newForkCmd(), "warden agent fork"}, {newStopCmd(), "warden agent stop"},
+		{newTerminateCmd(), "warden agent terminate"}, {newDeleteCmd(), "warden agent delete"},
+		{newRemoveWorktreeCmd(), "warden agent remove-worktree"}, {newDoneCmd(), "warden agent done"},
+		{newRestoreCmd(), "warden agent restore"}, {newAttachCmd(), "warden agent attach"},
+		{newAdoptCmd(), "warden agent adopt"}, {newRecoverCmd(), "warden agent recover"},
+	} {
+		markCompatibilityCommand(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
 	root.AddCommand(newWorktreeCmd(), newPruneCmd())
-	root.AddCommand(newSendCmd(), newTailCmd())
+	sendCmd := newSendCmd()
+	markPermanentAgentShortcut(sendCmd, "warden agent send")
+	tailCmd := newTailCmd()
+	markCompatibilityCommand(tailCmd, "warden agent tail")
+	root.AddCommand(sendCmd, tailCmd)
 	root.AddCommand(newCommitCmd(), newPushCmd(), newSyncCmd(), newCheckCmd(), newReviewCmd(), newModelsCmd())
 	root.AddCommand(newBackendsCmd())
 	root.AddCommand(newUsageCmd())
 	root.AddCommand(newMemoryCmd())
 	root.AddCommand(newSnapshotCmd())
 	root.AddCommand(newPluginCmd())
-	root.AddCommand(newApprovalsCmd(), newApproveCmd(), newAutoApproveCmd(), newForceCompactCmd(), newSetPermissionModeCmd(), newSetRoleCmd(), newRoleCmd(), newRotateCmd(), newHandoffCmd(), newSwitchCmd())
+	root.AddCommand(newApprovalsCmd(), newApproveCmd(), newAutoApproveCmd())
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+	}{
+		{newForceCompactCmd(), "warden agent compact set"},
+		{newSetPermissionModeCmd(), "warden agent permission-mode set"},
+		{newSetRoleCmd(), "warden agent role set"}, {newRoleCmd(), "warden agent role"},
+		{newRotateCmd(), "warden agent rotate"}, {newHandoffCmd(), "warden agent handoff"},
+		{newSwitchCmd(), "warden agent switch"},
+	} {
+		markCompatibilityCommand(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
 	root.AddCommand(newTokenCmd())
 	root.AddCommand(newHookCmd())
 	root.AddCommand(newCtxCmd())
