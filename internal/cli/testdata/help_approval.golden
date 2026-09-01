@@ -1,0 +1,19 @@
+Manage tool-permission prompts and the auto-approve policy.
+
+List pending prompts with list, answer recognized menus by option number with
+answer, and configure per-agent participation plus allow/deny rules under auto.
+
+Usage:
+  warden approval [flags]
+
+Commands:
+  list                 List pending tool-permission prompts waiting for an answer
+  answer               Answer a pending tool-permission prompt by option number
+  auto                 Toggle per-agent auto-approve and manage the rule policy
+
+Flags:
+  -h, --help   help for approval
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

@@ -411,8 +411,129 @@
     ]
   },
   {
+    "path": "approval",
+    "use": "approval",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval answer",
+    "use": "answer \u003cTICKET\u003e \u003coption\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto",
+    "use": "auto",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto allow",
+    "use": "allow",
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "paths",
+      "pattern",
+      "regex",
+      "tool"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto clear",
+    "use": "clear",
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto deny",
+    "use": "deny",
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "paths",
+      "pattern",
+      "regex",
+      "tool"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto disable",
+    "use": "disable",
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto enable",
+    "use": "enable",
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto rules",
+    "use": "rules",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto set",
+    "use": "set \u003cagent-id\u003e \u003con|off\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "approvals",
     "use": "approvals",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -422,6 +543,7 @@
   {
     "path": "approve",
     "use": "approve \u003cTICKET\u003e \u003coption\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -467,6 +589,7 @@
   {
     "path": "auto-approve",
     "use": "auto-approve \u003cagent-id\u003e \u003con|off\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -476,6 +599,7 @@
   {
     "path": "auto-approve allow",
     "use": "allow",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "agent",
@@ -492,6 +616,7 @@
   {
     "path": "auto-approve clear",
     "use": "clear",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "agent"
@@ -504,6 +629,7 @@
   {
     "path": "auto-approve deny",
     "use": "deny",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "agent",
@@ -520,6 +646,7 @@
   {
     "path": "auto-approve disable",
     "use": "disable",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "agent"
@@ -532,6 +659,7 @@
   {
     "path": "auto-approve enable",
     "use": "enable",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "agent"
@@ -548,6 +676,7 @@
       "policy",
       "show"
     ],
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -926,6 +1055,85 @@
     ]
   },
   {
+    "path": "context",
+    "use": "context",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context append",
+    "use": "append \u003ckey\u003e [value]",
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "file",
+      "sep",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context cas",
+    "use": "cas \u003ckey\u003e [value]",
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "expected",
+      "file",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context delete",
+    "use": "delete \u003ckey\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context get",
+    "use": "get \u003ckey\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context list",
+    "use": "list [prefix]",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context set",
+    "use": "set \u003ckey\u003e [value]",
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "file",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "cost",
     "use": "cost",
     "runnable": true,
@@ -969,6 +1177,7 @@
   {
     "path": "ctx",
     "use": "ctx",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -977,6 +1186,7 @@
   {
     "path": "ctx append",
     "use": "append \u003ckey\u003e [value]",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "as",
@@ -992,6 +1202,7 @@
   {
     "path": "ctx cas",
     "use": "cas \u003ckey\u003e [value]",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "as",
@@ -1007,6 +1218,7 @@
   {
     "path": "ctx del",
     "use": "del \u003ckey\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1016,6 +1228,7 @@
   {
     "path": "ctx get",
     "use": "get \u003ckey\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1025,6 +1238,7 @@
   {
     "path": "ctx list",
     "use": "list [prefix]",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1034,6 +1248,7 @@
   {
     "path": "ctx set",
     "use": "set \u003ckey\u003e [value]",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "as",
@@ -1518,6 +1733,54 @@
     ]
   },
   {
+    "path": "message",
+    "use": "message",
+    "local_flags": [
+      "as"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "message inbox",
+    "use": "inbox",
+    "runnable": true,
+    "local_flags": [
+      "unread"
+    ],
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
+    "path": "message send",
+    "use": "send \u003cto\u003e \u003cmessage...\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
+    "path": "message wait",
+    "use": "wait",
+    "runnable": true,
+    "local_flags": [
+      "from",
+      "timeout"
+    ],
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
     "path": "models",
     "use": "models",
     "runnable": true,
@@ -1562,6 +1825,7 @@
   {
     "path": "msg",
     "use": "msg",
+    "hidden": true,
     "local_flags": [
       "as"
     ],
@@ -1573,6 +1837,7 @@
   {
     "path": "msg inbox",
     "use": "inbox",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "unread"
@@ -1586,6 +1851,7 @@
   {
     "path": "msg send",
     "use": "send \u003cto\u003e \u003cmessage...\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1596,6 +1862,7 @@
   {
     "path": "msg wait",
     "use": "wait",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "from",

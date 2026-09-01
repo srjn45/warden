@@ -17,11 +17,9 @@ plugin
 branches
 prune
 Coordinate:
-ctx
-msg
-approvals
-approve
-auto-approve
+context
+message
+approval
 collab
 Observe
 search
