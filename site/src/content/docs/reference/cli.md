@@ -26,29 +26,11 @@ Usage:
   warden [flags]
 
 Run work:
+  agent                Create, inspect, communicate with, and manage agents
   pipeline             Define and run DAG pipelines of agent jobs
   autopilot            Turn autopilot mode on/off per repo and show its status
   schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
-  adopt                Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
-  attach               Attach to the agent's tmux session
-  delete               Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
-  digest               Summarize what an agent accomplished (files, branch, turns, narrative)
-  done                 Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
-  force-compact        Override force-compact for one agent (interrupt → /compact → resume)
-  fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
-  handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   land                 Land an autopilot worker branch into the integration branch
-  recover              Revive archived agent records whose tmux session is still alive (dry run unless --apply)
-  remove-worktree      Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
-  restore              Recreate and resume a lost/orphaned agent (claude --resume)
-  role                 Inspect warden's built-in agent roles and tier mappings
-  rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
-  set-permission-mode  Set the permission mode for an agent
-  set-role             Switch an agent's built-in role (relaunches to re-inject the persona)
-  stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
-  switch               Hot-swap an agent session to a different backend, model, or tier mid-task
-  tail                 Print the recent output of an agent's claude session
-  terminate            Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
 
 Work with a project:
   worktree             Inspect and reclaim warden's git worktrees: list and prune, in one place
@@ -113,6 +95,767 @@ Shortcuts:
   check                Run the project's configured checks and report only failures
 
 Use "warden help <command>" for focused command help; add --all for the complete tree.
+```
+
+## warden agent
+
+```text
+Create, inspect, communicate with, and manage agents.
+
+Lifecycle commands deliberately remain distinct: terminate keeps the record and
+worktree; done clears the record but keeps the worktree; delete changes only the
+record; remove-worktree changes only the worktree; and stop composes teardown
+steps according to its keep flags and preserves its confirmation safeguards.
+
+Usage:
+  warden agent [flags]
+
+Commands:
+  list                 List all active agent sessions
+  start                Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
+  status               Show full status for one session
+  digest               Summarize what an agent accomplished (files, branch, turns, narrative)
+  fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
+  restore              Recreate and resume a lost/orphaned agent (claude --resume)
+  recover              Revive archived agent records whose tmux session is still alive (dry run unless --apply)
+  adopt                Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+  attach               Attach to the agent's tmux session
+  stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
+  terminate            Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+  done                 Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
+  delete               Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
+  remove-worktree      Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
+  send                 Type a message into an agent's claude session and press Enter
+  tail                 Print the recent output of an agent's claude session
+  handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
+  rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
+  switch               Hot-swap an agent session to a different backend, model, or tier mid-task
+  permission-mode      Manage an agent's permission mode
+  role                 Inspect warden's built-in agent roles and tier mappings
+  compact              Manage an agent's force-compact override
+
+Flags:
+  -h, --help   help for agent
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent list
+
+```text
+List all active agent sessions
+
+Usage:
+  warden agent list [flags]
+
+Flags:
+  -a, --all           include system agents
+  -h, --help          help for list
+      --json          output as JSON
+      --tag strings   only show agents carrying every given tag (repeatable or comma-separated, e.g. --tag backend --tag urgent)
+  -w, --watch         live-update the list on every agent state change (Ctrl+C to exit)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent start
+
+```text
+Spawn an agent. --role is required (see 'warden role list'); there is no
+implicit fallback role.
+
+Free-form:   warden agent start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
+Interactive: warden agent start --role <ROLE> --dir <path>                (opens the agent and waits)
+Managed:     warden agent start --role <ROLE> TICKET --type <TYPE>        (isolated worktree)
+
+The spawn's backend+model is resolved (top wins): an explicit --backend/--model
+pin > --tier (or --task, which derives a tier) routed through the quota-balanced
+resolver > the resolver routed by --role alone > warden's configured defaults.
+So --role on its own is always enough to spawn — --tier/--backend/--model are
+optional refinements, not additional requirements.
+
+Backends (--backend): warden drives Claude Code by default. Accepted values:
+  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
+Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
+Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
+in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
+session kind, not a backend, so --backend/--model/--role/prompt are ignored.
+Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
+OpenCode: BYO model (pass --model), structured transcript, DOES resume.
+Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
+Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); initial prompt auto-typed post-launch.
+Goose: BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env), DOES resume (name-deterministic); no --model on session launch.
+Cursor: hosted model catalog; pass --model to override (cursor-agent --list-models / wd models); DOES resume (dir-scoped --continue); warden owns the worktree (cursor's own -w never passed).
+Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy models / wd models); DOES resume (dir-scoped agy -c).
+All non-claude backends show tokens-only spend. Claude remains full-fidelity.
+
+Usage:
+  warden agent start --role <ROLE> [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>] [flags]
+
+Flags:
+      --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
+      --backend warden start --help              agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-backend notes
+      --branch string                            new branch (development) or checkout target (pr-review)
+      --dir string                               directory to launch the agent from (default: current directory)
+      --force                                    spawn even when the memory-pressure gate warns
+      --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
+  -h, --help                                     help for start
+      --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
+      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --backend/--model/--role/prompt ignored)
+      --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
+      --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
+      --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --pr string                                PR number/url (pr-review)
+      --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
+      --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
+      --repo string                              repo path (default: current directory)
+      --role warden role list                    REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
+      --set stringArray                          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
+      --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
+      --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
+      --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
+      --tier string                              model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --backend/--model still wins over the resolver
+      --type string                              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
+      --worktree                                 create a scratch worktree for analysis/spike
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent status
+
+```text
+Show full status for one session
+
+Usage:
+  warden agent status <TICKET> [flags]
+
+Flags:
+  -h, --help   help for status
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent digest
+
+```text
+Summarize what an agent accomplished (files, branch, turns, narrative)
+
+Usage:
+  warden agent digest <TICKET> [flags]
+
+Flags:
+  -h, --help   help for digest
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent fork
+
+```text
+Fork an existing agent's recorded session into a NEW warden-managed agent.
+
+A fork branches the source agent's conversation/reasoning (codex's session rollout)
+into a divergent session and continues it as its own managed agent: a fresh sibling
+worktree off the source's branch HEAD, seeded with the source's uncommitted tracked
+changes (dirty-tree carry), with its own tmux session warden monitors and tears
+down. The source agent keeps running, untouched — fork branches sideways, unlike
+snapshot (rewinds one timeline) or rotate/handoff (carry the task, drop the
+conversation).
+
+This is the shorthand for `warden start --fork-from <agent>` — a managed spawn
+whose launch command is the backend's fork verb. Only backends with a native session
+fork are forkable (codex today); forking one without (e.g. claude) reports a clean
+"cannot fork". The source's backend session id must already be pinned — if it has not
+run a turn yet the fork reports that, and you retry once it has.
+
+NOTE: `git stash create` carries only TRACKED changes; the source's untracked /
+.gitignore'd build artifacts are not seeded into the fork.
+
+  warden agent fork agent-7                  fork agent-7, continue its conversation
+  warden agent fork agent-7 "now try X"      fork and seed a divergent first prompt
+
+Usage:
+  warden agent fork <agent> ["<prompt>"] [flags]
+
+Flags:
+      --force                    fork even when the memory-pressure gate warns
+  -h, --help                     help for fork
+      --model string             model override for the fork (default: the source/backend default)
+      --name string              optional human-friendly name for the fork
+      --permission-mode string   permission mode for the fork: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config)
+      --type string              worktree-backed task type for the fork (must isolate in its own worktree) (default "development")
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent restore
+
+```text
+Recreate and resume a lost/orphaned agent (claude --resume)
+
+Usage:
+  warden agent restore <TICKET> [flags]
+
+Flags:
+  -h, --help   help for restore
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent recover
+
+```text
+Scans archived (closed) agent records for ones whose tmux session is
+confirmed still alive — a live session's record should never end up
+archived, but a stale orphaned status racing a daemon restart could
+previously slip one past the tombstone reaper. Bare `wd agent recover` only
+reports what it finds; --apply re-inserts each candidate into the active
+store under its original id. Any children (linked via parent_id, untouched
+by archiving) reconnect automatically — no need to recover them separately.
+
+Usage:
+  warden agent recover [flags]
+
+Flags:
+      --apply   actually re-insert candidates (default: report only)
+  -h, --help    help for recover
+      --json    output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent adopt
+
+```text
+Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+
+Usage:
+  warden agent adopt [flags]
+
+Flags:
+      --dir string          directory whose claude session to adopt (default: current directory)
+  -h, --help                help for adopt
+      --session-id string   claude session uuid to adopt (default: newest for the directory)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent attach
+
+```text
+Attach to the agent's tmux session
+
+Usage:
+  warden agent attach <TICKET> [flags]
+
+Flags:
+  -h, --help   help for attach
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent stop
+
+```text
+Stop an agent. The single umbrella teardown verb.
+
+<AGENT> is any identifier `wd ls` shows — the agent's name, its id, or its
+ticket. All teardown verbs resolve by name-or-id.
+
+By default `wd agent stop <TICKET>` does a FULL teardown: terminate the
+tmux+claude session, clear (archive) the record, and remove the git worktree +
+branch (asking for confirmation first, unless --yes). Subtractive flags keep
+parts around; --pr opens a GitHub PR first while the agent is still intact.
+
+The four older verbs are kept as thin aliases — each is just `stop` with a
+fixed flag combo:
+
+  old verb                    equivalent
+  --------------------------  ------------------------------------------------
+  wd terminate <T>            wd agent stop <T> --keep-record --keep-worktree
+  wd delete <T> [--hard]      wd agent stop <T> --keep-worktree (record only)
+  wd remove-worktree <T>      wd agent stop <T> --keep-record  (worktree only)
+  wd done <T> [--hard|--pr]   wd agent stop <T> --keep-worktree [--hard|--pr]
+  wd agent stop <T>                 terminate + clear record + remove worktree
+
+Safe ordering is always: PR -> terminate -> clear record -> remove worktree, so
+a failed push leaves the agent running.
+
+Usage:
+  warden agent stop <AGENT> [flags]
+
+Flags:
+      --base string             base branch for the PR (default main); only meaningful with --pr
+      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
+      --force                   override the alive/uncommitted/unpushed worktree guards
+      --hard                    purge the record instead of archiving
+  -h, --help                    help for stop
+      --keep-record             do not clear the stored record
+      --keep-worktree           do not remove the git worktree (this + default == the old 'done')
+      --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
+      --yes                     skip the worktree-removal confirmation prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent terminate
+
+```text
+Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+
+Usage:
+  warden agent terminate <AGENT> [flags]
+
+Flags:
+  -h, --help   help for terminate
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent done
+
+```text
+Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
+
+Usage:
+  warden agent done <AGENT> [flags]
+
+Flags:
+      --base string   base branch for the PR (default main); only meaningful with --create-pr
+      --create-pr     open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before finishing
+      --hard          purge the record instead of archiving
+  -h, --help          help for done
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent delete
+
+```text
+Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
+
+Usage:
+  warden agent delete <AGENT> [flags]
+
+Flags:
+      --hard   permanently purge the record instead of archiving
+  -h, --help   help for delete
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent remove-worktree
+
+```text
+Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
+
+Usage:
+  warden agent remove-worktree <AGENT> [flags]
+
+Flags:
+      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
+      --force                   override the alive/uncommitted/unpushed guards
+  -h, --help                    help for remove-worktree
+      --yes                     skip the confirmation prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent send
+
+```text
+Type a message into an agent's claude session and press Enter
+
+Usage:
+  warden agent send <TICKET> <message...> [flags]
+
+Flags:
+  -h, --help   help for send
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent tail
+
+```text
+Print the recent output of an agent's claude session
+
+Usage:
+  warden agent tail <TICKET> [flags]
+
+Flags:
+  -h, --help        help for tail
+      --lines int   number of pane lines to capture (default 200)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent handoff
+
+```text
+Hand a structured context package off to another agent. Phase 1 (writing the handoff file + resume prompt) is driven by the /warden skill; this verb performs the delivery. Three modes:
+
+  • default — spawn a fresh delegate in its own isolated worktree for a sub-task; the source agent keeps running.
+  • --to <id> — deliver the handoff into an already-running agent's inbox (waking it); the source agent keeps running.
+  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling agent (self-succession). Requires --confirm. This is what the `rotate` alias runs.
+
+--retire and --to are mutually exclusive: retire reaps the caller, --to never does.
+
+Usage:
+  warden agent handoff [flags]
+
+Flags:
+      --as string              act as this agent id for provenance (defaults to $WARDEN_SESSION_ID, else 'human')
+      --branch string          optional branch for a new delegate (ignored with --to)
+      --confirm                with --retire, actually spawn the successor and retire this agent (required)
+      --force                  spawn the new delegate even when the memory-pressure gate warns (ignored with --to)
+  -h, --help                   help for handoff
+      --name string            optional human-friendly name for a new delegate (ignored with --to)
+      --repo string            repo for a new delegate (default: source agent's repo, else cwd; ignored with --to)
+      --resume-file string     path to the handoff notes file whose content is delivered to the recipient (with --retire, the path the successor reads in place)
+      --resume-prompt string   the recipient's task prompt
+      --retire                 self-succession: spawn a successor in THIS agent's worktree and reap the calling agent (mutually exclusive with --to; requires --confirm). Equivalent to 'warden rotate'
+      --to string              deliver to this existing agent id instead of spawning a new one
+      --type string            task type for a new delegate (ignored with --to) (default "development")
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent rotate
+
+```text
+Run inside an agent session. Phase 1 is driven by the /warden skill (the agent writes a handoff file + resume prompt and shows you). On your go-ahead, run with --confirm to spawn the successor and reap this agent.
+
+This is a thin alias for `warden handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
+
+Usage:
+  warden agent rotate [flags]
+
+Flags:
+      --confirm                actually spawn the successor and retire this agent (required for retire)
+  -h, --help                   help for rotate
+      --resume-file string     path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)
+      --resume-prompt string   the successor's initial task prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent switch
+
+```text
+Mid-session hot-swap: retire the active CLI process and launch a successor backend
+in the SAME worktree, carrying forward structured context (Goal, Decisions Log,
+Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.
+
+The successor can be chosen by explicit --backend and/or --model, or by --tier
+(resolved via quota-balanced weighted headroom routing across eligible backends).
+
+The swap is performed by the warden daemon (the sole owner of the session store),
+so the daemon must be running.
+
+Examples:
+  warden agent switch --backend antigravity --model gemini-3.1-pro
+  warden agent switch --tier tier-1
+  warden agent switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'
+
+
+Usage:
+  warden agent switch [agent-id] [flags]
+
+Flags:
+  -b, --backend string   explicit successor backend id (claude, antigravity, codex, …)
+  -h, --help             help for switch
+      --json             emit result as JSON
+  -m, --model string     explicit successor model id
+  -p, --prompt string    optional extra instruction appended to successor's continuation prompt
+      --reason string    reason recorded for hot-swap (manual|context_fill|quota) (default "manual")
+  -r, --role string      role to resolve tier from when --tier is not given
+  -t, --tier string      resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent permission-mode
+
+```text
+Manage an agent's permission mode
+
+Usage:
+  warden agent permission-mode [flags]
+
+Commands:
+  set                  Set the permission mode for an agent
+
+Flags:
+  -h, --help   help for permission-mode
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent permission-mode set
+
+```text
+Set the permission mode for a specific agent.
+
+Valid permission modes:
+  acceptEdits        - Prompt for tool permissions (supervised mode)
+  auto               - Default behavior
+  bypassPermissions  - Skip all permission prompts
+  default            - Use global default from config
+  dontAsk            - Don't ask for permissions
+  plan               - Plan mode
+
+The permission mode controls how Claude handles tool permission prompts.
+Setting to "default" (or empty string) clears the agent-specific override
+and uses the global default_permission_mode config setting.
+
+Examples:
+  warden agent set abc123 acceptEdits  # Enable supervised mode
+  warden agent set abc123 auto         # Use auto mode
+  warden agent set abc123 default      # Use global default
+
+Usage:
+  warden agent permission-mode set <agent-id> <mode> [flags]
+
+Flags:
+  -h, --help   help for set
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent role
+
+```text
+Inspect warden's built-in agent roles and tier mappings
+
+Usage:
+  warden agent role [flags]
+
+Commands:
+  list                 List the built-in agent roles and their descriptions
+  set                  Switch an agent's built-in role (relaunches to re-inject the persona)
+  set-tier             Set the default model tier for an agent role (tier-1|tier-2|tier-3)
+  tier                 Inspect and manage role-to-tier mappings
+
+Flags:
+  -h, --help   help for role
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent role list
+
+```text
+List the built-in agent roles and their descriptions
+
+Usage:
+  warden agent role list [flags]
+
+Flags:
+  -h, --help   help for list
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent role set
+
+```text
+Switch a running agent's built-in role.
+
+The role's persona is injected as a system-prompt addendum; changing it relaunches
+the agent (its current turn is discarded) so the new persona takes effect. Set the
+role to "general" (or "") to clear the persona and behave like a plain agent.
+
+Valid roles (see `warden role list` for descriptions):
+  general | orchestrator | planner | worker
+  (legacy aliases implementer/auto-merger/reviewer resolve to worker)
+
+Examples:
+  warden agent set abc123 reviewer      # give the agent the reviewer persona
+  warden agent set abc123 general       # clear the persona
+
+Usage:
+  warden agent role set <agent-id> <role> [flags]
+
+Flags:
+  -h, --help   help for set
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent role set-tier
+
+```text
+Set the default model tier assigned when creating agents with this role.
+
+Tiers:
+  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
+  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
+  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
+
+Example:
+  warden agent role set-tier worker tier-2
+  warden agent role set-tier orchestrator tier-1
+
+Usage:
+  warden agent role set-tier <role> <tier> [flags]
+
+Flags:
+  -h, --help   help for set-tier
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent role tier
+
+```text
+Inspect and manage default model tier mappings for agent roles.
+
+Subcommands:
+  list    List all role-to-tier mappings
+  set     Set the default model tier for a role
+
+When run without subcommands, `warden agent role tier` lists all mappings.
+
+Usage:
+  warden agent role tier [flags]
+
+Commands:
+  list                 List agent roles and their default model tiers
+
+Flags:
+  -h, --help   help for tier
+      --json   emit role tier mappings as a JSON array
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent role tier list
+
+```text
+List agent roles and their default model tiers
+
+Usage:
+  warden agent role tier list [flags]
+
+Flags:
+  -h, --help   help for list
+      --json   emit role tier mappings as a JSON array
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden agent compact
+
+```text
+Manage the per-agent force-compact override. Setting it may interrupt an in-flight turn when the configured context threshold is crossed.
+
+Usage:
+  warden agent compact [flags]
+
+Commands:
+  set                  Override force-compact for one agent (interrupt → /compact → resume)
+
+Flags:
+  -h, --help   help for compact
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden agent compact set
+
+```text
+Set the per-agent force-compact override.
+
+When force-compact is on and an agent's context crosses the critical threshold
+while it is still working, warden interrupts the agent (Escape), runs /compact
+once it goes idle, then sends the configured resume prompt so it picks its work
+back up. This is destructive: the interrupt discards the agent's in-flight turn.
+
+States:
+  on       force-compact this agent (overrides the global setting)
+  off      never force-compact this agent (overrides the global setting)
+  inherit  clear the override; follow the global token_force_compact setting
+
+Examples:
+  warden agent set abc123 on       # always force-compact agent abc123
+  warden agent set abc123 off      # never force-compact agent abc123
+  warden agent set abc123 inherit  # follow the global default
+
+The global default is the token_force_compact config setting (off by default).
+
+Usage:
+  warden agent compact set <agent-id> <on|off|inherit> [flags]
+
+Flags:
+  -h, --help   help for set
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
 ```
 
 ## warden pipeline
@@ -732,200 +1475,6 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden adopt
-
-```text
-Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
-
-Usage:
-  warden adopt [flags]
-
-Flags:
-      --dir string          directory whose claude session to adopt (default: current directory)
-  -h, --help                help for adopt
-      --session-id string   claude session uuid to adopt (default: newest for the directory)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden attach
-
-```text
-Attach to the agent's tmux session
-
-Usage:
-  warden attach <TICKET> [flags]
-
-Flags:
-  -h, --help   help for attach
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden delete
-
-```text
-Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
-
-Usage:
-  warden delete <AGENT> [flags]
-
-Flags:
-      --hard   permanently purge the record instead of archiving
-  -h, --help   help for delete
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden digest
-
-```text
-Summarize what an agent accomplished (files, branch, turns, narrative)
-
-Usage:
-  warden digest <TICKET> [flags]
-
-Flags:
-  -h, --help   help for digest
-      --json   output as JSON
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden done
-
-```text
-Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
-
-Usage:
-  warden done <AGENT> [flags]
-
-Flags:
-      --base string   base branch for the PR (default main); only meaningful with --create-pr
-      --create-pr     open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before finishing
-      --hard          purge the record instead of archiving
-  -h, --help          help for done
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden force-compact
-
-```text
-Set the per-agent force-compact override.
-
-When force-compact is on and an agent's context crosses the critical threshold
-while it is still working, warden interrupts the agent (Escape), runs /compact
-once it goes idle, then sends the configured resume prompt so it picks its work
-back up. This is destructive: the interrupt discards the agent's in-flight turn.
-
-States:
-  on       force-compact this agent (overrides the global setting)
-  off      never force-compact this agent (overrides the global setting)
-  inherit  clear the override; follow the global token_force_compact setting
-
-Examples:
-  warden force-compact abc123 on       # always force-compact agent abc123
-  warden force-compact abc123 off      # never force-compact agent abc123
-  warden force-compact abc123 inherit  # follow the global default
-
-The global default is the token_force_compact config setting (off by default).
-
-Usage:
-  warden force-compact <agent-id> <on|off|inherit> [flags]
-
-Flags:
-  -h, --help   help for force-compact
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden fork
-
-```text
-Fork an existing agent's recorded session into a NEW warden-managed agent.
-
-A fork branches the source agent's conversation/reasoning (codex's session rollout)
-into a divergent session and continues it as its own managed agent: a fresh sibling
-worktree off the source's branch HEAD, seeded with the source's uncommitted tracked
-changes (dirty-tree carry), with its own tmux session warden monitors and tears
-down. The source agent keeps running, untouched — fork branches sideways, unlike
-snapshot (rewinds one timeline) or rotate/handoff (carry the task, drop the
-conversation).
-
-This is the shorthand for `warden start --fork-from <agent>` — a managed spawn
-whose launch command is the backend's fork verb. Only backends with a native session
-fork are forkable (codex today); forking one without (e.g. claude) reports a clean
-"cannot fork". The source's backend session id must already be pinned — if it has not
-run a turn yet the fork reports that, and you retry once it has.
-
-NOTE: `git stash create` carries only TRACKED changes; the source's untracked /
-.gitignore'd build artifacts are not seeded into the fork.
-
-  warden fork agent-7                  fork agent-7, continue its conversation
-  warden fork agent-7 "now try X"      fork and seed a divergent first prompt
-
-Usage:
-  warden fork <agent> ["<prompt>"] [flags]
-
-Flags:
-      --force                    fork even when the memory-pressure gate warns
-  -h, --help                     help for fork
-      --model string             model override for the fork (default: the source/backend default)
-      --name string              optional human-friendly name for the fork
-      --permission-mode string   permission mode for the fork: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config)
-      --type string              worktree-backed task type for the fork (must isolate in its own worktree) (default "development")
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden handoff
-
-```text
-Hand a structured context package off to another agent. Phase 1 (writing the handoff file + resume prompt) is driven by the /warden skill; this verb performs the delivery. Three modes:
-
-  • default — spawn a fresh delegate in its own isolated worktree for a sub-task; the source agent keeps running.
-  • --to <id> — deliver the handoff into an already-running agent's inbox (waking it); the source agent keeps running.
-  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling agent (self-succession). Requires --confirm. This is what the `rotate` alias runs.
-
---retire and --to are mutually exclusive: retire reaps the caller, --to never does.
-
-Usage:
-  warden handoff [flags]
-
-Flags:
-      --as string              act as this agent id for provenance (defaults to $WARDEN_SESSION_ID, else 'human')
-      --branch string          optional branch for a new delegate (ignored with --to)
-      --confirm                with --retire, actually spawn the successor and retire this agent (required)
-      --force                  spawn the new delegate even when the memory-pressure gate warns (ignored with --to)
-  -h, --help                   help for handoff
-      --name string            optional human-friendly name for a new delegate (ignored with --to)
-      --repo string            repo for a new delegate (default: source agent's repo, else cwd; ignored with --to)
-      --resume-file string     path to the handoff notes file whose content is delivered to the recipient (with --retire, the path the successor reads in place)
-      --resume-prompt string   the recipient's task prompt
-      --retire                 self-succession: spawn a successor in THIS agent's worktree and reap the calling agent (mutually exclusive with --to; requires --confirm). Equivalent to 'warden rotate'
-      --to string              deliver to this existing agent id instead of spawning a new one
-      --type string            task type for a new delegate (ignored with --to) (default "development")
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden land
 
 ```text
@@ -943,371 +1492,6 @@ Usage:
 
 Flags:
   -h, --help   help for land
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden recover
-
-```text
-Scans archived (closed) agent records for ones whose tmux session is
-confirmed still alive — a live session's record should never end up
-archived, but a stale orphaned status racing a daemon restart could
-previously slip one past the tombstone reaper. Bare `wd recover` only
-reports what it finds; --apply re-inserts each candidate into the active
-store under its original id. Any children (linked via parent_id, untouched
-by archiving) reconnect automatically — no need to recover them separately.
-
-Usage:
-  warden recover [flags]
-
-Flags:
-      --apply   actually re-insert candidates (default: report only)
-  -h, --help    help for recover
-      --json    output as JSON
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden remove-worktree
-
-```text
-Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
-
-Usage:
-  warden remove-worktree <AGENT> [flags]
-
-Flags:
-      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
-      --force                   override the alive/uncommitted/unpushed guards
-  -h, --help                    help for remove-worktree
-      --yes                     skip the confirmation prompt
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden restore
-
-```text
-Recreate and resume a lost/orphaned agent (claude --resume)
-
-Usage:
-  warden restore <TICKET> [flags]
-
-Flags:
-  -h, --help   help for restore
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden role
-
-```text
-Inspect warden's built-in agent roles and tier mappings
-
-Usage:
-  warden role [flags]
-
-Commands:
-  list                 List the built-in agent roles and their descriptions
-  set-tier             Set the default model tier for an agent role (tier-1|tier-2|tier-3)
-  tier                 Inspect and manage role-to-tier mappings
-
-Flags:
-  -h, --help   help for role
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden role list
-
-```text
-List the built-in agent roles and their descriptions
-
-Usage:
-  warden role list [flags]
-
-Flags:
-  -h, --help   help for list
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden role set-tier
-
-```text
-Set the default model tier assigned when creating agents with this role.
-
-Tiers:
-  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
-  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
-  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
-
-Example:
-  warden role set-tier worker tier-2
-  warden role set-tier orchestrator tier-1
-
-Usage:
-  warden role set-tier <role> <tier> [flags]
-
-Flags:
-  -h, --help   help for set-tier
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden role tier
-
-```text
-Inspect and manage default model tier mappings for agent roles.
-
-Subcommands:
-  list    List all role-to-tier mappings
-  set     Set the default model tier for a role
-
-When run without subcommands, `warden role tier` lists all mappings.
-
-Usage:
-  warden role tier [flags]
-
-Commands:
-  list                 List agent roles and their default model tiers
-
-Flags:
-  -h, --help   help for tier
-      --json   emit role tier mappings as a JSON array
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden role tier list
-
-```text
-List agent roles and their default model tiers
-
-Usage:
-  warden role tier list [flags]
-
-Flags:
-  -h, --help   help for list
-      --json   emit role tier mappings as a JSON array
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Aliases:
-  ls
-```
-
-## warden rotate
-
-```text
-Run inside an agent session. Phase 1 is driven by the /warden skill (the agent writes a handoff file + resume prompt and shows you). On your go-ahead, run with --confirm to spawn the successor and reap this agent.
-
-This is a thin alias for `warden handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
-
-Usage:
-  warden rotate [flags]
-
-Flags:
-      --confirm                actually spawn the successor and retire this agent (required for retire)
-  -h, --help                   help for rotate
-      --resume-file string     path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)
-      --resume-prompt string   the successor's initial task prompt
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden set-permission-mode
-
-```text
-Set the permission mode for a specific agent.
-
-Valid permission modes:
-  acceptEdits        - Prompt for tool permissions (supervised mode)
-  auto               - Default behavior
-  bypassPermissions  - Skip all permission prompts
-  default            - Use global default from config
-  dontAsk            - Don't ask for permissions
-  plan               - Plan mode
-
-The permission mode controls how Claude handles tool permission prompts.
-Setting to "default" (or empty string) clears the agent-specific override
-and uses the global default_permission_mode config setting.
-
-Examples:
-  warden set-permission-mode abc123 acceptEdits  # Enable supervised mode
-  warden set-permission-mode abc123 auto         # Use auto mode
-  warden set-permission-mode abc123 default      # Use global default
-
-Usage:
-  warden set-permission-mode <agent-id> <mode> [flags]
-
-Flags:
-  -h, --help   help for set-permission-mode
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden set-role
-
-```text
-Switch a running agent's built-in role.
-
-The role's persona is injected as a system-prompt addendum; changing it relaunches
-the agent (its current turn is discarded) so the new persona takes effect. Set the
-role to "general" (or "") to clear the persona and behave like a plain agent.
-
-Valid roles (see `warden role list` for descriptions):
-  general | orchestrator | planner | worker
-  (legacy aliases implementer/auto-merger/reviewer resolve to worker)
-
-Examples:
-  warden set-role abc123 reviewer      # give the agent the reviewer persona
-  warden set-role abc123 general       # clear the persona
-
-Usage:
-  warden set-role <agent-id> <role> [flags]
-
-Flags:
-  -h, --help   help for set-role
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden stop
-
-```text
-Stop an agent. The single umbrella teardown verb.
-
-<AGENT> is any identifier `wd ls` shows — the agent's name, its id, or its
-ticket. All teardown verbs resolve by name-or-id.
-
-By default `wd stop <TICKET>` does a FULL teardown: terminate the
-tmux+claude session, clear (archive) the record, and remove the git worktree +
-branch (asking for confirmation first, unless --yes). Subtractive flags keep
-parts around; --pr opens a GitHub PR first while the agent is still intact.
-
-The four older verbs are kept as thin aliases — each is just `stop` with a
-fixed flag combo:
-
-  old verb                    equivalent
-  --------------------------  ------------------------------------------------
-  wd terminate <T>            wd stop <T> --keep-record --keep-worktree
-  wd delete <T> [--hard]      wd stop <T> --keep-worktree (record only)
-  wd remove-worktree <T>      wd stop <T> --keep-record  (worktree only)
-  wd done <T> [--hard|--pr]   wd stop <T> --keep-worktree [--hard|--pr]
-  wd stop <T>                 terminate + clear record + remove worktree
-
-Safe ordering is always: PR -> terminate -> clear record -> remove worktree, so
-a failed push leaves the agent running.
-
-Usage:
-  warden stop <AGENT> [flags]
-
-Flags:
-      --base string             base branch for the PR (default main); only meaningful with --pr
-      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
-      --force                   override the alive/uncommitted/unpushed worktree guards
-      --hard                    purge the record instead of archiving
-  -h, --help                    help for stop
-      --keep-record             do not clear the stored record
-      --keep-worktree           do not remove the git worktree (this + default == the old 'done')
-      --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
-      --yes                     skip the worktree-removal confirmation prompt
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden switch
-
-```text
-Mid-session hot-swap: retire the active CLI process and launch a successor backend
-in the SAME worktree, carrying forward structured context (Goal, Decisions Log,
-Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.
-
-The successor can be chosen by explicit --backend and/or --model, or by --tier
-(resolved via quota-balanced weighted headroom routing across eligible backends).
-
-The swap is performed by the warden daemon (the sole owner of the session store),
-so the daemon must be running.
-
-Examples:
-  warden switch --backend antigravity --model gemini-3.1-pro
-  warden switch --tier tier-1
-  warden switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'
-
-
-Usage:
-  warden switch [agent-id] [flags]
-
-Flags:
-  -b, --backend string   explicit successor backend id (claude, antigravity, codex, …)
-  -h, --help             help for switch
-      --json             emit result as JSON
-  -m, --model string     explicit successor model id
-  -p, --prompt string    optional extra instruction appended to successor's continuation prompt
-      --reason string    reason recorded for hot-swap (manual|context_fill|quota) (default "manual")
-  -r, --role string      role to resolve tier from when --tier is not given
-  -t, --tier string      resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden tail
-
-```text
-Print the recent output of an agent's claude session
-
-Usage:
-  warden tail <TICKET> [flags]
-
-Flags:
-  -h, --help        help for tail
-      --lines int   number of pane lines to capture (default 200)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden terminate
-
-```text
-Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
-
-Usage:
-  warden terminate <AGENT> [flags]
-
-Flags:
-  -h, --help   help for terminate
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
