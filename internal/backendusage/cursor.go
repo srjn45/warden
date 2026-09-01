@@ -156,7 +156,7 @@ func (a CursorAdapter) accessToken() string {
 func defaultCursorAuthPath() string {
 	switch runtime.GOOS {
 	case "windows":
-		return filepath.Join(os.Getenv("AppData"), "Cursor", "auth.json")
+		return filepath.Join(os.Getenv("APPDATA"), "Cursor", "auth.json")
 	case "darwin":
 		return filepath.Join(userHomeDir(), ".cursor", "auth.json")
 	default:

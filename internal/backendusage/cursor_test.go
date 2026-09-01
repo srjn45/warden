@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -252,12 +253,23 @@ func TestCursorAdapter401IsTransientWithoutPercents(t *testing.T) {
 	}
 }
 
-func TestCursorAdapterAuthPathLinuxDefault(t *testing.T) {
+func TestCursorAdapterAuthPathDefault(t *testing.T) {
+	// CI runs go test on macos-latest; exercise the GOOS auth path, not Linux-only XDG.
 	dir := t.TempDir()
-	auth := filepath.Join(dir, "cursor", "auth.json")
+	var auth string
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("APPDATA", dir)
+		auth = filepath.Join(dir, "Cursor", "auth.json")
+	case "darwin":
+		t.Setenv("HOME", dir)
+		auth = filepath.Join(dir, ".cursor", "auth.json")
+	default:
+		t.Setenv("XDG_CONFIG_HOME", dir)
+		auth = filepath.Join(dir, "cursor", "auth.json")
+	}
 	require.NoError(t, os.MkdirAll(filepath.Dir(auth), 0o755))
 	require.NoError(t, os.WriteFile(auth, []byte(`{"accessToken":"from-file"}`), 0o600))
-	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	var sawBearer string
 	a := newCursorAdapter(t, func(w http.ResponseWriter, r *http.Request) {
