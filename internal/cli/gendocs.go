@@ -73,10 +73,12 @@ func GenerateReference() (string, error) {
 		b.WriteString(help)
 		b.WriteString("\n```\n")
 
-		for _, sub := range c.Commands() {
+		children := append([]*cobra.Command(nil), c.Commands()...)
+		sortCommands(children)
+		for _, sub := range children {
 			// Skip the auto-generated `help` command and any hidden or
 			// help-topic-only commands — they are not user-facing verbs.
-			if sub.Hidden || sub.IsAdditionalHelpTopicCommand() || sub.Name() == "help" {
+			if sub.Hidden || sub.IsAdditionalHelpTopicCommand() || sub.Name() == "help" || sub.Annotations[AnnotationIncludeInDocs] == "false" {
 				continue
 			}
 			if err := walk(sub); err != nil {

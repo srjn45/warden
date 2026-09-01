@@ -22,368 +22,348 @@ spawn, monitor, and tear down Claude Code agent sessions.
 Run `warden` with no arguments to open the cockpit TUI. Alias: wd.
 
 Usage:
-  warden [flags]
   warden [command]
+  warden [flags]
 
-Available Commands:
-  adopt               Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
-  approvals           List pending tool-permission prompts waiting for an answer
-  approve             Answer a pending tool-permission prompt by option number
-  attach              Attach to the agent's tmux session
-  audit               Inspect the append-only action audit trail
-  auto-approve        Toggle per-agent auto-approve, or manage the auto-approve rule policy
-  autopilot           Turn autopilot mode on/off per repo and show its status
-  backends            Inspect and manage the agent-backend registry
-  branches            Per-agent CI + branch-vs-main status
-  check               Run the project's configured checks and report only failures
-  collab              Inter-agent collaboration: see which agents are editing the same files
-  commit              Stage and commit the worktree (warden rails + hooks + bookkeeping)
-  completion          Generate shell completion scripts
-  config              Show the resolved configuration (and its file path)
-  cost                Show warden's money picture: dollars spent and tokens/$ saved, in one place
-  ctx                 Read and write the shared context (a namespaced key/value store agents share)
-  daemon              Run the warden hub (HTTP API + poller; the single writer to the file store)
-  delete              Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
-  digest              Summarize what an agent accomplished (files, branch, turns, narrative)
-  doctor              Run preflight checks (required binaries, daemon, data dir, configured local model)
-  done                Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
-  export              Serialize agent session metadata to JSON on stdout
-  force-compact       Override force-compact for one agent (interrupt → /compact → resume)
-  fork                Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
-  handoff             Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
-  history             Browse archived (closed) agents, newest first
-  import              Insert agent session metadata from a JSON dump on stdin
-  insights            Mine agent history for patterns and parallelization suggestions
-  land                Land an autopilot worker branch into the integration branch
-  library             Browse saved spawn presets, prompt templates, and pipeline templates in one place
-  llm                 Local-LLM helpers for the REPL (wd repl)
-  ls                  List all active agent sessions
-  mcp                 Run the MCP stdio server so an orchestrator Claude can manage agents
-  memory              Show or edit this repo's warden project memory (.warden/memory.md)
-  models              Inspect and manage model catalog and live model menus
-  msg                 Send and receive directed messages between agents
-  pipeline            Define and run DAG pipelines of agent jobs
-  plugin              Inspect warden's plugin system (#47): custom task types + lifecycle hooks
-  preset              Save and list named spawn configs (replay with `warden start --preset <name>`)
-  prompt-template     Save and list reusable, variabled prompt templates (fill with `warden start --prompt-template <name> --set VAR=value`)
-  prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
-  push                Push the current branch to origin (warden rails + bookkeeping)
-  recover             Revive archived agent records whose tmux session is still alive (dry run unless --apply)
-  remove-worktree     Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
-  repair              Offline, backup-first repair tools
-  repl                Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
-  restore             Recreate and resume a lost/orphaned agent (claude --resume)
-  review              Run the agent backend's native diff review on the worktree
-  role                Inspect warden's built-in agent roles and tier mappings
-  rotate              Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
-  savings             Show the token reductions warden's lifecycle features have earned
-  schedule            Schedule recurring (--cron) or single-shot (--at) agents and pipelines
-  search              Full-text search agents by subject, prompt, type, name, branch, or pane text
-  send                Type a message into an agent's claude session and press Enter
-  set-permission-mode Set the permission mode for an agent
-  set-role            Switch an agent's built-in role (relaunches to re-inject the persona)
-  setup               Install missing dependencies (tmux, git, claude; optional gh, ollama)
-  snapshot            Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
-  spend               Show measured Claude spend in dollars, per agent / repo / day
-  start               Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
-  stats               Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
-  status              Show full status for one session
-  stop                Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
-  switch              Hot-swap an agent session to a different backend, model, or tier mid-task
-  sync                Fetch and rebase the current branch onto its base (warden conflict detect)
-  tail                Print the recent output of an agent's claude session
-  terminate           Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
-  token               Manage the daemon's remote-access bearer token
-  tui                 Live terminal cockpit for agents
-  tutorial            Run the first-run guided walkthrough of warden's core loop
-  usage               Show provider usage for subscription backends
-  version             Print warden version and build information
-  worktree            Inspect and reclaim warden's git worktrees: list and prune, in one place
+Run work:
+  pipeline             Define and run DAG pipelines of agent jobs
+  autopilot            Turn autopilot mode on/off per repo and show its status
+  schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
+  adopt                Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+  attach               Attach to the agent's tmux session
+  delete               Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
+  digest               Summarize what an agent accomplished (files, branch, turns, narrative)
+  done                 Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
+  force-compact        Override force-compact for one agent (interrupt → /compact → resume)
+  fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
+  handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
+  land                 Land an autopilot worker branch into the integration branch
+  recover              Revive archived agent records whose tmux session is still alive (dry run unless --apply)
+  remove-worktree      Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
+  restore              Recreate and resume a lost/orphaned agent (claude --resume)
+  role                 Inspect warden's built-in agent roles and tier mappings
+  rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
+  set-permission-mode  Set the permission mode for an agent
+  set-role             Switch an agent's built-in role (relaunches to re-inject the persona)
+  stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
+  switch               Hot-swap an agent session to a different backend, model, or tier mid-task
+  tail                 Print the recent output of an agent's claude session
+  terminate            Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
 
-Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-  -h, --help            help for warden
-      --tmux-native     lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)
-  -v, --version         version for warden
+Work with a project:
+  worktree             Inspect and reclaim warden's git worktrees: list and prune, in one place
+  snapshot             Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
+  memory               Show or edit this repo's warden project memory (.warden/memory.md)
+  preset               Save and list named spawn configs (replay with `warden start --preset <name>`)
+  prompt-template      Save and list reusable, variabled prompt templates (fill with `warden start --prompt-template <name> --set VAR=value`)
+  library              Browse saved spawn presets, prompt templates, and pipeline templates in one place
+  plugin               Inspect warden's plugin system (#47): custom task types + lifecycle hooks
+  branches             Per-agent CI + branch-vs-main status
+  prune                Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
+  review               Run the agent backend's native diff review on the worktree
 
-Use "warden [command] --help" for more information about a command.
+Coordinate:
+  ctx                  Read and write the shared context (a namespaced key/value store agents share)
+  msg                  Send and receive directed messages between agents
+  approvals            List pending tool-permission prompts waiting for an answer
+  approve              Answer a pending tool-permission prompt by option number
+  auto-approve         Toggle per-agent auto-approve, or manage the auto-approve rule policy
+  collab               Inter-agent collaboration: see which agents are editing the same files
+
+Observe and configure:
+  search               Full-text search agents by subject, prompt, type, name, branch, or pane text
+  history              Browse archived (closed) agents, newest first
+  audit                Inspect the append-only action audit trail
+  stats                Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
+  usage                Show provider usage for subscription backends
+  cost                 Show warden's money picture: dollars spent and tokens/$ saved, in one place
+  spend                Show measured Claude spend in dollars, per agent / repo / day
+  savings              Show the token reductions warden's lifecycle features have earned
+  insights             Mine agent history for patterns and parallelization suggestions
+  backends             Inspect and manage the agent-backend registry
+  models               Inspect and manage model catalog and live model menus
+  config               Show the resolved configuration (and its file path)
+  export               Serialize agent session metadata to JSON on stdout
+  import               Insert agent session metadata from a JSON dump on stdin
+  llm                  Local-LLM helpers for the REPL (wd repl)
+  repair               Offline, backup-first repair tools
+
+Operate warden:
+  daemon               Run the warden hub (HTTP API + poller; the single writer to the file store)
+  completion           Generate shell completion scripts
+  mcp                  Run the MCP stdio server so an orchestrator Claude can manage agents
+  token                Manage the daemon's remote-access bearer token
+
+Get started and interact:
+  setup                Install missing dependencies (tmux, git, claude; optional gh, ollama)
+  tutorial             Run the first-run guided walkthrough of warden's core loop
+  doctor               Run preflight checks (required binaries, daemon, data dir, configured local model)
+  tui                  Live terminal cockpit for agents
+  repl                 Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
+  version              Print warden version and build information
+
+Shortcuts:
+  start                Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
+  ls                   List all active agent sessions
+  status               Show full status for one session
+  send                 Type a message into an agent's claude session and press Enter
+  commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
+  push                 Push the current branch to origin (warden rails + bookkeeping)
+  sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
+  check                Run the project's configured checks and report only failures
+
+Use "warden help <command>" for focused command help; add --all for the complete tree.
 ```
 
-## warden adopt
+## warden pipeline
 
 ```text
-Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+Define and run DAG pipelines of agent jobs
 
 Usage:
-  warden adopt [flags]
+  warden pipeline [flags]
+
+Commands:
+  cancel               Cancel a pipeline (terminates running jobs)
+  create               Create a pipeline from a YAML spec or a built-in template
+  delete               Delete a pipeline's record (must not have live jobs — cancel first)
+  edit-job             Edit a pending job's prompt and/or handoff
+  emit                 Publish this job's handoff (run from inside a pipeline job)
+  list                 List pipelines
+  list-templates       List the built-in pipeline templates and their placeholders
+  pause                Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
+  resume               Resume a paused pipeline (spawns jobs that became ready while paused)
+  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+  show                 Show a pipeline's jobs and their status
+  start                Start a pipeline (spawns jobs with no dependencies)
+  validate             Validate a pipeline YAML spec without creating it
 
 Flags:
-      --dir string          directory whose claude session to adopt (default: current directory)
-  -h, --help                help for adopt
-      --session-id string   claude session uuid to adopt (default: newest for the directory)
+  -h, --help   help for pipeline
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden approvals
-
-```text
-List pending tool-permission prompts waiting for an answer
-
-Usage:
-  warden approvals [flags]
-
-Flags:
-  -h, --help   help for approvals
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden approve
-
-```text
-Answer a pending tool-permission prompt by option number
-
-Usage:
-  warden approve <TICKET> <option> [flags]
-
-Flags:
-  -h, --help   help for approve
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden attach
+## warden pipeline cancel
 
 ```text
-Attach to the agent's tmux session
+Cancel a pipeline (terminates running jobs)
 
 Usage:
-  warden attach <TICKET> [flags]
+  warden pipeline cancel <pipeline> [flags]
 
 Flags:
-  -h, --help   help for attach
+  -h, --help   help for cancel
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden audit
+## warden pipeline create
 
 ```text
-Read the daemon's audit trail (~/.warden/audit.jsonl) — who did what, when, to which object. The file is written by the daemon; this command reads it directly, so it works even while the daemon is down.
+Create a pipeline either from a YAML spec file (-f) or from a built-in
+template (--template). Templates render with placeholder substitution: --name
+fills {{NAME}} (default the template name), --repo fills {{REPO}} (default the
+current directory), and each remaining {{KEY}} is filled with --set KEY=VALUE.
+Run `warden pipeline list-templates` to see templates and their placeholders.
 
 Usage:
-  warden audit [command]
-
-Available Commands:
-  log         Show recent audited actions, newest last
+  warden pipeline create (-f <spec.yaml> | --template <name>) [flags]
 
 Flags:
-  -h, --help   help for audit
+  -f, --file string                        path to the pipeline YAML spec
+  -h, --help                               help for create
+      --name string                        pipeline name — fills {{NAME}} (default: the template name)
+      --repo string                        repo path — fills {{REPO}} (default: the current directory)
+      --set stringArray                    fill a template placeholder, KEY=VALUE (repeatable)
+      --template pipeline list-templates   built-in template to render (see pipeline list-templates)
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden audit [command] --help" for more information about a command.
-```
-
-## warden audit log
-
-```text
-Print audit records in chronological order. Tail the most recent with --tail (0 = all), and narrow with --action, --target, and --since/--until.
-
-Usage:
-  warden audit log [flags]
-
-Flags:
-      --action string   filter by action (spawn, terminate, delete, approve, pipeline_start, pipeline_cancel)
-  -h, --help            help for log
-      --json            output as JSON
-      --since string    only records since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
-      --tail int        show only the most recent N records (0 = all) (default 50)
-      --target string   filter by target substring (agent or pipeline ID)
-      --until string    only records up to this window or date
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden auto-approve
+## warden pipeline delete
 
 ```text
-Control automatic approval of recognized tool-permission prompts.
-
-Two layers cooperate:
-
-  • Per-agent toggle (this command's bare form): opt one agent into evaluation
-    even when the global policy is disabled.
-        warden auto-approve abc123 on    # participate
-        warden auto-approve abc123 off   # stop
-
-  • Policy rules (the subcommands below): an allow/deny rule engine evaluated for
-    every participating agent. A prompt is auto-answered only when it matches an
-    allow rule, matches NO deny rule, and is not on warden's built-in destructive
-    deny-list (which always wins). With NO rules configured the policy is the
-    simple on/off toggle: an enabled policy approves every recognized,
-    non-destructive prompt (backward compatible with the old behavior).
-
-Rules match by tool name, a case-insensitive glob/substring (--pattern), a Go
-regular expression (--regex) over the prompt, and/or path globs (--paths). A
-per-agent override (--agent NAME, keyed by agent name or id) gets its own rule
-set that replaces the default for that agent.
-
-Examples:
-  warden auto-approve rules                         # show the live policy
-  warden auto-approve enable                        # turn the policy on
-  warden auto-approve allow --tool Read             # auto-approve all Read prompts
-  warden auto-approve allow --regex '^Bash\(git (status|diff|log)\)'
-  warden auto-approve deny  --tool Bash --pattern rm
-  warden auto-approve allow --agent reviewer --tool Grep
-  warden auto-approve clear --agent reviewer        # drop reviewer's overrides
-
-Rule changes take effect immediately (no restart) and are persisted to config.
+Delete a pipeline's record (must not have live jobs — cancel first)
 
 Usage:
-  warden auto-approve <agent-id> <on|off> [flags]
-  warden auto-approve [command]
-
-Available Commands:
-  allow       Append an allow rule to the auto-approve policy
-  clear       Clear auto-approve rules (default, or a per-agent override with --agent)
-  deny        Append an deny rule to the auto-approve policy
-  disable     Disable the auto-approve policy (global, or per-agent with --agent)
-  enable      Enable the auto-approve policy (global, or per-agent with --agent)
-  rules       Show the live auto-approve policy (default rules + per-agent overrides)
+  warden pipeline delete <pipeline> [flags]
 
 Flags:
-  -h, --help   help for auto-approve
+  -h, --help   help for delete
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden auto-approve [command] --help" for more information about a command.
-```
-
-## warden auto-approve allow
-
-```text
-Append an allow rule to the auto-approve policy
-
-Usage:
-  warden auto-approve allow [flags]
-
-Flags:
-      --agent string     scope the rule to a per-agent override (agent name or id)
-  -h, --help             help for allow
-      --paths strings    path globs against the action target (comma-separated)
-      --pattern string   case-insensitive glob/substring over the action + question
-      --regex string     Go regular expression over the action + question
-      --tool string      exact tool name to match (e.g. Read, Bash)
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden auto-approve clear
+## warden pipeline edit-job
 
 ```text
-Clear auto-approve rules (default, or a per-agent override with --agent)
+Edit a pending job's prompt and/or handoff
 
 Usage:
-  warden auto-approve clear [flags]
+  warden pipeline edit-job <pipeline> <job> [flags]
 
 Flags:
-      --agent string   clear a per-agent override (agent name or id) instead of the default rules
-  -h, --help           help for clear
+      --handoff string   new handoff hint for the job
+  -h, --help             help for edit-job
+      --prompt string    new prompt for the job
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden auto-approve deny
+## warden pipeline emit
 
 ```text
-Append an deny rule to the auto-approve policy
+Publish this job's handoff (run from inside a pipeline job)
 
 Usage:
-  warden auto-approve deny [flags]
+  warden pipeline emit <text> [flags]
 
 Flags:
-      --agent string     scope the rule to a per-agent override (agent name or id)
-  -h, --help             help for deny
-      --paths strings    path globs against the action target (comma-separated)
-      --pattern string   case-insensitive glob/substring over the action + question
-      --regex string     Go regular expression over the action + question
-      --tool string      exact tool name to match (e.g. Read, Bash)
+  -h, --help              help for emit
+      --job string        job id (defaults to $WARDEN_JOB_ID)
+      --pipeline string   pipeline id (defaults to $WARDEN_PIPELINE_ID)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden auto-approve disable
+## warden pipeline list
 
 ```text
-Disable the auto-approve policy (global, or per-agent with --agent)
+List pipelines
 
 Usage:
-  warden auto-approve disable [flags]
+  warden pipeline list [flags]
 
 Flags:
-      --agent string   toggle a per-agent override (agent name or id) instead of the global default
-  -h, --help           help for disable
+  -h, --help   help for list
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden auto-approve enable
+## warden pipeline list-templates
 
 ```text
-Enable the auto-approve policy (global, or per-agent with --agent)
+List the built-in pipeline templates and their placeholders
 
 Usage:
-  warden auto-approve enable [flags]
+  warden pipeline list-templates [flags]
 
 Flags:
-      --agent string   toggle a per-agent override (agent name or id) instead of the global default
-  -h, --help           help for enable
+  -h, --help   help for list-templates
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden auto-approve rules
+## warden pipeline pause
 
 ```text
-Show the live auto-approve policy (default rules + per-agent overrides)
+Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
 
 Usage:
-  warden auto-approve rules [flags]
-
-Aliases:
-  rules, show, policy
+  warden pipeline pause <pipeline> [flags]
 
 Flags:
-  -h, --help   help for rules
+  -h, --help   help for pause
 
-Global Flags:
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline resume
+
+```text
+Resume a paused pipeline (spawns jobs that became ready while paused)
+
+Usage:
+  warden pipeline resume <pipeline> [flags]
+
+Flags:
+  -h, --help   help for resume
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline retry
+
+```text
+Re-run a failed or needs-attention job (reopens skipped descendants)
+
+Usage:
+  warden pipeline retry <pipeline> <job> [flags]
+
+Flags:
+  -h, --help   help for retry
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline show
+
+```text
+Show a pipeline's jobs and their status
+
+Usage:
+  warden pipeline show <pipeline> [flags]
+
+Flags:
+  -h, --help   help for show
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline start
+
+```text
+Start a pipeline (spawns jobs with no dependencies)
+
+Usage:
+  warden pipeline start <pipeline> [flags]
+
+Flags:
+  -h, --help   help for start
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline validate
+
+```text
+Parse and validate a pipeline spec locally — checks required fields, job ids, dependency references, worktree/run_if values, and DAG cycles. Exits 0 if valid, 1 if not (suitable for CI). Does not contact the daemon.
+
+Usage:
+  warden pipeline validate -f <spec.yaml> [flags]
+
+Flags:
+  -f, --file string   path to the pipeline YAML spec
+  -h, --help          help for validate
+
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -403,29 +383,27 @@ one pass. `off` is the kill switch. Configure the feature under the `autopilot`
 block in the config file (or scaffold it with `warden autopilot init`).
 
 Usage:
-  warden autopilot [command]
+  warden autopilot [flags]
 
-Available Commands:
-  init        Scaffold autopilot adoption in the current repo
-  list        List all registered autopilot runs
-  off         Disable autopilot for this repo (kill switch — stops spawning/landing)
-  on          Enable autopilot for this repo (runs the enable-time preflight)
-  pause       pause one autopilot run
-  register    Register a named autopilot plan
-  resume      resume one autopilot run
-  start       start one autopilot run
-  status      Show autopilot status (which repos are enabled, and each run)
-  stop        stop one autopilot run
-  unregister  unregister one autopilot run
+Commands:
+  init                 Scaffold autopilot adoption in the current repo
+  list                 List all registered autopilot runs
+  off                  Disable autopilot for this repo (kill switch — stops spawning/landing)
+  on                   Enable autopilot for this repo (runs the enable-time preflight)
+  pause                pause one autopilot run
+  register             Register a named autopilot plan
+  resume               resume one autopilot run
+  start                start one autopilot run
+  status               Show autopilot status (which repos are enabled, and each run)
+  stop                 stop one autopilot run
+  unregister           unregister one autopilot run
 
 Flags:
   -h, --help   help for autopilot
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden autopilot [command] --help" for more information about a command.
 ```
 
 ## warden autopilot init
@@ -444,7 +422,7 @@ Flags:
   -h, --help          help for init
       --name string   plan name (creates plans/<name>.yaml) (default "default")
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -460,7 +438,7 @@ Usage:
 Flags:
   -h, --help   help for list
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -479,7 +457,7 @@ Flags:
   -h, --help          help for off
       --repo string   repo root to disable (default: the current git repository)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -499,7 +477,7 @@ Flags:
   -h, --help          help for on
       --repo string   repo root to enable (default: the current git repository)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -515,7 +493,7 @@ Usage:
 Flags:
   -h, --help   help for pause
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -533,7 +511,7 @@ Flags:
       --name string   unique run name within the repository
       --repo string   repository root (inferred from plan when omitted)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -549,7 +527,7 @@ Usage:
 Flags:
   -h, --help   help for resume
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -565,7 +543,7 @@ Usage:
 Flags:
   -h, --help   help for start
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -581,7 +559,7 @@ Usage:
 Flags:
   -h, --help   help for status
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -597,7 +575,7 @@ Usage:
 Flags:
   -h, --help   help for stop
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -613,706 +591,177 @@ Usage:
 Flags:
   -h, --help   help for unregister
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden backends
+## warden schedule
 
 ```text
-Inspect and manage warden's agent-backend registry.
-
-warden detects the coding-agent CLIs installed on this machine (claude, codex,
-aider, …) plus a reserved `local` row for the free/local model, and persists
-each with a billing tier, an enabled flag, and at most one default. The daemon's
-store is the source of truth — autopilot's cost-tier ladder and the internal
-free/local thinking router both read from it.
-
-Tiers:   free | subscription | pay_per_use | unclassified   (`local` is system-set)
-Thinking-mode: local_only | free_plus_local   (which backends internal thinking may call)
-
-Examples:
-  warden backends list                 # full table incl. the local row
-  warden backends rescan               # re-detect installed CLIs, print the table
-  warden backends tier codex free      # tier codex as a $0 backend
-  warden backends default claude       # make claude the default backend
-  warden backends disable aider        # stop using a backend
-  warden backends thinking-mode local_only
+Create timer-driven triggers that the daemon fires on a schedule: a recurring
+cron spec (--cron "0 9 * * *") or a single-shot time (--at 2026-06-27T09:00).
+Each schedule fires either one agent spawn (the default — pass --type/--repo/
+--prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
+scheduler_enabled: true in the config file and keep the daemon running.
 
 Usage:
-  warden backends [command]
+  warden schedule [flags]
 
-Available Commands:
-  default       Set the default backend (rejects the reserved local row)
-  disable       Disable a backend so it is no longer used
-  enable        Enable a backend so it may be used
-  list          List detected backends (installed, tier, default, enabled, limited)
-  rescan        Re-detect installed backend CLIs and print the updated table
-  thinking-mode Set the internal-thinking routing mode (local_only|free_plus_local)
-  tier          Set a backend's billing tier (free|subscription|pay_per_use|unclassified)
+Commands:
+  create               Create a schedule that fires an agent or a pipeline
+  delete               Delete a schedule
+  disable              Disable a schedule so it stops firing (history preserved)
+  enable               Enable a schedule so it fires again (re-arms next run)
+  get                  Show one schedule, including its last-run outcome
+  list                 List schedules
 
 Flags:
-  -h, --help   help for backends
+  -h, --help   help for schedule
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden backends [command] --help" for more information about a command.
 ```
 
-## warden backends default
+## warden schedule create
 
 ```text
-Make <id> the single default backend used when spawning agents without an
-explicit backend. The daemon rejects an unknown, uninstalled, disabled, or
-reserved (local) target.
+Create a recurring (--cron) or single-shot (--at) schedule. By default a
+schedule fires one agent spawn — pass --type, --repo, --prompt (and optionally
+--agent name / --branch). Pass --pipeline <spec.yaml> instead to fire a pipeline
+(its name is timestamp-suffixed per fire so recurring runs don't collide).
+Provide exactly one of --cron/--at and exactly one fire mode.
 
 Usage:
-  warden backends default <id> [flags]
+  warden schedule create <name> (--cron <spec> | --at <time>) [--type <t> --repo <p> --prompt <s> | --pipeline <spec.yaml>] [flags]
 
 Flags:
-  -h, --help   help for default
+      --agent string      optional name for the spawned agent
+      --at string         single-shot time, RFC3339 or 2006-01-02T15:04 (local)
+      --branch string     optional development branch / pr-review checkout
+      --cron string       recurring cron spec, e.g. "0 9 * * *" (minute hour dom month dow)
+  -h, --help              help for create
+      --pipeline string   fire a pipeline from this YAML spec file (instead of an agent)
+      --prompt string     the agent's initial prompt
+      --repo string       repo path (required for a typed agent)
+      --type string       agent task type (e.g. pr-review, development); empty = free-form
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden backends disable
+## warden schedule delete
 
 ```text
-Disable a backend so it is no longer used
+Delete a schedule
 
 Usage:
-  warden backends disable <id> [flags]
+  warden schedule delete <id> [flags]
+
+Flags:
+  -h, --help   help for delete
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden schedule disable
+
+```text
+Disable a schedule so it stops firing (history preserved)
+
+Usage:
+  warden schedule disable <id> [flags]
 
 Flags:
   -h, --help   help for disable
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden backends enable
+## warden schedule enable
 
 ```text
-Enable a backend so it may be used
+Enable a schedule so it fires again (re-arms next run)
 
 Usage:
-  warden backends enable <id> [flags]
+  warden schedule enable <id> [flags]
 
 Flags:
   -h, --help   help for enable
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden backends list
+## warden schedule get
 
 ```text
-List every backend in the registry, including the reserved local row, with its
-installed state, billing tier, whether it is the default, whether it is enabled,
-and whether it is currently rate-limited. The current internal-thinking mode is
-printed below the table.
+Show one schedule, including its last-run outcome
 
 Usage:
-  warden backends list [flags]
-
-Aliases:
-  list, ls
-
-Flags:
-  -h, --help   help for list
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden backends rescan
-
-```text
-Re-run backend detection and reconcile the registry: newly installed CLIs are
-added and no-longer-present ones are marked uninstalled, while each backend's
-tier, default, and enabled preferences are preserved. Prints the refreshed table.
-
-Usage:
-  warden backends rescan [flags]
-
-Flags:
-  -h, --help   help for rescan
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden backends thinking-mode
-
-```text
-Set which backends warden's internal free/local thinking router may call.
-
-  local_only        # route internal thinking to the local model only
-  free_plus_local   # prefer free cloud backends, fall back to the local model (default)
-
-Paid (subscription / pay_per_use) backends are never called for internal
-thinking in either mode.
-
-Usage:
-  warden backends thinking-mode <mode> [flags]
-
-Flags:
-  -h, --help   help for thinking-mode
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden backends tier
-
-```text
-Set a backend's billing tier. The tier drives autopilot's cost-tier ladder and
-the internal free/local thinking router (only free backends are called for
-internal thinking).
-
-Valid tiers:
-  free           # a $0 backend (free plan)
-  subscription   # covered by a flat subscription
-  pay_per_use    # metered / pay-as-you-go
-  unclassified   # not yet tiered (treated as not free)
-
-The reserved `local` tier is system-set and cannot be assigned.
-
-Usage:
-  warden backends tier <id> <tier> [flags]
-
-Flags:
-  -h, --help   help for tier
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden branches
-
-```text
-Show each tracked agent's branch: its latest GitHub CI run and how it sits against origin/main (behind/ahead/merged).
-
-Read-only. Requires the branch tracker to be enabled (branch_track.enabled); a disabled tracker reports no branches.
-
-Usage:
-  warden branches [flags]
-
-Flags:
-  -h, --help   help for branches
-      --json   output the branch statuses as JSON
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden check
-
-```text
-Run the check command(s) declared in this project's .warden/check.yml and
-return a pass/fail summary — with captured output for the FAILING checks only,
-in place of the hundreds of lines a raw test run spills into the transcript.
-
-`wd check` runs every configured check; `wd check <name>` runs one (e.g. test,
-lint, build). Commands come from the project, so warden stays language-agnostic;
-a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.
-
-Usage:
-  warden check [name] [flags]
-
-Flags:
-  -h, --help   help for check
-      --json   emit the raw result as JSON
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden collab
-
-```text
-Inter-agent collaboration: see which agents are editing the same files
-
-Usage:
-  warden collab [command]
-
-Available Commands:
-  conflicts      List files currently being edited by more than one agent
-  who-is-editing Show which agents are editing a specific file
-
-Flags:
-  -h, --help   help for collab
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden collab [command] --help" for more information about a command.
-```
-
-## warden collab conflicts
-
-```text
-List files currently being edited by more than one agent
-
-Usage:
-  warden collab conflicts [flags]
-
-Flags:
-  -h, --help   help for conflicts
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden collab who-is-editing
-
-```text
-Show which agents are editing a specific file
-
-Usage:
-  warden collab who-is-editing <file> [flags]
-
-Flags:
-  -h, --help   help for who-is-editing
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden commit
-
-```text
-Stage and commit every change in the current worktree on its branch.
-
-warden refuses protected branches (main/master), runs pre-commit hooks and
-returns only failures, and links the commit to this agent — one call in place
-of the git status/add/commit/rev-parse round-trips.
-
-Pass -m to author the message (best — you made the change). Omit it and warden
-writes one: the local model from the staged diff if configured, otherwise a
-deterministic conventional-commit message from the changed paths.
-
-Usage:
-  warden commit [flags]
-
-Flags:
-  -h, --help             help for commit
-      --json             emit the raw result as JSON
-  -m, --message string   commit message; if omitted, warden generates one from the diff
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden completion
-
-```text
-Generate shell completion scripts for warden.
-
-The completion script for each shell should be redirected to the appropriate
-location for your shell. Examples:
-
-Bash:
-  warden completion bash > /etc/bash_completion.d/warden
-  # or for user-only installation:
-  warden completion bash > ~/.bash_completion
-
-Zsh:
-  warden completion zsh > /usr/local/share/zsh/site-functions/_warden
-  # or for user-only installation:
-  warden completion zsh > ~/.zsh/completion/_warden
-
-Fish:
-  warden completion fish > ~/.config/fish/completions/warden.fish
-
-PowerShell:
-  warden completion powershell > warden.ps1
-  # Then load it in your PowerShell profile
-
-After generating the completion script, you may need to restart your shell
-or source the file for the completions to take effect.
-
-Usage:
-  warden completion [command]
-
-Available Commands:
-  bash        Generate bash completion script
-  fish        Generate fish completion script
-  powershell  Generate PowerShell completion script
-  zsh         Generate zsh completion script
-
-Flags:
-  -h, --help   help for completion
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden completion [command] --help" for more information about a command.
-```
-
-## warden completion bash
-
-```text
-Generate bash completion script
-
-Usage:
-  warden completion bash [flags]
-
-Flags:
-  -h, --help   help for bash
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden completion fish
-
-```text
-Generate fish completion script
-
-Usage:
-  warden completion fish [flags]
-
-Flags:
-  -h, --help   help for fish
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden completion powershell
-
-```text
-Generate PowerShell completion script
-
-Usage:
-  warden completion powershell [flags]
-
-Flags:
-  -h, --help   help for powershell
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden completion zsh
-
-```text
-Generate zsh completion script
-
-Usage:
-  warden completion zsh [flags]
-
-Flags:
-  -h, --help   help for zsh
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden config
-
-```text
-Print the live, resolved configuration values warden is using, grouped by area,
-with the config file path at the top. Edit the file by hand to change settings.
-
-Settings are organized into namespaced blocks in the config file:
-  rails.*    — guard/hook settings (git_redirect, root_guard, isolation_guard, …)
-  tokens.*   — token-guard, budget-gate, and savings settings
-  notify.*   — desktop notification and webhook settings
-  worktree.* — worktree-retention and spawn-gate settings
-  local_llm.*— local-model, REPL, and LLM-offload settings
-
-Deprecated flat keys (e.g. token_guard, notify, local_llm_url) still load
-and are automatically migrated to the namespaced form on `warden config init`.
-
-Usage:
-  warden config [flags]
-  warden config [command]
-
-Available Commands:
-  init        Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
-  path        Print the resolved config file path
-
-Flags:
-  -h, --help   help for config
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden config [command] --help" for more information about a command.
-```
-
-## warden config init
-
-```text
-Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
-
-Usage:
-  warden config init [flags]
-
-Flags:
-  -h, --help   help for init
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden config path
-
-```text
-Print the resolved config file path
-
-Usage:
-  warden config path [flags]
-
-Flags:
-  -h, --help   help for path
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden cost
-
-```text
-One umbrella over warden's two financial views:
-  • SPEND   — the REAL dollars agents billed Claude, measured from their transcripts (`wd cost spend`)
-  • SAVINGS — the tokens, and the dollars they represent, warden kept OUT of context (`wd cost savings`)
-
-`wd cost` with no subcommand prints a combined at-a-glance summary of both axes. `wd cost spend` and `wd cost savings` are the same commands as the top-level `wd spend` and `wd savings`, which remain available and unchanged. Both views are gated by the `savings` config setting. Resource footprint — memory/CPU/pressure — is a different axis; see `wd stats`.
-
-Usage:
-  warden cost [flags]
-  warden cost [command]
-
-Available Commands:
-  savings     Show the token reductions warden's lifecycle features have earned
-  spend       Show measured Claude spend in dollars, per agent / repo / day
-
-Flags:
-  -h, --help   help for cost
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden cost [command] --help" for more information about a command.
-```
-
-## warden cost savings
-
-```text
-Report the measured token savings warden has recorded — the raw output its lifecycle features (starting with `wd check`) kept out of agents' context windows — as a per-feature breakdown with cumulative tokens, an estimated dollar figure, and the percentage of would-be context spend eliminated. Token counts are exact (a real, append-only ledger — a proof point you can screenshot); dollar figures are estimates based on published list prices (as of 2026-06) and exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ from your actual bill. Gated by the `savings` config setting.
-
-Usage:
-  warden cost savings [flags]
-
-Flags:
-      --audit               print a few retained raw-vs-kept provenance samples (requires savings_samples) so real bytes behind the counts can be eyeballed
-      --benchmark           show the headline A/B proof (without-vs-with-warden tokens, reduction %, $ saved) with a per-day trend sparkline, instead of the per-feature table
-      --calibrate           measure this workload's true bytes-per-token ratio against Claude's count_tokens endpoint (needs ANTHROPIC_API_KEY and retained samples) and persist it, so figures stop relying on the generic 4-bytes/token guess
-      --calibrate-max int   cap the number of paid count_tokens calls a --calibrate run makes (default 50)
-  -h, --help                help for savings
-      --json                output the structured summary as JSON
-      --since string        only count savings since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden cost spend
-
-```text
-Report the measured Claude spend warden read from agents' transcripts — the exact input/output tokens each agent sent and received — priced per model into estimated dollar figures and rolled up per-agent, per-repo, and per-day. Token counts are exact (read directly from the transcript); dollar figures are estimates based on published list prices (as of 2026-06) and exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ from your actual bill. The headline names the daily and weekly totals the budget gate (budget_gate / budget_daily_usd / budget_weekly_usd) enforces. This is the cost side of warden's savings ledger: where `wd savings` reports what warden kept OUT of context, `wd spend` reports what agents actually billed. Gated by the `savings` config setting.
-
-Usage:
-  warden cost spend [flags]
-
-Flags:
-      --by string   show only one rollup: agent, repo, or day (default: all three)
-  -h, --help        help for spend
-      --json        output the structured rollup as JSON
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden ctx
-
-```text
-Read and write the shared context (a namespaced key/value store agents share)
-
-Usage:
-  warden ctx [command]
-
-Available Commands:
-  append      Atomically append to a key's value (creates it if absent)
-  cas         Set a key only if its current value matches --expected (atomic compare-and-set)
-  del         Delete a context key
-  get         Print the value at a context key
-  list        List context keys (optionally filtered by prefix)
-  set         Set a context key (value inline, or --file / --stdin)
-
-Flags:
-  -h, --help   help for ctx
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden ctx [command] --help" for more information about a command.
-```
-
-## warden ctx append
-
-```text
-Atomically append to a key's value (creates it if absent)
-
-Usage:
-  warden ctx append <key> [value] [flags]
-
-Flags:
-      --as string     writer identity (defaults to $WARDEN_SESSION_ID or 'human')
-      --file string   read value from a file
-  -h, --help          help for append
-      --sep string    separator inserted before the value when the key already exists (default "\n")
-      --stdin         read value from stdin
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden ctx cas
-
-```text
-Set a key only if its current value matches --expected (atomic compare-and-set)
-
-Usage:
-  warden ctx cas <key> [value] [flags]
-
-Flags:
-      --as string         writer identity (defaults to $WARDEN_SESSION_ID or 'human')
-      --expected string   only set if the current value equals this (empty = key must be absent)
-      --file string       read value from a file
-  -h, --help              help for cas
-      --stdin             read value from stdin
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden ctx del
-
-```text
-Delete a context key
-
-Usage:
-  warden ctx del <key> [flags]
-
-Flags:
-  -h, --help   help for del
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden ctx get
-
-```text
-Print the value at a context key
-
-Usage:
-  warden ctx get <key> [flags]
+  warden schedule get <id> [flags]
 
 Flags:
   -h, --help   help for get
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden ctx list
+## warden schedule list
 
 ```text
-List context keys (optionally filtered by prefix)
+List schedules
 
 Usage:
-  warden ctx list [prefix] [flags]
+  warden schedule list [flags]
 
 Flags:
   -h, --help   help for list
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden ctx set
+## warden adopt
 
 ```text
-Set a context key (value inline, or --file / --stdin)
+Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
 
 Usage:
-  warden ctx set <key> [value] [flags]
+  warden adopt [flags]
 
 Flags:
-      --as string     writer identity (defaults to $WARDEN_SESSION_ID or 'human')
-      --file string   read value from a file
-  -h, --help          help for set
-      --stdin         read value from stdin
+      --dir string          directory whose claude session to adopt (default: current directory)
+  -h, --help                help for adopt
+      --session-id string   claude session uuid to adopt (default: newest for the directory)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden daemon
+## warden attach
 
 ```text
-Run the warden hub (HTTP API + poller; the single writer to the file store)
+Attach to the agent's tmux session
 
 Usage:
-  warden daemon [flags]
+  warden attach <TICKET> [flags]
 
 Flags:
-  -h, --help                help for daemon
-      --log-format string   log output format: text | json (overrides log.format config)
-      --log-level string    log verbosity: debug | info | warn | error (overrides log.level config)
+  -h, --help   help for attach
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -1329,7 +778,7 @@ Flags:
       --hard   permanently purge the record instead of archiving
   -h, --help   help for delete
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -1346,24 +795,7 @@ Flags:
   -h, --help   help for digest
       --json   output as JSON
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden doctor
-
-```text
-Run preflight checks (required binaries, daemon, data dir, configured local model)
-
-Usage:
-  warden doctor [flags]
-
-Flags:
-  -h, --help       help for doctor
-      --sessions   diagnose the session store offline without modifying it
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -1382,28 +814,7 @@ Flags:
       --hard          purge the record instead of archiving
   -h, --help          help for done
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden export
-
-```text
-Dump active agent records as a JSON envelope on stdout, for backup, sharing, or migration. Metadata only — worktrees, branches, and tmux sessions are NOT serialized and `warden import` does not recreate them.
-
-With --all the archived (closed) records are included too.
-
-  warden export --all > backup.json
-
-Usage:
-  warden export [flags]
-
-Flags:
-      --all    also include archived (closed) agents
-  -h, --help   help for export
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -1436,7 +847,7 @@ Usage:
 Flags:
   -h, --help   help for force-compact
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -1477,7 +888,7 @@ Flags:
       --permission-mode string   permission mode for the fork: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config)
       --type string              worktree-backed task type for the fork (must isolate in its own worktree) (default "development")
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -1510,69 +921,7 @@ Flags:
       --to string              deliver to this existing agent id instead of spawning a new one
       --type string            task type for a new delegate (ignored with --to) (default "development")
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden history
-
-```text
-List the archived agent records the soft-delete path persists. Filter with --since (24h, 7d, 2w, or a date) and --type.
-
-Usage:
-  warden history [flags]
-
-Flags:
-  -h, --help           help for history
-      --json           output as JSON
-      --limit int      cap the number of results (0 = no cap)
-      --since string   only agents updated since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
-      --type string    filter by task type (development, pr-review, analysis, …)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden import
-
-```text
-Read a `warden export` envelope from stdin and insert its records into the store. Metadata only: worktrees and tmux sessions are NOT recreated — an imported record just remembers where its (now absent) worktree used to live.
-
-Idempotent by id: a record whose id already exists is skipped, so re-importing the same dump is a no-op. Pass --merge to overwrite colliding records with the imported data instead.
-
-  warden import < backup.json
-
-Usage:
-  warden import [flags]
-
-Flags:
-  -h, --help    help for import
-      --json    output the import result as JSON
-      --merge   overwrite existing records on id collision (default: skip)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden insights
-
-```text
-Analyze warden's own history — completed and active agent sessions plus recorded resource metrics — into actionable suggestions: typical/outlier durations by type, frequently co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could have run in parallel. Deterministic by default; when local_llm is enabled the summary is narrated by the local model (and degrades to the deterministic text on any model error).
-
-Usage:
-  warden insights [flags]
-
-Flags:
-  -h, --help             help for insights
-      --json             output the structured report as JSON
-      --limit int        cap the number of archived sessions mined (0 = daemon default)
-      --session string   scope parallelization suggestions to one session (by id or name)
-      --since string     only mine sessions since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -1595,200 +944,532 @@ Usage:
 Flags:
   -h, --help   help for land
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden library
+## warden recover
 
 ```text
-One umbrella over warden's reusable launch configs:
-  • spawn PRESETS      — named `warden start` defaults (saved in ~/.warden/presets.yaml)
-  • prompt TEMPLATES   — variabled prompt bodies (saved in ~/.warden/prompt-templates.yaml)
-  • pipeline TEMPLATES — built-in DAG starters bundled with warden (read-only)
-
-`library list` shows all three. `library save-preset` saves a spawn preset (the
-same as `warden preset save`) and `library save-prompt` saves a prompt template
-(the same as `warden prompt-template save`). Pipeline templates are embedded and
-read-only, so there is no `save-template`; author a pipeline from a YAML spec with
-`warden pipeline create -f <spec.yaml>` instead. The `preset`, `prompt-template`,
-and `pipeline list-templates` commands remain available and unchanged.
+Scans archived (closed) agent records for ones whose tmux session is
+confirmed still alive — a live session's record should never end up
+archived, but a stale orphaned status racing a daemon restart could
+previously slip one past the tombstone reaper. Bare `wd recover` only
+reports what it finds; --apply re-inserts each candidate into the active
+store under its original id. Any children (linked via parent_id, untouched
+by archiving) reconnect automatically — no need to recover them separately.
 
 Usage:
-  warden library [command]
-
-Aliases:
-  library, lib
-
-Available Commands:
-  list        List saved spawn presets and built-in pipeline templates
-  save-preset Save the given spawn flags as a named preset (same as `warden preset save`)
-  save-prompt Save a variabled prompt template (same as `warden prompt-template save`)
+  warden recover [flags]
 
 Flags:
-  -h, --help   help for library
+      --apply   actually re-insert candidates (default: report only)
+  -h, --help    help for recover
+      --json    output as JSON
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden library [command] --help" for more information about a command.
 ```
 
-## warden library list
+## warden remove-worktree
 
 ```text
-Show both libraries in two labeled sections: saved spawn presets (name +
-their stored defaults) and the built-in pipeline templates (name + a short
-description). Reuses the same sources as `warden preset list` and `warden
-pipeline list-templates`.
+Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
 
 Usage:
-  warden library list [flags]
+  warden remove-worktree <AGENT> [flags]
+
+Flags:
+      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
+      --force                   override the alive/uncommitted/unpushed guards
+  -h, --help                    help for remove-worktree
+      --yes                     skip the confirmation prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden restore
+
+```text
+Recreate and resume a lost/orphaned agent (claude --resume)
+
+Usage:
+  warden restore <TICKET> [flags]
+
+Flags:
+  -h, --help   help for restore
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden role
+
+```text
+Inspect warden's built-in agent roles and tier mappings
+
+Usage:
+  warden role [flags]
+
+Commands:
+  list                 List the built-in agent roles and their descriptions
+  set-tier             Set the default model tier for an agent role (tier-1|tier-2|tier-3)
+  tier                 Inspect and manage role-to-tier mappings
+
+Flags:
+  -h, --help   help for role
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden role list
+
+```text
+List the built-in agent roles and their descriptions
+
+Usage:
+  warden role list [flags]
 
 Flags:
   -h, --help   help for list
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden library save-preset
+## warden role set-tier
 
 ```text
-Persist a reusable set of `warden start` defaults under a name in
-~/.warden/presets.yaml. Saving an existing name overwrites it. Replay with
-`warden start --preset <name>` (explicit CLI flags still win).
+Set the default model tier assigned when creating agents with this role.
+
+Tiers:
+  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
+  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
+  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
+
+Example:
+  warden role set-tier worker tier-2
+  warden role set-tier orchestrator tier-1
 
 Usage:
-  warden library save-preset <name> [spawn flags] [flags]
+  warden role set-tier <role> <tier> [flags]
 
 Flags:
-      --auto-restart             auto-resume this agent if it crashes (errored)
-  -h, --help                     help for save-preset
-      --in-repo                  run in the shared repo instead of an isolated worktree
-      --model string             claude model: opus, sonnet, haiku, fable, or full model ID
-      --permission-mode string   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan
-      --supervised               alias for --permission-mode acceptEdits
-      --type string              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
-      --worktree                 create a scratch worktree for analysis/spike
+  -h, --help   help for set-tier
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden library save-prompt
+## warden role tier
 
 ```text
-Persist a reusable prompt body under a name in
-~/.warden/prompt-templates.yaml. The body may contain `{{VAR}}` placeholders;
-the declared variables are derived from the body automatically. Saving an
-existing name overwrites it. Fill in and spawn with
-`warden start --prompt-template <name> --set VAR=value …`.
+Inspect and manage default model tier mappings for agent roles.
+
+Subcommands:
+  list    List all role-to-tier mappings
+  set     Set the default model tier for a role
+
+When run without subcommands, `warden role tier` lists all mappings.
 
 Usage:
-  warden library save-prompt <name> --prompt "<body with {{VAR}} placeholders>" [flags]
+  warden role tier [flags]
+
+Commands:
+  list                 List agent roles and their default model tiers
 
 Flags:
-  -h, --help            help for save-prompt
-      --prompt string   the template body, with {{VAR}} placeholders
+  -h, --help   help for tier
+      --json   emit role tier mappings as a JSON array
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden llm
+## warden role tier list
 
 ```text
-Local-LLM helpers for the REPL (wd repl)
+List agent roles and their default model tiers
 
 Usage:
-  warden llm [command]
-
-Available Commands:
-  suggest     Recommend local models for the REPL, sized to this machine's memory
+  warden role tier list [flags]
 
 Flags:
-  -h, --help   help for llm
+  -h, --help   help for list
+      --json   emit role tier mappings as a JSON array
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 
-Use "warden llm [command] --help" for more information about a command.
+Aliases:
+  ls
 ```
 
-## warden llm suggest
+## warden rotate
 
 ```text
-Suggest local LLM models for warden's REPL (wd repl), ranked against
-this machine's memory.
+Run inside an agent session. Phase 1 is driven by the /warden skill (the agent writes a handoff file + resume prompt and shows you). On your go-ahead, run with --confirm to spawn the successor and reap this agent.
 
-warden auto-detects two figures: total memory (GPU VRAM, Apple unified memory, or
-system RAM — whichever bounds a usable model) and average free memory (sampled a
-few times to smooth out spikes). Each candidate is then marked:
-
-  fits now           runnable right now within free memory
-  free memory first  fits the machine, but you'd need to close apps first
-  too large          won't fit this machine
-
-Models are scored by suitability for the conductor role — reliable tool/function
-calling, not coding or raw size. The recommendation (★) is the best-scoring model
-that runs comfortably now while leaving headroom for your real workload (Docker,
-DBs, IDE, Claude sessions, the warden daemon). warden only ever recommends — you
-set local_llm_model yourself.
+This is a thin alias for `warden handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
 
 Usage:
-  warden llm suggest [flags]
+  warden rotate [flags]
 
 Flags:
-      --free-gb float    override detected free memory (GB)
-  -h, --help             help for suggest
-      --json             output as JSON
-      --samples int      free-memory samples to average (default 5)
-      --total-gb float   override detected total memory (GB)
+      --confirm                actually spawn the successor and retire this agent (required for retire)
+  -h, --help                   help for rotate
+      --resume-file string     path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)
+      --resume-prompt string   the successor's initial task prompt
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden ls
+## warden set-permission-mode
 
 ```text
-List all active agent sessions
+Set the permission mode for a specific agent.
+
+Valid permission modes:
+  acceptEdits        - Prompt for tool permissions (supervised mode)
+  auto               - Default behavior
+  bypassPermissions  - Skip all permission prompts
+  default            - Use global default from config
+  dontAsk            - Don't ask for permissions
+  plan               - Plan mode
+
+The permission mode controls how Claude handles tool permission prompts.
+Setting to "default" (or empty string) clears the agent-specific override
+and uses the global default_permission_mode config setting.
+
+Examples:
+  warden set-permission-mode abc123 acceptEdits  # Enable supervised mode
+  warden set-permission-mode abc123 auto         # Use auto mode
+  warden set-permission-mode abc123 default      # Use global default
 
 Usage:
-  warden ls [flags]
+  warden set-permission-mode <agent-id> <mode> [flags]
 
 Flags:
-  -a, --all           include system agents
-  -h, --help          help for ls
+  -h, --help   help for set-permission-mode
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden set-role
+
+```text
+Switch a running agent's built-in role.
+
+The role's persona is injected as a system-prompt addendum; changing it relaunches
+the agent (its current turn is discarded) so the new persona takes effect. Set the
+role to "general" (or "") to clear the persona and behave like a plain agent.
+
+Valid roles (see `warden role list` for descriptions):
+  general | orchestrator | planner | worker
+  (legacy aliases implementer/auto-merger/reviewer resolve to worker)
+
+Examples:
+  warden set-role abc123 reviewer      # give the agent the reviewer persona
+  warden set-role abc123 general       # clear the persona
+
+Usage:
+  warden set-role <agent-id> <role> [flags]
+
+Flags:
+  -h, --help   help for set-role
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden stop
+
+```text
+Stop an agent. The single umbrella teardown verb.
+
+<AGENT> is any identifier `wd ls` shows — the agent's name, its id, or its
+ticket. All teardown verbs resolve by name-or-id.
+
+By default `wd stop <TICKET>` does a FULL teardown: terminate the
+tmux+claude session, clear (archive) the record, and remove the git worktree +
+branch (asking for confirmation first, unless --yes). Subtractive flags keep
+parts around; --pr opens a GitHub PR first while the agent is still intact.
+
+The four older verbs are kept as thin aliases — each is just `stop` with a
+fixed flag combo:
+
+  old verb                    equivalent
+  --------------------------  ------------------------------------------------
+  wd terminate <T>            wd stop <T> --keep-record --keep-worktree
+  wd delete <T> [--hard]      wd stop <T> --keep-worktree (record only)
+  wd remove-worktree <T>      wd stop <T> --keep-record  (worktree only)
+  wd done <T> [--hard|--pr]   wd stop <T> --keep-worktree [--hard|--pr]
+  wd stop <T>                 terminate + clear record + remove worktree
+
+Safe ordering is always: PR -> terminate -> clear record -> remove worktree, so
+a failed push leaves the agent running.
+
+Usage:
+  warden stop <AGENT> [flags]
+
+Flags:
+      --base string             base branch for the PR (default main); only meaningful with --pr
+      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
+      --force                   override the alive/uncommitted/unpushed worktree guards
+      --hard                    purge the record instead of archiving
+  -h, --help                    help for stop
+      --keep-record             do not clear the stored record
+      --keep-worktree           do not remove the git worktree (this + default == the old 'done')
+      --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
+      --yes                     skip the worktree-removal confirmation prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden switch
+
+```text
+Mid-session hot-swap: retire the active CLI process and launch a successor backend
+in the SAME worktree, carrying forward structured context (Goal, Decisions Log,
+Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.
+
+The successor can be chosen by explicit --backend and/or --model, or by --tier
+(resolved via quota-balanced weighted headroom routing across eligible backends).
+
+The swap is performed by the warden daemon (the sole owner of the session store),
+so the daemon must be running.
+
+Examples:
+  warden switch --backend antigravity --model gemini-3.1-pro
+  warden switch --tier tier-1
+  warden switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'
+
+
+Usage:
+  warden switch [agent-id] [flags]
+
+Flags:
+  -b, --backend string   explicit successor backend id (claude, antigravity, codex, …)
+  -h, --help             help for switch
+      --json             emit result as JSON
+  -m, --model string     explicit successor model id
+  -p, --prompt string    optional extra instruction appended to successor's continuation prompt
+      --reason string    reason recorded for hot-swap (manual|context_fill|quota) (default "manual")
+  -r, --role string      role to resolve tier from when --tier is not given
+  -t, --tier string      resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden tail
+
+```text
+Print the recent output of an agent's claude session
+
+Usage:
+  warden tail <TICKET> [flags]
+
+Flags:
+  -h, --help        help for tail
+      --lines int   number of pane lines to capture (default 200)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden terminate
+
+```text
+Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+
+Usage:
+  warden terminate <AGENT> [flags]
+
+Flags:
+  -h, --help   help for terminate
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden worktree
+
+```text
+One umbrella over warden's two worktree operations:
+  • LIST  — the warden-owned worktrees under .worktrees, joined to active/archived records (`wd worktree list`)
+  • PRUNE — reclaim orphaned warden worktrees (`wd worktree prune`)
+
+`wd worktree` with no subcommand prints the list (the same view as `wd worktree list`). `wd worktree prune` is the same command as the top-level `wd prune`, which remains available and unchanged as an alias. (Tearing down ONE agent's worktree is a different concern — see `wd remove-worktree`.)
+
+Usage:
+  warden worktree [flags]
+
+Commands:
+  list                 List warden worktrees under .worktrees, joined to active/archived records
+  prune                Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
+
+Flags:
+  -h, --help          help for worktree
       --json          output as JSON
-      --tag strings   only show agents carrying every given tag (repeatable or comma-separated, e.g. --tag backend --tag urgent)
-  -w, --watch         live-update the list on every agent state change (Ctrl+C to exit)
+      --repo string   repo path (default: current directory)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden mcp
+## warden worktree list
 
 ```text
-Run the MCP stdio server so an orchestrator Claude can manage agents
+List warden worktrees under .worktrees, joined to active/archived records
 
 Usage:
-  warden mcp [flags]
+  warden worktree list [flags]
 
 Flags:
-  -h, --help   help for mcp
+  -h, --help          help for list
+      --json          output as JSON
+      --repo string   repo path (default: current directory)
 
-Global Flags:
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden worktree prune
+
+```text
+Reclaim orphaned warden worktrees under .worktrees — those whose owning agent
+record is gone (or, with --include-archived, archived). Always shows the plan
+and asks before removing anything (skip with --yes); dirty/unpushed worktrees
+are kept unless --force. Retention is policy-driven via the `worktree.keep_done`
+/ `worktree.auto_prune` config settings.
+
+Available as `wd worktree prune` and, unchanged, as the top-level alias `wd prune`.
+(To tear down ONE agent's worktree instead, use `wd remove-worktree`.)
+
+Usage:
+  warden worktree prune [flags]
+
+Flags:
+      --dry-run            report what would be removed; change nothing
+      --force              override the dirty/unpushed guard and permit branch deletion for record-less orphans (never the default branch)
+  -h, --help               help for prune
+      --include-archived   also reclaim worktrees owned by archived (done) records
+      --json               output as JSON
+      --repo string        repo path (default: current directory)
+      --yes                skip the confirmation prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden snapshot
+
+```text
+Capture a known-good point for an agent — its worktree state (a non-destructive
+git stash, so the agent's tree is untouched) plus its session transcript — and
+roll back to it later. Subcommands: create, list, restore.
+
+Usage:
+  warden snapshot [flags]
+
+Commands:
+  create               Capture the worktree state + transcript of an agent (defaults to the current one)
+  list                 List snapshots for an agent (newest first); --all for every session
+  restore              Re-apply a snapshot onto its recorded worktree (refuses a dirty tree unless --force)
+
+Flags:
+  -h, --help   help for snapshot
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden snapshot create
+
+```text
+Capture a snapshot of an agent's worktree and session transcript. With no
+[name] it snapshots the agent this command runs inside (WARDEN_SESSION_ID);
+pass an agent id to snapshot a different one. The worktree is captured with
+`git stash create` — non-destructive, so the agent's working tree is untouched.
+
+Usage:
+  warden snapshot create [name] [flags]
+
+Flags:
+  -h, --help             help for create
+      --json             emit the raw result as JSON
+  -m, --message string   optional label for the snapshot
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden snapshot list
+
+```text
+List snapshots for an agent (newest first); --all for every session
+
+Usage:
+  warden snapshot list [name] [flags]
+
+Flags:
+      --all    list snapshots across all sessions
+  -h, --help   help for list
+      --json   emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden snapshot restore
+
+```text
+Re-apply a snapshot's captured worktree state onto the worktree it was taken
+in. Refuses a dirty tree unless --force, and never restores onto main/master.
+Reversible-safe: it re-applies the stash without resetting HEAD or dropping the
+snapshot, so the snapshot stays usable and uncommitted work is the only thing at
+risk (hence the dirty-tree guard).
+
+Usage:
+  warden snapshot restore <snapshot-id> [flags]
+
+Flags:
+      --force   restore even when the worktree has uncommitted changes
+  -h, --help    help for restore
+      --json    emit the raw result as JSON
+
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -1831,457 +1512,7 @@ Flags:
       --path   print just the resolved file path (scriptable; no auto-create)
       --raw    print the file verbatim instead of the rendered view
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden models
-
-```text
-Show the live, currently-available model menu the agent's backend exposes, or
-inspect and configure the tiered model catalog in warden.
-
-Subcommands:
-  list      List models in the catalog and their assigned tiers
-  tier      Set a model's tier classification (tier-1|tier-2|tier-3)
-
-When run without subcommands, `warden models` shows the live model menu of the
-current or specified backend.
-
-Usage:
-  warden models [flags]
-  warden models [command]
-
-Available Commands:
-  list        List models in the catalog and their assigned tiers
-  tier        Set a model's tier classification (tier-1|tier-2|tier-3)
-
-Flags:
-      --backend string   list models for this backend id (default: the current agent's backend)
-  -h, --help             help for models
-      --json             emit the menu as a JSON array instead of one id per line
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden models [command] --help" for more information about a command.
-```
-
-## warden models list
-
-```text
-List models in the catalog and their assigned tiers
-
-Usage:
-  warden models list [flags]
-
-Aliases:
-  list, ls
-
-Flags:
-      --backend string   filter models by backend ID
-      --by-tier          group and display models by tier
-  -h, --help             help for list
-      --json             emit models as a JSON array
-      --tier string      filter models by tier (tier-1|tier-2|tier-3)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden models tier
-
-```text
-Set a model's tier classification in the catalog.
-
-Tiers:
-  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
-  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
-  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
-
-Example:
-  warden models tier claude sonnet tier-2
-
-Usage:
-  warden models tier <backend> <model> <tier> [flags]
-
-Flags:
-  -h, --help   help for tier
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden msg
-
-```text
-Send and receive directed messages between agents
-
-Usage:
-  warden msg [command]
-
-Available Commands:
-  inbox       Show this agent's messages (marks them read)
-  send        Send a message to an agent (wakes it if it's idle/waiting)
-  wait        Block until a message arrives (or timeout), then print it
-
-Flags:
-      --as string   act as this agent id (defaults to $WARDEN_SESSION_ID)
-  -h, --help        help for msg
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden msg [command] --help" for more information about a command.
-```
-
-## warden msg inbox
-
-```text
-Show this agent's messages (marks them read)
-
-Usage:
-  warden msg inbox [flags]
-
-Flags:
-  -h, --help     help for inbox
-      --unread   show only unread messages
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --as string       act as this agent id (defaults to $WARDEN_SESSION_ID)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden msg send
-
-```text
-Send a message to an agent (wakes it if it's idle/waiting)
-
-Usage:
-  warden msg send <to> <message...> [flags]
-
-Flags:
-  -h, --help   help for send
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --as string       act as this agent id (defaults to $WARDEN_SESSION_ID)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden msg wait
-
-```text
-Block until a message arrives (or timeout), then print it
-
-Usage:
-  warden msg wait [flags]
-
-Flags:
-      --from string   only wait for a message from this sender
-  -h, --help          help for wait
-      --timeout int   seconds to wait before giving up (daemon caps at 600) (default 300)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --as string       act as this agent id (defaults to $WARDEN_SESSION_ID)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline
-
-```text
-Define and run DAG pipelines of agent jobs
-
-Usage:
-  warden pipeline [command]
-
-Available Commands:
-  cancel         Cancel a pipeline (terminates running jobs)
-  create         Create a pipeline from a YAML spec or a built-in template
-  delete         Delete a pipeline's record (must not have live jobs — cancel first)
-  edit-job       Edit a pending job's prompt and/or handoff
-  emit           Publish this job's handoff (run from inside a pipeline job)
-  list           List pipelines
-  list-templates List the built-in pipeline templates and their placeholders
-  pause          Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
-  resume         Resume a paused pipeline (spawns jobs that became ready while paused)
-  retry          Re-run a failed or needs-attention job (reopens skipped descendants)
-  show           Show a pipeline's jobs and their status
-  start          Start a pipeline (spawns jobs with no dependencies)
-  validate       Validate a pipeline YAML spec without creating it
-
-Flags:
-  -h, --help   help for pipeline
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden pipeline [command] --help" for more information about a command.
-```
-
-## warden pipeline cancel
-
-```text
-Cancel a pipeline (terminates running jobs)
-
-Usage:
-  warden pipeline cancel <pipeline> [flags]
-
-Flags:
-  -h, --help   help for cancel
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline create
-
-```text
-Create a pipeline either from a YAML spec file (-f) or from a built-in
-template (--template). Templates render with placeholder substitution: --name
-fills {{NAME}} (default the template name), --repo fills {{REPO}} (default the
-current directory), and each remaining {{KEY}} is filled with --set KEY=VALUE.
-Run `warden pipeline list-templates` to see templates and their placeholders.
-
-Usage:
-  warden pipeline create (-f <spec.yaml> | --template <name>) [flags]
-
-Flags:
-  -f, --file string                        path to the pipeline YAML spec
-  -h, --help                               help for create
-      --name string                        pipeline name — fills {{NAME}} (default: the template name)
-      --repo string                        repo path — fills {{REPO}} (default: the current directory)
-      --set stringArray                    fill a template placeholder, KEY=VALUE (repeatable)
-      --template pipeline list-templates   built-in template to render (see pipeline list-templates)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline delete
-
-```text
-Delete a pipeline's record (must not have live jobs — cancel first)
-
-Usage:
-  warden pipeline delete <pipeline> [flags]
-
-Flags:
-  -h, --help   help for delete
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline edit-job
-
-```text
-Edit a pending job's prompt and/or handoff
-
-Usage:
-  warden pipeline edit-job <pipeline> <job> [flags]
-
-Flags:
-      --handoff string   new handoff hint for the job
-  -h, --help             help for edit-job
-      --prompt string    new prompt for the job
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline emit
-
-```text
-Publish this job's handoff (run from inside a pipeline job)
-
-Usage:
-  warden pipeline emit <text> [flags]
-
-Flags:
-  -h, --help              help for emit
-      --job string        job id (defaults to $WARDEN_JOB_ID)
-      --pipeline string   pipeline id (defaults to $WARDEN_PIPELINE_ID)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline list
-
-```text
-List pipelines
-
-Usage:
-  warden pipeline list [flags]
-
-Flags:
-  -h, --help   help for list
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline list-templates
-
-```text
-List the built-in pipeline templates and their placeholders
-
-Usage:
-  warden pipeline list-templates [flags]
-
-Flags:
-  -h, --help   help for list-templates
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline pause
-
-```text
-Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
-
-Usage:
-  warden pipeline pause <pipeline> [flags]
-
-Flags:
-  -h, --help   help for pause
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline resume
-
-```text
-Resume a paused pipeline (spawns jobs that became ready while paused)
-
-Usage:
-  warden pipeline resume <pipeline> [flags]
-
-Flags:
-  -h, --help   help for resume
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline retry
-
-```text
-Re-run a failed or needs-attention job (reopens skipped descendants)
-
-Usage:
-  warden pipeline retry <pipeline> <job> [flags]
-
-Flags:
-  -h, --help   help for retry
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline show
-
-```text
-Show a pipeline's jobs and their status
-
-Usage:
-  warden pipeline show <pipeline> [flags]
-
-Flags:
-  -h, --help   help for show
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline start
-
-```text
-Start a pipeline (spawns jobs with no dependencies)
-
-Usage:
-  warden pipeline start <pipeline> [flags]
-
-Flags:
-  -h, --help   help for start
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline validate
-
-```text
-Parse and validate a pipeline spec locally — checks required fields, job ids, dependency references, worktree/run_if values, and DAG cycles. Exits 0 if valid, 1 if not (suitable for CI). Does not contact the daemon.
-
-Usage:
-  warden pipeline validate -f <spec.yaml> [flags]
-
-Flags:
-  -f, --file string   path to the pipeline YAML spec
-  -h, --help          help for validate
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden plugin
-
-```text
-Plugins are external executables registered in config (plugins.registry) that declare custom agent task types and subscribe to lifecycle hook events (pre/post spawn, commit, check, teardown), invoked over a JSON-over-stdio protocol. The system is OFF by default — plugins run external code — and every hook fails open (a broken/slow/missing plugin is logged and skipped, never blocking an agent).
-
-Usage:
-  warden plugin [command]
-
-Available Commands:
-  list        List registered plugins, their custom task types, and subscribed hook events
-
-Flags:
-  -h, --help   help for plugin
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden plugin [command] --help" for more information about a command.
-```
-
-## warden plugin list
-
-```text
-List registered plugins, their custom task types, and subscribed hook events
-
-Usage:
-  warden plugin list [flags]
-
-Flags:
-  -h, --help   help for list
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -2292,20 +1523,18 @@ Global Flags:
 Save and list named spawn configs (replay with `warden start --preset <name>`)
 
 Usage:
-  warden preset [command]
+  warden preset [flags]
 
-Available Commands:
-  list        List saved presets and their defaults
-  save        Save the given spawn flags as a named preset
+Commands:
+  list                 List saved presets and their defaults
+  save                 Save the given spawn flags as a named preset
 
 Flags:
   -h, --help   help for preset
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden preset [command] --help" for more information about a command.
 ```
 
 ## warden preset list
@@ -2319,7 +1548,7 @@ Usage:
 Flags:
   -h, --help   help for list
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -2344,7 +1573,7 @@ Flags:
       --type string              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
       --worktree                 create a scratch worktree for analysis/spike
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -2355,23 +1584,21 @@ Global Flags:
 Save and list reusable, variabled prompt templates (fill with `warden start --prompt-template <name> --set VAR=value`)
 
 Usage:
-  warden prompt-template [command]
+  warden prompt-template [flags]
 
-Aliases:
-  prompt-template, prompt-templates, pt
-
-Available Commands:
-  list        List saved prompt templates and their variables
-  save        Save a named prompt template with {{VAR}} placeholders
+Commands:
+  list                 List saved prompt templates and their variables
+  save                 Save a named prompt template with {{VAR}} placeholders
 
 Flags:
   -h, --help   help for prompt-template
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 
-Use "warden prompt-template [command] --help" for more information about a command.
+Aliases:
+  prompt-templates, pt
 ```
 
 ## warden prompt-template list
@@ -2385,7 +1612,7 @@ Usage:
 Flags:
   -h, --help   help for list
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -2406,7 +1633,160 @@ Flags:
   -h, --help            help for save
       --prompt string   the template body, with {{VAR}} placeholders
 
-Global Flags:
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden library
+
+```text
+One umbrella over warden's reusable launch configs:
+  • spawn PRESETS      — named `warden start` defaults (saved in ~/.warden/presets.yaml)
+  • prompt TEMPLATES   — variabled prompt bodies (saved in ~/.warden/prompt-templates.yaml)
+  • pipeline TEMPLATES — built-in DAG starters bundled with warden (read-only)
+
+`library list` shows all three. `library save-preset` saves a spawn preset (the
+same as `warden preset save`) and `library save-prompt` saves a prompt template
+(the same as `warden prompt-template save`). Pipeline templates are embedded and
+read-only, so there is no `save-template`; author a pipeline from a YAML spec with
+`warden pipeline create -f <spec.yaml>` instead. The `preset`, `prompt-template`,
+and `pipeline list-templates` commands remain available and unchanged.
+
+Usage:
+  warden library [flags]
+
+Commands:
+  list                 List saved spawn presets and built-in pipeline templates
+  save-preset          Save the given spawn flags as a named preset (same as `warden preset save`)
+  save-prompt          Save a variabled prompt template (same as `warden prompt-template save`)
+
+Flags:
+  -h, --help   help for library
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  lib
+```
+
+## warden library list
+
+```text
+Show both libraries in two labeled sections: saved spawn presets (name +
+their stored defaults) and the built-in pipeline templates (name + a short
+description). Reuses the same sources as `warden preset list` and `warden
+pipeline list-templates`.
+
+Usage:
+  warden library list [flags]
+
+Flags:
+  -h, --help   help for list
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden library save-preset
+
+```text
+Persist a reusable set of `warden start` defaults under a name in
+~/.warden/presets.yaml. Saving an existing name overwrites it. Replay with
+`warden start --preset <name>` (explicit CLI flags still win).
+
+Usage:
+  warden library save-preset <name> [spawn flags] [flags]
+
+Flags:
+      --auto-restart             auto-resume this agent if it crashes (errored)
+  -h, --help                     help for save-preset
+      --in-repo                  run in the shared repo instead of an isolated worktree
+      --model string             claude model: opus, sonnet, haiku, fable, or full model ID
+      --permission-mode string   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan
+      --supervised               alias for --permission-mode acceptEdits
+      --type string              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
+      --worktree                 create a scratch worktree for analysis/spike
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden library save-prompt
+
+```text
+Persist a reusable prompt body under a name in
+~/.warden/prompt-templates.yaml. The body may contain `{{VAR}}` placeholders;
+the declared variables are derived from the body automatically. Saving an
+existing name overwrites it. Fill in and spawn with
+`warden start --prompt-template <name> --set VAR=value …`.
+
+Usage:
+  warden library save-prompt <name> --prompt "<body with {{VAR}} placeholders>" [flags]
+
+Flags:
+  -h, --help            help for save-prompt
+      --prompt string   the template body, with {{VAR}} placeholders
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plugin
+
+```text
+Plugins are external executables registered in config (plugins.registry) that declare custom agent task types and subscribe to lifecycle hook events (pre/post spawn, commit, check, teardown), invoked over a JSON-over-stdio protocol. The system is OFF by default — plugins run external code — and every hook fails open (a broken/slow/missing plugin is logged and skipped, never blocking an agent).
+
+Usage:
+  warden plugin [flags]
+
+Commands:
+  list                 List registered plugins, their custom task types, and subscribed hook events
+
+Flags:
+  -h, --help   help for plugin
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plugin list
+
+```text
+List registered plugins, their custom task types, and subscribed hook events
+
+Usage:
+  warden plugin list [flags]
+
+Flags:
+  -h, --help   help for list
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden branches
+
+```text
+Show each tracked agent's branch: its latest GitHub CI run and how it sits against origin/main (behind/ahead/merged).
+
+Read-only. Requires the branch tracker to be enabled (branch_track.enabled); a disabled tracker reports no branches.
+
+Usage:
+  warden branches [flags]
+
+Flags:
+  -h, --help   help for branches
+      --json   output the branch statuses as JSON
+
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -2435,173 +1815,7 @@ Flags:
       --repo string        repo path (default: current directory)
       --yes                skip the confirmation prompt
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden push
-
-```text
-Push the current worktree branch to origin, setting upstream.
-
-warden refuses to push protected branches (main/master) directly — push your
-agent branch and open a PR.
-
-Pass --force-with-lease after a rebase or amend to overwrite your remote
-branch. warden only ever uses --force-with-lease (never a bare --force), so
-the push aborts if a teammate pushed to your branch since your last fetch.
-
-Usage:
-  warden push [flags]
-
-Flags:
-      --force-with-lease   push with --force-with-lease (safe force after a rebase/amend)
-  -h, --help               help for push
-      --json               emit the raw result as JSON
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden recover
-
-```text
-Scans archived (closed) agent records for ones whose tmux session is
-confirmed still alive — a live session's record should never end up
-archived, but a stale orphaned status racing a daemon restart could
-previously slip one past the tombstone reaper. Bare `wd recover` only
-reports what it finds; --apply re-inserts each candidate into the active
-store under its original id. Any children (linked via parent_id, untouched
-by archiving) reconnect automatically — no need to recover them separately.
-
-Usage:
-  warden recover [flags]
-
-Flags:
-      --apply   actually re-insert candidates (default: report only)
-  -h, --help    help for recover
-      --json    output as JSON
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden remove-worktree
-
-```text
-Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
-
-Usage:
-  warden remove-worktree <AGENT> [flags]
-
-Flags:
-      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
-      --force                   override the alive/uncommitted/unpushed guards
-  -h, --help                    help for remove-worktree
-      --yes                     skip the confirmation prompt
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden repair
-
-```text
-Offline, backup-first repair tools
-
-Usage:
-  warden repair [command]
-
-Available Commands:
-  sessions    Diagnose or reconstruct the offline session store
-
-Flags:
-  -h, --help   help for repair
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden repair [command] --help" for more information about a command.
-```
-
-## warden repair sessions
-
-```text
-Diagnose or reconstruct the offline session store
-
-Usage:
-  warden repair sessions [flags]
-
-Flags:
-      --apply           apply the reconstruction (default is dry-run)
-      --backup string   backup destination (required with --apply; must not exist)
-      --dry-run         diagnose and report without changing session data
-  -h, --help            help for sessions
-      --json            print the machine-readable recovery report
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden repl
-
-```text
-Interactive mode: a full-screen-free REPL to drive your warden fleet from the terminal.
-
-It is a real line editor — arrow keys, history (persisted across sessions),
-reverse-search, and Tab completion — that closes cleanly with Ctrl-D, returning
-you to your shell prompt.
-
-Two ways to drive it:
-  • Deterministic `/` commands (no model): /agents, /spawn <prompt>, /tell <id> <text>,
-    /memory <question>, /pipelines, … — typing / pops a live, filtering menu of verbs;
-    Tab also completes verbs and live agent ids. Type /help for the list.
-  • Natural language: any other line is planned by the local LLM into warden tool
-    calls, each confirmed before it runs.
-
-Guided argument forms: when a `/` command needs more than you typed, warden
-collects the arguments interactively — a numbered pick-list for fields with a
-known set (model, permission_mode, type, yes/no), free text for the rest. A
-command auto-opens the form when a required argument is missing (e.g. bare
-/spawn); add a trailing + to fill every field (/spawn+ <prompt>). With a local
-model present each field opens with a suggested value you can accept with Enter,
-type over, or clear with "-".
-
-`!cmd` runs a command in your own $SHELL. Requires local_llm: true for the
-natural-language half; the `/` commands work regardless.
-
-Usage:
-  warden repl [flags]
-
-Aliases:
-  repl, interactive, i
-
-Flags:
-  -h, --help   help for repl
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden restore
-
-```text
-Recreate and resume a lost/orphaned agent (claude --resume)
-
-Usage:
-  warden restore <TICKET> [flags]
-
-Flags:
-  -h, --help   help for restore
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -2641,141 +1855,662 @@ Flags:
       --json             emit machine-readable findings (neutral JSON) instead of streaming the prose review
       --prompt string    optional extra review instructions for the backend's reviewer
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden role
+## warden ctx
 
 ```text
-Inspect warden's built-in agent roles and tier mappings
+Read and write the shared context (a namespaced key/value store agents share)
 
 Usage:
-  warden role [command]
+  warden ctx [flags]
 
-Available Commands:
-  list        List the built-in agent roles and their descriptions
-  set-tier    Set the default model tier for an agent role (tier-1|tier-2|tier-3)
-  tier        Inspect and manage role-to-tier mappings
+Commands:
+  append               Atomically append to a key's value (creates it if absent)
+  cas                  Set a key only if its current value matches --expected (atomic compare-and-set)
+  del                  Delete a context key
+  get                  Print the value at a context key
+  list                 List context keys (optionally filtered by prefix)
+  set                  Set a context key (value inline, or --file / --stdin)
 
 Flags:
-  -h, --help   help for role
+  -h, --help   help for ctx
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden role [command] --help" for more information about a command.
 ```
 
-## warden role list
+## warden ctx append
 
 ```text
-List the built-in agent roles and their descriptions
+Atomically append to a key's value (creates it if absent)
 
 Usage:
-  warden role list [flags]
+  warden ctx append <key> [value] [flags]
+
+Flags:
+      --as string     writer identity (defaults to $WARDEN_SESSION_ID or 'human')
+      --file string   read value from a file
+  -h, --help          help for append
+      --sep string    separator inserted before the value when the key already exists (default "\n")
+      --stdin         read value from stdin
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden ctx cas
+
+```text
+Set a key only if its current value matches --expected (atomic compare-and-set)
+
+Usage:
+  warden ctx cas <key> [value] [flags]
+
+Flags:
+      --as string         writer identity (defaults to $WARDEN_SESSION_ID or 'human')
+      --expected string   only set if the current value equals this (empty = key must be absent)
+      --file string       read value from a file
+  -h, --help              help for cas
+      --stdin             read value from stdin
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden ctx del
+
+```text
+Delete a context key
+
+Usage:
+  warden ctx del <key> [flags]
+
+Flags:
+  -h, --help   help for del
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden ctx get
+
+```text
+Print the value at a context key
+
+Usage:
+  warden ctx get <key> [flags]
+
+Flags:
+  -h, --help   help for get
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden ctx list
+
+```text
+List context keys (optionally filtered by prefix)
+
+Usage:
+  warden ctx list [prefix] [flags]
 
 Flags:
   -h, --help   help for list
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden role set-tier
+## warden ctx set
 
 ```text
-Set the default model tier assigned when creating agents with this role.
-
-Tiers:
-  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
-  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
-  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
-
-Example:
-  warden role set-tier worker tier-2
-  warden role set-tier orchestrator tier-1
+Set a context key (value inline, or --file / --stdin)
 
 Usage:
-  warden role set-tier <role> <tier> [flags]
+  warden ctx set <key> [value] [flags]
 
 Flags:
-  -h, --help   help for set-tier
+      --as string     writer identity (defaults to $WARDEN_SESSION_ID or 'human')
+      --file string   read value from a file
+  -h, --help          help for set
+      --stdin         read value from stdin
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden role tier
+## warden msg
 
 ```text
-Inspect and manage default model tier mappings for agent roles.
-
-Subcommands:
-  list    List all role-to-tier mappings
-  set     Set the default model tier for a role
-
-When run without subcommands, `warden role tier` lists all mappings.
+Send and receive directed messages between agents
 
 Usage:
-  warden role tier [flags]
-  warden role tier [command]
+  warden msg [flags]
 
-Available Commands:
-  list        List agent roles and their default model tiers
+Commands:
+  inbox                Show this agent's messages (marks them read)
+  send                 Send a message to an agent (wakes it if it's idle/waiting)
+  wait                 Block until a message arrives (or timeout), then print it
 
 Flags:
-  -h, --help   help for tier
-      --json   emit role tier mappings as a JSON array
+  -h, --help   help for msg
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden role tier [command] --help" for more information about a command.
 ```
 
-## warden role tier list
+## warden msg inbox
 
 ```text
-List agent roles and their default model tiers
+Show this agent's messages (marks them read)
 
 Usage:
-  warden role tier list [flags]
+  warden msg inbox [flags]
+
+Flags:
+  -h, --help     help for inbox
+      --unread   show only unread messages
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --as string       act as this agent id (defaults to $WARDEN_SESSION_ID)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden msg send
+
+```text
+Send a message to an agent (wakes it if it's idle/waiting)
+
+Usage:
+  warden msg send <to> <message...> [flags]
+
+Flags:
+  -h, --help   help for send
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --as string       act as this agent id (defaults to $WARDEN_SESSION_ID)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden msg wait
+
+```text
+Block until a message arrives (or timeout), then print it
+
+Usage:
+  warden msg wait [flags]
+
+Flags:
+      --from string   only wait for a message from this sender
+  -h, --help          help for wait
+      --timeout int   seconds to wait before giving up (daemon caps at 600) (default 300)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --as string       act as this agent id (defaults to $WARDEN_SESSION_ID)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden approvals
+
+```text
+List pending tool-permission prompts waiting for an answer
+
+Usage:
+  warden approvals [flags]
+
+Flags:
+  -h, --help   help for approvals
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden approve
+
+```text
+Answer a pending tool-permission prompt by option number
+
+Usage:
+  warden approve <TICKET> <option> [flags]
+
+Flags:
+  -h, --help   help for approve
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden auto-approve
+
+```text
+Control automatic approval of recognized tool-permission prompts.
+
+Two layers cooperate:
+
+  • Per-agent toggle (this command's bare form): opt one agent into evaluation
+    even when the global policy is disabled.
+        warden auto-approve abc123 on    # participate
+        warden auto-approve abc123 off   # stop
+
+  • Policy rules (the subcommands below): an allow/deny rule engine evaluated for
+    every participating agent. A prompt is auto-answered only when it matches an
+    allow rule, matches NO deny rule, and is not on warden's built-in destructive
+    deny-list (which always wins). With NO rules configured the policy is the
+    simple on/off toggle: an enabled policy approves every recognized,
+    non-destructive prompt (backward compatible with the old behavior).
+
+Rules match by tool name, a case-insensitive glob/substring (--pattern), a Go
+regular expression (--regex) over the prompt, and/or path globs (--paths). A
+per-agent override (--agent NAME, keyed by agent name or id) gets its own rule
+set that replaces the default for that agent.
+
+Examples:
+  warden auto-approve rules                         # show the live policy
+  warden auto-approve enable                        # turn the policy on
+  warden auto-approve allow --tool Read             # auto-approve all Read prompts
+  warden auto-approve allow --regex '^Bash\(git (status|diff|log)\)'
+  warden auto-approve deny  --tool Bash --pattern rm
+  warden auto-approve allow --agent reviewer --tool Grep
+  warden auto-approve clear --agent reviewer        # drop reviewer's overrides
+
+Rule changes take effect immediately (no restart) and are persisted to config.
+
+Usage:
+  warden auto-approve <agent-id> <on|off> [flags]
+
+Commands:
+  allow                Append an allow rule to the auto-approve policy
+  clear                Clear auto-approve rules (default, or a per-agent override with --agent)
+  deny                 Append an deny rule to the auto-approve policy
+  disable              Disable the auto-approve policy (global, or per-agent with --agent)
+  enable               Enable the auto-approve policy (global, or per-agent with --agent)
+  rules                Show the live auto-approve policy (default rules + per-agent overrides)
+
+Flags:
+  -h, --help   help for auto-approve
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden auto-approve allow
+
+```text
+Append an allow rule to the auto-approve policy
+
+Usage:
+  warden auto-approve allow [flags]
+
+Flags:
+      --agent string     scope the rule to a per-agent override (agent name or id)
+  -h, --help             help for allow
+      --paths strings    path globs against the action target (comma-separated)
+      --pattern string   case-insensitive glob/substring over the action + question
+      --regex string     Go regular expression over the action + question
+      --tool string      exact tool name to match (e.g. Read, Bash)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden auto-approve clear
+
+```text
+Clear auto-approve rules (default, or a per-agent override with --agent)
+
+Usage:
+  warden auto-approve clear [flags]
+
+Flags:
+      --agent string   clear a per-agent override (agent name or id) instead of the default rules
+  -h, --help           help for clear
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden auto-approve deny
+
+```text
+Append an deny rule to the auto-approve policy
+
+Usage:
+  warden auto-approve deny [flags]
+
+Flags:
+      --agent string     scope the rule to a per-agent override (agent name or id)
+  -h, --help             help for deny
+      --paths strings    path globs against the action target (comma-separated)
+      --pattern string   case-insensitive glob/substring over the action + question
+      --regex string     Go regular expression over the action + question
+      --tool string      exact tool name to match (e.g. Read, Bash)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden auto-approve disable
+
+```text
+Disable the auto-approve policy (global, or per-agent with --agent)
+
+Usage:
+  warden auto-approve disable [flags]
+
+Flags:
+      --agent string   toggle a per-agent override (agent name or id) instead of the global default
+  -h, --help           help for disable
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden auto-approve enable
+
+```text
+Enable the auto-approve policy (global, or per-agent with --agent)
+
+Usage:
+  warden auto-approve enable [flags]
+
+Flags:
+      --agent string   toggle a per-agent override (agent name or id) instead of the global default
+  -h, --help           help for enable
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden auto-approve rules
+
+```text
+Show the live auto-approve policy (default rules + per-agent overrides)
+
+Usage:
+  warden auto-approve rules [flags]
+
+Flags:
+  -h, --help   help for rules
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
 
 Aliases:
-  list, ls
+  show, policy
+```
+
+## warden collab
+
+```text
+Inter-agent collaboration: see which agents are editing the same files
+
+Usage:
+  warden collab [flags]
+
+Commands:
+  conflicts            List files currently being edited by more than one agent
+  who-is-editing       Show which agents are editing a specific file
 
 Flags:
-  -h, --help   help for list
-      --json   emit role tier mappings as a JSON array
+  -h, --help   help for collab
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden rotate
+## warden collab conflicts
 
 ```text
-Run inside an agent session. Phase 1 is driven by the /warden skill (the agent writes a handoff file + resume prompt and shows you). On your go-ahead, run with --confirm to spawn the successor and reap this agent.
-
-This is a thin alias for `warden handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
+List files currently being edited by more than one agent
 
 Usage:
-  warden rotate [flags]
+  warden collab conflicts [flags]
 
 Flags:
-      --confirm                actually spawn the successor and retire this agent (required for retire)
-  -h, --help                   help for rotate
-      --resume-file string     path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)
-      --resume-prompt string   the successor's initial task prompt
+  -h, --help   help for conflicts
 
-Global Flags:
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden collab who-is-editing
+
+```text
+Show which agents are editing a specific file
+
+Usage:
+  warden collab who-is-editing <file> [flags]
+
+Flags:
+  -h, --help   help for who-is-editing
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden search
+
+```text
+Search across active agents' searchable text (name, id, ticket, type, subject, prompt, branch, last pane excerpt). Multiple terms are AND-ed. Pass --closed to also search archived agents.
+
+Usage:
+  warden search <QUERY...> [flags]
+
+Flags:
+      --closed   also search archived (closed) agents
+  -h, --help     help for search
+      --json     output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden history
+
+```text
+List the archived agent records the soft-delete path persists. Filter with --since (24h, 7d, 2w, or a date) and --type.
+
+Usage:
+  warden history [flags]
+
+Flags:
+  -h, --help           help for history
+      --json           output as JSON
+      --limit int      cap the number of results (0 = no cap)
+      --since string   only agents updated since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
+      --type string    filter by task type (development, pr-review, analysis, …)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden audit
+
+```text
+Read the daemon's audit trail (~/.warden/audit.jsonl) — who did what, when, to which object. The file is written by the daemon; this command reads it directly, so it works even while the daemon is down.
+
+Usage:
+  warden audit [flags]
+
+Commands:
+  log                  Show recent audited actions, newest last
+
+Flags:
+  -h, --help   help for audit
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden audit log
+
+```text
+Print audit records in chronological order. Tail the most recent with --tail (0 = all), and narrow with --action, --target, and --since/--until.
+
+Usage:
+  warden audit log [flags]
+
+Flags:
+      --action string   filter by action (spawn, terminate, delete, approve, pipeline_start, pipeline_cancel)
+  -h, --help            help for log
+      --json            output as JSON
+      --since string    only records since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
+      --tail int        show only the most recent N records (0 = all) (default 50)
+      --target string   filter by target substring (agent or pipeline ID)
+      --until string    only records up to this window or date
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden stats
+
+```text
+Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
+
+Usage:
+  warden stats [flags]
+
+Flags:
+      --agent string   with --history, limit to one agent ID
+  -h, --help           help for stats
+      --history        show persisted per-agent performance history + anomaly warnings
+      --json           output as JSON
+      --watch          redraw every 3s until interrupted
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden usage
+
+```text
+Show provider usage for subscription backends
+
+Usage:
+  warden usage [flags]
+
+Flags:
+  -h, --help      help for usage
+      --json      print the stable JSON document
+      --refresh   bypass the daemon's fresh usage cache
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden cost
+
+```text
+One umbrella over warden's two financial views:
+  • SPEND   — the REAL dollars agents billed Claude, measured from their transcripts (`wd cost spend`)
+  • SAVINGS — the tokens, and the dollars they represent, warden kept OUT of context (`wd cost savings`)
+
+`wd cost` with no subcommand prints a combined at-a-glance summary of both axes. `wd cost spend` and `wd cost savings` are the same commands as the top-level `wd spend` and `wd savings`, which remain available and unchanged. Both views are gated by the `savings` config setting. Resource footprint — memory/CPU/pressure — is a different axis; see `wd stats`.
+
+Usage:
+  warden cost [flags]
+
+Commands:
+  savings              Show the token reductions warden's lifecycle features have earned
+  spend                Show measured Claude spend in dollars, per agent / repo / day
+
+Flags:
+  -h, --help   help for cost
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden cost savings
+
+```text
+Report the measured token savings warden has recorded — the raw output its lifecycle features (starting with `wd check`) kept out of agents' context windows — as a per-feature breakdown with cumulative tokens, an estimated dollar figure, and the percentage of would-be context spend eliminated. Token counts are exact (a real, append-only ledger — a proof point you can screenshot); dollar figures are estimates based on published list prices (as of 2026-06) and exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ from your actual bill. Gated by the `savings` config setting.
+
+Usage:
+  warden cost savings [flags]
+
+Flags:
+      --audit               print a few retained raw-vs-kept provenance samples (requires savings_samples) so real bytes behind the counts can be eyeballed
+      --benchmark           show the headline A/B proof (without-vs-with-warden tokens, reduction %, $ saved) with a per-day trend sparkline, instead of the per-feature table
+      --calibrate           measure this workload's true bytes-per-token ratio against Claude's count_tokens endpoint (needs ANTHROPIC_API_KEY and retained samples) and persist it, so figures stop relying on the generic 4-bytes/token guess
+      --calibrate-max int   cap the number of paid count_tokens calls a --calibrate run makes (default 50)
+  -h, --help                help for savings
+      --json                output the structured summary as JSON
+      --since string        only count savings since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden cost spend
+
+```text
+Report the measured Claude spend warden read from agents' transcripts — the exact input/output tokens each agent sent and received — priced per model into estimated dollar figures and rolled up per-agent, per-repo, and per-day. Token counts are exact (read directly from the transcript); dollar figures are estimates based on published list prices (as of 2026-06) and exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ from your actual bill. The headline names the daily and weekly totals the budget gate (budget_gate / budget_daily_usd / budget_weekly_usd) enforces. This is the cost side of warden's savings ledger: where `wd savings` reports what warden kept OUT of context, `wd spend` reports what agents actually billed. Gated by the `savings` config setting.
+
+Usage:
+  warden cost spend [flags]
+
+Flags:
+      --by string   show only one rollup: agent, repo, or day (default: all three)
+  -h, --help        help for spend
+      --json        output the structured rollup as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden spend
+
+```text
+Report the measured Claude spend warden read from agents' transcripts — the exact input/output tokens each agent sent and received — priced per model into estimated dollar figures and rolled up per-agent, per-repo, and per-day. Token counts are exact (read directly from the transcript); dollar figures are estimates based on published list prices (as of 2026-06) and exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ from your actual bill. The headline names the daily and weekly totals the budget gate (budget_gate / budget_daily_usd / budget_weekly_usd) enforces. This is the cost side of warden's savings ledger: where `wd savings` reports what warden kept OUT of context, `wd spend` reports what agents actually billed. Gated by the `savings` config setting.
+
+Usage:
+  warden spend [flags]
+
+Flags:
+      --by string   show only one rollup: agent, repo, or day (default: all three)
+  -h, --help        help for spend
+      --json        output the structured rollup as JSON
+
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -2797,240 +2532,730 @@ Flags:
       --json                output the structured summary as JSON
       --since string        only count savings since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule
+## warden insights
 
 ```text
-Create timer-driven triggers that the daemon fires on a schedule: a recurring
-cron spec (--cron "0 9 * * *") or a single-shot time (--at 2026-06-27T09:00).
-Each schedule fires either one agent spawn (the default — pass --type/--repo/
---prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
-scheduler_enabled: true in the config file and keep the daemon running.
+Analyze warden's own history — completed and active agent sessions plus recorded resource metrics — into actionable suggestions: typical/outlier durations by type, frequently co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could have run in parallel. Deterministic by default; when local_llm is enabled the summary is narrated by the local model (and degrades to the deterministic text on any model error).
 
 Usage:
-  warden schedule [command]
-
-Available Commands:
-  create      Create a schedule that fires an agent or a pipeline
-  delete      Delete a schedule
-  disable     Disable a schedule so it stops firing (history preserved)
-  enable      Enable a schedule so it fires again (re-arms next run)
-  get         Show one schedule, including its last-run outcome
-  list        List schedules
+  warden insights [flags]
 
 Flags:
-  -h, --help   help for schedule
+  -h, --help             help for insights
+      --json             output the structured report as JSON
+      --limit int        cap the number of archived sessions mined (0 = daemon default)
+      --session string   scope parallelization suggestions to one session (by id or name)
+      --since string     only mine sessions since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden schedule [command] --help" for more information about a command.
 ```
 
-## warden schedule create
+## warden backends
 
 ```text
-Create a recurring (--cron) or single-shot (--at) schedule. By default a
-schedule fires one agent spawn — pass --type, --repo, --prompt (and optionally
---agent name / --branch). Pass --pipeline <spec.yaml> instead to fire a pipeline
-(its name is timestamp-suffixed per fire so recurring runs don't collide).
-Provide exactly one of --cron/--at and exactly one fire mode.
+Inspect and manage warden's agent-backend registry.
+
+warden detects the coding-agent CLIs installed on this machine (claude, codex,
+aider, …) plus a reserved `local` row for the free/local model, and persists
+each with a billing tier, an enabled flag, and at most one default. The daemon's
+store is the source of truth — autopilot's cost-tier ladder and the internal
+free/local thinking router both read from it.
+
+Tiers:   free | subscription | pay_per_use | unclassified   (`local` is system-set)
+Thinking-mode: local_only | free_plus_local   (which backends internal thinking may call)
+
+Examples:
+  warden backends list                 # full table incl. the local row
+  warden backends rescan               # re-detect installed CLIs, print the table
+  warden backends tier codex free      # tier codex as a $0 backend
+  warden backends default claude       # make claude the default backend
+  warden backends disable aider        # stop using a backend
+  warden backends thinking-mode local_only
 
 Usage:
-  warden schedule create <name> (--cron <spec> | --at <time>) [--type <t> --repo <p> --prompt <s> | --pipeline <spec.yaml>] [flags]
+  warden backends [flags]
+
+Commands:
+  default              Set the default backend (rejects the reserved local row)
+  disable              Disable a backend so it is no longer used
+  enable               Enable a backend so it may be used
+  list                 List detected backends (installed, tier, default, enabled, limited)
+  rescan               Re-detect installed backend CLIs and print the updated table
+  thinking-mode        Set the internal-thinking routing mode (local_only|free_plus_local)
+  tier                 Set a backend's billing tier (free|subscription|pay_per_use|unclassified)
 
 Flags:
-      --agent string      optional name for the spawned agent
-      --at string         single-shot time, RFC3339 or 2006-01-02T15:04 (local)
-      --branch string     optional development branch / pr-review checkout
-      --cron string       recurring cron spec, e.g. "0 9 * * *" (minute hour dom month dow)
-  -h, --help              help for create
-      --pipeline string   fire a pipeline from this YAML spec file (instead of an agent)
-      --prompt string     the agent's initial prompt
-      --repo string       repo path (required for a typed agent)
-      --type string       agent task type (e.g. pr-review, development); empty = free-form
+  -h, --help   help for backends
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule delete
+## warden backends default
 
 ```text
-Delete a schedule
+Make <id> the single default backend used when spawning agents without an
+explicit backend. The daemon rejects an unknown, uninstalled, disabled, or
+reserved (local) target.
 
 Usage:
-  warden schedule delete <id> [flags]
+  warden backends default <id> [flags]
 
 Flags:
-  -h, --help   help for delete
+  -h, --help   help for default
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule disable
+## warden backends disable
 
 ```text
-Disable a schedule so it stops firing (history preserved)
+Disable a backend so it is no longer used
 
 Usage:
-  warden schedule disable <id> [flags]
+  warden backends disable <id> [flags]
 
 Flags:
   -h, --help   help for disable
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule enable
+## warden backends enable
 
 ```text
-Enable a schedule so it fires again (re-arms next run)
+Enable a backend so it may be used
 
 Usage:
-  warden schedule enable <id> [flags]
+  warden backends enable <id> [flags]
 
 Flags:
   -h, --help   help for enable
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule get
+## warden backends list
 
 ```text
-Show one schedule, including its last-run outcome
+List every backend in the registry, including the reserved local row, with its
+installed state, billing tier, whether it is the default, whether it is enabled,
+and whether it is currently rate-limited. The current internal-thinking mode is
+printed below the table.
 
 Usage:
-  warden schedule get <id> [flags]
-
-Flags:
-  -h, --help   help for get
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden schedule list
-
-```text
-List schedules
-
-Usage:
-  warden schedule list [flags]
+  warden backends list [flags]
 
 Flags:
   -h, --help   help for list
 
-Global Flags:
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden backends rescan
+
+```text
+Re-run backend detection and reconcile the registry: newly installed CLIs are
+added and no-longer-present ones are marked uninstalled, while each backend's
+tier, default, and enabled preferences are preserved. Prints the refreshed table.
+
+Usage:
+  warden backends rescan [flags]
+
+Flags:
+  -h, --help   help for rescan
+
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden search
+## warden backends thinking-mode
 
 ```text
-Search across active agents' searchable text (name, id, ticket, type, subject, prompt, branch, last pane excerpt). Multiple terms are AND-ed. Pass --closed to also search archived agents.
+Set which backends warden's internal free/local thinking router may call.
+
+  local_only        # route internal thinking to the local model only
+  free_plus_local   # prefer free cloud backends, fall back to the local model (default)
+
+Paid (subscription / pay_per_use) backends are never called for internal
+thinking in either mode.
 
 Usage:
-  warden search <QUERY...> [flags]
+  warden backends thinking-mode <mode> [flags]
 
 Flags:
-      --closed   also search archived (closed) agents
-  -h, --help     help for search
-      --json     output as JSON
+  -h, --help   help for thinking-mode
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden send
+## warden backends tier
 
 ```text
-Type a message into an agent's claude session and press Enter
+Set a backend's billing tier. The tier drives autopilot's cost-tier ladder and
+the internal free/local thinking router (only free backends are called for
+internal thinking).
+
+Valid tiers:
+  free           # a $0 backend (free plan)
+  subscription   # covered by a flat subscription
+  pay_per_use    # metered / pay-as-you-go
+  unclassified   # not yet tiered (treated as not free)
+
+The reserved `local` tier is system-set and cannot be assigned.
 
 Usage:
-  warden send <TICKET> <message...> [flags]
+  warden backends tier <id> <tier> [flags]
 
 Flags:
-  -h, --help   help for send
+  -h, --help   help for tier
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden set-permission-mode
+## warden models
 
 ```text
-Set the permission mode for a specific agent.
+Show the live, currently-available model menu the agent's backend exposes, or
+inspect and configure the tiered model catalog in warden.
 
-Valid permission modes:
-  acceptEdits        - Prompt for tool permissions (supervised mode)
-  auto               - Default behavior
-  bypassPermissions  - Skip all permission prompts
-  default            - Use global default from config
-  dontAsk            - Don't ask for permissions
-  plan               - Plan mode
+Subcommands:
+  list      List models in the catalog and their assigned tiers
+  tier      Set a model's tier classification (tier-1|tier-2|tier-3)
 
-The permission mode controls how Claude handles tool permission prompts.
-Setting to "default" (or empty string) clears the agent-specific override
-and uses the global default_permission_mode config setting.
-
-Examples:
-  warden set-permission-mode abc123 acceptEdits  # Enable supervised mode
-  warden set-permission-mode abc123 auto         # Use auto mode
-  warden set-permission-mode abc123 default      # Use global default
+When run without subcommands, `warden models` shows the live model menu of the
+current or specified backend.
 
 Usage:
-  warden set-permission-mode <agent-id> <mode> [flags]
+  warden models [flags]
+
+Commands:
+  list                 List models in the catalog and their assigned tiers
+  tier                 Set a model's tier classification (tier-1|tier-2|tier-3)
 
 Flags:
-  -h, --help   help for set-permission-mode
+      --backend string   list models for this backend id (default: the current agent's backend)
+  -h, --help             help for models
+      --json             emit the menu as a JSON array instead of one id per line
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden set-role
+## warden models list
 
 ```text
-Switch a running agent's built-in role.
-
-The role's persona is injected as a system-prompt addendum; changing it relaunches
-the agent (its current turn is discarded) so the new persona takes effect. Set the
-role to "general" (or "") to clear the persona and behave like a plain agent.
-
-Valid roles (see `warden role list` for descriptions):
-  general | orchestrator | planner | worker
-  (legacy aliases implementer/auto-merger/reviewer resolve to worker)
-
-Examples:
-  warden set-role abc123 reviewer      # give the agent the reviewer persona
-  warden set-role abc123 general       # clear the persona
+List models in the catalog and their assigned tiers
 
 Usage:
-  warden set-role <agent-id> <role> [flags]
+  warden models list [flags]
 
 Flags:
-  -h, --help   help for set-role
+      --backend string   filter models by backend ID
+      --by-tier          group and display models by tier
+  -h, --help             help for list
+      --json             emit models as a JSON array
+      --tier string      filter models by tier (tier-1|tier-2|tier-3)
 
-Global Flags:
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden models tier
+
+```text
+Set a model's tier classification in the catalog.
+
+Tiers:
+  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
+  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
+  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
+
+Example:
+  warden models tier claude sonnet tier-2
+
+Usage:
+  warden models tier <backend> <model> <tier> [flags]
+
+Flags:
+  -h, --help   help for tier
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden config
+
+```text
+Print the live, resolved configuration values warden is using, grouped by area,
+with the config file path at the top. Edit the file by hand to change settings.
+
+Settings are organized into namespaced blocks in the config file:
+  rails.*    — guard/hook settings (git_redirect, root_guard, isolation_guard, …)
+  tokens.*   — token-guard, budget-gate, and savings settings
+  notify.*   — desktop notification and webhook settings
+  worktree.* — worktree-retention and spawn-gate settings
+  local_llm.*— local-model, REPL, and LLM-offload settings
+
+Deprecated flat keys (e.g. token_guard, notify, local_llm_url) still load
+and are automatically migrated to the namespaced form on `warden config init`.
+
+Usage:
+  warden config [flags]
+
+Commands:
+  init                 Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
+  path                 Print the resolved config file path
+
+Flags:
+  -h, --help   help for config
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden config init
+
+```text
+Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
+
+Usage:
+  warden config init [flags]
+
+Flags:
+  -h, --help   help for init
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden config path
+
+```text
+Print the resolved config file path
+
+Usage:
+  warden config path [flags]
+
+Flags:
+  -h, --help   help for path
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden export
+
+```text
+Dump active agent records as a JSON envelope on stdout, for backup, sharing, or migration. Metadata only — worktrees, branches, and tmux sessions are NOT serialized and `warden import` does not recreate them.
+
+With --all the archived (closed) records are included too.
+
+  warden export --all > backup.json
+
+Usage:
+  warden export [flags]
+
+Flags:
+      --all    also include archived (closed) agents
+  -h, --help   help for export
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden import
+
+```text
+Read a `warden export` envelope from stdin and insert its records into the store. Metadata only: worktrees and tmux sessions are NOT recreated — an imported record just remembers where its (now absent) worktree used to live.
+
+Idempotent by id: a record whose id already exists is skipped, so re-importing the same dump is a no-op. Pass --merge to overwrite colliding records with the imported data instead.
+
+  warden import < backup.json
+
+Usage:
+  warden import [flags]
+
+Flags:
+  -h, --help    help for import
+      --json    output the import result as JSON
+      --merge   overwrite existing records on id collision (default: skip)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden llm
+
+```text
+Local-LLM helpers for the REPL (wd repl)
+
+Usage:
+  warden llm [flags]
+
+Commands:
+  suggest              Recommend local models for the REPL, sized to this machine's memory
+
+Flags:
+  -h, --help   help for llm
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden llm suggest
+
+```text
+Suggest local LLM models for warden's REPL (wd repl), ranked against
+this machine's memory.
+
+warden auto-detects two figures: total memory (GPU VRAM, Apple unified memory, or
+system RAM — whichever bounds a usable model) and average free memory (sampled a
+few times to smooth out spikes). Each candidate is then marked:
+
+  fits now           runnable right now within free memory
+  free memory first  fits the machine, but you'd need to close apps first
+  too large          won't fit this machine
+
+Models are scored by suitability for the conductor role — reliable tool/function
+calling, not coding or raw size. The recommendation (★) is the best-scoring model
+that runs comfortably now while leaving headroom for your real workload (Docker,
+DBs, IDE, Claude sessions, the warden daemon). warden only ever recommends — you
+set local_llm_model yourself.
+
+Usage:
+  warden llm suggest [flags]
+
+Flags:
+      --free-gb float    override detected free memory (GB)
+  -h, --help             help for suggest
+      --json             output as JSON
+      --samples int      free-memory samples to average (default 5)
+      --total-gb float   override detected total memory (GB)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden repair
+
+```text
+Offline, backup-first repair tools
+
+Usage:
+  warden repair [flags]
+
+Commands:
+  sessions             Diagnose or reconstruct the offline session store
+
+Flags:
+  -h, --help   help for repair
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden repair sessions
+
+```text
+Diagnose or reconstruct the offline session store
+
+Usage:
+  warden repair sessions [flags]
+
+Flags:
+      --apply           apply the reconstruction (default is dry-run)
+      --backup string   backup destination (required with --apply; must not exist)
+      --dry-run         diagnose and report without changing session data
+  -h, --help            help for sessions
+      --json            print the machine-readable recovery report
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden daemon
+
+```text
+Run the warden hub (HTTP API + poller; the single writer to the file store)
+
+Usage:
+  warden daemon [flags]
+
+Flags:
+  -h, --help                help for daemon
+      --log-format string   log output format: text | json (overrides log.format config)
+      --log-level string    log verbosity: debug | info | warn | error (overrides log.level config)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden completion
+
+```text
+Generate shell completion scripts for warden.
+
+The completion script for each shell should be redirected to the appropriate
+location for your shell. Examples:
+
+Bash:
+  warden completion bash > /etc/bash_completion.d/warden
+  # or for user-only installation:
+  warden completion bash > ~/.bash_completion
+
+Zsh:
+  warden completion zsh > /usr/local/share/zsh/site-functions/_warden
+  # or for user-only installation:
+  warden completion zsh > ~/.zsh/completion/_warden
+
+Fish:
+  warden completion fish > ~/.config/fish/completions/warden.fish
+
+PowerShell:
+  warden completion powershell > warden.ps1
+  # Then load it in your PowerShell profile
+
+After generating the completion script, you may need to restart your shell
+or source the file for the completions to take effect.
+
+
+Usage:
+  warden completion [flags]
+
+Commands:
+  bash                 Generate bash completion script
+  fish                 Generate fish completion script
+  powershell           Generate PowerShell completion script
+  zsh                  Generate zsh completion script
+
+Flags:
+  -h, --help   help for completion
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden completion bash
+
+```text
+Generate bash completion script
+
+Usage:
+  warden completion bash [flags]
+
+Flags:
+  -h, --help   help for bash
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden completion fish
+
+```text
+Generate fish completion script
+
+Usage:
+  warden completion fish [flags]
+
+Flags:
+  -h, --help   help for fish
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden completion powershell
+
+```text
+Generate PowerShell completion script
+
+Usage:
+  warden completion powershell [flags]
+
+Flags:
+  -h, --help   help for powershell
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden completion zsh
+
+```text
+Generate zsh completion script
+
+Usage:
+  warden completion zsh [flags]
+
+Flags:
+  -h, --help   help for zsh
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden mcp
+
+```text
+Run the MCP stdio server so an orchestrator Claude can manage agents
+
+Usage:
+  warden mcp [flags]
+
+Flags:
+  -h, --help   help for mcp
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden token
+
+```text
+Manage the daemon's remote-access bearer token
+
+Usage:
+  warden token [flags]
+
+Commands:
+  generate             Generate a random bearer token for remote (non-loopback) access
+  rotate               Generate a new bearer token, persist it, and restart the daemon
+  show                 Print the current bearer token (for pasting into a remote client)
+
+Flags:
+  -h, --help   help for token
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden token generate
+
+```text
+Generate a cryptographically random 256-bit bearer token and print it to stdout.
+
+warden does not store the token. Export it so the daemon picks it up:
+
+  export WARDEN_TOKEN=$(warden token generate)
+
+The token is required before the daemon will bind to a non-loopback address.
+Treat it like a password.
+
+To mint a read-only token, generate one and export it as WARDEN_READONLY_TOKEN:
+
+  export WARDEN_READONLY_TOKEN=$(warden token generate)
+
+A read-only token may read everything (all GETs plus the live event stream) but
+is denied every state-changing action and the interactive attach. It only works
+alongside a primary WARDEN_TOKEN; the daemon refuses to start with a read-only
+token but no primary token. (The token value is identical either way — what makes
+it read-only is the env var you assign it to.)
+
+Usage:
+  warden token generate [flags]
+
+Flags:
+  -h, --help   help for generate
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden token rotate
+
+```text
+Rotate the daemon's bearer token: generate a fresh 256-bit secret, write it to
+~/.warden/token.env (chmod 600), and restart the managed warden service so
+the new token takes effect immediately. The new token is printed to stdout.
+
+After rotating, update remote clients (paste the new token into the mobile
+dashboard) and re-export WARDEN_TOKEN in any shell that held the old value.
+
+Use --no-restart to write the new token without restarting; you must then restart
+the daemon yourself before the new token is honored.
+
+Usage:
+  warden token rotate [flags]
+
+Flags:
+  -h, --help         help for rotate
+      --no-restart   write the new token without restarting the daemon
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden token show
+
+```text
+Print the bearer token local clients resolve: WARDEN_TOKEN if exported,
+otherwise the token a managed install persists in ~/.warden/token.env.
+
+Use this to retrieve the secret to paste into the mobile web dashboard. The token
+is printed to stdout (so it pipes cleanly); its source is noted on stderr.
+
+With --readonly, print the read-only token instead (WARDEN_READONLY_TOKEN if
+exported, otherwise its line in the token file).
+
+Usage:
+  warden token show [flags]
+
+Flags:
+  -h, --help       help for show
+      --readonly   print the read-only token (WARDEN_READONLY_TOKEN) instead of the primary
+
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -3061,111 +3286,122 @@ Flags:
   -h, --help   help for setup
       --yes    install all missing dependencies without prompting (non-interactive)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden snapshot
+## warden tutorial
 
 ```text
-Capture a known-good point for an agent — its worktree state (a non-destructive
-git stash, so the agent's tree is untouched) plus its session transcript — and
-roll back to it later. Subcommands: create, list, restore.
+A friendly, idempotent tour of warden: spawn → watch → talk → tear down, plus
+the TUI and web GUI. Completing it (or --skip) writes a tutorial-complete marker
+in your data_dir so the first-run hint stops nagging. Re-run with --reset to clear
+the marker and see it fresh. Disable the hint entirely with the `tutorial` config
+setting.
 
 Usage:
-  warden snapshot [command]
-
-Available Commands:
-  create      Capture the worktree state + transcript of an agent (defaults to the current one)
-  list        List snapshots for an agent (newest first); --all for every session
-  restore     Re-apply a snapshot onto its recorded worktree (refuses a dirty tree unless --force)
+  warden tutorial [flags]
 
 Flags:
-  -h, --help   help for snapshot
+  -h, --help    help for tutorial
+      --reset   delete the completion marker so the tutorial (and first-run hint) run fresh
+      --skip    mark the tutorial complete without running it (silences the first-run hint)
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden snapshot [command] --help" for more information about a command.
-```
-
-## warden snapshot create
-
-```text
-Capture a snapshot of an agent's worktree and session transcript. With no
-[name] it snapshots the agent this command runs inside (WARDEN_SESSION_ID);
-pass an agent id to snapshot a different one. The worktree is captured with
-`git stash create` — non-destructive, so the agent's working tree is untouched.
-
-Usage:
-  warden snapshot create [name] [flags]
-
-Flags:
-  -h, --help             help for create
-      --json             emit the raw result as JSON
-  -m, --message string   optional label for the snapshot
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden snapshot list
+## warden doctor
 
 ```text
-List snapshots for an agent (newest first); --all for every session
+Run preflight checks (required binaries, daemon, data dir, configured local model)
 
 Usage:
-  warden snapshot list [name] [flags]
+  warden doctor [flags]
 
 Flags:
-      --all    list snapshots across all sessions
-  -h, --help   help for list
-      --json   emit the raw result as JSON
+  -h, --help       help for doctor
+      --sessions   diagnose the session store offline without modifying it
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden snapshot restore
+## warden tui
 
 ```text
-Re-apply a snapshot's captured worktree state onto the worktree it was taken
-in. Refuses a dirty tree unless --force, and never restores onto main/master.
-Reversible-safe: it re-applies the stash without resetting HEAD or dropping the
-snapshot, so the snapshot stays usable and uncommitted work is the only thing at
-risk (hence the dirty-tree guard).
+Live terminal cockpit for agents
 
 Usage:
-  warden snapshot restore <snapshot-id> [flags]
+  warden tui [flags]
 
 Flags:
-      --force   restore even when the worktree has uncommitted changes
-  -h, --help    help for restore
-      --json    emit the raw result as JSON
+  -h, --help                  help for tui
+      --rebuild-web-cockpit   kill and rebuild the daemon-owned web cockpit tmux session (the browser /tui view), then exit — an escape hatch for a wedged web cockpit
+      --tmux-native           lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden spend
+## warden repl
 
 ```text
-Report the measured Claude spend warden read from agents' transcripts — the exact input/output tokens each agent sent and received — priced per model into estimated dollar figures and rolled up per-agent, per-repo, and per-day. Token counts are exact (read directly from the transcript); dollar figures are estimates based on published list prices (as of 2026-06) and exclude prompt-cache tokens and any volume/batch/enterprise discounts, so they may differ from your actual bill. The headline names the daily and weekly totals the budget gate (budget_gate / budget_daily_usd / budget_weekly_usd) enforces. This is the cost side of warden's savings ledger: where `wd savings` reports what warden kept OUT of context, `wd spend` reports what agents actually billed. Gated by the `savings` config setting.
+Interactive mode: a full-screen-free REPL to drive your warden fleet from the terminal.
+
+It is a real line editor — arrow keys, history (persisted across sessions),
+reverse-search, and Tab completion — that closes cleanly with Ctrl-D, returning
+you to your shell prompt.
+
+Two ways to drive it:
+  • Deterministic `/` commands (no model): /agents, /spawn <prompt>, /tell <id> <text>,
+    /memory <question>, /pipelines, … — typing / pops a live, filtering menu of verbs;
+    Tab also completes verbs and live agent ids. Type /help for the list.
+  • Natural language: any other line is planned by the local LLM into warden tool
+    calls, each confirmed before it runs.
+
+Guided argument forms: when a `/` command needs more than you typed, warden
+collects the arguments interactively — a numbered pick-list for fields with a
+known set (model, permission_mode, type, yes/no), free text for the rest. A
+command auto-opens the form when a required argument is missing (e.g. bare
+/spawn); add a trailing + to fill every field (/spawn+ <prompt>). With a local
+model present each field opens with a suggested value you can accept with Enter,
+type over, or clear with "-".
+
+`!cmd` runs a command in your own $SHELL. Requires local_llm: true for the
+natural-language half; the `/` commands work regardless.
 
 Usage:
-  warden spend [flags]
+  warden repl [flags]
 
 Flags:
-      --by string   show only one rollup: agent, repo, or day (default: all three)
-  -h, --help        help for spend
-      --json        output the structured rollup as JSON
+  -h, --help   help for repl
 
-Global Flags:
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  interactive, i
+```
+
+## warden version
+
+```text
+Print warden version and build information
+
+Usage:
+  warden version [flags]
+
+Flags:
+  -h, --help   help for version
+      --json   output build info as JSON
+
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -3230,27 +3466,27 @@ Flags:
       --type string                              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
       --worktree                                 create a scratch worktree for analysis/spike
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden stats
+## warden ls
 
 ```text
-Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
+List all active agent sessions
 
 Usage:
-  warden stats [flags]
+  warden ls [flags]
 
 Flags:
-      --agent string   with --history, limit to one agent ID
-  -h, --help           help for stats
-      --history        show persisted per-agent performance history + anomaly warnings
-      --json           output as JSON
-      --watch          redraw every 3s until interrupted
+  -a, --all           include system agents
+  -h, --help          help for ls
+      --json          output as JSON
+      --tag strings   only show agents carrying every given tag (repeatable or comma-separated, e.g. --tag backend --tag urgent)
+  -w, --watch         live-update the list on every agent state change (Ctrl+C to exit)
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -3267,89 +3503,74 @@ Flags:
   -h, --help   help for status
       --json   output as JSON
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden stop
+## warden send
 
 ```text
-Stop an agent. The single umbrella teardown verb.
-
-<AGENT> is any identifier `wd ls` shows — the agent's name, its id, or its
-ticket. All teardown verbs resolve by name-or-id.
-
-By default `wd stop <TICKET>` does a FULL teardown: terminate the
-tmux+claude session, clear (archive) the record, and remove the git worktree +
-branch (asking for confirmation first, unless --yes). Subtractive flags keep
-parts around; --pr opens a GitHub PR first while the agent is still intact.
-
-The four older verbs are kept as thin aliases — each is just `stop` with a
-fixed flag combo:
-
-  old verb                    equivalent
-  --------------------------  ------------------------------------------------
-  wd terminate <T>            wd stop <T> --keep-record --keep-worktree
-  wd delete <T> [--hard]      wd stop <T> --keep-worktree (record only)
-  wd remove-worktree <T>      wd stop <T> --keep-record  (worktree only)
-  wd done <T> [--hard|--pr]   wd stop <T> --keep-worktree [--hard|--pr]
-  wd stop <T>                 terminate + clear record + remove worktree
-
-Safe ordering is always: PR -> terminate -> clear record -> remove worktree, so
-a failed push leaves the agent running.
+Type a message into an agent's claude session and press Enter
 
 Usage:
-  warden stop <AGENT> [flags]
+  warden send <TICKET> <message...> [flags]
 
 Flags:
-      --base string             base branch for the PR (default main); only meaningful with --pr
-      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
-      --force                   override the alive/uncommitted/unpushed worktree guards
-      --hard                    purge the record instead of archiving
-  -h, --help                    help for stop
-      --keep-record             do not clear the stored record
-      --keep-worktree           do not remove the git worktree (this + default == the old 'done')
-      --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
-      --yes                     skip the worktree-removal confirmation prompt
+  -h, --help   help for send
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden switch
+## warden commit
 
 ```text
-Mid-session hot-swap: retire the active CLI process and launch a successor backend
-in the SAME worktree, carrying forward structured context (Goal, Decisions Log,
-Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.
+Stage and commit every change in the current worktree on its branch.
 
-The successor can be chosen by explicit --backend and/or --model, or by --tier
-(resolved via quota-balanced weighted headroom routing across eligible backends).
+warden refuses protected branches (main/master), runs pre-commit hooks and
+returns only failures, and links the commit to this agent — one call in place
+of the git status/add/commit/rev-parse round-trips.
 
-The swap is performed by the warden daemon (the sole owner of the session store),
-so the daemon must be running.
-
-Examples:
-  warden switch --backend antigravity --model gemini-3.1-pro
-  warden switch --tier tier-1
-  warden switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'
+Pass -m to author the message (best — you made the change). Omit it and warden
+writes one: the local model from the staged diff if configured, otherwise a
+deterministic conventional-commit message from the changed paths.
 
 Usage:
-  warden switch [agent-id] [flags]
+  warden commit [flags]
 
 Flags:
-  -b, --backend string   explicit successor backend id (claude, antigravity, codex, …)
-  -h, --help             help for switch
-      --json             emit result as JSON
-  -m, --model string     explicit successor model id
-  -p, --prompt string    optional extra instruction appended to successor's continuation prompt
-      --reason string    reason recorded for hot-swap (manual|context_fill|quota) (default "manual")
-  -r, --role string      role to resolve tier from when --tier is not given
-  -t, --tier string      resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)
+  -h, --help             help for commit
+      --json             emit the raw result as JSON
+  -m, --message string   commit message; if omitted, warden generates one from the diff
 
-Global Flags:
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden push
+
+```text
+Push the current worktree branch to origin, setting upstream.
+
+warden refuses to push protected branches (main/master) directly — push your
+agent branch and open a PR.
+
+Pass --force-with-lease after a rebase or amend to overwrite your remote
+branch. warden only ever uses --force-with-lease (never a bare --force), so
+the push aborts if a teammate pushed to your branch since your last fetch.
+
+Usage:
+  warden push [flags]
+
+Flags:
+      --force-with-lease   push with --force-with-lease (safe force after a rebase/amend)
+  -h, --help               help for push
+      --json               emit the raw result as JSON
+
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
@@ -3370,299 +3591,30 @@ Flags:
   -h, --help          help for sync
       --json          emit the raw result as JSON
 
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden tail
+## warden check
 
 ```text
-Print the recent output of an agent's claude session
+Run the check command(s) declared in this project's .warden/check.yml and
+return a pass/fail summary — with captured output for the FAILING checks only,
+in place of the hundreds of lines a raw test run spills into the transcript.
+
+`wd check` runs every configured check; `wd check <name>` runs one (e.g. test,
+lint, build). Commands come from the project, so warden stays language-agnostic;
+a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.
 
 Usage:
-  warden tail <TICKET> [flags]
+  warden check [name] [flags]
 
 Flags:
-  -h, --help        help for tail
-      --lines int   number of pane lines to capture (default 200)
+  -h, --help   help for check
+      --json   emit the raw result as JSON
 
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden terminate
-
-```text
-Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
-
-Usage:
-  warden terminate <AGENT> [flags]
-
-Flags:
-  -h, --help   help for terminate
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden token
-
-```text
-Manage the daemon's remote-access bearer token
-
-Usage:
-  warden token [command]
-
-Available Commands:
-  generate    Generate a random bearer token for remote (non-loopback) access
-  rotate      Generate a new bearer token, persist it, and restart the daemon
-  show        Print the current bearer token (for pasting into a remote client)
-
-Flags:
-  -h, --help   help for token
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden token [command] --help" for more information about a command.
-```
-
-## warden token generate
-
-```text
-Generate a cryptographically random 256-bit bearer token and print it to stdout.
-
-warden does not store the token. Export it so the daemon picks it up:
-
-  export WARDEN_TOKEN=$(warden token generate)
-
-The token is required before the daemon will bind to a non-loopback address.
-Treat it like a password.
-
-To mint a read-only token, generate one and export it as WARDEN_READONLY_TOKEN:
-
-  export WARDEN_READONLY_TOKEN=$(warden token generate)
-
-A read-only token may read everything (all GETs plus the live event stream) but
-is denied every state-changing action and the interactive attach. It only works
-alongside a primary WARDEN_TOKEN; the daemon refuses to start with a read-only
-token but no primary token. (The token value is identical either way — what makes
-it read-only is the env var you assign it to.)
-
-Usage:
-  warden token generate [flags]
-
-Flags:
-  -h, --help   help for generate
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden token rotate
-
-```text
-Rotate the daemon's bearer token: generate a fresh 256-bit secret, write it to
-~/.warden/token.env (chmod 600), and restart the managed warden service so
-the new token takes effect immediately. The new token is printed to stdout.
-
-After rotating, update remote clients (paste the new token into the mobile
-dashboard) and re-export WARDEN_TOKEN in any shell that held the old value.
-
-Use --no-restart to write the new token without restarting; you must then restart
-the daemon yourself before the new token is honored.
-
-Usage:
-  warden token rotate [flags]
-
-Flags:
-  -h, --help         help for rotate
-      --no-restart   write the new token without restarting the daemon
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden token show
-
-```text
-Print the bearer token local clients resolve: WARDEN_TOKEN if exported,
-otherwise the token a managed install persists in ~/.warden/token.env.
-
-Use this to retrieve the secret to paste into the mobile web dashboard. The token
-is printed to stdout (so it pipes cleanly); its source is noted on stderr.
-
-With --readonly, print the read-only token instead (WARDEN_READONLY_TOKEN if
-exported, otherwise its line in the token file).
-
-Usage:
-  warden token show [flags]
-
-Flags:
-  -h, --help       help for show
-      --readonly   print the read-only token (WARDEN_READONLY_TOKEN) instead of the primary
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden tui
-
-```text
-Live terminal cockpit for agents
-
-Usage:
-  warden tui [flags]
-
-Flags:
-  -h, --help                  help for tui
-      --rebuild-web-cockpit   kill and rebuild the daemon-owned web cockpit tmux session (the browser /tui view), then exit — an escape hatch for a wedged web cockpit
-      --tmux-native           lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden tutorial
-
-```text
-A friendly, idempotent tour of warden: spawn → watch → talk → tear down, plus
-the TUI and web GUI. Completing it (or --skip) writes a tutorial-complete marker
-in your data_dir so the first-run hint stops nagging. Re-run with --reset to clear
-the marker and see it fresh. Disable the hint entirely with the `tutorial` config
-setting.
-
-Usage:
-  warden tutorial [flags]
-
-Flags:
-  -h, --help    help for tutorial
-      --reset   delete the completion marker so the tutorial (and first-run hint) run fresh
-      --skip    mark the tutorial complete without running it (silences the first-run hint)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden usage
-
-```text
-Show provider usage for subscription backends
-
-Usage:
-  warden usage [flags]
-
-Flags:
-  -h, --help      help for usage
-      --json      print the stable JSON document
-      --refresh   bypass the daemon's fresh usage cache
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden version
-
-```text
-Print warden version and build information
-
-Usage:
-  warden version [flags]
-
-Flags:
-  -h, --help   help for version
-      --json   output build info as JSON
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden worktree
-
-```text
-One umbrella over warden's two worktree operations:
-  • LIST  — the warden-owned worktrees under .worktrees, joined to active/archived records (`wd worktree list`)
-  • PRUNE — reclaim orphaned warden worktrees (`wd worktree prune`)
-
-`wd worktree` with no subcommand prints the list (the same view as `wd worktree list`). `wd worktree prune` is the same command as the top-level `wd prune`, which remains available and unchanged as an alias. (Tearing down ONE agent's worktree is a different concern — see `wd remove-worktree`.)
-
-Usage:
-  warden worktree [flags]
-  warden worktree [command]
-
-Available Commands:
-  list        List warden worktrees under .worktrees, joined to active/archived records
-  prune       Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
-
-Flags:
-  -h, --help          help for worktree
-      --json          output as JSON
-      --repo string   repo path (default: current directory)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-
-Use "warden worktree [command] --help" for more information about a command.
-```
-
-## warden worktree list
-
-```text
-List warden worktrees under .worktrees, joined to active/archived records
-
-Usage:
-  warden worktree list [flags]
-
-Aliases:
-  list, ls
-
-Flags:
-  -h, --help          help for list
-      --json          output as JSON
-      --repo string   repo path (default: current directory)
-
-Global Flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden worktree prune
-
-```text
-Reclaim orphaned warden worktrees under .worktrees — those whose owning agent
-record is gone (or, with --include-archived, archived). Always shows the plan
-and asks before removing anything (skip with --yes); dirty/unpushed worktrees
-are kept unless --force. Retention is policy-driven via the `worktree.keep_done`
-/ `worktree.auto_prune` config settings.
-
-Available as `wd worktree prune` and, unchanged, as the top-level alias `wd prune`.
-(To tear down ONE agent's worktree instead, use `wd remove-worktree`.)
-
-Usage:
-  warden worktree prune [flags]
-
-Flags:
-      --dry-run            report what would be removed; change nothing
-      --force              override the dirty/unpushed guard and permit branch deletion for record-less orphans (never the default branch)
-  -h, --help               help for prune
-      --include-archived   also reclaim worktrees owned by archived (done) records
-      --json               output as JSON
-      --repo string        repo path (default: current directory)
-      --yes                skip the confirmation prompt
-
-Global Flags:
+Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```

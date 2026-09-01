@@ -75,6 +75,9 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newTutorialCmd())
 	root.AddCommand(newCompletionCmd())
 	root.AddCommand(newVersionCmd())
+	if err := installCommandHelp(root); err != nil {
+		panic(err)
+	}
 	root.Args = cobra.NoArgs
 	var rootTmuxNative bool
 	root.Flags().BoolVar(&rootTmuxNative, "tmux-native", false, "lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)")
