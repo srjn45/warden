@@ -26,7 +26,24 @@ func ExitCode(err error) int {
 	return 1
 }
 
-func newUsageCmd() *cobra.Command {
+// newUsageNamespaceCmd is the canonical usage namespace. Its bare action remains
+// the provider quota snapshot; spend, savings, and insights are grouped beneath it.
+func newUsageNamespaceCmd() *cobra.Command {
+	cmd := newUsageProviderCmd()
+	SetCommandHelpMetadata(cmd, "observe", 50, "warden usage", "", NodeNamespace)
+	children := []*cobra.Command{
+		canonicalUsageCommand(newSpendCmd(), "spend"),
+		canonicalUsageCommand(newSavingsCmd(), "savings"),
+		canonicalUsageCommand(newInsightsCmd(), "insights"),
+	}
+	for i, child := range children {
+		SetCommandHelpMetadata(child, "observe", (i+1)*10, "warden usage "+child.Name(), "", nodeKind(child))
+		cmd.AddCommand(child)
+	}
+	return cmd
+}
+
+func newUsageProviderCmd() *cobra.Command {
 	var jsonOutput, refresh bool
 	cmd := &cobra.Command{
 		Use: "usage", Short: "Show provider usage for subscription backends", Args: cobra.NoArgs,
@@ -144,4 +161,27 @@ func durationCell(minutes int) string {
 		return fmt.Sprintf("%dh", minutes/60)
 	}
 	return fmt.Sprintf("%dm", minutes)
+}
+
+func canonicalUsageCommand(cmd *cobra.Command, name string) *cobra.Command {
+	parts := strings.SplitN(cmd.Use, " ", 2)
+	legacyName := parts[0]
+	rewriteUsageHelpPaths(cmd, legacyName, name)
+	cmd.Use = name
+	if len(parts) == 2 {
+		cmd.Use += " " + parts[1]
+	}
+	cmd.Aliases = nil
+	return cmd
+}
+
+func rewriteUsageHelpPaths(cmd *cobra.Command, legacyName, canonicalName string) {
+	replacer := strings.NewReplacer(
+		"warden "+legacyName, "warden usage "+canonicalName,
+		"wd "+legacyName, "wd usage "+canonicalName,
+		"warden cost "+canonicalName, "warden usage "+canonicalName,
+		"wd cost "+canonicalName, "wd usage "+canonicalName,
+	)
+	cmd.Long = replacer.Replace(cmd.Long)
+	cmd.Example = replacer.Replace(cmd.Example)
 }

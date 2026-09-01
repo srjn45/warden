@@ -80,7 +80,11 @@ func TestHelpAllIncludesAliasAppendix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Complete command tree:", "Compatibility aliases:", "warden backends ls -> warden backends list (compatibility)", "warden i -> warden repl (compatibility)"} {
+	for _, want := range []string{
+		"Complete command tree:", "Compatibility aliases:",
+		"warden backends -> warden backend (compatibility)",
+		"warden i -> warden backend repl (compatibility)",
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help --all missing %q", want)
 		}
