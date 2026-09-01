@@ -2,12 +2,15 @@ package poller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecideContext(t *testing.T) {
@@ -56,6 +59,9 @@ type ctxFakeDeps struct {
 	resumed      int
 	resumePrompt string
 	events       []store.Event
+	pane         string
+	compactErr   error
+	resumeErrs   []error
 }
 
 func (f *ctxFakeDeps) List(context.Context) ([]*store.Session, error) { return nil, nil }
@@ -67,7 +73,7 @@ func (f *ctxFakeDeps) UpdateSubject(context.Context, string, string) error      
 func (f *ctxFakeDeps) ProjectsDir() string                                       { return "" }
 func (f *ctxFakeDeps) SetSessionID(context.Context, string, string) error        { return nil }
 func (f *ctxFakeDeps) SessionAlive(context.Context, string) bool                 { return true }
-func (f *ctxFakeDeps) CapturePane(context.Context, string) (string, error)       { return "", nil }
+func (f *ctxFakeDeps) CapturePane(context.Context, string) (string, error)       { return f.pane, nil }
 func (f *ctxFakeDeps) Summarize(context.Context, *store.Session) (string, error) { return "", nil }
 func (f *ctxFakeDeps) ExitCode(context.Context, string) (int, bool)              { return 0, false }
 func (f *ctxFakeDeps) FinalizeExit(context.Context, string, store.Status, store.Status, int) (bool, error) {
@@ -84,7 +90,10 @@ func (f *ctxFakeDeps) UpdateContext(_ context.Context, _ string, tokens int, sta
 	f.updated = append(f.updated, fmt.Sprintf("%d:%s", tokens, state))
 	return nil
 }
-func (f *ctxFakeDeps) Compact(context.Context, *store.Session) error { f.compacted++; return nil }
+func (f *ctxFakeDeps) Compact(context.Context, *store.Session) error {
+	f.compacted++
+	return f.compactErr
+}
 func (f *ctxFakeDeps) Interrupt(context.Context, *store.Session) error {
 	f.interrupted++
 	return nil
@@ -92,6 +101,11 @@ func (f *ctxFakeDeps) Interrupt(context.Context, *store.Session) error {
 func (f *ctxFakeDeps) Resume(_ context.Context, _ *store.Session, prompt string) error {
 	f.resumed++
 	f.resumePrompt = prompt
+	if len(f.resumeErrs) > 0 {
+		err := f.resumeErrs[0]
+		f.resumeErrs = f.resumeErrs[1:]
+		return err
+	}
 	return nil
 }
 func (f *ctxFakeDeps) StampCompact(context.Context, string) error     { f.stamped++; return nil }
@@ -210,7 +224,7 @@ func TestReconcileCompactRecordsReclaim(t *testing.T) {
 	p.pendingCompact["a1"] = compactPending{pre: 420000, at: now}
 	s := &store.Session{ID: "a1"}
 
-	p.reconcileCompact(s, 150000, 0, false, now.Add(time.Minute))
+	p.reconcileCompact(context.Background(), s, 150000, 0, false, now.Add(time.Minute))
 
 	if got.calls != 1 {
 		t.Fatalf("OnSaving calls=%d, want 1", got.calls)
@@ -237,7 +251,7 @@ func TestReconcileCompactWaitsForReclaim(t *testing.T) {
 	p.pendingCompact["a1"] = compactPending{pre: 420000, at: now}
 
 	// Reading hasn't dropped yet and we're within the window: keep waiting.
-	p.reconcileCompact(&store.Session{ID: "a1"}, 425000, 0, false, now.Add(time.Minute))
+	p.reconcileCompact(context.Background(), &store.Session{ID: "a1"}, 425000, 0, false, now.Add(time.Minute))
 	if calls != 0 {
 		t.Fatalf("OnSaving calls=%d, want 0 (compaction not landed)", calls)
 	}
@@ -255,7 +269,7 @@ func TestReconcileCompactAbandonsStale(t *testing.T) {
 
 	// No drop and the window has elapsed: abandon without crediting a saving so a
 	// later unrelated drop can't be mis-attributed to this compaction.
-	p.reconcileCompact(&store.Session{ID: "a1"}, 425000, 0, false, now.Add(compactLandWindow+time.Minute))
+	p.reconcileCompact(context.Background(), &store.Session{ID: "a1"}, 425000, 0, false, now.Add(compactLandWindow+time.Minute))
 	if calls != 0 {
 		t.Fatalf("OnSaving calls=%d, want 0 (compaction never landed)", calls)
 	}
@@ -357,6 +371,16 @@ func newForcePoller(fd *ctxFakeDeps) *Poller {
 	p.ForceCompact = true
 	p.CompactResumePrompt = "RESUME-PROMPT"
 	return p
+}
+
+type readinessBackend struct {
+	fakeBackend
+}
+
+func (readinessBackend) InputReady(pane string) bool { return pane == "READY" }
+
+func useReadinessBackend(p *Poller) {
+	p.Backend = func(*store.Session) agentbackend.Backend { return readinessBackend{} }
 }
 
 func TestForceCompactInterruptThenCompactThenResume(t *testing.T) {
@@ -477,14 +501,14 @@ func TestForceCompactAbandonsInterruptThatNeverLands(t *testing.T) {
 	if fd.compacted != 0 || preCrash != 0 {
 		t.Fatalf("within window: compacted=%d preCrash=%d, want 0/0", fd.compacted, preCrash)
 	}
-	// Tick 3: still busy past forceInterruptWindow → abandon and fall back to the
-	// human nudge; never compacted, never resumed.
+	// Tick 3: still busy past forceInterruptWindow → abandon observably while
+	// continuing to suppress generic compaction; never compacted, never resumed.
 	p.checkContext(context.Background(), s, t0.Add(forceInterruptWindow+time.Second))
 	if fd.compacted != 0 || fd.resumed != 0 {
 		t.Fatalf("abandoned: compacted=%d resumed=%d, want 0/0", fd.compacted, fd.resumed)
 	}
-	if preCrash != 1 {
-		t.Fatalf("abandoned: pre-crash nudges=%d, want 1", preCrash)
+	if preCrash != 0 || len(fd.events) == 0 {
+		t.Fatalf("abandoned: pre-crash=%d events=%d, want 0 and an observable failure", preCrash, len(fd.events))
 	}
 	if _, ok := p.forceCompact["a1"]; ok {
 		t.Fatal("abandoned interrupt must clear force-compact state")
@@ -504,4 +528,111 @@ func TestForceCompactIdleAgentSkipsInterrupt(t *testing.T) {
 	if fd.compacted != 1 {
 		t.Fatalf("idle agent compacted=%d, want 1", fd.compacted)
 	}
+}
+
+func TestForceCompactWaitsForPositiveReadinessDespiteStaleIdle(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true, pane: "INTERRUPTING"}
+	p := newForcePoller(fd)
+	useReadinessBackend(p)
+	s := &store.Session{ID: "a1", Status: store.StatusWorking}
+	t0 := time.Now()
+
+	p.checkContext(context.Background(), s, t0)
+	s.Status = store.StatusIdle // stale status callback wins before Codex redraws
+	p.checkContext(context.Background(), s, t0.Add(time.Second))
+	if fd.compacted != 0 {
+		t.Fatalf("stale idle submitted /compact %d times, want 0", fd.compacted)
+	}
+
+	fd.pane = "READY"
+	p.checkContext(context.Background(), s, t0.Add(2*time.Second))
+	if fd.compacted != 1 {
+		t.Fatalf("ready composer submitted /compact %d times, want 1", fd.compacted)
+	}
+}
+
+func TestForceCompactReadinessTimeoutCannotFallThroughToGenericCompact(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true, pane: "NOT-READY"}
+	p := newForcePoller(fd)
+	useReadinessBackend(p)
+	s := &store.Session{ID: "a1", Status: store.StatusWorking}
+	t0 := time.Now()
+	p.checkContext(context.Background(), s, t0)
+	s.Status = store.StatusIdle
+	p.checkContext(context.Background(), s, t0.Add(forceInterruptWindow+time.Second))
+
+	require.Zero(t, fd.compacted, "generic auto-compact must not bypass readiness")
+	require.NotEmpty(t, fd.events, "readiness timeout must be observable")
+}
+
+func TestForceCompactAlreadyIdleRequiresReadiness(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true, pane: "STARTING"}
+	p := newForcePoller(fd)
+	useReadinessBackend(p)
+	s := &store.Session{ID: "a1", Status: store.StatusIdle}
+	t0 := time.Now()
+
+	p.checkContext(context.Background(), s, t0)
+	require.Equal(t, 0, fd.compacted)
+	require.Contains(t, p.forceCompact, "a1", "idle readiness wait must be bounded")
+	fd.pane = "READY"
+	p.checkContext(context.Background(), s, t0.Add(time.Second))
+	require.Equal(t, 1, fd.compacted)
+}
+
+func TestForceCompactAlreadyIdleReadinessTimeoutIsObservable(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true, pane: "STARTING"}
+	p := newForcePoller(fd)
+	useReadinessBackend(p)
+	s := &store.Session{ID: "a1", Status: store.StatusIdle}
+	t0 := time.Now()
+	p.checkContext(context.Background(), s, t0)
+	p.checkContext(context.Background(), s, t0.Add(forceInterruptWindow+time.Second))
+
+	require.Zero(t, fd.compacted)
+	require.NotEmpty(t, fd.events)
+	require.NotContains(t, p.forceCompact, "a1")
+}
+
+func TestForceCompactFailedSendDoesNotParkOrResume(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true, compactErr: errors.New("tmux rejected input")}
+	p := newForcePoller(fd)
+	s := &store.Session{ID: "a1", Status: store.StatusIdle}
+	p.checkContext(context.Background(), s, time.Now())
+
+	require.NotEmpty(t, fd.events, "send failure must remain observable")
+	require.NotContains(t, p.pendingCompact, "a1")
+	require.Contains(t, p.forceCompact, "a1", "failed submission remains retryable")
+	require.Zero(t, fd.resumed)
+}
+
+func TestForceCompactTimeoutNeverResumes(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p := newForcePoller(fd)
+	s := &store.Session{ID: "a1", Status: store.StatusIdle}
+	t0 := time.Now()
+	p.checkContext(context.Background(), s, t0)
+	p.checkContext(context.Background(), s, t0.Add(compactLandWindow+time.Second))
+
+	require.Zero(t, fd.resumed)
+	require.NotEmpty(t, fd.events, "bounded acknowledgement timeout must be observable")
+	require.NotContains(t, p.forceCompact, "a1")
+}
+
+func TestForceCompactResumeRetriesAndSucceedsExactlyOnce(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true, resumeErrs: []error{errors.New("enter failed"), nil}}
+	p := newForcePoller(fd)
+	s := &store.Session{ID: "a1", Status: store.StatusIdle}
+	t0 := time.Now()
+	p.checkContext(context.Background(), s, t0)
+
+	fd.tokens = 80000
+	p.checkContext(context.Background(), s, t0.Add(time.Second))
+	require.Equal(t, 1, fd.resumed)
+	require.Contains(t, p.forceCompact, "a1", "failed resume remains retryable")
+	p.checkContext(context.Background(), s, t0.Add(2*time.Second))
+	require.Equal(t, 2, fd.resumed)
+	require.NotContains(t, p.forceCompact, "a1")
+	p.checkContext(context.Background(), s, t0.Add(3*time.Second))
+	require.Equal(t, 2, fd.resumed, "successful resume is sent exactly once")
 }

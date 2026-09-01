@@ -380,6 +380,14 @@ func TestCodexDetectState(t *testing.T) {
 	require.Equal(t, agentbackend.StateUnknown, Codex{}.DetectState("just some quiet output"))
 }
 
+func TestCodexInputReadyRequiresAtRestComposer(t *testing.T) {
+	require.True(t, Codex{}.InputReady(codexFixture(t, "state-idle.txt")))
+	require.False(t, Codex{}.InputReady(codexFixture(t, "state-working.txt")), "stale composer below working status is not ready")
+	require.False(t, Codex{}.InputReady(codexFixture(t, "approval-command.txt")), "approval modal is not the composer")
+	require.False(t, Codex{}.InputReady("› partial redraw"), "partial redraw lacks the stable footer acknowledgement")
+	require.True(t, Codex{}.InputReady("\n› Continue work\n\n  gpt-5.6 xhigh · /work/tree\n"), "configured reasoning effort remains ready")
+}
+
 // TestCodexParseApproval parses the captured command-escalation approval into the
 // neutral Approval: the proposed command (Action), the "Would you like to …?"
 // header (Question), the three options top-down (1-indexed), the highlighted
