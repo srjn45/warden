@@ -192,7 +192,7 @@ func TestResolver_HighestHeadroomSelection(t *testing.T) {
 	require.InDelta(t, 0.9, res.Headroom, 0.001)
 }
 
-func TestResolver_Automatic90PercentThresholdFailover(t *testing.T) {
+func TestResolver_QuotaThresholdDoesNotRejectCandidate(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -216,7 +216,8 @@ func TestResolver_Automatic90PercentThresholdFailover(t *testing.T) {
 	require.Equal(t, "antigravity", res.BackendID)
 	require.InDelta(t, 0.5, res.Headroom, 0.001)
 
-	// Verify Claude candidate was marked ineligible due to threshold
+	// Synthetic quota percentages rank candidates but no longer proactively
+	// reject them; confirmed hard-limit recovery owns exclusion.
 	var claudeEval *router.CandidateEvaluation
 	for i := range res.Candidates {
 		if res.Candidates[i].BackendID == "claude" {
@@ -225,8 +226,8 @@ func TestResolver_Automatic90PercentThresholdFailover(t *testing.T) {
 		}
 	}
 	require.NotNil(t, claudeEval)
-	require.False(t, claudeEval.Eligible)
-	require.Contains(t, claudeEval.RejectReason, "quota usage 92.0% >= threshold 90%")
+	require.True(t, claudeEval.Eligible)
+	require.Empty(t, claudeEval.RejectReason)
 }
 
 func TestResolver_CooldownLimitFailover(t *testing.T) {
@@ -273,7 +274,7 @@ func TestResolver_ExplicitPreferredBackendAndModel(t *testing.T) {
 	require.Equal(t, backendstore.Tier2, res.Tier)
 }
 
-func TestResolver_AllExhaustedReturnsError(t *testing.T) {
+func TestResolver_HighSyntheticUsageRemainsEligible(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -287,8 +288,9 @@ func TestResolver_AllExhaustedReturnsError(t *testing.T) {
 	require.NoError(t, s.RecordQuotaUsage("cursor", 490, "claude-3-opus", now))                    // 98%
 	require.NoError(t, s.RecordQuotaUsage("codex", 490000, "o1", now))                             // 98%
 
-	_, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier1})
-	require.ErrorIs(t, err, router.ErrAllExhausted)
+	res, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier1})
+	require.NoError(t, err)
+	require.NotEmpty(t, res.BackendID)
 }
 
 func TestResolver_TierFallback(t *testing.T) {

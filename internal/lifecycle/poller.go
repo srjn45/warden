@@ -7,8 +7,8 @@ import (
 	"github.com/srjn45/warden/internal/backendstore"
 )
 
-// This file holds the threshold policy behind the 90% hot-swap trigger (Task 3.4):
-// the pure decision that turns a live context-fill and provider-quota measurement,
+// This file holds the context-fill threshold policy behind hot-swap: the pure
+// decision that turns a live context-fill measurement,
 // evaluated against HandoverSettings, into a signal that the poller (or an operator
 // surface) acts on by calling Lifecycle.HotSwap. It is deliberately separate from the
 // mechanics in switch.go so the policy is unit-testable in isolation and reusable by
@@ -22,7 +22,7 @@ type HotSwapSignal struct {
 	Reason         SwapReason // which threshold crossed (context_fill | quota); "" when not triggered
 	Detail         string     // human-readable explanation for the event log
 	ContextFillPct int        // measured context-window fill (0–100+), when known
-	QuotaUsedPct   int        // measured provider-quota usage (0–100+), when known
+	QuotaUsedPct   int        // deprecated; reactive hard-limit recovery owns quota
 }
 
 // ThresholdInput carries the measurements and policy for one hot-swap evaluation.
@@ -47,12 +47,9 @@ type ThresholdInput struct {
 	HasSwapped bool
 }
 
-// DecideHotSwap is the pure policy for the 90% trigger. It fires when handover is
-// enabled, the cooldown since the last swap has elapsed, and EITHER the context-fill
-// ratio or the provider-quota-usage ratio has reached its configured threshold
-// (default 90%). Context fill is checked first (a full window is the more urgent,
-// unrecoverable failure — the agent will crash — whereas a quota stall only pauses
-// it), so a tick that crosses both reports context_fill.
+// DecideHotSwap is the pure context-fill policy. Provider quota measurements are
+// intentionally ignored: confirmed StatusRateLimited transitions are handled by
+// the backend recovery coordinator.
 //
 // Thresholds default to 90 when a setting is 0/unset. A measurement that is not known
 // this tick (ContextKnown/QuotaKnown false, or a zero limit) is simply not evaluated,
@@ -65,12 +62,8 @@ func DecideHotSwap(in ThresholdInput) HotSwapSignal {
 	}
 
 	fillPct, fillKnown := contextFillPercent(in)
-	quotaPct, quotaKnown := quotaUsedPercent(in)
 	if fillKnown {
 		sig.ContextFillPct = fillPct
-	}
-	if quotaKnown {
-		sig.QuotaUsedPct = quotaPct
 	}
 
 	// Cooldown: a recent swap suppresses another (avoids swap thrashing when the
@@ -80,18 +73,10 @@ func DecideHotSwap(in ThresholdInput) HotSwapSignal {
 	}
 
 	fillThreshold := thresholdOr(in.Settings.ContextFillThreshold)
-	quotaThreshold := thresholdOr(in.Settings.RollingQuotaThreshold)
-
 	if fillKnown && fillPct >= fillThreshold {
 		sig.Trigger = true
 		sig.Reason = SwapReasonContextFill
 		sig.Detail = fillDetail(fillPct, fillThreshold)
-		return sig
-	}
-	if quotaKnown && quotaPct >= quotaThreshold {
-		sig.Trigger = true
-		sig.Reason = SwapReasonQuota
-		sig.Detail = quotaDetail(quotaPct, quotaThreshold)
 		return sig
 	}
 	return sig

@@ -35,8 +35,10 @@ type RoleTierMapping struct {
 
 // HandoverSettings holds configurations for mid-session context handover and quota headroom triggers.
 type HandoverSettings struct {
-	Enabled               bool          `json:"enabled"`
-	ThresholdPercent      int           `json:"threshold_percent"`
+	Enabled bool `json:"enabled"`
+	// Deprecated: provider quota switching is triggered only by confirmed hard limits.
+	ThresholdPercent int `json:"threshold_percent"`
+	// Deprecated: provider quota switching is triggered only by confirmed hard limits.
 	RollingQuotaThreshold int           `json:"rolling_quota_threshold"`
 	ContextFillThreshold  int           `json:"context_fill_threshold"`
 	CooldownPeriod        time.Duration `json:"cooldown_period"`

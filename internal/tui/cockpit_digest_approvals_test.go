@@ -244,6 +244,20 @@ func TestDetailBodyShowsRateLimitWhenLimited(t *testing.T) {
 	}
 }
 
+func TestDetailBodyShowsBackendRecovery(t *testing.T) {
+	at := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	next := at.Add(time.Hour)
+	target := store.BackendCandidate{BackendID: "antigravity", ModelID: "gemini-3-pro"}
+	s := &store.Session{ID: "agent-1", Status: store.StatusRateLimited, RateLimitedAt: &at,
+		BackendRecovery: &store.BackendRecovery{Phase: "waiting_for_capacity", Current: &target, NextRetryAt: &next}}
+	out := detailBody(s, 0, 80)
+	for _, want := range []string{"waiting_for_capacity", "antigravity/gemini-3-pro", "next retry"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("detailBody() missing recovery detail %q in:\n%s", want, out)
+		}
+	}
+}
+
 func TestForceCompactStateAndCycle(t *testing.T) {
 	on, off := true, false
 	if got := forceCompactState(&store.Session{}); got != "inherit" {

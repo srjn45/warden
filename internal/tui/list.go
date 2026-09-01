@@ -1451,7 +1451,7 @@ func detailBody(s *store.Session, sel, width int) string {
 	}
 
 	// rate-limit — only when the agent has actually hit a limit.
-	if s.RateLimitedAt != nil {
+	if s.RateLimitedAt != nil || s.BackendRecovery != nil {
 		var rl []string
 		rl = append(rl, sub("since", fmtTime(*s.RateLimitedAt)))
 		if s.RateLimitRestoreAt != nil {
@@ -1459,6 +1459,22 @@ func detailBody(s *store.Session, sel, width int) string {
 		}
 		if s.RateLimitRetryCount > 0 {
 			rl = append(rl, sub("retries", fmt.Sprintf("%d", s.RateLimitRetryCount)))
+		}
+		if recovery := s.BackendRecovery; recovery != nil {
+			rl = append(rl, sub("recovery", recovery.Phase))
+			if recovery.Current != nil {
+				rl = append(rl, sub("candidate", recovery.Current.BackendID+"/"+recovery.Current.ModelID))
+			}
+			if n := len(recovery.Attempts); n > 0 {
+				last := recovery.Attempts[n-1]
+				rl = append(rl, sub("last attempt", last.Candidate.BackendID+"/"+last.Candidate.ModelID+" ("+last.Outcome+")"))
+			}
+			if n := len(recovery.Resets); n > 0 && recovery.Resets[0].ResetsAt != nil {
+				rl = append(rl, sub("known reset", recovery.Resets[0].Scope+" "+fmtTime(*recovery.Resets[0].ResetsAt)))
+			}
+			if recovery.NextRetryAt != nil {
+				rl = append(rl, sub("next retry", fmtTime(*recovery.NextRetryAt)))
+			}
 		}
 		b.WriteString("\n" + stPaneTitle.Render("rate-limit") + "\n" + strings.Join(rl, "\n") + "\n")
 	}
