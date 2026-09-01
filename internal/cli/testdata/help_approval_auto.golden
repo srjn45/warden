@@ -1,0 +1,50 @@
+Control automatic approval of recognized tool-permission prompts.
+
+Two layers cooperate:
+
+  • Per-agent toggle (this command's bare form): opt one agent into evaluation
+    even when the global policy is disabled.
+        warden approval auto abc123 on    # participate
+        warden approval auto abc123 off   # stop
+
+  • Policy rules (the subcommands below): an allow/deny rule engine evaluated for
+    every participating agent. A prompt is auto-answered only when it matches an
+    allow rule, matches NO deny rule, and is not on warden's built-in destructive
+    deny-list (which always wins). With NO rules configured the policy is the
+    simple on/off toggle: an enabled policy approves every recognized,
+    non-destructive prompt (backward compatible with the old behavior).
+
+Rules match by tool name, a case-insensitive glob/substring (--pattern), a Go
+regular expression (--regex) over the prompt, and/or path globs (--paths). A
+per-agent override (--agent NAME, keyed by agent name or id) gets its own rule
+set that replaces the default for that agent.
+
+Examples:
+  warden approval auto rules                         # show the live policy
+  warden approval auto enable                        # turn the policy on
+  warden approval auto allow --tool Read             # auto-approve all Read prompts
+  warden approval auto allow --regex '^Bash\(git (status|diff|log)\)'
+  warden approval auto deny  --tool Bash --pattern rm
+  warden approval auto allow --agent reviewer --tool Grep
+  warden approval auto clear --agent reviewer        # drop reviewer's overrides
+
+Rule changes take effect immediately (no restart) and are persisted to config.
+
+Usage:
+  warden approval auto [flags]
+
+Commands:
+  set                  Toggle per-agent auto-approve participation
+  rules                Show the live auto-approve policy (default rules + per-agent overrides)
+  allow                Append an allow rule to the auto-approve policy
+  deny                 Append an deny rule to the auto-approve policy
+  clear                Clear auto-approve rules (default, or a per-agent override with --agent)
+  enable               Enable the auto-approve policy (global, or per-agent with --agent)
+  disable              Disable the auto-approve policy (global, or per-agent with --agent)
+
+Flags:
+  -h, --help   help for auto
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
