@@ -62,18 +62,22 @@ type ctxFakeDeps struct {
 	pane         string
 	compactErr   error
 	resumeErrs   []error
+	capturedTmux []string
 }
 
 func (f *ctxFakeDeps) List(context.Context) ([]*store.Session, error) { return nil, nil }
 func (f *ctxFakeDeps) UpdateStatusIf(context.Context, string, store.Status, store.Status) (bool, error) {
 	return false, nil
 }
-func (f *ctxFakeDeps) UpdatePane(context.Context, string, string) error          { return nil }
-func (f *ctxFakeDeps) UpdateSubject(context.Context, string, string) error       { return nil }
-func (f *ctxFakeDeps) ProjectsDir() string                                       { return "" }
-func (f *ctxFakeDeps) SetSessionID(context.Context, string, string) error        { return nil }
-func (f *ctxFakeDeps) SessionAlive(context.Context, string) bool                 { return true }
-func (f *ctxFakeDeps) CapturePane(context.Context, string) (string, error)       { return f.pane, nil }
+func (f *ctxFakeDeps) UpdatePane(context.Context, string, string) error    { return nil }
+func (f *ctxFakeDeps) UpdateSubject(context.Context, string, string) error { return nil }
+func (f *ctxFakeDeps) ProjectsDir() string                                 { return "" }
+func (f *ctxFakeDeps) SetSessionID(context.Context, string, string) error  { return nil }
+func (f *ctxFakeDeps) SessionAlive(context.Context, string) bool           { return true }
+func (f *ctxFakeDeps) CapturePane(_ context.Context, tmuxSession string) (string, error) {
+	f.capturedTmux = append(f.capturedTmux, tmuxSession)
+	return f.pane, nil
+}
 func (f *ctxFakeDeps) Summarize(context.Context, *store.Session) (string, error) { return "", nil }
 func (f *ctxFakeDeps) ExitCode(context.Context, string) (int, bool)              { return 0, false }
 func (f *ctxFakeDeps) FinalizeExit(context.Context, string, store.Status, store.Status, int) (bool, error) {
@@ -577,6 +581,17 @@ func TestForceCompactAlreadyIdleRequiresReadiness(t *testing.T) {
 	require.Contains(t, p.forceCompact, "a1", "idle readiness wait must be bounded")
 	fd.pane = "READY"
 	p.checkContext(context.Background(), s, t0.Add(time.Second))
+	require.Equal(t, 1, fd.compacted)
+}
+
+func TestForceCompactReadinessCapturesActualTmuxSession(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true, pane: "READY"}
+	p := newForcePoller(fd)
+	useReadinessBackend(p)
+	s := &store.Session{ID: "logical-agent-id", Name: "display-name", TmuxSession: "actual-tmux-target", Status: store.StatusIdle}
+	p.checkContext(context.Background(), s, time.Now())
+
+	require.Equal(t, []string{"actual-tmux-target"}, fd.capturedTmux)
 	require.Equal(t, 1, fd.compacted)
 }
 

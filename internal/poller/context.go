@@ -310,7 +310,7 @@ func (p *Poller) inputReady(ctx context.Context, s *store.Session) bool {
 	if !ok {
 		return true
 	}
-	pane, err := p.deps.CapturePane(ctx, s.ID)
+	pane, err := p.deps.CapturePane(ctx, s.TmuxSession)
 	return err == nil && r.InputReady(pane)
 }
 
