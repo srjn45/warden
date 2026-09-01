@@ -34,6 +34,7 @@ Run work:
 
 Work with a project:
   worktree             Inspect and reclaim warden's git worktrees: list and prune, in one place
+  git                  Commit, push, sync, and review an agent worktree on warden rails
   snapshot             Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
   memory               Show or edit this repo's warden project memory (.warden/memory.md)
   preset               Save and list named spawn configs (replay with `warden start --preset <name>`)
@@ -42,7 +43,6 @@ Work with a project:
   plugin               Inspect warden's plugin system (#47): custom task types + lifecycle hooks
   branches             Per-agent CI + branch-vs-main status
   prune                Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
-  review               Run the agent backend's native diff review on the worktree
 
 Coordinate:
   ctx                  Read and write the shared context (a namespaced key/value store agents share)
@@ -92,7 +92,7 @@ Shortcuts:
   commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
   push                 Push the current branch to origin (warden rails + bookkeeping)
   sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
-  check                Run the project's configured checks and report only failures
+  check                Run project checks and install hook guards
 
 Use "warden help <command>" for focused command help; add --all for the complete tree.
 ```
@@ -1574,6 +1574,162 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden git
+
+```text
+Commit, push, sync, and review an agent worktree on warden rails.
+
+Git verbs run locally in the agent's worktree (or the current directory when no
+agent session is bound). They enforce branch rails, hook bookkeeping, and the
+daemon-side session link — the high-frequency flat shortcuts `wd commit`,
+`wd push`, and `wd sync` remain permanently supported wrappers.
+
+Usage:
+  warden git [flags]
+
+Commands:
+  commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
+  push                 Push the current branch to origin (warden rails + bookkeeping)
+  sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
+  review               Run the agent backend's native diff review on the worktree
+  guard                PreToolUse git-redirect guard (reads hook JSON on stdin)
+
+Flags:
+  -h, --help   help for git
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden git commit
+
+```text
+Stage and commit every change in the current worktree on its branch.
+
+warden refuses protected branches (main/master), runs pre-commit hooks and
+returns only failures, and links the commit to this agent — one call in place
+of the git status/add/commit/rev-parse round-trips.
+
+Pass -m to author the message (best — you made the change). Omit it and warden
+writes one: the local model from the staged diff if configured, otherwise a
+deterministic conventional-commit message from the changed paths.
+
+Usage:
+  warden git commit [flags]
+
+Flags:
+  -h, --help             help for commit
+      --json             emit the raw result as JSON
+  -m, --message string   commit message; if omitted, warden generates one from the diff
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden git push
+
+```text
+Push the current worktree branch to origin, setting upstream.
+
+warden refuses to push protected branches (main/master) directly — push your
+agent branch and open a PR.
+
+Pass --force-with-lease after a rebase or amend to overwrite your remote
+branch. warden only ever uses --force-with-lease (never a bare --force), so
+the push aborts if a teammate pushed to your branch since your last fetch.
+
+Usage:
+  warden git push [flags]
+
+Flags:
+      --force-with-lease   push with --force-with-lease (safe force after a rebase/amend)
+  -h, --help               help for push
+      --json               emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden git sync
+
+```text
+Fetch origin and rebase the current branch onto origin/<base> (default main).
+
+Refuses a dirty tree (commit first). On conflict warden leaves the rebase in
+progress and reports only the conflicting files for you to resolve.
+
+Usage:
+  warden git sync [flags]
+
+Flags:
+      --base string   base branch to rebase onto (default main)
+  -h, --help          help for sync
+      --json          emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden git review
+
+```text
+Ask this agent's backend to review its own diff — the agent-native counterpart
+to `wd check`. Where `wd check` runs the project's configured test/lint commands
+and `pr-review` stands up a whole reviewer session, `wd git review` invokes the
+backend's OWN one-shot reviewer (Codex: `codex review`) against the worktree and
+streams its findings to you — additive and on-top, no review session to manage.
+
+By default it reviews the uncommitted working tree (staged + unstaged +
+untracked); pass --base <branch> to review the branch's changes against a base
+instead. The review runs locally in the agent's worktree (like a check); the
+model/provider comes from the backend's own config, so the $0-local Ollama rig
+and a paid setup both work unchanged.
+
+Pass --json for a machine-readable result: warden runs the backend's structured
+review (Codex: `codex exec review`), normalizes the backend's NATIVE review
+output into a neutral findings shape ({summary, verdict, findings[]}), and prints
+that JSON to stdout (the backend's own progress goes to stderr). Note: review
+quality rides the backend's configured model — a tiny local model may report no
+findings; the operator's real model is where this earns its keep.
+
+Backends without a native review (e.g. Claude) are not offered the verb — it
+exits non-zero pointing you at `wd check` or a `pr-review` agent.
+
+Usage:
+  warden git review [flags]
+
+Flags:
+      --backend string   review for this backend id (default: the current agent's backend)
+      --base string      review changes against this base branch (default: the uncommitted working tree)
+  -h, --help             help for review
+      --json             emit machine-readable findings (neutral JSON) instead of streaming the prose review
+      --prompt string    optional extra review instructions for the backend's reviewer
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden git guard
+
+```text
+PreToolUse git-redirect guard (reads hook JSON on stdin)
+
+Usage:
+  warden git guard [flags]
+
+Flags:
+  -h, --help   help for guard
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden snapshot
 
 ```text
@@ -1998,46 +2154,6 @@ Flags:
       --json               output as JSON
       --repo string        repo path (default: current directory)
       --yes                skip the confirmation prompt
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden review
-
-```text
-Ask this agent's backend to review its own diff — the agent-native counterpart
-to `wd check`. Where `wd check` runs the project's configured test/lint commands
-and `pr-review` stands up a whole reviewer session, `wd review` invokes the
-backend's OWN one-shot reviewer (Codex: `codex review`) against the worktree and
-streams its findings to you — additive and on-top, no review session to manage.
-
-By default it reviews the uncommitted working tree (staged + unstaged +
-untracked); pass --base <branch> to review the branch's changes against a base
-instead. The review runs locally in the agent's worktree (like a check); the
-model/provider comes from the backend's own config, so the $0-local Ollama rig
-and a paid setup both work unchanged.
-
-Pass --json for a machine-readable result: warden runs the backend's structured
-review (Codex: `codex exec review`), normalizes the backend's NATIVE review
-output into a neutral findings shape ({summary, verdict, findings[]}), and prints
-that JSON to stdout (the backend's own progress goes to stderr). Note: review
-quality rides the backend's configured model — a tiny local model may report no
-findings; the operator's real model is where this earns its keep.
-
-Backends without a native review (e.g. Claude) are not offered the verb — it
-exits non-zero pointing you at `wd check` or a `pr-review` agent.
-
-Usage:
-  warden review [flags]
-
-Flags:
-      --backend string   review for this backend id (default: the current agent's backend)
-      --base string      review changes against this base branch (default: the uncommitted working tree)
-  -h, --help             help for review
-      --json             emit machine-readable findings (neutral JSON) instead of streaming the prose review
-      --prompt string    optional extra review instructions for the backend's reviewer
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3783,20 +3899,96 @@ Inherited flags:
 ## warden check
 
 ```text
-Run the check command(s) declared in this project's .warden/check.yml and
-return a pass/fail summary — with captured output for the FAILING checks only,
-in place of the hundreds of lines a raw test run spills into the transcript.
+Run project checks and install hook guards.
 
-`wd check` runs every configured check; `wd check <name>` runs one (e.g. test,
-lint, build). Commands come from the project, so warden stays language-agnostic;
-a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.
+`wd check` (or `wd check run`) executes the commands declared in .warden/check.yml
+and returns only failures. Guard subcommands are hook-facing entry points installed
+by warden; they preserve the stdin/stdout JSON protocol and fail-open semantics of
+the legacy `hook` paths.
 
 Usage:
   warden check [name] [flags]
 
+Commands:
+  run                  Run the project's configured checks and report only failures
+  guard                PreToolUse check-redirect guard (reads hook JSON on stdin)
+  boundary             PreToolUse isolation guard (reads hook JSON on stdin)
+  root-guard           PreToolUse main-worktree guard (reads hook JSON on stdin)
+
 Flags:
   -h, --help   help for check
       --json   emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check run
+
+```text
+Run the check command(s) declared in this project's .warden/check.yml and
+return a pass/fail summary — with captured output for the FAILING checks only,
+in place of the hundreds of lines a raw test run spills into the transcript.
+
+`wd check run` runs every configured check; `wd check run <name>` runs one (e.g. test,
+lint, build). Commands come from the project, so warden stays language-agnostic;
+a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.
+
+Usage:
+  warden check run [name] [flags]
+
+Flags:
+  -h, --help   help for run
+      --json   emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check guard
+
+```text
+PreToolUse check-redirect guard (reads hook JSON on stdin)
+
+Usage:
+  warden check guard [flags]
+
+Flags:
+  -h, --help   help for guard
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check boundary
+
+```text
+PreToolUse isolation guard (reads hook JSON on stdin)
+
+Usage:
+  warden check boundary [flags]
+
+Flags:
+  -h, --help   help for boundary
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check root-guard
+
+```text
+PreToolUse main-worktree guard (reads hook JSON on stdin)
+
+Usage:
+  warden check root-guard [flags]
+
+Flags:
+  -h, --help   help for root-guard
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

@@ -62,7 +62,7 @@ var rootHelpPlacement = map[string]struct {
 	"stop": {"run", 260}, "switch": {"run", 270}, "tail": {"run", 280}, "terminate": {"run", 290},
 	"worktree": {"project", 10}, "snapshot": {"project", 20}, "memory": {"project", 30}, "preset": {"project", 40},
 	"prompt-template": {"project", 50}, "library": {"project", 60}, "plugin": {"project", 70}, "branches": {"project", 80},
-	"prune": {"project", 90}, "review": {"project", 100},
+	"prune": {"project", 90}, "git": {"project", 12},
 	"ctx": {"coordinate", 10}, "msg": {"coordinate", 20}, "approvals": {"coordinate", 30}, "approve": {"coordinate", 40},
 	"auto-approve": {"coordinate", 50}, "collab": {"coordinate", 60},
 	"search": {"observe", 10}, "history": {"observe", 20}, "audit": {"observe", 30}, "stats": {"observe", 40},
