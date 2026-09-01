@@ -23,19 +23,89 @@ func newAutopilotCmd() *cobra.Command {
 		Short: "Turn autopilot mode on/off per repo and show its status",
 		Long: "Autopilot runs a long-lived headless brain agent per plan that decomposes a\n" +
 			"goal, spawns workers, and lands green work into an integration branch\n" +
-			"unattended. The switch is PER-REPO: `warden autopilot on` run inside a repo\n" +
+			"unattended. The switch is PER-REPO: `warden autopilot enable` run inside a repo\n" +
 			"enables only that repo (others are unaffected), and the enabled set is persisted\n" +
 			"so repos come back up across a daemon restart. The plan/manager/merge template\n" +
 			"stays global in the `autopilot` config block. Enabling runs a preflight (plan\n" +
 			"file valid, gh authenticated, integration branch present, at most one active run\n" +
 			"per repo) and fails fast with the full list of problems so you fix everything in\n" +
-			"one pass. `off` is the kill switch. Configure the feature under the `autopilot`\n" +
-			"block in the config file (or scaffold it with `warden autopilot init`).",
+			"one pass. `disable` is the kill switch. Registered runs are managed separately\n" +
+			"under `autopilot run`. Configure the feature under the `autopilot` block in the\n" +
+			"config file (or scaffold it with `warden autopilot init`).",
 	}
-	cmd.AddCommand(newAutopilotOnCmd(), newAutopilotOffCmd(), newAutopilotStatusCmd(), newAutopilotInitCmd(),
-		newAutopilotRegisterCmd(), newAutopilotListCmd(), newAutopilotRunActionCmd("start"), newAutopilotRunActionCmd("pause"),
-		newAutopilotRunActionCmd("resume"), newAutopilotRunActionCmd("stop"), newAutopilotRunActionCmd("unregister"))
+	SetCommandHelpMetadata(cmd, "run", 30, "warden autopilot", "", NodeNamespace)
+
+	children := []*cobra.Command{
+		canonicalAutopilotCommand(newAutopilotOnCmd(), "enable"),
+		canonicalAutopilotCommand(newAutopilotOffCmd(), "disable"),
+		newAutopilotStatusCmd(),
+		newAutopilotInitCmd(),
+		newAutopilotRegisterCmd(),
+		newAutopilotLandCmd(),
+		newAutopilotRunCmd(),
+	}
+	for i, child := range children {
+		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden autopilot "+child.Name(), "", nodeKind(child))
+		cmd.AddCommand(child)
+	}
+	for _, legacy := range []struct {
+		factory   func() *cobra.Command
+		canonical string
+	}{
+		{newAutopilotOnCmd, "warden autopilot enable"},
+		{newAutopilotOffCmd, "warden autopilot disable"},
+		{newAutopilotListCmd, "warden autopilot run list"},
+		{func() *cobra.Command { return newAutopilotRunActionCmd("start") }, "warden autopilot run start"},
+		{func() *cobra.Command { return newAutopilotRunActionCmd("pause") }, "warden autopilot run pause"},
+		{func() *cobra.Command { return newAutopilotRunActionCmd("resume") }, "warden autopilot run resume"},
+		{func() *cobra.Command { return newAutopilotRunActionCmd("stop") }, "warden autopilot run stop"},
+		{func() *cobra.Command { return newAutopilotRunActionCmd("unregister") }, "warden autopilot run unregister"},
+	} {
+		alias := legacy.factory()
+		markCompatibilityChild(alias, legacy.canonical)
+		cmd.AddCommand(alias)
+	}
 	return cmd
+}
+
+func newAutopilotRunCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Manage registered autopilot runs",
+		Long: "Start, pause, resume, stop, and unregister individual registered runs.\n" +
+			"Distinct from repository enablement (`autopilot enable` / `autopilot disable`).",
+	}
+	list := newAutopilotListCmd()
+	SetCommandHelpMetadata(list, "run", 10, "warden autopilot run list", "", NodeLeaf)
+	cmd.AddCommand(list)
+	for i, action := range []string{"start", "pause", "resume", "stop", "unregister"} {
+		child := newAutopilotRunActionCmd(action)
+		SetCommandHelpMetadata(child, "run", (i+2)*10, "warden autopilot run "+action, "", NodeLeaf)
+		cmd.AddCommand(child)
+	}
+	return cmd
+}
+
+func canonicalAutopilotCommand(cmd *cobra.Command, name string) *cobra.Command {
+	parts := strings.SplitN(cmd.Use, " ", 2)
+	legacyName := parts[0]
+	rewriteAutopilotHelpPaths(cmd, legacyName, name)
+	cmd.Use = name
+	if len(parts) == 2 {
+		cmd.Use += " " + parts[1]
+	}
+	cmd.Aliases = nil
+	return cmd
+}
+
+func rewriteAutopilotHelpPaths(cmd *cobra.Command, legacyName, canonicalName string) {
+	replacer := strings.NewReplacer(
+		"warden autopilot "+legacyName, "warden autopilot "+canonicalName,
+		"wd autopilot "+legacyName, "wd autopilot "+canonicalName,
+		"`warden autopilot "+legacyName, "`warden autopilot "+canonicalName,
+	)
+	cmd.Long = replacer.Replace(cmd.Long)
+	cmd.Example = replacer.Replace(cmd.Example)
 }
 
 func newAutopilotListCmd() *cobra.Command {
@@ -230,7 +300,7 @@ func newAutopilotInitCmd() *cobra.Command {
 			"registers it with the daemon, creates the integration branch\n" +
 			"off the default branch if absent, and prints a CI-coverage hint when no workflow\n" +
 			"covers integration pull requests. After init, edit the plan file and run\n" +
-			"`warden autopilot on` to enable.",
+			"`warden autopilot enable` to enable.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			env := autopilot.NewExecEnv()
@@ -257,7 +327,14 @@ func newAutopilotInitCmd() *cobra.Command {
 	return cmd
 }
 
-// newLandCmd is the top-level `warden land` command: the guarded, idempotent
+// newAutopilotLandCmd is the canonical `warden autopilot land` command.
+func newAutopilotLandCmd() *cobra.Command {
+	cmd := newLandCmd()
+	rewriteAutopilotHelpPaths(cmd, "land", "land")
+	return cmd
+}
+
+// newLandCmd is the legacy top-level `warden land` compatibility wrapper.
 // merge of one autopilot worker branch into the integration branch (autopilot.md
 // §6). It mirrors the MCP `land` tool the brain uses.
 func newLandCmd() *cobra.Command {

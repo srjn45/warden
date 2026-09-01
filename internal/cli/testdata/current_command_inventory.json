@@ -694,6 +694,30 @@
     ]
   },
   {
+    "path": "autopilot disable",
+    "use": "disable",
+    "runnable": true,
+    "local_flags": [
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot enable",
+    "use": "enable",
+    "runnable": true,
+    "local_flags": [
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "autopilot init",
     "use": "init",
     "runnable": true,
@@ -706,8 +730,18 @@
     ]
   },
   {
+    "path": "autopilot land",
+    "use": "land \u003cagent-or-branch\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "autopilot list",
     "use": "list",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -717,6 +751,7 @@
   {
     "path": "autopilot off",
     "use": "off",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "repo"
@@ -729,6 +764,7 @@
   {
     "path": "autopilot on",
     "use": "on",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "repo"
@@ -741,6 +777,7 @@
   {
     "path": "autopilot pause",
     "use": "pause \u003crun-id-or-name\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -763,6 +800,69 @@
   {
     "path": "autopilot resume",
     "use": "resume \u003crun-id-or-name\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run",
+    "use": "run",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run pause",
+    "use": "pause \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run resume",
+    "use": "resume \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run start",
+    "use": "start \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run stop",
+    "use": "stop \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run unregister",
+    "use": "unregister \u003crun-id-or-name\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -772,6 +872,7 @@
   {
     "path": "autopilot start",
     "use": "start \u003crun-id-or-name\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -790,6 +891,7 @@
   {
     "path": "autopilot stop",
     "use": "stop \u003crun-id-or-name\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -799,6 +901,7 @@
   {
     "path": "autopilot unregister",
     "use": "unregister \u003crun-id-or-name\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1896,6 +1999,7 @@
   {
     "path": "land",
     "use": "land \u003cagent-or-branch\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2248,6 +2352,7 @@
   {
     "path": "pipeline list-templates",
     "use": "list-templates",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2293,6 +2398,23 @@
   {
     "path": "pipeline start",
     "use": "start \u003cpipeline\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline template",
+    "use": "template",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline template list",
+    "use": "list",
     "runnable": true,
     "inherited_flags": [
       "addr",

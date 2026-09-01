@@ -1,0 +1,30 @@
+Autopilot runs a long-lived headless brain agent per plan that decomposes a
+goal, spawns workers, and lands green work into an integration branch
+unattended. The switch is PER-REPO: `warden autopilot enable` run inside a repo
+enables only that repo (others are unaffected), and the enabled set is persisted
+so repos come back up across a daemon restart. The plan/manager/merge template
+stays global in the `autopilot` config block. Enabling runs a preflight (plan
+file valid, gh authenticated, integration branch present, at most one active run
+per repo) and fails fast with the full list of problems so you fix everything in
+one pass. `disable` is the kill switch. Registered runs are managed separately
+under `autopilot run`. Configure the feature under the `autopilot` block in the
+config file (or scaffold it with `warden autopilot init`).
+
+Usage:
+  warden autopilot [flags]
+
+Commands:
+  enable               Enable autopilot for this repo (runs the enable-time preflight)
+  disable              Disable autopilot for this repo (kill switch — stops spawning/landing)
+  status               Show autopilot status (which repos are enabled, and each run)
+  init                 Scaffold autopilot adoption in the current repo
+  register             Register a named autopilot plan
+  land                 Land an autopilot worker branch into the integration branch
+  run                  Manage registered autopilot runs
+
+Flags:
+  -h, --help   help for autopilot
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
