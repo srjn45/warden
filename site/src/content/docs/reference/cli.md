@@ -30,7 +30,6 @@ Run work:
   pipeline             Define and run DAG pipelines of agent jobs
   autopilot            Turn autopilot mode on/off per repo and show its status
   schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
-  land                 Land an autopilot worker branch into the integration branch
 
 Work with a project:
   project              Manage repo-local warden configuration: memory, presets, templates, and plugins
@@ -836,25 +835,28 @@ Inherited flags:
 ## warden pipeline
 
 ```text
-Define and run DAG pipelines of agent jobs
+Define and run DAG pipelines of agent jobs.
+
+Use validate locally before create; template list shows built-in starters;
+start/pause/resume/cancel control lifecycle; show lists per-job status and handoffs.
 
 Usage:
   warden pipeline [flags]
 
 Commands:
-  cancel               Cancel a pipeline (terminates running jobs)
+  validate             Validate a pipeline YAML spec without creating it
   create               Create a pipeline from a YAML spec or a built-in template
-  delete               Delete a pipeline's record (must not have live jobs — cancel first)
-  edit-job             Edit a pending job's prompt and/or handoff
-  emit                 Publish this job's handoff (run from inside a pipeline job)
+  template             Built-in pipeline templates
   list                 List pipelines
-  list-templates       List the built-in pipeline templates and their placeholders
-  pause                Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
-  resume               Resume a paused pipeline (spawns jobs that became ready while paused)
-  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
   show                 Show a pipeline's jobs and their status
   start                Start a pipeline (spawns jobs with no dependencies)
-  validate             Validate a pipeline YAML spec without creating it
+  pause                Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
+  resume               Resume a paused pipeline (spawns jobs that became ready while paused)
+  cancel               Cancel a pipeline (terminates running jobs)
+  delete               Delete a pipeline's record (must not have live jobs — cancel first)
+  emit                 Publish this job's handoff (run from inside a pipeline job)
+  edit-job             Edit a pending job's prompt and/or handoff
+  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
 
 Flags:
   -h, --help   help for pipeline
@@ -864,16 +866,17 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline cancel
+## warden pipeline validate
 
 ```text
-Cancel a pipeline (terminates running jobs)
+Parse and validate a pipeline spec locally — checks required fields, job ids, dependency references, worktree/run_if values, and DAG cycles. Exits 0 if valid, 1 if not (suitable for CI). Does not contact the daemon.
 
 Usage:
-  warden pipeline cancel <pipeline> [flags]
+  warden pipeline validate -f <spec.yaml> [flags]
 
 Flags:
-  -h, --help   help for cancel
+  -f, --file string   path to the pipeline YAML spec
+  -h, --help          help for validate
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -887,70 +890,53 @@ Create a pipeline either from a YAML spec file (-f) or from a built-in
 template (--template). Templates render with placeholder substitution: --name
 fills {{NAME}} (default the template name), --repo fills {{REPO}} (default the
 current directory), and each remaining {{KEY}} is filled with --set KEY=VALUE.
-Run `warden pipeline list-templates` to see templates and their placeholders.
+Run `warden pipeline template list` to see templates and their placeholders.
 
 Usage:
   warden pipeline create (-f <spec.yaml> | --template <name>) [flags]
 
 Flags:
-  -f, --file string                        path to the pipeline YAML spec
-  -h, --help                               help for create
-      --name string                        pipeline name — fills {{NAME}} (default: the template name)
-      --repo string                        repo path — fills {{REPO}} (default: the current directory)
-      --set stringArray                    fill a template placeholder, KEY=VALUE (repeatable)
-      --template pipeline list-templates   built-in template to render (see pipeline list-templates)
+  -f, --file string                       path to the pipeline YAML spec
+  -h, --help                              help for create
+      --name string                       pipeline name — fills {{NAME}} (default: the template name)
+      --repo string                       repo path — fills {{REPO}} (default: the current directory)
+      --set stringArray                   fill a template placeholder, KEY=VALUE (repeatable)
+      --template pipeline template list   built-in template to render (see pipeline template list)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline delete
+## warden pipeline template
 
 ```text
-Delete a pipeline's record (must not have live jobs — cancel first)
+Built-in pipeline templates render via create --template and support placeholder substitution.
 
 Usage:
-  warden pipeline delete <pipeline> [flags]
+  warden pipeline template [flags]
+
+Commands:
+  list                 List the built-in pipeline templates and their placeholders
 
 Flags:
-  -h, --help   help for delete
+  -h, --help   help for template
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline edit-job
+## warden pipeline template list
 
 ```text
-Edit a pending job's prompt and/or handoff
+List the built-in pipeline templates and their placeholders
 
 Usage:
-  warden pipeline edit-job <pipeline> <job> [flags]
+  warden pipeline template list [flags]
 
 Flags:
-      --handoff string   new handoff hint for the job
-  -h, --help             help for edit-job
-      --prompt string    new prompt for the job
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline emit
-
-```text
-Publish this job's handoff (run from inside a pipeline job)
-
-Usage:
-  warden pipeline emit <text> [flags]
-
-Flags:
-  -h, --help              help for emit
-      --job string        job id (defaults to $WARDEN_JOB_ID)
-      --pipeline string   pipeline id (defaults to $WARDEN_PIPELINE_ID)
+  -h, --help   help for list
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -967,70 +953,6 @@ Usage:
 
 Flags:
   -h, --help   help for list
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline list-templates
-
-```text
-List the built-in pipeline templates and their placeholders
-
-Usage:
-  warden pipeline list-templates [flags]
-
-Flags:
-  -h, --help   help for list-templates
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline pause
-
-```text
-Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
-
-Usage:
-  warden pipeline pause <pipeline> [flags]
-
-Flags:
-  -h, --help   help for pause
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline resume
-
-```text
-Resume a paused pipeline (spawns jobs that became ready while paused)
-
-Usage:
-  warden pipeline resume <pipeline> [flags]
-
-Flags:
-  -h, --help   help for resume
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline retry
-
-```text
-Re-run a failed or needs-attention job (reopens skipped descendants)
-
-Usage:
-  warden pipeline retry <pipeline> <job> [flags]
-
-Flags:
-  -h, --help   help for retry
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1069,17 +991,116 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline validate
+## warden pipeline pause
 
 ```text
-Parse and validate a pipeline spec locally — checks required fields, job ids, dependency references, worktree/run_if values, and DAG cycles. Exits 0 if valid, 1 if not (suitable for CI). Does not contact the daemon.
+Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
 
 Usage:
-  warden pipeline validate -f <spec.yaml> [flags]
+  warden pipeline pause <pipeline> [flags]
 
 Flags:
-  -f, --file string   path to the pipeline YAML spec
-  -h, --help          help for validate
+  -h, --help   help for pause
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline resume
+
+```text
+Resume a paused pipeline (spawns jobs that became ready while paused)
+
+Usage:
+  warden pipeline resume <pipeline> [flags]
+
+Flags:
+  -h, --help   help for resume
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline cancel
+
+```text
+Cancel a pipeline (terminates running jobs)
+
+Usage:
+  warden pipeline cancel <pipeline> [flags]
+
+Flags:
+  -h, --help   help for cancel
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline delete
+
+```text
+Delete a pipeline's record (must not have live jobs — cancel first)
+
+Usage:
+  warden pipeline delete <pipeline> [flags]
+
+Flags:
+  -h, --help   help for delete
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline emit
+
+```text
+Publish this job's handoff (run from inside a pipeline job)
+
+Usage:
+  warden pipeline emit <text> [flags]
+
+Flags:
+  -h, --help              help for emit
+      --job string        job id (defaults to $WARDEN_JOB_ID)
+      --pipeline string   pipeline id (defaults to $WARDEN_PIPELINE_ID)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline edit-job
+
+```text
+Edit a pending job's prompt and/or handoff
+
+Usage:
+  warden pipeline edit-job <pipeline> <job> [flags]
+
+Flags:
+      --handoff string   new handoff hint for the job
+  -h, --help             help for edit-job
+      --prompt string    new prompt for the job
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline retry
+
+```text
+Re-run a failed or needs-attention job (reopens skipped descendants)
+
+Usage:
+  warden pipeline retry <pipeline> <job> [flags]
+
+Flags:
+  -h, --help   help for retry
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1091,33 +1112,85 @@ Inherited flags:
 ```text
 Autopilot runs a long-lived headless brain agent per plan that decomposes a
 goal, spawns workers, and lands green work into an integration branch
-unattended. The switch is PER-REPO: `warden autopilot on` run inside a repo
+unattended. The switch is PER-REPO: `warden autopilot enable` run inside a repo
 enables only that repo (others are unaffected), and the enabled set is persisted
 so repos come back up across a daemon restart. The plan/manager/merge template
 stays global in the `autopilot` config block. Enabling runs a preflight (plan
 file valid, gh authenticated, integration branch present, at most one active run
 per repo) and fails fast with the full list of problems so you fix everything in
-one pass. `off` is the kill switch. Configure the feature under the `autopilot`
-block in the config file (or scaffold it with `warden autopilot init`).
+one pass. `disable` is the kill switch. Registered runs are managed separately
+under `autopilot run`. Configure the feature under the `autopilot` block in the
+config file (or scaffold it with `warden autopilot init`).
 
 Usage:
   warden autopilot [flags]
 
 Commands:
-  init                 Scaffold autopilot adoption in the current repo
-  list                 List all registered autopilot runs
-  off                  Disable autopilot for this repo (kill switch — stops spawning/landing)
-  on                   Enable autopilot for this repo (runs the enable-time preflight)
-  pause                pause one autopilot run
-  register             Register a named autopilot plan
-  resume               resume one autopilot run
-  start                start one autopilot run
+  enable               Enable autopilot for this repo (runs the enable-time preflight)
+  disable              Disable autopilot for this repo (kill switch — stops spawning/landing)
   status               Show autopilot status (which repos are enabled, and each run)
-  stop                 stop one autopilot run
-  unregister           unregister one autopilot run
+  init                 Scaffold autopilot adoption in the current repo
+  register             Register a named autopilot plan
+  land                 Land an autopilot worker branch into the integration branch
+  run                  Manage registered autopilot runs
 
 Flags:
   -h, --help   help for autopilot
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot enable
+
+```text
+Enables autopilot for the current git repository only (other repos are
+unaffected). Runs the enable-time preflight and, on success, persists the repo
+as enabled so it comes back up across a daemon restart. Use --repo to target a
+different repository.
+
+Usage:
+  warden autopilot enable [flags]
+
+Flags:
+  -h, --help          help for enable
+      --repo string   repo root to enable (default: the current git repository)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot disable
+
+```text
+Disables autopilot for the current git repository only (other enabled repos
+keep running). In-flight workers are left running. Use --repo to target a
+different repository.
+
+Usage:
+  warden autopilot disable [flags]
+
+Flags:
+  -h, --help          help for disable
+      --repo string   repo root to disable (default: the current git repository)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot status
+
+```text
+Show autopilot status (which repos are enabled, and each run)
+
+Usage:
+  warden autopilot status [flags]
+
+Flags:
+  -h, --help   help for status
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1131,7 +1204,7 @@ Creates a named template under plans/ in the current git repository (if absent),
 registers it with the daemon, creates the integration branch
 off the default branch if absent, and prints a CI-coverage hint when no workflow
 covers integration pull requests. After init, edit the plan file and run
-`warden autopilot on` to enable.
+`warden autopilot enable` to enable.
 
 Usage:
   warden autopilot init [flags]
@@ -1139,77 +1212,6 @@ Usage:
 Flags:
   -h, --help          help for init
       --name string   plan name (creates plans/<name>.yaml) (default "default")
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot list
-
-```text
-List all registered autopilot runs
-
-Usage:
-  warden autopilot list [flags]
-
-Flags:
-  -h, --help   help for list
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot off
-
-```text
-Disables autopilot for the current git repository only (other enabled repos
-keep running). In-flight workers are left running. Use --repo to target a
-different repository.
-
-Usage:
-  warden autopilot off [flags]
-
-Flags:
-  -h, --help          help for off
-      --repo string   repo root to disable (default: the current git repository)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot on
-
-```text
-Enables autopilot for the current git repository only (other repos are
-unaffected). Runs the enable-time preflight and, on success, persists the repo
-as enabled so it comes back up across a daemon restart. Use --repo to target a
-different repository.
-
-Usage:
-  warden autopilot on [flags]
-
-Flags:
-  -h, --help          help for on
-      --repo string   repo root to enable (default: the current git repository)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot pause
-
-```text
-pause one autopilot run
-
-Usage:
-  warden autopilot pause <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for pause
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1234,29 +1236,77 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot resume
+## warden autopilot land
 
 ```text
-resume one autopilot run
+Merges one autopilot worker branch into the integration branch — the brain's
+only merge path. Runs every precondition (owning run active, branch
+autopilot-owned, a PR based on the integration branch, the resolved gate green
+for the PR head, and the PR mergeable), merges with the configured strategy,
+deletes the worker branch if configured, and records the landing. Idempotent:
+re-issuing after a merge reports already-landed with no second merge. On a
+precondition failure it prints the typed kind
+(gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base).
 
 Usage:
-  warden autopilot resume <run-id-or-name> [flags]
+  warden autopilot land <agent-or-branch> [flags]
 
 Flags:
-  -h, --help   help for resume
+  -h, --help   help for land
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot start
+## warden autopilot run
+
+```text
+Start, pause, resume, stop, and unregister individual registered runs.
+Distinct from repository enablement (`autopilot enable` / `autopilot disable`).
+
+Usage:
+  warden autopilot run [flags]
+
+Commands:
+  list                 List all registered autopilot runs
+  start                start one autopilot run
+  pause                pause one autopilot run
+  resume               resume one autopilot run
+  stop                 stop one autopilot run
+  unregister           unregister one autopilot run
+
+Flags:
+  -h, --help   help for run
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot run list
+
+```text
+List all registered autopilot runs
+
+Usage:
+  warden autopilot run list [flags]
+
+Flags:
+  -h, --help   help for list
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot run start
 
 ```text
 start one autopilot run
 
 Usage:
-  warden autopilot start <run-id-or-name> [flags]
+  warden autopilot run start <run-id-or-name> [flags]
 
 Flags:
   -h, --help   help for start
@@ -1266,29 +1316,45 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot status
+## warden autopilot run pause
 
 ```text
-Show autopilot status (which repos are enabled, and each run)
+pause one autopilot run
 
 Usage:
-  warden autopilot status [flags]
+  warden autopilot run pause <run-id-or-name> [flags]
 
 Flags:
-  -h, --help   help for status
+  -h, --help   help for pause
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot stop
+## warden autopilot run resume
+
+```text
+resume one autopilot run
+
+Usage:
+  warden autopilot run resume <run-id-or-name> [flags]
+
+Flags:
+  -h, --help   help for resume
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot run stop
 
 ```text
 stop one autopilot run
 
 Usage:
-  warden autopilot stop <run-id-or-name> [flags]
+  warden autopilot run stop <run-id-or-name> [flags]
 
 Flags:
   -h, --help   help for stop
@@ -1298,13 +1364,13 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot unregister
+## warden autopilot run unregister
 
 ```text
 unregister one autopilot run
 
 Usage:
-  warden autopilot unregister <run-id-or-name> [flags]
+  warden autopilot run unregister <run-id-or-name> [flags]
 
 Flags:
   -h, --help   help for unregister
@@ -1444,29 +1510,6 @@ Usage:
 
 Flags:
   -h, --help   help for delete
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden land
-
-```text
-Merges one autopilot worker branch into the integration branch — the brain's
-only merge path. Runs every precondition (owning run active, branch
-autopilot-owned, a PR based on the integration branch, the resolved gate green
-for the PR head, and the PR mergeable), merges with the configured strategy,
-deletes the worker branch if configured, and records the landing. Idempotent:
-re-issuing after a merge reports already-landed with no second merge. On a
-precondition failure it prints the typed kind
-(gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base).
-
-Usage:
-  warden land <agent-or-branch> [flags]
-
-Flags:
-  -h, --help   help for land
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
