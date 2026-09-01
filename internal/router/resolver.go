@@ -44,7 +44,7 @@ type ResolveOptions struct {
 	PreferredModel   string                 // explicit model ID preference
 	AllowPaid        bool                   // allow pay_per_use backends (default: false, subscription/free only)
 	AllowFallback    bool                   // fallback to adjacent tier if target tier is exhausted
-	ThresholdPercent int                    // override quota threshold (defaults to HandoverSettings.RollingQuotaThreshold, usually 90)
+	ThresholdPercent int                    // deprecated; ignored (hard-limit recovery is reactive)
 }
 
 // CandidateEvaluation represents the status and scoring of a candidate model during resolution.
@@ -160,16 +160,6 @@ func tierFromInt(n int) backendstore.ModelTier {
 func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendstore.ModelTier, opts ResolveOptions) ([]CandidateEvaluation, error) {
 	now := r.now().UTC()
 
-	settings, err := r.store.GetHandoverSettings()
-	thresholdPercent := 90
-	if err == nil && settings.RollingQuotaThreshold > 0 {
-		thresholdPercent = settings.RollingQuotaThreshold
-	}
-	if opts.ThresholdPercent > 0 {
-		thresholdPercent = opts.ThresholdPercent
-	}
-	maxUsageRatio := float64(thresholdPercent) / 100.0
-
 	// Get all backends
 	backends, err := r.store.List()
 	if err != nil {
@@ -273,8 +263,8 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 		// Retrieve quota headroom and cooldown status
 		headroom, used, limit, limited, err := r.store.GetHeadroom(m.BackendID, now)
 		if err != nil {
-			eval.Eligible = false
-			eval.RejectReason = fmt.Sprintf("failed to get headroom: %v", err)
+			// Unknown provider usage is eligible for trial; never fabricate it.
+			eval.Eligible = true
 			evals = append(evals, eval)
 			continue
 		}
@@ -290,13 +280,6 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 		if limited || b.LimitedUntil.After(now) {
 			eval.Eligible = false
 			eval.RejectReason = fmt.Sprintf("backend is rate-limited / cooldown until %s", b.LimitedUntil.Format(time.RFC3339))
-			evals = append(evals, eval)
-			continue
-		}
-
-		if eval.UsageRatio >= maxUsageRatio {
-			eval.Eligible = false
-			eval.RejectReason = fmt.Sprintf("quota usage %.1f%% >= threshold %d%% (headroom: %.1f%%)", eval.UsageRatio*100, thresholdPercent, eval.Headroom*100)
 			evals = append(evals, eval)
 			continue
 		}

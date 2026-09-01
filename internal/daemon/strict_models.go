@@ -118,6 +118,9 @@ func (s *Server) SwitchSession(ctx context.Context, req oapi.SwitchSessionReques
 	if err != nil {
 		return nil, err
 	}
+	if s.recovery != nil {
+		s.recovery.Supersede(ctx, sess.ID, "manual_switch")
+	}
 
 	var swapReq lifecycle.SwapRequest
 	if req.Body != nil {

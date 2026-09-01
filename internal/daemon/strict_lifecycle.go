@@ -232,6 +232,9 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	if err := s.guardOwnership(ctx, sess); err != nil {
 		return nil, err
 	}
+	if s.recovery != nil {
+		s.recovery.Supersede(ctx, sess.ID, "manual_stop")
+	}
 	if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 		return nil, err
 	}
@@ -277,6 +280,9 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	}
 	if err := s.guardOwnership(ctx, sess); err != nil {
 		return nil, err
+	}
+	if s.recovery != nil {
+		s.recovery.Supersede(ctx, sess.ID, "manual_delete")
 	}
 	id := sess.ID // req.Id may be a name; key all store writes on the resolved id
 	// A parent that still has live children is tombstoned rather than removed:

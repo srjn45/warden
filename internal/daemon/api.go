@@ -202,6 +202,8 @@ type Server struct {
 	// usage queries provider-owned subscription limits without touching routing
 	// or the synthetic quota recorder. Its cache is process-local and sanitized.
 	usage *backendusage.Service
+	// recovery is the sole coordinator for confirmed provider hard limits.
+	recovery *BackendRecoveryCoordinator
 	// projects is the first-class project store (docs/specs/
 	// 2026-08-28-project-centric-ui.md Phase 1): the parent entity agents and
 	// pipelines group under via ProjectID. nil ⇒ unconfigured (older wiring); the
@@ -291,6 +293,8 @@ func (s *Server) SetBackends(store *backendstore.Store) {
 
 // SetUsageService allows deterministic daemon tests to inject provider adapters.
 func (s *Server) SetUsageService(service *backendusage.Service) { s.usage = service }
+
+func (s *Server) SetBackendRecovery(c *BackendRecoveryCoordinator) { s.recovery = c }
 
 // SetProjects wires the first-class project store (docs/specs/
 // 2026-08-28-project-centric-ui.md Phase 1). A nil store leaves the project routes

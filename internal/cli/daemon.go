@@ -19,6 +19,7 @@ import (
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/ctxtokens"
@@ -304,6 +305,8 @@ func newDaemonCmd() *cobra.Command {
 				return rerr
 			}
 			srv.SetBackends(backendStore)
+			usageService := backendusage.NewService(backendStore)
+			srv.SetUsageService(usageService)
 			lc.Resolver = router.NewResolver(backendStore)
 
 			// First-class project store (docs/specs/2026-08-28-project-centric-ui.md
@@ -324,6 +327,10 @@ func newDaemonCmd() *cobra.Command {
 			lc.PeerContextFn = srv.PeerContext
 			if handoverSettings, err := backendStore.GetHandoverSettings(); err == nil {
 				pl.HandoverEnabled = handoverSettings.Enabled
+				if handoverSettings.ThresholdPercent != 0 || handoverSettings.RollingQuotaThreshold != 0 {
+					slog.Warn("handover quota thresholds are deprecated and ignored; confirmed hard-limit recovery now controls provider switching",
+						"keys", "threshold_percent, rolling_quota_threshold")
+				}
 			}
 			pl.OnHotSwap = func(sess *store.Session, tokens int) {
 				settings, err := backendStore.GetHandoverSettings()
@@ -338,11 +345,6 @@ func newDaemonCmd() *cobra.Command {
 					ContextTokens: tokens,
 					ContextLimit:  cfg.Tokens.Critical,
 					ContextKnown:  tokens > 0 && cfg.Tokens.Critical > 0,
-				}
-				if _, used, limit, _, qerr := backendStore.GetHeadroom(sess.Backend, time.Now()); qerr == nil && limit > 0 {
-					in.QuotaUsed = used
-					in.QuotaLimit = limit
-					in.QuotaKnown = true
 				}
 				sig := lifecycle.DecideHotSwap(in)
 				if !sig.Trigger {
@@ -505,64 +507,18 @@ func newDaemonCmd() *cobra.Command {
 			// Autopilot guardian escalations (§2.3) fan out through the same
 			// operator notifier seam (desktop + webhook).
 			srv.SetAutopilotNotifier(notifSwitch)
-			// Autopilot cost-tier selection (§7): feed the guardian's per-backend
-			// limit tracking from the poller's rate-limit detection, so a limited
-			// backend drops out of selection until its parsed reset (else the
-			// configured retry/spend fallback) elapses and it climbs back up.
-			rateLimitSched.OnLimit = func(sess *store.Session, until time.Time) {
-				apCtrl.MarkBackendLimited(sess.Backend, until)
-			}
-			// Auto-handover on a hard rate limit (Feature #4): when handover is
-			// enabled, hot-swap the limited agent to a fresh backend in the same
-			// worktree instead of parking it until the limit clears. The exhausted
-			// backend is marked limited in the registry FIRST so the router excludes it
-			// from successor resolution; when no other backend is eligible the swap
-			// fails and we return false to fall through to the normal pause/resume path.
-			rateLimitSched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
-				settings, herr := backendStore.GetHandoverSettings()
-				if herr != nil {
-					settings = backendstore.DefaultHandoverSettings()
-				}
-				if !settings.Enabled {
-					return false
-				}
-				// Exclude the exhausted backend from successor resolution.
-				_ = backendStore.SetBackendLimited(sess.Backend, until)
-				res, swapErr := lc.HotSwap(context.Background(), sess, lifecycle.SwapRequest{
-					Role:   sess.Role,
-					Reason: lifecycle.SwapReasonQuota,
-				})
-				if swapErr != nil {
-					slog.Warn("rate-limit hot-swap skipped; falling back to pause/resume", "agent", sess.ID, "err", swapErr)
-					return false
-				}
-				_ = st.Update(context.Background(), sess.ID, func(s *store.Session) error {
-					s.Backend = sess.Backend
-					s.Model = sess.Model
-					s.ClaudeSessionID = sess.ClaudeSessionID
-					s.UpdatedAt = sess.UpdatedAt
-					return nil
-				})
-				// A different backend now drives the session: leave the rate-limited
-				// state, clear the persisted limit + any pending resume timer, and let
-				// the poller re-classify the fresh agent.
-				_, _ = st.UpdateStatusIf(context.Background(), sess.ID, store.StatusRateLimited, store.StatusSpawning)
-				_ = st.ClearRateLimit(context.Background(), sess.ID)
-				rateLimitSched.CancelTimer(sess.ID)
-				_ = st.AppendEvent(context.Background(), sess.ID, store.Event{
-					TS:     time.Now().UTC(),
-					Type:   "rate-limit-hotswap",
-					Detail: "hard limit on " + res.FromBackend + "; hot-swapped to " + res.ToBackend,
-				})
-				srv.Notify()
-				slog.Info("rate-limit hot-swap completed", "agent", sess.ID, "from_backend", res.FromBackend, "to_backend", res.ToBackend, "to_model", res.ToModel, "handoff", res.HandoffPath)
-				return true
+			recoveryCoordinator := daemon.NewBackendRecoveryCoordinator(st, backendStore, usageService, life)
+			srv.SetBackendRecovery(recoveryCoordinator)
+			rateLimitSched.OnHardLimit = recoveryCoordinator.OnHardLimit
+			if err := recoveryCoordinator.Reconstruct(context.Background()); err != nil {
+				slog.Warn("backend recovery reconstruction failed", "err", err)
 			}
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
 				restarter.OnTransition(sess, from, to)
 				rateLimitSched.OnTransition(sess, from, to)
+				recoveryCoordinator.OnTransition(sess, from, to)
 			}
 			pl.OnContextAlert = func(sess *store.Session, state ctxtokens.State, tokens int) {
 				title, body := daemon.ContextAlertMessage(sess, state, tokens)

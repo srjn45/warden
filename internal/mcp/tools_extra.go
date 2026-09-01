@@ -257,8 +257,8 @@ type switchAgentArgs struct {
 }
 type setHandoverSettingsArgs struct {
 	Enabled               *bool   `json:"enabled,omitempty" jsonschema:"enable or disable automated mid-session hot-swap on context fill"`
-	ThresholdPercent      *int    `json:"threshold_percent,omitempty" jsonschema:"context fill threshold percent (default 90)"`
-	RollingQuotaThreshold *int    `json:"rolling_quota_threshold,omitempty" jsonschema:"provider rolling quota headroom threshold percent (default 90)"`
+	ThresholdPercent      *int    `json:"threshold_percent,omitempty" jsonschema:"deprecated; ignored for provider quota switching"`
+	RollingQuotaThreshold *int    `json:"rolling_quota_threshold,omitempty" jsonschema:"deprecated; ignored for provider quota switching"`
 	ContextFillThreshold  *int    `json:"context_fill_threshold,omitempty" jsonschema:"context fill threshold percent (default 90)"`
 	CooldownPeriod        *string `json:"cooldown_period,omitempty" jsonschema:"minimum cooldown between swaps, e.g. 15m, 1h"`
 	CooldownMinutes       *int    `json:"cooldown_minutes,omitempty" jsonschema:"minimum cooldown between swaps in minutes"`

@@ -54,17 +54,13 @@ func TestDecideHotSwapBelowThresholdNoTrigger(t *testing.T) {
 	}
 }
 
-func TestDecideHotSwapQuotaTriggers(t *testing.T) {
+func TestDecideHotSwapQuotaDoesNotTrigger(t *testing.T) {
 	in := ThresholdInput{
 		Settings:  enabledSettings(),
 		QuotaUsed: 95, QuotaLimit: 100, QuotaKnown: true, // 95%
 	}
-	sig := DecideHotSwap(in)
-	if !sig.Trigger || sig.Reason != SwapReasonQuota {
-		t.Fatalf("95%% quota should trigger quota reason, got %#v", sig)
-	}
-	if sig.QuotaUsedPct != 95 {
-		t.Fatalf("QuotaUsedPct = %d, want 95", sig.QuotaUsedPct)
+	if sig := DecideHotSwap(in); sig.Trigger {
+		t.Fatalf("proactive quota readings must not trigger; hard-limit recovery is reactive, got %#v", sig)
 	}
 }
 

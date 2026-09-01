@@ -3194,8 +3194,8 @@ components:
       required: [enabled, threshold_percent, rolling_quota_threshold, context_fill_threshold, cooldown_period]
       properties:
         enabled: { type: boolean }
-        threshold_percent: { type: integer }
-        rolling_quota_threshold: { type: integer }
+        threshold_percent: { type: integer, deprecated: true, description: "Deprecated; ignored for provider quota switching." }
+        rolling_quota_threshold: { type: integer, deprecated: true, description: "Deprecated; ignored for provider quota switching." }
         context_fill_threshold: { type: integer }
         cooldown_period: { type: integer, description: "cooldown period in nanoseconds" }
 

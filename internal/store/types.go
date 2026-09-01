@@ -172,6 +172,42 @@ type Event struct {
 	Detail string    `json:"detail"`
 }
 
+// BackendCandidate identifies one provider capacity pool. Model is part of the
+// identity because providers may meter independent model pools.
+type BackendCandidate struct {
+	BackendID string `json:"backend_id"`
+	ModelID   string `json:"model_id"`
+}
+
+type RecoveryAttempt struct {
+	Candidate BackendCandidate `json:"candidate"`
+	Round     uint64           `json:"round"`
+	StartedAt time.Time        `json:"started_at"`
+	Outcome   string           `json:"outcome"`
+}
+
+type RecoveryReset struct {
+	BackendID string     `json:"backend_id"`
+	LimitID   string     `json:"limit_id"`
+	Scope     string     `json:"scope"`
+	ResetsAt  *time.Time `json:"resets_at"`
+}
+
+// BackendRecovery is the durable, restart-safe state of reactive hard-limit
+// recovery. Nil means the session is not being recovered.
+type BackendRecovery struct {
+	Generation  uint64            `json:"generation"`
+	Round       uint64            `json:"round"`
+	Phase       string            `json:"phase"`
+	Original    BackendCandidate  `json:"original"`
+	Current     *BackendCandidate `json:"current,omitempty"`
+	Attempts    []RecoveryAttempt `json:"attempts"`
+	Resets      []RecoveryReset   `json:"resets,omitempty"`
+	NextRetryAt *time.Time        `json:"next_retry_at,omitempty"`
+	StableSince *time.Time        `json:"stable_since,omitempty"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+}
+
 type Session struct {
 	ID              string      `json:"id"`
 	Name            string      `json:"name,omitempty"` // optional human-friendly alias (max 32 chars, alphanumeric + hyphens/underscores)
@@ -232,9 +268,11 @@ type Session struct {
 	LastCompactAt    *time.Time `json:"last_compact_at,omitempty"`    // when warden last auto-sent /compact (cooldown guard)
 
 	// Rate limit fields
-	RateLimitedAt       *time.Time `json:"rate_limited_at,omitempty"`        // when limit was first hit
-	RateLimitRestoreAt  *time.Time `json:"rate_limit_restore_at,omitempty"`  // scheduled resume time
-	RateLimitRetryCount int        `json:"rate_limit_retry_count,omitempty"` // number of retry attempts
+	RateLimitedAt             *time.Time       `json:"rate_limited_at,omitempty"`             // when limit was first hit
+	RateLimitRestoreAt        *time.Time       `json:"rate_limit_restore_at,omitempty"`       // scheduled resume time
+	RateLimitRetryCount       int              `json:"rate_limit_retry_count,omitempty"`      // number of retry attempts
+	BackendRecoveryGeneration uint64           `json:"backend_recovery_generation,omitempty"` // monotonic stale-work fence
+	BackendRecovery           *BackendRecovery `json:"backend_recovery,omitempty"`            // reactive hard-limit recovery state
 }
 
 // IsTerminal reports whether this session is a plain terminal (a ${SHELL:-bash}
