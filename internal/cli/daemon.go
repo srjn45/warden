@@ -69,7 +69,7 @@ func requireReadonlyHasPrimary(token, readonlyToken string) error {
 	return nil
 }
 
-func newDaemonCmd() *cobra.Command {
+func newDaemonRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Run the warden hub (HTTP API + poller; the single writer to the file store)",

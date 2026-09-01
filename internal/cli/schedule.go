@@ -20,8 +20,15 @@ func newScheduleCmd() *cobra.Command {
 			"--prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set\n" +
 			"scheduler_enabled: true in the config file and keep the daemon running.",
 	}
-	cmd.AddCommand(newScheduleCreateCmd(), newScheduleListCmd(), newScheduleGetCmd(),
-		newScheduleEnableCmd(), newScheduleDisableCmd(), newScheduleDeleteCmd())
+	SetCommandHelpMetadata(cmd, "run", 40, "warden schedule", "", NodeNamespace)
+	children := []*cobra.Command{
+		newScheduleCreateCmd(), newScheduleListCmd(), newScheduleGetCmd(),
+		newScheduleEnableCmd(), newScheduleDisableCmd(), newScheduleDeleteCmd(),
+	}
+	for i, child := range children {
+		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden schedule "+child.Name(), "", NodeLeaf)
+		cmd.AddCommand(child)
+	}
 	return cmd
 }
 

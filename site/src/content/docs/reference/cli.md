@@ -73,8 +73,6 @@ Observe and configure:
 Operate warden:
   daemon               Run the warden hub (HTTP API + poller; the single writer to the file store)
   completion           Generate shell completion scripts
-  mcp                  Run the MCP stdio server so an orchestrator Claude can manage agents
-  token                Manage the daemon's remote-access bearer token
 
 Get started and interact:
   setup                Install missing dependencies (tmux, git, claude; optional gh, ollama)
@@ -1353,11 +1351,11 @@ Usage:
 
 Commands:
   create               Create a schedule that fires an agent or a pipeline
-  delete               Delete a schedule
-  disable              Disable a schedule so it stops firing (history preserved)
-  enable               Enable a schedule so it fires again (re-arms next run)
-  get                  Show one schedule, including its last-run outcome
   list                 List schedules
+  get                  Show one schedule, including its last-run outcome
+  enable               Enable a schedule so it fires again (re-arms next run)
+  disable              Disable a schedule so it stops firing (history preserved)
+  delete               Delete a schedule
 
 Flags:
   -h, --help   help for schedule
@@ -1395,48 +1393,16 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule delete
+## warden schedule list
 
 ```text
-Delete a schedule
+List schedules
 
 Usage:
-  warden schedule delete <id> [flags]
+  warden schedule list [flags]
 
 Flags:
-  -h, --help   help for delete
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden schedule disable
-
-```text
-Disable a schedule so it stops firing (history preserved)
-
-Usage:
-  warden schedule disable <id> [flags]
-
-Flags:
-  -h, --help   help for disable
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden schedule enable
-
-```text
-Enable a schedule so it fires again (re-arms next run)
-
-Usage:
-  warden schedule enable <id> [flags]
-
-Flags:
-  -h, --help   help for enable
+  -h, --help   help for list
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1459,16 +1425,48 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule list
+## warden schedule enable
 
 ```text
-List schedules
+Enable a schedule so it fires again (re-arms next run)
 
 Usage:
-  warden schedule list [flags]
+  warden schedule enable <id> [flags]
 
 Flags:
-  -h, --help   help for list
+  -h, --help   help for enable
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden schedule disable
+
+```text
+Disable a schedule so it stops firing (history preserved)
+
+Usage:
+  warden schedule disable <id> [flags]
+
+Flags:
+  -h, --help   help for disable
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden schedule delete
+
+```text
+Delete a schedule
+
+Usage:
+  warden schedule delete <id> [flags]
+
+Flags:
+  -h, --help   help for delete
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3134,27 +3132,11 @@ Usage:
   warden config [flags]
 
 Commands:
-  init                 Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
   path                 Print the resolved config file path
+  init                 Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
 
 Flags:
   -h, --help   help for config
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden config init
-
-```text
-Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
-
-Usage:
-  warden config init [flags]
-
-Flags:
-  -h, --help   help for init
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3171,6 +3153,22 @@ Usage:
 
 Flags:
   -h, --help   help for path
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden config init
+
+```text
+Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
+
+Usage:
+  warden config init [flags]
+
+Flags:
+  -h, --help   help for init
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3321,10 +3319,133 @@ Run the warden hub (HTTP API + poller; the single writer to the file store)
 Usage:
   warden daemon [flags]
 
+Commands:
+  mcp                  Run the MCP stdio server so an orchestrator Claude can manage agents
+  token                Manage the daemon's remote-access bearer token
+
 Flags:
   -h, --help                help for daemon
       --log-format string   log output format: text | json (overrides log.format config)
       --log-level string    log verbosity: debug | info | warn | error (overrides log.level config)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden daemon mcp
+
+```text
+Run the MCP stdio server so an orchestrator Claude can manage agents
+
+Usage:
+  warden daemon mcp [flags]
+
+Flags:
+  -h, --help   help for mcp
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden daemon token
+
+```text
+Manage the daemon's remote-access bearer token
+
+Usage:
+  warden daemon token [flags]
+
+Commands:
+  generate             Generate a random bearer token for remote (non-loopback) access
+  show                 Print the current bearer token (for pasting into a remote client)
+  rotate               Generate a new bearer token, persist it, and restart the daemon
+
+Flags:
+  -h, --help   help for token
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden daemon token generate
+
+```text
+Generate a cryptographically random 256-bit bearer token and print it to stdout.
+
+warden does not store the token. Export it so the daemon picks it up:
+
+  export WARDEN_TOKEN=$(warden daemon token generate)
+
+The token is required before the daemon will bind to a non-loopback address.
+Treat it like a password.
+
+To mint a read-only token, generate one and export it as WARDEN_READONLY_TOKEN:
+
+  export WARDEN_READONLY_TOKEN=$(warden daemon token generate)
+
+A read-only token may read everything (all GETs plus the live event stream) but
+is denied every state-changing action and the interactive attach. It only works
+alongside a primary WARDEN_TOKEN; the daemon refuses to start with a read-only
+token but no primary token. (The token value is identical either way — what makes
+it read-only is the env var you assign it to.)
+
+Usage:
+  warden daemon token generate [flags]
+
+Flags:
+  -h, --help   help for generate
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden daemon token show
+
+```text
+Print the bearer token local clients resolve: WARDEN_TOKEN if exported,
+otherwise the token a managed install persists in ~/.warden/token.env.
+
+Use this to retrieve the secret to paste into the mobile web dashboard. The token
+is printed to stdout (so it pipes cleanly); its source is noted on stderr.
+
+With --readonly, print the read-only token instead (WARDEN_READONLY_TOKEN if
+exported, otherwise its line in the token file).
+
+Usage:
+  warden daemon token show [flags]
+
+Flags:
+  -h, --help       help for show
+      --readonly   print the read-only token (WARDEN_READONLY_TOKEN) instead of the primary
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden daemon token rotate
+
+```text
+Rotate the daemon's bearer token: generate a fresh 256-bit secret, write it to
+~/.warden/token.env (chmod 600), and restart the managed warden service so
+the new token takes effect immediately. The new token is printed to stdout.
+
+After rotating, update remote clients (paste the new token into the mobile
+dashboard) and re-export WARDEN_TOKEN in any shell that held the old value.
+
+Use --no-restart to write the new token without restarting; you must then restart
+the daemon yourself before the new token is honored.
+
+Usage:
+  warden daemon token rotate [flags]
+
+Flags:
+  -h, --help         help for rotate
+      --no-restart   write the new token without restarting the daemon
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3365,9 +3486,9 @@ Usage:
 
 Commands:
   bash                 Generate bash completion script
+  zsh                  Generate zsh completion script
   fish                 Generate fish completion script
   powershell           Generate PowerShell completion script
-  zsh                  Generate zsh completion script
 
 Flags:
   -h, --help   help for completion
@@ -3387,6 +3508,22 @@ Usage:
 
 Flags:
   -h, --help   help for bash
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden completion zsh
+
+```text
+Generate zsh completion script
+
+Usage:
+  warden completion zsh [flags]
+
+Flags:
+  -h, --help   help for zsh
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3419,141 +3556,6 @@ Usage:
 
 Flags:
   -h, --help   help for powershell
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden completion zsh
-
-```text
-Generate zsh completion script
-
-Usage:
-  warden completion zsh [flags]
-
-Flags:
-  -h, --help   help for zsh
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden mcp
-
-```text
-Run the MCP stdio server so an orchestrator Claude can manage agents
-
-Usage:
-  warden mcp [flags]
-
-Flags:
-  -h, --help   help for mcp
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden token
-
-```text
-Manage the daemon's remote-access bearer token
-
-Usage:
-  warden token [flags]
-
-Commands:
-  generate             Generate a random bearer token for remote (non-loopback) access
-  rotate               Generate a new bearer token, persist it, and restart the daemon
-  show                 Print the current bearer token (for pasting into a remote client)
-
-Flags:
-  -h, --help   help for token
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden token generate
-
-```text
-Generate a cryptographically random 256-bit bearer token and print it to stdout.
-
-warden does not store the token. Export it so the daemon picks it up:
-
-  export WARDEN_TOKEN=$(warden token generate)
-
-The token is required before the daemon will bind to a non-loopback address.
-Treat it like a password.
-
-To mint a read-only token, generate one and export it as WARDEN_READONLY_TOKEN:
-
-  export WARDEN_READONLY_TOKEN=$(warden token generate)
-
-A read-only token may read everything (all GETs plus the live event stream) but
-is denied every state-changing action and the interactive attach. It only works
-alongside a primary WARDEN_TOKEN; the daemon refuses to start with a read-only
-token but no primary token. (The token value is identical either way — what makes
-it read-only is the env var you assign it to.)
-
-Usage:
-  warden token generate [flags]
-
-Flags:
-  -h, --help   help for generate
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden token rotate
-
-```text
-Rotate the daemon's bearer token: generate a fresh 256-bit secret, write it to
-~/.warden/token.env (chmod 600), and restart the managed warden service so
-the new token takes effect immediately. The new token is printed to stdout.
-
-After rotating, update remote clients (paste the new token into the mobile
-dashboard) and re-export WARDEN_TOKEN in any shell that held the old value.
-
-Use --no-restart to write the new token without restarting; you must then restart
-the daemon yourself before the new token is honored.
-
-Usage:
-  warden token rotate [flags]
-
-Flags:
-  -h, --help         help for rotate
-      --no-restart   write the new token without restarting the daemon
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden token show
-
-```text
-Print the bearer token local clients resolve: WARDEN_TOKEN if exported,
-otherwise the token a managed install persists in ~/.warden/token.env.
-
-Use this to retrieve the secret to paste into the mobile web dashboard. The token
-is printed to stdout (so it pipes cleanly); its source is noted on stderr.
-
-With --readonly, print the read-only token instead (WARDEN_READONLY_TOKEN if
-exported, otherwise its line in the token file).
-
-Usage:
-  warden token show [flags]
-
-Flags:
-  -h, --help       help for show
-      --readonly   print the read-only token (WARDEN_READONLY_TOKEN) instead of the primary
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
