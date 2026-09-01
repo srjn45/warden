@@ -36,22 +36,63 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().String("addr", "", "daemon address (overrides the addr config setting)")
 	root.PersistentFlags().String("config", "", "config file path (default ~/.warden/config.yaml)")
 	root.AddCommand(newAgentCmd())
+	root.AddCommand(newBackendCmd())
+	root.AddCommand(newUsageNamespaceCmd())
+	root.AddCommand(newInspectCmd())
 	root.AddCommand(newScheduleCmd())
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newDaemonCmd())
 	root.AddCommand(newPresetCmd())
 	root.AddCommand(newPromptTemplateCmd())
 	root.AddCommand(newLibraryCmd())
-	root.AddCommand(newCostCmd())
+	costCmd := newCostCmd()
+	markCompatibilityCommand(costCmd, "warden cost")
+	for _, child := range costCmd.Commands() {
+		SetCommandHelpMetadata(child, "observe", 900, "warden usage "+child.Name(), AliasCompatibility, nodeKind(child))
+	}
+	root.AddCommand(costCmd)
 	lsCmd, statusCmd := newLsCmd(), newStatusCmd()
 	markPermanentAgentShortcut(lsCmd, "warden agent list")
 	markPermanentAgentShortcut(statusCmd, "warden agent status")
 	digestCmd := newDigestCmd()
 	markCompatibilityCommand(digestCmd, "warden agent digest")
-	root.AddCommand(lsCmd, statusCmd, digestCmd, newStatsCmd(), newInsightsCmd(), newSavingsCmd(), newSpendCmd())
-	root.AddCommand(newSearchCmd(), newHistoryCmd())
-	root.AddCommand(newAuditCmd())
-	root.AddCommand(newExportCmd(), newImportCmd())
+	root.AddCommand(lsCmd, statusCmd, digestCmd)
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+	}{
+		{newStatsCmd(), "warden inspect resources"},
+		{newInsightsCmd(), "warden usage insights"},
+		{newSavingsCmd(), "warden usage savings"},
+		{newSpendCmd(), "warden usage spend"},
+	} {
+		markCompatibilityCommand(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+	}{
+		{newSearchCmd(), "warden inspect search"},
+		{newHistoryCmd(), "warden inspect history"},
+		{newExportCmd(), "warden inspect export"},
+		{newImportCmd(), "warden inspect import"},
+	} {
+		markCompatibilityCommand(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
+	auditCmd := newAuditCmd()
+	markCompatibilityCommand(auditCmd, "warden inspect audit")
+	for _, child := range auditCmd.Commands() {
+		if child.Annotations == nil {
+			child.Annotations = map[string]string{}
+		}
+		child.Annotations[AnnotationCanonicalPath] = "warden inspect audit"
+	}
+	root.AddCommand(auditCmd)
+	repairCmd := newRepairCmd()
+	markCompatibilityCommand(repairCmd, "warden inspect repair")
+	root.AddCommand(repairCmd)
 	startCmd := newStartCmd()
 	markPermanentAgentShortcut(startCmd, "warden agent start")
 	root.AddCommand(startCmd)
@@ -82,9 +123,12 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(commitCmd, pushCmd, syncCmd)
 	reviewCmd := newReviewCmd()
 	markCompatibilityCommand(reviewCmd, "warden git review")
-	root.AddCommand(reviewCmd, newModelsCmd())
-	root.AddCommand(newBackendsCmd())
-	root.AddCommand(newUsageCmd())
+	root.AddCommand(reviewCmd)
+	modelsCmd := newModelsCmd()
+	markCompatibilityCommand(modelsCmd, "warden backend model")
+	backendsCmd := newBackendsCmd()
+	markCompatibilityCommand(backendsCmd, "warden backend")
+	root.AddCommand(modelsCmd, backendsCmd)
 	root.AddCommand(newMemoryCmd())
 	root.AddCommand(newSnapshotCmd())
 	root.AddCommand(newPluginCmd())
@@ -130,12 +174,19 @@ func newRootCmd() *cobra.Command {
 	tuiCmd := newTUICmd()
 	markEntryPoint(tuiCmd, 40)
 	root.AddCommand(tuiCmd)
-	root.AddCommand(newReplCmd())
-	root.AddCommand(newLLMCmd())
+	replCmd := newReplCmd()
+	markCompatibilityCommand(replCmd, "warden backend repl")
+	llmCmd := newLLMCmd()
+	llmCmd.Hidden = true
+	SetCommandHelpMetadata(llmCmd, "observe", 150, "warden backend suggest", AliasCompatibility, NodeNamespace)
+	for _, child := range llmCmd.Commands() {
+		child.Hidden = true
+		SetCommandHelpMetadata(child, "observe", 150, "warden backend suggest", AliasCompatibility, nodeKind(child))
+	}
+	root.AddCommand(replCmd, llmCmd)
 	doctorCmd := newDoctorCmd()
 	markEntryPoint(doctorCmd, 30)
 	root.AddCommand(doctorCmd)
-	root.AddCommand(newRepairCmd())
 	setupCmd := newSetupCmd()
 	markEntryPoint(setupCmd, 10)
 	root.AddCommand(setupCmd)

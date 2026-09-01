@@ -563,6 +563,7 @@
   {
     "path": "audit",
     "use": "audit",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -571,6 +572,7 @@
   {
     "path": "audit log",
     "use": "log",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "action",
@@ -804,8 +806,150 @@
     ]
   },
   {
+    "path": "backend",
+    "use": "backend",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend default",
+    "use": "default \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend disable",
+    "use": "disable \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend enable",
+    "use": "enable \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend model",
+    "use": "model",
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "backend model list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "by-tier",
+      "json",
+      "tier"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "backend model tier",
+    "use": "tier \u003cbackend\u003e \u003cmodel\u003e \u003ctier\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend repl",
+    "use": "repl",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend rescan",
+    "use": "rescan",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend suggest",
+    "use": "suggest",
+    "runnable": true,
+    "local_flags": [
+      "free-gb",
+      "json",
+      "samples",
+      "total-gb"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "backend thinking-mode",
+    "use": "thinking-mode \u003cmode\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend tier",
+    "use": "tier \u003cid\u003e \u003ctier\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "backends",
     "use": "backends",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -814,6 +958,7 @@
   {
     "path": "backends default",
     "use": "default \u003cid\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -823,6 +968,7 @@
   {
     "path": "backends disable",
     "use": "disable \u003cid\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -832,6 +978,7 @@
   {
     "path": "backends enable",
     "use": "enable \u003cid\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -844,6 +991,7 @@
     "aliases": [
       "ls"
     ],
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -853,6 +1001,7 @@
   {
     "path": "backends rescan",
     "use": "rescan",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -862,6 +1011,7 @@
   {
     "path": "backends thinking-mode",
     "use": "thinking-mode \u003cmode\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -871,6 +1021,7 @@
   {
     "path": "backends tier",
     "use": "tier \u003cid\u003e \u003ctier\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1136,6 +1287,7 @@
   {
     "path": "cost",
     "use": "cost",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1145,6 +1297,7 @@
   {
     "path": "cost savings",
     "use": "savings",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "audit",
@@ -1163,6 +1316,7 @@
   {
     "path": "cost spend",
     "use": "spend",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "by",
@@ -1380,6 +1534,7 @@
   {
     "path": "export",
     "use": "export",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "all"
@@ -1517,6 +1672,7 @@
   {
     "path": "history",
     "use": "history",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "json",
@@ -1582,6 +1738,7 @@
   {
     "path": "import",
     "use": "import",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "json",
@@ -1596,12 +1753,135 @@
   {
     "path": "insights",
     "use": "insights",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "json",
       "limit",
       "session",
       "since"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect",
+    "use": "inspect",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "inspect audit",
+    "use": "audit",
+    "runnable": true,
+    "local_flags": [
+      "action",
+      "json",
+      "since",
+      "tail",
+      "target",
+      "until"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect export",
+    "use": "export",
+    "runnable": true,
+    "local_flags": [
+      "all"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "inspect history",
+    "use": "history",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "limit",
+      "since",
+      "type"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect import",
+    "use": "import",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "merge"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect repair",
+    "use": "repair",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "inspect repair sessions",
+    "use": "sessions",
+    "runnable": true,
+    "local_flags": [
+      "apply",
+      "backup",
+      "dry-run",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect resources",
+    "use": "resources",
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "history",
+      "json",
+      "watch"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect search",
+    "use": "search \u003cQUERY...\u003e",
+    "runnable": true,
+    "local_flags": [
+      "closed",
+      "json"
     ],
     "inherited_flags": [
       "addr",
@@ -1671,6 +1951,7 @@
   {
     "path": "llm",
     "use": "llm",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -1679,6 +1960,7 @@
   {
     "path": "llm suggest",
     "use": "suggest",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "free-gb",
@@ -1783,6 +2065,7 @@
   {
     "path": "models",
     "use": "models",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "backend",
@@ -1800,6 +2083,7 @@
     "aliases": [
       "ls"
     ],
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "backend",
@@ -1816,6 +2100,7 @@
   {
     "path": "models tier",
     "use": "tier \u003cbackend\u003e \u003cmodel\u003e \u003ctier\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2167,6 +2452,7 @@
   {
     "path": "repair",
     "use": "repair",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -2175,6 +2461,7 @@
   {
     "path": "repair sessions",
     "use": "sessions",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "apply",
@@ -2195,6 +2482,7 @@
       "i",
       "interactive"
     ],
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2306,6 +2594,7 @@
   {
     "path": "savings",
     "use": "savings",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "audit",
@@ -2396,6 +2685,7 @@
   {
     "path": "search",
     "use": "search \u003cQUERY...\u003e",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "closed",
@@ -2501,6 +2791,7 @@
   {
     "path": "spend",
     "use": "spend",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "by",
@@ -2549,6 +2840,7 @@
   {
     "path": "stats",
     "use": "stats",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "agent",
@@ -2737,6 +3029,54 @@
     "local_flags": [
       "json",
       "refresh"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "usage insights",
+    "use": "insights",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "limit",
+      "session",
+      "since"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "usage savings",
+    "use": "savings",
+    "runnable": true,
+    "local_flags": [
+      "audit",
+      "benchmark",
+      "calibrate",
+      "calibrate-max",
+      "json",
+      "since"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "usage spend",
+    "use": "spend",
+    "runnable": true,
+    "local_flags": [
+      "by",
+      "json"
     ],
     "inherited_flags": [
       "addr",
