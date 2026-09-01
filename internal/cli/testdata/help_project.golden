@@ -1,0 +1,20 @@
+Manage repo-local warden configuration: durable project memory, reusable
+spawn presets and prompt templates, the library umbrella over saved launch
+configs, and the plugin registry for custom task types and lifecycle hooks.
+
+Usage:
+  warden project [flags]
+
+Commands:
+  memory               Show or edit this repo's warden project memory (.warden/memory.md)
+  preset               Save and list named spawn configs (replay with `warden start --preset <name>`)
+  prompt-template      Save and list reusable, variabled prompt templates (fill with `warden start --prompt-template <name> --set VAR=value`)
+  library              Browse saved spawn presets, prompt templates, and pipeline templates in one place
+  plugin               Inspect warden's plugin system (#47): custom task types + lifecycle hooks
+
+Flags:
+  -h, --help   help for project
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

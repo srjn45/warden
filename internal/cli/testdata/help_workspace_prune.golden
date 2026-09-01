@@ -1,0 +1,24 @@
+Reclaim orphaned warden worktrees under .worktrees — those whose owning agent
+record is gone (or, with --include-archived, archived). Always shows the plan
+and asks before removing anything (skip with --yes); dirty/unpushed worktrees
+are kept unless --force. Retention is policy-driven via the `worktree.keep_done`
+/ `worktree.auto_prune` config settings.
+
+Available as `wd worktree prune` and, unchanged, as the top-level alias `wd prune`.
+(To tear down ONE agent's worktree instead, use `wd remove-worktree`.)
+
+Usage:
+  warden workspace prune [flags]
+
+Flags:
+      --dry-run            report what would be removed; change nothing
+      --force              override the dirty/unpushed guard and permit branch deletion for record-less orphans (never the default branch)
+  -h, --help               help for prune
+      --include-archived   also reclaim worktrees owned by archived (done) records
+      --json               output as JSON
+      --repo string        repo path (default: current directory)
+      --yes                skip the confirmation prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
