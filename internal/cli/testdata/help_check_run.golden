@@ -1,0 +1,18 @@
+Run the check command(s) declared in this project's .warden/check.yml and
+return a pass/fail summary — with captured output for the FAILING checks only,
+in place of the hundreds of lines a raw test run spills into the transcript.
+
+`wd check run` runs every configured check; `wd check run <name>` runs one (e.g. test,
+lint, build). Commands come from the project, so warden stays language-agnostic;
+a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.
+
+Usage:
+  warden check run [name] [flags]
+
+Flags:
+  -h, --help   help for run
+      --json   emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

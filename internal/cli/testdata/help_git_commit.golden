@@ -1,0 +1,21 @@
+Stage and commit every change in the current worktree on its branch.
+
+warden refuses protected branches (main/master), runs pre-commit hooks and
+returns only failures, and links the commit to this agent — one call in place
+of the git status/add/commit/rev-parse round-trips.
+
+Pass -m to author the message (best — you made the change). Omit it and warden
+writes one: the local model from the staged diff if configured, otherwise a
+deterministic conventional-commit message from the changed paths.
+
+Usage:
+  warden git commit [flags]
+
+Flags:
+  -h, --help             help for commit
+      --json             emit the raw result as JSON
+  -m, --message string   commit message; if omitted, warden generates one from the diff
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
