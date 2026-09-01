@@ -1,0 +1,11 @@
+Show a pipeline's jobs and their status
+
+Usage:
+  warden pipeline show <pipeline> [flags]
+
+Flags:
+  -h, --help   help for show
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
