@@ -685,6 +685,22 @@ func (Codex) DetectState(pane string) agentbackend.State {
 	return agentbackend.StateUnknown
 }
 
+// InputReady positively identifies Codex's at-rest composer. Unlike DetectState,
+// which remains conservative for general status classification, this is used
+// after Escape as an acknowledgement barrier before warden submits a slash
+// command. Both the composer prompt and the model/directory footer are required;
+// the working and approval guards reject panes where a stale composer remains
+// visible underneath an active turn or modal.
+func (Codex) InputReady(pane string) bool {
+	if strings.Contains(pane, "esc to interrupt") {
+		return false
+	}
+	if _, ok := (Codex{}).ParseApproval(pane); ok {
+		return false
+	}
+	return strings.Contains(pane, "\n› ") && strings.Contains(pane, " · ")
+}
+
 // codexOptionRe matches one line of Codex's numbered approval menu, tolerating the
 // leading "›" selection cursor (U+203A) on the highlighted option and the plain
 // indent on the rest: "› 1. Yes, proceed (y)" / "  2. Yes, and don't ask again …".

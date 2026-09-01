@@ -19,7 +19,8 @@ const (
 	// anomalyPreCrash marks a live agent at critical context that cannot be
 	// auto-compacted (it is still working), warning the operator to /compact it
 	// before the growing context window crashes the process.
-	anomalyPreCrash = "context_precrash"
+	anomalyPreCrash      = "context_precrash"
+	anomalyCompactFailed = "context_compact_failed"
 	// anomalyApprovalLoop marks an agent whose identical approval prompt kept
 	// re-appearing after being auto-approved: the circuit breaker halted further
 	// approvals and the prompt now waits for a human.

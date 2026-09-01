@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
@@ -106,7 +107,7 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 	// ticks after it is sent; when this reading falls below the parked pre-compact
 	// level, the difference is the context warden reclaimed — record it (net of the
 	// summary-generation output cost measured from outUsage).
-	p.reconcileCompact(s, tokens, outUsage, usageOK, now)
+	p.reconcileCompact(ctx, s, tokens, outUsage, usageOK, now)
 
 	sinceCompact := p.CompactCooldown // default to "elapsed" when never compacted
 	if s.LastCompactAt != nil {
@@ -186,6 +187,7 @@ func (p *Poller) evalHotSwap(s *store.Session, cur ctxtokens.State, tokens int) 
 // to credit. Shared by the idle auto-compact path and the force-compact machine.
 func (p *Poller) sendCompact(ctx context.Context, s *store.Session, tokens, outUsage int, usageOK bool, now time.Time) bool {
 	if err := p.deps.Compact(ctx, s); err != nil {
+		p.compactFailure(ctx, s, fmt.Sprintf("failed to submit /compact: %v", err))
 		return false
 	}
 	t := now
@@ -211,8 +213,9 @@ func (p *Poller) sendCompact(ctx context.Context, s *store.Session, tokens, outU
 //   - not yet enabled / not critical: clear any stale state and bow out.
 //   - critical + idle, not started: /compact directly (no interrupt needed).
 //   - critical + busy, not started: send Escape and wait for idle.
-//   - critical + busy, interrupting: /compact once idle, else abandon past
-//     forceInterruptWindow (the interrupt never took).
+//   - critical + busy, interrupting: /compact once idle and positively ready;
+//     otherwise fail observably past forceInterruptWindow without falling
+//     through to the generic compaction path.
 //
 // The compact itself is gated by the cooldown so a failed/slow landing can't
 // storm /compact. Tick goroutine only.
@@ -225,19 +228,27 @@ func (p *Poller) stepForceCompact(ctx context.Context, s *store.Session, cur ctx
 	} // hot-reloadable: force-compact default + resume prompt
 	st, active := p.forceCompact[s.ID]
 
-	// Resume / cleanup: a force-compaction we were awaiting has resolved.
+	// Resume only after reconcileCompact positively observed a context drop.
+	// Keep this phase until submission succeeds: lifecycle.Input reports success
+	// only after Enter was delivered, so an error is safe to retry next tick.
+	if active && st.phase == fcResume {
+		if g.CompactResume == "" || p.deps.Resume(ctx, s, g.CompactResume) == nil {
+			delete(p.forceCompact, s.ID)
+		} else {
+			p.compactFailure(ctx, s, "compaction completed but resume prompt submission failed; will retry")
+		}
+		return true
+	}
+
+	// A force-compaction awaiting completion remains owned by this machine.
 	if active && st.phase == fcAwaitLand {
 		if _, pending := p.pendingCompact[s.ID]; pending {
 			return true // still waiting for the compaction to land
 		}
+		// Marker disappearance without fcResume means reconcileCompact boundedly
+		// timed out. Never infer success merely because status/classification moved.
 		delete(p.forceCompact, s.ID)
-		// Resume only on a real landing — context fell out of critical. If it is
-		// still critical the compaction was abandoned (never visibly landed); don't
-		// resume into an un-compacted context, just let the normal paths re-drive.
-		if cur != ctxtokens.StateCritical && g.CompactResume != "" {
-			_ = p.deps.Resume(ctx, s, g.CompactResume)
-		}
-		return false
+		return true // suppress the generic path; force retry starts on the next tick
 	}
 
 	eff := g.ForceCompact
@@ -257,29 +268,54 @@ func (p *Poller) stepForceCompact(ctx context.Context, s *store.Session, cur ctx
 		if idle {
 			// Already idle — no turn to interrupt; compact straight away.
 			if sinceCompact >= p.CompactCooldown {
-				p.sendCompact(ctx, s, tokens, outUsage, usageOK, now)
-				p.forceCompact[s.ID] = fcState{phase: fcAwaitLand, at: now}
+				if p.inputReady(ctx, s) && p.sendCompact(ctx, s, tokens, outUsage, usageOK, now) {
+					p.forceCompact[s.ID] = fcState{phase: fcAwaitLand, at: now}
+				} else {
+					p.forceCompact[s.ID] = fcState{phase: fcAwaitReady, at: now}
+				}
 			}
 			return true
 		}
-		_ = p.deps.Interrupt(ctx, s)
-		p.forceCompact[s.ID] = fcState{phase: fcInterrupting, at: now}
+		if err := p.deps.Interrupt(ctx, s); err != nil {
+			p.compactFailure(ctx, s, fmt.Sprintf("failed to interrupt for compaction: %v", err))
+			return false
+		}
+		p.forceCompact[s.ID] = fcState{phase: fcAwaitReady, at: now}
 		return true
 	}
 
-	// active && fcInterrupting: the Escape was sent; wait for the agent to go idle.
-	if idle {
+	// active && fcAwaitReady: wait for a positively ready idle composer.
+	if idle && p.inputReady(ctx, s) {
 		if sinceCompact >= p.CompactCooldown {
-			p.sendCompact(ctx, s, tokens, outUsage, usageOK, now)
-			p.forceCompact[s.ID] = fcState{phase: fcAwaitLand, at: now}
+			if p.sendCompact(ctx, s, tokens, outUsage, usageOK, now) {
+				p.forceCompact[s.ID] = fcState{phase: fcAwaitLand, at: now}
+			}
 		}
 		return true
 	}
 	if now.Sub(st.at) >= forceInterruptWindow {
-		delete(p.forceCompact, s.ID) // interrupt never took; fall back to the nudge
-		return false
+		delete(p.forceCompact, s.ID)
+		p.compactFailure(ctx, s, "timed out waiting for input readiness for compaction")
+		return true // never fall through to generic compaction without readiness ack
 	}
 	return true
+}
+
+// inputReady applies a positive backend acknowledgement when one is available.
+// Backends without that seam retain the historical status-based behavior, which
+// keeps Claude and the other adapters byte-for-byte unchanged.
+func (p *Poller) inputReady(ctx context.Context, s *store.Session) bool {
+	b := p.backendFor(s)
+	r, ok := b.(agentbackend.InputReadiness)
+	if !ok {
+		return true
+	}
+	pane, err := p.deps.CapturePane(ctx, s.TmuxSession)
+	return err == nil && r.InputReady(pane)
+}
+
+func (p *Poller) compactFailure(ctx context.Context, s *store.Session, detail string) {
+	p.raiseAnomaly(ctx, s, Anomaly{Kind: anomalyCompactFailed, Detail: detail})
 }
 
 // reconcileCompact checks whether a /compact parked for s has landed (this
@@ -294,13 +330,17 @@ func (p *Poller) stepForceCompact(ctx context.Context, s *store.Session, cur ctx
 // upward, which could only understate a real saving. A marker older than
 // compactLandWindow is abandoned (the compaction never visibly landed) so it can't
 // later be credited to an unrelated drop. Tick goroutine only.
-func (p *Poller) reconcileCompact(s *store.Session, tokens, curOut int, curOutOK bool, now time.Time) {
+func (p *Poller) reconcileCompact(ctx context.Context, s *store.Session, tokens, curOut int, curOutOK bool, now time.Time) {
 	pc, ok := p.pendingCompact[s.ID]
 	if !ok {
 		return
 	}
 	if compactLanded(pc.pre, tokens) {
 		delete(p.pendingCompact, s.ID)
+		if st, ok := p.forceCompact[s.ID]; ok && st.phase == fcAwaitLand {
+			st.phase, st.at = fcResume, now
+			p.forceCompact[s.ID] = st
+		}
 		if p.OnSaving != nil {
 			p.OnSaving(savings.FeatureCompact, s.ID, pc.pre, tokens, compactCost(pc, curOut, curOutOK))
 		}
@@ -308,6 +348,9 @@ func (p *Poller) reconcileCompact(s *store.Session, tokens, curOut int, curOutOK
 	}
 	if now.Sub(pc.at) >= compactLandWindow {
 		delete(p.pendingCompact, s.ID)
+		if st, ok := p.forceCompact[s.ID]; ok && st.phase == fcAwaitLand {
+			p.compactFailure(ctx, s, "timed out waiting for /compact acknowledgement")
+		}
 	}
 }
 

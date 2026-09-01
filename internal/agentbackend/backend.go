@@ -194,6 +194,15 @@ type PromptSeeder interface {
 	ReadyMarker() string
 }
 
+// InputReadiness is an optional backend extension for TUIs that expose a
+// positive, backend-specific indication that their composer can accept input.
+// It is used by destructive control flows (currently force-compact) after an
+// interrupt; a generic stored "idle" status is not a sufficient acknowledgement
+// because it may be stale or inferred from a temporarily quiet pane.
+type InputReadiness interface {
+	InputReady(pane string) bool
+}
+
 // Reviewer is an optional Backend extension implemented by agents that expose a
 // NON-INTERACTIVE, diff-scoped code review as a first-class subcommand (Codex:
 // `codex review --uncommitted|--base <branch>|--commit <sha>`). It is the

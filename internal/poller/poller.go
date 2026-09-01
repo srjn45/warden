@@ -326,12 +326,16 @@ type compactPending struct {
 type fcPhase int
 
 const (
-	// fcInterrupting: warden sent Escape and is waiting for the busy agent to drop
-	// to idle/waiting so it can be /compact-ed.
-	fcInterrupting fcPhase = iota
+	// fcAwaitReady: warden is waiting for the agent's input composer to become
+	// positively ready. A busy agent was interrupted first; an already-idle agent
+	// enters this phase directly when its pane is not ready yet.
+	fcAwaitReady fcPhase = iota
 	// fcAwaitLand: /compact was sent (parked in pendingCompact); warden is waiting
 	// for the compaction to land before sending the resume prompt.
 	fcAwaitLand
+	// fcResume: compaction was positively acknowledged by a context drop; retry
+	// the resume prompt until its tmux submission succeeds, then clear the state.
+	fcResume
 )
 
 // fcState is one agent's position in the force-compact machine. at is when the
