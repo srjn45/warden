@@ -1019,6 +1019,56 @@
     ]
   },
   {
+    "path": "daemon mcp",
+    "use": "mcp",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon token",
+    "use": "token",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon token generate",
+    "use": "generate",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon token rotate",
+    "use": "rotate",
+    "runnable": true,
+    "local_flags": [
+      "no-restart"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon token show",
+    "use": "show",
+    "runnable": true,
+    "local_flags": [
+      "readonly"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "delete",
     "use": "delete \u003cAGENT\u003e",
     "hidden": true,
@@ -1327,6 +1377,7 @@
   {
     "path": "mcp",
     "use": "mcp",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2217,6 +2268,7 @@
   {
     "path": "token",
     "use": "token",
+    "hidden": true,
     "inherited_flags": [
       "addr",
       "config"
@@ -2225,6 +2277,7 @@
   {
     "path": "token generate",
     "use": "generate",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2234,6 +2287,7 @@
   {
     "path": "token rotate",
     "use": "rotate",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "no-restart"
@@ -2246,6 +2300,7 @@
   {
     "path": "token show",
     "use": "show",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "readonly"

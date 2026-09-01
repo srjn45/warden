@@ -1,0 +1,23 @@
+Create timer-driven triggers that the daemon fires on a schedule: a recurring
+cron spec (--cron "0 9 * * *") or a single-shot time (--at 2026-06-27T09:00).
+Each schedule fires either one agent spawn (the default — pass --type/--repo/
+--prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
+scheduler_enabled: true in the config file and keep the daemon running.
+
+Usage:
+  warden schedule [flags]
+
+Commands:
+  create               Create a schedule that fires an agent or a pipeline
+  list                 List schedules
+  get                  Show one schedule, including its last-run outcome
+  enable               Enable a schedule so it fires again (re-arms next run)
+  disable              Disable a schedule so it stops firing (history preserved)
+  delete               Delete a schedule
+
+Flags:
+  -h, --help   help for schedule
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

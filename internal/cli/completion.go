@@ -38,38 +38,25 @@ func newCompletionCmd() *cobra.Command {
 		Short: "Generate shell completion scripts",
 		Long:  completionLong,
 	}
+	SetCommandHelpMetadata(cmd, "operate", 20, "warden completion", "", NodeNamespace)
 
-	cmd.AddCommand(&cobra.Command{
-		Use:   "bash",
-		Short: "Generate bash completion script",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Root().GenBashCompletion(os.Stdout)
-		},
-	})
-
-	cmd.AddCommand(&cobra.Command{
-		Use:   "zsh",
-		Short: "Generate zsh completion script",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Root().GenZshCompletion(os.Stdout)
-		},
-	})
-
-	cmd.AddCommand(&cobra.Command{
-		Use:   "fish",
-		Short: "Generate fish completion script",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Root().GenFishCompletion(os.Stdout, true)
-		},
-	})
-
-	cmd.AddCommand(&cobra.Command{
-		Use:   "powershell",
-		Short: "Generate PowerShell completion script",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Root().GenPowerShellCompletion(os.Stdout)
-		},
-	})
-
+	shells := []struct {
+		name, short string
+		gen         func(*cobra.Command, []string) error
+	}{
+		{"bash", "Generate bash completion script", func(c *cobra.Command, _ []string) error { return c.Root().GenBashCompletion(os.Stdout) }},
+		{"zsh", "Generate zsh completion script", func(c *cobra.Command, _ []string) error { return c.Root().GenZshCompletion(os.Stdout) }},
+		{"fish", "Generate fish completion script", func(c *cobra.Command, _ []string) error { return c.Root().GenFishCompletion(os.Stdout, true) }},
+		{"powershell", "Generate PowerShell completion script", func(c *cobra.Command, _ []string) error { return c.Root().GenPowerShellCompletion(os.Stdout) }},
+	}
+	for i, shell := range shells {
+		child := &cobra.Command{
+			Use:   shell.name,
+			Short: shell.short,
+			RunE:  shell.gen,
+		}
+		SetCommandHelpMetadata(child, "operate", (i+1)*10, "warden completion "+shell.name, "", NodeLeaf)
+		cmd.AddCommand(child)
+	}
 	return cmd
 }

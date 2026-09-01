@@ -37,7 +37,12 @@ func newConfigCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(newConfigPathCmd(), newConfigInitCmd())
+	SetCommandHelpMetadata(cmd, "observe", 120, "warden config", "", NodeNamespace)
+	pathCmd := newConfigPathCmd()
+	SetCommandHelpMetadata(pathCmd, "observe", 10, "warden config path", "", NodeLeaf)
+	initCmd := newConfigInitCmd()
+	SetCommandHelpMetadata(initCmd, "observe", 20, "warden config init", "", NodeLeaf)
+	cmd.AddCommand(pathCmd, initCmd)
 	return cmd
 }
 
