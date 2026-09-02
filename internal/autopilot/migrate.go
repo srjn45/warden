@@ -100,7 +100,17 @@ func (c *Controller) relocateStoredRun(repo, src, dst string) error {
 		return err
 	}
 	delete(c.runs, oldID)
-	r.runID, r.name, r.planFile, r.absPlanFile, r.plan = newID, defaultRunName(dst), dst, dst, plan
+	newName := defaultRunName(dst)
+	r.runID, r.name, r.planFile, r.absPlanFile, r.plan = newID, newName, dst, dst, plan
+	scope, err := c.allocateSlotScopeLocked(newName, newID)
+	if err != nil {
+		return err
+	}
+	c.claims.release(oldID)
+	r.slotScope = scope
+	if err := c.claims.claim(newID, scope); err != nil {
+		return err
+	}
 	c.runs[newID] = r
 	if c.store == nil {
 		return nil

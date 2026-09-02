@@ -33,10 +33,10 @@ type resolved struct {
 // preflightPlan runs the enable-time checks that concern a single plan in
 // isolation (autopilot.md §5.1) and returns the resolved run info plus a list of
 // human-actionable failure strings — ALL of them, so the owner fixes everything
-// in one pass rather than one round-trip per problem. The cross-plan
-// "no second active run per repo" check lives in Enable, which sees the whole
-// batch. Failures never panic on a half-resolved plan: once the repo can't be
-// found we return early because the remaining checks are repo-scoped.
+// in one pass rather than one round-trip per problem. Cross-plan identity
+// checks (name uniqueness, slot-scope claims) live in Register/Enable, which
+// see the full run set. Failures never panic on a half-resolved plan: once the
+// repo can't be found we return early because the remaining checks are repo-scoped.
 func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, []string) {
 	var fails []string
 	r := resolved{file: file}

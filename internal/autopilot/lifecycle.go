@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,7 +44,7 @@ func (c *Controller) restoreStoredRuns() {
 		}
 		r := &run{runID: rec.RunID, name: rec.Name, repo: rec.Repo, planFile: rec.PlanFile,
 			absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
-			guardianID: rec.GuardianID, tried: map[string]bool{}}
+			guardianID: rec.GuardianID, slotScope: rec.SlotScope, tried: map[string]bool{}}
 		// Agent ids are process/session observations, not proof of a live manager.
 		// Boot reconciliation re-spawns only runs whose durable intent is live.
 		if plan, err := LoadPlan(rec.PlanFile); err == nil {
@@ -51,13 +52,41 @@ func (c *Controller) restoreStoredRuns() {
 		}
 		c.runs[rec.RunID] = r
 	}
+	c.rebuildClaimsLocked()
+}
+
+func (c *Controller) rebuildClaimsLocked() {
+	if c.claims == nil {
+		c.claims = newClaimRegistry()
+	}
+	c.claims = newClaimRegistry()
+	runs := make([]*run, 0, len(c.runs))
+	for _, r := range c.runs {
+		runs = append(runs, r)
+	}
+	sort.Slice(runs, func(i, j int) bool { return runs[i].runID < runs[j].runID })
+	for _, r := range runs {
+		scope := r.slotScope
+		if scope == "" {
+			derived, err := SlotScope(r.name, r.runID, func(s string) bool { return c.claims.scopeTaken(s, r.runID) })
+			if err != nil {
+				slog.Warn("autopilot: skip run with invalid slot scope on rebuild", "run", r.runID, "err", err)
+				continue
+			}
+			scope = derived
+			r.slotScope = scope
+		}
+		if err := c.claims.claim(r.runID, scope); err != nil {
+			slog.Warn("autopilot: slot scope claim conflict on rebuild", "run", r.runID, "scope", scope, "err", err)
+		}
+	}
 }
 
 func (c *Controller) recordLocked(r *run) RunRecord {
 	now := c.now().UTC()
 	rec := RunRecord{RunID: r.runID, Name: r.name, Repo: r.repo, PlanFile: r.absPlanFile,
 		State: r.state, IntegrationBranch: c.integrationBranch, Gate: c.runGate(r),
-		Strategy: c.strategy, DeleteBranch: c.deleteBranch, UpdatedAt: now}
+		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now}
 	if r.brain != nil {
 		rec.BrainID = r.brain.AgentID
 	}
@@ -119,23 +148,104 @@ func (c *Controller) Register(ctx context.Context, req RegisterRequest) (RunStat
 	if name == "" {
 		name = defaultRunName(abs)
 	}
-	for _, existing := range c.runs {
-		if existing.repo == repo && existing.name == name && existing.runID != RunID(repo, abs) {
-			return RunStatus{}, fmt.Errorf("%w: run name %q already exists in %s", ErrRunConflict, name, repo)
-		}
+	if err := validatePlanNameReservedSuffixes(name); err != nil {
+		return RunStatus{}, err
 	}
 	id := RunID(repo, abs)
+	if err := c.validateRunNameLocked(repo, name, id); err != nil {
+		return RunStatus{}, err
+	}
+	scope, err := c.allocateSlotScopeLocked(name, id)
+	if err != nil {
+		return RunStatus{}, err
+	}
 	if existing, ok := c.runs[id]; ok {
 		return c.runStatusLocked(existing), nil
 	}
 	r := &run{runID: id, name: name, repo: repo, planFile: abs, absPlanFile: abs,
-		state: StateRegistered, plan: plan, resolvedGate: c.gate, tried: map[string]bool{}}
+		state: StateRegistered, plan: plan, resolvedGate: c.gate, slotScope: scope, tried: map[string]bool{}}
 	if info, err := os.Stat(abs); err == nil {
 		r.planModTime = info.ModTime()
 	}
 	c.runs[id] = r
+	if err := c.claims.claim(id, scope); err != nil {
+		delete(c.runs, id)
+		return RunStatus{}, err
+	}
 	if err := c.persistRunLockedErr(r); err != nil {
 		delete(c.runs, id)
+		c.claims.release(id)
+		return RunStatus{}, err
+	}
+	return c.runStatusLocked(r), nil
+}
+
+func (c *Controller) validateRunNameLocked(repo, name, exceptRunID string) error {
+	for _, existing := range c.runs {
+		if existing.repo == repo && existing.name == name && existing.runID != exceptRunID {
+			return fmt.Errorf("%w: run name %q already exists in %s", ErrRunConflict, name, repo)
+		}
+	}
+	return nil
+}
+
+func (c *Controller) allocateSlotScopeLocked(name, runID string) (string, error) {
+	scope, err := SlotScope(name, runID, func(s string) bool { return c.claims.scopeTaken(s, runID) })
+	if err != nil {
+		return "", err
+	}
+	if err := c.claims.validateClaim(runID, scope); err != nil {
+		return "", err
+	}
+	return scope, nil
+}
+
+// RenameRun changes a run's display name and slot scope without altering its
+// path-derived run_id. Integration branch retarget is explicit (WP11).
+func (c *Controller) RenameRun(_ context.Context, id, newName string) (RunStatus, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.storeErr != nil {
+		return RunStatus{}, c.storeErr
+	}
+	newName = strings.TrimSpace(newName)
+	if newName == "" {
+		return RunStatus{}, fmt.Errorf("%w: run name is required", ErrRunConflict)
+	}
+	r, ok := c.runs[id]
+	if !ok {
+		return RunStatus{}, ErrRunNotFound
+	}
+	switch r.state {
+	case StateActive, StateStarting, StateHealing, StateDegraded:
+		return RunStatus{}, fmt.Errorf("%w: cannot rename run in state %s", ErrRunConflict, r.state)
+	}
+	if r.name == newName {
+		return c.runStatusLocked(r), nil
+	}
+	if err := validatePlanNameReservedSuffixes(newName); err != nil {
+		return RunStatus{}, err
+	}
+	if err := c.validateRunNameLocked(r.repo, newName, id); err != nil {
+		return RunStatus{}, err
+	}
+	scope, err := c.allocateSlotScopeLocked(newName, id)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	oldName := r.name
+	oldScope := r.slotScope
+	r.name = newName
+	r.slotScope = scope
+	if err := c.claims.claim(id, scope); err != nil {
+		r.name = oldName
+		r.slotScope = oldScope
+		return RunStatus{}, err
+	}
+	if err := c.persistRunLockedErr(r); err != nil {
+		r.name = oldName
+		r.slotScope = oldScope
+		_ = c.claims.claim(id, oldScope)
 		return RunStatus{}, err
 	}
 	return c.runStatusLocked(r), nil
@@ -318,6 +428,7 @@ func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, err
 			return RunStatus{}, err
 		}
 	}
+	c.claims.release(id)
 	delete(c.runs, id)
 	return removed, nil
 }
