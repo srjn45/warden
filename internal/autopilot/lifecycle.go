@@ -532,10 +532,12 @@ func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, err
 }
 
 func (c *Controller) runStatusLocked(r *run) RunStatus {
-	return RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo,
+	st := RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo,
 		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{},
 		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: r.guardianID,
-		IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning}
+		SlotScope: r.slotScope, IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning,
+		ManagerSlotID: managerSlotIDOrEmpty(r.slotScope), GuardianSlotID: guardianSlotIDOrEmpty(r.slotScope)}
+	return st
 }
 
 func (c *Controller) Close() error {

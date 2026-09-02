@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
@@ -363,6 +364,46 @@ func TestUpdateTaskStatusRejectsStaleBrain(t *testing.T) {
 	require.NoError(t, err)
 	_, ok := resp.(oapi.UpdateAutopilotTaskStatus200JSONResponse)
 	require.True(t, ok, "the current active brain may update its task")
+}
+
+func TestAutopilotSessionBackRefsRoundTripREST(t *testing.T) {
+	st := newFakeStore()
+	now := time.Now().UTC().Truncate(time.Second)
+	sess := &store.Session{
+		ID: "default-autopilot", Type: store.TypeDevelopment, Status: store.StatusWorking,
+		AutopilotRunID: "ap-abc123def456", AutopilotSlot: store.AutopilotSlotManager,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, st.Insert(context.Background(), sess))
+	srv := &Server{store: st, life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
+
+	resp, err := srv.GetSession(context.Background(), oapi.GetSessionRequestObject{Id: sess.ID})
+	require.NoError(t, err)
+	got := resp.(oapi.GetSession200JSONResponse)
+	require.Equal(t, "ap-abc123def456", got.AutopilotRunID)
+	require.Equal(t, store.AutopilotSlotManager, got.AutopilotSlot)
+	require.Empty(t, got.AutopilotTaskID)
+}
+
+func TestAutopilotRunStatusSlotFieldsREST(t *testing.T) {
+	dir := t.TempDir()
+	plan := filepath.Join(dir, "plan.yaml")
+	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
+	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, []string{plan})
+	defer ts.Close()
+
+	var run autopilot.RunStatus
+	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs", `{"name":"default","repo":"`+dir+`","plan_file":"`+plan+`"}`, &run)
+	require.Equal(t, http.StatusCreated, code)
+	require.Equal(t, "default-autopilot", run.ManagerSlotID)
+	require.Equal(t, "default-guardian", run.GuardianSlotID)
+	require.Equal(t, "default", run.SlotScope)
+	require.NotEmpty(t, run.IntegrationBranch)
+
+	var st autopilot.Status
+	apGetJSON(t, ts.URL+"/api/v1/autopilot", &st)
+	require.Len(t, st.Runs, 1)
+	require.Equal(t, run.ManagerSlotID, st.Runs[0].ManagerSlotID)
 }
 
 // --- small JSON helpers ---
