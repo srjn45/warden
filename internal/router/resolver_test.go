@@ -339,3 +339,42 @@ func TestResolver_UninstalledOrDisabledBackendFiltered(t *testing.T) {
 	// Must select from remaining installed & enabled backends (cursor or codex)
 	require.Contains(t, []string{"cursor", "codex"}, res.BackendID)
 }
+
+func TestResolver_CursorAutoAssignFacesPerTier(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+	require.NoError(t, s.SetEnabled("claude", false))
+	require.NoError(t, s.SetEnabled("antigravity", false))
+	require.NoError(t, s.SetEnabled("codex", false))
+
+	r := router.NewResolver(s)
+	ctx := context.Background()
+
+	want := map[backendstore.ModelTier][]string{
+		backendstore.Tier1: {"cursor-grok-4.6-high-fast", "claude-opus-5-thinking-high"},
+		backendstore.Tier2: {"cursor-grok-4.5-high", "auto", "claude-sonnet-5-thinking-high"},
+		backendstore.Tier3: {"composer-2.5-fast", "gemini-3.7-flash-high"},
+	}
+	for tier, faces := range want {
+		res, err := r.Resolve(ctx, router.ResolveOptions{Tier: tier})
+		require.NoError(t, err, "tier %s", tier)
+		require.Equal(t, "cursor", res.BackendID)
+		require.Contains(t, faces, res.ModelID)
+
+		var eligible []string
+		for _, c := range res.Candidates {
+			if c.BackendID == "cursor" && c.Eligible {
+				eligible = append(eligible, c.ModelID)
+			}
+		}
+		require.ElementsMatch(t, faces, eligible, "tier %s auto-assign faces", tier)
+	}
+
+	// Non-auto-assign catalog ids stay gated unless the caller names them.
+	res, err := r.Resolve(ctx, router.ResolveOptions{
+		Tier:           backendstore.Tier1,
+		PreferredModel: "cursor-grok-4.6-xhigh",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "cursor-grok-4.6-xhigh", res.ModelID)
+}

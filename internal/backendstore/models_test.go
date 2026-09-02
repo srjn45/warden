@@ -19,33 +19,33 @@ func TestModelTier_Valid(t *testing.T) {
 func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	s := newTestStore(t)
 
-	// Verify default models
+	// Verify default models: 22 non-cursor + 214 live cursor ids.
 	models, err := s.ListModels("")
 	require.NoError(t, err)
-	require.Len(t, models, 25)
+	require.Len(t, models, 236)
 
-	// Verify Tier 1 models (5 models)
+	// Verify Tier 1 models (58)
 	tier1Models, err := s.ListModels(Tier1)
 	require.NoError(t, err)
-	require.Len(t, tier1Models, 5)
+	require.Len(t, tier1Models, 58)
 	for _, m := range tier1Models {
 		require.Equal(t, Tier1, m.Tier)
 		require.True(t, m.Enabled)
 	}
 
-	// Verify Tier 2 models (7 models)
+	// Verify Tier 2 models (132)
 	tier2Models, err := s.ListModels(Tier2)
 	require.NoError(t, err)
-	require.Len(t, tier2Models, 9)
+	require.Len(t, tier2Models, 132)
 	for _, m := range tier2Models {
 		require.Equal(t, Tier2, m.Tier)
 		require.True(t, m.Enabled)
 	}
 
-	// Verify Tier 3 models (5 models)
+	// Verify Tier 3 models (46)
 	tier3Models, err := s.ListModels(Tier3)
 	require.NoError(t, err)
-	require.Len(t, tier3Models, 11)
+	require.Len(t, tier3Models, 46)
 	for _, m := range tier3Models {
 		require.Equal(t, Tier3, m.Tier)
 		require.True(t, m.Enabled)
@@ -74,9 +74,8 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.Equal(t, Tier1, m.Tier)
 	require.Equal(t, "Gemini 3.1 Pro (High)", m.DisplayName)
 
-	m, err = s.GetModel("cursor", "claude-3-opus")
-	require.NoError(t, err)
-	require.Equal(t, Tier1, m.Tier)
+	_, err = s.GetModel("cursor", "claude-3-opus")
+	require.ErrorIs(t, err, ErrModelNotFound)
 
 	m, err = s.GetModel("codex", "gpt-5.5")
 	require.NoError(t, err)
@@ -101,9 +100,8 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	require.Equal(t, Tier2, m.Tier)
 	require.Equal(t, "GPT-OSS 120B (Medium)", m.DisplayName)
 
-	m, err = s.GetModel("cursor", "sonnet-3.7")
-	require.NoError(t, err)
-	require.Equal(t, Tier2, m.Tier)
+	_, err = s.GetModel("cursor", "sonnet-3.7")
+	require.ErrorIs(t, err, ErrModelNotFound)
 
 	m, err = s.GetModel("codex", "gpt-5.6-terra")
 	require.NoError(t, err)
@@ -130,6 +128,38 @@ func TestSeedDefaultsOnFreshStore(t *testing.T) {
 	m, err = s.GetModel("cursor", "composer-2.5-fast")
 	require.NoError(t, err)
 	require.Equal(t, Tier3, m.Tier)
+	require.True(t, m.AutoAssign)
+
+	m, err = s.GetModel("cursor", "cursor-grok-4.6-high-fast")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, m.Tier)
+	require.Equal(t, "Cursor Grok 4.6 Fast", m.DisplayName)
+	require.True(t, m.AutoAssign)
+
+	m, err = s.GetModel("cursor", "claude-opus-5-thinking-high")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, m.Tier)
+	require.True(t, m.AutoAssign)
+
+	m, err = s.GetModel("cursor", "cursor-grok-4.5-high")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+	require.True(t, m.AutoAssign)
+
+	m, err = s.GetModel("cursor", "auto")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+	require.True(t, m.AutoAssign)
+
+	m, err = s.GetModel("cursor", "claude-sonnet-5-thinking-high")
+	require.NoError(t, err)
+	require.Equal(t, Tier2, m.Tier)
+	require.True(t, m.AutoAssign)
+
+	m, err = s.GetModel("cursor", "gemini-3.7-flash-high")
+	require.NoError(t, err)
+	require.Equal(t, Tier3, m.Tier)
+	require.True(t, m.AutoAssign)
 
 	m, err = s.GetModel("codex", "gpt-5.6-luna")
 	require.NoError(t, err)
@@ -416,10 +446,10 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1000.0, customQ.QuotaLimit)
 
-	// 9. Total counts: 17 defaults + 1 custom = 18 models; 6 defaults + 1 custom = 7 roles; 4 defaults + 1 custom = 5 quotas
+	// 9. Total counts: 236 defaults + 1 custom = 237 models; 6 defaults + 1 custom = 7 roles; 4 defaults + 1 custom = 5 quotas
 	models, err := s2.ListModels("")
 	require.NoError(t, err)
-	require.Len(t, models, 26)
+	require.Len(t, models, 237)
 
 	roles, err := s2.ListRoleTiers()
 	require.NoError(t, err)
@@ -428,4 +458,73 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	quotas, err := s2.ListQuotas()
 	require.NoError(t, err)
 	require.Len(t, quotas, 5)
+}
+
+func TestCursorSeedCatalogFacesAndPrune(t *testing.T) {
+	s := newTestStore(t)
+
+	models, err := s.ListModels("")
+	require.NoError(t, err)
+	var cursor, cursorAA int
+	aaByTier := map[ModelTier][]string{}
+	for _, m := range models {
+		if m.BackendID != "cursor" {
+			continue
+		}
+		cursor++
+		require.True(t, m.Enabled)
+		if m.AutoAssign {
+			cursorAA++
+			aaByTier[m.Tier] = append(aaByTier[m.Tier], m.ModelID)
+		}
+	}
+	require.Equal(t, 214, cursor)
+	require.Equal(t, 7, cursorAA)
+	require.ElementsMatch(t, []string{"cursor-grok-4.6-high-fast", "claude-opus-5-thinking-high"}, aaByTier[Tier1])
+	require.ElementsMatch(t, []string{"cursor-grok-4.5-high", "auto", "claude-sonnet-5-thinking-high"}, aaByTier[Tier2])
+	require.ElementsMatch(t, []string{"composer-2.5-fast", "gemini-3.7-flash-high"}, aaByTier[Tier3])
+
+	_, err = s.GetModel("cursor", "claude-3-opus")
+	require.ErrorIs(t, err, ErrModelNotFound)
+	_, err = s.GetModel("cursor", "sonnet-3.7")
+	require.ErrorIs(t, err, ErrModelNotFound)
+}
+
+func TestCursorSeedPruneAndPreserveMutatedComposer(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, s.UpsertModel(ModelEntry{
+		BackendID:   "cursor",
+		ModelID:     "claude-3-opus",
+		Tier:        Tier1,
+		DisplayName: "stale",
+		Enabled:     true,
+		AutoAssign:  true,
+	}))
+	require.NoError(t, s.SetModelTier("cursor", "composer-2.5-fast", Tier1))
+	require.NoError(t, s.modelsCol.DeleteByKey(modelKey("cursor", "cursor-grok-4.6-high-fast")))
+	_, err = s.GetModel("cursor", "cursor-grok-4.6-high-fast")
+	require.ErrorIs(t, err, ErrModelNotFound)
+	require.NoError(t, s.Close())
+
+	s2, err := NewStore(dir)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	_, err = s2.GetModel("cursor", "claude-3-opus")
+	require.ErrorIs(t, err, ErrModelNotFound)
+	_, err = s2.GetModel("cursor", "sonnet-3.7")
+	require.ErrorIs(t, err, ErrModelNotFound)
+
+	mutated, err := s2.GetModel("cursor", "composer-2.5-fast")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, mutated.Tier, "seed must not retier an already-present composer-2.5-fast")
+
+	restored, err := s2.GetModel("cursor", "cursor-grok-4.6-high-fast")
+	require.NoError(t, err)
+	require.Equal(t, Tier1, restored.Tier)
+	require.True(t, restored.AutoAssign)
+	require.Equal(t, "Cursor Grok 4.6 Fast", restored.DisplayName)
 }

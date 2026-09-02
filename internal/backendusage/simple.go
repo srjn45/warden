@@ -52,53 +52,6 @@ func (a ClaudeAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result
 	return res
 }
 
-type CursorAdapter struct {
-	Runner CommandRunner
-	Now    func() time.Time
-}
-
-func (a CursorAdapter) BackendID() string { return "cursor" }
-func (a CursorAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result {
-	now := clock(a.Now)
-	if !b.Installed {
-		return notInstalled(b.ID, now)
-	}
-	r := a.Runner
-	if r == nil {
-		r = execRunner{}
-	}
-	out, err := r.Output(ctx, binary(b, "cursor-agent"), "status", "--format", "json")
-	var status struct {
-		IsAuthenticated bool `json:"isAuthenticated"`
-	}
-	decoded := json.Unmarshal(out, &status) == nil
-	if err != nil {
-		if decoded && !status.IsAuthenticated {
-			return unauthenticated(b.ID, now)
-		}
-		return commandFailure(b.ID, ctx, now)
-	}
-	if !decoded {
-		return malformed(b.ID, now)
-	}
-	if !status.IsAuthenticated {
-		return unauthenticated(b.ID, now)
-	}
-	out, err = r.Output(ctx, binary(b, "cursor-agent"), "about", "--format", "json")
-	if err != nil {
-		return commandFailure(b.ID, ctx, now)
-	}
-	var about struct {
-		SubscriptionTier string `json:"subscriptionTier"`
-	}
-	if json.Unmarshal(out, &about) != nil {
-		return malformed(b.ID, now)
-	}
-	res := unsupported(b.ID, "installed Cursor CLI has no structured usage interface", now)
-	res.Account = &Account{Plan: about.SubscriptionTier, LoginMethod: "cursor"}
-	return res
-}
-
 type AntigravityAdapter struct{ Now func() time.Time }
 
 func (a AntigravityAdapter) BackendID() string { return "antigravity" }

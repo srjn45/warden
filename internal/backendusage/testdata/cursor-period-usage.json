@@ -1,0 +1,20 @@
+{
+  "billingCycleStart": "1788287487000",
+  "billingCycleEnd": "1790879487000",
+  "planUsage": {
+    "totalSpend": 2000,
+    "includedSpend": 2000,
+    "bonusSpend": 0,
+    "remaining": 0,
+    "limit": 2000,
+    "autoSpend": 50,
+    "apiSpend": 100,
+    "autoLimit": 1000,
+    "apiLimit": 100,
+    "autoPercentUsed": 4.09,
+    "apiPercentUsed": 100,
+    "totalPercentUsed": 8.87
+  },
+  "autoBucketModels": ["vega", "composer-1.5", "grok-4.5", "composer-1"],
+  "displayMessage": "You've hit your usage limit"
+}
