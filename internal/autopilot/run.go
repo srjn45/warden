@@ -56,13 +56,14 @@ func (l BackendLadder) firstFree() string {
 // agent lifecycle. The Controller composes it; the daemon runtime adapter maps it
 // onto a spawn request (role autopilot, headless, prompt = recovery digest).
 type BrainSpec struct {
-	RunID    string   // owning run
-	Repo     string   // repo root (agent cwd)
-	PlanFile string   // absolute plan-file path
-	Backend  string   // selected backend ("" ⇒ the daemon's default)
-	Prompt   string   // opening brief: the recovery digest
-	Tags     []string // [autopilot, run:<run_id>]
-	Headless bool     // run non-interactively (unattended)
+	RunID     string   // owning run
+	Repo      string   // repo root (agent cwd)
+	PlanFile  string   // absolute plan-file path
+	SlotScope string   // stable scope for Ticket = <scope>-autopilot
+	Backend   string   // selected backend ("" ⇒ the daemon's default)
+	Prompt    string   // opening brief: the recovery digest
+	Tags      []string // [autopilot, run:<run_id>]
+	Headless  bool     // run non-interactively (unattended)
 }
 
 // BrainHandle identifies a spawned brain.
@@ -131,7 +132,7 @@ type GuardianRuntime interface {
 // lightweight system session. It is optional so embedders and older Runtime
 // fakes retain the daemon-loop-only behavior.
 type GuardianAgentRuntime interface {
-	SpawnGuardian(ctx context.Context, runID, repo string) (agentID string, err error)
+	SpawnGuardian(ctx context.Context, runID, slotScope, repo string) (agentID string, err error)
 	TerminateGuardian(ctx context.Context, agentID string) error
 	// ReconcileGuardians removes guardian sessions not present in valid, keyed by
 	// run id. It runs once when the daemon runtime is attached at boot.
@@ -182,21 +183,26 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 	}
 	c.persistIntegrationBranch(r)
 	handle, err := c.runtime.SpawnBrain(ctx, BrainSpec{
-		RunID:    r.runID,
-		Repo:     r.repo,
-		PlanFile: r.absPlanFile,
-		Backend:  backend,
-		Prompt:   prompt,
-		Tags:     []string{autopilotTag, runTag(r.runID)},
-		Headless: true,
+		RunID:     r.runID,
+		Repo:      r.repo,
+		PlanFile:  r.absPlanFile,
+		SlotScope: r.slotScope,
+		Backend:   backend,
+		Prompt:    prompt,
+		Tags:      []string{autopilotTag, runTag(r.runID)},
+		Headless:  true,
 	})
 	if err != nil {
 		r.state = StateDegraded
 		return fmt.Errorf("spawn brain: %w", err)
 	}
 	r.brain = &handle
+	wantGuardian := GuardianSlotID(r.slotScope)
+	if r.guardianID != "" && r.guardianID != wantGuardian {
+		r.guardianID = ""
+	}
 	if gr, ok := c.runtime.(GuardianAgentRuntime); ok && r.guardianID == "" {
-		id, gerr := gr.SpawnGuardian(ctx, r.runID, r.repo)
+		id, gerr := gr.SpawnGuardian(ctx, r.runID, r.slotScope, r.repo)
 		if gerr != nil {
 			_ = c.runtime.TerminateBrain(ctx, handle.AgentID)
 			r.brain = nil
