@@ -104,12 +104,34 @@ func (s *Server) inheritOwnershipTags(ctx context.Context, tags []string) []stri
 }
 
 func isAutopilotWorkerSpawnRole(role string) bool {
-	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "worker", "implementer", "auto-merger", "reviewer":
-		return true
-	default:
-		return false
+	return autopilot.WorkerSpawnRole(role)
+}
+
+// stampAutopilotSpawnBackRefs sets explicit run back-ref fields on worker spawns
+// from an autopilot-owned caller and clears parent_id — autopilot workers are
+// grouped by back-ref, not a live parent chain (plan-scoped hierarchy WP6).
+func (s *Server) stampAutopilotSpawnBackRefs(ctx context.Context, sr *SpawnRequest) {
+	if sr == nil {
+		return
 	}
+	caller := s.callerSession(ctx)
+	if caller == nil || !caller.HasTag(autopilotOwnershipTag) {
+		return
+	}
+	if !isAutopilotWorkerSpawnRole(sr.Role) {
+		return
+	}
+	runID := strings.TrimPrefix(callerRunTag(caller), runTagPrefix)
+	if runID == "" {
+		runID = autopilot.SessionRunID(caller)
+	}
+	if runID == "" {
+		return
+	}
+	sr.ParentID = ""
+	sr.AutopilotRunID = runID
+	sr.AutopilotSlot = store.AutopilotSlotWorker
+	sr.AutopilotTaskID = strings.TrimSpace(sr.Task)
 }
 
 // annotateAutopilotWorkerPrompt appends the resolved integration branch to a

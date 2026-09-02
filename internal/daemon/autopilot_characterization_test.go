@@ -1,8 +1,8 @@
 package daemon
 
-// WP1 characterization: autopilot manager tombstone behavior when workers remain
-// parented to a rotated/deleted manager. Seam inventory:
-// docs/specs/2026-09-01-autopilot-plan-scoped-hierarchy-wp1-seams.md
+// WP6: autopilot workers use run back-refs instead of parent_id, so deleting a
+// manager with live workers no longer tombstones; dead managers reap when the
+// run's workers finish.
 
 import (
 	"net/http"
@@ -12,11 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCharacterization_AutopilotRotatedManagerTombstonesWithLiveWorkers freezes
-// the production consequence from spec §2.3: deleting an autopilot manager that
-// still has live MCP workers tombstones the record (strict_lifecycle.go:288-311)
-// instead of reaping it. WP6 stops parenting workers so rotated managers reap.
-func TestCharacterization_AutopilotRotatedManagerTombstonesWithLiveWorkers(t *testing.T) {
+func TestAutopilotManagerDeleteWithLiveWorkersNoTombstone(t *testing.T) {
 	fs := newFakeStore()
 	fs.data["agent-8bed0ec5"] = &store.Session{
 		ID:          "agent-8bed0ec5",
@@ -26,10 +22,11 @@ func TestCharacterization_AutopilotRotatedManagerTombstonesWithLiveWorkers(t *te
 		Tags:        []string{"autopilot", "run:ap-deadbeef1234"},
 	}
 	fs.data["worker-task-a"] = &store.Session{
-		ID:       "worker-task-a",
-		ParentID: "agent-8bed0ec5",
-		Status:   store.StatusWorking,
-		Tags:     []string{"autopilot", "run:ap-deadbeef1234"},
+		ID:             "worker-task-a",
+		Status:         store.StatusWorking,
+		AutopilotRunID: "ap-deadbeef1234",
+		AutopilotSlot:  store.AutopilotSlotWorker,
+		Tags:           []string{"autopilot", "run:ap-deadbeef1234"},
 	}
 	fl := &fakeLife{}
 	ts := lifeServer(t, fs, fl)
@@ -37,12 +34,27 @@ func TestCharacterization_AutopilotRotatedManagerTombstonesWithLiveWorkers(t *te
 
 	code, out := deleteSession(t, ts, "agent-8bed0ec5", false)
 	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, "tombstoned", out.Status)
+	require.Equal(t, "deleted", out.Status)
+	require.NotContains(t, fs.data, "agent-8bed0ec5", "manager is archived, not tombstoned")
+	require.Contains(t, fs.data, "worker-task-a")
+	require.Empty(t, fs.data["worker-task-a"].ParentID)
+}
 
-	got, ok := fs.data["agent-8bed0ec5"]
-	require.True(t, ok, "rotated manager stays as an active tombstone record")
-	require.Equal(t, store.StatusDone, got.Status)
-	require.Contains(t, fs.data, "worker-task-a", "worker remains parented to tombstoned manager")
-	require.Equal(t, "agent-8bed0ec5", fs.data["worker-task-a"].ParentID,
-		"workers keep parent_id to the dead manager; WP6 clears this for autopilot slots")
+func TestReapAutopilotManagerWhenLastWorkerFinishes(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["agent-old-brain"] = &store.Session{
+		ID: "agent-old-brain", Role: "autopilot", Status: store.StatusDone,
+		Tags: []string{"autopilot", "run:ap-deadbeef1234"},
+	}
+	fs.data["worker-task-a"] = &store.Session{
+		ID: "worker-task-a", Status: store.StatusWorking,
+		AutopilotRunID: "ap-deadbeef1234", AutopilotSlot: store.AutopilotSlotWorker,
+		Tags: []string{"autopilot", "run:ap-deadbeef1234"},
+	}
+	d := &pollerDeps{store: fs}
+
+	swapped, err := d.FinalizeExit(t.Context(), "worker-task-a", store.StatusWorking, store.StatusDone, 0)
+	require.NoError(t, err)
+	require.True(t, swapped)
+	require.NotContains(t, fs.data, "agent-old-brain", "terminal manager reaps once workers finish")
 }
