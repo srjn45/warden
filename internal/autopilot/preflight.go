@@ -20,14 +20,15 @@ var protectedBranchNames = map[string]bool{
 // resolved carries everything preflight learned about one configured plan so the
 // Controller can register the run without re-deriving it.
 type resolved struct {
-	file          string // the configured file path (as written in config)
-	absFile       string // resolved absolute path
-	repo          string // git toplevel containing the plan file
-	runID         string // stable hash of repo + absFile
-	plan          Plan
-	resolvedGate  string // gate mode resolved from `auto` (§6.1): ci | local
-	defaultBranch string // repo default branch — the land guard's protected name
-	skipComplete  bool   // the plan carries the completion marker (§2.1): skip, don't register
+	file              string // the configured file path (as written in config)
+	absFile           string // resolved absolute path
+	repo              string // git toplevel containing the plan file
+	runID             string // stable hash of repo + absFile
+	plan              Plan
+	resolvedGate      string // gate mode resolved from `auto` (§6.1): ci | local
+	defaultBranch     string // repo default branch — the land guard's protected name
+	integrationBranch string // per-run merge target, resolved once
+	skipComplete      bool   // the plan carries the completion marker (§2.1): skip, don't register
 }
 
 // preflightPlan runs the enable-time checks that concern a single plan in
@@ -37,7 +38,7 @@ type resolved struct {
 // checks (name uniqueness, slot-scope claims) live in Register/Enable, which
 // see the full run set. Failures never panic on a half-resolved plan: once the
 // repo can't be found we return early because the remaining checks are repo-scoped.
-func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, []string) {
+func (c *Controller) preflightPlan(ctx context.Context, file string, pending map[string]string) (resolved, []string) {
 	var fails []string
 	r := resolved{file: file}
 
@@ -81,15 +82,36 @@ func (c *Controller) preflightPlan(ctx context.Context, file string) (resolved, 
 		fails = append(fails, err.Error())
 	}
 
+	name := defaultRunName(abs)
+	stored := ""
+	if existing, ok := c.runs[r.runID]; ok {
+		if existing.name != "" {
+			name = existing.name
+		}
+		stored = existing.integrationBranch
+	}
+	branch, err := resolveIntegrationBranch(branchResolveOpts{
+		planName: name,
+		runID:    r.runID,
+		stored:   stored,
+		template: c.integrationBranch,
+		taken:    c.branchTakenLocked(r.repo, r.runID, pending),
+	})
+	if err != nil {
+		fails = append(fails, err.Error())
+	} else {
+		r.integrationBranch = branch
+		c.warnSameBranchLocked(r.repo, branch, r.runID, pending)
+	}
+
 	// Protected-name check + integration branch auto-create. The integration
 	// branch is the ONLY branch autopilot merges into; it must not be a protected
 	// name, and it must exist (created off the default branch when absent).
-	branch := c.integrationBranch
 	def, defErr := c.env.DefaultBranch(ctx, repo)
 	r.defaultBranch = def
 	if isProtectedBranch(branch, def) {
-		fails = append(fails, fmt.Sprintf("integration branch %q is a protected name — pick a dedicated branch (e.g. autopilot/integration)", branch))
-	} else {
+		fails = append(fails, fmt.Sprintf("integration branch %q is a protected name — pick a dedicated branch (e.g. autopilot/<plan-name>)", branch))
+	} else if branch != "" {
 		exists, err := c.env.BranchExists(ctx, repo, branch)
 		switch {
 		case err != nil:
