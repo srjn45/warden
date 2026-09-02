@@ -40,7 +40,9 @@ A run is a small fleet with clearly separated jobs:
 
 ### Plan
 
-A YAML brief you author in your repository (`autopilot.plan.yaml` by default).
+A YAML brief you author in your repository under `plans/` (for example,
+`plans/notifications.yaml`). `warden autopilot init --name notifications`
+scaffolds and registers it.
 
 ```yaml
 version: 1
@@ -75,8 +77,10 @@ run id is a stable hash of the repo path and the plan file path, so enabling
 autopilot on the same repo + plan always continues the same logical run (the
 ledger persists landed tasks across manager restarts).
 
-**At most one active run per repository.** Enabling a second plan on the same repo
-fails with a conflict error.
+**Multiple named runs per repository.** Independent plans (e.g. `plans/release.yaml`
+and `plans/notifications.yaml`) can be active concurrently — each gets its own
+per-plan integration branch and stable slot ids so they cannot land into each
+other's trees.
 
 **The switch is per-repository.** `warden autopilot enable` (or `set_autopilot`)
 enables only the repo it targets — the current git repository, or `--repo <root>`
@@ -86,13 +90,37 @@ enabled set is **persisted** under `<data_dir>/autopilot/enabled/`, so
 previously-enabled repos come back up automatically across a daemon restart, and
 it is the source of truth for which repos are on — a config hot-reload re-applies
 the template but never resets it. `warden autopilot status` reports the enabled
-repos (`enabled_repos`); the scalar `enabled` means "any repo is on".
+repos (`enabled_repos`) and each run's `integration_branch`, `manager_slot_id`,
+and `slot_scope`; the scalar `enabled` means "any repo is on".
+
+### Plan-scoped hierarchy
+
+Each run renders as a stable tree root (the plan display name) on TUI, web, REST,
+MCP, and CLI:
+
+```text
+<plan-name>
+├── <scope>-autopilot        # manager slot (role autopilot)
+├── <scope>-guardian         # guardian inspectability session
+├── plan                     # checklist from plan YAML + ledger
+└── workers                  # grouped by ledger state
+    └── <task-id>
+```
+
+`<scope>` is derived from the plan name (sanitized; disambiguated when two runs
+would collide). Session records carry explicit back-refs — `autopilot_run_id`,
+`autopilot_slot` (`autopilot` | `guardian` | `worker`), and `autopilot_task_id`
+(workers) — as the display contract. The `run:<run_id>` tags remain the
+authorization channel. Workers are not parented to the manager via `parent_id`.
 
 ### Manager
 
-A single long-lived headless agent (role `autopilot`) that the Controller spawns
-on the **cheapest available backend** (see Cost-tier backend selection below). The
-manager:
+A single long-lived headless agent (role `autopilot`) occupying the stable
+`<scope>-autopilot` slot. The Controller spawns it on the **cheapest available
+backend** (see Cost-tier backend selection below). Guardian heal-ladder rotation
+(stages 2–3) is an in-place **hot-swap** into this slot — the id survives
+rotation and daemon restarts; context is handed off via
+`.warden/handoff-<slot-id>.md`. The manager:
 
 - Reads the plan file and decomposes the goal into tasks (if absent from the plan)
 - Spawns worker agents via warden's MCP tools — the daemon tags each spawn with
@@ -163,12 +191,33 @@ any → replanned            (manager revises decomposition; audit-logged)
 `fixing` and `replanned` are manager-side notes / future stored values, not in
 the canonical write set today.
 
-### Integration branch
+### Integration branch (per-plan)
 
-`autopilot/integration` (configurable via `autopilot.integration_branch`). The
-**only** branch autopilot merges worker branches into. It is never merged into
-`main` automatically — the operator reviews it and fast-forwards it to `main`
-when satisfied.
+Each run resolves **one** integration branch at register/preflight, persists it on
+the run record, and surfaces it in status APIs and the manager digest. Workers
+open PRs against that branch — never `main` directly.
+
+**Default for new runs:** `autopilot/<sanitized-plan-name>`. **Concurrent runs** in
+one repo each get a distinct branch.
+
+**Config** (`autopilot.merge.target_branch`):
+
+| Template | Behavior |
+|---|---|
+| empty or `autopilot/integration` (legacy default) | Derive `autopilot/<plan>` per run |
+| contains `{{plan}}` | Expand to sanitized plan name |
+| other | Custom global override |
+
+Runs already on `autopilot/integration` are **grandfathered** — warden never
+re-derives a stored branch.
+
+**CI (`gate: auto`):** workflows must list `autopilot/**` under
+`on.pull_request.branches` to cover every per-plan branch. Listing only
+`autopilot/integration` does not cover `autopilot/<plan>`; when no workflow
+matches, `gate: auto` downgrades to `local` and preflight emits a warning.
+
+The integration branch is **never** merged into `main` automatically — the
+operator reviews it and fast-forwards `main` when satisfied.
 
 **Boundary invariant:** workers never commit to `main` directly. The integration
 branch is a staging area for owner review.
@@ -184,17 +233,21 @@ pending work). The heal ladder:
 | Stage | What the guardian does |
 |---|---|
 | 1 — nudge | Send a steering message to the manager |
-| 2 — restart | Terminate and restart the manager on the same backend (fresh context, ledger cold-start) |
-| 3 — rotate | Restart the manager on the next backend down the cost tier |
+| 2 — restart | **Hot-swap** the manager in-place on the same backend (stable slot id) |
+| 3 — rotate | **Hot-swap** onto the next backend down the cost tier (slot id unchanged) |
 | 4 — backoff | All backends exhausted or rate-limited: wait (capped-exponential backoff), notify, then retry from stage 1 |
+
+Guardian rotation calls `Lifecycle.HotSwap` directly — not the backend
+quota-recovery coordinator. Cold start adopts a live `<scope>-autopilot` session
+when present.
 
 The guardian **never parks permanently** — it always eventually retries. Backoff
 state is visible in `warden autopilot status` (fields: `backoff`, `tier`,
 `last_heartbeat`, `context_level`).
 
-A planned rotation (context critical or cadence interval reached) is also handled
-by the guardian, cleanly: the manager saves a summary to the ledger, the guardian
-restarts it on a fresh context, and work continues.
+A planned rotation (context critical or cadence interval reached) uses the same
+hot-swap seam: the manager saves a summary to the ledger, the guardian hot-swaps
+it onto a fresh context, and work continues — the slot id does not change.
 
 ---
 

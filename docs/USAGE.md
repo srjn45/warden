@@ -2230,7 +2230,9 @@ resets the job, reopens any descendants that were skipped, and re-runs from ther
 > ⚠️ **Unattended operation is inherently risky.** When autopilot is enabled, a
 > manager agent drives a fleet of workers without human intervention. Review the
 > [kill switch](#kill-switch) and [integration branch](#integration-branch)
-> sections before enabling. Everything autopilot does is recorded in `warden inspect audit`.
+> sections before enabling. Workers land into their run's integration branch
+> (default `autopilot/<plan-name>`), never directly into `main`. Everything
+> autopilot does is recorded in `warden inspect audit`.
 
 Autopilot is a **goal-directed, long-running autonomous mode**. You describe a
 goal in a plan file, enable autopilot once, and warden runs it — a **manager**
@@ -2240,16 +2242,39 @@ guardian daemon loop keeps the manager alive through stalls; a cost-tier backend
 ladder escalates from the free tier to subscription backends if the manager is
 rate-limited.
 
-**The fleet:** a **manager** (role `autopilot`) drives the run; **worker** agents
-(role `worker`, one per task) own their task end-to-end and report back; and an
-on-demand **resolver** (role `brain`) unblocks a stuck worker or makes an ad-hoc
-design call without human interaction. A daemon-internal **overwatch** backstop
-automatically nudges the manager to tend workers that fall idle or wait on input —
-no user action needed; its cadences are generous (a backstop, not a pacer).
+**The fleet:** a **manager** (role `autopilot`) drives the run from a stable
+`<scope>-autopilot` slot id; **worker** agents (role `worker`, one per task) own
+their task end-to-end and report back; and an on-demand **resolver** (role
+`brain`) unblocks a stuck worker or makes an ad-hoc design call without human
+interaction. Guardian heal-ladder rotation is an in-place **hot-swap** into the
+same manager slot (not a new `agent-<hex>` id). A daemon-internal **overwatch**
+backstop automatically nudges the manager to tend workers that fall idle or wait
+on input — no user action needed; its cadences are generous (a backstop, not a
+pacer). Multiple named runs can be active in one repository concurrently — each
+gets its own per-plan integration branch.
 
-For the full design — the manager/worker/resolver topology, overwatch, ledger,
-guardian, cost-tier ladder — see
+For the full design — the manager/worker/resolver topology, plan-scoped hierarchy,
+slot ids, hot-swap rotation, overwatch, ledger, guardian, per-plan integration
+branches, cost-tier ladder — see
 [docs/FEATURES.md §34](FEATURES.md#34-autopilot-autonomous-agent-runs).
+
+### Plan-scoped hierarchy
+
+Each registered plan is a stable tree root on every surface (TUI, web, REST, MCP):
+
+```text
+<plan-name>
+├── <scope>-autopilot        # manager slot
+├── <scope>-guardian         # guardian inspectability session
+├── plan                     # checklist from plan YAML + ledger
+└── workers                  # grouped by ledger state
+    └── <task-id>
+```
+
+Session records carry `autopilot_run_id`, `autopilot_slot`
+(`autopilot` | `guardian` | `worker`), and `autopilot_task_id` (workers). Guardian
+heal-ladder stages 2–3 **hot-swap** into the manager slot in-place — the slot id
+survives rotation and daemon restarts.
 
 ### Quickstart
 
@@ -2382,17 +2407,40 @@ the source of truth. Landings are daemon-written at
 
 ### Integration branch {#integration-branch}
 
-`autopilot/integration` (configurable via `autopilot.integration_branch`). The
-**only** branch autopilot merges into — workers never commit to `main` directly.
-When a run completes (all tasks landed), review the integration branch and decide
-when to fast-forward `main`:
+Each run resolves **one** integration branch at register/preflight, persists it on
+the run record, and surfaces it in `warden autopilot status` (`integration_branch`).
+Workers open PRs against that branch — never `main` directly. A wrong PR base
+fails land with `ErrWrongBase`.
+
+**Default for new runs:** `autopilot/<sanitized-plan-name>` (plan `notifications`
+→ `autopilot/notifications`). **Concurrent runs** in one repo each get a distinct
+branch.
+
+**Config** (`autopilot.merge.target_branch`):
+
+| Template | Behavior |
+|---|---|
+| empty or `autopilot/integration` (legacy) | Derive `autopilot/<plan>` per run |
+| `{{plan}}` present | Expand to sanitized plan name (e.g. `integration/{{plan}}`) |
+| other | Custom global override |
+
+Runs already on `autopilot/integration` are **grandfathered** — warden never
+re-derives a stored branch.
+
+**CI (`gate: auto`):** add `autopilot/**` to `on.pull_request.branches` in your
+workflows so every per-plan branch is covered. Listing only `autopilot/integration`
+does not cover `autopilot/<plan>`; when no workflow matches, `gate: auto`
+downgrades to `local` and preflight emits a warning. `warden autopilot init`
+prints the hint.
+
+When a run completes, review the integration branch and fast-forward `main`:
 
 ```sh
-git log autopilot/integration --oneline   # inspect landed commits
-git diff main..autopilot/integration      # full diff
+git log autopilot/notifications --oneline   # example per-plan branch
+git diff main..autopilot/notifications
 
 git checkout main
-git merge --ff-only autopilot/integration
+git merge --ff-only autopilot/notifications
 git push
 ```
 

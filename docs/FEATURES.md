@@ -1043,9 +1043,9 @@ wipes the half-built `snapshots-db/` and re-imports from the intact legacy JSON.
 ## 34. Autopilot (autonomous agent runs)
 
 > ⚠️ **Unattended operation is inherently risky.** Use `warden autopilot disable`
-> (the kill switch) any time you need to stop. Workers always land into
-> `autopilot/integration`, never directly into `main`. See the
-> [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/).
+> (the kill switch) any time you need to stop. Workers always land into their
+> run's integration branch (default `autopilot/<plan-name>`), never directly into
+> `main`. See the [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/).
 
 Autopilot is warden's **goal-directed, long-running autonomous mode**. You
 describe a goal in a plan file, enable autopilot, and warden runs it — spawning a
@@ -1088,17 +1088,56 @@ fleet with separated jobs:
   to unblock a stuck worker or make an ad-hoc design/architecture decision without
   human interaction, then report the call back.
 
+#### Plan-scoped hierarchy and slot ids
+
+Each registered plan is a stable tree root (display name; `run_id` stays an
+internal hash). Fixed **slot ids** survive manager rotation and daemon restarts —
+the same pattern as pipeline job ids (`<pipelineID>-<jobID>`):
+
+```text
+<plan-name>                  # display root
+├── <scope>-autopilot        # manager slot (role autopilot)
+├── <scope>-guardian         # guardian slot (daemon inspectability session)
+├── plan                     # checklist from plan YAML + ledger
+└── workers                  # grouped by ledger state
+    └── <task-id>            # worker sessions / manager pipelines
+```
+
+`<scope>` is derived from the plan name (sanitized; disambiguated with a
+`_<run_id>` suffix when two runs would collide). Plan names must not end with
+`-autopilot` or `-guardian` (reserved slot suffixes).
+
+Session records carry explicit back-ref fields — `autopilot_run_id`,
+`autopilot_slot` (`autopilot` | `guardian` | `worker`), and `autopilot_task_id`
+(workers only) — as the display/reconciliation contract. The `run:<run_id>` tags
+remain the authorization channel. Autopilot workers are **not** parented to the
+manager via `parent_id`; ownership is tag- and back-ref-based (like pipelines).
+
+TUI, web, REST, and MCP render the same hierarchy. `warden autopilot status`
+includes `integration_branch`, `manager_slot_id`, and `slot_scope` per run.
+
 ### 34.3 Guardian & overwatch
 
 Two daemon-internal supervisors run on the guardian's ticker while a run is active.
 
 The **guardian** is a heal loop that keeps the manager alive. When the manager's
-heartbeat goes stale (wedged with pending work), the guardian fires: stage 1
-nudges the manager with a steering message; stage 2 restarts it on the same
-backend; stage 3 rotates to the next backend down the cost tier; stage 4 enters
-capped-exponential backoff and retries forever. There is no terminal failure state
-— the guardian always retries. Backoff state (`backoff`, `tier`, `last_heartbeat`,
-`context_level`) is visible in `warden autopilot status`.
+heartbeat goes stale (wedged with pending work), the guardian fires:
+
+| Stage | What the guardian does |
+|---|---|
+| 1 — nudge | Send a steering message to the manager |
+| 2 — restart | **Hot-swap** the manager in-place on the same backend (stable `<scope>-autopilot` slot id; context handoff via `.warden/handoff-<slot-id>.md`) |
+| 3 — rotate | **Hot-swap** onto the next backend down the cost tier (slot id unchanged) |
+| 4 — backoff | All backends exhausted or rate-limited: wait (capped-exponential backoff), notify, then retry from stage 1 |
+
+Guardian rotation calls `Lifecycle.HotSwap` directly — it does **not** go through
+the backend quota-recovery coordinator. Cold start (missing slot) spawns with
+`Ticket = <scope>-autopilot` and adopts a live session on `ErrExists`. There is
+no terminal failure state — the guardian always retries. Backoff state
+(`backoff`, `tier`, `last_heartbeat`, `context_level`) is visible in
+`warden autopilot status`. A planned rotation (context critical or cadence
+interval reached) uses the same hot-swap seam — the manager slot id does not
+change and workers need no `parent_id` repoint.
 
 The **overwatch** is a backstop (not an agent) that keeps the manager *tending its
 workers*. It derives the run's worker roster from the `run:<run_id>` tag and, only
@@ -1154,11 +1193,37 @@ branch is a no-op), guarded (ownership check), and gated (CI gate or local
 `.warden/check.yml` checks must be green). The manager calls `land` automatically;
 the operator may call it manually (e.g. to bypass a stuck gate after inspection).
 
-### 34.8 Integration branch
+### 34.8 Integration branch (per-plan)
 
-`autopilot/integration` (configurable via `autopilot.integration_branch`). The
-only branch autopilot merges into. Never auto-merged to `main` — the operator
-reviews the integration branch and fast-forwards `main` when satisfied.
+Each run resolves **one** integration branch at register/preflight time, persists
+it on `RunRecord.IntegrationBranch`, and every consumer (preflight, land, worker
+spawn digest, status API, ledger) reads that stored value — workers must not
+guess the branch; a wrong PR base returns `ErrWrongBase`.
+
+**Default for new runs:** `autopilot/<sanitized-plan-name>` (e.g. plan
+`notifications` → `autopilot/notifications`). **Concurrent runs in one repo**
+each get a distinct branch so they cannot land into each other's trees.
+
+**Precedence** (`autopilot.merge.target_branch` in config):
+
+| Template value | Behavior |
+|---|---|
+| empty or `autopilot/integration` (legacy default) | Derive `autopilot/<plan>` per run |
+| contains `{{plan}}` | Expand to the sanitized plan name (e.g. `integration/{{plan}}`) |
+| any other value | Custom global override as-is |
+
+**Grandfathering:** runs that already resolved to `autopilot/integration` keep
+that branch across upgrade and daemon restart — warden never re-derives a stored
+branch. New runs after upgrade use the per-plan default unless overridden.
+
+**CI gating (`gate: auto`):** warden picks `ci` only when a workflow's
+`on.pull_request.branches` covers the **resolved** branch. Workflows listing
+`autopilot/integration` exactly do **not** cover `autopilot/<plan>`. When no
+workflow matches, `gate: auto` downgrades to `local` and preflight/status emit
+an explicit warning. **`warden autopilot init`** prints a hint to add
+`autopilot/**` to workflow triggers — that glob covers every per-plan branch.
+Never auto-merged to `main` — the operator reviews the integration branch and
+fast-forwards `main` when satisfied.
 
 ### 34.9 Run ledger
 
