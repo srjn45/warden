@@ -21,6 +21,20 @@ func ManagerSlotID(scope string) string { return scope + managerSlotSuffix }
 // GuardianSlotID returns the stable guardian session id for a slot scope.
 func GuardianSlotID(scope string) string { return scope + guardianSlotSuffix }
 
+func managerSlotIDOrEmpty(scope string) string {
+	if scope == "" {
+		return ""
+	}
+	return ManagerSlotID(scope)
+}
+
+func guardianSlotIDOrEmpty(scope string) string {
+	if scope == "" {
+		return ""
+	}
+	return GuardianSlotID(scope)
+}
+
 // SlotScope derives the stable scope token for manager/guardian slot ids from a
 // run's display name. When another run already owns the base scope, a
 // deterministic disambiguating suffix from runID is appended (e.g. default~a1b2c3).

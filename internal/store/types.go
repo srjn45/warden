@@ -78,6 +78,13 @@ const (
 	KindTerminal SessionKind = "terminal" // a plain ${SHELL:-bash} pane, not an AI agent
 )
 
+// Autopilot slot values stored in Session.AutopilotSlot.
+const (
+	AutopilotSlotManager  = "autopilot"
+	AutopilotSlotGuardian = "guardian"
+	AutopilotSlotWorker   = "worker"
+)
+
 // Type is the kind of work an agent session is doing (design §2).
 type Type string
 
@@ -234,20 +241,23 @@ type Session struct {
 	UpdatedAt       time.Time   `json:"updated_at"`
 	Events          []Event     `json:"events"`
 	LastPaneExcerpt string      `json:"last_pane_excerpt"`
-	AutoRestart     bool        `json:"auto_restart,omitempty"`    // opt-in: auto-resume this agent when it errors (capped)
-	RestartCount    int         `json:"restart_count,omitempty"`   // consecutive auto-restart attempts since last sustained-healthy run
-	LastRestartAt   *time.Time  `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
-	PermissionMode  string      `json:"permission_mode,omitempty"` // explicit mode override; empty = use global default
-	Role            string      `json:"role,omitempty"`            // built-in role (persona + default flags); empty = "general" (no persona)
-	Task            string      `json:"task,omitempty"`            // assigned task dimension from the registry
-	AutoApprove     bool        `json:"auto_approve,omitempty"`    // opt-in: auto-approve yes/no prompts (always option 1)
-	ForceCompact    *bool       `json:"force_compact,omitempty"`   // per-agent force-compact override; nil = inherit global token_force_compact
-	PipelineID      string      `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
-	JobID           string      `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
-	ScheduleID      string      `json:"schedule_id,omitempty"`     // set for schedule-fired runs (back-ref to the schedule that spawned this); agent-mode and pipeline-mode job sessions alike
-	ScheduleName    string      `json:"schedule_name,omitempty"`   // operator-facing name of that schedule (== ScheduleID today, carried for display)
-	ParentID        string      `json:"parent_id,omitempty"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
-	Model           string      `json:"model,omitempty"`           // claude model (opus/sonnet/haiku or full ID)
+	AutoRestart     bool        `json:"auto_restart,omitempty"`      // opt-in: auto-resume this agent when it errors (capped)
+	RestartCount    int         `json:"restart_count,omitempty"`     // consecutive auto-restart attempts since last sustained-healthy run
+	LastRestartAt   *time.Time  `json:"last_restart_at,omitempty"`   // when the most recent auto-restart fired
+	PermissionMode  string      `json:"permission_mode,omitempty"`   // explicit mode override; empty = use global default
+	Role            string      `json:"role,omitempty"`              // built-in role (persona + default flags); empty = "general" (no persona)
+	Task            string      `json:"task,omitempty"`              // assigned task dimension from the registry
+	AutoApprove     bool        `json:"auto_approve,omitempty"`      // opt-in: auto-approve yes/no prompts (always option 1)
+	ForceCompact    *bool       `json:"force_compact,omitempty"`     // per-agent force-compact override; nil = inherit global token_force_compact
+	PipelineID      string      `json:"pipeline_id,omitempty"`       // set for pipeline jobs (back-ref)
+	JobID           string      `json:"job_id,omitempty"`            // set for pipeline jobs (back-ref)
+	ScheduleID      string      `json:"schedule_id,omitempty"`       // set for schedule-fired runs (back-ref to the schedule that spawned this); agent-mode and pipeline-mode job sessions alike
+	ScheduleName    string      `json:"schedule_name,omitempty"`     // operator-facing name of that schedule (== ScheduleID today, carried for display)
+	ParentID        string      `json:"parent_id,omitempty"`         // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	AutopilotRunID  string      `json:"autopilot_run_id,omitempty"`  // owning ap- run id (autopilot back-ref)
+	AutopilotSlot   string      `json:"autopilot_slot,omitempty"`    // autopilot | guardian | worker
+	AutopilotTaskID string      `json:"autopilot_task_id,omitempty"` // plan task id (workers only)
+	Model           string      `json:"model,omitempty"`             // claude model (opus/sonnet/haiku or full ID)
 	// ProjectID back-refs the first-class project (projectstore) this agent belongs
 	// to; empty = ungrouped. It is the PARENT project's canonical id: an agent
 	// running in a git worktree links to its repo's project here and keeps its own
