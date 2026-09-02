@@ -27,8 +27,8 @@ func TestComposeDigestFromFixtureState(t *testing.T) {
 	store := newFakeStore()
 	l := NewLedger(store, "ap-run")
 	require.NoError(t, l.WriteTasks([]LedgerTask{
-		{ID: "api", State: "in_progress", WorkerID: "A-1", Branch: "autopilot/api", PR: 7},
-		{ID: "ui", State: "pending"},
+		{ID: "api", State: LedgerInProgress, WorkerID: "A-1", Branch: "autopilot/api", PR: 7},
+		{ID: "ui", State: LedgerPending},
 	}, "brain"))
 	require.NoError(t, l.AppendLanding(Landing{Branch: "autopilot/db", SHA: "deadbeefcafeb00b1234", PR: 5, LandedAt: "2026-07-09T10:00:00Z"}))
 

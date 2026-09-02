@@ -142,7 +142,16 @@ been made. Written authoritatively by the daemon (landings) and by the manager
 (task state transitions). Persisted across manager restarts and daemon restarts —
 re-enabling autopilot after a disable continues from where the ledger left off.
 
-Ledger task state machine:
+Canonical storage is a JSON array at `autopilot.<run_id>.tasks` (dot-namespaced
+ctx keys). Each row's `state` is one of `pending`, `assigned`, `in_progress`,
+`pr_open`, `gated`, `landed` — validated on write. Optional overlay keys
+`autopilot.<run_id>.tasks.<id>.state` and `.branch` exist for TUI segmentation;
+the array is the source of truth. Landings live at
+`autopilot.<run_id>.landings`. Plan-file statuses (`pending` / `active` / `done`
+/ `failed`) are a separate checklist, not ledger states.
+
+Ledger task state machine (intended transitions; illegal-transition checks are
+not enforced on write):
 
 ```
 pending → assigned → in_progress → pr_open → gated
@@ -150,6 +159,9 @@ pending → assigned → in_progress → pr_open → gated
   gated → fixing → gated  (gate red / conflict; manager heals or respawns worker)
 any → replanned            (manager revises decomposition; audit-logged)
 ```
+
+`fixing` and `replanned` are manager-side notes / future stored values, not in
+the canonical write set today.
 
 ### Integration branch
 
