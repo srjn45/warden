@@ -53,7 +53,7 @@ var rootHelpPlacement = map[string]struct {
 	order int
 }{
 	"start": {"shortcut", 10}, "ls": {"shortcut", 20}, "status": {"shortcut", 30}, "send": {"shortcut", 40},
-	"commit": {"shortcut", 50}, "push": {"shortcut", 60}, "sync": {"shortcut", 70}, "check": {"shortcut", 80},
+	"commit": {"shortcut", 50}, "push": {"shortcut", 60}, "sync": {"shortcut", 70},
 	"pipeline": {"run", 20}, "autopilot": {"run", 30}, "schedule": {"run", 40},
 	"project": {"project", 5}, "workspace": {"project", 8},
 	"adopt": {"run", 100}, "attach": {"run", 110}, "delete": {"run", 120}, "digest": {"run", 130},
@@ -63,7 +63,7 @@ var rootHelpPlacement = map[string]struct {
 	"stop": {"run", 260}, "switch": {"run", 270}, "tail": {"run", 280}, "terminate": {"run", 290},
 	"worktree": {"project", 10}, "snapshot": {"project", 20}, "memory": {"project", 30}, "preset": {"project", 40},
 	"prompt-template": {"project", 50}, "library": {"project", 60}, "plugin": {"project", 70}, "branches": {"project", 80},
-	"prune": {"project", 90}, "git": {"project", 12}, "review": {"project", 100},
+	"prune": {"project", 90}, "git": {"project", 12}, "check": {"project", 14}, "review": {"project", 100},
 	"context": {"coordinate", 10}, "message": {"coordinate", 20}, "approval": {"coordinate", 30},
 	"ctx": {"coordinate", 40}, "msg": {"coordinate", 50}, "approvals": {"coordinate", 60}, "approve": {"coordinate", 70},
 	"auto-approve": {"coordinate", 80}, "collab": {"coordinate", 90},
@@ -315,41 +315,83 @@ func indent(s, prefix string) string {
 	return prefix + strings.ReplaceAll(strings.TrimSpace(s), "\n", "\n"+prefix)
 }
 
-func renderAllHelp(w io.Writer, root *cobra.Command) error {
-	fmt.Fprintln(w, "Complete command tree:")
-	var aliases []string
+// CompatibilityAlias is one legacy path that remains executable, paired with the
+// canonical path that replaced it. Canonical equals Path for a legacy command that
+// was deliberately retained without a canonical successor.
+type CompatibilityAlias struct {
+	Path      string
+	Canonical string
+}
+
+// Retained reports whether this legacy path has no canonical replacement.
+func (a CompatibilityAlias) Retained() bool { return a.Path == a.Canonical }
+
+// WalkCommandTree visits every non-help node that opts into `--all` traversal, in
+// deterministic canonical order. It is the single traversal behind `help --all`,
+// the generated CLI reference, and the alias appendix.
+func WalkCommandTree(root *cobra.Command, visit func(*cobra.Command)) {
 	var walk func(*cobra.Command)
 	walk = func(parent *cobra.Command) {
 		children := append([]*cobra.Command(nil), parent.Commands()...)
 		sortCommands(children)
 		for _, cmd := range children {
-			if cmd.Name() == "help" {
+			if cmd.Name() == "help" || cmd.Annotations[AnnotationIncludeInAll] == "false" {
 				continue
 			}
-			if cmd.Annotations[AnnotationIncludeInAll] == "false" {
-				continue
-			}
-			canonical := cmd.Annotations[AnnotationCanonicalPath]
-			if canonical == "" {
-				canonical = cmd.CommandPath()
-			}
-			if cmd.Annotations[AnnotationAliasKind] == AliasCompatibility {
-				aliases = append(aliases, fmt.Sprintf("%s -> %s (compatibility)", cmd.CommandPath(), canonical))
-			} else if cmd.Annotations[AnnotationNodeKind] != NodeInternal {
-				fmt.Fprintf(w, "  %-36s %s\n", cmd.CommandPath(), cmd.Short)
-			}
-			for _, alias := range cmd.Aliases {
-				aliases = append(aliases, fmt.Sprintf("%s %s -> %s (compatibility)", cmd.Parent().CommandPath(), alias, canonical))
-			}
+			visit(cmd)
 			walk(cmd)
 		}
 	}
 	walk(root)
-	sort.Strings(aliases)
+}
+
+func canonicalPathOf(cmd *cobra.Command) string {
+	if canonical := cmd.Annotations[AnnotationCanonicalPath]; canonical != "" {
+		return canonical
+	}
+	return cmd.CommandPath()
+}
+
+// CollectCompatibilityAliases returns every inventoried legacy path in the tree,
+// sorted by legacy path.
+func CollectCompatibilityAliases(root *cobra.Command) []CompatibilityAlias {
+	var aliases []CompatibilityAlias
+	WalkCommandTree(root, func(cmd *cobra.Command) {
+		canonical := canonicalPathOf(cmd)
+		if cmd.Annotations[AnnotationAliasKind] == AliasCompatibility {
+			aliases = append(aliases, CompatibilityAlias{cmd.CommandPath(), canonical})
+		}
+		for _, alias := range cmd.Aliases {
+			aliases = append(aliases, CompatibilityAlias{cmd.Parent().CommandPath() + " " + alias, canonical})
+		}
+	})
+	sort.Slice(aliases, func(i, j int) bool { return aliases[i].Path < aliases[j].Path })
+	return aliases
+}
+
+func formatAliasEntry(path, canonical string) string {
+	if path == canonical {
+		return fmt.Sprintf("%s (compatibility; no canonical equivalent)", path)
+	}
+	return fmt.Sprintf("%s -> %s (compatibility)", path, canonical)
+}
+
+func renderAllHelp(w io.Writer, root *cobra.Command) error {
+	fmt.Fprintln(w, "Complete command tree:")
+	WalkCommandTree(root, func(cmd *cobra.Command) {
+		if cmd.Annotations[AnnotationAliasKind] == AliasCompatibility {
+			return
+		}
+		if cmd.Annotations[AnnotationNodeKind] == NodeInternal {
+			return
+		}
+		fmt.Fprintf(w, "  %-36s %s\n", cmd.CommandPath(), cmd.Short)
+	})
+	aliases := CollectCompatibilityAliases(root)
 	if len(aliases) > 0 {
 		fmt.Fprintln(w, "\nCompatibility aliases:")
 		for _, alias := range aliases {
-			fmt.Fprintln(w, "  "+alias)
+			fmt.Fprintln(w, "  "+formatAliasEntry(alias.Path, alias.Canonical))
 		}
 	}
 	return nil

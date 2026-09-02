@@ -1,16 +1,16 @@
 ---
 title: Interactive mode (REPL)
-description: warden repl — an interactive REPL with a real line editor, deterministic /commands, and a local-LLM natural-language half, all over your warden fleet.
+description: warden backend repl — an interactive REPL with a real line editor, deterministic /commands, and a local-LLM natural-language half, all over your warden fleet.
 ---
 
 :::caution[Experimental]
 The REPL is an experimental client. The deterministic `/`-command half is stable; the local-LLM natural-language half is still evolving and may change between releases.
 :::
 
-`warden repl` (aliases `warden interactive`, `warden i`) is warden's **interactive mode**: a proper terminal REPL to drive your fleet. It is a real line editor — **arrow keys, in-line editing, history persisted across sessions, reverse-search, and Tab completion** — that closes cleanly with **Ctrl-D** (or `exit`), returning you to your shell prompt.
+`warden backend repl` (aliases `warden backend repl`, `warden i`) is warden's **interactive mode**: a proper terminal REPL to drive your fleet. It is a real line editor — **arrow keys, in-line editing, history persisted across sessions, reverse-search, and Tab completion** — that closes cleanly with **Ctrl-D** (or `exit`), returning you to your shell prompt.
 
 ```sh
-warden repl          # or: warden interactive / warden i
+warden backend repl          # or: warden backend repl / warden i
 ```
 
 It drives the fleet two ways — a reliable deterministic half and a natural-language half:
@@ -68,6 +68,6 @@ Read results are rendered for a **human**, not dumped as JSON: `/agents` and `/p
 | **`!`-shell passthrough** | A `!`-prefixed line runs in a persistent embedded `$SHELL` (cwd/env persist) and tees output to the terminal. The REPL takes **no action** on that output — it reports verbatim; the output is visible as context to the next turn. |
 | **Real line editor** | Backed by readline: arrow-key cursor movement, ↑/↓ history (persisted to `~/.warden/orch_history`), Ctrl-R reverse-search, Ctrl-A/E/W/K/U editing, a **live `/`-command menu** that filters as you type (verb + summary, painted under the prompt) plus Tab completion of `/` commands and live agent ids, **guided argument forms** (pick-lists + free text) when a command needs more input, Ctrl-C to abandon a line, Ctrl-D to close. The prompt and headings are colourised (honours `NO_COLOR` and non-TTY output). |
 
-> Not sure which model to run? **`warden llm suggest`** auto-detects your machine's **total** and **average free** memory (from the same pool — VRAM, Apple unified memory, or system RAM) and prints a memory-ranked shortlist, marking each model `fits now` / `free memory first` / `too large`. It scores a tool-calling-forward catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — calibrated against the [Berkeley Function-Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) (BFCL v4, multi-turn-weighted), since the REPL routes tool calls and never writes code — and stars the best model that runs *comfortably now* with headroom for your real workload. `warden doctor` gives the one-line version. Both only ever recommend — you set `local_llm.model`; warden never silently swaps it.
+> Not sure which model to run? **`warden backend suggest`** auto-detects your machine's **total** and **average free** memory (from the same pool — VRAM, Apple unified memory, or system RAM) and prints a memory-ranked shortlist, marking each model `fits now` / `free memory first` / `too large`. It scores a tool-calling-forward catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — calibrated against the [Berkeley Function-Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) (BFCL v4, multi-turn-weighted), since the REPL routes tool calls and never writes code — and stars the best model that runs *comfortably now* with headroom for your real workload. `warden doctor` gives the one-line version. Both only ever recommend — you set `local_llm.model`; warden never silently swaps it.
 
 For the token-spending alternative — driving the same operations from a full orchestrator agent session (e.g. Claude) — see [Orchestration: MCP & skill](/warden/multi-agent/mcp-and-skill/).

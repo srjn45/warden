@@ -1,0 +1,41 @@
+Generate shell completion scripts for warden.
+
+The completion script for each shell should be redirected to the appropriate
+location for your shell. Examples:
+
+Bash:
+  warden completion bash > /etc/bash_completion.d/warden
+  # or for user-only installation:
+  warden completion bash > ~/.bash_completion
+
+Zsh:
+  warden completion zsh > /usr/local/share/zsh/site-functions/_warden
+  # or for user-only installation:
+  warden completion zsh > ~/.zsh/completion/_warden
+
+Fish:
+  warden completion fish > ~/.config/fish/completions/warden.fish
+
+PowerShell:
+  warden completion powershell > warden.ps1
+  # Then load it in your PowerShell profile
+
+After generating the completion script, you may need to restart your shell
+or source the file for the completions to take effect.
+
+
+Usage:
+  warden completion [flags]
+
+Commands:
+  bash                 Generate bash completion script
+  zsh                  Generate zsh completion script
+  fish                 Generate fish completion script
+  powershell           Generate PowerShell completion script
+
+Flags:
+  -h, --help   help for completion
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

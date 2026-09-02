@@ -7,14 +7,14 @@ instead — see pipelines.md.)
 
 ## Shared context — a namespaced KV blackboard
 
-MCP `ctx_set` / `ctx_get` / `ctx_list` (+ `ctx_append`, `ctx_cas`); CLI `warden ctx
+MCP `ctx_set` / `ctx_get` / `ctx_list` (+ `ctx_append`, `ctx_cas`); CLI `warden context
 set|get|list|del`.
 
 ```sh
-warden ctx set <key> <value>     # or: --file <path> / --stdin
-warden ctx get <key>
-warden ctx list [<prefix>]
-warden ctx del <key>
+warden context set <key> <value>     # or: --file <path> / --stdin
+warden context get <key>
+warden context list [<prefix>]
+warden context delete <key>
 ```
 
 - Keys are dot-namespaced (`global.*`, `agent.<id>.*`, `pipeline.<id>.*`). Writes
@@ -26,13 +26,13 @@ warden ctx del <key>
 
 ## Directed messages — a durable per-agent inbox
 
-MCP `send_message` / `read_inbox` / `wait_for_message`; CLI `warden msg
+MCP `send_message` / `read_inbox` / `wait_for_message`; CLI `warden message
 send|inbox|wait`.
 
 ```sh
-warden msg send <agent-id> "<message>"            # delivers; wakes it only if idle/waiting
-warden msg inbox [--unread]                       # read my messages (marks read)
-warden msg wait [--from <id>] [--timeout <sec>]   # block until a message, then print it
+warden message send <agent-id> "<message>"            # delivers; wakes it only if idle/waiting
+warden message inbox [--unread]                       # read my messages (marks read)
+warden message wait [--from <id>] [--timeout <sec>]   # block until a message, then print it
 ```
 
 A *working* agent is never interrupted (woken only when idle/waiting). `msg wait` /
@@ -49,7 +49,7 @@ check first and coordinate via `send_message` rather than overwriting.**
 
 - MCP `who_is_editing_file {file}` — which agents share that repo-relative file.
 - MCP `get_collaboration_status` — the current conflict picture.
-- CLI `warden collab conflicts` / `warden collab who-is-editing <file>`.
+- CLI `warden workspace conflicts` / `warden workspace who-is-editing <file>`.
 - Also check `read_inbox` for file-conflict warnings the daemon delivers.
 
 Tunable via `collab.enabled` / `collab.interval` / `collab.hint`. Spawned agents
@@ -62,7 +62,7 @@ Opt-in daemon monitor (`branch_track.enabled`, off by default;
 its **GitHub CI status** (`gh run list` in the worktree) and its **standing vs
 `origin/main`** (commits behind/ahead, whether merged).
 
-- MCP `get_branch_status`; CLI `warden branches` (`--json`).
+- MCP `get_branch_status`; CLI `warden workspace branches` (`--json`).
 - Alerts are **informational, never blocking**: a new CI failure → an inbox note to
   the agent + a desktop notification to the operator; a merged or >10-commits-behind
   branch → an inbox nudge. A 5-min dedup window suppresses repeats. Every subprocess
@@ -75,21 +75,21 @@ attaching. Config-gated by `approvals` (on by default).
 
 - MCP `list_approvals` → pending prompts with numbered options; `approve {id, n}`
   answers one.
-- CLI `warden approvals`; `warden approve <id> <n>`.
+- CLI `warden approval list`; `warden approval answer <id> <n>`.
 - A TOCTOU re-capture + fingerprint re-verify guards each answer; unrecognized
   prompts fall back to attach.
 
 **Auto-approve** (off by default): auto-answers recognized yes/no prompts. Two layers:
 
 - **Per-agent toggle** — opt one agent in even when the global policy is off:
-  MCP `set_auto_approve {ticket, enabled}` / `warden auto-approve <id> on|off`.
+  MCP `set_auto_approve {ticket, enabled}` / `warden approval auto set <id> on|off`.
 - **Rule policy** — an allow/deny engine: a prompt is answered only when it matches
   an allow rule, matches no deny rule, and isn't on warden's built-in destructive
   deny-list (always wins). Rules match by `tool`, a case-insensitive glob
   (`pattern`), a Go `regex`, and/or `paths`; per-agent overrides (keyed by agent
   name/id) replace the default for that agent. Manage with MCP
   `set_auto_approve_policy {action: show|allow|deny|clear|enable|disable, agent?,
-  tool?, pattern?, regex?, paths?}` / `warden auto-approve rules|allow|deny|clear|enable|disable`.
+  tool?, pattern?, regex?, paths?}` / `warden approval auto rules|allow|deny|clear|enable|disable`.
   Changes are live (no restart) and persisted to config.
 
 With **no rules** an enabled policy is the simple legacy toggle (approve every

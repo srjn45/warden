@@ -14,7 +14,7 @@ Selecting a job opens a drawer with its prompt, emitted output, and completion d
 ## Lifecycle
 
 ```sh
-warden pipeline list-templates          # show the built-in templates + placeholders
+warden pipeline template list          # show the built-in templates + placeholders
 warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline create -f review.yaml   # validate + register (does NOT start)
 warden pipeline start <id>              # spawn jobs with no dependencies
@@ -30,7 +30,7 @@ warden pipeline delete <id>             # remove the record (cancel first if liv
 
 ## Built-in templates
 
-Skip writing YAML for common shapes — `warden pipeline create --template <name> --set KEY=value` renders a built-in template (embedded in the binary) and registers it. `warden pipeline list-templates` prints each template and its placeholders.
+Skip writing YAML for common shapes — `warden pipeline create --template <name> --set KEY=value` renders a built-in template (embedded in the binary) and registers it. `warden pipeline template list` prints each template and its placeholders.
 
 | Template | Shape | Placeholders |
 |---|---|---|

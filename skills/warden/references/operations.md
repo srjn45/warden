@@ -2,7 +2,7 @@
 
 The cross-cutting capabilities that run the fleet rather than a single agent.
 
-## Token-savings ledger — `savings` / `wd savings`
+## Token-savings ledger — `savings` / `wd usage savings`
 
 A real, **append-only ledger** of the tokens warden's lifecycle features have kept
 out of agents' context windows — a measured proof point, not an estimate. This is
@@ -12,7 +12,7 @@ recorded. Config-gated by `savings` (default on); served at `GET /api/v1/savings
 MCP `savings {since?, bucket?, samples?}` returns the structured Summary; the CLI
 adds the human-readable table and `--benchmark` headline.
 
-- `wd savings` — per-feature table (saved tokens, raw tokens, event count), kept on
+- `wd usage savings` — per-feature table (saved tokens, raw tokens, event count), kept on
   **two axes that are never blended into one number**: a **context** axis (how much
   leaner agent context stayed, as a reduction % and dollars) and an **offload** axis
   (Claude work moved entirely onto the local LLM, dollars only).
@@ -31,7 +31,7 @@ adds the human-readable table and `--benchmark` headline.
 Reach for this when the user asks "how much is warden saving me" or wants proof the
 lifecycle tools pay off.
 
-## Cost governance — `spend` / `wd spend` + budget gate
+## Cost governance — `spend` / `wd usage spend` + budget gate
 
 The **cost** counterpart to the savings ledger: where `savings` reports what warden
 kept OUT of context, `spend` reports what agents **actually billed** Claude. warden
@@ -39,7 +39,7 @@ reads each agent's REAL input/output tokens from its transcript and prices them 
 model into dollars. Config-gated by the same `savings` switch; served at
 `GET /api/v1/spend`. MCP `spend` (no args) returns the structured `Report`.
 
-- `wd spend` — the measured spend rolled up three ways: **per agent**, **per repo**,
+- `wd usage spend` — the measured spend rolled up three ways: **per agent**, **per repo**,
   **per day**, under a `total / today / this week` headline. `--by agent|repo|day`
   shows one rollup; `--json` for tooling. Pricing: Opus `$5/$25`, Sonnet `$3/$15`,
   Haiku `$0.8/$4` per Mtok (in/out); an unknown model is priced at the Opus tier.
@@ -53,11 +53,11 @@ model into dollars. Config-gated by the same `savings` switch; served at
   on the web Metrics tab.
 
 **`wd cost` umbrella.** Both financial views also sit under one parent: `wd cost
-spend` and `wd cost savings` are the same commands as `wd spend` / `wd savings` (the
+spend` and `wd usage savings` are the same commands as `wd usage spend` / `wd usage savings` (the
 top-level forms stay as aliases), and `wd cost` with no subcommand prints a combined
 SPEND + SAVINGS summary. Over MCP nothing changes — keep using the `spend` and
 `savings` tools directly. Resource footprint (memory/CPU/pressure) is a different
-axis: that's `wd stats` / `get_metrics`, not `wd cost`.
+axis: that's `wd inspect resources` / `get_metrics`, not `wd cost`.
 
 Reach for this when the user asks "how much am I spending", wants a per-agent/repo
 cost breakdown, or wants to cap spend before spawning more agents.
@@ -66,7 +66,7 @@ cost breakdown, or wants to cap spend before spawning more agents.
 
 ## Insights — mine warden's own history
 
-MCP `insights {limit?}`; CLI `wd insights`. A **deterministic** report (no LLM
+MCP `insights {limit?}`; CLI `wd usage insights`. A **deterministic** report (no LLM
 needed; optional local-LLM narration). Config-gated by `insights` (default on).
 
 - **session duration by type** — count, median / p90 / max, with runs flagged
@@ -81,10 +81,10 @@ needed; optional local-LLM narration). Config-gated by `insights` (default on).
 Reach for this whenever the user asks "what could've been parallel" or "how's the
 fleet doing" — don't eyeball it.
 
-## Audit log — `audit_log` / `wd audit log`
+## Audit log — `audit_log` / `wd inspect audit`
 
 MCP `audit_log {action?, target?, since?, until?, limit?}` returns the events;
-`warden audit log` is the CLI view — an append-only trail of meaningful daemon actions (`spawn`,
+`warden inspect audit` is the CLI view — an append-only trail of meaningful daemon actions (`spawn`,
 `terminate`, `delete`, `approve`, `pipeline_start`/`pipeline_cancel`,
 `schedule_create`/`schedule_delete`) at `~/.warden/audit.jsonl` (`0600`). Each
 record: `time`, `action`, `actor`, `target`, action-specific `detail`. Flags:
@@ -105,7 +105,7 @@ warden schedule create <name> --cron "0 9 * * *" --type pr-review --repo <p> --p
 warden schedule create <name> --at 2026-06-27T09:00 --prompt "…"        # single-shot
 warden schedule create <name> --cron "…" --pipeline <spec.yaml>          # fire a pipeline
 warden schedule list      # kind (cron/at), mode (agent/pipeline), spec, enabled, next run, last error
-warden schedule get <id>  # + last_run_session_id and last_run_status
+warden schedule show <id>  # + last_run_session_id and last_run_status
 warden schedule enable <id> / disable <id>   # re-arm / stop firing (kept either way)
 warden schedule delete <id>
 ```
@@ -170,7 +170,7 @@ Notable settings (see the generated file for the full set with defaults):
 
 Reach the dashboard/API from a phone or another device. A 256-bit token gates every
 non-loopback request; binding to a non-loopback address is **refused unless a token
-is set**. `warden token generate|show|rotate` (persisted `0600` to
+is set**. `warden daemon token generate|show|rotate` (persisted `0600` to
 `~/.warden/token.env`; `WARDEN_TOKEN` env overrides). Per-IP brute-force limiting; a
 token-entry modal in the web UI on 401. Front the port with Tailscale / a Cloudflare
 Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`.
@@ -208,10 +208,10 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   `warden tui --rebuild-web-cockpit` to force a kill+rebuild (then have them
   reload `/tui`) — no `tmux kill-session` needed.
 
-## Interactive mode / REPL (`wd repl`)
+## Interactive mode / REPL (`wd backend repl`)
 
 warden's **interactive mode** — an operator-facing terminal REPL (aliases `wd
-interactive` / `wd i`), **not** something an agent drives over MCP. A real line
+backend repl` / `wd i`), **not** something an agent drives over MCP. A real line
 editor (arrow keys, persisted history, reverse-search, a live `/`-command menu that
 filters as you type, Tab completion, colour) that closes with Ctrl-D. Two ways to
 drive the fleet:
@@ -240,7 +240,7 @@ Starts without a model (the `/` commands and `!`-shell always work); only the NL
 half needs `local_llm: true`. `!`-prefixed lines run in a persistent embedded shell,
 reported verbatim (no auto-action). Run standalone.
 
-**Picking the local model — `wd llm suggest`.** Auto-detects the machine's **total**
+**Picking the local model — `wd backend suggest`.** Auto-detects the machine's **total**
 and **average free** memory (same pool: NVIDIA VRAM / Apple unified / Linux
 `MemAvailable`, free sampled a few times) and prints a memory-ranked shortlist,
 marking each `fits now` / `free memory first` / `too large`. It scores a
@@ -255,14 +255,14 @@ set `local_llm_model` by hand (no `config set`; `wd config path` locates the YAM
 ## Export / import & plugins
 
 - **Export/import:** MCP `export_sessions {all?}` / `import_sessions {data, merge?}`
-  (CLI `warden export`/`import`). Export dumps active records as a versioned JSON
+  (CLI `warden inspect export`/`import`). Export dumps active records as a versioned JSON
   envelope (`all` includes the archive); import is **idempotent by id** (`merge`
   overwrites collisions). Worktrees/branches/tmux are **not** serialized or
   recreated — an imported record just remembers where its worktree used to live.
 - **Plugins:** extend warden with **custom agent task types** and **lifecycle
   hooks** via an external executable over JSON-over-stdio. Default **off** (`plugins`
   gate; plugins run external code). Hooks are advisory and fail-open (a `pre-` hook
-  cannot veto). MCP `list_plugins` (CLI `wd plugin list`) shows registered plugins,
+  cannot veto). MCP `list_plugins` (CLI `wd project plugin list`) shows registered plugins,
   paths, custom types, and subscribed events. Configure with `plugins.enabled` +
   `plugins.registry`; example under `examples/plugins/`.
 
@@ -270,19 +270,19 @@ set `local_llm_model` by hand (no `config set`; `wd config path` locates the YAM
 
 Read verbs for catching up on the fleet, all MCP-first:
 
-- `search {query, closed?}` (CLI `wd search`) — full-text across agents (subject,
+- `search {query, closed?}` (CLI `wd inspect search`) — full-text across agents (subject,
   prompt, type, name, pane, id, ticket, branch); `closed` also searches the archive.
-- `history {since?, type?, limit?}` (CLI `wd history`) — browse archived agents.
-- `get_metrics {history?, since?, limit?}` (CLI `wd stats`) — live resource snapshot
+- `history {since?, type?, limit?}` (CLI `wd inspect history`) — browse archived agents.
+- `get_metrics {history?, since?, limit?}` (CLI `wd inspect resources`) — live resource snapshot
   or time-series; `get_pressure` is the spawn gate's memory-headroom verdict.
-- `spend` (CLI `wd spend`) — measured model spend in $ (priced for the Claude backend;
+- `spend` (CLI `wd usage spend`) — measured model spend in $ (priced for the Claude backend;
   BYO-model backends report tokens), per agent / repo / day (see
   the cost-governance section above); `savings` is its keep-out-of-context twin.
 - `list_worktrees {repo?}` / `prune_worktrees {repo?, dry_run?, force?}` (CLI
-  `wd worktree list` / `wd worktree prune`, both under the `wd worktree` umbrella;
-  `wd worktree ls` and the top-level `wd prune` remain as aliases) — list /
+  `wd workspace list` / `wd workspace prune`, both under the `wd workspace` umbrella;
+  `wd workspace list` and the top-level `wd workspace prune` remain as aliases) — list /
   reconcile a repo's worktrees.
-- `digest {ticket}` (CLI `wd digest`) — a compact catch-up summary of one agent.
+- `digest {ticket}` (CLI `wd agent digest`) — a compact catch-up summary of one agent.
 
 ## Backend registry — detected CLIs, tiers, thinking-mode
 
@@ -299,13 +299,13 @@ MCP-first (all wrap `/api/v1/backends*`):
 
 | Tool | Does | CLI |
 |---|---|---|
-| `list_backends` | The whole registry + settings (read-only) | `warden backends list` |
-| `rescan_backends` | Re-detect installed CLIs, reconcile detection, keep preferences | `warden backends rescan` |
-| `set_backend_tier {id, tier}` | Assign a tier: `free`\|`subscription`\|`pay_per_use`\|`unclassified` (the reserved `local` tier is system-set) | `warden backends tier <id> <tier>` |
-| `set_default_backend {id}` | Set the single default; rejects unknown/uninstalled/disabled/`local` | `warden backends default <id>` |
-| `set_thinking_mode {mode}` | `local_only` \| `free_plus_local` — which backends warden's own internal thinking may call (never a paid one) | `warden backends thinking-mode <mode>` |
+| `list_backends` | The whole registry + settings (read-only) | `warden backend list` |
+| `rescan_backends` | Re-detect installed CLIs, reconcile detection, keep preferences | `warden backend rescan` |
+| `set_backend_tier {id, tier}` | Assign a tier: `free`\|`subscription`\|`pay_per_use`\|`unclassified` (the reserved `local` tier is system-set) | `warden backend tier <id> <tier>` |
+| `set_default_backend {id}` | Set the single default; rejects unknown/uninstalled/disabled/`local` | `warden backend default <id>` |
+| `set_thinking_mode {mode}` | `local_only` \| `free_plus_local` — which backends warden's own internal thinking may call (never a paid one) | `warden backend thinking-mode <mode>` |
 
-- **Enable/disable is not an MCP tool.** Use the CLI (`warden backends enable|disable
+- **Enable/disable is not an MCP tool.** Use the CLI (`warden backend enable|disable
   <id>`), the web 🧩 panel / TUI Backends page (`b`), or REST `PATCH
   /api/v1/backends/{id}` (`{tier?, enabled?}`).
 - **Tiers drive real behaviour.** Only **`free`** CLI backends are ever called for

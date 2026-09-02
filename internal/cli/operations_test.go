@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -122,19 +120,13 @@ func TestOperationsProgressiveHelp(t *testing.T) {
 		t.Fatalf("schedule namespace help missing expected sections: %s", scheduleHelp)
 	}
 	for name, got := range map[string]string{"daemon": daemonHelp, "schedule": scheduleHelp} {
-		want, err := os.ReadFile(filepath.Join("testdata", "help_"+name+".golden"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != string(want) {
-			t.Fatalf("%s golden mismatch\n--- want ---\n%s\n--- got ---\n%s", name, want, got)
-		}
+		requireGolden(t, name, got)
 	}
 }
 
 func TestScheduleCanonicalPathUnchanged(t *testing.T) {
 	root := newRootCmd()
-	for _, path := range []string{"schedule", "schedule create", "schedule list", "schedule get"} {
+	for _, path := range []string{"schedule", "schedule create", "schedule list", "schedule show"} {
 		cmd := findExactCommand(t, root, path)
 		if cmd.Hidden {
 			t.Errorf("%q should remain visible", path)
@@ -142,5 +134,20 @@ func TestScheduleCanonicalPathUnchanged(t *testing.T) {
 		if strings.Contains(cmd.Annotations[AnnotationAliasKind], AliasCompatibility) {
 			t.Errorf("%q should not be a compatibility alias", path)
 		}
+	}
+}
+
+func TestScheduleShowKeepsGetAlias(t *testing.T) {
+	root := newRootCmd()
+	legacy := findExactCommand(t, root, "schedule get")
+	if !legacy.Hidden {
+		t.Error("legacy schedule get should be hidden")
+	}
+	if got := legacy.Annotations[AnnotationCanonicalPath]; got != "warden schedule show" {
+		t.Errorf("schedule get canonical = %q, want warden schedule show", got)
+	}
+	canonical := findExactCommand(t, root, "schedule show")
+	if canonical == legacy {
+		t.Fatal("schedule show/get must be separate cobra nodes")
 	}
 }

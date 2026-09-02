@@ -3,15 +3,15 @@ title: Snapshots & rollback
 description: Checkpoint an agent's worktree changes plus its session transcript, and roll back later.
 ---
 
-`warden snapshot` captures a checkpoint of an agent's **worktree changes** — its
+`warden workspace snapshot` captures a checkpoint of an agent's **worktree changes** — its
 uncommitted diff, as a stash — **and its session transcript**, so you can roll back
 to a known-good point after a risky change. Gated by the `snapshots` config setting
 (default on); the daemon owns a JSON snapshot store under `<data_dir>/snapshots/`.
 
 ```sh
-warden snapshot create [name] -m "before risky refactor"   # capture a checkpoint
-warden snapshot list [name] [--all]                        # list checkpoints
-warden snapshot restore <id> [--force]                     # re-apply onto its worktree
+warden workspace snapshot create [name] -m "before risky refactor"   # capture a checkpoint
+warden workspace snapshot list [name] [--all]                        # list checkpoints
+warden workspace snapshot restore <id> [--force]                     # re-apply onto its worktree
 ```
 
 ## How restore behaves

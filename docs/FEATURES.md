@@ -38,14 +38,14 @@ on-disk state:
 | **Auto-generated subject** | Each agent gets a one-line ≤8-word summary of what it's doing, seeded from the prompt and refreshed by the poller from the transcript or tmux pane (throttled, change-gated). |
 | **Managed worktree spawn** | `--type` creates/adopts a git worktree where the type needs one. |
 | **Worktree adoption** | If a worktree for the ticket already exists, the spawn reattaches to it instead of erroring. |
-| **Configurable permission mode** | Per-agent and global control over Claude permission level. CLI flag: `--permission-mode <mode>` (values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`). Legacy alias: `--supervised` (equivalent to `--permission-mode acceptEdits`). Global default: the `default_permission_mode` config setting (defaults to `auto`). Runtime change: `warden set-permission-mode <id> <mode>`. Display: PERMISSION_MODE column in `warden ls`, permission_mode field in `warden status`. Stored in session: mode preserved on restore/resume. Empty mode means "use global default" and displays as `default`. |
+| **Configurable permission mode** | Per-agent and global control over Claude permission level. CLI flag: `--permission-mode <mode>` (values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`). Legacy alias: `--supervised` (equivalent to `--permission-mode acceptEdits`). Global default: the `default_permission_mode` config setting (defaults to `auto`). Runtime change: `warden agent permission-mode set <id> <mode>`. Display: PERMISSION_MODE column in `warden ls`, permission_mode field in `warden status`. Stored in session: mode preserved on restore/resume. Empty mode means "use global default" and displays as `default`. |
 | **Model selection** | Per-agent model selection via `--model` flag (CLI and MCP). Short aliases for common models: `opus`, `sonnet`, `haiku`, `fable`. Config default: the `model_default` setting. Fallback: `claude-sonnet-4-6` if not specified. Display: MODEL column in `warden ls`, model field in `warden status`. Stored in session: model preserved on restore/resume. |
-| **Agent roles** | A **role** is a named, persistent system-prompt **persona** attached to an agent (*who the agent is*), plus a set of default spawn flags and a default model tier. CLI: `--role <name>` on `warden start`; MCP: `role` on `spawn_agent`; UIs: TUI new-agent `ctrl+r` picker, web **+ New agent** Role dropdown. Fixed built-in catalog (no user-defined roles): `general` (default, no persona), `orchestrator`, `planner`, `worker`, `autopilot`, `brain` — browse with `warden role list` / MCP `list_roles`. The legacy names `implementer`/`auto-merger`/`reviewer` are no longer first-class roles (that work is now a **task** — see **Tiered model routing** below) but still resolve to `worker` for back-compat. Each role carries a persona, default flags (`type`/`model`/`permission_mode`/`auto_approve`/`tags`) that fill only the fields the caller left unset (explicit request > role default > global default; tags are unioned; `auto_approve` OR-ed), and a **default model tier** (`general`/`worker`/`brain`→tier-2, `orchestrator`/`planner`/`autopilot`→tier-1) that feeds the tiered router. Switch a running agent's role with `warden set-role <id> <name>` / MCP `set_role` — it persists the name and **relaunches** the agent so the new persona re-injects (its in-flight turn is discarded); `general`/empty clears the persona. Only the role **name** is stored in the session (`Session.Role`, empty ⇒ `general`, back-compat — no store migration); the persona re-resolves from the `internal/role` registry at every (re)launch, so nothing persona-shaped is persisted. Injected through the same seam as warden's collab/git/pipeline hints — Claude via `--append-system-prompt` (file-backed, never inlined on the launch line), the injecting backends (Codex/OpenCode/Cursor/Antigravity/Crush/Goose) prepended into their rules file; Aider (no injection seam) degrades silently. An empty persona injects nothing, so a plain/`general` spawn is byte-identical to before roles existed. |
+| **Agent roles** | A **role** is a named, persistent system-prompt **persona** attached to an agent (*who the agent is*), plus a set of default spawn flags and a default model tier. CLI: `--role <name>` on `warden start`; MCP: `role` on `spawn_agent`; UIs: TUI new-agent `ctrl+r` picker, web **+ New agent** Role dropdown. Fixed built-in catalog (no user-defined roles): `general` (default, no persona), `orchestrator`, `planner`, `worker`, `autopilot`, `brain` — browse with `warden agent role list` / MCP `list_roles`. The legacy names `implementer`/`auto-merger`/`reviewer` are no longer first-class roles (that work is now a **task** — see **Tiered model routing** below) but still resolve to `worker` for back-compat. Each role carries a persona, default flags (`type`/`model`/`permission_mode`/`auto_approve`/`tags`) that fill only the fields the caller left unset (explicit request > role default > global default; tags are unioned; `auto_approve` OR-ed), and a **default model tier** (`general`/`worker`/`brain`→tier-2, `orchestrator`/`planner`/`autopilot`→tier-1) that feeds the tiered router. Switch a running agent's role with `warden agent role set <id> <name>` / MCP `set_role` — it persists the name and **relaunches** the agent so the new persona re-injects (its in-flight turn is discarded); `general`/empty clears the persona. Only the role **name** is stored in the session (`Session.Role`, empty ⇒ `general`, back-compat — no store migration); the persona re-resolves from the `internal/role` registry at every (re)launch, so nothing persona-shaped is persisted. Injected through the same seam as warden's collab/git/pipeline hints — Claude via `--append-system-prompt` (file-backed, never inlined on the launch line), the injecting backends (Codex/OpenCode/Cursor/Antigravity/Crush/Goose) prepended into their rules file; Aider (no injection seam) degrades silently. An empty persona injects nothing, so a plain/`general` spawn is byte-identical to before roles existed. |
 | **Tiered model routing** (`--task` / `--tier`) | warden resolves each spawn's **backend + model** by **quota headroom within a model tier**, so a fleet spreads across providers instead of exhausting one (`internal/router.Resolver`). Two optional inputs (*what the agent is doing* / an explicit tier) feed it: `--task <name>` names a unit of work from the built-in **task registry** (`internal/task`, the canonical task→tier source) — tier-1 `analysis`/`architecture`/`design`/`research`/`spike`, tier-2 `code-review`/`development`/`docs`/`pr-review`, tier-3 `debug-ci`/`merge-pr`/`monitor-ci`/`release`; `--tier <tier>` pins `tier-1`/`tier-2`/`tier-3` directly. Target tier precedence: **explicit `--tier` > task tier > role default tier > tier-2**. Within the tier the resolver scores models by headroom (`1 − used/limit`), filters rate-limited/ineligible backends (≥ threshold, default 90%), and picks the highest-headroom candidate (round-robin among ties). A pinned `--backend`/`--model` **bypasses** the router; a first spawn **degrades** to request defaults when no resolver is wired — routing never hard-fails a spawn (`lifecycle.resolveSpawnTarget`, mirroring the hot-swap successor path). **Surfaces:** `--task` and `--tier` are on `warden start` (CLI) and the REST spawn body (`task`/`tier`); `tier:` (alongside `role:`) is also a **pipeline job** field — the pipeline Job spec has no `task:`. Over **MCP**, `spawn_agent` routes by `role` only (its default tier feeds the resolver — no `task`/`tier` params). Distinct from `--type` (worktree policy). See `docs/specs/tiered-model-routing.plan.md` and `docs/specs/agent-roles.md`; end-to-end coverage in `internal/lifecycle/tier_trio_integration_test.go`. |
-| **Backend selection** | Per-agent agent backend via `--backend <id>` (CLI) / `backend` param (`spawn_agent` MCP), kept at CLI/MCP parity. **Only `claude` is fully tested and stable**; `codex` and `antigravity` are **β beta** (live-verified state, approval, and transcript fidelity, still maturing); `aider`, `opencode`, `crush`, `goose`, and `cursor` are 🧪 experimental / work-in-progress — functionality may be reduced or unverified. `claude` (default, Tier A — full fidelity), `aider` (Tier A — 🧪 experimental; bring-your-own-model: pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`), `opencode` (Tier A — 🧪 experimental; bring-your-own-model: pass `--model`, e.g. `ollama/qwen2.5-coder:3b`), `codex` (Tier A — β beta; BYO provider via Codex config / `-m`), `crush` (Tier A — 🧪 experimental; BYO model via config, prompt seeded post-launch via `PromptSeeder`), `goose` (Tier A — 🧪 experimental; BYO provider via `GOOSE_PROVIDER`/`GOOSE_MODEL` env, no model flag on session launch), `cursor` (Tier C — 🧪 experimental; hosted Cursor plan via `cursor-agent`, rich native permission modes, **no structured transcript yet** so no digests), `antigravity` (Tier A — β beta; Google-hosted free tier via `agy`, multi-vendor model menu). Stored in `Session.Backend` (empty ⇒ claude, back-compat — no store migration); lifecycle resolves the adapter from `internal/agentbackend`'s registry. Backends declare **capability flags** and warden **degrades gracefully** per design §5 when one is missing: a non-pricing backend shows tokens-not-dollars in `wd spend` and is omitted from `wd savings`; a non-resumable backend re-spawns fresh on rotate/handoff instead of `--resume`; a non-structured-transcript backend falls back to a pane-scrape digest; a backend with no launch-time `--append-system-prompt` flag still receives warden's pipeline/collab/git hints via a rules file it auto-reads on startup (`InjectContext` — `AGENTS.md` for Codex/OpenCode/Cursor/Antigravity, `CRUSH.md` for Crush, `.goosehints` for Goose), and only a backend that auto-reads no such file (Aider) skips the hints entirely. Aider's markdown transcript parses into structured digests (Tier A); it runs an autonomous `--message` task that exits when done (no persistent loop) and has no assignable/resumable session id. OpenCode stores its transcript in SQLite — the adapter sources it via `opencode export <session>` (clean `{info,messages[]}` JSON ⇒ Tier A digests, the design's "DB query, not file read" case) — runs a persistent TUI loop (prompt seeded via `--prompt`), and **does resume**: it mints its own session id, so resume is keyed off the agent worktree (`opencode -c` continues that directory's last session, verified dir-scoped), and rotate/handoff/restore work. Codex persists sessions as JSONL rollout files (`$CODEX_HOME/sessions/`) — the adapter resolves the most recent rollout for the worktree (dir-scoped) and parses `response_item` records into Turns; resumes with `codex resume --last` and additionally **discovers + pins** the minted `session_id` from the rollout's `session_meta` header (`DiscoverSessionID`) so resume/transcript can resolve by exact id; warden also detects Codex's live state + numbered approval prompt and injects its hints via `AGENTS.md`. Crush stores sessions in a per-project SQLite DB (`.crush/crush.db`) — the adapter sources the transcript via `crush session show <id> --json` and resumes via `--continue` (dir-scoped); warden launches the bare TUI, waits for it to be ready, then auto-types the initial task prompt via `PromptSeeder`. Goose stores sessions in a global SQLite DB — the adapter sources via `goose session export --format json`; warden pins its own agent id as the Goose session **name** so resume is name-deterministic (`goose session -r --name <id>`); model is config/env-driven (`GOOSE_PROVIDER`/`GOOSE_MODEL`), not a launch flag. Cursor (`cursor-agent`) is a hosted plan: warden surfaces its rich native permission modes (`plan`/`ask`/`auto-review`/`force`), detects live state + command-allowlist/workspace-trust prompts, and resumes dir-scoped (`--continue`); its interactive transcript is an unreadable SQLite `store.db` with no export verb, so it stays **Tier C** (no digests) until a `store.db` reader lands — warden never passes Cursor's own `-w/--worktree` (warden owns the worktree). Antigravity (`agy`) is a Google-hosted free tier with a multi-vendor model menu (Gemini/Claude/GPT-OSS): warden parses its plaintext trajectory JSONL into Turns (**Tier A** digests, incl. tool calls / files changed), detects live state + the `Do you want to proceed?` permission menu and the launch-time workspace-trust prompt, and resumes dir-scoped (`agy -c`). **Terminals are no longer a backend** — a plain interactive `$SHELL` beside the fleet is now a first-class **session kind** (`kind=terminal`, §8), not a `--backend` value, so `terminal` is gone from the `--backend` picker and `GET /api/v1/backends` (`backend=terminal` is still accepted as a back-compat alias for `kind=terminal`). Per-backend gap docs: [`docs/agent-backends/codex.md`](agent-backends/codex.md), [`crush.md`](agent-backends/crush.md), [`goose.md`](agent-backends/goose.md), [`cursor.md`](agent-backends/cursor.md), [`antigravity.md`](agent-backends/antigravity.md). |
-| **Spawn presets** | Save reusable spawn defaults under a name and replay them. `warden preset save <name> [spawn flags]` persists `--type`/`--model`/`--permission-mode` (`--supervised`)/`--auto-restart`/`--worktree`/`--in-repo` to `~/.warden/presets.yaml`; `warden preset list` shows them. `warden start --preset <name>` seeds those defaults, and any explicit CLI flag still overrides the preset. Per-invocation inputs (ticket, branch, PR, dir) are not stored. |
-| **Prompt templates** | Save reusable, variabled prompt *bodies* (where presets store flags). `warden prompt-template save <name> --prompt "…{{VAR}}…"` (alias `pt`) persists a prompt body with `{{VAR}}` placeholders to `~/.warden/prompt-templates.yaml`; the declared variables are auto-derived from the body. `warden prompt-template list` shows each template and its variables. `warden start --prompt-template <name> --set FILE=foo.go --set X=y` resolves the template into the spawn prompt (every declared variable must be supplied; an unknown `--set` is rejected). An explicit positional prompt still wins, and `--prompt-template` is free-form only (no `--type`). |
-| **Library umbrella** (`warden library`, alias `lib`) | One discoverable entry point over all three kinds of reusable launch config: spawn **presets**, **prompt templates**, and the built-in pipeline **templates**. `warden library list` shows all three in labeled sections (presets + their stored defaults, prompt templates + their variables, and pipeline templates + a short description); `warden library save-preset <name> [spawn flags]` delegates to `warden preset save` and `warden library save-prompt <name> --prompt "…"` delegates to `warden prompt-template save`. Purely additive — no new storage or format: it reuses the existing preset store, the prompt-template store, and the embedded template catalog, and the standalone `preset`, `prompt-template`, and `pipeline list-templates` commands keep working unchanged. Pipeline templates are embedded/read-only, so there is no `save-template` (author a pipeline from a YAML spec with `pipeline create -f`). Also exposed over MCP as `library_list` (returns `{presets, prompt_templates, templates}`). |
+| **Backend selection** | Per-agent agent backend via `--backend <id>` (CLI) / `backend` param (`spawn_agent` MCP), kept at CLI/MCP parity. **Only `claude` is fully tested and stable**; `codex` and `antigravity` are **β beta** (live-verified state, approval, and transcript fidelity, still maturing); `aider`, `opencode`, `crush`, `goose`, and `cursor` are 🧪 experimental / work-in-progress — functionality may be reduced or unverified. `claude` (default, Tier A — full fidelity), `aider` (Tier A — 🧪 experimental; bring-your-own-model: pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`), `opencode` (Tier A — 🧪 experimental; bring-your-own-model: pass `--model`, e.g. `ollama/qwen2.5-coder:3b`), `codex` (Tier A — β beta; BYO provider via Codex config / `-m`), `crush` (Tier A — 🧪 experimental; BYO model via config, prompt seeded post-launch via `PromptSeeder`), `goose` (Tier A — 🧪 experimental; BYO provider via `GOOSE_PROVIDER`/`GOOSE_MODEL` env, no model flag on session launch), `cursor` (Tier C — 🧪 experimental; hosted Cursor plan via `cursor-agent`, rich native permission modes, **no structured transcript yet** so no digests), `antigravity` (Tier A — β beta; Google-hosted free tier via `agy`, multi-vendor model menu). Stored in `Session.Backend` (empty ⇒ claude, back-compat — no store migration); lifecycle resolves the adapter from `internal/agentbackend`'s registry. Backends declare **capability flags** and warden **degrades gracefully** per design §5 when one is missing: a non-pricing backend shows tokens-not-dollars in `wd usage spend` and is omitted from `wd usage savings`; a non-resumable backend re-spawns fresh on rotate/handoff instead of `--resume`; a non-structured-transcript backend falls back to a pane-scrape digest; a backend with no launch-time `--append-system-prompt` flag still receives warden's pipeline/collab/git hints via a rules file it auto-reads on startup (`InjectContext` — `AGENTS.md` for Codex/OpenCode/Cursor/Antigravity, `CRUSH.md` for Crush, `.goosehints` for Goose), and only a backend that auto-reads no such file (Aider) skips the hints entirely. Aider's markdown transcript parses into structured digests (Tier A); it runs an autonomous `--message` task that exits when done (no persistent loop) and has no assignable/resumable session id. OpenCode stores its transcript in SQLite — the adapter sources it via `opencode export <session>` (clean `{info,messages[]}` JSON ⇒ Tier A digests, the design's "DB query, not file read" case) — runs a persistent TUI loop (prompt seeded via `--prompt`), and **does resume**: it mints its own session id, so resume is keyed off the agent worktree (`opencode -c` continues that directory's last session, verified dir-scoped), and rotate/handoff/restore work. Codex persists sessions as JSONL rollout files (`$CODEX_HOME/sessions/`) — the adapter resolves the most recent rollout for the worktree (dir-scoped) and parses `response_item` records into Turns; resumes with `codex resume --last` and additionally **discovers + pins** the minted `session_id` from the rollout's `session_meta` header (`DiscoverSessionID`) so resume/transcript can resolve by exact id; warden also detects Codex's live state + numbered approval prompt and injects its hints via `AGENTS.md`. Crush stores sessions in a per-project SQLite DB (`.crush/crush.db`) — the adapter sources the transcript via `crush session show <id> --json` and resumes via `--continue` (dir-scoped); warden launches the bare TUI, waits for it to be ready, then auto-types the initial task prompt via `PromptSeeder`. Goose stores sessions in a global SQLite DB — the adapter sources via `goose session export --format json`; warden pins its own agent id as the Goose session **name** so resume is name-deterministic (`goose session -r --name <id>`); model is config/env-driven (`GOOSE_PROVIDER`/`GOOSE_MODEL`), not a launch flag. Cursor (`cursor-agent`) is a hosted plan: warden surfaces its rich native permission modes (`plan`/`ask`/`auto-review`/`force`), detects live state + command-allowlist/workspace-trust prompts, and resumes dir-scoped (`--continue`); its interactive transcript is an unreadable SQLite `store.db` with no export verb, so it stays **Tier C** (no digests) until a `store.db` reader lands — warden never passes Cursor's own `-w/--worktree` (warden owns the worktree). Antigravity (`agy`) is a Google-hosted free tier with a multi-vendor model menu (Gemini/Claude/GPT-OSS): warden parses its plaintext trajectory JSONL into Turns (**Tier A** digests, incl. tool calls / files changed), detects live state + the `Do you want to proceed?` permission menu and the launch-time workspace-trust prompt, and resumes dir-scoped (`agy -c`). **Terminals are no longer a backend** — a plain interactive `$SHELL` beside the fleet is now a first-class **session kind** (`kind=terminal`, §8), not a `--backend` value, so `terminal` is gone from the `--backend` picker and `GET /api/v1/backends` (`backend=terminal` is still accepted as a back-compat alias for `kind=terminal`). Per-backend gap docs: [`docs/agent-backends/codex.md`](agent-backends/codex.md), [`crush.md`](agent-backends/crush.md), [`goose.md`](agent-backends/goose.md), [`cursor.md`](agent-backends/cursor.md), [`antigravity.md`](agent-backends/antigravity.md). |
+| **Spawn presets** | Save reusable spawn defaults under a name and replay them. `warden project preset save <name> [spawn flags]` persists `--type`/`--model`/`--permission-mode` (`--supervised`)/`--auto-restart`/`--worktree`/`--in-repo` to `~/.warden/presets.yaml`; `warden project preset list` shows them. `warden start --preset <name>` seeds those defaults, and any explicit CLI flag still overrides the preset. Per-invocation inputs (ticket, branch, PR, dir) are not stored. |
+| **Prompt templates** | Save reusable, variabled prompt *bodies* (where presets store flags). `warden project prompt-template save <name> --prompt "…{{VAR}}…"` (alias `pt`) persists a prompt body with `{{VAR}}` placeholders to `~/.warden/prompt-templates.yaml`; the declared variables are auto-derived from the body. `warden project prompt-template list` shows each template and its variables. `warden start --prompt-template <name> --set FILE=foo.go --set X=y` resolves the template into the spawn prompt (every declared variable must be supplied; an unknown `--set` is rejected). An explicit positional prompt still wins, and `--prompt-template` is free-form only (no `--type`). |
+| **Library umbrella** (`warden project library`, alias `lib`) | One discoverable entry point over all three kinds of reusable launch config: spawn **presets**, **prompt templates**, and the built-in pipeline **templates**. `warden project library list` shows all three in labeled sections (presets + their stored defaults, prompt templates + their variables, and pipeline templates + a short description); `warden project preset save <name> [spawn flags]` delegates to `warden project preset save` and `warden project prompt-template save <name> --prompt "…"` delegates to `warden project prompt-template save`. Purely additive — no new storage or format: it reuses the existing preset store, the prompt-template store, and the embedded template catalog, and the standalone `preset`, `prompt-template`, and `pipeline list-templates` commands keep working unchanged. Pipeline templates are embedded/read-only, so there is no `save-template` (author a pipeline from a YAML spec with `pipeline create -f`). Also exposed over MCP as `library_list` (returns `{presets, prompt_templates, templates}`). |
 
 ### Task types (`--type`)
 
@@ -68,10 +68,10 @@ on-disk state:
 
 | Command / feature | Description |
 |---|---|
-| `stop` | **The single umbrella teardown verb.** Default `wd stop <TICKET>` = full teardown: terminate the session, clear (archive) the record, **and** remove the git worktree + branch (asks for confirmation first unless `--yes`). Subtractive flags: `--keep-record`, `--keep-worktree` (`--keep-worktree` alone == the old `done`), `--hard` (purge record), `--pr`/`--base` (open a GitHub PR first while the agent is intact), `--force`/`--delete-adopted-branch` (worktree guards). Safe order: PR → terminate → clear record → remove worktree, so a failed push leaves the agent running. |
+| `stop` | **The single umbrella teardown verb.** Default `wd agent stop <TICKET>` = full teardown: terminate the session, clear (archive) the record, **and** remove the git worktree + branch (asks for confirmation first unless `--yes`). Subtractive flags: `--keep-record`, `--keep-worktree` (`--keep-worktree` alone == the old `done`), `--hard` (purge record), `--pr`/`--base` (open a GitHub PR first while the agent is intact), `--force`/`--delete-adopted-branch` (worktree guards). Safe order: PR → terminate → clear record → remove worktree, so a failed push leaves the agent running. |
 | `terminate` | Stop an agent (kill tmux + claude); **keeps** the record and worktree. The safe, reversible "stop" default. Alias for `stop --keep-record --keep-worktree`. |
 | `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). |
-| `recover` | Safety net for the tombstone reaper: scans **archived** records for ones whose tmux session is confirmed still alive (a stale `orphaned` status racing a daemon restart could previously let one get archived out from under a live session). Bare `wd recover` only reports candidates; `--apply` re-inserts each one into the active store under its original id — any children (linked via `parent_id`, untouched by archiving) reconnect automatically. `--json` for scripting. Mirrors the `recover_agents` MCP tool. |
+| `recover` | Safety net for the tombstone reaper: scans **archived** records for ones whose tmux session is confirmed still alive (a stale `orphaned` status racing a daemon restart could previously let one get archived out from under a live session). Bare `wd agent recover` only reports candidates; `--apply` re-inserts each one into the active store under its original id — any children (linked via `parent_id`, untouched by archiving) reconnect automatically. `--json` for scripting. Mirrors the `recover_agents` MCP tool. |
 | `done` | Terminate **and** clear the record in one step (worktree kept). Alias for `stop --keep-worktree`. `--hard` purges instead of archiving. `--create-pr` first pushes the agent's branch and opens a GitHub PR (`gh`) titled from the agent and bodied from its digest (`--base` sets the target, default main) — the PR is opened *before* termination, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created. |
 | `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. Alias for `stop --keep-worktree` (record only). |
 | `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. Alias for `stop --keep-record` (worktree only); always asks unless `--yes`. |
@@ -104,7 +104,7 @@ attaching. Controlled by the `approvals` config setting (on by default).
 
 | Surface | How |
 |---|---|
-| **CLI** | `warden approvals` lists recognized pending prompts with their numbered options; `warden approve <id> <n>` answers one. |
+| **CLI** | `warden approval list` lists recognized pending prompts with their numbered options; `warden approval answer <id> <n>` answers one. |
 | **Web** | One-click option buttons in the AttentionQueue. |
 | **TUI** | A pinned **⏳ Approvals** row (`i` / `enter`, then `1`-`9`; `tab` cycles agents). |
 | **Safety** | A TOCTOU re-capture + fingerprint re-verify guards answers; unrecognized prompts always fall back to attach. |
@@ -114,9 +114,9 @@ attaching. Controlled by the `approvals` config setting (on by default).
 Automatically answer recognized tool-permission prompts. Off by default (opt-in
 safety). Two cooperating layers:
 
-1. **Per-agent toggle** (`warden auto-approve <id> on|off`) — opt one agent into
+1. **Per-agent toggle** (`warden approval auto set <id> on|off`) — opt one agent into
    evaluation even when the global policy is disabled.
-2. **Rule policy** (the `auto_approve` config block / `warden auto-approve`
+2. **Rule policy** (the `auto_approve` config block / `warden approval auto set`
    subcommands) — an allow/deny engine evaluated for every participating agent.
 
 **Decision order** (a prompt is auto-answered only if all pass):
@@ -173,14 +173,14 @@ auto_approve:
           - tool: Grep
 ```
 ```bash
-warden auto-approve rules                       # show the live policy
-warden auto-approve enable                       # master switch on
-warden auto-approve allow --tool Read            # append an allow rule
-warden auto-approve allow --regex '^Bash\(git (status|diff)\)'
-warden auto-approve deny  --tool Bash --pattern rm
-warden auto-approve allow --agent reviewer --tool Grep
-warden auto-approve clear --agent reviewer       # drop a per-agent override
-warden auto-approve abc123 on                    # per-agent participate toggle
+warden approval auto rules                       # show the live policy
+warden approval auto enable                       # master switch on
+warden approval auto allow --tool Read            # append an allow rule
+warden approval auto allow --regex '^Bash\(git (status|diff)\)'
+warden approval auto deny  --tool Bash --pattern rm
+warden approval auto allow --agent reviewer --tool Grep
+warden approval auto clear --agent reviewer       # drop a per-agent override
+warden approval auto set abc123 on                    # per-agent participate toggle
 ```
 
 Rule changes via the CLI/MCP take effect **immediately** (no restart) and are
@@ -201,18 +201,18 @@ next daemon start.
 | Feature | Description |
 |---|---|
 | **Pipelines** (`warden pipeline`) | YAML-defined **DAG of dependent agent jobs**. The daemon runs them: dependency-free jobs start first, each job's `emit` publishes output and unblocks dependents — keeping the lead orchestrator agent off the critical path. Sub-commands: `validate` (client-side spec check, CI-friendly exit codes), `create` (from a spec file **or** a built-in `--template`), `list-templates`, `start`, `pause`/`resume` (halt new spawns while in-flight jobs finish), `show`, `list`, `edit-job`, `retry`, `cancel`, `delete`. Drivable from the CLI, the MCP tools (create/start/show/cancel/list), and with full TUI + web visibility (DAG view). |
-| **Pipeline templates** | Four `go:embed`-bundled starters — `analyze-implement-review`, `parallel-tasks`, `test-fix-verify`, `research-synthesis` — render via `warden pipeline create --template <name>` with `{{NAME}}`/`{{REPO}}` (auto-filled) and `--set KEY=VALUE` placeholder substitution. `warden pipeline list-templates` lists them and their placeholders. |
+| **Pipeline templates** | Four `go:embed`-bundled starters — `analyze-implement-review`, `parallel-tasks`, `test-fix-verify`, `research-synthesis` — render via `warden pipeline create --template <name>` with `{{NAME}}`/`{{REPO}}` (auto-filled) and `--set KEY=VALUE` placeholder substitution. `warden pipeline template list` lists them and their placeholders. |
 | **Conditional steps** (`run_if`) | Per-job `run_if: success\|failure\|always` (default `success`). A job runs only when its dependencies settled the right way — `failure`/`always` handlers let a pipeline route around a failed upstream and still complete, and the handler's prompt is told which upstream failed. |
-| **Shared context** (`warden ctx`) | A namespaced key/value blackboard all agents can read/write: `ctx set`/`get`/`list`. |
-| **Directed messages** (`warden msg`) | Per-agent inbox: `msg send` (wakes a parked idle/waiting agent), `msg inbox`, `msg wait` (blocks in the daemon until a message arrives). |
-| **File-conflict detection** (`warden collab`) | The daemon watches each active agent's worktree and warns (via the inbox, deduplicated) when two agents are editing the same file. Detection is **real-time**: an fsnotify watcher reacts to edits in subseconds (a burst of saves is debounced into one scan), while a slower `git diff` poll reconciles the watch set against the active-session view and acts as a safety net — degrading cleanly to pure polling if fsnotify is unavailable or the inotify watch budget (80% of the per-user limit) is exhausted. Inspect with `collab conflicts` / `collab who-is-editing <file>`, `GET /api/v1/collab/conflicts`, the `get_collaboration_status` / `who_is_editing_file` MCP tools, or the **File conflicts** card on the dashboard's Others tab. Spawned agents also get a system-prompt hint to check `who_is_editing_file` and their inbox before editing shared files, so they coordinate rather than overwrite. Tunable via `collab.enabled` / `collab.interval` / `collab.hint`. |
-| **Branch tracking** (`warden branches`) | Opt-in daemon monitor that reports, per active agent with a branch, its **GitHub CI status** (latest `gh run list` inside the worktree → success/failure/pending/none) and its **standing vs `origin/main`** (commits behind/ahead, and whether already merged). Alerts are **informational, never blocking**: a newly-observed CI failure delivers an inbox note to the agent **and** a desktop notification to the operator (desktop is reserved for CI failures); a merged branch or one fallen >10 commits behind delivers an inbox nudge. A 5-minute dedup window keyed on `(branch, signal-state)` suppresses repeats but re-alerts on a state change (pending→failure). Every subprocess **fails open** — a missing/unauthenticated `gh`, a timeout, or a non-repo worktree simply skips that branch for the tick. Inspect read-only via `warden branches` (`--json`), `GET /api/v1/collab/branches`, or the `get_branch_status` MCP tool. Off by default; enable with `branch_track.enabled` / tune `branch_track.interval` (default `2m`). |
+| **Shared context** (`warden context`) | A namespaced key/value blackboard all agents can read/write: `ctx set`/`get`/`list`. |
+| **Directed messages** (`warden message`) | Per-agent inbox: `msg send` (wakes a parked idle/waiting agent), `msg inbox`, `msg wait` (blocks in the daemon until a message arrives). |
+| **File-conflict detection** (`warden workspace`) | The daemon watches each active agent's worktree and warns (via the inbox, deduplicated) when two agents are editing the same file. Detection is **real-time**: an fsnotify watcher reacts to edits in subseconds (a burst of saves is debounced into one scan), while a slower `git diff` poll reconciles the watch set against the active-session view and acts as a safety net — degrading cleanly to pure polling if fsnotify is unavailable or the inotify watch budget (80% of the per-user limit) is exhausted. Inspect with `collab conflicts` / `collab who-is-editing <file>`, `GET /api/v1/collab/conflicts`, the `get_collaboration_status` / `who_is_editing_file` MCP tools, or the **File conflicts** card on the dashboard's Others tab. Spawned agents also get a system-prompt hint to check `who_is_editing_file` and their inbox before editing shared files, so they coordinate rather than overwrite. Tunable via `collab.enabled` / `collab.interval` / `collab.hint`. |
+| **Branch tracking** (`warden workspace branches`) | Opt-in daemon monitor that reports, per active agent with a branch, its **GitHub CI status** (latest `gh run list` inside the worktree → success/failure/pending/none) and its **standing vs `origin/main`** (commits behind/ahead, and whether already merged). Alerts are **informational, never blocking**: a newly-observed CI failure delivers an inbox note to the agent **and** a desktop notification to the operator (desktop is reserved for CI failures); a merged branch or one fallen >10 commits behind delivers an inbox nudge. A 5-minute dedup window keyed on `(branch, signal-state)` suppresses repeats but re-alerts on a state change (pending→failure). Every subprocess **fails open** — a missing/unauthenticated `gh`, a timeout, or a non-repo worktree simply skips that branch for the tick. Inspect read-only via `warden workspace branches` (`--json`), `GET /api/v1/collab/branches`, or the `get_branch_status` MCP tool. Off by default; enable with `branch_track.enabled` / tune `branch_track.interval` (default `2m`). |
 
 ---
 
-## 7. Handoff — one verb (`warden handoff`)
+## 7. Handoff — one verb (`warden agent handoff`)
 
-`warden handoff` is the single concept for passing work to another agent. It has
+`warden agent handoff` is the single concept for passing work to another agent. It has
 three modes, distinguished by who runs the work next and whether the caller
 survives. Phase 1 (writing the handoff file + resume prompt) is driven by the
 `/warden` skill; this verb performs the delivery.
@@ -223,7 +223,7 @@ survives. Phase 1 (writing the handoff file + resume prompt) is driven by the
   agent's inbox (waking it); the source agent **keeps running**.
 - **Retire self (`--retire`, requires `--confirm`)** — spawns a successor in the
   calling agent's **same workdir/worktree**, then reaps the caller
-  (self-succession). This is what the `warden rotate` **alias** runs.
+  (self-succession). This is what the `warden agent rotate` **alias** runs.
 
 `--retire` and `--to` are **mutually exclusive** (one reaps the caller, the other
 never does). Invariants enforced at compile time via the minimal client
@@ -237,13 +237,13 @@ interfaces each mode uses:
   inlined** into the message — the recipient runs in a different worktree and
   can't read the source's file by path.
 
-`warden rotate` and the `rotate_agent` MCP tool remain as **thin aliases** for the
-retire mode (`warden handoff --retire` / `handoff_agent {retire:true}`) — same
+`warden agent rotate` and the `rotate_agent` MCP tool remain as **thin aliases** for the
+retire mode (`warden agent handoff --retire` / `handoff_agent {retire:true}`) — same
 flags, same behavior.
 
-### Fork — branch an agent's session sideways (`warden fork` / `fork_agent`)
+### Fork — branch an agent's session sideways (`warden agent fork` / `fork_agent`)
 
-`warden fork <agent> ["<prompt>"]` (shorthand for `warden start --fork-from
+`warden agent fork <agent> ["<prompt>"]` (shorthand for `warden start --fork-from
 <agent>`) forks an existing agent's recorded session into a **new** managed agent.
 Where handoff/rotate **carry the task but drop the conversation**, a fork
 **branches the conversation/reasoning itself**: it continues the source's session
@@ -261,7 +261,7 @@ are forkable — **Codex** today; forking a non-forking backend (e.g. Claude)
 reports a clean "cannot fork" (additive, on-top — Claude is untouched). The
 source's backend session id must already be pinned (it must have run a turn). Like
 handoff/rotate it is a **thin wrapper over the one `fork_from` spawn field — no new
-daemon endpoint** — so unlike the worktree-local `wd review` / `wd models`
+daemon endpoint** — so unlike the worktree-local `wd git review` / `wd backend model`
 superpowers it crosses the daemon and has **MCP + CLI parity** via the `fork_agent`
 MCP tool (design step 6, #52).
 
@@ -327,7 +327,7 @@ separate server.
 
 ## 10. Orchestration (MCP)
 
-`warden mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage
+`warden daemon mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage
 the fleet through tool calls. **81 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
@@ -345,7 +345,7 @@ stay CLI-only). Tools exposed:
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
 | `handoff_agent` / `rotate_agent` | Hand off work — delegate to new/`to` existing agent, or `retire`→successor in place; `rotate_agent` is an alias for `handoff_agent {retire:true}` |
-| `fork_agent` | Fork an agent's recorded session into a new managed agent (branches the conversation; Codex-only; dirty-tree carry; source keeps running) — thin wrapper over `spawn_agent` with `fork_from` set, mirroring `warden fork` |
+| `fork_agent` | Fork an agent's recorded session into a new managed agent (branches the conversation; Codex-only; dirty-tree carry; source keeps running) — thin wrapper over `spawn_agent` with `fork_from` set, mirroring `warden agent fork` |
 | `ctx_set` / `ctx_cas` / `ctx_append` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `send_message` / `read_inbox` / `wait_for_message` | Directed messaging (park/wake) |
 | `get_collaboration_status` / `who_is_editing_file` | File-conflict detection |
@@ -391,14 +391,14 @@ MCP tools, falling back to the `warden` CLI when the MCP server isn't registered
 |---|---|
 | **Resource metrics** | `internal/metrics` collects per-agent process-tree RSS/CPU, system memory/swap/pressure, and daemon self-stats. Exposed via `GET /api/v1/metrics` + `GET /api/v1/metrics/history`. |
 | **Memory-pressure spawn gate** | `internal/pressure` reads the kernel's own pressure signal — macOS `kern.memorystatus_vm_pressure_level`, Linux PSI (`/proc/pressure/memory` avg10, mapped conservatively onto the same normal/warn/critical scale; other platforms degrade to normal) — sampled every 5s, and decides each spawn. A spawn is **blocked** (`428` + confirmation payload, re-run with `--force`) only at **critical** pressure or when live agents reach `worktree.spawn_gate_max_agents`. **Warn** pressure is **advisory** — the spawn proceeds and the daemon logs it — because warn is a common, recoverable state and hard-gating there just trained reflexive `--force`. The `GET /api/v1/pressure` gauge reports the level (UI colours warn amber, critical red) and whether spawns are currently blocked. Master switch `worktree.spawn_gate`. |
-| **`warden stats`** | CLI view of the resource metrics. |
+| **`warden inspect resources`** | CLI view of the resource metrics. |
 | **Metrics recorder** | Optional 15s JSONL recorder (the `metrics` setting). |
-| **Agent performance history** | The recorder's samples roll up per agent into runtime, peak/latest/trend RSS, avg/peak CPU, context-token trend, and changed-file count, plus conservative anomaly warnings (climbing memory, climbing/critical context, pinned CPU). Surfaced via `warden stats --history [--agent ID]` and `GET /api/v1/metrics/history?summary=true[&agent=ID]`. |
+| **Agent performance history** | The recorder's samples roll up per agent into runtime, peak/latest/trend RSS, avg/peak CPU, context-token trend, and changed-file count, plus conservative anomaly warnings (climbing memory, climbing/critical context, pinned CPU). Surfaced via `warden inspect resources --history [--agent ID]` and `GET /api/v1/metrics/history?summary=true[&agent=ID]`. |
 | **Crash & anomaly detection** | Beyond stuck-state reclassification, the poller flags an **OOM kill** (SIGKILL/exit 137), an **infinite loop** (a churning pane cycling through a few states, distinct from the stuck timer's stale pane), and a **pre-crash context** condition (a critical-but-still-working agent that can't be auto-compacted). Each records a durable `anomaly` event and fires a best-effort notification through the `OnAnomaly` seam (once per episode). |
 | **Desktop notifications** | The `notify.enabled` setting posts a desktop notification (macOS `osascript` / Linux `notify-send`, log fallback) when an agent needs attention (`waiting_for_input`, stuck `idle`, `orphaned`, `errored`). |
 | **Webhook / Slack notifications** | When `notify.webhook_enabled` is on, warden also POSTs a JSON payload to `notify.webhook_url` for every alert that goes to desktop notifications — attention-needed transitions (`waiting_for_input`, `errored`, `orphaned`) and context-size warning/critical alerts. A **Slack incoming-webhook URL works out of the box** (the payload's `text` field is what Slack renders); generic consumers get `{text, title, body}`. Best-effort and non-blocking: a short timeout bounds each POST and failures are logged, never propagated. Runs alongside (not instead of) desktop notifications via the same notifier seam — this is what makes "watch from your phone" push real. |
 | **Context-size guard** | `internal/ctxtokens` reads each live agent's context-window fill from its transcript and classifies it `ok`/`warning`/`critical`. The poller shows a state-colored token figure in `ls`/TUI/web, alerts once per upward crossing (`tokens.warn_alert`), and auto-sends `/compact` at `critical` when the agent is idle (`tokens.auto_compact`, cooldown-guarded). Master switch `tokens.guard`; thresholds `tokens.warn`/`tokens.critical`. |
-| **Force-compact (busy agents)** | Opt-in (`tokens.force_compact`, off by default; per-agent override via `warden force-compact <id> on\|off\|inherit`). When an agent goes `critical` while **still working** — the case `tokens.auto_compact` can't touch — the poller runs a small state machine that mirrors the manual fix: interrupt the agent (Escape), `/compact` once it idles, then send `tokens.compact_resume_prompt` so it resumes the discarded work. **Destructive**: the in-flight turn is lost. An interrupt that doesn't take within ~45s is abandoned, falling back to the pre-crash nudge. Drivable via the `set_force_compact` MCP tool. |
+| **Force-compact (busy agents)** | Opt-in (`tokens.force_compact`, off by default; per-agent override via `warden agent compact set <id> on\|off\|inherit`). When an agent goes `critical` while **still working** — the case `tokens.auto_compact` can't touch — the poller runs a small state machine that mirrors the manual fix: interrupt the agent (Escape), `/compact` once it idles, then send `tokens.compact_resume_prompt` so it resumes the discarded work. **Destructive**: the in-flight turn is lost. An interrupt that doesn't take within ~45s is abandoned, falling back to the pre-crash nudge. Drivable via the `set_force_compact` MCP tool. |
 | **Structured logging** | `internal/logging` installs a `log/slog` logger (also bridging the standard `log` package) so daemon logs carry structured fields. Level (`log.level`: `debug`/`info`/`warn`/`error`) and format (`log.format`: `text`/`json`) are configurable; `warden daemon --log-level`/`--log-format` override them. |
 
 ---
@@ -449,7 +449,7 @@ guardian tick `interval`.
 | `tokens.guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
 | `tokens.warn_alert` | `true` | Notify once per upward crossing into warning/critical (needs `notify.enabled`) |
 | `tokens.auto_compact` | `true` | Auto-`/compact` at `critical` when the agent is idle (cooldown-guarded) |
-| `tokens.force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it. Destructive; per-agent override via `warden force-compact` |
+| `tokens.force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it. Destructive; per-agent override via `warden agent compact set` |
 | `tokens.compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (resets with critical if critical ≤ warn) |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (auto-`/compact` band) |
@@ -460,7 +460,7 @@ guardian tick `interval`.
 | `pipeline.keep_done` / `pipeline.hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |
 | `memory.inject` | `true` | Project the repo's curated `.warden/memory.md` into every spawned agent's system prompt (Claude → `--append-system-prompt`; other backends → their `AGENTS.md`/`CRUSH.md`/`.goosehints` warden block). Off, or an empty/absent file, is byte-identical to no injection (see §22) |
 | `memory.curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md` (see §22). Debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — never commits/pushes, so the committed diff is the human gate. Verify-before-trust promotion, supersession-on-contradiction, TTL age-out, deterministic path-staleness. Prefers the `$0` local model. Opt-in |
-| `memory.ground` | `true` | Answer project questions (\"where does X live?\", \"how do I run Y?\") **locally** in `wd repl` from `.warden/memory.md` (see §22), via the `/memory` command and the `project_memory` tool. Served on the **local model only** — it **removes** cloud round-trips rather than adding tokens, so it is default on. Read-only (never creates/writes memory); with no local model it degrades to the matching entries verbatim (`$0`), never escalating to a paid model; answers cite each entry's trust + provenance |
+| `memory.ground` | `true` | Answer project questions (\"where does X live?\", \"how do I run Y?\") **locally** in `wd backend repl` from `.warden/memory.md` (see §22), via the `/memory` command and the `project_memory` tool. Served on the **local model only** — it **removes** cloud round-trips rather than adding tokens, so it is default on. Read-only (never creates/writes memory); with no local model it degrades to the matching entries verbatim (`$0`), never escalating to a paid model; answers cite each entry's trust + provenance |
 | `worktree.keep_done` / `worktree.auto_prune` | `true` / `false` | Keep a worktree after its agent is done / auto-reclaim orphaned worktrees |
 | `auto_restart.max` / `auto_restart.reset` | `3` / `5m` | Auto-restart attempts for an errored opted-in agent / health window that resets the counter |
 | `rate_limit.auto_resume` / `rate_limit.resume_prompt` | `true` / `continue` | Auto-pick the "Stop and wait" limit-menu choice (Enter-first, verified) and auto-resume agents after any limit (session clock, weekly weekday/date, or monthly-spend) clears — typing `resume_prompt` to nudge the agent back to work (`""` = bare keypress). `rate_limit.retry_interval` / `spend_retry_interval` / `buffer` tune timing; every hit is snapshotted to `<data_dir>/ratelimit-captures/` for parser fixtures |
@@ -473,7 +473,7 @@ guardian tick `interval`.
 | `local_llm.url` / `local_llm.model` / `local_llm.timeout` | `http://localhost:11434` / `qwen2.5-coder:7b` / `20s` | Local Ollama server URL, model tag, and per-call hard timeout (§21) |
 | `local_llm.tier` / `local_llm.escalate` | `auto` / `true` | Orchestrator planning-tier override (`auto`/`t0`/`t1`/`t2`) / allow one over-tier planning step to escalate to headless Claude (§17) |
 | `local_llm.classifier` | `heuristic` | How the REPL buckets a request's needed planning tier: `heuristic` (cheap surface signals, no model call) or `model` (a one-shot local-model classification, one extra round-trip, falls back to the heuristic on any error) (§17) |
-| `local_llm.repl` | `false` | **Deprecated / no-op.** Historically ran `wd repl` in the cockpit's shell pane; the cockpit no longer hosts a REPL pane (its bottom-left pane is now a first-class terminal), so this setting is inert. Run the REPL standalone with `wd repl` (§17). |
+| `local_llm.repl` | `false` | **Deprecated / no-op.** Historically ran `wd backend repl` in the cockpit's shell pane; the cockpit no longer hosts a REPL pane (its bottom-left pane is now a first-class terminal), so this setting is inert. Run the REPL standalone with `wd backend repl` (§17). |
 
 > **Config namespacing:** Settings are organized into five YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`. Old flat keys (`token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, etc.) are deprecated aliases — they still work and migrate to the namespaced form when `warden config init` is re-run.
 >
@@ -492,8 +492,8 @@ the local machine. Setup recipes (LAN / Tailscale / Cloudflare Tunnel) live in
 | Feature | Description |
 |---|---|
 | **Bearer-token auth** | A 256-bit `crypto/rand` token gates every non-loopback request (constant-time compare). SSE/WS clients pass it as `?token=`. Binding the daemon to a non-loopback address is **refused unless a token is set**, so remote access can't be opened accidentally. |
-| **Read-only token** | An optional second token, `WARDEN_READONLY_TOKEN`, grants view-only access: it may read everything (all GETs + the live event stream) but every state-changing action and the interactive attach return `403`. Mint it like the primary (`warden token generate`); `warden token show --readonly` prints it back. Only honored alongside a primary `WARDEN_TOKEN` — the daemon refuses to start with a read-only token but no primary one. |
-| **Token management** | `warden token generate` mints a token, `warden token show` prints the current one (to paste into a remote client), and `warden token rotate` regenerates it in place and restarts the daemon. Persisted to `~/.warden/token.env` (`WARDEN_TOKEN=<hex>`, `0600`); the `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk. |
+| **Read-only token** | An optional second token, `WARDEN_READONLY_TOKEN`, grants view-only access: it may read everything (all GETs + the live event stream) but every state-changing action and the interactive attach return `403`. Mint it like the primary (`warden daemon token generate`); `warden daemon token show --readonly` prints it back. Only honored alongside a primary `WARDEN_TOKEN` — the daemon refuses to start with a read-only token but no primary one. |
+| **Token management** | `warden daemon token generate` mints a token, `warden daemon token show` prints the current one (to paste into a remote client), and `warden daemon token rotate` regenerates it in place and restarts the daemon. Persisted to `~/.warden/token.env` (`WARDEN_TOKEN=<hex>`, `0600`); the `WARDEN_TOKEN` env var overrides the file so the secret can stay off disk. |
 | **Brute-force protection** | Per-IP rate-limiting on auth failures. |
 | **Web UI auth** | A token-entry modal appears on `401`, with `localStorage` persistence and a sign-out control; the static SPA shell stays public so the modal can load. |
 | **Mobile-responsive dashboard** | A keyboard-aware layout sized to the visible viewport: a bottom nav that stays pinned above the soft keyboard, single-column grids, full-screen modal sheets, and an interactive terminal you can swipe to scroll (driving tmux/the agent's scrollback like a wheel) with a sticky on-screen key bar (Esc/Tab/Ctrl-C/↑↓/Bottom). |
@@ -510,13 +510,13 @@ branch, tags, and last-pane excerpt.
 
 | Feature | Description |
 |---|---|
-| **`warden search <query…>`** | CLI search over active sessions; multiple words are ANDed. `--closed` folds in the archived (`closed/`) store too, `--json` prints raw records. Renders with the same table as `warden ls`. |
+| **`warden inspect search <query…>`** | CLI search over active sessions; multiple words are ANDed. `--closed` folds in the archived (`closed/`) store too, `--json` prints raw records. Renders with the same table as `warden ls`. |
 | **`GET /api/v1/search?q=&closed=`** | Daemon endpoint (`internal/daemon/search_routes.go`); a blank `q` is a `400`. Returns the standard `{sessions:[…]}` shape. |
 | **Web search bar** | The dashboard carries a search box that filters the agent grid live, client-side, mirroring the backend matcher (`web/src/lib/search.ts`) for instant feedback. |
 
 **Tags.** Sessions carry an optional `Tags []string` (`warden start --tags backend,urgent`),
 normalized to lowercase and deduped. Tags are part of the search haystack — a bare
-`warden search backend` finds every agent labelled `backend`. `warden ls --tag backend
+`warden inspect search backend` finds every agent labelled `backend`. `warden ls --tag backend
 --tag urgent` filters the list to agents carrying *every* given tag (AND semantics, repeatable
 or comma-separated). Untagged sessions stay nil and JSON-omit the field, so the change is
 backward-compatible with records that predate tags.
@@ -530,7 +530,7 @@ session to the `closed/` store (newest-first), and this surfaces it.
 
 | Feature | Description |
 |---|---|
-| **`warden history`** | Lists archived sessions. `--since` accepts a duration (`24h`, `90m`, `7d`, `2w`), a date, or an RFC3339 timestamp; `--type` filters by normalized task type; `--limit` caps the count; `--json` prints raw records. |
+| **`warden inspect history`** | Lists archived sessions. `--since` accepts a duration (`24h`, `90m`, `7d`, `2w`), a date, or an RFC3339 timestamp; `--type` filters by normalized task type; `--limit` caps the count; `--json` prints raw records. |
 | **`GET /api/v1/history?since=&type=&limit=`** | Daemon endpoint (`internal/daemon/history_routes.go`); `since` is RFC3339 (`400` on a bad value), `type` is normalized, `limit` caps the result. |
 | **Web Archive tab** | A 🗄 Archive tab fetches history with since (all / 24h / 7d / 30d) and type selectors, plus a client-side text filter, rendering a table of ID / Name / Type / Status / Branch / Updated / Subject. |
 
@@ -548,10 +548,10 @@ Act on many agents at once from the web cockpit instead of one tile at a time.
 
 ---
 
-## 17. Interactive mode / REPL (`wd repl`)
+## 17. Interactive mode / REPL (`wd backend repl`)
 
 warden's **interactive mode**: a proper terminal REPL to drive the fleet. Run it
-standalone (`wd repl`, aliases `wd interactive` / `wd i`). It
+standalone (`wd backend repl`, aliases `wd backend repl` / `wd i`). It
 drives the fleet two ways — a **deterministic `/`-command half** that needs no
 model, and a **natural-language half** that turns intent into **confirmed** warden
 tool calls without spending cloud-model tokens. **It conducts; it never implements** —
@@ -577,11 +577,11 @@ without a model.
 | **Local project grounding** | Ask a project question — `/memory <q>` (`/mem`/`/ask`), or the model-callable `project_memory` tool — and warden answers it **locally** from the repo's `.warden/memory.md` (#53 PR-3, `memory.ground`, default on). Read-only and `$0`: served on the **local model only** (never a cloud round-trip), it cites each entry's trust (`unverified`/`trusted`/`human`) + provenance so a stale hint reads as a hint, degrades to the matching entries verbatim when no local model is wired, and answers "not in project memory" for an absent/empty file (never auto-creating it). Grounding-style questions classify T0, so the tier router keeps them on the local plan — no escalation, no spend. |
 | **`!`-shell passthrough** | A `!`-prefixed line runs in a persistent embedded `$SHELL` (cwd/env persist) and tees output to the terminal. The REPL takes **no action** on that output — no auto-diagnose/fix/spawn; it reports verbatim and waits. The output is visible as context to the next natural-language turn. A shell that can't start (no PTY) is non-fatal. |
 | **Hardware-aware model recommendation** | `wd doctor` best-effort detects accelerator/host memory (NVIDIA VRAM via `nvidia-smi`, Apple unified memory via `sysctl`, else system RAM) and **recommends** a `local_llm_model` sized to fit. It only ever recommends — the operator sets the model; warden never silently swaps it. |
-| **`wd llm suggest` — memory-ranked model picker** | A dedicated recommender that auto-detects **two** figures from the *same* memory pool: **total** memory (the bound) and **average free** memory (sampled a few times, smoothing spikes) — VRAM for an NVIDIA GPU, the unified pool on Apple Silicon, else Linux `MemAvailable`. It scores a curated, **tool-calling-forward** catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — not raw size or coding skill, since the REPL routes tool calls and never writes code. Scores are calibrated against the [Berkeley Function-Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) (BFCL v4), weighted toward the multi-turn subcategory the REPL's loop exercises — so a leaner agentic model outranks a bigger coding-tuned one. Each model is marked `fits now` / `free memory first` / `too large`. The ★ pick is the best-scoring model that runs **comfortably now** while leaving headroom for your real workload (Docker, DBs, IDE, Claude sessions, the daemon). `--samples`, `--total-gb`/`--free-gb` overrides, `--json`. |
+| **`wd backend suggest` — memory-ranked model picker** | A dedicated recommender that auto-detects **two** figures from the *same* memory pool: **total** memory (the bound) and **average free** memory (sampled a few times, smoothing spikes) — VRAM for an NVIDIA GPU, the unified pool on Apple Silicon, else Linux `MemAvailable`. It scores a curated, **tool-calling-forward** catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — not raw size or coding skill, since the REPL routes tool calls and never writes code. Scores are calibrated against the [Berkeley Function-Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) (BFCL v4), weighted toward the multi-turn subcategory the REPL's loop exercises — so a leaner agentic model outranks a bigger coding-tuned one. Each model is marked `fits now` / `free memory first` / `too large`. The ★ pick is the best-scoring model that runs **comfortably now** while leaving headroom for your real workload (Docker, DBs, IDE, Claude sessions, the daemon). `--samples`, `--total-gb`/`--free-gb` overrides, `--json`. |
 
 ---
 
-## 18. Audit log (`warden audit log`)
+## 18. Audit log (`warden inspect audit`)
 
 An append-only trail of the daemon's meaningful actions — who did what, when, to
 which object — for after-the-fact review. The daemon writes one JSON object per
@@ -593,7 +593,7 @@ lines stay parseable as fields are added.
 | **Recorded actions** | The daemon logs `spawn`, `terminate`, `delete`, `approve`, and pipeline `pipeline_start` / `pipeline_cancel` at the point each succeeds. Each record carries `time` (when), `action` (what), `actor` (who — the request origin), `target` (the agent/pipeline acted on), and an action-specific `detail` map (name, repo, type, option, hard, …). |
 | **Real actor behind a proxy** | By default `actor` is the immediate peer address — which is the proxy (`127.0.0.1`) behind a tunnel. Set `trusted_proxies` (IPs/CIDRs) and, when the peer is one of them, the actor is resolved from `X-Forwarded-For` (the real client). `X-Forwarded-For` is trusted **only** from a configured proxy, so a direct client can't forge it; the auth-failure throttle still keys on the spoof-resistant peer IP. |
 | **Best-effort writes** | Recording is fire-and-best-effort: a write failure is logged and swallowed so it never blocks or fails the action being audited. Auditing is on whenever the daemon runs; a nil writer (tests) is a safe no-op. The file is created `0600` — owner-only — since it can name agents and prompts. |
-| **`warden audit log`** | Reads and renders the trail (newest last). `--tail N` keeps the most recent N (default 50, `0` = all), `--action` filters by action, `--target` by substring of the agent/pipeline ID, `--since`/`--until` by window (`24h`, `7d`, `2w`) or date, and `--json` prints raw records. It reads the file directly (not via the daemon), so it works even while the daemon is down; malformed/partial lines are skipped. |
+| **`warden inspect audit`** | Reads and renders the trail (newest last). `--tail N` keeps the most recent N (default 50, `0` = all), `--action` filters by action, `--target` by substring of the agent/pipeline ID, `--since`/`--until` by window (`24h`, `7d`, `2w`) or date, and `--json` prints raw records. It reads the file directly (not via the daemon), so it works even while the daemon is down; malformed/partial lines are skipped. |
 
 ---
 
@@ -606,8 +606,8 @@ imported record simply remembers where its (now absent) worktree used to live.
 
 | Feature | Description |
 |---|---|
-| **`warden export`** | Dumps active agent records as a versioned JSON envelope (`{version, exported_at, sessions}`) on stdout. `--all` folds in the archived (`closed/`) store too. Reuses the existing `/sessions` + `/history` reads — no new export endpoint. |
-| **`warden import`** | Reads an export envelope from stdin and inserts its records. **Idempotent by id**: a record whose id already exists is skipped, so re-importing the same dump is a no-op. `--merge` overwrites colliding records with the imported data instead; `--json` prints the per-id result. A new id whose name collides with a different record is imported with the alias dropped (reported under `renamed`). |
+| **`warden inspect export`** | Dumps active agent records as a versioned JSON envelope (`{version, exported_at, sessions}`) on stdout. `--all` folds in the archived (`closed/`) store too. Reuses the existing `/sessions` + `/history` reads — no new export endpoint. |
+| **`warden inspect import`** | Reads an export envelope from stdin and inserts its records. **Idempotent by id**: a record whose id already exists is skipped, so re-importing the same dump is a no-op. `--merge` overwrites colliding records with the imported data instead; `--json` prints the per-id result. A new id whose name collides with a different record is imported with the alias dropped (reported under `renamed`). |
 | **`POST /api/v1/import?merge=`** | Daemon endpoint (`internal/daemon/import_routes.go`); decodes the envelope and inserts each record keyed on id (`400` on a bad body, `422` on a store error). The `store.Export` / `store.ImportResult` envelope types live in `internal/store/portability.go`. |
 
 ---
@@ -661,19 +661,19 @@ Most of this needs no LLM.
 |---|---|
 | **`wd commit` / `push` / `sync` (CLI + MCP)** | Git lifecycle on the agent's pinned worktree via the `lifecycle` runner, returning compact structs in place of git tool-spam. Rails: no commit/push on main/master, no dirty-tree sync, pre-commit-hook failure surfaced as a result; `sync` leaves conflicts in progress carrying only the conflicting files. Commit message is auto-filled when `-m` is omitted (§21). `push --force-with-lease` (`force: true` on the tool) is the only force path — never a bare `--force` — so a rebased branch never clobbers a teammate's push. |
 | **`wd check [name]` (CLI + MCP)** | Runs the per-project `.warden/check.yml` command(s) and returns pass/fail with output for only the **failing** checks (tail-truncated, oversized logs condensed per §21). Per-entry `dir:` for monorepos; config is the single source of truth; no-config / unknown-name return friendly errors. The biggest raw-token win. |
-| **`wd review` (CLI-only, agent-native)** | Asks the agent's backend to review its OWN diff — the agent-native counterpart to `wd check` (which runs configured test/lint commands) and to a `pr-review` agent (which stands up a whole reviewer session). It execs the backend's native one-shot reviewer (Codex: `codex review`) in the agent's worktree and streams the findings. Defaults to the uncommitted working tree; `--base <branch>` reviews against a base, `--prompt` adds instructions, `--backend` picks the backend. Like `wd check` it is **local worktree exec, no daemon round-trip** — so it is **CLI-only by design** (no MCP twin). Backends without a native reviewer (e.g. Claude) are not offered the verb — it exits non-zero pointing at `wd check` / `pr-review`. Surfaced via the additive `agentbackend.Reviewer` interface (design step 6, #52). |
-| **`wd review --json` (CLI-only)** | The structured/machine-readable path: warden runs the backend's structured review (Codex: `codex exec review`), normalizes the backend's NATIVE review output into a **neutral findings shape** `{summary, verdict, findings[]}` (`agentbackend.ReviewFindings`; each finding `{file, line, severity, title, message}`), and prints that JSON to stdout (the backend's own progress goes to stderr). warden owns the neutral shape, not the schema the agent emits. Review quality rides the backend's configured model — a tiny local model may report none; the operator's real model is where it earns its keep. Surfaced via the additive `agentbackend.StructuredReviewer` companion. |
-| **`wd memory` (CLI-only) + launch-time projection** | warden owns one committed, backend-neutral **project memory** — `.warden/memory.md` (beside `.warden/check.yml`), keyed implicitly by the repo root, auto-created on first use, holding durable cross-agent facts ("where X lives", "run Y via `wd check`", project invariants). `wd memory` shows/edits it (`--raw`, `--path`, `--edit`; CLI-local, no daemon round-trip, like `wd check`/`wd review`). At **every spawn** warden **projects** the budgeted, navigational render into the agent's system prompt through the SAME seam the collab/pipeline/git hints ride — **Claude** via `--append-system-prompt` (file-backed through the hints dir, so it never bloats the launch line), **codex/cursor/opencode/antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips (neither seam). 7/8 backends project with zero new adapter code. Config-gated by `memory.inject` (default on); off — or an empty/absent file — makes the Claude launch **byte-identical** to no injection. warden READS but never rewrites your CLAUDE.md/AGENTS.md/CONVENTIONS.md. **Auto-curation (#53 PR-2, `memory.curate`, default OFF):** on the existing completion-digest hook, a debounced extraction pass proposes **`unverified`, timestamped, provenance-tagged** entries into `.warden/memory.md` — writing to the **working tree only, never committing or pushing**, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration (a second agent, or human approval); a contradicting fact **supersedes** an older one (struck with a tombstone); un-recorroborated entries **age out** past a TTL; a fact whose named path vanished is **flagged stale** by a deterministic check. The pass prefers the `$0` local model, degrading to `claude -p` only where configured, and never sits on a paid critical path. **Local grounding (#53 PR-3, `memory.ground`, default ON):** in `wd repl` you can ask a project question ("where does the spawn gate live?", "how do I run the tests?") and warden answers it **locally** from `.warden/memory.md` — the `/memory` (`/mem`/`/ask`) command and the model-callable `project_memory` tool, both read-only and served on the **local model only**, so it *removes* a cloud round-trip rather than adding tokens. It reads memory the same read-only way projection does (never auto-creating it), cites each entry's **trust** (`unverified`/`trusted`/`human`) and **provenance** so a stale hint reads as a hint, and — with no local model configured — degrades to returning the matching entries verbatim (`$0`), never escalating to a paid model. This is #53 PR-1 (projection) + PR-2 (gated curation) + PR-3 (local grounding): it taxes the cross-agent rediscovery cost once and amortizes it across the fleet, any backend, without ever letting one agent's wrong belief silently poison the rest. |
-| **`wd models` (CLI-only, agent-native)** | Surfaces a backend's **live runtime model menu** (vs warden's hard-coded `opus`/`sonnet`/`haiku`/`fable` alias table). Backends whose model set is a runtime, multi-vendor menu implement it — **Antigravity** (`agy models`, listing Gemini/Claude/GPT-OSS variants) and **Cursor** (`cursor-agent --list-models`) — via the optional `agentbackend.ModelLister` interface; the ids print one per line (or `--json` for an array) and feed `--model` verbatim. Listing is a metadata read (the backend's own list subcommand, not a generation request), so it spends no hosted-tier quota. `--backend` picks the backend. **Local worktree exec, no daemon round-trip ⇒ CLI-only by design.** Backends with a static model set (Claude) have no live menu and are not offered the verb — it exits non-zero pointing at `--model` with a known id. |
+| **`wd git review` (CLI-only, agent-native)** | Asks the agent's backend to review its OWN diff — the agent-native counterpart to `wd check` (which runs configured test/lint commands) and to a `pr-review` agent (which stands up a whole reviewer session). It execs the backend's native one-shot reviewer (Codex: `codex review`) in the agent's worktree and streams the findings. Defaults to the uncommitted working tree; `--base <branch>` reviews against a base, `--prompt` adds instructions, `--backend` picks the backend. Like `wd check` it is **local worktree exec, no daemon round-trip** — so it is **CLI-only by design** (no MCP twin). Backends without a native reviewer (e.g. Claude) are not offered the verb — it exits non-zero pointing at `wd check` / `pr-review`. Surfaced via the additive `agentbackend.Reviewer` interface (design step 6, #52). |
+| **`wd git review --json` (CLI-only)** | The structured/machine-readable path: warden runs the backend's structured review (Codex: `codex exec review`), normalizes the backend's NATIVE review output into a **neutral findings shape** `{summary, verdict, findings[]}` (`agentbackend.ReviewFindings`; each finding `{file, line, severity, title, message}`), and prints that JSON to stdout (the backend's own progress goes to stderr). warden owns the neutral shape, not the schema the agent emits. Review quality rides the backend's configured model — a tiny local model may report none; the operator's real model is where it earns its keep. Surfaced via the additive `agentbackend.StructuredReviewer` companion. |
+| **`wd project memory` (CLI-only) + launch-time projection** | warden owns one committed, backend-neutral **project memory** — `.warden/memory.md` (beside `.warden/check.yml`), keyed implicitly by the repo root, auto-created on first use, holding durable cross-agent facts ("where X lives", "run Y via `wd check`", project invariants). `wd project memory` shows/edits it (`--raw`, `--path`, `--edit`; CLI-local, no daemon round-trip, like `wd check`/`wd git review`). At **every spawn** warden **projects** the budgeted, navigational render into the agent's system prompt through the SAME seam the collab/pipeline/git hints ride — **Claude** via `--append-system-prompt` (file-backed through the hints dir, so it never bloats the launch line), **codex/cursor/opencode/antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips (neither seam). 7/8 backends project with zero new adapter code. Config-gated by `memory.inject` (default on); off — or an empty/absent file — makes the Claude launch **byte-identical** to no injection. warden READS but never rewrites your CLAUDE.md/AGENTS.md/CONVENTIONS.md. **Auto-curation (#53 PR-2, `memory.curate`, default OFF):** on the existing completion-digest hook, a debounced extraction pass proposes **`unverified`, timestamped, provenance-tagged** entries into `.warden/memory.md` — writing to the **working tree only, never committing or pushing**, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration (a second agent, or human approval); a contradicting fact **supersedes** an older one (struck with a tombstone); un-recorroborated entries **age out** past a TTL; a fact whose named path vanished is **flagged stale** by a deterministic check. The pass prefers the `$0` local model, degrading to `claude -p` only where configured, and never sits on a paid critical path. **Local grounding (#53 PR-3, `memory.ground`, default ON):** in `wd backend repl` you can ask a project question ("where does the spawn gate live?", "how do I run the tests?") and warden answers it **locally** from `.warden/memory.md` — the `/memory` (`/mem`/`/ask`) command and the model-callable `project_memory` tool, both read-only and served on the **local model only**, so it *removes* a cloud round-trip rather than adding tokens. It reads memory the same read-only way projection does (never auto-creating it), cites each entry's **trust** (`unverified`/`trusted`/`human`) and **provenance** so a stale hint reads as a hint, and — with no local model configured — degrades to returning the matching entries verbatim (`$0`), never escalating to a paid model. This is #53 PR-1 (projection) + PR-2 (gated curation) + PR-3 (local grounding): it taxes the cross-agent rediscovery cost once and amortizes it across the fleet, any backend, without ever letting one agent's wrong belief silently poison the rest. |
+| **`wd backend model` (CLI-only, agent-native)** | Surfaces a backend's **live runtime model menu** (vs warden's hard-coded `opus`/`sonnet`/`haiku`/`fable` alias table). Backends whose model set is a runtime, multi-vendor menu implement it — **Antigravity** (`agy models`, listing Gemini/Claude/GPT-OSS variants) and **Cursor** (`cursor-agent --list-models`) — via the optional `agentbackend.ModelLister` interface; the ids print one per line (or `--json` for an array) and feed `--model` verbatim. Listing is a metadata read (the backend's own list subcommand, not a generation request), so it spends no hosted-tier quota. `--backend` picks the backend. **Local worktree exec, no daemon round-trip ⇒ CLI-only by design.** Backends with a static model set (Claude) have no live menu and are not offered the verb — it exits non-zero pointing at `--model` with a known id. |
 | **Default-isolated write agents** | Every write-type agent (`code`/`docs`/`website`/`debug-ci`/`tests`) gets its own worktree unless `--in-repo`; `pr-review` is exempt (see §2). This is what makes the isolation guard meaningful and fixes parallel-agent collisions. |
-| **Isolation guard** (`rails.isolation_guard`) | A PreToolUse hook denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (`warden hook guard` → `POST /api/v1/hooks/guard`). |
+| **Isolation guard** (`rails.isolation_guard`) | A PreToolUse hook denies an isolated agent's Edit/Write that escapes its worktree into the shared repo (`warden check boundary` → `POST /api/v1/hooks/guard`). |
 | **Git-guard** (`rails.git_redirect`) | A PreToolUse Bash hook quote-aware argv-parses each command and deny-redirects raw `git commit`/`push`/`pull`/`rebase` to the warden tools (reads stay allowed), the deny message naming the exact replacement. Static verdict, no daemon round-trip. |
 | **Check-guard** (`rails.check_redirect`) | A PreToolUse Bash hook deny-redirects a raw test/lint/build command the project's `.warden/check.yml` registers to `wd check`, matching on leading-token prefix (broad runs redirect; focused `-run` runs pass through). No-config repos redirect nothing. |
 | **Prompt steer** (`rails.git_conventions`) | A Layer-1 system-prompt hint steering agents toward `wd commit`/`push`/`sync` (and `wd check`) over raw git/test Bash — the gentle first layer before the deny hooks. |
 
 ---
 
-## 23. Snapshots / checkpoints (`wd snapshot`)
+## 23. Snapshots / checkpoints (`wd workspace snapshot`)
 
 Checkpoint an agent at a known-good point — its **worktree state** *and* its
 **session transcript** — and roll back to it later. Config-gated by `snapshots`
@@ -681,15 +681,15 @@ Checkpoint an agent at a known-good point — its **worktree state** *and* its
 under `<data_dir>/snapshots-db/`, transcripts as flat blobs under
 `<data_dir>/snapshots/` (see §33 for the storage format and upgrade migration).
 
-- **`wd snapshot create [name] [-m msg]`** (CLI + MCP `snapshot_create`) — captures
+- **`wd workspace snapshot create [name] [-m msg]`** (CLI + MCP `snapshot_create`) — captures
   the worktree **non-destructively** via `git stash create` (it builds a commit
   object recording the working tree *without* touching it — no stash entry pushed,
   no index change), recording the HEAD/branch/dirty-file list plus the tmux pane
   scrollback as the transcript. `[name]` defaults to the current agent
   (`WARDEN_SESSION_ID`); the daemon pins capture to that agent's own worktree.
-- **`wd snapshot list [name] [--all]`** (CLI + MCP `snapshot_list`) — snapshots
+- **`wd workspace snapshot list [name] [--all]`** (CLI + MCP `snapshot_list`) — snapshots
   for an agent (or every session), newest first.
-- **`wd snapshot restore <id> [--force]`** (CLI + MCP `snapshot_restore`) —
+- **`wd workspace snapshot restore <id> [--force]`** (CLI + MCP `snapshot_restore`) —
   re-applies the snapshot's stash onto its recorded worktree. **Rails:** refuses a
   dirty tree unless `--force`, and never restores onto `main`/`master` (same guards
   as `wd sync`/`remove-worktree`). **Reversible-safe** — stash *apply* neither
@@ -706,7 +706,7 @@ client → CLI/MCP like the other lifecycle verbs.
 A friendly, idempotent walkthrough of warden's core loop for new operators —
 **spawn → watch → talk → tear down** — plus pointers to the cockpit TUI and the
 web GUI. It changes nothing: each step shows the exact command to try when you're
-ready (`wd start`, `wd ls`/`wd status`, `wd attach`/`wd send`, `wd done`, `wd tui`).
+ready (`wd start`, `wd ls`/`wd status`, `wd agent attach`/`wd send`, `wd agent done`, `wd tui`).
 
 - **`wd tutorial`** — prints the walkthrough, then writes a `tutorial-complete`
   marker in `<data_dir>` so the first-run hint stops appearing.
@@ -730,7 +730,7 @@ suppression predicate — with no daemon change.
 
 ---
 
-## 25. AI-powered insights (`wd insights`)
+## 25. AI-powered insights (`wd usage insights`)
 
 Mine warden's **own history** — completed and active agent sessions plus the
 resource metrics it already records — into actionable suggestions. Like the
@@ -739,7 +739,7 @@ LLM**, with an **optional local-LLM narration layer** that degrades gracefully t
 the deterministic text whenever the model is off, unreachable, errors, or returns
 an empty reply. Config-gated by `insights` (default on).
 
-- **`wd insights`** (CLI + MCP `insights`) — aggregates history into a report:
+- **`wd usage insights`** (CLI + MCP `insights`) — aggregates history into a report:
   - **session duration by type** — count, median / p90 / max per agent type, with
     individual runs flagged as **outliers** when they exceed 2× the type's median.
   - **parallelization opportunities** — pairs of **finished, same-repo** sessions
@@ -766,7 +766,7 @@ digestible sessions, since archived file sets are reconstructed best-effort from
 digests. See
 `docs/superpowers/specs/2026-06-25-warden-ai-powered-insights-design.md`.
 
-## 26. Plugin system (`wd plugin`)
+## 26. Plugin system (`wd project plugin`)
 
 Extend warden with **custom agent task types** and **lifecycle hooks** without
 forking — a thin, default-off, fail-open extension seam. A plugin is an **external
@@ -788,7 +788,7 @@ fragile Go `plugin` package or a heavy WASM runtime. Config-gated by `plugins`
   a function-var seam so validation/worktree logic recognizes them **without
   changing any built-in type's behavior**; names that collide with a built-in or
   another plugin are rejected at config load.
-- **`wd plugin list`** — show registered plugins, their executable paths, declared
+- **`wd project plugin list`** — show registered plugins, their executable paths, declared
   custom task types (with isolation policy), and subscribed hook events; it also
   surfaces any config errors the daemon would reject.
 
@@ -838,7 +838,7 @@ keeping the concern as the default-off gate.
 | **`wd schedule create <name> --at 2026-06-27T09:00 --prompt "…"`** | Single-shot agent spawn — fires once at/after the time, then goes inactive. `--at` is RFC3339 or `2006-01-02T15:04` (local time). |
 | **`wd schedule create <name> --cron "…" --pipeline <spec.yaml>`** | Fire a pipeline instead of an agent. Each fire creates a fresh pipeline whose name is timestamp-suffixed, so recurring runs never collide. |
 | **`wd schedule list`** | All schedules with kind (cron/at), mode (agent/pipeline), spec, enabled state, next run, and last error. |
-| **`wd schedule get <id>`** | One schedule, including the durable `last_run_session_id` + `last_run_status` of its most recent fire. |
+| **`wd schedule show <id>`** | One schedule, including the durable `last_run_session_id` + `last_run_status` of its most recent fire. |
 | **`wd schedule enable <id>` / `disable <id>`** | Toggle a schedule without deleting it. Disable clears `next_run`; enable re-arms it (cron → next occurrence, at → its time). Idempotent; the record and last-run history are preserved. |
 | **`wd schedule delete <id>`** | Remove a schedule (id == its name). |
 | **Scheduled-run session linkage** | Every fired run carries a `schedule_id` (+ `schedule_name`) back-reference on its session — set on agent-mode fires and inherited by a scheduled pipeline's job sessions — surfaced in `GET /sessions`, `GET /sessions/{id}`, and the SSE stream. Lets a client separate scheduled runs from ad-hoc agents and drill into a live run's terminal by filtering one field. Advertised by the **`scheduled-agents`** capability (`GET /api/v1/capabilities`). |
@@ -864,14 +864,14 @@ lives in `internal/schedule` (table-tested); the daemon's reconcile loop is
 
 ---
 
-## 29. Token-savings ledger (`wd savings`)
+## 29. Token-savings ledger (`wd usage savings`)
 
 A real, **append-only ledger** of the tokens warden's lifecycle features have kept
 out of agents' context windows — a measured proof point, not an estimate. Each time
 a feature avoids dumping output into the transcript, the saving is recorded; `wd
-savings` reads it back. Config-gated by `savings` (default on); the daemon owns the
+usage savings` reads it back. Config-gated by `savings` (default on); the daemon owns the
 store under `<data_dir>/savings/` and serves it at `GET /api/v1/savings` (403 when off).
-Also reachable under the cost umbrella as `wd cost savings` (see §30).
+Also reachable under the cost umbrella as `wd usage savings` (see §30).
 
 The report keeps two axes honest and **never blends them into one percentage**:
 
@@ -883,7 +883,7 @@ The report keeps two axes honest and **never blends them into one percentage**:
 
 | Feature | Description |
 |---|---|
-| **`wd savings`** (CLI + MCP `savings`) | Per-feature table sorted biggest-win-first: saved tokens, raw tokens, and event count, under the two headline axes. An empty ledger reads as an explicit "nothing recorded yet". |
+| **`wd usage savings`** (CLI + MCP `savings`) | Per-feature table sorted biggest-win-first: saved tokens, raw tokens, and event count, under the two headline axes. An empty ledger reads as an explicit "nothing recorded yet". |
 | **What records a saving** | `wd check` (raw build/test output kept out of the transcript), `wd commit`/`push`/`sync` (git plumbing output), auto-/`/compact` context reclaim, and local-LLM offload (classify/summarize calls that never hit Claude). |
 | **`--benchmark`** | The headline A/B proof: *without warden* (raw tokens that would have entered the model) vs. *with warden* (what actually did), the reduction %, the leaner factor, dollars saved, a per-day **saved-tokens sparkline**, and — when transcript spend was observed — the cut as a share of real measured model spend. Built to screenshot. |
 | **`--since <window\|date>`** | Scope to a window (`24h`, `7d`, `2w`) or a date. |
@@ -902,10 +902,10 @@ package (`store` / `savings` / `calibrate`); the CLI rendering lives in
 > they may differ from your actual bill. Token counts are exact (read from the
 > transcript).
 
-## 30. Cost governance (`wd spend` + budget gate)
+## 30. Cost governance (`wd usage spend` + budget gate)
 
-The cost counterpart to the savings ledger: where `wd savings` reports what warden
-kept **out** of context, `wd spend` reports what agents **actually billed** the model provider.
+The cost counterpart to the savings ledger: where `wd usage savings` reports what warden
+kept **out** of context, `wd usage spend` reports what agents **actually billed** the model provider.
 The daemon already reads each agent's REAL input/output tokens from its transcript
 (`internal/spend`); cost governance prices that per model into dollars and gates on
 it (dollar pricing currently covers the Claude backend; bring-your-own-model backends report tokens only). Config-gated by `savings` (the same switch — spend is the cost half of the same
@@ -913,10 +913,10 @@ measured data); the daemon serves it at `GET /api/v1/spend` (403 when off).
 
 | Feature | Description |
 |---|---|
-| **`wd spend`** (CLI + MCP `spend`) | The measured spend priced per model and rolled up three ways — **per agent**, **per repo**, **per day** — with a headline `total / today / this week`. `--by agent\|repo\|day` shows one rollup; `--json` for tooling. An empty meter reads as "nothing measured yet". |
+| **`wd usage spend`** (CLI + MCP `spend`) | The measured spend priced per model and rolled up three ways — **per agent**, **per repo**, **per day** — with a headline `total / today / this week`. `--by agent\|repo\|day` shows one rollup; `--json` for tooling. An empty meter reads as "nothing measured yet". |
 | **Per-model pricing** | A small `$/Mtok` table (`internal/spend/pricing.go`): Opus `$5/$25`, Sonnet `$3/$15`, Haiku `$0.8/$4` (in/out); an unrecognized model is priced at the Opus tier so spend is never silently under-counted. Opus rates are kept in sync with the savings ledger. |
 | **Budget gate** | A **soft** spawn gate, sibling to the memory-pressure gate: when today's or the trailing-week's measured spend reaches a configured cap, a non-forced spawn returns `428` with a confirmation payload; re-run with `--force` to proceed. Off by default. Tunable via `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd` (a `0` cap disables that axis). |
-| **`$` in `wd ls`** | A **COST** column shows each agent's measured spend beside its context fill (best-effort — `—` when the feature is off). Also surfaced in `wd search` / `wd history`. |
+| **`$` in `wd ls`** | A **COST** column shows each agent's measured spend beside its context fill (best-effort — `—` when the feature is off). Also surfaced in `wd inspect search` / `wd inspect history`. |
 | **Web Metrics tab** | A **Cost per agent** card: the `total / today / this week` headline plus a live per-agent cost bar chart (sorted by `$`, top-N costliest with the rest folded into an `others` row) beside the RSS/CPU charts. |
 
 Self-contained, fully unit-tested `internal/spend` package (`store` / `pricing` /
@@ -928,16 +928,16 @@ Self-contained, fully unit-tested `internal/spend` package (`store` / `pricing` 
 > the transcript).
 
 **Cost umbrella (`wd cost`).** A single discoverable entry point over both financial
-views, mirroring the `library` umbrella over reusable launch config. `wd cost spend`
-and `wd cost savings` are the very same commands as the top-level `wd spend` and `wd
-savings` (every flag — `--by`, `--json`, `--benchmark`, `--since`, `--audit`,
+views, mirroring the `library` umbrella over reusable launch config. `wd usage spend`
+and `wd usage savings` are the very same commands as the top-level `wd usage spend` and `wd
+usage savings` (every flag — `--by`, `--json`, `--benchmark`, `--since`, `--audit`,
 `--calibrate` — wired straight through); `wd cost` with no subcommand prints a
 combined at-a-glance summary with a **SPEND** section and a **SAVINGS** section,
 reusing both render helpers verbatim (`internal/cli/cost.go`) so the figures never
 disagree with the standalone commands. Purely additive — no new storage, pricing, or
 MCP tool: both axes are already exposed over MCP (`spend`, `savings`), and the
-top-level `wd spend` / `wd savings` remain as aliases. Resource footprint
-(memory/CPU/pressure) is a **different axis** and stays under `wd stats` (§ Live
+top-level `wd usage spend` / `wd usage savings` remain as aliases. Resource footprint
+(memory/CPU/pressure) is a **different axis** and stays under `wd inspect resources` (§ Live
 resource metrics), deliberately not folded into `wd cost`.
 
 ---
@@ -960,7 +960,7 @@ A mutation now **appends one record** instead of rewriting a whole per-session
 JSON file (the write-amplification the old file store carried, the same pattern
 already retired for `ctxstore`/`mailbox`). This is an **internal storage swap
 only**: the `store.Store` interface is byte-for-byte unchanged, so the daemon
-REST API, the CLI/MCP clients, and `warden export`/`import` behave identically —
+REST API, the CLI/MCP clients, and `warden inspect export`/`import` behave identically —
 there is still no database server to run.
 
 ### Upgrading from a JSON-file store
@@ -1016,7 +1016,7 @@ partway, the sentinel is not written, so the next boot wipes the half-built
 
 ## 33. Snapshot storage & upgrade migration
 
-Snapshot **metadata** (`wd snapshot`) is persisted by the same **embedded ScrivaDB**
+Snapshot **metadata** (`wd workspace snapshot`) is persisted by the same **embedded ScrivaDB**
 (`github.com/srjn45/scriva`, opened with `SyncModeNone`) as sessions, in a
 `snapshots` collection rooted at a sibling `~/.warden/snapshots-db/` directory,
 each record keyed by snapshot id. A capture **appends one record** instead of
@@ -1042,7 +1042,7 @@ wipes the half-built `snapshots-db/` and re-imports from the intact legacy JSON.
 
 ## 34. Autopilot (autonomous agent runs)
 
-> ⚠️ **Unattended operation is inherently risky.** Use `warden autopilot off`
+> ⚠️ **Unattended operation is inherently risky.** Use `warden autopilot disable`
 > (the kill switch) any time you need to stop. Workers always land into
 > `autopilot/integration`, never directly into `main`. See the
 > [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/).
@@ -1116,7 +1116,7 @@ expensive: free tier (`antigravity`), then subscription backends (`claude`,
 
 **Sourced from the backend registry (§35).** The cost-tier ladder and the
 paid-autopilot gate are now derived from the registry store — a backend's tier is
-whatever you set with `warden backends tier <id> <tier>` (or the web/TUI), and the
+whatever you set with `warden backend tier <id> <tier>` (or the web/TUI), and the
 gate is the store's `allow_paid_autopilot` setting. The deprecated
 `autopilot.brain.backends.{free,subscription,pay_per_use}` ladder and
 `autopilot.brain.allow_pay_per_use` config keys are **imported once** into the
@@ -1148,7 +1148,7 @@ can be removed.
 
 ### 34.7 Land (idempotent merge)
 
-`warden land <agent-or-branch>` (CLI) / `land` (MCP) merges one autopilot worker
+`warden autopilot land <agent-or-branch>` (CLI) / `land` (MCP) merges one autopilot worker
 branch into the integration branch. The operation is idempotent (re-landing a
 branch is a no-op), guarded (ownership check), and gated (CI gate or local
 `.warden/check.yml` checks must be green). The manager calls `land` automatically;
@@ -1172,7 +1172,7 @@ restarts — re-enabling autopilot continues from the ledger.
 
 The autopilot switch is **per-repository**, not one global flag. `warden autopilot
 on` run inside a repo enables **only that repo** — other repos are unaffected.
-`warden autopilot on --repo <root>` (MCP: `set_autopilot { repo }`) targets a
+`warden autopilot enable --repo <root>` (MCP: `set_autopilot { repo }`) targets a
 different repository. The plan/manager/merge **template** stays global in the
 `autopilot` config block; per-repo state is just the on/off bit and its run.
 
@@ -1182,7 +1182,7 @@ automatically across a daemon restart**. It is the source of truth for which
 repos are on — a config hot-reload re-applies the template but never resets the
 enabled set. `warden autopilot status` lists the enabled repos (`enabled_repos`
 in the wire status; the scalar `enabled` now means "any repo is on"). `warden
-autopilot off` is per-repo — disabling one repo leaves other enabled repos
+autopilot disable` is per-repo — disabling one repo leaves other enabled repos
 running.
 
 ### 34.11 Run completion marker
@@ -1306,7 +1306,7 @@ value wins thereafter, and the daemon warns if the config still carries the keys
 
 | Surface | How |
 |---|---|
-| **CLI** | `warden backends list` / `rescan` / `tier <id> <tier>` / `default <id>` / `enable <id>` / `disable <id>` / `thinking-mode <mode>` |
+| **CLI** | `warden backend list` / `rescan` / `tier <id> <tier>` / `default <id>` / `enable <id>` / `disable <id>` / `thinking-mode <mode>` |
 | **MCP** | `list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`, `set_thinking_mode` (enable/disable is CLI/web/TUI + REST only) |
 | **Web** | the **🧩 backends** panel (AttentionBar): table with Tier dropdown, Default radio, Enabled checkbox, live Limited countdown, thinking-mode select, ⟳ Rescan |
 | **TUI** | the Backends page (`b`): `t` cycle tier · `d`/`enter` default · `e`/space enable · `m` thinking-mode · `r` rescan |

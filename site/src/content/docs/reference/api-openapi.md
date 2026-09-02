@@ -45,5 +45,5 @@ Like `/healthz` and the static SPA shell, the docs page itself is **unauthentica
 (the spec holds no secrets), but it documents the `bearerAuth` scheme that gates
 every data/action route. When the daemon is bound to a non-loopback address it
 **requires** a bearer token — send it as `Authorization: Bearer <token>`. Manage the
-token with `warden token` and see the [Remote access](/warden/guides/remote-access/)
+token with `warden daemon token` and see the [Remote access](/warden/guides/remote-access/)
 guide.

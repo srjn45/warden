@@ -32,7 +32,7 @@ warden schedule create nightly --cron "0 2 * * *" --pipeline ci.yaml
 
 ```sh
 warden schedule list              # kind (cron/at), mode (agent/pipeline), spec, enabled, next run, last error
-warden schedule get daily-review  # one schedule + its last-run session id and outcome
+warden schedule show daily-review  # one schedule + its last-run session id and outcome
 warden schedule disable daily-review   # stop firing (record + history preserved)
 warden schedule enable  daily-review   # re-arm: next_run is recomputed from now
 warden schedule delete  daily-review
@@ -55,7 +55,7 @@ straight into the live run's terminal — all by filtering that one field.
 The schedule record itself also keeps a **durable** pointer to its most recent
 run: `last_run_session_id` plus `last_run_status` (refreshed from the run's live
 status while its session exists, and preserved even after the session is rotated
-or deleted). `warden schedule get` prints both.
+or deleted). `warden schedule show` prints both.
 
 Daemons that support this end-to-end advertise the **`scheduled-agents`** flag in
 `GET /api/v1/capabilities`, so a client can feature-detect it the same way it

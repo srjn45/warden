@@ -1,0 +1,16 @@
+Append an allow rule to the auto-approve policy
+
+Usage:
+  warden approval auto allow [flags]
+
+Flags:
+      --agent string     scope the rule to a per-agent override (agent name or id)
+  -h, --help             help for allow
+      --paths strings    path globs against the action target (comma-separated)
+      --pattern string   case-insensitive glob/substring over the action + question
+      --regex string     Go regular expression over the action + question
+      --tool string      exact tool name to match (e.g. Read, Bash)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

@@ -10,7 +10,7 @@ Usage:
 Commands:
   create               Create a schedule that fires an agent or a pipeline
   list                 List schedules
-  get                  Show one schedule, including its last-run outcome
+  show                 Show one schedule, including its last-run outcome
   enable               Enable a schedule so it fires again (re-arms next run)
   disable              Disable a schedule so it stops firing (history preserved)
   delete               Delete a schedule

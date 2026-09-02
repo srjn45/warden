@@ -6,9 +6,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newCheckNamespaceCmd builds the canonical check namespace. The namespace itself
-// remains directly runnable as the permanent `wd check` shortcut; `check run` is the
-// explicit canonical spelling with identical behavior.
+// newCheckNamespaceCmd builds the canonical check namespace. It is grouped with the
+// other project-facing namespaces; it stays directly runnable as the permanent
+// `wd check` shortcut, for which `check run` is the explicit canonical spelling.
 func newCheckNamespaceCmd() *cobra.Command {
 	runCmd := newCheckRunCmd()
 	cmd := &cobra.Command{
@@ -24,7 +24,8 @@ the legacy ` + "`hook`" + ` paths.`,
 		RunE: runCmd.RunE,
 	}
 	cmd.Flags().AddFlagSet(runCmd.Flags())
-	SetCommandHelpMetadata(cmd, "shortcut", rootHelpPlacement["check"].order, "warden check run", AliasPermanentShortcut, NodeNamespace)
+	placement := rootHelpPlacement["check"]
+	SetCommandHelpMetadata(cmd, placement.group, placement.order, "warden check run", AliasPermanentShortcut, NodeNamespace)
 
 	children := []*cobra.Command{
 		canonicalCheckCommand(newCheckRunCmd(), "run"),

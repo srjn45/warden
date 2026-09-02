@@ -16,7 +16,7 @@ it's registered. **Every** pipeline verb now has an MCP tool (full parity); only
 | `create_pipeline {spec}` | Parse + validate + register a YAML spec; returns `{id, status, jobs}` in `pending`. |
 | `validate_pipeline {spec}` | Local spec check (DAG/refs/cycles) without contacting the daemon. |
 | `list_pipeline_templates` | Built-in templates + their placeholders. |
-| `library_list` | Browse spawn presets AND pipeline templates together (`warden library list`). |
+| `library_list` | Browse spawn presets AND pipeline templates together (`warden project library list`). |
 | `start_pipeline {pipeline}` | Spawn the dependency-free entry jobs; the daemon drives the rest. |
 | `show_pipeline {pipeline}` | Per-job status + branch + emitted output (durable after agents are gone). |
 | `list_pipelines` | All pipelines + status. |
@@ -32,7 +32,7 @@ it's registered. **Every** pipeline verb now has an MCP tool (full parity); only
 ```sh
 warden pipeline validate -f spec.yaml   # client-side spec check (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline create -f spec.yaml     # validate + register  (or: --template <name> [--set K=V])
-warden pipeline list-templates          # built-in templates + their placeholders
+warden pipeline template list          # built-in templates + their placeholders
 warden pipeline start <name>            # spawn entry jobs; daemon drives the rest
 warden pipeline show <name>             # per-job status + branch + emitted output
 warden pipeline list                    # all pipelines + status
@@ -91,7 +91,7 @@ describe the work.
 Four bundled starters — `analyze-implement-review`, `parallel-tasks`,
 `test-fix-verify`, `research-synthesis`. Render with `warden pipeline create
 --template <name>`; `{{NAME}}`/`{{REPO}}` auto-fill, other placeholders via
-`--set KEY=VALUE`. `warden pipeline list-templates` lists them.
+`--set KEY=VALUE`. `warden pipeline template list` lists them.
 
 ## Driving / recovering
 

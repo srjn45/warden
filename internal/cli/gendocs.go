@@ -90,6 +90,7 @@ func GenerateReference() (string, error) {
 	if err := walk(root); err != nil {
 		return "", err
 	}
+	writeAliasAppendix(&b, root)
 
 	doc := b.String()
 	// Some help text bakes in an absolute path resolved from $HOME at command
@@ -100,4 +101,24 @@ func GenerateReference() (string, error) {
 		doc = strings.ReplaceAll(doc, home, "~")
 	}
 	return doc, nil
+}
+
+func writeAliasAppendix(b *strings.Builder, root *cobra.Command) {
+	aliases := CollectCompatibilityAliases(root)
+	if len(aliases) == 0 {
+		return
+	}
+	b.WriteString("\n## Compatibility aliases\n\n")
+	b.WriteString("Every path below predates the command redesign and still runs, dispatching the\n")
+	b.WriteString("same option parsing and run logic as its canonical path. They are hidden from\n")
+	b.WriteString("normal help and completion; `warden help --all` lists the same set. Nothing here\n")
+	b.WriteString("is scheduled for removal — prefer the canonical path in new scripts and docs.\n\n")
+	b.WriteString("| Legacy path | Canonical path |\n|---|---|\n")
+	for _, alias := range aliases {
+		canonical := "`" + alias.Canonical + "`"
+		if alias.Retained() {
+			canonical = "_retained; no canonical equivalent_"
+		}
+		b.WriteString("| `" + alias.Path + "` | " + canonical + " |\n")
+	}
 }

@@ -1,0 +1,23 @@
+Search, audit, export, repair, and measure warden's fleet and resources.
+
+Resource samples (CPU, memory, pressure, daemon stats) live under `resources`.
+Financial usage and provider quota snapshots live under `usage`, not here.
+
+Usage:
+  warden inspect [flags]
+
+Commands:
+  resources            Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
+  search               Full-text search agents by subject, prompt, type, name, branch, or pane text
+  history              Browse archived (closed) agents, newest first
+  audit                Show recent audited actions, newest last
+  export               Serialize agent session metadata to JSON on stdout
+  import               Insert agent session metadata from a JSON dump on stdin
+  repair               Offline, backup-first repair tools
+
+Flags:
+  -h, --help   help for inspect
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

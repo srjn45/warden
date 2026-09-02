@@ -58,7 +58,7 @@ warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
 warden ls
 warden ls --json
 warden status agent-a1b2          # full detail + event timeline
-warden tail agent-a1b2 --lines 80
+warden agent tail agent-a1b2 --lines 80
 warden send agent-a1b2 "run the unit tests and fix any failures"
-warden attach agent-a1b2          # Ctrl-b d to detach
+warden agent attach agent-a1b2          # Ctrl-b d to detach
 ```
