@@ -888,8 +888,11 @@ func (c *Controller) statusLocked() Status {
 			Backoff:           r.backoffStatus(),
 			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
 			GuardianID:        r.guardianID,
+			SlotScope:         r.slotScope,
 			IntegrationBranch: r.integrationBranch,
 			GateWarning:       r.gateWarning,
+			ManagerSlotID:     managerSlotIDOrEmpty(r.slotScope),
+			GuardianSlotID:    guardianSlotIDOrEmpty(r.slotScope),
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })

@@ -1260,8 +1260,12 @@ type AutopilotRunStatus struct {
 	LandedTotal       int                 `json:"landed_total"`
 	PlanTasks         []AutopilotPlanTask `json:"plan_tasks"`
 	GuardianID        string              `json:"guardian_id,omitempty"`
+	SlotScope         string              `json:"slot_scope,omitempty"`
+	ManagerSlotID     string              `json:"manager_slot_id,omitempty"`
+	GuardianSlotID    string              `json:"guardian_slot_id,omitempty"`
 	IntegrationBranch string              `json:"integration_branch,omitempty"`
 	GateWarning       string              `json:"gate_warning,omitempty"`
+	Workers           map[string][]string `json:"workers,omitempty"`
 }
 
 // RegisterAutopilotRun adds a named plan to the durable registry without

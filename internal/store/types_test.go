@@ -247,20 +247,21 @@ func TestSessionAutopilotBackRefsJSONRoundTrip(t *testing.T) {
 		Status:          StatusWorking,
 		AutopilotRunID:  "ap-abc123def456",
 		AutopilotSlot:   AutopilotSlotWorker,
-		AutopilotTaskID: "wp6-no-parent-id",
+		AutopilotTaskID: "wp3-session-backrefs",
 		CreatedAt:       s.CreatedAt,
 		UpdatedAt:       s.UpdatedAt,
 	}
 	raw, err = json.Marshal(worker)
 	require.NoError(t, err)
-	require.Contains(t, string(raw), `"autopilot_task_id":"wp6-no-parent-id"`)
+	require.Contains(t, string(raw), `"autopilot_task_id":"wp3-session-backrefs"`)
 
 	var got Session
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "ap-abc123def456", got.AutopilotRunID)
 	require.Equal(t, AutopilotSlotWorker, got.AutopilotSlot)
-	require.Equal(t, "wp6-no-parent-id", got.AutopilotTaskID)
+	require.Equal(t, "wp3-session-backrefs", got.AutopilotTaskID)
 
+	// Legacy sessions without back-refs stay omitempty-clean.
 	legacy, err := json.Marshal(Session{ID: "agent-legacy", Type: TypeDevelopment, Status: StatusWorking})
 	require.NoError(t, err)
 	require.NotContains(t, string(legacy), "autopilot_")
