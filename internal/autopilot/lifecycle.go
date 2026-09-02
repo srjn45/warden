@@ -44,9 +44,18 @@ func (c *Controller) restoreStoredRuns() {
 		}
 		r := &run{runID: rec.RunID, name: rec.Name, repo: rec.Repo, planFile: rec.PlanFile,
 			absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
-			guardianID: rec.GuardianID, slotScope: rec.SlotScope,
-			integrationBranch: rec.IntegrationBranch, tried: map[string]bool{}}
-		// Agent ids are process/session observations, not proof of a live manager.
+			slotScope: rec.SlotScope, integrationBranch: rec.IntegrationBranch,
+			tried: map[string]bool{}}
+		// Restore slot ids only when they match the persisted scope — legacy
+		// agent-<hex> ids are ignored so boot reconciliation adopts into slots.
+		if rec.SlotScope != "" {
+			if rec.BrainID == ManagerSlotID(rec.SlotScope) {
+				r.brain = &BrainHandle{AgentID: rec.BrainID}
+			}
+			if rec.GuardianID == GuardianSlotID(rec.SlotScope) {
+				r.guardianID = rec.GuardianID
+			}
+		}
 		// Boot reconciliation re-spawns only runs whose durable intent is live.
 		if plan, err := LoadPlan(rec.PlanFile); err == nil {
 			r.plan = plan
@@ -88,10 +97,12 @@ func (c *Controller) recordLocked(r *run) RunRecord {
 	rec := RunRecord{RunID: r.runID, Name: r.name, Repo: r.repo, PlanFile: r.absPlanFile,
 		State: r.state, IntegrationBranch: r.integrationBranch, Gate: c.runGate(r),
 		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now}
-	if r.brain != nil {
-		rec.BrainID = r.brain.AgentID
+	if r.brain != nil && r.slotScope != "" {
+		rec.BrainID = ManagerSlotID(r.slotScope)
 	}
-	rec.GuardianID = r.guardianID
+	if r.guardianID != "" && r.slotScope != "" {
+		rec.GuardianID = GuardianSlotID(r.slotScope)
+	}
 	return rec
 }
 

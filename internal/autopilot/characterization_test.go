@@ -41,6 +41,9 @@ func (r *hexBrainRuntime) SpawnBrain(_ context.Context, spec BrainSpec) (BrainHa
 		return BrainHandle{}, r.spawnErr
 	}
 	r.spawned = append(r.spawned, spec)
+	if spec.SlotScope != "" {
+		return BrainHandle{AgentID: ManagerSlotID(spec.SlotScope), Backend: spec.Backend}, nil
+	}
 	return BrainHandle{AgentID: r.nextAgentID(), Backend: spec.Backend}, nil
 }
 
@@ -81,10 +84,9 @@ func TestCharacterization_RotateBrainMintsNewAgentID(t *testing.T) {
 	require.NotEqual(t, fake.spawned[0].RunID, "", "spawn carries run id")
 }
 
-// TestCharacterization_RestartSpawnsWithoutAdoptingStoredBrainID records that
-// restoreStoredRuns discards BrainID (lifecycle.go:44-48) and SetRuntime always
-// spawns a rival manager (controller.go:260-289). WP4 adds Ticket-based adopt.
-func TestCharacterization_RestartSpawnsWithoutAdoptingStoredBrainID(t *testing.T) {
+// TestSlotSpawnAdoptsStoredBrainOnRestart verifies daemon restart adopts the
+// manager slot id instead of minting a rival agent-<hex> (WP4).
+func TestSlotSpawnAdoptsStoredBrainOnRestart(t *testing.T) {
 	repo := t.TempDir()
 	plan := writePlan(t, repo, "plan.yaml", "durable")
 	data := t.TempDir()
@@ -104,7 +106,7 @@ func TestCharacterization_RestartSpawnsWithoutAdoptingStoredBrainID(t *testing.T
 	require.NoError(t, err)
 	require.Len(t, rt1.spawned, 1)
 	storedBrainID := c1.Status().Runs[0].Brain.AgentID
-	require.Contains(t, storedBrainID, "agent-")
+	require.Equal(t, ManagerSlotID("plan"), storedBrainID)
 
 	rec, err := c1.store.Get(r.RunID)
 	require.NoError(t, err)
@@ -121,20 +123,18 @@ func TestCharacterization_RestartSpawnsWithoutAdoptingStoredBrainID(t *testing.T
 	c2.SetRuntime(rt2)
 	t.Cleanup(func() { require.NoError(t, c2.Close()) })
 
-	require.Len(t, rt2.spawned, 1, "boot reconciliation spawns without adopting stored BrainID")
+	require.Len(t, rt2.spawned, 1, "boot reconciliation calls SpawnBrain to adopt the slot")
 	newBrainID := c2.Status().Runs[0].Brain.AgentID
-	require.Contains(t, newBrainID, "agent-")
-	require.NotEqual(t, storedBrainID, newBrainID, "adopt path does not exist today")
+	require.Equal(t, storedBrainID, newBrainID, "restart adopts the stable slot id")
 
 	rec2, err := c2.store.Get(r.RunID)
 	require.NoError(t, err)
-	require.Equal(t, newBrainID, rec2.BrainID, "persisted BrainID tracks the new rival manager")
+	require.Equal(t, storedBrainID, rec2.BrainID)
 }
 
-// TestCharacterization_CanBrainCompleteAfterSimulatedRestart records that
-// CanBrainComplete compares against in-memory r.brain.AgentID (controller.go:772-783),
-// so a pre-restart manager is rejected after boot reconciliation spawns a rival.
-func TestCharacterization_CanBrainCompleteAfterSimulatedRestart(t *testing.T) {
+// TestSlotSpawnCanBrainCompleteAfterRestart verifies CanBrainComplete accepts the
+// stable slot manager after daemon restart (WP4).
+func TestSlotSpawnCanBrainCompleteAfterRestart(t *testing.T) {
 	repo := t.TempDir()
 	plan := writePlan(t, repo, "plan.yaml", "durable")
 	data := t.TempDir()
@@ -155,12 +155,10 @@ func TestCharacterization_CanBrainCompleteAfterSimulatedRestart(t *testing.T) {
 	c2.SetRuntime(rt2)
 	t.Cleanup(func() { require.NoError(t, c2.Close()) })
 	newBrainID := c2.Status().Runs[0].Brain.AgentID
-	require.NotEqual(t, survivingBrainID, newBrainID)
+	require.Equal(t, survivingBrainID, newBrainID)
 
-	require.False(t, c2.CanBrainComplete(r.RunID, survivingBrainID),
-		"pre-restart manager is not authorized after boot spawns a rival")
-	require.True(t, c2.CanBrainComplete(r.RunID, newBrainID),
-		"only the in-memory brain id may complete the run")
+	require.True(t, c2.CanBrainComplete(r.RunID, survivingBrainID),
+		"slot manager remains authorized after restart")
 }
 
 // TestCharacterization_ConcurrentRunsShareGlobalIntegrationBranch is superseded

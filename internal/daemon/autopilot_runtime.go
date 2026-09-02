@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
@@ -49,9 +50,27 @@ const brainTeardownTimeout = 30 * time.Second
 // SpawnBrain launches a headless brain in the repo root (an orchestrator, not a
 // worktree agent) with the recovery digest as its opening prompt, mirroring the
 // spawn → insert → rollback-on-insert-failure flow the HTTP spawn handler uses.
+// The manager slot id is deterministic (<scope>-autopilot); a live session in
+// that slot is adopted instead of spawning a rival agent-<hex>.
 func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainSpec) (autopilot.BrainHandle, error) {
+	if spec.SlotScope == "" {
+		return autopilot.BrainHandle{}, errors.New("spawn brain: slot scope required")
+	}
+	slotID := autopilot.ManagerSlotID(spec.SlotScope)
+	if existing, err := rt.s.store.Get(ctx, slotID); err == nil {
+		if handle, ok := rt.adoptSlotSession(ctx, existing); ok {
+			rt.refreshBrainSession(ctx, slotID, spec)
+			return handle, nil
+		}
+		if err := rt.clearDeadSlotSession(ctx, existing); err != nil {
+			return autopilot.BrainHandle{}, err
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return autopilot.BrainHandle{}, err
+	}
 	req := SpawnRequest{
-		Cwd:     spec.Repo, // free-form (no type) ⇒ launch in the repo root
+		Ticket:  slotID,
+		Cwd:     spec.Repo,
 		Prompt:  spec.Prompt,
 		Role:    autopilotBrainRole,
 		Backend: spec.Backend,
@@ -65,10 +84,20 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 		return autopilot.BrainHandle{}, err
 	}
 	if err := rt.s.store.Insert(ctx, sess); err != nil {
-		// Roll back the tmux session so a failed insert doesn't leak an untracked
-		// brain (the same guard handleSpawn / fireScheduleAgent apply).
 		tctx, cancel := context.WithTimeout(context.Background(), brainTeardownTimeout)
 		defer cancel()
+		if errors.Is(err, store.ErrExists) {
+			_ = rt.s.life.Teardown(tctx, sess)
+			existing, gerr := rt.s.store.Get(ctx, slotID)
+			if gerr != nil {
+				return autopilot.BrainHandle{}, gerr
+			}
+			if handle, ok := rt.adoptSlotSession(ctx, existing); ok {
+				rt.refreshBrainSession(ctx, slotID, spec)
+				return handle, nil
+			}
+			return autopilot.BrainHandle{}, fmt.Errorf("slot %s exists but is not live", slotID)
+		}
 		if terr := rt.s.life.Teardown(tctx, sess); terr != nil {
 			return autopilot.BrainHandle{}, errors.New(err.Error() + " (rollback also failed: " + terr.Error() + ")")
 		}
@@ -94,14 +123,18 @@ func (rt autopilotRuntime) TerminateBrain(ctx context.Context, agentID string) e
 
 // SpawnGuardian creates a cheap terminal-backed system session representing the
 // daemon's guardian loop. The loop itself remains daemon-owned; the session makes
-// its lifecycle inspectable without consuming an LLM backend.
-func (rt autopilotRuntime) SpawnGuardian(ctx context.Context, runID, repo string) (string, error) {
-	id := "guardian-" + strings.TrimPrefix(runID, "ap-")
+// its lifecycle inspectable without consuming an LLM backend. The guardian slot id
+// is deterministic (<scope>-guardian); an existing record is adopted on ErrExists.
+func (rt autopilotRuntime) SpawnGuardian(ctx context.Context, runID, slotScope, repo string) (string, error) {
+	if slotScope == "" {
+		return "", errors.New("spawn guardian: slot scope required")
+	}
+	id := autopilot.GuardianSlotID(slotScope)
+	tags := []string{guardianSystemTag, guardianRunPrefix + runID}
 	now := time.Now().UTC()
 	if _, err := rt.s.store.Get(ctx, id); err == nil {
 		if err := rt.s.store.Update(ctx, id, func(sess *store.Session) error {
-			sess.Status, sess.Tags, sess.Repo, sess.Workdir = store.StatusIdle,
-				[]string{guardianSystemTag, guardianRunPrefix + runID}, repo, repo
+			sess.Status, sess.Tags, sess.Repo, sess.Workdir = store.StatusIdle, tags, repo, repo
 			return nil
 		}); err != nil {
 			return "", err
@@ -112,9 +145,18 @@ func (rt autopilotRuntime) SpawnGuardian(ctx context.Context, runID, repo string
 		return "", err
 	}
 	sess := &store.Session{ID: id, Name: id, Repo: repo, Workdir: repo,
-		Status: store.StatusIdle, Tags: []string{guardianSystemTag, guardianRunPrefix + runID},
-		CreatedAt: now, UpdatedAt: now}
+		Status: store.StatusIdle, Tags: tags, CreatedAt: now, UpdatedAt: now}
 	if err := rt.s.store.Insert(ctx, sess); err != nil {
+		if errors.Is(err, store.ErrExists) {
+			if err := rt.s.store.Update(ctx, id, func(sess *store.Session) error {
+				sess.Status, sess.Tags, sess.Repo, sess.Workdir = store.StatusIdle, tags, repo, repo
+				return nil
+			}); err != nil {
+				return "", err
+			}
+			rt.s.notify()
+			return id, nil
+		}
 		return "", err
 	}
 	rt.s.notify()
@@ -185,6 +227,42 @@ func guardianSessionLive(status store.Status) bool {
 	default:
 		return false
 	}
+}
+
+// adoptSlotSession returns a handle when sess is a live manager slot session.
+func (rt autopilotRuntime) adoptSlotSession(ctx context.Context, sess *store.Session) (autopilot.BrainHandle, bool) {
+	if sess == nil || !guardianSessionLive(sess.Status) {
+		return autopilot.BrainHandle{}, false
+	}
+	if rt.s.poller != nil && sess.TmuxSession != "" && !rt.s.poller.SessionAlive(ctx, sess.TmuxSession) {
+		return autopilot.BrainHandle{}, false
+	}
+	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.Backend}, true
+}
+
+func (rt autopilotRuntime) refreshBrainSession(ctx context.Context, id string, spec autopilot.BrainSpec) {
+	if err := rt.s.store.Update(ctx, id, func(sess *store.Session) error {
+		sess.Tags = spec.Tags
+		sess.Repo = spec.Repo
+		sess.Workdir = spec.Repo
+		return nil
+	}); err != nil {
+		slog.Warn("autopilot: refresh adopted brain session failed", "agent", id, "err", err)
+		return
+	}
+	rt.s.notify()
+}
+
+func (rt autopilotRuntime) clearDeadSlotSession(ctx context.Context, sess *store.Session) error {
+	if sess == nil {
+		return nil
+	}
+	if sess.TmuxSession != "" {
+		tctx, cancel := context.WithTimeout(ctx, brainTeardownTimeout)
+		defer cancel()
+		_ = rt.s.life.Terminate(tctx, sess.TmuxSession)
+	}
+	return rt.s.store.Archive(ctx, sess.ID)
 }
 
 // NewLedger returns a run-scoped ledger over the shared-context blackboard, or nil
