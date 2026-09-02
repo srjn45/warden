@@ -107,8 +107,9 @@ wd backend model --json                # emit the menu as a JSON array instead
 It runs the backend's own list subcommand via the additive
 `agentbackend.ModelLister` interface — **Antigravity** (`agy models`) and
 **Cursor** (`cursor-agent --list-models`). The printed ids feed `--model`
-verbatim. Listing is a **metadata read**, not a generation request, so it spends
-no hosted-tier quota.
+verbatim and are the same ids seeded into warden's Cursor catalog
+(`internal/backendstore/seed.go`). Listing is a **metadata read**, not a
+generation request, so it spends no hosted-tier quota.
 
 Backends with a static model set (e.g. Claude) have no live menu and are not
 offered the verb — it exits non-zero pointing you at `--model` with a known id.

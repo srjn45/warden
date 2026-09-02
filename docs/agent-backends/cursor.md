@@ -10,8 +10,11 @@ strips Cursor's features down to a lowest common denominator.
 - **Tests / fixtures:** `cursor_test.go`, `testdata/cursor/`
 - **Tier:** **C** (transcript degraded — interactive sessions persist to an
   unreadable SQLite store; digests do not run on Cursor data yet)
-- **Verified against:** `cursor-agent` 2026.06.26-7079533, hosted plan (logged in via
-  `cursor-agent login`), default model `composer-2.5-fast`
+- **Verified against:** `cursor-agent` 2026.08.31-4057e58, hosted plan (logged in via
+  `cursor-agent login`); live `--list-models` is 214 ids. The committed catalog in
+  `internal/backendstore/seed.go` is that live menu (not a boot-time scrape).
+  Auto-assign faces: Grok 4.6 Fast + Opus 5 thinking (tier-1), Grok 4.5 + `auto` +
+  Sonnet 5 thinking (tier-2), Composer 2.5 Fast + Gemini 3.7 Flash (tier-3).
 
 > **Hosted, not $0-local.** Unlike the Codex/OpenCode/Ollama rigs, Cursor is billed
 > against the user's Cursor subscription. This adapter was verified with the **minimum**
@@ -227,6 +230,7 @@ writing that file.)
 | `SessionIDControl`     | ❌    | Cursor mints its own UUID chatId; no flag to assign one at launch. |
 | `SystemPromptInject`   | ✅ via rules file | no `--append-system-prompt` equivalent on the launch command, but warden delivers the same addendum out-of-band via the `AGENTS.md` rules file cursor-agent reads on startup (`InjectContext`). The Caps flag stays `false` — it tracks the *launch flag* specifically. |
 | `Pricing`              | ❌    | hosted plan; tokens are in the stream, dollars are never surfaced. |
+| `Usage limits`         | ✅    | `warden usage` maps Included / Auto / API bars from dashboard `GetCurrentPeriodUsage` (Bearer from `~/.config/cursor/auth.json`). Not a `cursor-agent usage` verb; the TUI `/usage` pager is not scraped. |
 
 ---
 
@@ -240,6 +244,11 @@ writing that file.)
   `--continue` resumed the same chatId and recalled the prior turn's context.
 - Headless one-shots via `cursor-agent -p --force --trust`.
 - Map Cursor's plan / ask / auto-review / force approval modes into warden modes.
+- **Three usage windows** on `warden usage` (Included / Auto / API) from the same
+  dashboard RPC the CLI's feature-flagged `/usage` pager uses. Composer and
+  `cursor-grok-*` share Included; `auto` is its own bar; everything else is API.
+  A 100% API bar does not hide Grok/Composer. HTTP failure after a successful
+  login still emits the three rows with null percents (not `unsupported`).
 - **Live state detection** (`DetectState`) — classify the TUI pane as working / idle /
   needs-input from stable pane markers (see below). Wired into the poller (#52 core
   seam #1), so warden no longer infers idle purely from staleness for Cursor agents.

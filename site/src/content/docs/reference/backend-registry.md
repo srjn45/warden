@@ -97,15 +97,36 @@ non-Gemini pools returns separate scoped entries. Unknown measurements, restore
 times, or model selectors remain JSON `null`; warden never guesses them.
 
 Codex supplies structured percentage limits and reset times through its app-server
-protocol. Claude and Cursor currently supply safe plan/login metadata but report
-usage as `unsupported`; Antigravity reports `unsupported`. Warden deliberately does
-not substitute its local synthetic quota estimates or scrape interactive `/usage`
-screens. Account labels, credentials, raw provider output, paths, and request IDs
-are excluded.
+protocol. Cursor supplies three never-flattened windows (`included`, `auto`, `api`)
+from `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`
+using the local `cursor-agent` login token — the same RPC as the feature-flagged
+CLI `/usage` pager. There is no `cursor-agent usage` subcommand; warden does not
+scrape the TUI or invent percents from spend cents. Claude currently supplies
+safe plan/login metadata but reports usage as `unsupported`; Antigravity reports
+`unsupported`. Warden deliberately does not substitute its local synthetic quota
+estimates. Account labels, credentials, raw provider output, paths, and request IDs
+are excluded. An API-key-only Cursor login (no `auth.json` access token) still
+emits the three Cursor limit rows with `used_percent: null`.
 
 The command exits 0 when every row is `ok` or truthfully `unsupported`, 2 after
 rendering a partial result with an operational provider failure, and 1 when no
 consolidated document can be produced.
+
+```json
+{
+  "id": "cursor",
+  "status": "rate_limited",
+  "usage": [
+    {"id": "cursor:api", "scope": "api", "label": "API", "model_families": ["claude", "gemini", "glm", "gpt", "kimi"], "models": null, "used_percent": 100, "resets_at": "2026-10-01T18:31:27Z"},
+    {"id": "cursor:auto", "scope": "auto", "label": "Auto", "model_families": null, "models": ["auto"], "used_percent": 4.09, "resets_at": "2026-10-01T18:31:27Z"},
+    {"id": "cursor:included", "scope": "included", "label": "Included", "model_families": ["composer", "cursor-grok"], "models": null, "used_percent": 8.87, "resets_at": "2026-10-01T18:31:27Z"}
+  ]
+}
+```
+
+`status` is `ok` when every bar is below 100, or `rate_limited` when any window is
+at the cap (recovery still ranks Composer/Grok/`auto` on their own headroom).
+Omitted percents stay JSON `null` — they are never defaulted to 0.
 
 ```json
 {
@@ -118,7 +139,7 @@ consolidated document can be produced.
 }
 ```
 
-The example illustrates the contract for a future structured Antigravity adapter;
+The Antigravity example illustrates the contract for a future structured adapter;
 the current installed CLI has no supported structured usage source and therefore
 returns `status: "unsupported"` with an empty `usage` array.
 

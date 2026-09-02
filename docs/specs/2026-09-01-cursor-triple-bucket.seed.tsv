@@ -1,0 +1,215 @@
+backend_id	model_id	tier	display_name	enabled	auto_assign	bucket
+cursor	cursor-grok-4.6-high	tier-1	Cursor Grok 4.6	true	false	included
+cursor	cursor-grok-4.6-high-fast	tier-1	Cursor Grok 4.6 Fast	true	true	included
+cursor	cursor-grok-4.6-xhigh	tier-1	Cursor Grok 4.6 Extra High	true	false	included
+cursor	cursor-grok-4.6-xhigh-fast	tier-1	Cursor Grok 4.6 Extra High Fast	true	false	included
+cursor	claude-4.6-opus-high	tier-1	Claude Opus 4.6 1M	true	false	api
+cursor	claude-4.6-opus-high-thinking	tier-1	Claude Opus 4.6 1M Thinking	true	false	api
+cursor	claude-4.6-opus-max	tier-1	Claude Opus 4.6 1M Max	true	false	api
+cursor	claude-4.6-opus-max-thinking	tier-1	Claude Opus 4.6 1M Max Thinking	true	false	api
+cursor	claude-fable-5-1-thinking-high	tier-1	Claude Fable 5.1 1M Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-1-thinking-max	tier-1	Claude Fable 5.1 1M Max Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-1-thinking-xhigh	tier-1	Claude Fable 5.1 1M Extra High Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-thinking-high	tier-1	Claude Fable 5 1M Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-thinking-max	tier-1	Claude Fable 5 1M Max Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-thinking-xhigh	tier-1	Claude Fable 5 1M Extra High Thinking (NO ZDR)	true	false	api
+cursor	claude-opus-4-7-high	tier-1	Claude Opus 4.7 1M High	true	false	api
+cursor	claude-opus-4-7-high-fast	tier-1	Claude Opus 4.7 1M High Fast	true	false	api
+cursor	claude-opus-4-7-max	tier-1	Claude Opus 4.7 1M Max	true	false	api
+cursor	claude-opus-4-7-max-fast	tier-1	Claude Opus 4.7 1M Max Fast	true	false	api
+cursor	claude-opus-4-7-thinking-high	tier-1	Claude Opus 4.7 1M High Thinking	true	false	api
+cursor	claude-opus-4-7-thinking-high-fast	tier-1	Claude Opus 4.7 1M High Thinking Fast	true	false	api
+cursor	claude-opus-4-7-thinking-max	tier-1	Claude Opus 4.7 1M Max Thinking	true	false	api
+cursor	claude-opus-4-7-thinking-max-fast	tier-1	Claude Opus 4.7 1M Max Thinking Fast	true	false	api
+cursor	claude-opus-4-7-thinking-xhigh	tier-1	Claude Opus 4.7 1M Thinking	true	false	api
+cursor	claude-opus-4-7-thinking-xhigh-fast	tier-1	Claude Opus 4.7 1M Thinking Fast	true	false	api
+cursor	claude-opus-4-7-xhigh	tier-1	Claude Opus 4.7 1M	true	false	api
+cursor	claude-opus-4-7-xhigh-fast	tier-1	Claude Opus 4.7 1M Fast	true	false	api
+cursor	claude-opus-4-8-high	tier-1	Claude Opus 4.8 1M	true	false	api
+cursor	claude-opus-4-8-high-fast	tier-1	Claude Opus 4.8 1M Fast	true	false	api
+cursor	claude-opus-4-8-max	tier-1	Claude Opus 4.8 1M Max	true	false	api
+cursor	claude-opus-4-8-max-fast	tier-1	Claude Opus 4.8 1M Max Fast	true	false	api
+cursor	claude-opus-4-8-thinking-high	tier-1	Claude Opus 4.8 1M Thinking	true	false	api
+cursor	claude-opus-4-8-thinking-high-fast	tier-1	Claude Opus 4.8 1M Thinking Fast	true	false	api
+cursor	claude-opus-4-8-thinking-max	tier-1	Claude Opus 4.8 1M Max Thinking	true	false	api
+cursor	claude-opus-4-8-thinking-max-fast	tier-1	Claude Opus 4.8 1M Max Thinking Fast	true	false	api
+cursor	claude-opus-4-8-thinking-xhigh	tier-1	Claude Opus 4.8 1M Extra High Thinking	true	false	api
+cursor	claude-opus-4-8-thinking-xhigh-fast	tier-1	Claude Opus 4.8 1M Extra High Thinking Fast	true	false	api
+cursor	claude-opus-4-8-xhigh	tier-1	Claude Opus 4.8 1M Extra High	true	false	api
+cursor	claude-opus-4-8-xhigh-fast	tier-1	Claude Opus 4.8 1M Extra High Fast	true	false	api
+cursor	claude-opus-5-high	tier-1	Claude Opus 5 1M	true	false	api
+cursor	claude-opus-5-high-fast	tier-1	Claude Opus 5 1M Fast	true	false	api
+cursor	claude-opus-5-thinking-high	tier-1	Claude Opus 5 1M Thinking	true	true	api
+cursor	claude-opus-5-thinking-high-fast	tier-1	Claude Opus 5 1M Thinking Fast	true	false	api
+cursor	claude-opus-5-thinking-max	tier-1	Claude Opus 5 1M Max Thinking	true	false	api
+cursor	claude-opus-5-thinking-max-fast	tier-1	Claude Opus 5 1M Max Thinking Fast	true	false	api
+cursor	claude-opus-5-thinking-xhigh	tier-1	Claude Opus 5 1M Extra High Thinking	true	false	api
+cursor	claude-opus-5-thinking-xhigh-fast	tier-1	Claude Opus 5 1M Extra High Thinking Fast	true	false	api
+cursor	gpt-5.3-codex-xhigh	tier-1	Codex 5.3 Extra High	true	false	api
+cursor	gpt-5.3-codex-xhigh-fast	tier-1	Codex 5.3 Extra High Fast	true	false	api
+cursor	gpt-5.5-extra-high	tier-1	GPT-5.5 1M Extra High	true	false	api
+cursor	gpt-5.5-extra-high-fast	tier-1	GPT-5.5 Extra High Fast	true	false	api
+cursor	gpt-5.6-sol-max	tier-1	GPT-5.6 Sol 1M Max	true	false	api
+cursor	gpt-5.6-sol-max-fast	tier-1	GPT-5.6 Sol Max Fast	true	false	api
+cursor	gpt-5.6-sol-xhigh	tier-1	GPT-5.6 Sol 1M Extra High	true	false	api
+cursor	gpt-5.6-sol-xhigh-fast	tier-1	GPT-5.6 Sol Extra High Fast	true	false	api
+cursor	composer-2.5	tier-2	Composer 2.5	true	false	included
+cursor	cursor-grok-4.5-high	tier-2	Cursor Grok 4.5	true	true	included
+cursor	cursor-grok-4.5-high-fast	tier-2	Cursor Grok 4.5 Fast	true	false	included
+cursor	cursor-grok-4.5-medium	tier-2	Cursor Grok 4.5 Medium	true	false	included
+cursor	cursor-grok-4.5-medium-fast	tier-2	Cursor Grok 4.5 Medium Fast	true	false	included
+cursor	cursor-grok-4.6-medium	tier-2	Cursor Grok 4.6 Medium	true	false	included
+cursor	cursor-grok-4.6-medium-fast	tier-2	Cursor Grok 4.6 Medium Fast	true	false	included
+cursor	auto	tier-2	Auto (default)	true	true	auto
+cursor	claude-4-sonnet	tier-2	Claude Sonnet 4	true	false	api
+cursor	claude-4-sonnet-thinking	tier-2	Claude Sonnet 4 Thinking	true	false	api
+cursor	claude-4.5-opus-high	tier-2	Claude Opus 4.5	true	false	api
+cursor	claude-4.5-opus-high-thinking	tier-2	Claude Opus 4.5 Thinking	true	false	api
+cursor	claude-4.5-sonnet	tier-2	Claude Sonnet 4.5	true	false	api
+cursor	claude-4.5-sonnet-thinking	tier-2	Claude Sonnet 4.5 Thinking	true	false	api
+cursor	claude-4.6-sonnet-medium	tier-2	Claude Sonnet 4.6 1M	true	false	api
+cursor	claude-4.6-sonnet-medium-thinking	tier-2	Claude Sonnet 4.6 1M Thinking	true	false	api
+cursor	claude-fable-5-1-high	tier-2	Claude Fable 5.1 1M (NO ZDR)	true	false	api
+cursor	claude-fable-5-1-low	tier-2	Claude Fable 5.1 1M Low (NO ZDR)	true	false	api
+cursor	claude-fable-5-1-max	tier-2	Claude Fable 5.1 1M Max (NO ZDR)	true	false	api
+cursor	claude-fable-5-1-medium	tier-2	Claude Fable 5.1 1M Medium (NO ZDR)	true	false	api
+cursor	claude-fable-5-1-thinking-low	tier-2	Claude Fable 5.1 1M Low Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-1-thinking-medium	tier-2	Claude Fable 5.1 1M Medium Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-1-xhigh	tier-2	Claude Fable 5.1 1M Extra High (NO ZDR)	true	false	api
+cursor	claude-fable-5-high	tier-2	Claude Fable 5 1M (NO ZDR)	true	false	api
+cursor	claude-fable-5-low	tier-2	Claude Fable 5 1M Low (NO ZDR)	true	false	api
+cursor	claude-fable-5-max	tier-2	Claude Fable 5 1M Max (NO ZDR)	true	false	api
+cursor	claude-fable-5-medium	tier-2	Claude Fable 5 1M Medium (NO ZDR)	true	false	api
+cursor	claude-fable-5-thinking-low	tier-2	Claude Fable 5 1M Low Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-thinking-medium	tier-2	Claude Fable 5 1M Medium Thinking (NO ZDR)	true	false	api
+cursor	claude-fable-5-xhigh	tier-2	Claude Fable 5 1M Extra High (NO ZDR)	true	false	api
+cursor	claude-opus-4-7-low	tier-2	Claude Opus 4.7 1M Low	true	false	api
+cursor	claude-opus-4-7-low-fast	tier-2	Claude Opus 4.7 1M Low Fast	true	false	api
+cursor	claude-opus-4-7-medium	tier-2	Claude Opus 4.7 1M Medium	true	false	api
+cursor	claude-opus-4-7-medium-fast	tier-2	Claude Opus 4.7 1M Medium Fast	true	false	api
+cursor	claude-opus-4-7-thinking-low	tier-2	Claude Opus 4.7 1M Low Thinking	true	false	api
+cursor	claude-opus-4-7-thinking-low-fast	tier-2	Claude Opus 4.7 1M Low Thinking Fast	true	false	api
+cursor	claude-opus-4-7-thinking-medium	tier-2	Claude Opus 4.7 1M Medium Thinking	true	false	api
+cursor	claude-opus-4-7-thinking-medium-fast	tier-2	Claude Opus 4.7 1M Medium Thinking Fast	true	false	api
+cursor	claude-opus-4-8-low	tier-2	Claude Opus 4.8 1M Low	true	false	api
+cursor	claude-opus-4-8-low-fast	tier-2	Claude Opus 4.8 1M Low Fast	true	false	api
+cursor	claude-opus-4-8-medium	tier-2	Claude Opus 4.8 1M Medium	true	false	api
+cursor	claude-opus-4-8-medium-fast	tier-2	Claude Opus 4.8 1M Medium Fast	true	false	api
+cursor	claude-opus-4-8-thinking-low	tier-2	Claude Opus 4.8 1M Low Thinking	true	false	api
+cursor	claude-opus-4-8-thinking-low-fast	tier-2	Claude Opus 4.8 1M Low Thinking Fast	true	false	api
+cursor	claude-opus-4-8-thinking-medium	tier-2	Claude Opus 4.8 1M Medium Thinking	true	false	api
+cursor	claude-opus-4-8-thinking-medium-fast	tier-2	Claude Opus 4.8 1M Medium Thinking Fast	true	false	api
+cursor	claude-opus-5-low	tier-2	Claude Opus 5 1M Low	true	false	api
+cursor	claude-opus-5-low-fast	tier-2	Claude Opus 5 1M Low Fast	true	false	api
+cursor	claude-opus-5-medium	tier-2	Claude Opus 5 1M Medium	true	false	api
+cursor	claude-opus-5-medium-fast	tier-2	Claude Opus 5 1M Medium Fast	true	false	api
+cursor	claude-opus-5-thinking-low	tier-2	Claude Opus 5 1M Low Thinking	true	false	api
+cursor	claude-opus-5-thinking-low-fast	tier-2	Claude Opus 5 1M Low Thinking Fast	true	false	api
+cursor	claude-opus-5-thinking-medium	tier-2	Claude Opus 5 1M Medium Thinking	true	false	api
+cursor	claude-opus-5-thinking-medium-fast	tier-2	Claude Opus 5 1M Medium Thinking Fast	true	false	api
+cursor	claude-sonnet-5-high	tier-2	Claude Sonnet 5 1M	true	false	api
+cursor	claude-sonnet-5-low	tier-2	Claude Sonnet 5 1M Low	true	false	api
+cursor	claude-sonnet-5-max	tier-2	Claude Sonnet 5 1M Max	true	false	api
+cursor	claude-sonnet-5-medium	tier-2	Claude Sonnet 5 1M Medium	true	false	api
+cursor	claude-sonnet-5-thinking-high	tier-2	Claude Sonnet 5 1M Thinking	true	true	api
+cursor	claude-sonnet-5-thinking-low	tier-2	Claude Sonnet 5 1M Low Thinking	true	false	api
+cursor	claude-sonnet-5-thinking-max	tier-2	Claude Sonnet 5 1M Max Thinking	true	false	api
+cursor	claude-sonnet-5-thinking-medium	tier-2	Claude Sonnet 5 1M Medium Thinking	true	false	api
+cursor	claude-sonnet-5-thinking-xhigh	tier-2	Claude Sonnet 5 1M Extra High Thinking	true	false	api
+cursor	claude-sonnet-5-xhigh	tier-2	Claude Sonnet 5 1M Extra High	true	false	api
+cursor	gemini-3.1-pro	tier-2	Gemini 3.1 Pro	true	false	api
+cursor	gpt-5.2	tier-2	GPT-5.2	true	false	api
+cursor	gpt-5.2-fast	tier-2	GPT-5.2 Fast	true	false	api
+cursor	gpt-5.2-high	tier-2	GPT-5.2 High	true	false	api
+cursor	gpt-5.2-high-fast	tier-2	GPT-5.2 High Fast	true	false	api
+cursor	gpt-5.2-low	tier-2	GPT-5.2 Low	true	false	api
+cursor	gpt-5.2-low-fast	tier-2	GPT-5.2 Low Fast	true	false	api
+cursor	gpt-5.2-xhigh	tier-2	GPT-5.2 Extra High	true	false	api
+cursor	gpt-5.2-xhigh-fast	tier-2	GPT-5.2 Extra High Fast	true	false	api
+cursor	gpt-5.3-codex	tier-2	Codex 5.3	true	false	api
+cursor	gpt-5.3-codex-fast	tier-2	Codex 5.3 Fast	true	false	api
+cursor	gpt-5.3-codex-high	tier-2	Codex 5.3 High	true	false	api
+cursor	gpt-5.3-codex-high-fast	tier-2	Codex 5.3 High Fast	true	false	api
+cursor	gpt-5.4-high	tier-2	GPT-5.4 1M High	true	false	api
+cursor	gpt-5.4-high-fast	tier-2	GPT-5.4 High Fast	true	false	api
+cursor	gpt-5.4-low	tier-2	GPT-5.4 1M Low	true	false	api
+cursor	gpt-5.4-medium	tier-2	GPT-5.4 1M	true	false	api
+cursor	gpt-5.4-medium-fast	tier-2	GPT-5.4 Fast	true	false	api
+cursor	gpt-5.4-xhigh	tier-2	GPT-5.4 1M Extra High	true	false	api
+cursor	gpt-5.4-xhigh-fast	tier-2	GPT-5.4 Extra High Fast	true	false	api
+cursor	gpt-5.5-high	tier-2	GPT-5.5 1M High	true	false	api
+cursor	gpt-5.5-high-fast	tier-2	GPT-5.5 High Fast	true	false	api
+cursor	gpt-5.5-low	tier-2	GPT-5.5 1M Low	true	false	api
+cursor	gpt-5.5-low-fast	tier-2	GPT-5.5 Low Fast	true	false	api
+cursor	gpt-5.5-medium	tier-2	GPT-5.5 1M	true	false	api
+cursor	gpt-5.5-medium-fast	tier-2	GPT-5.5 Fast	true	false	api
+cursor	gpt-5.5-none	tier-2	GPT-5.5 1M None	true	false	api
+cursor	gpt-5.5-none-fast	tier-2	GPT-5.5 None Fast	true	false	api
+cursor	gpt-5.6-luna-high	tier-2	GPT-5.6 Luna 1M High	true	false	api
+cursor	gpt-5.6-luna-high-fast	tier-2	GPT-5.6 Luna High Fast	true	false	api
+cursor	gpt-5.6-luna-low	tier-2	GPT-5.6 Luna 1M Low	true	false	api
+cursor	gpt-5.6-luna-low-fast	tier-2	GPT-5.6 Luna Low Fast	true	false	api
+cursor	gpt-5.6-luna-max	tier-2	GPT-5.6 Luna 1M Max	true	false	api
+cursor	gpt-5.6-luna-max-fast	tier-2	GPT-5.6 Luna Max Fast	true	false	api
+cursor	gpt-5.6-luna-medium	tier-2	GPT-5.6 Luna 1M	true	false	api
+cursor	gpt-5.6-luna-medium-fast	tier-2	GPT-5.6 Luna Fast	true	false	api
+cursor	gpt-5.6-luna-none	tier-2	GPT-5.6 Luna 1M None	true	false	api
+cursor	gpt-5.6-luna-none-fast	tier-2	GPT-5.6 Luna None Fast	true	false	api
+cursor	gpt-5.6-luna-xhigh	tier-2	GPT-5.6 Luna 1M Extra High	true	false	api
+cursor	gpt-5.6-luna-xhigh-fast	tier-2	GPT-5.6 Luna Extra High Fast	true	false	api
+cursor	gpt-5.6-sol-high	tier-2	GPT-5.6 Sol 1M High	true	false	api
+cursor	gpt-5.6-sol-high-fast	tier-2	GPT-5.6 Sol High Fast	true	false	api
+cursor	gpt-5.6-sol-low	tier-2	GPT-5.6 Sol 1M Low	true	false	api
+cursor	gpt-5.6-sol-low-fast	tier-2	GPT-5.6 Sol Low Fast	true	false	api
+cursor	gpt-5.6-sol-medium	tier-2	GPT-5.6 Sol 1M	true	false	api
+cursor	gpt-5.6-sol-medium-fast	tier-2	GPT-5.6 Sol Fast	true	false	api
+cursor	gpt-5.6-sol-none	tier-2	GPT-5.6 Sol 1M None	true	false	api
+cursor	gpt-5.6-sol-none-fast	tier-2	GPT-5.6 Sol None Fast	true	false	api
+cursor	gpt-5.6-terra-high	tier-2	GPT-5.6 Terra 1M High	true	false	api
+cursor	gpt-5.6-terra-high-fast	tier-2	GPT-5.6 Terra High Fast	true	false	api
+cursor	gpt-5.6-terra-low	tier-2	GPT-5.6 Terra 1M Low	true	false	api
+cursor	gpt-5.6-terra-low-fast	tier-2	GPT-5.6 Terra Low Fast	true	false	api
+cursor	gpt-5.6-terra-max	tier-2	GPT-5.6 Terra 1M Max	true	false	api
+cursor	gpt-5.6-terra-max-fast	tier-2	GPT-5.6 Terra Max Fast	true	false	api
+cursor	gpt-5.6-terra-medium	tier-2	GPT-5.6 Terra 1M	true	false	api
+cursor	gpt-5.6-terra-medium-fast	tier-2	GPT-5.6 Terra Fast	true	false	api
+cursor	gpt-5.6-terra-none	tier-2	GPT-5.6 Terra 1M None	true	false	api
+cursor	gpt-5.6-terra-none-fast	tier-2	GPT-5.6 Terra None Fast	true	false	api
+cursor	gpt-5.6-terra-xhigh	tier-2	GPT-5.6 Terra 1M Extra High	true	false	api
+cursor	gpt-5.6-terra-xhigh-fast	tier-2	GPT-5.6 Terra Extra High Fast	true	false	api
+cursor	composer-2.5-fast	tier-3	Composer 2.5 Fast	true	true	included
+cursor	cursor-grok-4.5-low	tier-3	Cursor Grok 4.5 Low	true	false	included
+cursor	cursor-grok-4.5-low-fast	tier-3	Cursor Grok 4.5 Low Fast	true	false	included
+cursor	cursor-grok-4.6-low	tier-3	Cursor Grok 4.6 Low	true	false	included
+cursor	cursor-grok-4.6-low-fast	tier-3	Cursor Grok 4.6 Low Fast	true	false	included
+cursor	gemini-3-flash	tier-3	Gemini 3 Flash	true	false	api
+cursor	gemini-3.5-flash	tier-3	Gemini 3.5 Flash	true	false	api
+cursor	gemini-3.6-flash-high	tier-3	Gemini 3.6 Flash	true	false	api
+cursor	gemini-3.6-flash-low	tier-3	Gemini 3.6 Flash Low	true	false	api
+cursor	gemini-3.6-flash-medium	tier-3	Gemini 3.6 Flash Medium	true	false	api
+cursor	gemini-3.6-flash-minimal	tier-3	Gemini 3.6 Flash Minimal	true	false	api
+cursor	gemini-3.7-flash-high	tier-3	Gemini 3.7 Flash	true	true	api
+cursor	gemini-3.7-flash-low	tier-3	Gemini 3.7 Flash Low	true	false	api
+cursor	gemini-3.7-flash-medium	tier-3	Gemini 3.7 Flash Medium	true	false	api
+cursor	glm-5.2-high	tier-3	GLM 5.2	true	false	api
+cursor	glm-5.2-max	tier-3	GLM 5.2 Max	true	false	api
+cursor	gpt-5-mini	tier-3	GPT-5 Mini	true	false	api
+cursor	gpt-5.1	tier-3	GPT-5.1	true	false	api
+cursor	gpt-5.1-high	tier-3	GPT-5.1 High	true	false	api
+cursor	gpt-5.1-low	tier-3	GPT-5.1 Low	true	false	api
+cursor	gpt-5.3-codex-low	tier-3	Codex 5.3 Low	true	false	api
+cursor	gpt-5.3-codex-low-fast	tier-3	Codex 5.3 Low Fast	true	false	api
+cursor	gpt-5.4-mini-high	tier-3	GPT-5.4 Mini High	true	false	api
+cursor	gpt-5.4-mini-low	tier-3	GPT-5.4 Mini Low	true	false	api
+cursor	gpt-5.4-mini-medium	tier-3	GPT-5.4 Mini	true	false	api
+cursor	gpt-5.4-mini-none	tier-3	GPT-5.4 Mini None	true	false	api
+cursor	gpt-5.4-mini-xhigh	tier-3	GPT-5.4 Mini Extra High	true	false	api
+cursor	gpt-5.4-nano-high	tier-3	GPT-5.4 Nano High	true	false	api
+cursor	gpt-5.4-nano-low	tier-3	GPT-5.4 Nano Low	true	false	api
+cursor	gpt-5.4-nano-medium	tier-3	GPT-5.4 Nano	true	false	api
+cursor	gpt-5.4-nano-none	tier-3	GPT-5.4 Nano None	true	false	api
+cursor	gpt-5.4-nano-xhigh	tier-3	GPT-5.4 Nano Extra High	true	false	api
+cursor	kimi-k2.7-code	tier-3	Kimi K2.7 Code	true	false	api
+cursor	kimi-k3-high	tier-3	Kimi K3 High	true	false	api
+cursor	kimi-k3-low	tier-3	Kimi K3 Low	true	false	api
+cursor	kimi-k3-max	tier-3	Kimi K3	true	false	api
