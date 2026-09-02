@@ -18,7 +18,7 @@ place of git tool-spam.
 | `push {dir?, force?}` | Push the branch (sets upstream). Pass `force: true` after a rebase/amend to overwrite the remote branch. Returns `{branch, remote, pushed, forced}`. | Refuses `main`/`master`. Force is always `--force-with-lease` (never a bare `--force`), so it aborts if a teammate pushed to your branch since your last fetch. |
 | `sync {dir?}` | Rebase-sync onto the upstream. | Refuses a dirty tree; on conflict leaves it in progress carrying only the conflicting files (then resolve + continue). |
 
-`wd done <id> --create-pr` pushes the branch and opens a GitHub PR before
+`wd agent done <id> --create-pr` pushes the branch and opens a GitHub PR before
 terminating the agent (see agents.md).
 
 ## Checks — `check`
@@ -36,10 +36,10 @@ biggest raw-token win — you read a compact summary, not hundreds of log lines.
 
 Some backends ship native extras warden surfaces as first-class verbs. Both are
 **CLI-only** — like `wd check` they exec in the agent's worktree with no daemon
-round-trip, so there is **no MCP tool**; run them through the CLI (`wd review` /
-`wd models`).
+round-trip, so there is **no MCP tool**; run them through the CLI (`wd git review` /
+`wd backend model`).
 
-- **`wd review`** — ask the agent's backend to review its OWN diff: the
+- **`wd git review`** — ask the agent's backend to review its OWN diff: the
   agent-native counterpart to `wd check` (configured test/lint) and a `pr-review`
   agent (a whole reviewer session). It runs the backend's own one-shot reviewer
   against the worktree and streams findings. Defaults to the uncommitted working
@@ -47,16 +47,16 @@ round-trip, so there is **no MCP tool**; run them through the CLI (`wd review` /
   instructions, `--backend <id>` targets a backend. `--json` emits a neutral,
   machine-readable result `{summary, verdict, findings[]}` to stdout (backend
   progress on stderr) — parse that when self-checking your own change before
-  `wd done`. Implemented by **Codex**; backends without a native reviewer (e.g.
+  `wd agent done`. Implemented by **Codex**; backends without a native reviewer (e.g.
   Claude) exit non-zero pointing you back at `wd check` / a `pr-review` agent —
   use those instead there. Review quality rides the backend's configured model.
-- **`wd models`** — list the backend's **live** model menu (vs warden's static
+- **`wd backend model`** — list the backend's **live** model menu (vs warden's static
   `opus`/`sonnet`/`haiku`/`fable` aliases). The printed ids feed `--model`
   verbatim; `--json` for an array, `--backend <id>` to target a backend. Listing
   is a metadata read (no generation), so it costs no quota. Implemented by
   **Antigravity** and **Cursor**; static-model backends (Claude) exit non-zero.
 
-A **third** Codex superpower — **`wd fork`** (branch an agent's session into a new
+A **third** Codex superpower — **`wd agent fork`** (branch an agent's session into a new
 managed agent) — is a spawn-family verb, not a check-family one, and unlike these two
 it has an MCP twin (`fork_agent`). It lives in
 [references/agents.md](agents.md) with the other spawn/handoff verbs.
@@ -65,9 +65,9 @@ it has an MCP twin (`fork_agent`). It lives in
 
 warden owns one committed, backend-neutral **project memory** — `.warden/memory.md`
 (beside `.warden/check.yml`), keyed by the repo root, holding durable cross-agent
-facts: where things live, how to run X, project invariants. **`wd memory`** shows
+facts: where things live, how to run X, project invariants. **`wd project memory`** shows
 it (rendered as it is injected), `--raw` prints it verbatim, `--path` prints the
-resolved path, `--edit` opens it in `$EDITOR`. CLI-local like `wd check`/`wd review`
+resolved path, `--edit` opens it in `$EDITOR`. CLI-local like `wd check`/`wd git review`
 — no daemon round-trip, no MCP twin.
 
 **It is projected into every spawned agent automatically** (config `memory.inject`,
@@ -81,7 +81,7 @@ tagged `[unverified …]` doubly so.
 
 When you learn a durable, reusable fact the *next* agent shouldn't have to
 rediscover ("the daemon API is spec-first"; "tests run behind `wd check`"), add it
-with `wd memory --edit` — the committed diff is the team's review gate. Keep entries
+with `wd project memory --edit` — the committed diff is the team's review gate. Keep entries
 compact and navigational, not prose. warden READS but never rewrites your
 CLAUDE.md/AGENTS.md/CONVENTIONS.md — `.warden/memory.md` is warden's own.
 
@@ -97,7 +97,7 @@ aged-out tombstones kept for context; `<!-- stale: … -->` marks a fact whose n
 path vanished. Never trust an `unverified` entry blindly, and never `wd commit` a
 memory diff you have not read.
 
-**Ask project memory locally (`memory.ground`, default on).** In `wd repl` you can
+**Ask project memory locally (`memory.ground`, default on).** In `wd backend repl` you can
 *ask* this memory a question instead of re-deriving the answer: `/memory <question>`
 (aliases `/mem`, `/ask`), or the model-callable `project_memory` tool, answers "where
 does X live?" / "how do I run Y?" **locally** from `.warden/memory.md` — served on the
@@ -108,7 +108,7 @@ citation as a hint to verify, same as the injected block above.
 
 ## Snapshots — checkpoint & roll back
 
-MCP `snapshot_create` / `snapshot_list` / `snapshot_restore` (CLI `wd snapshot
+MCP `snapshot_create` / `snapshot_list` / `snapshot_restore` (CLI `wd workspace snapshot
 create|list|restore`). Checkpoint an agent at a known-good point — its **worktree
 state** *and* its **session transcript** — and roll back later. Config-gated by
 `snapshots` (default on).

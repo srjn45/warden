@@ -18,7 +18,7 @@ claude --version     # the agent runtime
 tmux -V              # every agent lives in a tmux window (≥ 3.1 for the cockpit)
 git --version        # worktree creation/cleanup
 gh --version         # only needed for pr-review agents
-ollama --version     # optional — only for local_llm / `wd repl`
+ollama --version     # optional — only for local_llm / `wd backend repl`
 curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
 ```
 
@@ -44,7 +44,7 @@ warden setup --yes      # non-interactive: install all missing deps
 | Spawn fails with `daemon error (503): request timed out` | In a very large monorepo `git worktree add` (a full working-tree checkout) can take minutes. Spawn (and commit/push/sync/check/prune/…) now get a 10-minute daemon budget instead of 30s. If a spawn is still cut, a partial worktree is now cleaned up automatically. Both budgets are configurable — `http.timeout_slow` (default `10m`) for lifecycle routes, `http.timeout_fast` (default `30s`) for everything else; raise the slow one if your repo's checkouts or hooks run longer. Ensure your daemon is up to date (rebuild + restart). |
 | An agent auto-approves the same prompt over and over | The auto-approve **circuit breaker** halts approvals after `auto_approve.max_repeats` consecutive identical approvals (default 10), raises an `approval_loop` anomaly, and leaves the prompt to you — the agent shows `waiting_for_input`. The underlying command is failing (e.g. expired credentials); fix that rather than re-approving. |
 | `stop`/`terminate`/`delete` says `session not found` for an agent `ls` shows | Fixed: these now resolve by the same **name or id** `ls` displays (previously only the id/ticket worked). Rebuild + restart the daemon if it predates this fix. |
-| `warden prune` wants to remove a worktree with real work | Fixed: an orphan worktree carrying unmerged commits (ahead of the default branch) is now held back unless `--force`, alongside the existing dirty/unpushed guard. |
+| `warden workspace prune` wants to remove a worktree with real work | Fixed: an orphan worktree carrying unmerged commits (ahead of the default branch) is now held back unless `--force`, alongside the existing dirty/unpushed guard. |
 | `wd doctor` never flags a bad `local_llm.model` | Fixed: doctor now FAILS when the configured local model isn't installed in ollama (run `ollama pull <model>` or fix `local_llm.model`); the daemon also logs a loud error at startup. |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json`. The poller still updates it, just less promptly. |
 | Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |

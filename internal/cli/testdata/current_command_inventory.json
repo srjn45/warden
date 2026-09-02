@@ -2959,6 +2959,7 @@
   {
     "path": "schedule get",
     "use": "get \u003cid\u003e",
+    "hidden": true,
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2968,6 +2969,15 @@
   {
     "path": "schedule list",
     "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "schedule show",
+    "use": "show \u003cid\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",

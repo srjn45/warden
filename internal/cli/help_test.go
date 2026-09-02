@@ -21,6 +21,23 @@ func executeHelp(t *testing.T, args ...string) (string, error) {
 	return out.String(), err
 }
 
+func requireGolden(t *testing.T, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", "help_"+name+".golden")
+	if os.Getenv("UPDATE_HELP_GOLDENS") == "1" {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Fatalf("%s golden mismatch\n--- want ---\n%s\n--- got ---\n%s", name, want, got)
+	}
+}
+
 func TestRootHelpFormsAreEquivalent(t *testing.T) {
 	want, err := executeHelp(t, "help")
 	if err != nil {
@@ -138,13 +155,7 @@ func TestHelpGoldens(t *testing.T) {
 			if name == "root" {
 				got = rootHelpOutline(got)
 			}
-			want, err := os.ReadFile(filepath.Join("testdata", "help_"+name+".golden"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != string(want) {
-				t.Fatalf("golden mismatch\n--- want ---\n%s\n--- got ---\n%s", want, got)
-			}
+			requireGolden(t, name, got)
 		})
 	}
 }

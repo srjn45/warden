@@ -236,7 +236,7 @@ reachable, not flatten them away. Future enhancements should surface, not suppre
 - **`codex apply`** — apply the agent's last produced diff to the working tree as a
   `git apply`. A natural fit for warden's review-then-land flow.
 - **`codex review`** (`codex exec review`) — run a code review against the repo.
-  **Surfaced** as `wd review` (see below).
+  **Surfaced** as `wd git review` (see below).
 - **`codex mcp-server` / `codex mcp`** — Codex can *be* an MCP server and consume
   external MCP servers; relevant to warden's own MCP surface.
 - **`codex fork`** — branch a session to explore alternatives without losing the
@@ -254,18 +254,18 @@ warden exposes Codex-native capabilities as first-class verbs via additive,
 type-asserted optional interfaces (Claude untouched, no registry/neutral-type
 churn). See `docs/superpowers/specs/2026-06-29-t1-superpowers-design.md`.
 
-### `wd review` — native diff review (`agentbackend.Reviewer`)
+### `wd git review` — native diff review (`agentbackend.Reviewer`)
 
 `codex review` is a non-interactive, diff-scoped code reviewer — the agent reads a
-diff and reports findings. warden surfaces it as **`wd review`**, the agent-native
+diff and reports findings. warden surfaces it as **`wd git review`**, the agent-native
 counterpart to `wd check` (configured test/lint commands) and the `pr-review` agent
 (a whole reviewer session): instead of either, warden asks Codex's *own* reviewer to
 read the worktree diff.
 
 - **Scope.** Defaults to `--uncommitted` (the agent's working tree: staged +
-  unstaged + untracked). `wd review --base <branch>` maps to `codex review --base
+  unstaged + untracked). `wd git review --base <branch>` maps to `codex review --base
   <branch>`.
-- **Local exec, like a check.** `wd review` resolves the agent's backend,
+- **Local exec, like a check.** `wd git review` resolves the agent's backend,
   type-asserts `Reviewer`, and execs the returned argv **in the worktree**,
   streaming the review to the operator. It is CLI-local — no daemon API change.
 - **BYO config.** warden emits only `codex review --uncommitted` (plus an optional
@@ -273,7 +273,7 @@ read the worktree diff.
   like the launch path — so the $0-local Ollama rig (`-c model_provider=ollama`) and
   a paid setup both work unchanged.
 - **Degrades cleanly.** A backend with no native review (e.g. Claude) is simply not
-  offered the verb — `wd review` exits non-zero pointing at `wd check` /
+  offered the verb — `wd git review` exits non-zero pointing at `wd check` /
   `pr-review`.
 
 Captured at $0 on the Ollama rig (`internal/agentbackend/backends/testdata/codex/
@@ -282,9 +282,9 @@ review-uncommitted.txt`). Note: on a tiny local model review *quality* is weak (
 the pilot proves the **plumbing**, not accuracy; quality rides the operator's real
 model.
 
-#### `wd review --json` — machine-readable findings (`agentbackend.StructuredReviewer`)
+#### `wd git review --json` — machine-readable findings (`agentbackend.StructuredReviewer`)
 
-`wd review --json` surfaces codex's native review as a neutral, machine-readable
+`wd git review --json` surfaces codex's native review as a neutral, machine-readable
 result. **What warden verified about the mechanism (codex v0.142.3, $0 Ollama rig) —
 and why it is NOT what the candidate design assumed:**
 
@@ -300,7 +300,7 @@ and why it is NOT what the candidate design assumed:**
   `review_output` is `{ findings[], overall_correctness, overall_explanation,
   overall_confidence_score }`; each finding is `{ title, body, confidence_score,
   priority, code_location: { absolute_file_path, line_range: { start_line, end_line }}}`.
-- **So warden requests no schema; it normalizes codex's own shape.** `wd review --json`
+- **So warden requests no schema; it normalizes codex's own shape.** `wd git review --json`
   runs the structured form (`codex exec review`, non-interactive), then reads the
   rollout's last `review_output` (`StructuredReviewer.ParseReviewResult`, reusing the
   dir-scoped rollout locator `TranscriptPath` already uses) and maps it onto warden's
@@ -319,14 +319,14 @@ and why it is NOT what the candidate design assumed:**
 - **Model-quality caveat (unchanged, important).** The structured result rides the
   backend's configured model. On the $0 rig the 7B model emitted a **valid but
   empty** `review_output` (judged the planted bug "correct"), and weaker models emit
-  no review at all — in which case `wd review --json` reports a clean *"produced no
+  no review at all — in which case `wd git review --json` reports a clean *"produced no
   structured review output"* and points back at the prose verb. The findings-mapping
   is covered by a **schema-faithful** fixture (codex's verified native field names),
   mirroring the adapter's tool-call fixture; the empty-findings path is covered by the
   **authentic** $0 capture. Plumbing is proven; accuracy rides the operator's real
   model.
 
-### `wd fork` / `spawn --fork-from` — managed conversation fork (`agentbackend.SessionForker`)
+### `wd agent fork` / `spawn --fork-from` — managed conversation fork (`agentbackend.SessionForker`)
 
 `codex fork <session-id>` branches a recorded session's **conversation/reasoning**
 (the rollout) into a **new divergent session**, preserving the original — *not* a
@@ -338,7 +338,7 @@ state/approval polling, and teardown. See
 
 - **Boundary.** A fork is only useful as a *managed* agent (an untracked
   `codex fork` in a terminal adds nothing over typing it yourself), so — unlike
-  `wd review`/`wd models` — it is intrinsically daemon-crossing. The minimal
+  `wd git review`/`wd backend model` — it is intrinsically daemon-crossing. The minimal
   spec-first delta is one additive optional field, `fork_from`, on `SpawnRequest`.
 - **Source id (`agentbackend.SessionForker`).** The fork passes the source agent's
   **pinned** backend session id explicitly (`codex fork <uuid>`, never `--last`,
@@ -378,8 +378,8 @@ state/approval polling, and teardown. See
 - **Degrades cleanly.** A backend with no native fork (Claude) does not implement
   `SessionForker`, so a `fork_from` spawn against it returns a clean
   "backend … cannot fork a session" and every non-fork spawn stays byte-identical.
-- **Ergonomic wrappers (CLI/MCP parity).** `wd fork <agent> ["<prompt>"]` is the
-  shorthand for `warden start --fork-from <agent>` (mirroring how `wd handoff` wraps
+- **Ergonomic wrappers (CLI/MCP parity).** `wd agent fork <agent> ["<prompt>"]` is the
+  shorthand for `warden start --fork-from <agent>` (mirroring how `wd agent handoff` wraps
   spawn); the optional trailing prompt rides the existing spawn prompt seam as a
   divergent first message, and the fork inherits the source's repo + backend (resolved
   daemon-side), so neither is restated. The `fork_agent` MCP tool is the twin, wrapping

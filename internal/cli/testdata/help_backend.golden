@@ -1,0 +1,40 @@
+Inspect and manage warden's agent-backend registry.
+
+warden detects the coding-agent CLIs installed on this machine (claude, codex,
+aider, …) plus a reserved `local` row for the free/local model, and persists
+each with a billing tier, an enabled flag, and at most one default. The daemon's
+store is the source of truth — autopilot's cost-tier ladder and the internal
+free/local thinking router both read from it.
+
+Tiers:   free | subscription | pay_per_use | unclassified   (`local` is system-set)
+Thinking-mode: local_only | free_plus_local   (which backends internal thinking may call)
+
+Examples:
+  warden backend backend list                 # full table incl. the local row
+  warden backend backend rescan               # re-detect installed CLIs, print the table
+  warden backend backend tier codex free      # tier codex as a $0 backend
+  warden backend backend default claude       # make claude the default backend
+  warden backend backend disable aider        # stop using a backend
+  warden backend backend thinking-mode local_only
+
+Usage:
+  warden backend [flags]
+
+Commands:
+  default              Set the default backend (rejects the reserved local row)
+  disable              Disable a backend so it is no longer used
+  enable               Enable a backend so it may be used
+  list                 List detected backends (installed, tier, default, enabled, limited)
+  rescan               Re-detect installed backend CLIs and print the updated table
+  thinking-mode        Set the internal-thinking routing mode (local_only|free_plus_local)
+  tier                 Set a backend's billing tier (free|subscription|pay_per_use|unclassified)
+  model                Inspect and manage model catalog and live model menus
+  suggest              Recommend local models for the REPL, sized to this machine's memory
+  repl                 Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
+
+Flags:
+  -h, --help   help for backend
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

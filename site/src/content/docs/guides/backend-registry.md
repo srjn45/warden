@@ -28,7 +28,7 @@ differently:
 | **Detection (fact)** | `installed`, `binary_path`, `detected_at` | **Reconciled** — newly installed CLIs are added; vanished ones are marked uninstalled |
 | **Preference (yours)** | `tier`, `default`, `enabled` | **Preserved** — a rescan never overwrites your choices |
 
-So you can `warden backends rescan` freely: it refreshes *what's on disk* without ever
+So you can `warden backend rescan` freely: it refreshes *what's on disk* without ever
 resetting *how you tiered things*.
 
 The store lives in an embedded ScrivaDB collection at `~/.warden/backends` and is
@@ -82,10 +82,10 @@ proposal — rather than escalating to a `subscription` / `pay_per_use` backend.
 
 ## Managing it
 
-### CLI — `warden backends`
+### CLI — `warden backend`
 
 ```sh
-warden backends list                 # full table incl. the reserved local row (alias: ls)
+warden backend list                 # full table incl. the reserved local row (alias: ls)
 # ID       INSTALLED  TIER          DEFAULT  ENABLED  LIMITED
 # aider    ✓          unclassified  -        ✓        -
 # claude   ✓          subscription  ✓        ✓        -
@@ -94,14 +94,14 @@ warden backends list                 # full table incl. the reserved local row (
 #
 # internal thinking mode: free_plus_local
 
-warden backends rescan               # re-detect installed CLIs (preferences preserved)
-warden backends tier codex free      # free | subscription | pay_per_use | unclassified
-warden backends default claude       # set the single default (rejects local)
-warden backends enable codex         # / warden backends disable aider
-warden backends thinking-mode local_only   # or free_plus_local
+warden backend rescan               # re-detect installed CLIs (preferences preserved)
+warden backend tier codex free      # free | subscription | pay_per_use | unclassified
+warden backend default claude       # set the single default (rejects local)
+warden backend enable codex         # / warden backend disable aider
+warden backend thinking-mode local_only   # or free_plus_local
 ```
 
-`warden backends default <id>` is rejected for an unknown, uninstalled, disabled, or
+`warden backend default <id>` is rejected for an unknown, uninstalled, disabled, or
 reserved (`local`) target — the same rules the daemon enforces.
 
 ### Web — the 🧩 backends panel
@@ -153,7 +153,7 @@ ladder and the `autopilot.brain.allow_pay_per_use` gate in `~/.warden/config.yam
 Those keys are imported into the store **once** on the first boot after upgrade (a
 one-time, sentinel-guarded migration), then **ignored** — the store value wins
 thereafter, and the daemon logs a deprecation warning if the config still carries
-them. Tier autopilot's backends with `warden backends tier` from then on.
+them. Tier autopilot's backends with `warden backend tier` from then on.
 :::
 
 ## See also

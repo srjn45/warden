@@ -78,7 +78,7 @@ ledger persists landed tasks across manager restarts).
 **At most one active run per repository.** Enabling a second plan on the same repo
 fails with a conflict error.
 
-**The switch is per-repository.** `warden autopilot on` (or `set_autopilot`)
+**The switch is per-repository.** `warden autopilot enable` (or `set_autopilot`)
 enables only the repo it targets — the current git repository, or `--repo <root>`
 / the `repo` field. The plan/manager/merge **template** stays global in the
 `autopilot` config block; per-repo state is just the on/off bit and its run. The
@@ -120,7 +120,7 @@ reports status back to the manager; a large task may instead get a pipeline of
 + `run:<run_id>`. Workers operate exactly like normal warden agents: they have
 their own isolated worktrees, run the project's checks, commit via
 `warden commit`, push, and open a PR. When a worker finishes, its branch is
-landed into the integration branch via `warden land`.
+landed into the integration branch via `warden autopilot land`.
 
 **Manual agents are invisible to autopilot's destructive paths** — autopilot
 never terminates or modifies an agent that doesn't carry the `run:<run_id>` tag.
@@ -230,7 +230,7 @@ may also select backends itself based on the task.
 The ladder and the pay-per-use gate are **derived from the [backend
 registry](/warden/guides/backend-registry/)** — only **installed, enabled,
 non-`local`** backends are eligible, bucketed by the tier you set with `warden
-backends tier`. The gate is the store's `allow_paid_autopilot` setting.
+backend tier`. The gate is the store's `allow_paid_autopilot` setting.
 
 :::note[Deprecation]
 The registry **supersedes** the `autopilot.brain.backends.{free,subscription,pay_per_use}`

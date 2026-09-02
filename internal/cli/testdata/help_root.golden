@@ -8,6 +8,7 @@ Work
 project
 workspace
 git
+check
 Coordinate:
 context
 message
@@ -34,4 +35,3 @@ send
 commit
 push
 sync
-check

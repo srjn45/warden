@@ -23,7 +23,7 @@ traffic that leaves your machine is what you explicitly enable:
 
 - **Webhook / Slack alerts** (`notify.webhook_url`) — POSTs alerts to a URL you set.
 - **Remote access** — binds a non-loopback address and serves the API/dashboard.
-- **`warden savings --calibrate`** — sends truncated token samples to Anthropic's
+- **`warden usage savings --calibrate`** — sends truncated token samples to Anthropic's
   `count_tokens` endpoint using your `ANTHROPIC_API_KEY`.
 - **Branch tracking** (`branch_track.enabled`, default off) — reads each agent
   branch's CI status by running `gh run list` against your Git host with your

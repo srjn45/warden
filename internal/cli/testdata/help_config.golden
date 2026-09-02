@@ -1,0 +1,26 @@
+Print the live, resolved configuration values warden is using, grouped by area,
+with the config file path at the top. Edit the file by hand to change settings.
+
+Settings are organized into namespaced blocks in the config file:
+  rails.*    — guard/hook settings (git_redirect, root_guard, isolation_guard, …)
+  tokens.*   — token-guard, budget-gate, and savings settings
+  notify.*   — desktop notification and webhook settings
+  worktree.* — worktree-retention and spawn-gate settings
+  local_llm.*— local-model, REPL, and LLM-offload settings
+
+Deprecated flat keys (e.g. token_guard, notify, local_llm_url) still load
+and are automatically migrated to the namespaced form on `warden config init`.
+
+Usage:
+  warden config [flags]
+
+Commands:
+  path                 Print the resolved config file path
+  init                 Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
+
+Flags:
+  -h, --help   help for config
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

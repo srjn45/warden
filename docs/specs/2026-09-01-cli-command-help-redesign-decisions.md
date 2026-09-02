@@ -151,3 +151,22 @@ existing command tests freeze agent status, stats, spend/savings/cost, usage,
 hooks, git/check, worktree, and portability JSON. `TestUsageExitCode` freezes the
 partial-result exit code. Namespace PRs must compare canonical and legacy forms
 against these fixtures; this phase intentionally adds no canonical commands.
+
+## Integration audit follow-ups (2026-09-02)
+
+Resolved during integration:
+
+- **`schedule get` → `schedule show`:** canonical detail view is `warden schedule
+  show`; `schedule get` remains a hidden alias with identical dispatch.
+- **`cost spend`/`cost savings` alias metadata:** compatibility children under bare
+  `cost` now point at `usage spend`/`usage savings`, not at themselves.
+
+Intentionally retained (not fixed — separate decision required):
+
+- **Bare `cost` vs bare `usage`:** bare `cost` keeps its combined spend+savings
+  summary; bare `usage` keeps the provider quota snapshot. They cannot share one
+  canonical path without changing dispatch semantics.
+- **Deprecation stderr notices:** compatibility aliases run silently today; isolated
+  stderr deprecation text is scoped to a future PR (plan phase 6).
+- **Privacy-safe command-path telemetry:** not implemented; permanent-shortcut list
+  remains frozen from this decision record, not from runtime telemetry.

@@ -22,13 +22,23 @@ func newScheduleCmd() *cobra.Command {
 	}
 	SetCommandHelpMetadata(cmd, "run", 40, "warden schedule", "", NodeNamespace)
 	children := []*cobra.Command{
-		newScheduleCreateCmd(), newScheduleListCmd(), newScheduleGetCmd(),
+		newScheduleCreateCmd(), newScheduleListCmd(), newScheduleShowCmd(),
 		newScheduleEnableCmd(), newScheduleDisableCmd(), newScheduleDeleteCmd(),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden schedule "+child.Name(), "", NodeLeaf)
 		cmd.AddCommand(child)
 	}
+	legacyGet := newScheduleGetCmd()
+	legacyGet.Hidden = true
+	SetCommandHelpMetadata(legacyGet, "run", 900, "warden schedule show", AliasCompatibility, NodeLeaf)
+	cmd.AddCommand(legacyGet)
+	return cmd
+}
+
+func newScheduleShowCmd() *cobra.Command {
+	cmd := newScheduleGetCmd()
+	cmd.Use = "show <id>"
 	return cmd
 }
 

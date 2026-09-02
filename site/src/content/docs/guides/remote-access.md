@@ -10,9 +10,9 @@ By default the daemon binds `127.0.0.1:8765` — loopback only. To reach the das
 A 256-bit token gates **every** non-loopback request (constant-time compare); loopback requests stay unauthenticated. Binding the daemon to a non-loopback address is **refused unless a token is set**, so remote access can't be opened by accident. Auth failures are per-IP rate-limited.
 
 ```sh
-warden token generate   # mint a token and persist it
-warden token show       # print the current token (paste into a remote client)
-warden token rotate     # regenerate in place and restart the daemon
+warden daemon token generate   # mint a token and persist it
+warden daemon token show       # print the current token (paste into a remote client)
+warden daemon token rotate     # regenerate in place and restart the daemon
 ```
 
 The token is stored in `~/.warden/token.env` (`WARDEN_TOKEN=<hex>`, mode `0600`). The `WARDEN_TOKEN` environment variable overrides the file, so the secret can stay off disk in a container or CI.
@@ -32,8 +32,8 @@ Once you can reach a terminal remotely, you can also refresh an **agent backend'
 To hand out view-only access — a wall dashboard, or a teammate who should watch but not act — set an optional **second** token, `WARDEN_READONLY_TOKEN`. A request bearing it may read everything (every GET plus the live event stream) but is denied all state-changing actions and the interactive attach (which can type into a running agent); those return HTTP `403`.
 
 ```sh
-export WARDEN_READONLY_TOKEN=$(warden token generate)   # mint one (a token is just a random secret)
-warden token show --readonly                             # print it back to paste into a viewer
+export WARDEN_READONLY_TOKEN=$(warden daemon token generate)   # mint one (a token is just a random secret)
+warden daemon token show --readonly                             # print it back to paste into a viewer
 ```
 
 The token value is identical to a normal one — what makes it read-only is the env var you assign it to. You can also add a `WARDEN_READONLY_TOKEN=<hex>` line to `~/.warden/token.env`. It is only honored **alongside** a primary `WARDEN_TOKEN`: the daemon refuses to start with a read-only token but no primary one (otherwise auth would be off entirely and "read-only" would silently grant full access). Revoke by regenerating it and restarting, exactly like the primary token.

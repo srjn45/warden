@@ -1,0 +1,18 @@
+Show provider usage for subscription backends
+
+Usage:
+  warden usage [flags]
+
+Commands:
+  spend                Show measured Claude spend in dollars, per agent / repo / day
+  savings              Show the token reductions warden's lifecycle features have earned
+  insights             Mine agent history for patterns and parallelization suggestions
+
+Flags:
+  -h, --help      help for usage
+      --json      print the stable JSON document
+      --refresh   bypass the daemon's fresh usage cache
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

@@ -44,10 +44,10 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newDaemonCmd())
 	costCmd := newCostCmd()
-	markCompatibilityCommand(costCmd, "warden cost")
 	for _, child := range costCmd.Commands() {
-		SetCommandHelpMetadata(child, "observe", 900, "warden usage "+child.Name(), AliasCompatibility, nodeKind(child))
+		markCompatibilityChild(child, "warden usage "+child.Name())
 	}
+	markCompatibilityCommand(costCmd, "warden cost")
 	root.AddCommand(costCmd)
 	lsCmd, statusCmd := newLsCmd(), newStatusCmd()
 	markPermanentAgentShortcut(lsCmd, "warden agent list")

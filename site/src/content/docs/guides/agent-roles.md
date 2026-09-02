@@ -16,7 +16,7 @@ tiering; see [Roles, tasks, and tiers](#roles-tasks-and-tiers) below.)
 ## The built-in roles
 
 ```sh
-warden role list
+warden agent role list
 ```
 
 | Role | What the persona tells the agent to do | Default flags | Default tier |
@@ -112,8 +112,8 @@ feeds the router — no `task`/`tier` params).
 ## Switch a running agent's role
 
 ```sh
-warden set-role agent-abc123 worker    # give the running agent the worker persona
-warden set-role agent-abc123 general   # clear the persona (back to a plain agent)
+warden agent role set agent-abc123 worker    # give the running agent the worker persona
+warden agent role set agent-abc123 general   # clear the persona (back to a plain agent)
 ```
 
 `set-role` persists the new role **name** and **relaunches** the agent so the new

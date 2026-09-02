@@ -35,6 +35,7 @@ Work with a project:
   project              Manage repo-local warden configuration: memory, presets, templates, and plugins
   workspace            Inspect and manage warden git worktrees, snapshots, branches, and file collisions
   git                  Commit, push, sync, and review an agent worktree on warden rails
+  check                Run project checks and install hook guards
 
 Coordinate:
   context              Read and write the shared context (a namespaced key/value store agents share)
@@ -66,7 +67,6 @@ Shortcuts:
   commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
   push                 Push the current branch to origin (warden rails + bookkeeping)
   sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
-  check                Run project checks and install hook guards
 
 Use "warden help <command>" for focused command help; add --all for the complete tree.
 ```
@@ -1395,7 +1395,7 @@ Usage:
 Commands:
   create               Create a schedule that fires an agent or a pipeline
   list                 List schedules
-  get                  Show one schedule, including its last-run outcome
+  show                 Show one schedule, including its last-run outcome
   enable               Enable a schedule so it fires again (re-arms next run)
   disable              Disable a schedule so it stops firing (history preserved)
   delete               Delete a schedule
@@ -1452,16 +1452,16 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule get
+## warden schedule show
 
 ```text
 Show one schedule, including its last-run outcome
 
 Usage:
-  warden schedule get <id> [flags]
+  warden schedule show <id> [flags]
 
 Flags:
-  -h, --help   help for get
+  -h, --help   help for show
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2151,6 +2151,105 @@ Usage:
 
 Flags:
   -h, --help   help for guard
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check
+
+```text
+Run project checks and install hook guards.
+
+`wd check` (or `wd check run`) executes the commands declared in .warden/check.yml
+and returns only failures. Guard subcommands are hook-facing entry points installed
+by warden; they preserve the stdin/stdout JSON protocol and fail-open semantics of
+the legacy `hook` paths.
+
+Usage:
+  warden check [name] [flags]
+
+Commands:
+  run                  Run the project's configured checks and report only failures
+  guard                PreToolUse check-redirect guard (reads hook JSON on stdin)
+  boundary             PreToolUse isolation guard (reads hook JSON on stdin)
+  root-guard           PreToolUse main-worktree guard (reads hook JSON on stdin)
+
+Flags:
+  -h, --help   help for check
+      --json   emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check run
+
+```text
+Run the check command(s) declared in this project's .warden/check.yml and
+return a pass/fail summary — with captured output for the FAILING checks only,
+in place of the hundreds of lines a raw test run spills into the transcript.
+
+`wd check run` runs every configured check; `wd check run <name>` runs one (e.g. test,
+lint, build). Commands come from the project, so warden stays language-agnostic;
+a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.
+
+Usage:
+  warden check run [name] [flags]
+
+Flags:
+  -h, --help   help for run
+      --json   emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check guard
+
+```text
+PreToolUse check-redirect guard (reads hook JSON on stdin)
+
+Usage:
+  warden check guard [flags]
+
+Flags:
+  -h, --help   help for guard
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check boundary
+
+```text
+PreToolUse isolation guard (reads hook JSON on stdin)
+
+Usage:
+  warden check boundary [flags]
+
+Flags:
+  -h, --help   help for boundary
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check root-guard
+
+```text
+PreToolUse main-worktree guard (reads hook JSON on stdin)
+
+Usage:
+  warden check root-guard [flags]
+
+Flags:
+  -h, --help   help for root-guard
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3814,101 +3913,146 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden check
+## Compatibility aliases
 
-```text
-Run project checks and install hook guards.
+Every path below predates the command redesign and still runs, dispatching the
+same option parsing and run logic as its canonical path. They are hidden from
+normal help and completion; `warden help --all` lists the same set. Nothing here
+is scheduled for removal — prefer the canonical path in new scripts and docs.
 
-`wd check` (or `wd check run`) executes the commands declared in .warden/check.yml
-and returns only failures. Guard subcommands are hook-facing entry points installed
-by warden; they preserve the stdin/stdout JSON protocol and fail-open semantics of
-the legacy `hook` paths.
-
-Usage:
-  warden check [name] [flags]
-
-Commands:
-  run                  Run the project's configured checks and report only failures
-  guard                PreToolUse check-redirect guard (reads hook JSON on stdin)
-  boundary             PreToolUse isolation guard (reads hook JSON on stdin)
-  root-guard           PreToolUse main-worktree guard (reads hook JSON on stdin)
-
-Flags:
-  -h, --help   help for check
-      --json   emit the raw result as JSON
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden check run
-
-```text
-Run the check command(s) declared in this project's .warden/check.yml and
-return a pass/fail summary — with captured output for the FAILING checks only,
-in place of the hundreds of lines a raw test run spills into the transcript.
-
-`wd check run` runs every configured check; `wd check run <name>` runs one (e.g. test,
-lint, build). Commands come from the project, so warden stays language-agnostic;
-a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.
-
-Usage:
-  warden check run [name] [flags]
-
-Flags:
-  -h, --help   help for run
-      --json   emit the raw result as JSON
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden check guard
-
-```text
-PreToolUse check-redirect guard (reads hook JSON on stdin)
-
-Usage:
-  warden check guard [flags]
-
-Flags:
-  -h, --help   help for guard
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden check boundary
-
-```text
-PreToolUse isolation guard (reads hook JSON on stdin)
-
-Usage:
-  warden check boundary [flags]
-
-Flags:
-  -h, --help   help for boundary
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden check root-guard
-
-```text
-PreToolUse main-worktree guard (reads hook JSON on stdin)
-
-Usage:
-  warden check root-guard [flags]
-
-Flags:
-  -h, --help   help for root-guard
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
+| Legacy path | Canonical path |
+|---|---|
+| `warden adopt` | `warden agent adopt` |
+| `warden agent role tier ls` | `warden agent role tier list` |
+| `warden approvals` | `warden approval list` |
+| `warden approve` | `warden approval answer` |
+| `warden attach` | `warden agent attach` |
+| `warden audit` | `warden inspect audit` |
+| `warden audit log` | `warden inspect audit` |
+| `warden auto-approve` | `warden approval auto set` |
+| `warden auto-approve allow` | `warden approval auto allow` |
+| `warden auto-approve clear` | `warden approval auto clear` |
+| `warden auto-approve deny` | `warden approval auto deny` |
+| `warden auto-approve disable` | `warden approval auto disable` |
+| `warden auto-approve enable` | `warden approval auto enable` |
+| `warden auto-approve policy` | `warden approval auto rules` |
+| `warden auto-approve rules` | `warden approval auto rules` |
+| `warden auto-approve show` | `warden approval auto rules` |
+| `warden autopilot list` | `warden autopilot run list` |
+| `warden autopilot off` | `warden autopilot disable` |
+| `warden autopilot on` | `warden autopilot enable` |
+| `warden autopilot pause` | `warden autopilot run pause` |
+| `warden autopilot resume` | `warden autopilot run resume` |
+| `warden autopilot start` | `warden autopilot run start` |
+| `warden autopilot stop` | `warden autopilot run stop` |
+| `warden autopilot unregister` | `warden autopilot run unregister` |
+| `warden backend ls` | `warden backend list` |
+| `warden backend model ls` | `warden backend model list` |
+| `warden backends` | `warden backend` |
+| `warden backends default` | `warden backend default` |
+| `warden backends disable` | `warden backend disable` |
+| `warden backends enable` | `warden backend enable` |
+| `warden backends list` | `warden backend list` |
+| `warden backends ls` | `warden backend list` |
+| `warden backends rescan` | `warden backend rescan` |
+| `warden backends thinking-mode` | `warden backend thinking-mode` |
+| `warden backends tier` | `warden backend tier` |
+| `warden branches` | `warden workspace branches` |
+| `warden collab` | `warden workspace` |
+| `warden collab conflicts` | `warden workspace conflicts` |
+| `warden collab who-is-editing` | `warden workspace who-is-editing` |
+| `warden cost` | _retained; no canonical equivalent_ |
+| `warden cost savings` | `warden usage savings` |
+| `warden cost spend` | `warden usage spend` |
+| `warden ctx` | `warden context` |
+| `warden ctx append` | `warden context append` |
+| `warden ctx cas` | `warden context cas` |
+| `warden ctx del` | `warden context delete` |
+| `warden ctx get` | `warden context get` |
+| `warden ctx list` | `warden context list` |
+| `warden ctx set` | `warden context set` |
+| `warden delete` | `warden agent delete` |
+| `warden digest` | `warden agent digest` |
+| `warden done` | `warden agent done` |
+| `warden export` | `warden inspect export` |
+| `warden force-compact` | `warden agent compact set` |
+| `warden fork` | `warden agent fork` |
+| `warden handoff` | `warden agent handoff` |
+| `warden history` | `warden inspect history` |
+| `warden hook check-guard` | `warden check guard` |
+| `warden hook git-guard` | `warden git guard` |
+| `warden hook guard` | `warden check boundary` |
+| `warden hook root-guard` | `warden check root-guard` |
+| `warden i` | `warden backend repl` |
+| `warden import` | `warden inspect import` |
+| `warden insights` | `warden usage insights` |
+| `warden interactive` | `warden backend repl` |
+| `warden land` | `warden autopilot land` |
+| `warden lib` | `warden project library` |
+| `warden library` | `warden project library` |
+| `warden library list` | `warden project library list` |
+| `warden library save-preset` | `warden project preset save` |
+| `warden library save-prompt` | `warden project prompt-template save` |
+| `warden llm` | `warden backend suggest` |
+| `warden llm suggest` | `warden backend suggest` |
+| `warden mcp` | `warden daemon mcp` |
+| `warden memory` | `warden project memory` |
+| `warden models` | `warden backend model` |
+| `warden models list` | `warden backend model list` |
+| `warden models ls` | `warden backend model list` |
+| `warden models tier` | `warden backend model tier` |
+| `warden msg` | `warden message` |
+| `warden msg inbox` | `warden message inbox` |
+| `warden msg send` | `warden message send` |
+| `warden msg wait` | `warden message wait` |
+| `warden pipeline list-templates` | `warden pipeline template list` |
+| `warden plugin` | `warden project plugin` |
+| `warden plugin list` | `warden project plugin list` |
+| `warden preset` | `warden project preset` |
+| `warden preset list` | `warden project preset list` |
+| `warden preset save` | `warden project preset save` |
+| `warden project library save-preset` | `warden project preset save` |
+| `warden project library save-prompt` | `warden project prompt-template save` |
+| `warden prompt-template` | `warden project prompt-template` |
+| `warden prompt-template list` | `warden project prompt-template list` |
+| `warden prompt-template save` | `warden project prompt-template save` |
+| `warden prompt-templates` | `warden project prompt-template` |
+| `warden prune` | `warden workspace prune` |
+| `warden pt` | `warden project prompt-template` |
+| `warden recover` | `warden agent recover` |
+| `warden remove-worktree` | `warden agent remove-worktree` |
+| `warden repair` | `warden inspect repair` |
+| `warden repair sessions` | `warden inspect repair sessions` |
+| `warden repl` | `warden backend repl` |
+| `warden restore` | `warden agent restore` |
+| `warden review` | `warden git review` |
+| `warden role` | `warden agent role` |
+| `warden role list` | `warden agent role list` |
+| `warden role set-tier` | `warden agent role set-tier` |
+| `warden role tier` | `warden agent role tier` |
+| `warden role tier list` | `warden agent role tier list` |
+| `warden role tier ls` | `warden agent role tier list` |
+| `warden rotate` | `warden agent rotate` |
+| `warden savings` | `warden usage savings` |
+| `warden schedule get` | `warden schedule show` |
+| `warden search` | `warden inspect search` |
+| `warden set-permission-mode` | `warden agent permission-mode set` |
+| `warden set-role` | `warden agent role set` |
+| `warden snapshot` | `warden workspace snapshot` |
+| `warden snapshot create` | `warden workspace snapshot create` |
+| `warden snapshot list` | `warden workspace snapshot list` |
+| `warden snapshot restore` | `warden workspace snapshot restore` |
+| `warden spend` | `warden usage spend` |
+| `warden stats` | `warden inspect resources` |
+| `warden stop` | `warden agent stop` |
+| `warden switch` | `warden agent switch` |
+| `warden tail` | `warden agent tail` |
+| `warden terminate` | `warden agent terminate` |
+| `warden token` | `warden daemon token` |
+| `warden token generate` | `warden daemon token generate` |
+| `warden token rotate` | `warden daemon token rotate` |
+| `warden token show` | `warden daemon token show` |
+| `warden worktree` | `warden workspace` |
+| `warden worktree list` | `warden workspace list` |
+| `warden worktree ls` | `warden workspace list` |
+| `warden worktree prune` | `warden workspace prune` |

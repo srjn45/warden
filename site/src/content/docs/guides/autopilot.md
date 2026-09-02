@@ -11,14 +11,14 @@ When autopilot is enabled, a **manager** agent drives a fleet of worker agents
 branches into the integration branch — autonomously. You should understand the
 mitigations before enabling:
 
-- **Kill switch:** `warden autopilot off` stops new spawns and landings
+- **Kill switch:** `warden autopilot disable` stops new spawns and landings
   immediately (in-flight workers keep running). Use it any time you need to
   regain control.
 - **Integration-branch boundary:** workers never merge to `main` directly —
   all changes land in `autopilot/integration` first, where you review them
   before deciding to fast-forward `main`.
 - **Audit log:** every autopilot action (manager spawn, worker spawn, land, heal)
-  is written to `warden audit log` — a permanent, append-only record of what
+  is written to `warden inspect audit` — a permanent, append-only record of what
   ran.
 </Aside>
 
@@ -132,15 +132,15 @@ planning tick. You can add tasks or change constraints while a run is active.
 
 By default, the manager picks the **cheapest available backend**. The cost-tier ladder
 is now **derived from the [backend registry](/warden/guides/backend-registry/)** — a
-backend's tier is whatever you set with `warden backends tier`, and only **installed,
+backend's tier is whatever you set with `warden backend tier`, and only **installed,
 enabled, non-`local`** backends are eligible. So you steer autopilot's spending by
 tiering backends:
 
 ```sh
-warden backends tier antigravity free          # free tier — first choice
-warden backends tier claude subscription       # your existing plan
-warden backends tier codex subscription
-warden backends list                           # verify the ladder
+warden backend tier antigravity free          # free tier — first choice
+warden backend tier claude subscription       # your existing plan
+warden backend tier codex subscription
+warden backend list                           # verify the ladder
 ```
 
 | Tier | Typical backends | Notes |
@@ -157,7 +157,7 @@ backend.
 The registry **supersedes** the old `autopilot.brain.backends` ladder and
 `autopilot.brain.allow_pay_per_use` gate in `~/.warden/config.yaml`. Those keys are
 imported into the store **once** on the first boot after upgrade, then ignored (the
-daemon warns if they linger). Manage tiers with `warden backends tier` from then on.
+daemon warns if they linger). Manage tiers with `warden backend tier` from then on.
 :::
 
 ---
@@ -167,7 +167,7 @@ daemon warns if they linger). Manage tiers with `warden backends tier` from then
 The switch is **per-repository**. Run inside the repo you want to drive:
 
 ```sh
-warden autopilot on
+warden autopilot enable
 ```
 
 This enables **only the current repository** (other repos are unaffected) and
@@ -183,7 +183,7 @@ anything is missing:
 hint: run `warden autopilot init` to scaffold a plan file and config block
 ```
 
-Fix any reported issues and re-run `warden autopilot on`. When the preflight
+Fix any reported issues and re-run `warden autopilot enable`. When the preflight
 passes, the manager is spawned and the run enters `active` state, and the repo is
 **persisted as enabled** — so it comes back up automatically if the daemon
 restarts. Enable more repos the same way; each is tracked independently.
@@ -196,8 +196,8 @@ restarts. Enable more repos the same way; each is tracked independently.
 warden autopilot status          # enabled repos + run state, manager id, task counts
 warden ls                        # shows the manager + all worker agents
 warden status <manager-id>       # full manager detail + events
-warden tail <manager-id>         # recent manager output
-warden audit log                 # full append-only audit trail of every action
+warden agent tail <manager-id>         # recent manager output
+warden inspect audit                 # full append-only audit trail of every action
 ```
 
 The TUI cockpit (`warden tui`) shows the manager and its workers as a nested
@@ -209,13 +209,13 @@ on/off without leaving the cockpit).
 
 ## Landing a worker branch manually
 
-The manager calls `warden land` automatically when a worker finishes and its PR
+The manager calls `warden autopilot land` automatically when a worker finishes and its PR
 is gate-green. You can also call it manually to land a specific worker (e.g.
 to bypass a stuck gate, or to pre-land a branch you've already reviewed):
 
 ```sh
-warden land <agent-id>           # land by agent id
-warden land <branch-name>        # land by branch name
+warden autopilot land <agent-id>           # land by agent id
+warden autopilot land <branch-name>        # land by branch name
 ```
 
 The land operation is **idempotent** — landing the same branch twice is a no-op.
@@ -263,8 +263,8 @@ always belongs to the operator.
 ## Kill switch
 
 ```sh
-warden autopilot off              # disable the current repo
-warden autopilot off --repo <root>  # disable a specific repo
+warden autopilot disable              # disable the current repo
+warden autopilot disable --repo <root>  # disable a specific repo
 ```
 
 Disables the **current repository** (or `--repo <root>`); other enabled repos
@@ -273,7 +273,7 @@ keep running. Effective immediately, at any state:
 - The Controller stops spawning new workers and landing new branches
 - In-flight workers **keep running** to completion (they are not terminated)
 - The manager is terminated gracefully
-- The ledger is retained — `warden autopilot on` continues from where the run
+- The ledger is retained — `warden autopilot enable` continues from where the run
   left off
 
 Use the kill switch any time you want to pause the run, inspect what workers are
@@ -286,10 +286,10 @@ doing, or abort a run that is heading in the wrong direction.
 | Command | What it does |
 |---|---|
 | `warden autopilot init` | Scaffold `autopilot.plan.yaml` + config block |
-| `warden autopilot on [--repo <root>]` | Enable autopilot for this repo (runs preflight first) |
-| `warden autopilot off [--repo <root>]` | Disable autopilot for this repo — the kill switch |
+| `warden autopilot enable [--repo <root>]` | Enable autopilot for this repo (runs preflight first) |
+| `warden autopilot disable [--repo <root>]` | Disable autopilot for this repo — the kill switch |
 | `warden autopilot status` | Show enabled repos + each run's state, manager id, task summary |
-| `warden land <agent-or-branch>` | Land a worker branch into the integration branch |
+| `warden autopilot land <agent-or-branch>` | Land a worker branch into the integration branch |
 
 ## MCP tools
 
