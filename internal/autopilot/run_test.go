@@ -111,6 +111,10 @@ func (r *fakeRuntime) DigestSources() DigestSources     { return r.sources }
 func (r *fakeRuntime) NotifyOwner(_ string, msg string) { r.notified = append(r.notified, msg) }
 func (r *fakeRuntime) InstallDefaultAutoApprovePolicy() { r.installs++ }
 
+func (r *fakeRuntime) ReconcileSessions(_ context.Context, _ []BootReconcileRun) error {
+	return nil
+}
+
 type guardianAgentFake struct {
 	*fakeRuntime
 	guardians      []string
@@ -134,6 +138,10 @@ func (r *guardianAgentFake) TerminateGuardian(_ context.Context, id string) erro
 func (r *guardianAgentFake) ReconcileGuardians(_ context.Context, valid map[string]string) ([]string, error) {
 	r.reconciled = valid
 	return r.missing, nil
+}
+
+func (r *guardianAgentFake) ReconcileSessions(_ context.Context, _ []BootReconcileRun) error {
+	return nil
 }
 
 func TestGuardianAgentPersistsAndStopsWithRun(t *testing.T) {
