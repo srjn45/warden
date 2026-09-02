@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -91,6 +92,42 @@ func reapTombstones(ctx context.Context, st store.Store, startID string, alive f
 	}
 }
 
+// reapAutopilotManagers archives terminal autopilot manager records for runID
+// once no live workers remain for that run. Workers are linked by back-ref, not
+// parent_id, so manager deletes no longer tombstone (WP6).
+func reapAutopilotManagers(ctx context.Context, st store.Store, runID string, alive func(ctx context.Context, tmuxSession string) bool) {
+	if runID == "" {
+		return
+	}
+	all, err := st.List(ctx)
+	if err != nil {
+		return
+	}
+	for _, s := range all {
+		if autopilot.IsWorkerRecord(s) && liveStatus(s.Status) {
+			return // a live worker still anchors the run
+		}
+	}
+	for _, s := range all {
+		if autopilot.SessionRunID(s) != runID || !autopilot.IsManagerRecord(s) {
+			continue
+		}
+		if liveStatus(s.Status) {
+			continue
+		}
+		if s.Status == store.StatusOrphaned {
+			stillAlive := true
+			if alive != nil {
+				stillAlive = alive(ctx, s.TmuxSession)
+			}
+			if stillAlive {
+				continue
+			}
+		}
+		_ = st.Archive(ctx, s.ID)
+	}
+}
+
 // reapAllTombstones is the safety-net sweep: it walks every non-live record and
 // reaps any that have become a fully-terminal tombstone. This catches sub-trees
 // whose last child ended via a path the lazy hook missed (e.g. the SessionEnd
@@ -109,6 +146,9 @@ func (s *Server) reapAllTombstones(ctx context.Context) {
 			continue
 		}
 		reapTombstones(ctx, s.store, p.ID, alive)
+		if rid := autopilot.SessionRunID(p); rid != "" && autopilot.IsManagerRecord(p) {
+			reapAutopilotManagers(ctx, s.store, rid, alive)
+		}
 	}
 }
 
