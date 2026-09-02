@@ -169,18 +169,24 @@ carries on — a steering typo must not wedge two weeks of work.
 ## 4. Run ledger
 
 **Storage:** the collaboration blackboard (`internal/collab` ctx store, ScrivaDB-
-backed) under the reserved namespace `autopilot/<run_id>/…` — reusing
-`ctx_set`/`ctx_get`/`ctx_cas` wholesale; no new storage engine. Landings are
+backed) under the reserved namespace `autopilot.<run_id>.…` — reusing
+`ctx_set`/`ctx_get`/`ctx_cas` wholesale; no new storage engine. Keys are
+**dot-namespaced** (the ctx store rejects `/`). Landings are
 additionally recorded by the daemon inside the `land` handler (authoritative,
 not trusted to the brain).
 
-**Keys (values are JSON):**
+**Keys (values are JSON unless noted):**
 
 | Key | Writer | Content |
 |---|---|---|
-| `autopilot/<run>/tasks` | brain (`ctx_cas`) | task ledger: `{id, state, worker_id, branch, pr, note, updated_at}[]` |
-| `autopilot/<run>/landings` | **daemon** (`land`) | append-only: `{branch, sha, pr, landed_at}` |
-| `autopilot/<run>/journal` | brain | rolling decision log (bounded, newest-first) for cold-start context |
+| `autopilot.<run>.tasks` | brain (`ctx_cas`) | **Canonical** task ledger: `{id, state, worker_id, branch, pr, note, updated_at}[]`. `state` is one of `pending` / `assigned` / `in_progress` / `pr_open` / `gated` / `landed` (validated on write). |
+| `autopilot.<run>.landings` | **daemon** (`land`) | append-only: `{branch, sha, pr, landed_at}` |
+| `autopilot.<run>.journal` | brain | rolling decision log (bounded, newest-first) for cold-start context |
+| `autopilot.<run>.tasks.<id>.state` | brain (optional) | TUI segmentation overlay — same canonical enum, raw token (not JSON). The array remains source of truth. |
+| `autopilot.<run>.tasks.<id>.branch` | brain (optional) | TUI overlay of the worker branch |
+
+Plan-file task statuses (`pending` / `active` / `done` / `failed`) are a separate
+checklist enum. Illegal ledger-state *transitions* are not enforced on write.
 
 **Recovery by construction (not persona discipline):** correctness across brain
 restarts must not depend on the brain remembering to journal. Every
@@ -289,7 +295,7 @@ adopter can graduate to.
 
 **Semantics:**
 - Merge strategy from config (default squash); delete worker branch if
-  `delete_branch`; record the landing in `autopilot/<run>/landings`; audit-log.
+  `delete_branch`; record the landing in `autopilot.<run>.landings`; audit-log.
 - **Idempotent:** if the head SHA is already recorded in `landings` (or the PR is
   already merged), return success with `already_landed: true` — a brain
   re-issuing after a mid-action restart is a no-op.

@@ -1162,11 +1162,23 @@ reviews the integration branch and fast-forwards `main` when satisfied.
 
 ### 34.9 Run ledger
 
-The daemon's durable record of run state: task states (`pending` → `assigned` →
-`in_progress` → `pr_open` → `gated` → `landed`/`fixing`/`replanned`), worker
-agent ids and branches, landing timestamps. Written by the manager (task state) and
-authoritatively by the daemon (landings). Persists across manager restarts and daemon
-restarts — re-enabling autopilot continues from the ledger.
+The daemon's durable record of run state. Canonical storage is a JSON array at
+the ctx key `autopilot.<run_id>.tasks` (dot-namespaced; the ctx store rejects
+`/`). Each row is `{id, state, worker_id, branch, pr, note, updated_at}`;
+`state` is one of `pending` → `assigned` → `in_progress` → `pr_open` → `gated`
+→ `landed` and is **validated on write**. Optional overlay keys
+`autopilot.<run_id>.tasks.<id>.state` and `.branch` exist so the TUI can segment
+workers by ledger state without parsing the array; the array remains the source
+of truth. Landings are an append-only JSON array at
+`autopilot.<run_id>.landings` (`{branch, sha, pr, landed_at}`), written
+authoritatively by the daemon. The journal is `autopilot.<run_id>.journal`.
+
+Plan-file task statuses (`pending` / `active` / `done` / `failed`) are a separate
+checklist enum, not ledger states. Illegal ledger-state *transitions* (and extra
+spec-machine labels such as `fixing` / `replanned`) are not enforced here.
+
+Persists across manager restarts and daemon restarts — re-enabling autopilot
+continues from the ledger.
 
 ### 34.10 Per-repo (project-level) switch
 
