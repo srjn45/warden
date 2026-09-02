@@ -86,6 +86,7 @@ type fakeLife struct {
 	prResult         lifecycle.PRResult
 	prErr            error
 	hotSwapCalls     int
+	hotSwapReq       lifecycle.SwapRequest
 	hotSwapResult    *lifecycle.SwapResult
 	hotSwapErr       error
 }
@@ -281,17 +282,26 @@ func (f *fakeLife) Check(_ context.Context, dir, name string) (lifecycle.CheckRe
 func (f *fakeLife) HotSwap(_ context.Context, sess *store.Session, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.hotSwapCalls++
+	f.hotSwapReq = req
 	if f.hotSwapErr != nil {
 		return nil, f.hotSwapErr
 	}
 	if f.hotSwapResult != nil {
 		return f.hotSwapResult, nil
 	}
+	from := sess.Backend
+	if req.Backend != "" {
+		sess.Backend = req.Backend
+	}
+	if req.Model != "" {
+		sess.Model = req.Model
+	}
 	return &lifecycle.SwapResult{
 		Session:     sess,
-		FromBackend: sess.Backend,
-		ToBackend:   req.Backend,
-		ToModel:     req.Model,
+		FromBackend: from,
+		ToBackend:   sess.Backend,
+		ToModel:     sess.Model,
 		Reason:      req.Reason,
 	}, nil
 }

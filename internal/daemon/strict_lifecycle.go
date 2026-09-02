@@ -67,6 +67,8 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// inheritance) — the fleet fence must not depend on the manager's persona
 	// remembering to pass tags.
 	sr.Tags = s.inheritOwnershipTags(ctx, sr.Tags)
+	s.stampAutopilotSpawnBackRefs(ctx, &sr)
+	s.annotateAutopilotWorkerPrompt(ctx, &sr)
 	if code, msg := s.validateSpawnRequest(ctx, sr); code != 0 {
 		return nil, errStatus(code, msg)
 	}

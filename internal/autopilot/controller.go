@@ -24,8 +24,10 @@ type ControllerConfig struct {
 	// Plans are the configured plan-file paths (config autopilot.plans[].file).
 	// Relative paths resolve against BaseDir.
 	Plans []string
-	// IntegrationBranch is the merge target (config autopilot.merge.target_branch).
-	// The only branch autopilot merges into; must not be a protected name.
+	// IntegrationBranch is the merge-target *template* from config
+	// autopilot.merge.target_branch. New runs derive a per-plan branch unless
+	// this is a custom global or a {{plan}} template; existing records keep
+	// their stored IntegrationBranch (grandfather).
 	IntegrationBranch string
 	// Gate is the configured gate mode (config autopilot.merge.gate): auto|ci|local.
 	// S4 resolves `auto` at preflight and reports the resolved mode in status.
@@ -101,25 +103,29 @@ type Controller struct {
 	mu      sync.Mutex
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
 	runs    map[string]*run // keyed by run_id (across all enabled repos)
+	claims  *claimRegistry  // slot scope + reserved manager/guardian id claims
 }
 
 // run is one registered plan execution: identity + state plus, once the brain
 // lifecycle is live (S3), the brain handle, the last-good plan for owner steering
 // (autopilot.md §3), and the plan-watch cancel.
 type run struct {
-	runID         string
-	name          string
-	planFile      string // configured path (as written in config)
-	absPlanFile   string // resolved absolute path (plan-file watch anchor)
-	repo          string
-	state         RunState
-	plan          Plan
-	planModTime   time.Time
-	resolvedGate  string // gate mode resolved at preflight (§6.1): ci | local
-	defaultBranch string // repo default branch — the land guard's protected name
+	runID             string
+	name              string
+	planFile          string // configured path (as written in config)
+	absPlanFile       string // resolved absolute path (plan-file watch anchor)
+	repo              string
+	state             RunState
+	plan              Plan
+	planModTime       time.Time
+	resolvedGate      string // gate mode resolved at preflight (§6.1): ci | local
+	defaultBranch     string // repo default branch — the land guard's protected name
+	integrationBranch string // per-run merge target, resolved once and persisted
+	gateWarning       string // operator-visible auto→local CI coverage warning
 
 	brain      *BrainHandle       // nil until the brain spawns; nil again after teardown
 	guardianID string             // daemon-owned system session representing the guardian loop
+	slotScope  string             // stable scope for <scope>-autopilot / <scope>-guardian slot ids
 	cancel     context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
@@ -151,7 +157,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 	}
 	branch := strings.TrimSpace(cfg.IntegrationBranch)
 	if branch == "" {
-		branch = "autopilot/integration"
+		branch = DefaultIntegrationBranch
 	}
 	gate := strings.TrimSpace(cfg.Gate)
 	if gate == "" {
@@ -177,6 +183,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		enableStore:       newEnableStore(cfg.DataDir),
 		store:             cfg.RunStore,
 		runs:              map[string]*run{},
+		claims:            newClaimRegistry(),
 	}
 	if c.store == nil && strings.TrimSpace(cfg.DataDir) != "" {
 		if st, err := NewRunStore(cfg.DataDir); err != nil {
@@ -235,12 +242,14 @@ func (c *Controller) SetRuntime(rt Runtime) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.runtime = rt
+	c.reconcileRunsAtBootLocked(context.Background())
 	if gr, ok := rt.(GuardianAgentRuntime); ok {
 		valid := make(map[string]string)
 		for _, r := range c.runs {
-			if r.guardianID != "" && r.state != StateStopped && r.state != StateComplete {
-				valid[r.runID] = r.guardianID
+			if r.state == StateStopped || r.state == StateComplete || r.slotScope == "" {
+				continue
 			}
+			valid[r.runID] = GuardianSlotID(r.slotScope)
 		}
 		missing, err := gr.ReconcileGuardians(context.Background(), valid)
 		if err != nil {
@@ -340,8 +349,12 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 	resolvedByID := map[string]resolved{}
 	matched := 0 // plans that resolve to the target repo
 
+	pendingBranches := map[string]string{}
 	for _, file := range c.plans {
-		r, planFails := c.preflightPlan(ctx, file)
+		r, planFails := c.preflightPlan(ctx, file, pendingBranches)
+		if r.repo != "" && r.integrationBranch != "" {
+			pendingBranches[r.repo+"\x00"+r.integrationBranch] = r.runID
+		}
 		if len(planFails) == 0 && !r.skipComplete {
 			planFails = append(planFails, c.validatePersistedDoneClaims(r.runID, r.plan)...)
 		}
@@ -372,6 +385,32 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 		}
 	}
 
+	if len(fails) > 0 {
+		sort.Strings(fails)
+		return c.statusLocked(), &PreflightError{Failures: dedupe(fails)}
+	}
+	batchNames := map[string]string{}
+	for id, res := range resolvedByID {
+		name := defaultRunName(res.absFile)
+		if err := validatePlanNameReservedSuffixes(name); err != nil {
+			fails = append(fails, fmt.Sprintf("plan %s: %v", res.file, err))
+			continue
+		}
+		key := res.repo + "\x00" + name
+		if other, ok := batchNames[key]; ok {
+			fails = append(fails, fmt.Sprintf("plan %s: %v", res.file,
+				fmt.Errorf("%w: run name %q already exists in %s (plan %s)", ErrRunConflict, name, res.repo, resolvedByID[other].file)))
+			continue
+		}
+		batchNames[key] = id
+		if err := c.validateRunNameLocked(res.repo, name, id); err != nil {
+			fails = append(fails, fmt.Sprintf("plan %s: %v", res.file, err))
+			continue
+		}
+		if _, err := c.allocateSlotScopeLocked(name, id); err != nil {
+			fails = append(fails, fmt.Sprintf("plan %s: %v", res.file, err))
+		}
+	}
 	if len(fails) > 0 {
 		sort.Strings(fails)
 		return c.statusLocked(), &PreflightError{Failures: dedupe(fails)}
@@ -409,6 +448,11 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			existing.resolvedGate = res.resolvedGate
 			existing.defaultBranch = res.defaultBranch
 			existing.plan = res.plan
+			existing.gateWarning = res.gateWarning
+			if existing.integrationBranch == "" {
+				existing.integrationBranch = res.integrationBranch
+				c.persistRunLocked(existing)
+			}
 			if existing.brain == nil && (existing.state == StateActive || existing.state == StateStarting || existing.state == StateHealing || existing.state == StateDegraded) {
 				existing.state = StateStarting
 				c.persistRunLocked(existing)
@@ -423,17 +467,25 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			continue
 		}
 		r := &run{
-			runID:         id,
-			name:          defaultRunName(res.absFile),
-			planFile:      res.file,
-			absPlanFile:   res.absFile,
-			repo:          res.repo,
-			plan:          res.plan,
-			state:         StateStarting,
-			resolvedGate:  res.resolvedGate,
-			defaultBranch: res.defaultBranch,
-			tried:         map[string]bool{},
+			runID:             id,
+			name:              defaultRunName(res.absFile),
+			planFile:          res.file,
+			absPlanFile:       res.absFile,
+			repo:              res.repo,
+			plan:              res.plan,
+			state:             StateStarting,
+			resolvedGate:      res.resolvedGate,
+			defaultBranch:     res.defaultBranch,
+			integrationBranch: res.integrationBranch,
+			gateWarning:       res.gateWarning,
+			tried:             map[string]bool{},
 		}
+		scope, err := c.allocateSlotScopeLocked(r.name, id)
+		if err != nil {
+			slog.Warn("autopilot: slot scope allocation failed", "run", id, "err", err)
+			continue
+		}
+		r.slotScope = scope
 		if info, err := os.Stat(res.absFile); err == nil {
 			r.planModTime = info.ModTime()
 		}
@@ -450,6 +502,9 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			go c.watchPlan(wctx, r, planWatchInterval)
 		}
 		newRuns[id] = r
+		if err := c.claims.claim(id, r.slotScope); err != nil {
+			slog.Warn("autopilot: slot scope claim failed", "run", id, "err", err)
+		}
 		c.persistRunLocked(r)
 	}
 	for id, old := range c.runs {
@@ -589,7 +644,7 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	}
 	branch := strings.TrimSpace(cfg.IntegrationBranch)
 	if branch == "" {
-		branch = "autopilot/integration"
+		branch = DefaultIntegrationBranch
 	}
 	gate := strings.TrimSpace(cfg.Gate)
 	if gate == "" {
@@ -823,18 +878,24 @@ func (c *Controller) statusLocked() Status {
 			}
 		}
 		st.Runs = append(st.Runs, RunStatus{
-			RunID:           r.runID,
-			Name:            r.name,
-			PlanFile:        r.planFile,
-			Repo:            r.repo,
-			State:           r.state,
-			Gate:            c.runGate(r), // the mode resolved at preflight (§6.1)
-			Brain:           brain,
-			WorkersInFlight: r.workersInFlight, // last roster count from the overwatch tick
-			Tasks:           counts,
-			Backoff:         r.backoffStatus(),
-			PlanTasks:       append([]PlanTask(nil), r.plan.Tasks...),
-			GuardianID:      r.guardianID,
+			RunID:             r.runID,
+			Name:              r.name,
+			PlanFile:          r.planFile,
+			Repo:              r.repo,
+			State:             r.state,
+			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
+			Brain:             brain,
+			WorkersInFlight:   r.workersInFlight, // last roster count from the overwatch tick
+			Tasks:             counts,
+			Backoff:           r.backoffStatus(),
+			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
+			GuardianID:        r.guardianID,
+			SlotScope:         r.slotScope,
+			IntegrationBranch: r.integrationBranch,
+			GateWarning:       r.gateWarning,
+			ManagerSlotID:     managerSlotIDOrEmpty(r.slotScope),
+			GuardianSlotID:    guardianSlotIDOrEmpty(r.slotScope),
+			LedgerTasks:       c.ledgerTasksLocked(r.runID),
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
@@ -877,7 +938,7 @@ func (c *Controller) LandParams(runID string) (LandParams, bool) {
 	}
 	return LandParams{
 		Repo:              r.repo,
-		IntegrationBranch: c.integrationBranch,
+		IntegrationBranch: r.integrationBranch,
 		DefaultBranch:     r.defaultBranch,
 		Gate:              c.runGate(r),
 		Strategy:          c.strategy,

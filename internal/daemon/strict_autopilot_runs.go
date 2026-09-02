@@ -67,3 +67,48 @@ func (s *Server) ControlAutopilotRun(ctx context.Context, req oapi.ControlAutopi
 	s.recordAuditCtx(ctx, audit.ActionAutopilotOn, req.RunId, map[string]string{"action": req.Action})
 	return oapi.ControlAutopilotRun200JSONResponse(r), nil
 }
+
+func (s *Server) RenameAutopilotRun(ctx context.Context, req oapi.RenameAutopilotRunRequestObject) (oapi.RenameAutopilotRunResponseObject, error) {
+	if s.autopilot == nil {
+		return oapi.RenameAutopilotRun403JSONResponse{Error: autopilotDisabledMsg}, nil
+	}
+	if req.Body == nil || strings.TrimSpace(req.Body.Name) == "" {
+		return oapi.RenameAutopilotRun400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "name is required"}}, nil
+	}
+	r, err := s.autopilot.RenameRun(ctx, req.RunId, req.Body.Name)
+	if errors.Is(err, autopilot.ErrRunNotFound) {
+		return oapi.RenameAutopilotRun404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "autopilot run not found"}}, nil
+	}
+	if errors.Is(err, autopilot.ErrRunConflict) {
+		return oapi.RenameAutopilotRun409JSONResponse{Error: err.Error()}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.recordAuditCtx(ctx, audit.ActionAutopilotOn, req.RunId, map[string]string{"action": "rename", "name": req.Body.Name})
+	return oapi.RenameAutopilotRun200JSONResponse(r), nil
+}
+
+func (s *Server) RetargetAutopilotRun(ctx context.Context, req oapi.RetargetAutopilotRunRequestObject) (oapi.RetargetAutopilotRunResponseObject, error) {
+	if s.autopilot == nil {
+		return oapi.RetargetAutopilotRun403JSONResponse{Error: autopilotDisabledMsg}, nil
+	}
+	if req.Body == nil {
+		return oapi.RetargetAutopilotRun400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "request body is required"}}, nil
+	}
+	r, err := s.autopilot.RetargetIntegrationBranch(ctx, req.RunId, autopilot.RetargetIntegrationBranchRequest{
+		IntegrationBranch: req.Body.IntegrationBranch,
+		Derive:            req.Body.Derive,
+	})
+	if errors.Is(err, autopilot.ErrRunNotFound) {
+		return oapi.RetargetAutopilotRun404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "autopilot run not found"}}, nil
+	}
+	if errors.Is(err, autopilot.ErrRunConflict) {
+		return oapi.RetargetAutopilotRun409JSONResponse{Error: err.Error()}, nil
+	}
+	if err != nil {
+		return oapi.RetargetAutopilotRun400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: err.Error()}}, nil
+	}
+	s.recordAuditCtx(ctx, audit.ActionAutopilotOn, req.RunId, map[string]string{"action": "retarget"})
+	return oapi.RetargetAutopilotRun200JSONResponse(r), nil
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ledgerWriter is the provenance stamped on daemon-side ledger writes. Agents
@@ -38,15 +39,15 @@ type CtxStore interface {
 
 // LedgerTask is one task row in the run ledger (autopilot.md §4). Written by the
 // brain via ctx_cas; read by the daemon when composing the recovery digest and
-// the status task rollup.
+// the status task rollup. State must be a canonical LedgerState on write.
 type LedgerTask struct {
-	ID        string `json:"id"`
-	State     string `json:"state"`
-	WorkerID  string `json:"worker_id,omitempty"`
-	Branch    string `json:"branch,omitempty"`
-	PR        int    `json:"pr,omitempty"`
-	Note      string `json:"note,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
+	ID        string      `json:"id"`
+	State     LedgerState `json:"state"`
+	WorkerID  string      `json:"worker_id,omitempty"`
+	Branch    string      `json:"branch,omitempty"`
+	PR        int         `json:"pr,omitempty"`
+	Note      string      `json:"note,omitempty"`
+	UpdatedAt string      `json:"updated_at,omitempty"`
 }
 
 // Landing is one recorded merge into the integration branch. Written
@@ -67,10 +68,9 @@ type JournalEntry struct {
 	Note string `json:"note"`
 }
 
-// Ledger is a typed read/write facade over the three reserved ledger keys for one
-// run (autopilot.md §4). Keys are DOT-separated (`autopilot.<run_id>.tasks`, …) —
-// the ctx store rejects "/" in keys, so the spec's slash form is spelled with
-// dots on the wire.
+// Ledger is a typed read/write facade over the reserved ledger keys for one
+// run (autopilot.md §4). Keys are DOT-separated (`autopilot.<run_id>.tasks`, …)
+// because the ctx store rejects "/".
 type Ledger struct {
 	store CtxStore
 	runID string
@@ -88,9 +88,43 @@ func (l *Ledger) key(kind string) string {
 
 // TasksKey/LandingsKey/JournalKey expose the on-the-wire ctx keys (dot form) so
 // the brain persona docs and the land handler reference the exact same strings.
-func (l *Ledger) TasksKey() string    { return l.key("tasks") }
-func (l *Ledger) LandingsKey() string { return l.key("landings") }
-func (l *Ledger) JournalKey() string  { return l.key("journal") }
+func (l *Ledger) TasksKey() string             { return l.key("tasks") }
+func (l *Ledger) LandingsKey() string          { return l.key("landings") }
+func (l *Ledger) JournalKey() string           { return l.key("journal") }
+func (l *Ledger) IntegrationBranchKey() string { return l.key("integration_branch") }
+
+// TaskStateKey is the optional per-task overlay used for TUI segmentation:
+// autopilot.<run_id>.tasks.<taskID>.state. The JSON array at TasksKey remains
+// the source of truth; this key is a convenience fan-out, not required.
+func (l *Ledger) TaskStateKey(taskID string) string {
+	return l.key("tasks." + taskID + ".state")
+}
+
+// TaskBranchKey is the optional per-task overlay of the worker branch:
+// autopilot.<run_id>.tasks.<taskID>.branch.
+func (l *Ledger) TaskBranchKey(taskID string) string {
+	return l.key("tasks." + taskID + ".branch")
+}
+
+// IntegrationBranch reads the run's resolved merge target from the ledger
+// (empty when the key is absent).
+func (l *Ledger) IntegrationBranch() (string, error) {
+	var branch string
+	if err := l.readJSON(l.IntegrationBranchKey(), &branch); err != nil {
+		return "", err
+	}
+	return branch, nil
+}
+
+// WriteIntegrationBranch stores the resolved merge target so workers can read
+// it from the run ledger instead of guessing.
+func (l *Ledger) WriteIntegrationBranch(branch, by string) error {
+	raw, err := json.Marshal(strings.TrimSpace(branch))
+	if err != nil {
+		return err
+	}
+	return l.store.Set(l.IntegrationBranchKey(), string(raw), writerOrDefault(by))
+}
 
 // Tasks reads the task ledger, returning an empty slice for an absent key.
 func (l *Ledger) Tasks() ([]LedgerTask, error) {
@@ -103,7 +137,12 @@ func (l *Ledger) Tasks() ([]LedgerTask, error) {
 
 // WriteTasks replaces the task ledger unconditionally (a plain Set). Used when a
 // lost race is not a concern; prefer CASTasks for the brain's read-modify-write.
+// Each row's State must be a canonical LedgerState; unknown values are rejected
+// before the store write. Reads of pre-enum data are not validated.
 func (l *Ledger) WriteTasks(tasks []LedgerTask, by string) error {
+	if err := validateLedgerTasks(tasks); err != nil {
+		return err
+	}
 	raw, err := marshalList(tasks)
 	if err != nil {
 		return err
@@ -113,9 +152,14 @@ func (l *Ledger) WriteTasks(tasks []LedgerTask, by string) error {
 
 // CASTasks atomically replaces the task ledger, guarding against a concurrent
 // writer: expected is the task list the caller last read (nil = the key is
-// absent). It returns ErrLedgerConflict when the store moved under the caller,
-// who should re-read via Tasks and retry (autopilot.md §4).
+// absent). `next` is validated; `expected` is not, so a CAS from pre-enum
+// data onto a canonical list can succeed. It returns ErrLedgerConflict when the
+// store moved under the caller, who should re-read via Tasks and retry
+// (autopilot.md §4).
 func (l *Ledger) CASTasks(expected, next []LedgerTask, by string) error {
+	if err := validateLedgerTasks(next); err != nil {
+		return err
+	}
 	expRaw, err := marshalExpected(expected)
 	if err != nil {
 		return err
@@ -125,6 +169,29 @@ func (l *Ledger) CASTasks(expected, next []LedgerTask, by string) error {
 		return err
 	}
 	return l.store.CompareAndSet(l.TasksKey(), expRaw, nextRaw, writerOrDefault(by))
+}
+
+// WriteTaskState writes the optional TUI overlay for one task's canonical state.
+// It does not update the JSON array at TasksKey — callers that own the ledger
+// still WriteTasks/CASTasks the array as the source of truth.
+func (l *Ledger) WriteTaskState(taskID string, state LedgerState, by string) error {
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("%w: empty id", ErrInvalidLedgerTask)
+	}
+	if !state.Valid() {
+		return invalidLedgerStateError(state)
+	}
+	return l.store.Set(l.TaskStateKey(taskID), string(state), writerOrDefault(by))
+}
+
+// TaskState reads the optional TUI overlay for one task. An absent key is
+// ErrLedgerMissing — callers fall back to the tasks array.
+func (l *Ledger) TaskState(taskID string) (LedgerState, error) {
+	raw, err := l.store.Get(l.TaskStateKey(taskID))
+	if err != nil {
+		return "", err
+	}
+	return ParseLedgerState(raw)
 }
 
 // Landings reads the append-only landings ledger (empty when absent).

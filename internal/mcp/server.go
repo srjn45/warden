@@ -11,6 +11,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/role"
 )
@@ -228,6 +229,21 @@ func mcpDir(arg string) string {
 	return ""
 }
 
+// spawnParentID returns the parent_id for an MCP-initiated spawn. Autopilot-owned
+// managers omit it for worker-role spawns — the daemon stamps run back-refs
+// instead (plan-scoped hierarchy WP6).
+func (s *Server) spawnParentID(ctx context.Context, roleName string) string {
+	id := sessionID()
+	if id == "" || !autopilot.WorkerSpawnRole(roleName) {
+		return id
+	}
+	caller, err := s.cl.Get(ctx, id)
+	if err != nil || !caller.HasTag("autopilot") {
+		return id
+	}
+	return ""
+}
+
 func textResult(s string) *mcpsdk.CallToolResult {
 	return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: s}}}
 }
@@ -294,7 +310,7 @@ func NewServer(daemonBase string) *Server {
 			Branch: a.Branch, PR: a.PR, Worktree: a.Worktree, InRepo: a.InRepo,
 			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
 			Name: a.Name, Model: a.Model, Backend: a.Backend, Kind: a.Kind, Tags: a.Tags,
-			Role: roleName, Tier: a.Tier, Task: a.Task, ParentID: sessionID(),
+			Role: roleName, Tier: a.Tier, Task: a.Task, ParentID: s.spawnParentID(ctx, roleName),
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired

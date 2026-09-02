@@ -356,7 +356,12 @@ export interface AutopilotRun {
   landed_total: number;
 	plan_tasks: AutopilotPlanTask[];
 	guardian_id?: string;
+	integration_branch?: string;
+	gate_warning?: string;
+	ledger_tasks?: AutopilotLedgerTask[];
 }
+
+export interface AutopilotLedgerTask { id: string; state: string; }
 
 // AutopilotStatus is the full response shape for GET/POST /autopilot.
 export interface AutopilotStatus {

@@ -203,7 +203,7 @@ func TestRegisteredActiveRunRecoversWithoutLegacyConfig(t *testing.T) {
 	require.Equal(t, StateActive, c2.Status().Runs[0].State)
 }
 
-func TestPausedRunResumeAfterRestartSpawnsBrain(t *testing.T) {
+func TestPausedRunResumeAfterRestartAdoptsStoredBrain(t *testing.T) {
 	repo := t.TempDir()
 	plan := writePlan(t, repo, "paused.yaml", "durable")
 	data := t.TempDir()
@@ -214,6 +214,7 @@ func TestPausedRunResumeAfterRestartSpawnsBrain(t *testing.T) {
 	c1.SetRuntime(newFakeRuntime())
 	_, err = c1.StartRun(context.Background(), r.RunID)
 	require.NoError(t, err)
+	slotBrain := c1.Status().Runs[0].Brain.AgentID
 	_, err = c1.PauseRun(context.Background(), r.RunID)
 	require.NoError(t, err)
 	require.NoError(t, c1.Close())
@@ -225,6 +226,7 @@ func TestPausedRunResumeAfterRestartSpawnsBrain(t *testing.T) {
 	require.Empty(t, rt2.spawned, "paused intent must not start work at boot")
 	got, err := c2.ResumeRun(context.Background(), r.RunID)
 	require.NoError(t, err)
-	require.Len(t, rt2.spawned, 1)
+	require.Empty(t, rt2.spawned, "resume adopts the stored slot brain without respawning")
 	require.Equal(t, StateActive, got.State)
+	require.Equal(t, slotBrain, c2.Status().Runs[0].Brain.AgentID)
 }

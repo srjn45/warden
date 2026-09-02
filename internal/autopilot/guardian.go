@@ -163,10 +163,10 @@ func (c *Controller) escalate(ctx context.Context, gr GuardianRuntime, r *run, n
 		r.healNextAt = now.Add(c.guardian.HeartbeatTimeout)
 		c.escalated(gr, r, "nudge", "brain quiet past heartbeat timeout — sent a steering nudge")
 	case stageNudged:
-		// Stage 2 — restart on the same backend with a fresh context (cold-start).
+		// Stage 2 — restart on the same backend with a fresh context (in-place HotSwap).
 		cur := brainBackend(r)
 		r.tried[cur] = true
-		if err := c.rotateBrain(ctx, r, cur); err != nil {
+		if err := c.rotateBrain(ctx, r, cur, RotateReasonHeal); err != nil {
 			slog.Warn("autopilot guardian: restart failed", "run", r.runID, "err", err)
 			r.state = StateDegraded
 		}
@@ -180,9 +180,9 @@ func (c *Controller) escalate(ctx context.Context, gr GuardianRuntime, r *run, n
 }
 
 // rotateStep rotates the brain onto the next selectable backend not yet tried this
-// cycle, cold-starting from the digest (§7). When nothing is selectable it enters
-// backoff (§2.3 stage 4). Used both to walk down the ladder (stage 3) and to
-// (re)spawn a brain that is entirely gone.
+// cycle, hot-swapping into the same manager slot (§7). When nothing is selectable
+// it enters backoff (§2.3 stage 4). Used both to walk down the ladder (stage 3)
+// and to (re)spawn a brain that is entirely gone.
 func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
 	sel := c.selectBrain(r.tried)
 	if !sel.OK {
@@ -190,7 +190,7 @@ func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run,
 		return
 	}
 	r.tried[sel.Backend] = true
-	if err := c.rotateBrain(ctx, r, sel.Backend); err != nil {
+	if err := c.rotateBrain(ctx, r, sel.Backend, RotateReasonHeal); err != nil {
 		// The selected backend failed to spawn despite qualifying — degrade and back
 		// off; the next tick re-selects with this backend already marked tried.
 		slog.Warn("autopilot guardian: rotate spawn failed", "run", r.runID, "backend", sel.Backend, "err", err)
@@ -234,17 +234,17 @@ func (c *Controller) enterBackoff(gr GuardianRuntime, r *run, now time.Time, gat
 	c.notify(gr, r, "autopilot brain stalled", r.backoffLastErr)
 }
 
-// plannedRotate cold-starts a healthy brain whose context has reached the rotate
-// threshold (§2.3 planned rotation). It selects a fresh backend FIRST and only
-// rotates when one is available, so a working brain is never torn down without a
-// replacement. A cooldown floor prevents thrashing while the new brain's context
-// settles.
+// plannedRotate hot-swaps a healthy brain whose context has reached the rotate
+// threshold (§2.3 planned rotation) into the same manager slot. It selects a
+// fresh backend FIRST and only rotates when one is available, so a working
+// brain is never swapped without a replacement. A cooldown floor prevents
+// thrashing while the successor's context settles.
 func (c *Controller) plannedRotate(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
 	sel := c.selectBrain(nil)
 	if !sel.OK {
 		return // nothing to rotate onto — leave the working brain in place
 	}
-	if err := c.rotateBrain(ctx, r, sel.Backend); err != nil {
+	if err := c.rotateBrain(ctx, r, sel.Backend, RotateReasonContext); err != nil {
 		slog.Warn("autopilot guardian: planned rotation failed", "run", r.runID, "err", err)
 		r.state = StateDegraded
 		return
@@ -252,7 +252,7 @@ func (c *Controller) plannedRotate(ctx context.Context, gr GuardianRuntime, r *r
 	r.tier = sel.Tier
 	r.state = StateActive
 	r.plannedRotateNextAt = now.Add(c.guardian.HeartbeatTimeout)
-	c.escalated(gr, r, "planned-rotation", fmt.Sprintf("context %s — cold-started a fresh brain on %s", r.contextLevel, backendLabel(sel.Backend)))
+	c.escalated(gr, r, "planned-rotation", fmt.Sprintf("context %s — hot-swapped a fresh brain on %s", r.contextLevel, backendLabel(sel.Backend)))
 }
 
 // escalated logs every heal step and, when guardian.notify_each is set, surfaces

@@ -67,6 +67,11 @@ export interface Session {
   context_state?: '' | 'ok' | 'warning' | 'critical';
   context_checked_at?: string;
   last_compact_at?: string | null;
+  parent_id?: string;
+  role?: string;
+  autopilot_run_id?: string;
+  autopilot_slot?: 'autopilot' | 'guardian' | 'worker';
+  autopilot_task_id?: string;
 }
 
 // ContextEntry mirrors the daemon's shared-context entry (GET /context).

@@ -24,7 +24,9 @@ type InitConfig struct {
 	// Register persists the newly scaffolded plan in the daemon run store.
 	// It is optional for embedders and tests that only need filesystem setup.
 	Register func(context.Context, RegisterRequest) error
-	// IntegrationBranch is the merge target (default "autopilot/integration").
+	// IntegrationBranch is the merge-target template (config
+	// autopilot.merge.target_branch, default "autopilot/integration"). Empty and
+	// the legacy default derive autopilot/<plan-name>; {{plan}} is expanded.
 	IntegrationBranch string
 	// Backends is retained for source compatibility. Backend tiers now live in
 	// the backend registry and are not written to config.
@@ -60,9 +62,11 @@ func Init(ctx context.Context, env Env, repo string, cfg InitConfig, out io.Writ
 	if cfg.Name == "" {
 		cfg.Name = defaultRunName(cfg.PlanFile)
 	}
-	if cfg.IntegrationBranch == "" {
-		cfg.IntegrationBranch = "autopilot/integration"
+	branch, err := ResolveInitIntegrationBranch(cfg.Name, cfg.IntegrationBranch)
+	if err != nil {
+		return err
 	}
+	cfg.IntegrationBranch = branch
 
 	if err := writePlanIfAbsent(filepath.Join(repo, cfg.PlanFile), out); err != nil {
 		return err
@@ -243,7 +247,7 @@ func ensureIntegrationBranch(ctx context.Context, env Env, repo, branch string, 
 		return fmt.Errorf("resolve default branch: %w", err)
 	}
 	if isProtectedBranch(branch, def) {
-		return fmt.Errorf("integration branch %q is a protected name — choose a dedicated branch (e.g. autopilot/integration)", branch)
+		return fmt.Errorf("integration branch %q is a protected name — choose a dedicated branch (e.g. autopilot/<plan-name>)", branch)
 	}
 	exists, err := env.BranchExists(ctx, repo, branch)
 	if err != nil {
@@ -360,7 +364,7 @@ func printCIHint(repo, branch string, out io.Writer) {
 	if !ciCoversIntegration(repo, branch) {
 		fmt.Fprintf(out, "\nhint: no CI workflow found that covers %s pull requests\n", branch)
 		fmt.Fprintf(out, "      autopilot will use gate: local (project checks instead of CI)\n")
-		fmt.Fprintf(out, "      to enable CI gating, add %q to on.pull_request.branches in\n", branch)
-		fmt.Fprintf(out, "      one of your .github/workflows/*.yml files\n")
+		fmt.Fprintf(out, "      to enable CI gating, add %q to on.pull_request.branches in\n", "autopilot/**")
+		fmt.Fprintf(out, "      one of your .github/workflows/*.yml files (covers every per-plan branch)\n")
 	}
 }

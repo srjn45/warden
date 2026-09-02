@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/poller"
@@ -58,8 +59,13 @@ func (d *pollerDeps) FinalizeExit(ctx context.Context, id string, expected, next
 	// tombstone ready to reap (agent sub-tree grouping, phase 3). Lazy primary
 	// reap — the periodic sweep is the safety net.
 	if swapped && err == nil {
-		if s, gerr := d.store.Get(ctx, id); gerr == nil && s.ParentID != "" {
-			reapTombstones(ctx, d.store, s.ParentID, d.SessionAlive)
+		if s, gerr := d.store.Get(ctx, id); gerr == nil {
+			if s.ParentID != "" {
+				reapTombstones(ctx, d.store, s.ParentID, d.SessionAlive)
+			}
+			if rid := autopilot.SessionRunID(s); rid != "" && autopilot.IsWorkerRecord(s) {
+				reapAutopilotManagers(ctx, d.store, rid, d.SessionAlive)
+			}
 		}
 	}
 	return swapped, err

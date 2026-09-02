@@ -228,3 +228,40 @@ func TestInstallDefaultAutoApprovePolicy(t *testing.T) {
 		require.Empty(t, got.Rules.Allow)
 	})
 }
+
+func TestStampAutopilotSpawnBackRefsClearsParentID(t *testing.T) {
+	fs := newFakeStore()
+	manager := &store.Session{
+		ID:     "agent-brain",
+		Role:   autopilotBrainRole,
+		Tags:   []string{"autopilot", "run:ap-deadbeef1234"},
+		Status: store.StatusWorking,
+	}
+	require.NoError(t, fs.Insert(context.Background(), manager))
+
+	srv := &Server{store: fs}
+	ctx := ctxWithActor("agent-brain")
+	sr := &SpawnRequest{Role: "worker", Task: "build-feature", ParentID: "agent-brain"}
+	srv.stampAutopilotSpawnBackRefs(ctx, sr)
+
+	require.Empty(t, sr.ParentID)
+	require.Equal(t, "ap-deadbeef1234", sr.AutopilotRunID)
+	require.Equal(t, store.AutopilotSlotWorker, sr.AutopilotSlot)
+	require.Equal(t, "build-feature", sr.AutopilotTaskID)
+}
+
+func TestStampAutopilotSpawnBackRefsLeavesNonWorkerAlone(t *testing.T) {
+	fs := newFakeStore()
+	require.NoError(t, fs.Insert(context.Background(), &store.Session{
+		ID: "agent-brain", Role: autopilotBrainRole,
+		Tags: []string{"autopilot", "run:ap-deadbeef1234"}, Status: store.StatusWorking,
+	}))
+
+	srv := &Server{store: fs}
+	ctx := ctxWithActor("agent-brain")
+	sr := &SpawnRequest{Role: "planner", ParentID: "agent-brain"}
+	srv.stampAutopilotSpawnBackRefs(ctx, sr)
+
+	require.Equal(t, "agent-brain", sr.ParentID)
+	require.Empty(t, sr.AutopilotRunID)
+}
