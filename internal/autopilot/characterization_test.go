@@ -47,6 +47,14 @@ func (r *hexBrainRuntime) SpawnBrain(_ context.Context, spec BrainSpec) (BrainHa
 	return BrainHandle{AgentID: r.nextAgentID(), Backend: spec.Backend}, nil
 }
 
+func (r *hexBrainRuntime) RotateBrain(_ context.Context, spec RotateBrainSpec) (BrainHandle, error) {
+	backend := spec.Backend
+	if backend == "" {
+		backend = "claude"
+	}
+	return BrainHandle{AgentID: spec.AgentID, Backend: backend}, nil
+}
+
 func (r *hexBrainRuntime) TerminateBrain(_ context.Context, agentID string) error {
 	r.killed = append(r.killed, agentID)
 	return nil
@@ -57,10 +65,9 @@ func (r *hexBrainRuntime) DigestSources() DigestSources     { return r.sources }
 func (r *hexBrainRuntime) NotifyOwner(_ string, msg string) { r.notified = append(r.notified, msg) }
 func (r *hexBrainRuntime) InstallDefaultAutoApprovePolicy() { r.installs++ }
 
-// TestCharacterization_RotateBrainMintsNewAgentID records that guardian rotation
-// terminates the current manager and spawns a fresh agent-<hex> id (run.go:147-158).
-// WP5 replaces this terminate-then-spawn path with in-place HotSwap on the slot.
-func TestCharacterization_RotateBrainMintsNewAgentID(t *testing.T) {
+// TestCharacterization_RotateBrainHotSwapsInPlace records WP5 guardian rotation:
+// in-place HotSwap on the manager slot (same id, no terminate+spawn).
+func TestCharacterization_RotateBrainHotSwapsInPlace(t *testing.T) {
 	dir := t.TempDir()
 	plan := writePlan(t, dir, "plan.yaml", "ship it")
 	fake := newGuardianFake()
@@ -77,11 +84,12 @@ func TestCharacterization_RotateBrainMintsNewAgentID(t *testing.T) {
 	r := c.runs[runID]
 	require.Equal(t, "brain-1", r.brain.AgentID)
 
-	require.NoError(t, c.rotateBrain(context.Background(), r, "a"))
-	require.Equal(t, "brain-2", r.brain.AgentID, "rotation mints a new manager id")
-	require.Equal(t, []string{"brain-1"}, fake.killed)
-	require.Len(t, fake.spawned, 2)
-	require.NotEqual(t, fake.spawned[0].RunID, "", "spawn carries run id")
+	require.NoError(t, c.rotateBrain(context.Background(), r, "a", RotateReasonHeal))
+	require.Equal(t, "brain-1", r.brain.AgentID, "rotation keeps the manager slot id")
+	require.Empty(t, fake.killed, "guardian rotation must not terminate the manager")
+	require.Len(t, fake.rotated, 1)
+	require.Equal(t, "brain-1", fake.rotated[0].AgentID)
+	require.Equal(t, "a", fake.rotated[0].Backend)
 }
 
 // TestSlotSpawnAdoptsStoredBrainOnRestart verifies daemon restart adopts the
@@ -194,7 +202,8 @@ func TestCharacterization_GuardianRotationWalksIdChurn(t *testing.T) {
 	c.guardianTick(ctx)
 	ids = append(ids, c.runs[runID].brain.AgentID)
 
-	require.Equal(t, []string{"brain-1", "brain-2", "brain-3"}, ids,
-		"each heal escalation mints a new manager id; WP5 preserves slot id")
-	require.Equal(t, []string{"brain-1", "brain-2"}, fake.killed)
+	require.Equal(t, []string{"brain-1", "brain-1", "brain-1"}, ids,
+		"WP5 heal escalations HotSwap in place on the manager slot id")
+	require.Empty(t, fake.killed, "guardian heal ladder must not terminate the manager")
+	require.Len(t, fake.rotated, 2, "restart and rotate each call RotateBrain")
 }

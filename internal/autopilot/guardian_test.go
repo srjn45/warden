@@ -19,12 +19,14 @@ type guardianFake struct {
 	nextID  int
 
 	spawned     []BrainSpec
+	rotated     []RotateBrainSpec
 	killed      []string
 	nudges      []string
 	escalations []string
 	installs    int
 
 	spawnErrOn map[string]error     // backend → spawn error (simulate an unavailable backend)
+	rotateErr  error                // when set, RotateBrain fails
 	activity   map[string]time.Time // runID → last brain heartbeat
 	ctxLevel   map[string]string    // agentID → context-window level
 
@@ -64,6 +66,18 @@ func (f *guardianFake) SpawnBrain(_ context.Context, spec BrainSpec) (BrainHandl
 	f.spawned = append(f.spawned, spec)
 	f.nextID++
 	return BrainHandle{AgentID: fmt.Sprintf("brain-%d", f.nextID), Backend: spec.Backend}, nil
+}
+
+func (f *guardianFake) RotateBrain(_ context.Context, spec RotateBrainSpec) (BrainHandle, error) {
+	if f.rotateErr != nil {
+		return BrainHandle{}, f.rotateErr
+	}
+	f.rotated = append(f.rotated, spec)
+	backend := spec.Backend
+	if backend == "" {
+		backend = "a"
+	}
+	return BrainHandle{AgentID: spec.AgentID, Backend: backend}, nil
 }
 
 func (f *guardianFake) TerminateBrain(_ context.Context, agentID string) error {
@@ -155,19 +169,26 @@ func TestGuardianWedgeWalksLadder(t *testing.T) {
 	c.guardianTick(ctx)
 	require.Len(t, fake.nudges, 1, "escalation waits out the grace window")
 
-	// Grace elapsed, still wedged: stage 2 — restart on the SAME backend.
+	// Grace elapsed, still wedged: stage 2 — restart on the SAME backend (in-place HotSwap).
 	clock.t = t0.Add(22 * time.Minute)
 	c.guardianTick(ctx)
-	require.Equal(t, []string{"brain-1"}, fake.killed, "restart terminates the old brain")
-	require.Len(t, fake.spawned, 2)
-	require.Equal(t, "a", fake.spawned[1].Backend, "restart stays on the same backend")
+	require.Empty(t, fake.killed, "in-place rotation does not terminate the slot")
+	require.Len(t, fake.spawned, 1, "in-place rotation does not mint a new session")
+	require.Len(t, fake.rotated, 1)
+	require.Equal(t, "brain-1", fake.rotated[0].AgentID, "restart keeps the manager slot id")
+	require.Equal(t, "a", fake.rotated[0].Backend, "restart stays on the same backend")
+	require.Equal(t, RotateReasonHeal, fake.rotated[0].Reason)
+	require.Equal(t, "brain-1", c.runs[c.Status().Runs[0].RunID].brain.AgentID)
 
-	// Still wedged after the restart's grace: stage 3 — rotate DOWN the ladder.
+	// Still wedged after the restart's grace: stage 3 — rotate DOWN the ladder (same slot).
 	clock.t = t0.Add(33 * time.Minute)
 	c.guardianTick(ctx)
-	require.Equal(t, []string{"brain-1", "brain-2"}, fake.killed)
-	require.Len(t, fake.spawned, 3)
-	require.Equal(t, "b", fake.spawned[2].Backend, "rotate moves to the next tier")
+	require.Empty(t, fake.killed)
+	require.Len(t, fake.spawned, 1)
+	require.Len(t, fake.rotated, 2)
+	require.Equal(t, "brain-1", fake.rotated[1].AgentID, "rotate keeps the manager slot id")
+	require.Equal(t, "b", fake.rotated[1].Backend, "rotate moves to the next tier")
+	require.Equal(t, "brain-1", c.Status().Runs[0].Brain.AgentID)
 	require.Equal(t, tierSubscription, c.Status().Runs[0].Brain.Tier)
 
 	// Ladder exhausted: stage 4 — backoff (never parks, always reschedules).
@@ -285,21 +306,27 @@ func TestGuardianPlannedRotationOnContext(t *testing.T) {
 	fake.ctxLevel["brain-1"] = "critical"
 	clock.t = t0.Add(4 * time.Minute)
 	c.guardianTick(ctx)
-	require.Equal(t, []string{"brain-1"}, fake.killed, "context critical ⇒ planned cold-start rotation")
-	require.Len(t, fake.spawned, 2)
+	require.Empty(t, fake.killed, "planned rotation hot-swaps the slot in place")
+	require.Len(t, fake.spawned, 1, "planned rotation does not mint a new session")
+	require.Len(t, fake.rotated, 1)
+	require.Equal(t, "brain-1", fake.rotated[0].AgentID)
+	require.Equal(t, RotateReasonContext, fake.rotated[0].Reason)
+	require.Equal(t, "brain-1", c.runs[runID].brain.AgentID)
 
 	// The freshly rotated brain is also critical, but the cooldown suppresses an
-	// immediate re-rotation.
+	// immediate re-rotation. Context is still keyed by the stable slot id.
 	fake.activity[runID] = clock.t
-	fake.ctxLevel["brain-2"] = "critical"
+	fake.ctxLevel["brain-1"] = "critical"
 	c.guardianTick(ctx)
-	require.Len(t, fake.spawned, 2, "cooldown prevents thrashing")
+	require.Len(t, fake.rotated, 1, "cooldown prevents thrashing")
 
-	// Past the cooldown, it rotates again.
+	// Past the cooldown, it rotates again — still the same slot.
 	clock.t = t0.Add(20 * time.Minute)
 	fake.activity[runID] = clock.t
 	c.guardianTick(ctx)
-	require.Len(t, fake.spawned, 3, "planned rotation resumes after the cooldown")
+	require.Len(t, fake.rotated, 2, "planned rotation resumes after the cooldown")
+	require.Equal(t, "brain-1", fake.rotated[1].AgentID)
+	require.Len(t, fake.spawned, 1)
 }
 
 // TestGuardianHonorsKillSwitch proves a disabled controller supervises nothing,
@@ -328,4 +355,192 @@ func TestGuardianHonorsKillSwitch(t *testing.T) {
 	clock.t = t0.Add(90 * time.Minute)
 	c2.guardianTick(ctx) // must be a no-op — no GuardianRuntime
 	require.Empty(t, plainRT.killed, "a non-guardian runtime is never healed")
+}
+
+// TestGuardianHealStagesHotSwap is the WP5 table: every heal-ladder stage that
+// used to terminate+spawn now either nudges, hot-swaps the same slot, or backs
+// off — the manager id never changes and TerminateBrain is never used to rotate.
+func TestGuardianHealStagesHotSwap(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	type want struct {
+		nudges  int
+		rotated int
+		backend string
+		reason  string
+		killed  int
+		spawned int
+		stage   healStage
+		id      string
+		backoff bool
+	}
+	tests := []struct {
+		name  string
+		res   Resolver
+		setup func(c *Controller, fake *guardianFake, runID string, clock *fakeClock)
+		want  want
+	}{
+		{
+			name: "nudge",
+			res:  cyclicResolver("a", "free"),
+			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
+				clock.t = t0.Add(11 * time.Minute)
+				c.guardianTick(ctx)
+			},
+			want: want{nudges: 1, spawned: 1, stage: stageNudged, id: "brain-1"},
+		},
+		{
+			name: "restart",
+			res:  cyclicResolver("a", "free"),
+			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
+				c.runs[runID].healStage = stageNudged
+				c.runs[runID].healNextAt = time.Time{}
+				clock.t = t0.Add(11 * time.Minute)
+				c.guardianTick(ctx)
+			},
+			want: want{rotated: 1, backend: "a", reason: RotateReasonHeal, spawned: 1, stage: stageRestarted, id: "brain-1"},
+		},
+		{
+			name: "rotate",
+			res:  &roundRobinResolver{backends: []string{"a", "b"}, tiers: []backendstore.ModelTier{"free", "subscription"}},
+			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
+				c.runs[runID].healStage = stageRestarted
+				c.runs[runID].healNextAt = time.Time{}
+				c.runs[runID].tried = map[string]bool{"a": true}
+				clock.t = t0.Add(11 * time.Minute)
+				c.guardianTick(ctx)
+			},
+			want: want{rotated: 1, backend: "b", reason: RotateReasonHeal, spawned: 1, stage: stageRotated, id: "brain-1"},
+		},
+		{
+			name: "backoff",
+			res:  &fakeResolver{err: router.ErrAllExhausted},
+			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
+				c.runs[runID].healStage = stageRotated
+				c.runs[runID].healNextAt = time.Time{}
+				clock.t = t0.Add(11 * time.Minute)
+				c.guardianTick(ctx)
+			},
+			want: want{spawned: 1, stage: stageBackoff, id: "brain-1", backoff: true},
+		},
+		{
+			name: "plannedRotate",
+			res:  cyclicResolver("a", "free"),
+			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
+				fake.activity[runID] = t0.Add(3 * time.Minute)
+				fake.ctxLevel["brain-1"] = "critical"
+				clock.t = t0.Add(4 * time.Minute)
+				c.guardianTick(ctx)
+			},
+			want: want{rotated: 1, backend: "a", reason: RotateReasonContext, spawned: 1, stage: stageHealthy, id: "brain-1"},
+		},
+		{
+			name: "missing-brain-respawns",
+			res:  cyclicResolver("a", "free"),
+			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
+				c.runs[runID].brain = nil
+				c.runs[runID].healStage = stageRestarted
+				c.runs[runID].healNextAt = time.Time{}
+				clock.t = t0.Add(11 * time.Minute)
+				c.guardianTick(ctx)
+			},
+			want: want{spawned: 2, rotated: 0, stage: stageRotated, id: "brain-2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clock := &fakeClock{t: t0}
+			fake := newGuardianFake()
+			c, runID := enabledGuardianController(t, fake, clock, tt.res, testGuardian())
+			require.Equal(t, "brain-1", c.runs[runID].brain.AgentID)
+
+			tt.setup(c, fake, runID, clock)
+
+			require.Len(t, fake.nudges, tt.want.nudges)
+			require.Len(t, fake.rotated, tt.want.rotated)
+			require.Len(t, fake.killed, tt.want.killed)
+			require.Len(t, fake.spawned, tt.want.spawned)
+			require.Equal(t, tt.want.stage, c.runs[runID].healStage)
+			require.Equal(t, tt.want.id, c.runs[runID].brain.AgentID, "manager slot id after %s", tt.name)
+			if tt.want.rotated > 0 {
+				last := fake.rotated[len(fake.rotated)-1]
+				require.Equal(t, "brain-1", last.AgentID, "HotSwap target is the existing slot")
+				require.Equal(t, tt.want.backend, last.Backend)
+				require.Equal(t, tt.want.reason, last.Reason)
+				require.NotEmpty(t, last.Prompt, "successor is seeded with the recovery digest")
+			}
+			if tt.want.backoff {
+				require.NotNil(t, c.Status().Runs[0].Backoff)
+			} else {
+				require.Nil(t, c.Status().Runs[0].Backoff)
+			}
+		})
+	}
+}
+
+// TestGuardianRotationLeavesLiveWorkersUntouched proves a HotSwap rotation does
+// not rewrite worker parent_ids — the tree stays put and land ownership (tags)
+// is unchanged. The daemon integration test covers the store/handoff/land path;
+// this locks the controller seam: RotateBrain is the only mutation.
+func TestGuardianRotationLeavesLiveWorkersUntouched(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: t0}
+	fake := newGuardianFake()
+	c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+	mgrID := c.runs[runID].brain.AgentID
+
+	// Live workers parented at the manager slot (the pre-WP6 parent_id tree).
+	type worker struct{ id, parent, branch string }
+	workers := []worker{
+		{id: "agent-w1", parent: mgrID, branch: "autopilot/task-a"},
+		{id: "agent-w2", parent: mgrID, branch: "autopilot/task-b"},
+	}
+	for _, w := range workers {
+		fake.roster[runID] = append(fake.roster[runID], AgentInfo{
+			ID: w.id, Role: "worker", State: "working", Branch: w.branch,
+			Tags: []string{autopilotTag, runTag(runID)},
+		})
+	}
+	parentBefore := map[string]string{}
+	for _, w := range workers {
+		parentBefore[w.id] = w.parent
+	}
+
+	c.runs[runID].healStage = stageNudged
+	c.runs[runID].healNextAt = time.Time{}
+	clock.t = t0.Add(11 * time.Minute)
+	c.guardianTick(context.Background())
+
+	require.Len(t, fake.rotated, 1)
+	require.Equal(t, mgrID, fake.rotated[0].AgentID)
+	require.Equal(t, mgrID, c.runs[runID].brain.AgentID, "manager id unchanged")
+	require.Empty(t, fake.killed)
+	require.Len(t, fake.spawned, 1)
+
+	// Roster (and therefore land-by-tag) is untouched; parent_id is not a
+	// controller field — the fake workers still name the same parent.
+	require.Len(t, fake.roster[runID], 2)
+	for _, w := range workers {
+		require.Equal(t, mgrID, parentBefore[w.id], "worker %s parent_id must not be rewritten", w.id)
+	}
+	owned, gotRun := ownershipFromTestTags([]string{autopilotTag, runTag(runID)})
+	require.True(t, owned)
+	require.Equal(t, runID, gotRun)
+}
+
+// ownershipFromTestTags mirrors daemon ownershipFromTags so the controller test
+// can assert land-by-tag still holds without importing daemon.
+func ownershipFromTestTags(tags []string) (owned bool, runID string) {
+	has := false
+	for _, t := range tags {
+		switch {
+		case t == autopilotTag:
+			has = true
+		case len(t) > 4 && t[:4] == "run:":
+			runID = t[4:]
+		}
+	}
+	return has && runID != "", runID
 }

@@ -9,10 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -105,6 +107,67 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 	}
 	rt.s.notify()
 	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.Backend}, nil
+}
+
+// RotateBrain hot-swaps a successor backend into the existing manager session
+// (WP5). It calls Lifecycle.HotSwap directly — never BackendRecoveryCoordinator —
+// so guardian heal-ladder rotation cannot double-switch a session the recovery
+// loop owns. The session id is preserved; the handoff lands at the stable
+// `.warden/handoff-<id>.md` path HotSwap already writes.
+func (rt autopilotRuntime) RotateBrain(ctx context.Context, spec autopilot.RotateBrainSpec) (autopilot.BrainHandle, error) {
+	if rt.s == nil || rt.s.store == nil || rt.s.life == nil {
+		return autopilot.BrainHandle{}, errors.New("rotate brain: runtime not configured")
+	}
+	sess, err := rt.s.store.Get(ctx, spec.AgentID)
+	if err != nil {
+		return autopilot.BrainHandle{}, err
+	}
+	backend := spec.Backend
+	if backend == "" {
+		backend = sess.Backend
+	}
+	if backend == "" {
+		backend = agentbackend.DefaultID
+	}
+	reason := lifecycle.SwapReason(spec.Reason)
+	if reason == "" {
+		reason = lifecycle.SwapReasonManual
+	}
+	res, err := rt.s.life.HotSwap(ctx, sess, lifecycle.SwapRequest{
+		Backend: backend,
+		Reason:  reason,
+		Prompt:  spec.Prompt,
+	})
+	if err != nil {
+		return autopilot.BrainHandle{}, fmt.Errorf("hot-swap brain: %w", err)
+	}
+	toBackend, toModel := backend, sess.Model
+	if res != nil {
+		if res.ToBackend != "" {
+			toBackend = res.ToBackend
+		}
+		if res.ToModel != "" {
+			toModel = res.ToModel
+		}
+		if res.Session != nil {
+			sess = res.Session
+		}
+	}
+	// Persist even when the lifecycle implementation already wrote (adapter): a
+	// second Update is idempotent and covers fake/raw Lifecycle doubles used in tests.
+	if err := rt.s.store.Update(ctx, sess.ID, func(s *store.Session) error {
+		s.Backend = toBackend
+		s.Model = toModel
+		if res != nil && res.Session != nil {
+			s.ClaudeSessionID = res.Session.ClaudeSessionID
+			s.UpdatedAt = res.Session.UpdatedAt
+		}
+		return nil
+	}); err != nil {
+		return autopilot.BrainHandle{}, fmt.Errorf("persist rotated brain: %w", err)
+	}
+	rt.s.notify()
+	return autopilot.BrainHandle{AgentID: sess.ID, Backend: toBackend}, nil
 }
 
 // TerminateBrain gracefully stops the brain's tmux session (record + worktree
