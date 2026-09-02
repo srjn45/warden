@@ -72,6 +72,22 @@ type BrainHandle struct {
 	Backend string
 }
 
+// RotateBrainSpec is the guardian's in-place slot rotation request. HotSwap
+// keeps AgentID so the manager slot does not churn and workers need no
+// parent_id rewrite. Reason is a lifecycle.SwapReason value; empty means manual.
+type RotateBrainSpec struct {
+	AgentID string // current manager session id (the slot)
+	Backend string // pinned successor backend
+	Prompt  string // extra continuation instruction (recovery digest)
+	Reason  string // "manual" (heal ladder) or "context_fill" (plannedRotate)
+}
+
+// Rotate reasons recorded on the HotSwap handoff. Values match lifecycle.SwapReason.
+const (
+	RotateReasonHeal    = "manual"       // restart / rotate-down the heal ladder
+	RotateReasonContext = "context_fill" // plannedRotate on context pressure
+)
+
 // Runtime is the daemon-provided surface the Controller drives once a run is
 // live: spawn/teardown the brain, read the ledger and digest sources, and notify
 // the owner. It is injected (SetRuntime) rather than constructed so the S1 inert
@@ -80,9 +96,14 @@ type BrainHandle struct {
 type Runtime interface {
 	// SpawnBrain launches the run's headless brain and returns its handle. A
 	// failure leaves the run degraded (autopilot.md §2.1); the guardian (S5)
-	// heals it.
+	// heals it. Used for first start and for a missing slot (brain gone).
 	SpawnBrain(ctx context.Context, spec BrainSpec) (BrainHandle, error)
-	// TerminateBrain gracefully stops the brain agent (kill switch / rotation).
+	// RotateBrain hot-swaps the successor backend into the existing manager
+	// session (same id, same worktree). Workers keep their parent_id; the
+	// BackendRecoveryCoordinator is not involved — guardian rotation is a
+	// separate owner from quota recovery.
+	RotateBrain(ctx context.Context, spec RotateBrainSpec) (BrainHandle, error)
+	// TerminateBrain gracefully stops the brain agent (kill switch / teardown).
 	// In-flight workers are untouched.
 	TerminateBrain(ctx context.Context, agentID string) error
 	// NewLedger returns a run-scoped ledger over the daemon's ctx store.
@@ -139,23 +160,44 @@ type GuardianAgentRuntime interface {
 	ReconcileGuardians(ctx context.Context, valid map[string]string) (missingRunIDs []string, err error)
 }
 
-// rotateBrain is the guardian's rotation hook (autopilot.md §7): terminate the
-// current brain and spawn a fresh one on backend, cold-starting from the ledger
-// via a freshly composed digest. S3 provides the signature and the mechanical
-// terminate-then-respawn; S5 drives it from the heal ladder + tier selection.
-// Workers in flight are untouched — the new brain re-adopts them from list_agents
-// + tags.
-func (c *Controller) rotateBrain(ctx context.Context, r *run, backend string) error {
+// rotateBrain is the guardian's rotation hook (autopilot.md §7): hot-swap the
+// successor backend into the existing manager slot so the session id is
+// unchanged. A missing brain (cold start / failed prior spawn) still goes
+// through spawnBrain. Workers in flight are untouched — they already point at
+// the stable slot id (or at tags) and need no parent_id rewrite.
+func (c *Controller) rotateBrain(ctx context.Context, r *run, backend, reason string) error {
 	if c.runtime == nil {
 		return nil
 	}
-	if r.brain != nil && r.brain.AgentID != "" {
-		if err := c.runtime.TerminateBrain(ctx, r.brain.AgentID); err != nil {
-			return fmt.Errorf("rotate: terminate current brain: %w", err)
-		}
-		r.brain = nil
+	if r.brain == nil || r.brain.AgentID == "" {
+		return c.spawnBrain(ctx, r, backend)
 	}
-	return c.spawnBrain(ctx, r, backend)
+	prompt, err := ComposeDigest(ctx, DigestInput{
+		RunID:    r.runID,
+		Repo:     r.repo,
+		PlanFile: r.absPlanFile,
+		Plan:     r.plan,
+		Ledger:   c.runtime.NewLedger(r.runID),
+		Sources:  c.runtime.DigestSources(),
+	})
+	if err != nil {
+		r.state = StateDegraded
+		return fmt.Errorf("compose digest: %w", err)
+	}
+	handle, err := c.runtime.RotateBrain(ctx, RotateBrainSpec{
+		AgentID: r.brain.AgentID,
+		Backend: backend,
+		Prompt:  prompt,
+		Reason:  reason,
+	})
+	if err != nil {
+		r.state = StateDegraded
+		return fmt.Errorf("rotate: hot-swap brain: %w", err)
+	}
+	r.brain = &handle
+	r.brainSpawnedAt = c.now() // fresh successor counts as a heartbeat until it acts
+	r.state = StateActive
+	return nil
 }
 
 // spawnBrain composes the recovery digest and launches the run's brain, recording
