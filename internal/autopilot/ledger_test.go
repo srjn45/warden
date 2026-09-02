@@ -51,6 +51,7 @@ func TestLedgerKeysAreDotNamespaced(t *testing.T) {
 	require.Equal(t, "autopilot.ap-abc123.journal", l.JournalKey())
 	require.Equal(t, "autopilot.ap-abc123.tasks.api.state", l.TaskStateKey("api"))
 	require.Equal(t, "autopilot.ap-abc123.tasks.api.branch", l.TaskBranchKey("api"))
+	require.Equal(t, "autopilot.ap-abc123.integration_branch", l.IntegrationBranchKey())
 }
 
 func TestLedgerTasksRoundTrip(t *testing.T) {
@@ -175,4 +176,17 @@ func TestLedgerOptionalTaskStateOverlay(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, LedgerPROpen, got)
 	require.Equal(t, "pr_open", store.m[l.TaskStateKey("api")])
+}
+
+func TestLedgerIntegrationBranchRoundTrip(t *testing.T) {
+	store := newFakeStore()
+	l := NewLedger(store, "ap-run")
+	got, err := l.IntegrationBranch()
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	require.NoError(t, l.WriteIntegrationBranch("autopilot/ship", "daemon"))
+	got, err = l.IntegrationBranch()
+	require.NoError(t, err)
+	require.Equal(t, "autopilot/ship", got)
 }

@@ -382,6 +382,19 @@ func TestCharacterization_RenderAutopilotRunCollapsedGolden(t *testing.T) {
 	require.NotContains(t, out, "Only task", "collapsed run hides plan tasks")
 }
 
+func TestRenderAutopilotRunHeaderShowsIntegrationBranch(t *testing.T) {
+	runs := []client.AutopilotRunStatus{{
+		RunID: "ap-1", Name: "ship", Repo: "/repo", State: "active",
+		IntegrationBranch: "autopilot/ship",
+		Tasks:             client.AutopilotTaskCounts{Landed: 0},
+	}}
+	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, nil, runs)
+	require.NotNil(t, items[1].apRun)
+	out := renderList(items, 1, 120, 6)
+	require.Contains(t, out, "ship")
+	require.Contains(t, out, "autopilot/ship")
+}
+
 func itemIndexBySessionID(items []item, id string) int {
 	for i, it := range items {
 		if it.session != nil && it.session.ID == id {

@@ -44,12 +44,13 @@ const digestAuditLimit = 20
 
 // DigestInput is everything ComposeDigest reads to build a brain's opening brief.
 type DigestInput struct {
-	RunID    string
-	Repo     string
-	PlanFile string // absolute path shown to the brain so it can re-read on change
-	Plan     Plan   // the last-good decoded plan
-	Ledger   *Ledger
-	Sources  DigestSources
+	RunID             string
+	Repo              string
+	PlanFile          string // absolute path shown to the brain so it can re-read on change
+	Plan              Plan   // the last-good decoded plan
+	Ledger            *Ledger
+	Sources           DigestSources
+	IntegrationBranch string // resolved per-plan merge target workers must base PRs on
 }
 
 // ComposeDigest builds the brain's recovery digest (autopilot.md §4): the plan,
@@ -63,7 +64,13 @@ func ComposeDigest(ctx context.Context, in DigestInput) (string, error) {
 
 	fmt.Fprintf(&b, "# Autopilot run digest — %s\n\n", in.RunID)
 	fmt.Fprintf(&b, "Repo: %s\n", in.Repo)
-	fmt.Fprintf(&b, "Plan file: %s (re-read it when it changes)\n\n", in.PlanFile)
+	fmt.Fprintf(&b, "Plan file: %s (re-read it when it changes)\n", in.PlanFile)
+	if branch := strings.TrimSpace(in.IntegrationBranch); branch != "" {
+		fmt.Fprintf(&b, "Integration branch: %s\n", branch)
+		fmt.Fprintf(&b, "Workers MUST open PRs based on this branch (never main). Include this in every worker spawn prompt:\n")
+		fmt.Fprintf(&b, "  %s\n", WorkerSpawnBranchPrompt(branch))
+	}
+	b.WriteString("\n")
 
 	b.WriteString("## Goal\n")
 	fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(in.Plan.Goal))

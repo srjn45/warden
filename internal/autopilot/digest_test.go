@@ -73,6 +73,7 @@ func TestComposeDigestFromFixtureState(t *testing.T) {
 	require.Contains(t, out, "spawn A-1")
 	// restart-safety reminder
 	require.Contains(t, out, "idempotent")
+	require.NotContains(t, out, "Integration branch:")
 }
 
 func TestComposeDigestDegradesOnSourceErrors(t *testing.T) {
@@ -91,4 +92,19 @@ func TestComposeDigestDegradesOnSourceErrors(t *testing.T) {
 	require.Contains(t, out, "do the thing")
 	require.Contains(t, out, "no ledger available")
 	require.Contains(t, out, "no agent source available")
+}
+
+func TestComposeDigestIncludesIntegrationBranchAndWorkerPrompt(t *testing.T) {
+	in := DigestInput{
+		RunID:             "ap-run",
+		Repo:              "/repo",
+		PlanFile:          "/repo/plan.yaml",
+		Plan:              Plan{Version: 1, Goal: "ship it"},
+		IntegrationBranch: "autopilot/ship",
+	}
+	out, err := ComposeDigest(context.Background(), in)
+	require.NoError(t, err)
+	require.Contains(t, out, "Integration branch: autopilot/ship")
+	require.Contains(t, out, WorkerSpawnBranchPrompt("autopilot/ship"))
+	require.Contains(t, out, "Workers MUST open PRs based on this branch")
 }

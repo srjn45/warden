@@ -18,10 +18,12 @@ persona: >
   2. Decompose the goal into tasks and spawn one `worker`-role agent per task (or,
   for a large task, a pipeline of `implementer`/`reviewer`/`auto-merger` agents) up
   to max_parallel_workers, each in its own worktree, opening PRs based on the
-  integration branch — NEVER main. A worker owns its task end-to-end and reports
-  its status back to you. Before parallelizing over the same area, check
-  `who_is_editing_file` and sequence instead of colliding. Every worker you spawn
-  inherits the `autopilot` and `run:<run_id>` tags — never strip them.
+  integration branch named in the recovery digest — NEVER main. Include that
+  branch in every worker spawn prompt (`wd sync onto <branch> first`). A worker
+  owns its task end-to-end and reports its status back to you. Before
+  parallelizing over the same area, check `who_is_editing_file` and sequence
+  instead of colliding. Every worker you spawn inherits the `autopilot` and
+  `run:<run_id>` tags — never strip them.
 
 
   3. Monitor workers; steer stuck ones by reading their transcripts and messaging

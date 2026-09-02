@@ -113,6 +113,9 @@ func TestEnableHappyPath(t *testing.T) {
 	// gate `auto` resolves at preflight (§6.1): this fake repo has no workflows
 	// covering integration PRs, so it degrades to the local-check gate.
 	require.Equal(t, "local", st.Runs[0].Gate)
+	require.Equal(t, "autopilot/plan", st.Runs[0].IntegrationBranch)
+	require.Contains(t, st.Runs[0].GateWarning, "gate auto downgraded to local")
+	require.Contains(t, st.Runs[0].GateWarning, "autopilot/**")
 	require.Equal(t, plan, st.Runs[0].PlanFile)
 	require.Nil(t, st.Runs[0].Brain, "no brain in the S1 inert core")
 	// integration branch was auto-created off the default branch (per-plan derive)
@@ -141,6 +144,8 @@ func TestEnableGateResolvesToCIWhenWorkflowsCoverPRs(t *testing.T) {
 	st, err := c.Enable(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, "ci", st.Runs[0].Gate)
+	require.Empty(t, st.Runs[0].GateWarning, "covered branch must not warn")
+	require.Equal(t, "autopilot/plan", st.Runs[0].IntegrationBranch)
 
 	// LandParams exposes the same resolved gate to the daemon land handler.
 	lp, ok := c.LandParams(st.Runs[0].RunID)

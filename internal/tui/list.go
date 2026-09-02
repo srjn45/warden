@@ -1045,6 +1045,9 @@ func renderItemLine(it item, selected bool, width int) string {
 		}
 		r := it.apRun
 		line = "  " + glyph + " " + stPaneTitle.Render(r.Name) + "  " + stStatus.Render(r.State) + stMuted.Render(fmt.Sprintf("  %d/%d tasks · %d workers", r.Tasks.Landed, len(r.PlanTasks), r.WorkersInFlight))
+		if r.IntegrationBranch != "" {
+			line += stMuted.Render(" · " + r.IntegrationBranch)
+		}
 	case it.apTask != nil:
 		t := it.apTask
 		glyph := "○"

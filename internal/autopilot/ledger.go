@@ -88,9 +88,10 @@ func (l *Ledger) key(kind string) string {
 
 // TasksKey/LandingsKey/JournalKey expose the on-the-wire ctx keys (dot form) so
 // the brain persona docs and the land handler reference the exact same strings.
-func (l *Ledger) TasksKey() string    { return l.key("tasks") }
-func (l *Ledger) LandingsKey() string { return l.key("landings") }
-func (l *Ledger) JournalKey() string  { return l.key("journal") }
+func (l *Ledger) TasksKey() string             { return l.key("tasks") }
+func (l *Ledger) LandingsKey() string          { return l.key("landings") }
+func (l *Ledger) JournalKey() string           { return l.key("journal") }
+func (l *Ledger) IntegrationBranchKey() string { return l.key("integration_branch") }
 
 // TaskStateKey is the optional per-task overlay used for TUI segmentation:
 // autopilot.<run_id>.tasks.<taskID>.state. The JSON array at TasksKey remains
@@ -103,6 +104,26 @@ func (l *Ledger) TaskStateKey(taskID string) string {
 // autopilot.<run_id>.tasks.<taskID>.branch.
 func (l *Ledger) TaskBranchKey(taskID string) string {
 	return l.key("tasks." + taskID + ".branch")
+}
+
+// IntegrationBranch reads the run's resolved merge target from the ledger
+// (empty when the key is absent).
+func (l *Ledger) IntegrationBranch() (string, error) {
+	var branch string
+	if err := l.readJSON(l.IntegrationBranchKey(), &branch); err != nil {
+		return "", err
+	}
+	return branch, nil
+}
+
+// WriteIntegrationBranch stores the resolved merge target so workers can read
+// it from the run ledger instead of guessing.
+func (l *Ledger) WriteIntegrationBranch(branch, by string) error {
+	raw, err := json.Marshal(strings.TrimSpace(branch))
+	if err != nil {
+		return err
+	}
+	return l.store.Set(l.IntegrationBranchKey(), string(raw), writerOrDefault(by))
 }
 
 // Tasks reads the task ledger, returning an empty slice for an absent key.

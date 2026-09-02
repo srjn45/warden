@@ -364,8 +364,8 @@ func newAutopilotStatusCmd() *cobra.Command {
 // printAutopilotRuns renders one line per run: id, state, gate, plan file, repo.
 func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
 	for _, r := range st.Runs {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\tgate=%s\t%s\t%s\n",
-			r.RunID, r.State, r.Gate, r.PlanFile, r.Repo)
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\tgate=%s\tbranch=%s\t%s\t%s\n",
+			r.RunID, r.State, r.Gate, r.IntegrationBranch, r.PlanFile, r.Repo)
 	}
 }
 
