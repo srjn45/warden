@@ -24,8 +24,10 @@ type ControllerConfig struct {
 	// Plans are the configured plan-file paths (config autopilot.plans[].file).
 	// Relative paths resolve against BaseDir.
 	Plans []string
-	// IntegrationBranch is the merge target (config autopilot.merge.target_branch).
-	// The only branch autopilot merges into; must not be a protected name.
+	// IntegrationBranch is the merge-target *template* from config
+	// autopilot.merge.target_branch. New runs derive a per-plan branch unless
+	// this is a custom global or a {{plan}} template; existing records keep
+	// their stored IntegrationBranch (grandfather).
 	IntegrationBranch string
 	// Gate is the configured gate mode (config autopilot.merge.gate): auto|ci|local.
 	// S4 resolves `auto` at preflight and reports the resolved mode in status.
@@ -108,16 +110,17 @@ type Controller struct {
 // lifecycle is live (S3), the brain handle, the last-good plan for owner steering
 // (autopilot.md §3), and the plan-watch cancel.
 type run struct {
-	runID         string
-	name          string
-	planFile      string // configured path (as written in config)
-	absPlanFile   string // resolved absolute path (plan-file watch anchor)
-	repo          string
-	state         RunState
-	plan          Plan
-	planModTime   time.Time
-	resolvedGate  string // gate mode resolved at preflight (§6.1): ci | local
-	defaultBranch string // repo default branch — the land guard's protected name
+	runID             string
+	name              string
+	planFile          string // configured path (as written in config)
+	absPlanFile       string // resolved absolute path (plan-file watch anchor)
+	repo              string
+	state             RunState
+	plan              Plan
+	planModTime       time.Time
+	resolvedGate      string // gate mode resolved at preflight (§6.1): ci | local
+	defaultBranch     string // repo default branch — the land guard's protected name
+	integrationBranch string // per-run merge target, resolved once and persisted
 
 	brain      *BrainHandle       // nil until the brain spawns; nil again after teardown
 	guardianID string             // daemon-owned system session representing the guardian loop
@@ -153,7 +156,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 	}
 	branch := strings.TrimSpace(cfg.IntegrationBranch)
 	if branch == "" {
-		branch = "autopilot/integration"
+		branch = DefaultIntegrationBranch
 	}
 	gate := strings.TrimSpace(cfg.Gate)
 	if gate == "" {
@@ -343,8 +346,12 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 	resolvedByID := map[string]resolved{}
 	matched := 0 // plans that resolve to the target repo
 
+	pendingBranches := map[string]string{}
 	for _, file := range c.plans {
-		r, planFails := c.preflightPlan(ctx, file)
+		r, planFails := c.preflightPlan(ctx, file, pendingBranches)
+		if r.repo != "" && r.integrationBranch != "" {
+			pendingBranches[r.repo+"\x00"+r.integrationBranch] = r.runID
+		}
 		if len(planFails) == 0 && !r.skipComplete {
 			planFails = append(planFails, c.validatePersistedDoneClaims(r.runID, r.plan)...)
 		}
@@ -438,6 +445,10 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			existing.resolvedGate = res.resolvedGate
 			existing.defaultBranch = res.defaultBranch
 			existing.plan = res.plan
+			if existing.integrationBranch == "" {
+				existing.integrationBranch = res.integrationBranch
+				c.persistRunLocked(existing)
+			}
 			if existing.brain == nil && (existing.state == StateActive || existing.state == StateStarting || existing.state == StateHealing || existing.state == StateDegraded) {
 				existing.state = StateStarting
 				c.persistRunLocked(existing)
@@ -452,16 +463,17 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			continue
 		}
 		r := &run{
-			runID:         id,
-			name:          defaultRunName(res.absFile),
-			planFile:      res.file,
-			absPlanFile:   res.absFile,
-			repo:          res.repo,
-			plan:          res.plan,
-			state:         StateStarting,
-			resolvedGate:  res.resolvedGate,
-			defaultBranch: res.defaultBranch,
-			tried:         map[string]bool{},
+			runID:             id,
+			name:              defaultRunName(res.absFile),
+			planFile:          res.file,
+			absPlanFile:       res.absFile,
+			repo:              res.repo,
+			plan:              res.plan,
+			state:             StateStarting,
+			resolvedGate:      res.resolvedGate,
+			defaultBranch:     res.defaultBranch,
+			integrationBranch: res.integrationBranch,
+			tried:             map[string]bool{},
 		}
 		scope, err := c.allocateSlotScopeLocked(r.name, id)
 		if err != nil {
@@ -627,7 +639,7 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	}
 	branch := strings.TrimSpace(cfg.IntegrationBranch)
 	if branch == "" {
-		branch = "autopilot/integration"
+		branch = DefaultIntegrationBranch
 	}
 	gate := strings.TrimSpace(cfg.Gate)
 	if gate == "" {
@@ -915,7 +927,7 @@ func (c *Controller) LandParams(runID string) (LandParams, bool) {
 	}
 	return LandParams{
 		Repo:              r.repo,
-		IntegrationBranch: c.integrationBranch,
+		IntegrationBranch: r.integrationBranch,
 		DefaultBranch:     r.defaultBranch,
 		Gate:              c.runGate(r),
 		Strategy:          c.strategy,

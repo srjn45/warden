@@ -44,7 +44,8 @@ func (c *Controller) restoreStoredRuns() {
 		}
 		r := &run{runID: rec.RunID, name: rec.Name, repo: rec.Repo, planFile: rec.PlanFile,
 			absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
-			guardianID: rec.GuardianID, slotScope: rec.SlotScope, tried: map[string]bool{}}
+			guardianID: rec.GuardianID, slotScope: rec.SlotScope,
+			integrationBranch: rec.IntegrationBranch, tried: map[string]bool{}}
 		// Agent ids are process/session observations, not proof of a live manager.
 		// Boot reconciliation re-spawns only runs whose durable intent is live.
 		if plan, err := LoadPlan(rec.PlanFile); err == nil {
@@ -85,7 +86,7 @@ func (c *Controller) rebuildClaimsLocked() {
 func (c *Controller) recordLocked(r *run) RunRecord {
 	now := c.now().UTC()
 	rec := RunRecord{RunID: r.runID, Name: r.name, Repo: r.repo, PlanFile: r.absPlanFile,
-		State: r.state, IntegrationBranch: c.integrationBranch, Gate: c.runGate(r),
+		State: r.state, IntegrationBranch: r.integrationBranch, Gate: c.runGate(r),
 		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now}
 	if r.brain != nil {
 		rec.BrainID = r.brain.AgentID
@@ -162,8 +163,19 @@ func (c *Controller) Register(ctx context.Context, req RegisterRequest) (RunStat
 	if existing, ok := c.runs[id]; ok {
 		return c.runStatusLocked(existing), nil
 	}
+	branch, err := resolveIntegrationBranch(branchResolveOpts{
+		planName: name,
+		runID:    id,
+		template: c.integrationBranch,
+		taken:    c.branchTakenLocked(repo, id, nil),
+	})
+	if err != nil {
+		return RunStatus{}, err
+	}
+	c.warnSameBranchLocked(repo, branch, id, nil)
 	r := &run{runID: id, name: name, repo: repo, planFile: abs, absPlanFile: abs,
-		state: StateRegistered, plan: plan, resolvedGate: c.gate, slotScope: scope, tried: map[string]bool{}}
+		state: StateRegistered, plan: plan, resolvedGate: c.gate, slotScope: scope,
+		integrationBranch: branch, tried: map[string]bool{}}
 	if info, err := os.Stat(abs); err == nil {
 		r.planModTime = info.ModTime()
 	}
@@ -254,7 +266,7 @@ func (c *Controller) RenameRun(_ context.Context, id, newName string) (RunStatus
 // preflightRegisteredRunLocked applies the same safety checks as legacy Enable
 // to one durable V2 record before a start or resume. Caller holds c.mu.
 func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) error {
-	resolved, failures := c.preflightPlan(ctx, r.absPlanFile)
+	resolved, failures := c.preflightPlan(ctx, r.absPlanFile, nil)
 	if len(failures) == 0 && !resolved.skipComplete {
 		failures = append(failures, c.validatePersistedDoneClaims(resolved.runID, resolved.plan)...)
 	}
@@ -273,6 +285,9 @@ func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) e
 	r.absPlanFile = resolved.absFile
 	r.resolvedGate = resolved.resolvedGate
 	r.defaultBranch = resolved.defaultBranch
+	if r.integrationBranch == "" {
+		r.integrationBranch = resolved.integrationBranch
+	}
 	if info, err := os.Stat(resolved.absFile); err == nil {
 		r.planModTime = info.ModTime()
 	}
