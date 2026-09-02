@@ -6,6 +6,7 @@ import {
   type AutopilotStatus, type AutopilotRun,
 } from '../lib/api';
 import type { Session } from '../lib/types';
+import { buildRunTree } from '../lib/autopilot-tree';
 
 // AutopilotPanel is a modal panel for the autopilot toggle and status view.
 // Opens from the "⚙ autopilot" button in the AttentionBar.
@@ -109,7 +110,10 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
 
 function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; sessions: Session[]; onChanged: () => void; onError: (message: string | null) => void }) {
 	const [busy, setBusy] = useState(false);
-	const agents = sessions.filter((s) => s.tags?.includes(`run:${run.run_id}`));
+	const tree = buildRunTree(run, sessions);
+	const guardians = tree.guardians.length > 0
+		? tree.guardians
+		: (run.guardian_id ? [{ id: run.guardian_id, name: run.guardian_id, status: ['stopped','complete'].includes(run.state) ? 'done' : 'idle' } as Session] : []);
 	async function act(action: 'pause'|'resume'|'stop') {
 		onError(null); setBusy(true);
 		try { await controlAutopilotRun(run.run_id, action); onChanged(); }
@@ -149,13 +153,34 @@ function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; ses
         <span>tasks — pending: {run.tasks.pending} · active: {run.tasks.in_progress} · landed: {run.tasks.landed}</span>
         {run.landed_total > 0 && <span>total landed: {run.landed_total}</span>}
       </div>
-	  <div className="autopilot-task-list">
-		{(run.plan_tasks ?? []).map((t) => <div key={t.id} className={`autopilot-task task-${t.status}`}><span>{t.status === 'done' ? '✓' : t.status === 'active' ? '◐' : t.status === 'failed' ? '✗' : '○'}</span><strong>{t.id}</strong><span className="muted">{t.prompt}</span></div>)}
+
+	  <div className="autopilot-tree">
+		{tree.managers.map((a) => (
+		  <div key={a.id} className="autopilot-tree-slot">
+			<span className="muted">autopilot</span> <strong>{a.name || a.id}</strong> <span>{a.status}</span>
+		  </div>
+		))}
+		{guardians.map((a) => (
+		  <div key={a.id} className="autopilot-tree-slot">
+			<span className="muted">guardian</span> <strong>{a.name || a.id}</strong> <span>{a.status}</span>
+		  </div>
+		))}
+		<div className="autopilot-tree-node">plan</div>
+		<div className="autopilot-task-list">
+		  {(run.plan_tasks ?? []).map((t) => <div key={t.id} className={`autopilot-task task-${t.status}`}><span>{t.status === 'done' ? '✓' : t.status === 'active' ? '◐' : t.status === 'failed' ? '✗' : '○'}</span><strong>{t.id}</strong><span className="muted">{t.prompt}</span></div>)}
+		</div>
+		<div className="autopilot-tree-node">workers</div>
+		<div className="autopilot-worker-list">
+		  {tree.workerGroups.map((g) => (
+			<div key={g.taskId || '_unassigned'} className="autopilot-worker-group">
+			  {g.taskId && <div className="autopilot-worker-group-head"><span className="muted">{g.state || '—'}</span> <strong>{g.taskId}</strong></div>}
+			  {g.sessions.map((a) => (
+				<div key={a.id} className="autopilot-worker"><span className="muted">worker</span> <strong>{a.name || a.id}</strong> <span>{a.status}</span></div>
+			  ))}
+			</div>
+		  ))}
+		</div>
 	  </div>
-	  {(agents.length > 0 || run.guardian_id) && <div className="autopilot-agent-list">
-		{run.guardian_id && <div key={run.guardian_id}><span className="muted">guardian</span> <strong>{run.guardian_id}</strong> <span>{['stopped','complete'].includes(run.state) ? 'done' : 'idle'}</span></div>}
-		{agents.map((a) => <div key={a.id}><span className="muted">{a.id === run.brain?.agent_id ? 'brain' : 'worker'}</span> <strong>{a.name || a.id}</strong> <span>{a.status}</span></div>)}
-	  </div>}
 
       {run.backoff && (
         <div className="autopilot-run-backoff warn">

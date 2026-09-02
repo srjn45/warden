@@ -893,6 +893,7 @@ func (c *Controller) statusLocked() Status {
 			GateWarning:       r.gateWarning,
 			ManagerSlotID:     managerSlotIDOrEmpty(r.slotScope),
 			GuardianSlotID:    guardianSlotIDOrEmpty(r.slotScope),
+			LedgerTasks:       c.ledgerTasksLocked(r.runID),
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })

@@ -206,6 +206,12 @@ type item struct {
 	apTask    *client.AutopilotPlanTask
 	apTaskRun string
 
+	apWorkers     bool // synthetic "workers" header under a run
+	apWorkersRun  string
+	apWorkerGroup string // task-id group header nested under workers
+	apLedgerState string
+	apSlot        string // autopilot | guardian | worker when a session is shown in the run tree
+
 	// opened marks the row whose session is currently shown in a cockpit pane:
 	// the openedAgent in the agent pane (an Agents-section agent or a Pipelines
 	// job row) or the openedTerminal in the terminal pane. It gets a distinct
@@ -251,7 +257,13 @@ func itemKey(it item) string {
 		return projKey(it.projHdr.id)
 	}
 	if it.apRun != nil {
-		return "aprun\x00" + it.apRun.RunID
+		return apRunKey(it.apRun.RunID)
+	}
+	if it.apWorkers {
+		return apWorkersKey(it.apWorkersRun)
+	}
+	if it.apWorkerGroup != "" {
+		return apWorkerGroupKey(it.apTaskRun, it.apWorkerGroup)
 	}
 	if it.apTask != nil {
 		return "aptask\x00" + it.apTaskRun + "\x00" + it.apTask.ID
@@ -276,7 +288,7 @@ func itemKey(it item) string {
 // all live outside the Agents dir grouping. Only Agents-section agent rows carry
 // a dir group.
 func (it item) noDirGroup() bool {
-	return it.section != "" || it.projHdr != nil || it.apRun != nil || it.apTask != nil || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
+	return it.section != "" || it.projHdr != nil || it.apRun != nil || it.apTask != nil || it.apWorkers || it.apWorkerGroup != "" || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
 		(it.session != nil && it.session.IsTerminal())
 }
 
@@ -699,18 +711,7 @@ func projectGroupedItems(projects []projectstore.Project, groupByProject map[str
 		}
 		for i := range apRuns {
 			r := &apRuns[i]
-			items = append(items, item{apRun: r, collapsed: collapsed["aprun\x00"+r.RunID], underProject: true})
-			if collapsed["aprun\x00"+r.RunID] {
-				continue
-			}
-			for j := range r.PlanTasks {
-				items = append(items, item{apTask: &r.PlanTasks[j], apTaskRun: r.RunID, underProject: true})
-			}
-			for _, s := range allSessions {
-				if sessionRunID(s) == r.RunID || s.ID == r.GuardianID {
-					items = append(items, item{session: s, dir: sourceDir(s), depth: 1, underProject: true})
-				}
-			}
+			items = appendAutopilotRunItems(items, r, allSessions, collapsed)
 		}
 		items = append(items, pipelineItems(pipes, allSessions, collapsed)...)
 		start := len(items)
@@ -729,18 +730,6 @@ func projectGroupedItems(projects []projectstore.Project, groupByProject map[str
 func normalizeAutopilotDir(dir string) string {
 	p := &pipeline.Pipeline{Repo: dir}
 	return normalizePipelineDir(p)
-}
-
-func sessionRunID(s *store.Session) string {
-	for _, tag := range s.Tags {
-		if strings.HasPrefix(tag, "run:") {
-			return strings.TrimPrefix(tag, "run:")
-		}
-		if strings.HasPrefix(tag, "autopilot-run:") {
-			return strings.TrimPrefix(tag, "autopilot-run:")
-		}
-	}
-	return ""
 }
 
 // groupHeaderFor builds the projectHeader for a group key: a registered open
@@ -1048,6 +1037,18 @@ func renderItemLine(it item, selected bool, width int) string {
 		if r.IntegrationBranch != "" {
 			line += stMuted.Render(" · " + r.IntegrationBranch)
 		}
+	case it.apWorkers:
+		glyph := "▾"
+		if it.collapsed {
+			glyph = "▸"
+		}
+		line = "      " + glyph + " " + stPaneTitle.Render("workers")
+	case it.apWorkerGroup != "":
+		label := it.apWorkerGroup
+		if it.apLedgerState != "" {
+			label = it.apLedgerState + "  " + it.apWorkerGroup
+		}
+		line = "        " + stMuted.Render(label)
 	case it.apTask != nil:
 		t := it.apTask
 		glyph := "○"
@@ -1174,6 +1175,9 @@ func renderItemLine(it item, selected bool, width int) string {
 			s.ID, st.Render(label),
 			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt),
 			stMuted.Render(fmt.Sprintf("%-7s", trunc(backendOr(s), 7))), branchInfo)
+		if it.apSlot != "" {
+			line += stMuted.Render("  " + it.apSlot)
+		}
 		// §4.1: a cross-project child surfaced under its own dir keeps a lineage
 		// backlink so the orchestration is still visible without cross-dir nesting.
 		if it.fromParent != "" {

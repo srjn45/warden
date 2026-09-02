@@ -547,8 +547,24 @@ func (c *Controller) runStatusLocked(r *run) RunStatus {
 		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{},
 		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: r.guardianID,
 		SlotScope: r.slotScope, IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning,
-		ManagerSlotID: managerSlotIDOrEmpty(r.slotScope), GuardianSlotID: guardianSlotIDOrEmpty(r.slotScope)}
+		ManagerSlotID: managerSlotIDOrEmpty(r.slotScope), GuardianSlotID: guardianSlotIDOrEmpty(r.slotScope),
+		LedgerTasks: c.ledgerTasksLocked(r.runID)}
 	return st
+}
+
+func (c *Controller) ledgerTasksLocked(runID string) []LedgerTask {
+	if c.runtime == nil {
+		return nil
+	}
+	l := c.runtime.NewLedger(runID)
+	if l == nil {
+		return nil
+	}
+	tasks, err := l.Tasks()
+	if err != nil || len(tasks) == 0 {
+		return nil
+	}
+	return tasks
 }
 
 func (c *Controller) Close() error {
