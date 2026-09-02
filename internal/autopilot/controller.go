@@ -242,12 +242,14 @@ func (c *Controller) SetRuntime(rt Runtime) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.runtime = rt
+	c.reconcileRunsAtBootLocked(context.Background())
 	if gr, ok := rt.(GuardianAgentRuntime); ok {
 		valid := make(map[string]string)
 		for _, r := range c.runs {
-			if r.guardianID != "" && r.state != StateStopped && r.state != StateComplete {
-				valid[r.runID] = r.guardianID
+			if r.state == StateStopped || r.state == StateComplete || r.slotScope == "" {
+				continue
 			}
+			valid[r.runID] = GuardianSlotID(r.slotScope)
 		}
 		missing, err := gr.ReconcileGuardians(context.Background(), valid)
 		if err != nil {

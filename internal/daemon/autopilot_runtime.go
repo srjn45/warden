@@ -33,6 +33,7 @@ var (
 	_ autopilot.Runtime              = autopilotRuntime{}
 	_ autopilot.GuardianRuntime      = autopilotRuntime{}
 	_ autopilot.GuardianAgentRuntime = autopilotRuntime{}
+	_ autopilot.MigrationRuntime     = autopilotRuntime{}
 	_ autopilot.OverwatchRuntime     = autopilotRuntime{}
 	_ autopilot.DigestSources        = autopilotRuntime{}
 )
